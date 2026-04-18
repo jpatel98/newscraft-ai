@@ -1,65 +1,79 @@
-import Image from "next/image";
+import { eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { agents as agentsTable } from "@/db/schema";
+import { getChannelBySlug, listChannels } from "@/db/queries/channels";
+import { listMessagesByChannel } from "@/db/queries/messages";
+import { WorkspaceShell } from "@/components/workspace/workspace-shell";
+import type { ChatMessage } from "@/lib/hooks/use-agent-stream";
 
-export default function Home() {
+const WORKSPACE_ID = "default";
+
+type SearchParams = Promise<{ channel?: string }>;
+
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const { channel: channelSlug } = await searchParams;
+
+  const channels = await listChannels(WORKSPACE_ID);
+  if (channels.length === 0) {
+    return <BootstrapNotice />;
+  }
+
+  const agents = await db.select().from(agentsTable);
+
+  const activeChannel = channelSlug
+    ? (await getChannelBySlug(WORKSPACE_ID, channelSlug)) ?? channels[0]
+    : channels[0];
+
+  const rawMessages = await listMessagesByChannel(activeChannel.id);
+  const initialMessages: ChatMessage[] = rawMessages
+    .filter((row) => row.role === "user" || row.role === "assistant")
+    .map((row) => ({
+      id: row.id,
+      role: row.role as ChatMessage["role"],
+      agentId: row.agentId,
+      content: row.content,
+      payload: row.payload ?? null,
+      renderer: row.renderer,
+      createdAt: row.createdAt,
+    }));
+
+  const activeAgent = activeChannel.agentId
+    ? (
+        await db
+          .select()
+          .from(agentsTable)
+          .where(eq(agentsTable.id, activeChannel.agentId))
+      )[0] ?? null
+    : null;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <WorkspaceShell
+      channels={channels}
+      agents={agents}
+      activeChannel={activeChannel}
+      activeAgent={activeAgent}
+      initialMessages={initialMessages}
+    />
+  );
+}
+
+function BootstrapNotice() {
+  return (
+    <main className="flex min-h-screen items-center justify-center p-8">
+      <div className="max-w-md text-sm text-[var(--fg-muted)]">
+        <h1 className="text-lg font-semibold text-[var(--fg)] mb-2">
+          Workspace not seeded
+        </h1>
+        <p>
+          Run <code className="wkbench-kbd">npm run db:migrate</code> then{" "}
+          <code className="wkbench-kbd">npm run db:seed</code> to bootstrap the
+          default workspace and channels.
+        </p>
+      </div>
+    </main>
   );
 }
