@@ -12,17 +12,11 @@ import { MessageList } from "./message-list";
 
 export type ChatViewProps = {
   channel: ChannelRow;
-  agent: AgentRow | null;
   agents: AgentRow[];
   initialMessages: ChatMessage[];
 };
 
-export function ChatView({
-  channel,
-  agent,
-  agents,
-  initialMessages,
-}: ChatViewProps) {
+export function ChatView({ channel, agents, initialMessages }: ChatViewProps) {
   const { messages, pending, error, streaming, send, cancel } = useAgentStream({
     channelId: channel.id,
     initialMessages,
@@ -34,8 +28,8 @@ export function ChatView({
   );
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-[var(--bg)]">
-      <ChatHeader channel={channel} agent={agent} />
+    <>
+      <ChatHeader channel={channel} />
 
       <MessageList
         messages={messages}
@@ -50,12 +44,10 @@ export function ChatView({
       ) : null}
 
       <MessageComposer
-        channelKind={channel.kind}
-        agent={agent}
         streaming={streaming}
         onSend={send}
         onCancel={cancel}
       />
-    </section>
+    </>
   );
 }

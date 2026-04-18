@@ -1,90 +1,98 @@
 # NewsCraft AI
 
-NewsCraft AI is a newsroom collaboration workspace built with Next.js and the OpenAI Agents SDK. The product direction is a Slack-style environment where producers can talk in channels, at-mention agents, and use slash commands to trigger newsroom workflows.
+NewsCraft AI is a newsroom collaboration workspace built with Next.js 16 and the OpenAI Agents SDK. A Slack-style environment where producers chat in channels and summon specialized AI agents via slash-commands or @mentions. Agents are editable: click one in the sidebar to change its system prompt, model, or which tools it can reach for.
 
-## What is built right now
+## What's built
 
-- A newsroom workspace UI with:
-  - channel navigation
-  - agent members
-  - a shared conversation feed
-  - a right-hand context sidebar
-- At-mention routing with `@expertise-finder`
-- Slash commands:
-  - `/expert` for broad expert discovery
-  - `/scan-site` for site-scoped expert discovery
-- An `Expertise Finder` agent powered by `@openai/agents`
-- Hosted OpenAI web search
-- Local function tools that can inspect a public webpage and probe likely expert-directory pages on a scoped site
-- Structured output for:
-  - editorial summary
-  - expert shortlist
-  - booking angles
-  - producer next moves
-  - watchouts
+- **Three agents** in the registry:
+  - `Expertise Finder` — books credible experts with citations + reach-out angle.
+  - `Story Scout` — scopes a story: angles, background, related coverage, interview questions.
+  - `News Monitor` — manages a watchlist of sources and produces a daily digest.
+- **Streaming chat** — token-level streaming from the Agents SDK, with live "searching the web…" / "inspecting…" tool pills.
+- **Structured renderers** — expert shortlist card, story-brief card, daily-digest card.
+- **Editable agents** — per-agent system prompt, model override, tool toggles, persisted in SQLite and applied at runtime.
+- **Persistence** — threads, messages, agent runs, sources, digests all in local SQLite via Drizzle ORM.
+- **Scheduled digests** — `/api/digest/run` endpoint + `node-cron` sibling script.
 
 ## Stack
 
-- Next.js 16 App Router
-- React 19
-- Tailwind CSS 4
-- OpenAI Agents SDK for TypeScript
-- Zod for agent output validation
-- Cheerio for public webpage parsing inside local function tools
+- Next.js 16 App Router · React 19 · TypeScript 5
+- Tailwind CSS 4 (v4 inline theme)
+- `@openai/agents` 0.8 (TypeScript Agents SDK)
+- Drizzle ORM + `better-sqlite3`
+- Zod 4 for structured output validation
+- Cheerio for public webpage parsing
+- `node-cron` for scheduled digests
+- `react-markdown` + `remark-gfm` for free-form replies
 
 ## Local setup
 
-1. Copy the environment file and add your key:
-
 ```bash
-cp .env.example .env.local
+cp .env.example .env.local          # then edit OPENAI_API_KEY, OPENAI_MODEL, CRON_SECRET
+
+npm install
+npm run db:generate                  # only needed if schema changes
+npm run db:migrate                   # applies migrations to ./data/newscraft.db
+npm run db:seed                      # seeds the default workspace + agents + topic channels
+
+npm run dev                          # http://localhost:3000
 ```
 
-2. Start the app:
+Optional for scheduled digests (keep running in a second terminal):
 
 ```bash
-npm run dev
+npm run cron:dev                     # loads .env.local and schedules /api/digest/run
 ```
 
-3. Open `http://localhost:3000`
+## How to use
 
-## How to use it
-
-Broad research:
+Chat happens in **channels** (`#general`, `#research`, `#news-digest`). Summon an agent with a slash-command or @mention:
 
 ```text
 /expert labor economist in Canada who can react to inflation data today
+/scan-site brookings.edu AI policy expert who can explain copyright fights
+/scout AI copyright fights in news
+/sources add https://www.nytimes.com/section/politics
+/digest
+@news-monitor add https://www.reuters.com/world
 ```
 
-Site-scoped research:
+Include `site:domain.com` or paste a URL in any message to scope the run.
 
-```text
-/scan-site brookings.edu AI policy expert who can explain copyright fights in news
-```
-
-At-mention inside a channel:
-
-```text
-@expertise-finder find climate scientists on https://www.utoronto.ca who can explain wildfire smoke risk tonight
-```
-
-You can also include `site:domain.com` or paste a URL directly into a normal message to constrain the run.
+Click an agent in the sidebar to edit its **system prompt**, **model** (overrides `OPENAI_MODEL`), and which **tools** it can reach for. Changes take effect on the next run.
 
 ## Project structure
 
-- `src/components/newsroom-workbench.tsx`
-  Main newsroom workspace UI.
-- `src/app/api/chat/route.ts`
-  Chat and command entrypoint.
-- `src/lib/commands.ts`
-  Slash-command and at-mention parsing.
-- `src/lib/site-scope.ts`
-  URL and site-scope parsing helpers.
-- `src/lib/agents/expertise-finder.ts`
-  Expertise-finder agent definition and tools.
+- `src/app/(workspace)/` — route group with shared shell layout.
+  - `layout.tsx` — loads channels + agents, renders the sidebar.
+  - `page.tsx` — redirects `/` to the first channel.
+  - `channel/[slug]/page.tsx` — chat view for one channel.
+  - `agent/[id]/page.tsx` — agent config editor.
+- `src/app/api/chat/route.ts` — POST endpoint, streams Agents SDK events as SSE.
+- `src/app/api/digest/run/route.ts` — scheduled-digest endpoint, secured by `x-cron-secret`.
+- `src/components/workspace/` — shell, sidebar, agent + channel lists.
+- `src/components/chat/` — message list, streaming bubble, composer, command palette.
+- `src/components/agent/agent-config-editor.tsx` — editable form for per-agent settings.
+- `src/components/renderers/` — `ExpertResultCard`, `ScoutBriefCard`, `DigestCard`, `Markdown`.
+- `src/lib/agents/` — registry + each agent (`expertise-finder`, `story-scout`, `news-monitor`).
+- `src/lib/commands.ts` — registry-driven slash-command / @mention parser.
+- `src/lib/stream/` — SSE encoding + Agents SDK → wire-event mapper.
+- `src/lib/hooks/use-agent-stream.ts` — client hook that consumes the SSE stream.
+- `src/lib/actions/save-agent.ts` — Server Action for saving agent config.
+- `src/db/` — Drizzle client, schema, queries, migrations.
+- `scripts/` — `migrate.ts`, `seed.ts`, `digest-cron.ts`.
+
+## Environment
+
+- `OPENAI_API_KEY` — required.
+- `OPENAI_MODEL` — default model id when an agent has no per-agent override. Currently defaults to `gpt-5.4-mini`.
+- `DATABASE_URL` — SQLite file path. Defaults to `./data/newscraft.db`.
+- `CRON_SECRET` — shared secret required by `/api/digest/run`. Also passed by `scripts/digest-cron.ts`.
+- `DIGEST_CRON` — cron expression for the scheduled digest (default `0 7 * * *`).
+- `NEWSCRAFT_BASE_URL` — base URL the cron script hits (default `http://localhost:3000`).
 
 ## Notes
 
-- `OPENAI_MODEL` defaults to `gpt-5.4-mini`
-- The expertise finder uses official hosted web search plus local site inspection tools
-- The next natural steps are persisted workspaces, real user auth, Slack sync, source lists, and more specialized newsroom agents
+- The three agents are registered in `src/lib/agents/registry.ts`. To add a new one: write `src/lib/agents/your-agent.ts` exporting a `createYourAgent(config?)` + defaults, add an entry to `AGENT_REGISTRY`, and rerun `npm run db:seed`.
+- Agent DB rows are re-synced from the registry on each seed run; description / icon / capabilities come from code, while `name`, `instructions`, `model`, and `enabledTools` are preserved once the user edits them.
+- Scheduled cron runs as a sibling script rather than inside `next dev` to avoid HMR double-firing.

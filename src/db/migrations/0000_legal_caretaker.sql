@@ -18,6 +18,9 @@ CREATE TABLE `agents` (
 	`description` text NOT NULL,
 	`icon_key` text NOT NULL,
 	`capabilities` text NOT NULL,
+	`instructions` text DEFAULT '' NOT NULL,
+	`model` text,
+	`enabled_tools` text DEFAULT '[]' NOT NULL,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL
 );
 --> statement-breakpoint

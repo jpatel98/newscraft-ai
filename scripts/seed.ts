@@ -4,10 +4,8 @@ import { listAgents } from "@/lib/agents/registry";
 
 const WORKSPACE_ID = "default";
 
-type TopicSeed = { slug: string; name: string; sortOrder: number };
-
-const TOPIC_CHANNELS: TopicSeed[] = [
-  { slug: "booking", name: "booking", sortOrder: 100 },
+const TOPIC_CHANNELS = [
+  { slug: "general", name: "general", sortOrder: 100 },
   { slug: "research", name: "research", sortOrder: 101 },
   { slug: "news-digest", name: "news-digest", sortOrder: 102 },
 ];
@@ -18,22 +16,22 @@ async function main() {
     .values({ id: WORKSPACE_ID, name: "NewsCraft" })
     .onConflictDoNothing();
 
-  const registry = listAgents();
-
-  for (const agent of registry) {
+  for (const agent of listAgents()) {
     await db
       .insert(agents)
       .values({
         id: agent.id,
-        name: agent.name,
+        name: agent.defaultName,
         description: agent.description,
         iconKey: agent.iconKey,
         capabilities: agent.capabilities,
+        instructions: agent.defaults.instructions,
+        model: null,
+        enabledTools: agent.defaults.enabledTools,
       })
       .onConflictDoUpdate({
         target: agents.id,
         set: {
-          name: agent.name,
           description: agent.description,
           iconKey: agent.iconKey,
           capabilities: agent.capabilities,
@@ -41,27 +39,11 @@ async function main() {
       });
   }
 
-  for (let i = 0; i < registry.length; i++) {
-    const agent = registry[i];
-    await db
-      .insert(channels)
-      .values({
-        id: `channel-dm-${agent.id}`,
-        workspaceId: WORKSPACE_ID,
-        kind: "agent_dm",
-        slug: agent.id,
-        name: agent.name,
-        agentId: agent.id,
-        sortOrder: i,
-      })
-      .onConflictDoNothing();
-  }
-
   for (const topic of TOPIC_CHANNELS) {
     await db
       .insert(channels)
       .values({
-        id: `channel-topic-${topic.slug}`,
+        id: `channel-${topic.slug}`,
         workspaceId: WORKSPACE_ID,
         kind: "topic",
         slug: topic.slug,
@@ -72,7 +54,7 @@ async function main() {
       .onConflictDoNothing();
   }
 
-  console.log("Seeded workspace `default` with agents + channels.");
+  console.log("Seeded workspace `default` with agents + topic channels.");
 }
 
 main()

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "751638d4-9ca3-4e23-a948-2465caeec3d7",
+  "id": "c4ebb43a-3b9b-4584-af18-be61cef5ee68",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "agent_runs": {
@@ -136,6 +136,29 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "instructions": {
+          "name": "instructions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "enabled_tools": {
+          "name": "enabled_tools",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
         },
         "created_at": {
           "name": "created_at",

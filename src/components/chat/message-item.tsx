@@ -4,6 +4,10 @@ import type { AgentRow } from "@/db/schema";
 import type { ChatMessage } from "@/lib/hooks/use-agent-stream";
 import { ExpertResultCard } from "@/components/renderers/expert-result-card";
 import { Markdown } from "@/components/renderers/markdown";
+import { ScoutBriefCard } from "@/components/renderers/scout-brief-card";
+import { DigestCard } from "@/components/renderers/digest-card";
+import type { StoryScoutBrief } from "@/lib/agents/story-scout";
+import type { DailyDigest } from "@/lib/agents/news-monitor";
 import type { ExpertiseFinderResult } from "@/lib/types";
 
 export type MessageItemProps = {
@@ -45,6 +49,12 @@ function renderAssistantBody(message: ChatMessage) {
         result={message.payload as ExpertiseFinderResult}
       />
     );
+  }
+  if (message.renderer === "scout" && message.payload) {
+    return <ScoutBriefCard brief={message.payload as StoryScoutBrief} />;
+  }
+  if (message.renderer === "digest" && message.payload) {
+    return <DigestCard digest={message.payload as DailyDigest} />;
   }
 
   return <Markdown content={message.content} />;

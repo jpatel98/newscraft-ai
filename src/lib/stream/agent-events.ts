@@ -16,4 +16,4 @@ export type AgentWireEvent =
   | { type: "agent"; name: string }
   | { type: "final"; payload: unknown | null; renderer: string }
   | { type: "error"; message: string }
-  | { type: "done"; messageId: string };
+  | { type: "done"; messageId: string; agentId: string | null };

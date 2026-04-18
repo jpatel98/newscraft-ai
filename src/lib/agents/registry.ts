@@ -1,5 +1,22 @@
 import type { Agent } from "@openai/agents";
-import { createExpertiseFinderAgent } from "./expertise-finder";
+import {
+  createExpertiseFinderAgent,
+  EXPERTISE_FINDER_AVAILABLE_TOOLS,
+  EXPERTISE_FINDER_DEFAULT_ENABLED_TOOLS,
+  EXPERTISE_FINDER_DEFAULT_INSTRUCTIONS,
+} from "./expertise-finder";
+import {
+  createStoryScoutAgent,
+  STORY_SCOUT_AVAILABLE_TOOLS,
+  STORY_SCOUT_DEFAULT_ENABLED_TOOLS,
+  STORY_SCOUT_DEFAULT_INSTRUCTIONS,
+} from "./story-scout";
+import {
+  createNewsMonitorAgent,
+  NEWS_MONITOR_AVAILABLE_TOOLS,
+  NEWS_MONITOR_DEFAULT_ENABLED_TOOLS,
+  NEWS_MONITOR_DEFAULT_INSTRUCTIONS,
+} from "./news-monitor";
 import type { SiteScope } from "@/lib/types";
 
 export type AgentRendererKey = "expert" | "scout" | "digest" | "markdown";
@@ -10,16 +27,31 @@ export type AgentCommandDescriptor = {
   summary: string;
   example: string;
   requiresSite?: boolean;
+  requiresPrompt?: boolean;
+};
+
+export type AgentToolSpec = {
+  key: string;
+  name: string;
+  description: string;
+};
+
+export type AgentRuntimeConfig = {
+  name: string;
+  instructions: string;
+  model: string;
+  enabledTools: string[];
 };
 
 export type AgentBuildContext = {
   workspaceId: string;
   siteScope: SiteScope;
+  config: AgentRuntimeConfig;
 };
 
 export type AgentDescriptor = {
   id: string;
-  name: string;
+  defaultName: string;
   description: string;
   iconKey: string;
   mention: string;
@@ -30,13 +62,19 @@ export type AgentDescriptor = {
     scheduled: boolean;
   };
   commands: AgentCommandDescriptor[];
-  build: (ctx: AgentBuildContext) => Agent<unknown, "text" | "json" | any>;
+  defaults: {
+    instructions: string;
+    enabledTools: string[];
+  };
+  availableTools: AgentToolSpec[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  build: (ctx: AgentBuildContext) => Agent<any, any>;
 };
 
 export const AGENT_REGISTRY: AgentDescriptor[] = [
   {
     id: "expertise-finder",
-    name: "Expertise Finder",
+    defaultName: "Expertise Finder",
     description:
       "Books credible experts for your story, with citations and a reach-out angle.",
     iconKey: "experts",
@@ -64,7 +102,76 @@ export const AGENT_REGISTRY: AgentDescriptor[] = [
         requiresSite: true,
       },
     ],
-    build: (ctx) => createExpertiseFinderAgent(ctx.siteScope),
+    defaults: {
+      instructions: EXPERTISE_FINDER_DEFAULT_INSTRUCTIONS,
+      enabledTools: EXPERTISE_FINDER_DEFAULT_ENABLED_TOOLS,
+    },
+    availableTools: EXPERTISE_FINDER_AVAILABLE_TOOLS,
+    build: (ctx) => createExpertiseFinderAgent(ctx.siteScope, ctx.config),
+  },
+  {
+    id: "story-scout",
+    defaultName: "Story Scout",
+    description:
+      "Scopes a story — angles, background, related coverage, interview questions.",
+    iconKey: "scout",
+    mention: "@story-scout",
+    renderer: "scout",
+    capabilities: {
+      streaming: true,
+      structuredOutput: true,
+      scheduled: false,
+    },
+    commands: [
+      {
+        name: "/scout",
+        intent: "scout",
+        summary: "Get a full story brief on a topic.",
+        example: "/scout AI copyright fights in news",
+      },
+    ],
+    defaults: {
+      instructions: STORY_SCOUT_DEFAULT_INSTRUCTIONS,
+      enabledTools: STORY_SCOUT_DEFAULT_ENABLED_TOOLS,
+    },
+    availableTools: STORY_SCOUT_AVAILABLE_TOOLS,
+    build: (ctx) => createStoryScoutAgent(ctx.config),
+  },
+  {
+    id: "news-monitor",
+    defaultName: "News Monitor",
+    description:
+      "Tracks a watchlist of sources and produces a daily digest into #news-digest.",
+    iconKey: "monitor",
+    mention: "@news-monitor",
+    renderer: "digest",
+    capabilities: {
+      streaming: true,
+      structuredOutput: true,
+      scheduled: true,
+    },
+    commands: [
+      {
+        name: "/digest",
+        intent: "digest",
+        summary: "Run today's digest now from monitored sources.",
+        example: "/digest",
+        requiresPrompt: false,
+      },
+      {
+        name: "/sources",
+        intent: "sources",
+        summary: "Manage the monitored source list.",
+        example: "/sources add nytimes.com/section/politics",
+        requiresPrompt: false,
+      },
+    ],
+    defaults: {
+      instructions: NEWS_MONITOR_DEFAULT_INSTRUCTIONS,
+      enabledTools: NEWS_MONITOR_DEFAULT_ENABLED_TOOLS,
+    },
+    availableTools: NEWS_MONITOR_AVAILABLE_TOOLS,
+    build: (ctx) => createNewsMonitorAgent(ctx.workspaceId, ctx.config),
   },
 ];
 

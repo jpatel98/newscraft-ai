@@ -3,12 +3,15 @@
 import type { PendingAssistant } from "@/lib/hooks/use-agent-stream";
 import { ExpertResultCard } from "@/components/renderers/expert-result-card";
 import { Markdown } from "@/components/renderers/markdown";
+import { ScoutBriefCard } from "@/components/renderers/scout-brief-card";
+import { DigestCard } from "@/components/renderers/digest-card";
+import type { StoryScoutBrief } from "@/lib/agents/story-scout";
+import type { DailyDigest } from "@/lib/agents/news-monitor";
 import type { ExpertiseFinderResult } from "@/lib/types";
 import { ToolStatusPill } from "./tool-status-pill";
 
 export function StreamingMessage({ pending }: { pending: PendingAssistant }) {
-  const showFinalCard =
-    pending.renderer === "expert" && pending.payload !== null;
+  const finalReady = pending.payload !== null && pending.renderer !== null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -21,10 +24,14 @@ export function StreamingMessage({ pending }: { pending: PendingAssistant }) {
       ) : null}
 
       <div className="wkbench-bubble-assistant space-y-3">
-        {showFinalCard ? (
+        {finalReady && pending.renderer === "expert" ? (
           <ExpertResultCard
             result={pending.payload as ExpertiseFinderResult}
           />
+        ) : finalReady && pending.renderer === "scout" ? (
+          <ScoutBriefCard brief={pending.payload as StoryScoutBrief} />
+        ) : finalReady && pending.renderer === "digest" ? (
+          <DigestCard digest={pending.payload as DailyDigest} />
         ) : pending.text ? (
           <div>
             <Markdown content={pending.text} />

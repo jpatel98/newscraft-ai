@@ -11,6 +11,7 @@ import {
 } from "@/db/queries/threads";
 import { insertMessage } from "@/db/queries/messages";
 import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
+import { loadAgentRuntimeConfig } from "@/db/queries/agents";
 
 export const runtime = "nodejs";
 
@@ -51,8 +52,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const fallbackAgentId = channel.agentId ?? "expertise-finder";
-  const parsed = parseProducerInput(body.message, fallbackAgentId);
+  const parsed = parseProducerInput(body.message);
+
+  if (parsed.kind === "error") {
+    return Response.json(
+      { ok: false, error: parsed.message },
+      { status: 400 },
+    );
+  }
 
   const thread = await ensureThreadForChannel(channel.id);
 
@@ -60,7 +67,7 @@ export async function POST(request: Request) {
     threadId: thread.id,
     channelId: channel.id,
     role: "user",
-    agentId: channel.agentId,
+    agentId: null,
     content: body.message,
   });
 
@@ -71,7 +78,7 @@ export async function POST(request: Request) {
       threadId: thread.id,
       channelId: channel.id,
       role: "assistant",
-      agentId: channel.agentId,
+      agentId: null,
       content: HELP_REPLY,
       renderer: "markdown",
     });
@@ -83,7 +90,7 @@ export async function POST(request: Request) {
             encodeSSE({ type: "final", payload: null, renderer: "markdown" }),
           );
           controller.enqueue(
-            encodeSSE({ type: "done", messageId: assistantId }),
+            encodeSSE({ type: "done", messageId: assistantId, agentId: null }),
           );
           controller.close();
         },
@@ -92,17 +99,12 @@ export async function POST(request: Request) {
     );
   }
 
-  if (parsed.kind === "error") {
-    return Response.json(
-      { ok: false, error: parsed.message },
-      { status: 400 },
-    );
-  }
-
   const descriptor = getAgentStrict(parsed.agentId);
+  const config = await loadAgentRuntimeConfig(descriptor.id);
   const agent = descriptor.build({
     workspaceId: channel.workspaceId,
     siteScope: parsed.siteScope,
+    config,
   });
 
   const runRecord = await startAgentRun({
@@ -156,14 +158,18 @@ export async function POST(request: Request) {
         });
 
         controller.enqueue(
-          encodeSSE({ type: "done", messageId: assistantId }),
+          encodeSSE({
+            type: "done",
+            messageId: assistantId,
+            agentId: descriptor.id,
+          }),
         );
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown agent error.";
         controller.enqueue(encodeSSE({ type: "error", message }));
         await finishAgentRun(runRecord.id, {
-          status: "failed",
+          status: abortController.signal.aborted ? "cancelled" : "failed",
           lastResponseId: null,
           error: message,
         });

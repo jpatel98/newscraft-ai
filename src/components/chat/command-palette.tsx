@@ -1,6 +1,6 @@
 "use client";
 
-import { allCommandSuggestions } from "@/lib/agents/registry";
+import { COMMANDS_CATALOG } from "@/lib/agents/commands-catalog";
 
 export type CommandPaletteProps = {
   open: boolean;
@@ -11,7 +11,7 @@ export type CommandPaletteProps = {
 export function CommandPalette({ open, query, onSelect }: CommandPaletteProps) {
   if (!open) return null;
 
-  const suggestions = allCommandSuggestions().filter((command) =>
+  const suggestions = COMMANDS_CATALOG.filter((command) =>
     command.name.toLowerCase().startsWith(query.toLowerCase()),
   );
 

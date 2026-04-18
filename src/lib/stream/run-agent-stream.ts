@@ -1,4 +1,4 @@
-import { run, type Agent } from "@openai/agents";
+import { run, type Agent, type AgentOutputType } from "@openai/agents";
 import { nanoid } from "nanoid";
 import type { AgentWireEvent } from "./agent-events";
 
@@ -61,9 +61,8 @@ type ToolOutputRaw = {
   name?: string;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type RunAgentOptions = {
-  agent: Agent<any, any>;
+  agent: Agent<unknown, AgentOutputType>;
   prompt: string;
   previousResponseId?: string | null;
   signal?: AbortSignal;

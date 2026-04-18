@@ -30,6 +30,17 @@ export async function insertDigest(input: {
     items: input.items,
     createdAt: Date.now(),
   };
-  await db.insert(digests).values(row);
+  await db
+    .insert(digests)
+    .values(row)
+    .onConflictDoUpdate({
+      target: [digests.workspaceId, digests.dateKey],
+      set: {
+        channelId: input.channelId,
+        messageId: input.messageId,
+        items: input.items,
+        createdAt: row.createdAt,
+      },
+    });
   return row;
 }

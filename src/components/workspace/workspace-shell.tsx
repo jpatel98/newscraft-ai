@@ -1,46 +1,32 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { AgentRow, ChannelRow } from "@/db/schema";
 import { Sidebar } from "./sidebar";
-import { ChatView } from "@/components/chat/chat-view";
-import type { ChatMessage } from "@/lib/hooks/use-agent-stream";
 
 export type WorkspaceShellProps = {
   channels: ChannelRow[];
   agents: AgentRow[];
-  activeChannel: ChannelRow;
-  activeAgent: AgentRow | null;
-  initialMessages: ChatMessage[];
+  children: React.ReactNode;
 };
 
 export function WorkspaceShell({
   channels,
   agents,
-  activeChannel,
-  activeAgent,
-  initialMessages,
+  children,
 }: WorkspaceShellProps) {
   const router = useRouter();
-
-  const selectChannel = (channel: ChannelRow) => {
-    router.push(`/?channel=${channel.slug}`);
-  };
+  const pathname = usePathname();
 
   return (
     <div className="grid h-screen grid-cols-[260px_1fr] bg-[var(--bg)] text-[var(--fg)]">
       <Sidebar
         channels={channels}
         agents={agents}
-        activeChannelId={activeChannel.id}
-        onSelect={selectChannel}
+        pathname={pathname}
+        onNavigate={(to) => router.push(to)}
       />
-      <ChatView
-        channel={activeChannel}
-        agent={activeAgent}
-        agents={agents}
-        initialMessages={initialMessages}
-      />
+      <main className="flex h-full min-h-0 flex-col">{children}</main>
     </div>
   );
 }

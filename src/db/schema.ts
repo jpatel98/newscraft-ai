@@ -27,6 +27,12 @@ export const agents = sqliteTable("agents", {
       structuredOutput: boolean;
       scheduled: boolean;
     }>(),
+  instructions: text("instructions").notNull().default(""),
+  model: text("model"),
+  enabledTools: text("enabled_tools", { mode: "json" })
+    .notNull()
+    .$type<string[]>()
+    .default([]),
   createdAt: integer("created_at").notNull().default(now),
 });
 

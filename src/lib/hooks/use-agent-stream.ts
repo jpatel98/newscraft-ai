@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { AgentWireEvent } from "@/lib/stream/agent-events";
 
 export type ChatMessage = {
@@ -49,15 +49,6 @@ export function useAgentStream({
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    controllerRef.current?.abort();
-    controllerRef.current = null;
-    setMessages(initialMessages);
-    setPending(null);
-    setError(null);
-    setStreaming(false);
-  }, [channelId, initialMessages]);
 
   const cancel = useCallback(() => {
     controllerRef.current?.abort();
@@ -180,7 +171,7 @@ export function useAgentStream({
                 const committed: ChatMessage = {
                   id: wire.messageId,
                   role: "assistant",
-                  agentId: null,
+                  agentId: wire.agentId ?? null,
                   content: accumulator.text,
                   payload: accumulator.payload,
                   renderer: accumulator.renderer,

@@ -3,41 +3,34 @@
 import { Send, Square } from "lucide-react";
 import {
   useCallback,
-  useEffect,
   useRef,
   useState,
   type KeyboardEvent,
 } from "react";
-import type { AgentRow, ChannelRow } from "@/db/schema";
 import { CommandPalette } from "./command-palette";
 
 export type MessageComposerProps = {
-  channelKind: ChannelRow["kind"];
-  agent: AgentRow | null;
   streaming: boolean;
   onSend: (message: string) => void;
   onCancel: () => void;
 };
 
 export function MessageComposer({
-  channelKind,
-  agent,
   streaming,
   onSend,
   onCancel,
 }: MessageComposerProps) {
   const [value, setValue] = useState("");
-  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteDismissed, setPaletteDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    setPaletteOpen(value.startsWith("/") && !value.includes(" "));
-  }, [value]);
+  const paletteOpen =
+    !paletteDismissed && value.startsWith("/") && !value.includes(" ");
 
   const submit = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed || streaming) return;
     setValue("");
+    setPaletteDismissed(false);
     onSend(trimmed);
   }, [value, streaming, onSend]);
 
@@ -49,20 +42,15 @@ export function MessageComposer({
       event.preventDefault();
       submit();
     } else if (event.key === "Escape") {
-      setPaletteOpen(false);
+      setPaletteDismissed(true);
     }
   };
 
   const selectCommand = (commandName: string) => {
     setValue(`${commandName} `);
-    setPaletteOpen(false);
+    setPaletteDismissed(false);
     textareaRef.current?.focus();
   };
-
-  const placeholder =
-    channelKind === "agent_dm" && agent
-      ? `Message ${agent.name}… (try /help)`
-      : "Message this channel… use /expert, /scan-site, or @mention an agent";
 
   return (
     <div className="border-t border-[var(--border)] bg-[var(--bg)] px-6 py-4">
@@ -78,9 +66,12 @@ export function MessageComposer({
             ref={textareaRef}
             rows={1}
             value={value}
-            placeholder={placeholder}
+            placeholder="Message this channel — use /expert, /scout, or @mention an agent"
             className="max-h-48 min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-[0.9375rem] leading-6 outline-none placeholder:text-[var(--fg-subtle)]"
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => {
+              setValue(event.target.value);
+              setPaletteDismissed(false);
+            }}
             onKeyDown={handleKeyDown}
           />
           {streaming ? (

@@ -307,30 +307,7 @@ function createProbeSiteDirectoriesTool(siteScope: SiteScope) {
   });
 }
 
-export function createExpertiseFinderAgent(siteScope: SiteScope) {
-  const scopedSearchTool =
-    siteScope.allowedDomains.length > 0
-      ? webSearchTool({
-          searchContextSize: "medium",
-          filters: {
-            allowedDomains: siteScope.allowedDomains,
-          },
-        })
-      : webSearchTool({
-          searchContextSize: "medium",
-        });
-
-  const siteInstructions =
-    siteScope.allowedDomains.length > 0
-      ? `This run is scoped to these domains first: ${siteScope.allowedDomains.join(", ")}.
-Use the scoped web search and site inspection tools before broadening your assumptions.
-If preferred URLs are available, inspect them early: ${siteScope.preferredUrls.join(", ")}.`
-      : "This run is broad web research unless the user narrows it during the conversation.";
-
-  return new Agent({
-    name: "Expertise Finder",
-    model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
-    instructions: `You are a senior newsroom booking producer.
+export const EXPERTISE_FINDER_DEFAULT_INSTRUCTIONS = `You are a senior newsroom booking producer.
 
 Your job is to turn a producer's story brief into a shortlist of credible experts worth contacting.
 
@@ -353,15 +330,83 @@ Output rules:
 - Favor diversity in geography, institution type, and perspective when it improves the booking list.
 - If the user asked for experts from one site, prefer that site's people unless the site obviously lacks the needed expertise.
 
-${siteInstructions}
+The summary should sound like an editorial recommendation, not a generic search recap.`;
 
-The summary should sound like an editorial recommendation, not a generic search recap.`,
+export const EXPERTISE_FINDER_AVAILABLE_TOOLS = [
+  {
+    key: "web_search",
+    name: "Web search",
+    description: "OpenAI web search, scoped to the run's allowed domains if any.",
+  },
+  {
+    key: "inspect_webpage",
+    name: "Inspect webpage",
+    description:
+      "Fetch a scoped URL and extract text + likely people/expert directory links.",
+  },
+  {
+    key: "probe_site_directories",
+    name: "Probe site directories",
+    description:
+      "Probe a domain for /experts, /people, /faculty, /team, /staff, /authors, /contributors paths.",
+  },
+];
+
+export const EXPERTISE_FINDER_DEFAULT_ENABLED_TOOLS = EXPERTISE_FINDER_AVAILABLE_TOOLS.map(
+  (tool) => tool.key,
+);
+
+export type ExpertiseFinderConfig = {
+  name: string;
+  instructions: string;
+  model: string;
+  enabledTools: string[];
+};
+
+export function createExpertiseFinderAgent(
+  siteScope: SiteScope,
+  config?: Partial<ExpertiseFinderConfig>,
+) {
+  const resolved: ExpertiseFinderConfig = {
+    name: config?.name ?? "Expertise Finder",
+    instructions:
+      config?.instructions ?? EXPERTISE_FINDER_DEFAULT_INSTRUCTIONS,
+    model:
+      config?.model ?? process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
+    enabledTools: config?.enabledTools ?? EXPERTISE_FINDER_DEFAULT_ENABLED_TOOLS,
+  };
+
+  const siteInstructions =
+    siteScope.allowedDomains.length > 0
+      ? `This run is scoped to these domains first: ${siteScope.allowedDomains.join(", ")}.
+Use the scoped web search and site inspection tools before broadening your assumptions.
+If preferred URLs are available, inspect them early: ${siteScope.preferredUrls.join(", ")}.`
+      : "This run is broad web research unless the user narrows it during the conversation.";
+
+  const tools = [];
+  if (resolved.enabledTools.includes("web_search")) {
+    tools.push(
+      siteScope.allowedDomains.length > 0
+        ? webSearchTool({
+            searchContextSize: "medium",
+            filters: { allowedDomains: siteScope.allowedDomains },
+          })
+        : webSearchTool({ searchContextSize: "medium" }),
+    );
+  }
+  if (resolved.enabledTools.includes("inspect_webpage")) {
+    tools.push(createInspectWebpageTool(siteScope));
+  }
+  if (resolved.enabledTools.includes("probe_site_directories")) {
+    tools.push(createProbeSiteDirectoriesTool(siteScope));
+  }
+
+  return new Agent({
+    name: resolved.name,
+    model: resolved.model,
+    instructions: `${resolved.instructions}\n\n${siteInstructions}`,
     outputType: expertiseFinderResultSchema,
-    tools: [
-      scopedSearchTool,
-      createInspectWebpageTool(siteScope),
-      createProbeSiteDirectoriesTool(siteScope),
-    ],
+    tools,
   });
 }
 
