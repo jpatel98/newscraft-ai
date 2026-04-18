@@ -66,7 +66,7 @@ export function MessageComposer({
             ref={textareaRef}
             rows={1}
             value={value}
-            placeholder="Message this channel — use /expert, /scout, or @mention an agent"
+            placeholder="Message this channel — use /expert, /scout, /clear, or @mention an agent"
             className="max-h-48 min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-[0.9375rem] leading-6 outline-none placeholder:text-[var(--fg-subtle)]"
             onChange={(event) => {
               setValue(event.target.value);

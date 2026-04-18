@@ -7,9 +7,10 @@ import { runAgentWithStream } from "@/lib/stream/run-agent-stream";
 import { getChannelById } from "@/db/queries/channels";
 import {
   ensureThreadForChannel,
+  clearThreadConversation,
   updateThreadLastResponse,
 } from "@/db/queries/threads";
-import { insertMessage } from "@/db/queries/messages";
+import { deleteMessagesByChannel, insertMessage } from "@/db/queries/messages";
 import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
 import { loadAgentRuntimeConfig } from "@/db/queries/agents";
 
@@ -62,6 +63,12 @@ export async function POST(request: Request) {
   }
 
   const thread = await ensureThreadForChannel(channel.id);
+
+  if (parsed.kind === "clear") {
+    await deleteMessagesByChannel(channel.id);
+    await clearThreadConversation(thread.id);
+    return Response.json({ ok: true, cleared: true });
+  }
 
   await insertMessage({
     threadId: thread.id,

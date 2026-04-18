@@ -28,3 +28,7 @@ export async function insertMessage(
   await db.insert(messages).values(inserted);
   return inserted as MessageRow;
 }
+
+export async function deleteMessagesByChannel(channelId: string) {
+  await db.delete(messages).where(eq(messages.channelId, channelId));
+}

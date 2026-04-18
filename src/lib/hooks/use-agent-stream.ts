@@ -59,6 +59,32 @@ export function useAgentStream({
   const send = useCallback(
     async (message: string) => {
       setError(null);
+      const trimmed = message.trim();
+
+      if (trimmed === "/clear") {
+        try {
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channelId, message: trimmed }),
+          });
+
+          if (!response.ok) {
+            const errBody = (await response.json().catch(() => null)) as
+              | { error?: string }
+              | null;
+            throw new Error(errBody?.error ?? `Request failed (${response.status})`);
+          }
+
+          setMessages([]);
+          setPending(null);
+        } catch (err) {
+          if (err instanceof Error) {
+            setError(err.message);
+          }
+        }
+        return;
+      }
 
       const controller = new AbortController();
       controllerRef.current = controller;
@@ -68,7 +94,7 @@ export function useAgentStream({
         id: `user-${Date.now()}`,
         role: "user",
         agentId: null,
-        content: message,
+        content: trimmed,
         payload: null,
         renderer: null,
         createdAt: Date.now(),
@@ -87,7 +113,7 @@ export function useAgentStream({
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelId, message }),
+          body: JSON.stringify({ channelId, message: trimmed }),
           signal: controller.signal,
         });
 

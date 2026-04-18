@@ -37,4 +37,9 @@ export const COMMANDS_CATALOG: CatalogCommand[] = [
     summary: "List available commands.",
     example: "/help",
   },
+  {
+    name: "/clear",
+    summary: "Clear this channel's chat history.",
+    example: "/clear",
+  },
 ];

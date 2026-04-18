@@ -11,6 +11,7 @@ import type { SiteScope } from "@/lib/types";
 
 export type ParsedProducerInput =
   | { kind: "help" }
+  | { kind: "clear" }
   | { kind: "error"; message: string }
   | {
       kind: "command";
@@ -26,6 +27,7 @@ export const HELP_REPLY =
   "- `/expert <brief>` — broad expert discovery with public contact paths.\n" +
   "- `/scan-site <domain> <brief>` — restrict the search to one organization or source list.\n" +
   "- `@expertise-finder <brief>` — at-mention from any channel.\n\n" +
+  "- `/clear` — clear this channel's chat history.\n" +
   "Add `site:domain.com` or paste a URL anywhere in the message to scope the search.";
 
 const MENTION_PATTERN = /@[a-z0-9-]+/gi;
@@ -42,6 +44,10 @@ export function parseProducerInput(rawMessage: string): ParsedProducerInput {
 
   if (message === "/help") {
     return { kind: "help" };
+  }
+
+  if (message === "/clear") {
+    return { kind: "clear" };
   }
 
   const mentionedAgent = findAgentByMention(message);

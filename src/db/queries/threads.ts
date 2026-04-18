@@ -36,3 +36,10 @@ export async function updateThreadLastResponse(
     .set({ lastResponseId, updatedAt: Date.now() })
     .where(eq(threads.id, threadId));
 }
+
+export async function clearThreadConversation(threadId: string) {
+  await db
+    .update(threads)
+    .set({ lastResponseId: null, updatedAt: Date.now() })
+    .where(eq(threads.id, threadId));
+}
