@@ -8,21 +8,29 @@ export type ExpertSource = {
   url: string;
 };
 
+export type ExpertContactLink = {
+  label: string;
+  value: string;
+};
+
 export type ExpertCandidate = {
   name: string;
   role: string;
   organization: string;
-  location: string;
   whyRelevant: string;
-  reachoutAngle: string;
-  bookingSignal: "strong" | "solid" | "speculative";
-  sources: ExpertSource[];
+  email: string;
+  phone: string;
+  website: string;
+  socials: ExpertContactLink[];
+  otherLinks: ExpertSource[];
+  source: ExpertSource;
+  contactNote: string;
 };
 
 export type ExpertiseFinderResult = {
-  brief: string;
+  topic: string;
+  storyAngle: string;
   summary: string;
-  editorialAngle: string;
   confidence: "high" | "medium" | "low";
   experts: ExpertCandidate[];
   nextMoves: string[];

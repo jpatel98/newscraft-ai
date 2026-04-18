@@ -9,23 +9,31 @@ const sourceSchema = z.object({
   url: z.string().min(1),
 });
 
+const contactLinkSchema = z.object({
+  label: z.string().min(1),
+  value: z.string().min(1),
+});
+
 const expertSchema = z.object({
   name: z.string().min(1),
   role: z.string().min(1),
   organization: z.string().min(1),
-  location: z.string().default(""),
   whyRelevant: z.string().min(1),
-  reachoutAngle: z.string().min(1),
-  bookingSignal: z.enum(["strong", "solid", "speculative"]),
-  sources: z.array(sourceSchema).min(1).max(3),
+  email: z.string().default("not publicly listed"),
+  phone: z.string().default(""),
+  website: z.string().default(""),
+  socials: z.array(contactLinkSchema).max(3).default([]),
+  otherLinks: z.array(sourceSchema).max(4).default([]),
+  source: sourceSchema,
+  contactNote: z.string().default(""),
 });
 
 export const expertiseFinderResultSchema = z.object({
-  brief: z.string().min(1),
+  topic: z.string().min(1),
+  storyAngle: z.string().default(""),
   summary: z.string().min(1),
-  editorialAngle: z.string().min(1),
   confidence: z.enum(["high", "medium", "low"]),
-  experts: z.array(expertSchema).max(5).default([]),
+  experts: z.array(expertSchema).max(10).default([]),
   nextMoves: z.array(z.string().min(1)).max(4).default([]),
   watchouts: z.array(z.string().min(1)).max(3).default([]),
 });
@@ -37,21 +45,31 @@ function stripCitationMarkers(text: string) {
 function sanitizeExpertiseResult(result: ExpertiseFinderResult): ExpertiseFinderResult {
   return {
     ...result,
-    brief: stripCitationMarkers(result.brief),
+    topic: stripCitationMarkers(result.topic),
+    storyAngle: stripCitationMarkers(result.storyAngle),
     summary: stripCitationMarkers(result.summary),
-    editorialAngle: stripCitationMarkers(result.editorialAngle),
     experts: result.experts.map((expert) => ({
       ...expert,
       name: stripCitationMarkers(expert.name),
       role: stripCitationMarkers(expert.role),
       organization: stripCitationMarkers(expert.organization),
-      location: stripCitationMarkers(expert.location),
       whyRelevant: stripCitationMarkers(expert.whyRelevant),
-      reachoutAngle: stripCitationMarkers(expert.reachoutAngle),
-      sources: expert.sources.map((source) => ({
+      email: stripCitationMarkers(expert.email),
+      phone: stripCitationMarkers(expert.phone),
+      website: expert.website,
+      socials: expert.socials.map((link) => ({
+        label: stripCitationMarkers(link.label),
+        value: stripCitationMarkers(link.value),
+      })),
+      otherLinks: expert.otherLinks.map((source) => ({
         title: stripCitationMarkers(source.title),
         url: source.url,
       })),
+      source: {
+        title: stripCitationMarkers(expert.source.title),
+        url: expert.source.url,
+      },
+      contactNote: stripCitationMarkers(expert.contactNote),
     })),
     nextMoves: result.nextMoves.map(stripCitationMarkers),
     watchouts: result.watchouts.map(stripCitationMarkers),
@@ -307,30 +325,70 @@ function createProbeSiteDirectoriesTool(siteScope: SiteScope) {
   });
 }
 
-export const EXPERTISE_FINDER_DEFAULT_INSTRUCTIONS = `You are a senior newsroom booking producer.
+export const EXPERTISE_FINDER_DEFAULT_INSTRUCTIONS = `You are expert-finder.
 
-Your job is to turn a producer's story brief into a shortlist of credible experts worth contacting.
+Your job is to research subject matter experts for a given topic, story, or beat and surface publicly listed ways to contact them for outreach.
 
-Always use tools before answering.
-Use live web search to verify current relevance.
-When a run is scoped to one site, stay inside that organization first and inspect pages directly for bios, directories, author pages, fellows, faculty, staff, or contributor lists.
+Always use tools before answering. Use live web search to verify current relevance and public credentials.
 
-Prioritize experts who are:
-- currently active in the topic area
-- affiliated with a credible institution, newsroom, company, or research group
-- likely able to speak plainly to a general audience
-- backed by recent, public evidence
+Workflow:
 
-Output rules:
-- Return 3 to 5 experts when possible.
-- If the brief is narrow or the evidence is weak, return fewer experts and explain the gap.
-- Do not invent email addresses, phone numbers, or private contact information.
-- Do not list people without citing at least one public source for each.
-- Keep the result practical for a producer: who to book, why now, and what angle they can unlock.
-- Favor diversity in geography, institution type, and perspective when it improves the booking list.
-- If the user asked for experts from one site, prefer that site's people unless the site obviously lacks the needed expertise.
+1. Parse the request
+- Extract the core topic.
+- Extract the story angle or framing if one is provided.
+- Note any expert type preference such as academic, industry practitioner, policy, NGO, journalist, or clinician.
+- Note any geography preference.
+- Default to 5 experts when the user does not specify a number.
+- If the request is vague, make a reasonable inference and proceed. Reflect assumptions briefly in the summary or watchouts.
 
-The summary should sound like an editorial recommendation, not a generic search recap.`;
+2. Identify expert candidates
+- First check the Informed Perspectives database at https://informedperspectives.org/programs/database-of-experts/ before any broader web search whenever the request is Canadian, journalism-related, policy-related, or plausibly covered there.
+- If direct browsing to that database is weak or unavailable, use the site's own pages, filters, or search-oriented pages before broadening outward.
+- If the database does not return strong matches, expand to broader web search.
+- Prioritize academic researchers, industry practitioners, policy or NGO voices, think tank analysts, and frequently quoted media sources.
+- Prefer people with a clear public record of expertise, not generic spokespeople or PR staff.
+- In journalism contexts, favor people who have spoken to media before when possible.
+
+3. Find contact information
+- Attempt contact discovery in this order:
+  1. Institutional email or directory page
+  2. Personal or professional website
+  3. Scholar or institutional profile with verified contact details
+  4. Public social handles or LinkedIn for DM outreach
+  5. Media or press office contact when the expert's direct contact is not public
+- Only surface contact details that are publicly listed.
+- Never infer, guess, reconstruct, or pattern-match an email address.
+- If no direct public contact is available, say so clearly and provide the best public fallback channel.
+
+4. Output rules
+- Return 3 to 5 experts by default, up to 10 when the user asks for more.
+- If evidence is weak, return fewer experts and explain the gap.
+- Every expert must have at least one public source confirming their expertise.
+- Every expert entry should be practical for outreach: role, why they fit, public contact path, and the best confirming source.
+- Favor diversity of institution, geography, and perspective when it improves the list.
+- Skip anyone whose relevance cannot be confirmed with a public link.
+
+Structured output requirements:
+- topic: the core topic in plain English
+- storyAngle: the story angle if provided, otherwise an empty string
+- summary: a concise editorial note about the mix of experts found and any sourcing assumptions
+- confidence: high, medium, or low
+- experts: an ordered list of experts
+
+For each expert:
+- name: full name
+- role: job title
+- organization: institution or organization
+- whyRelevant: 1 to 2 sentences on why they are a strong source for this specific ask
+- email: publicly listed email, or exactly "not publicly listed"
+- phone: publicly listed phone number, or empty string
+- website: best public profile or homepage URL, or empty string
+- socials: public social or LinkedIn links as labeled entries, for example "X", "@handle" or "LinkedIn", "https://linkedin..."
+- otherLinks: extra useful public links such as faculty pages, AUB profile pages, media pages, or press office pages
+- source: the single best URL confirming their expertise
+- contactNote: use this only when direct contact is unavailable or when a fallback route matters
+
+Do not include markdown in structured fields. Keep the tone practical and producer-friendly.`;
 
 export const EXPERTISE_FINDER_AVAILABLE_TOOLS = [
   {
@@ -440,23 +498,31 @@ export function formatExpertiseReply(result: ExpertiseFinderResult) {
   const experts =
     result.experts.length > 0
       ? result.experts.map((expert, index) => {
-          const sourceList = expert.sources
-            .map((source) => `${source.title}: ${source.url}`)
-            .join("; ");
-          const location = expert.location ? `, ${expert.location}` : "";
+          const contactLines = [
+            `Contact: ${expert.email || "not publicly listed"}`,
+            expert.phone ? `Phone: ${expert.phone}` : "",
+            expert.website ? `Website: ${expert.website}` : "",
+            ...expert.socials.map((social) => `Also: ${social.value}`),
+            ...expert.otherLinks.map(
+              (link) => `${link.title}: ${link.url}`,
+            ),
+            expert.contactNote ? `Note: ${expert.contactNote}` : "",
+            `Source: ${expert.source.url}`,
+          ].filter(Boolean);
 
-          return `${index + 1}. ${expert.name} — ${expert.role}, ${expert.organization}${location}
-Why this person: ${expert.whyRelevant}
-Booking angle: ${expert.reachoutAngle}
-Sources: ${sourceList}`;
+          return `${index + 1}) ${expert.name}
+Role: ${expert.role}, ${expert.organization}
+Why ${expert.name.split(" ")[0]}: ${expert.whyRelevant}
+${contactLines.join("\n")}`;
         })
       : ["No strong public experts surfaced yet."];
 
   return [
+    "## Expert Finder Results",
+    `Topic: ${result.topic}`,
+    result.storyAngle ? `Story angle: ${result.storyAngle}` : "",
     result.summary,
-    `Editorial angle: ${result.editorialAngle}`,
     `Confidence: ${result.confidence}`,
-    "Expert shortlist:",
     ...experts,
     result.nextMoves.length > 0
       ? `Next moves:\n- ${result.nextMoves.join("\n- ")}`

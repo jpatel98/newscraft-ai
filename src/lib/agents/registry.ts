@@ -76,7 +76,7 @@ export const AGENT_REGISTRY: AgentDescriptor[] = [
     id: "expertise-finder",
     defaultName: "Expertise Finder",
     description:
-      "Books credible experts for your story, with citations and a reach-out angle.",
+      "Finds credible subject matter experts and public contact paths for outreach.",
     iconKey: "experts",
     mention: "@expertise-finder",
     renderer: "expert",
@@ -89,14 +89,14 @@ export const AGENT_REGISTRY: AgentDescriptor[] = [
       {
         name: "/expert",
         intent: "expert",
-        summary: "Find experts across the web.",
+        summary: "Find experts and public contact info across the web.",
         example:
           "/expert labor economist in Canada who can react to inflation data today",
       },
       {
         name: "/scan-site",
         intent: "scan-site",
-        summary: "Find experts on a specific site or organization.",
+        summary: "Find experts and contact paths on a specific site or organization.",
         example:
           "/scan-site brookings.edu AI policy expert who can explain copyright fights",
         requiresSite: true,

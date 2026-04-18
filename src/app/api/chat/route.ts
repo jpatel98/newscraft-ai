@@ -113,6 +113,15 @@ export async function POST(request: Request) {
     inputSummary: parsed.cleanedPrompt,
   });
 
+  // Slash commands are each an independent task — don't thread the previous
+  // response id, or the model treats a new brief as a refinement of the old
+  // one and hands back the same shortlist. Only free-form follow-ups should
+  // continue the conversation.
+  const shouldContinueConversation = parsed.intent === "freeform";
+  const previousResponseId = shouldContinueConversation
+    ? thread.lastResponseId
+    : null;
+
   const abortController = new AbortController();
   request.signal.addEventListener("abort", () => abortController.abort());
 
@@ -123,7 +132,7 @@ export async function POST(request: Request) {
         const result = await runAgentWithStream({
           agent,
           prompt: parsed.cleanedPrompt,
-          previousResponseId: thread.lastResponseId,
+          previousResponseId,
           signal: abortController.signal,
           emit: (event) => controller.enqueue(encodeSSE(event)),
         });

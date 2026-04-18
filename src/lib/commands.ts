@@ -23,8 +23,8 @@ export type ParsedProducerInput =
 
 export const HELP_REPLY =
   "**Commands**\n\n" +
-  "- `/expert <brief>` — broad expert discovery across the web.\n" +
-  "- `/scan-site <domain> <brief>` — restrict the search to one organization.\n" +
+  "- `/expert <brief>` — broad expert discovery with public contact paths.\n" +
+  "- `/scan-site <domain> <brief>` — restrict the search to one organization or source list.\n" +
   "- `@expertise-finder <brief>` — at-mention from any channel.\n\n" +
   "Add `site:domain.com` or paste a URL anywhere in the message to scope the search.";
 
