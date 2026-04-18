@@ -12,9 +12,44 @@ import { ToolStatusPill } from "./tool-status-pill";
 
 export function StreamingMessage({ pending }: { pending: PendingAssistant }) {
   const finalReady = pending.payload !== null && pending.renderer !== null;
+  const runningToolCount = pending.toolEvents.filter((evt) => evt.ok === null).length;
+  const status =
+    runningToolCount > 0
+      ? {
+          label: "Working through sources",
+          detail:
+            runningToolCount === 1
+              ? "Running 1 action"
+              : `Running ${runningToolCount} actions`,
+          state: "acting" as const,
+        }
+      : pending.text
+        ? {
+            label: "Drafting response",
+            detail: "Formatting the current result",
+            state: "drafting" as const,
+          }
+        : {
+            label: "Thinking",
+            detail: "Planning the next step",
+            state: "thinking" as const,
+          };
 
   return (
     <div className="flex flex-col gap-2">
+      <div className="wkbench-agent-state" data-state={status.state}>
+        <div className="wkbench-agent-state__pulse" aria-hidden />
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-[var(--fg)]">{status.label}</div>
+          <div className="text-xs text-[var(--fg-muted)]">{status.detail}</div>
+        </div>
+        <div className="wkbench-agent-state__bars" aria-hidden>
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+
       {pending.toolEvents.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {pending.toolEvents.map((evt) => (
@@ -38,7 +73,9 @@ export function StreamingMessage({ pending }: { pending: PendingAssistant }) {
             <span className="wkbench-caret" aria-hidden />
           </div>
         ) : (
-          <div className="text-sm text-[var(--fg-muted)]">Thinking…</div>
+          <div className="text-sm text-[var(--fg-muted)]">
+            Pulling the current result together…
+          </div>
         )}
       </div>
     </div>
