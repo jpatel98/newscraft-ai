@@ -3,8 +3,9 @@ import {
   AgentConfigEditor,
   type AgentDescriptorForUI,
 } from "@/components/agent/agent-config-editor";
+import { getWorkspaceAgentRow } from "@/db/queries/agents";
 import { getAgent } from "@/lib/agents/registry";
-import { getAgentRow } from "@/db/queries/agents";
+import { getCurrentAppContext } from "@/lib/server/app-context";
 
 export default async function AgentConfigPage({
   params,
@@ -12,8 +13,9 @@ export default async function AgentConfigPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const { workspace } = await getCurrentAppContext();
   const descriptor = getAgent(id);
-  const row = await getAgentRow(id);
+  const row = await getWorkspaceAgentRow(workspace.id, id);
   if (!descriptor || !row) notFound();
 
   const descriptorForUI: AgentDescriptorForUI = {

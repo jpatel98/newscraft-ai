@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { AgentRow } from "@/db/schema";
+import type { WorkspaceAgentRecord } from "@/db/queries/agents";
 import type {
   ChatMessage,
   PendingAssistant,
@@ -12,7 +12,7 @@ import { StreamingMessage } from "./streaming-message";
 export type MessageListProps = {
   messages: ChatMessage[];
   pending: PendingAssistant | null;
-  agentMap: Map<string, AgentRow>;
+  agentMap: Map<string, WorkspaceAgentRecord>;
 };
 
 export function MessageList({ messages, pending, agentMap }: MessageListProps) {

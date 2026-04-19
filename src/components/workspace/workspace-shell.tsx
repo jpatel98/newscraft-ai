@@ -1,12 +1,13 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import type { AgentRow, ChannelRow } from "@/db/schema";
+import type { ChannelRow } from "@/db/schema";
+import type { WorkspaceAgentRecord } from "@/db/queries/agents";
 import { Sidebar } from "./sidebar";
 
 export type WorkspaceShellProps = {
   channels: ChannelRow[];
-  agents: AgentRow[];
+  agents: WorkspaceAgentRecord[];
   children: React.ReactNode;
 };
 

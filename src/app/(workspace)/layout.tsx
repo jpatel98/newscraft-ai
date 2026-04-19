@@ -1,17 +1,16 @@
-import { db } from "@/db/client";
-import { agents as agentsTable } from "@/db/schema";
+import { listWorkspaceAgentRows } from "@/db/queries/agents";
 import { listChannels } from "@/db/queries/channels";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
-
-const WORKSPACE_ID = "default";
+import { getCurrentAppContext } from "@/lib/server/app-context";
 
 export default async function WorkspaceLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const channels = await listChannels(WORKSPACE_ID);
-  const agents = await db.select().from(agentsTable);
+  const { workspace } = await getCurrentAppContext();
+  const channels = await listChannels(workspace.id);
+  const agents = await listWorkspaceAgentRows(workspace.id);
 
   if (channels.length === 0) {
     return <BootstrapNotice />;

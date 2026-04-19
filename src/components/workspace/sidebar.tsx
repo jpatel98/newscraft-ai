@@ -1,12 +1,13 @@
 "use client";
 
-import type { AgentRow, ChannelRow } from "@/db/schema";
+import type { ChannelRow } from "@/db/schema";
+import type { WorkspaceAgentRecord } from "@/db/queries/agents";
 import { AgentList } from "./agent-list";
 import { ChannelList } from "./channel-list";
 
 export type SidebarProps = {
   channels: ChannelRow[];
-  agents: AgentRow[];
+  agents: WorkspaceAgentRecord[];
   pathname: string;
   onNavigate: (href: string) => void;
 };

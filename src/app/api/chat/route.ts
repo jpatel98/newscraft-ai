@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import { assertManualAgentRunAllowed } from "@/lib/agents/policy";
 import { getAgentStrict } from "@/lib/agents/registry";
 import { HELP_REPLY, parseProducerInput } from "@/lib/commands";
 import { encodeSSE } from "@/lib/stream/sse";
@@ -13,8 +14,10 @@ import {
 import { deleteMessagesByChannel, insertMessage } from "@/db/queries/messages";
 import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
 import { loadAgentRuntimeConfig } from "@/db/queries/agents";
+import { requireWorkspaceMembership } from "@/lib/server/app-context";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
   channelId: z.string().min(1),
@@ -50,6 +53,14 @@ export async function POST(request: Request) {
     return Response.json(
       { ok: false, error: "Channel not found." },
       { status: 404 },
+    );
+  }
+
+  const context = await requireWorkspaceMembership();
+  if (context.workspace.id !== channel.workspaceId) {
+    return Response.json(
+      { ok: false, error: "You do not have access to this workspace." },
+      { status: 403 },
     );
   }
 
@@ -107,7 +118,8 @@ export async function POST(request: Request) {
   }
 
   const descriptor = getAgentStrict(parsed.agentId);
-  const config = await loadAgentRuntimeConfig(descriptor.id);
+  const config = await loadAgentRuntimeConfig(channel.workspaceId, descriptor.id);
+  assertManualAgentRunAllowed(config, descriptor.defaultName);
   const agent = descriptor.build({
     workspaceId: channel.workspaceId,
     siteScope: parsed.siteScope,

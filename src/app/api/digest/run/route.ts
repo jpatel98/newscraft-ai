@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { assertScheduledAgentRunAllowed } from "@/lib/agents/policy";
 import { getAgentStrict } from "@/lib/agents/registry";
 import { loadAgentRuntimeConfig } from "@/db/queries/agents";
 import { getChannelBySlug } from "@/db/queries/channels";
@@ -12,10 +13,11 @@ import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
 import { emptySiteScope } from "@/lib/site-scope";
 import { runAgentWithStream } from "@/lib/stream/run-agent-stream";
 import type { DailyDigest } from "@/lib/agents/news-monitor";
+import { DEFAULT_WORKSPACE_ID } from "@/lib/server/app-context";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-const WORKSPACE_ID = "default";
 const DIGEST_CHANNEL_SLUG = "news-digest";
 
 export async function POST(request: Request) {
@@ -34,7 +36,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const channel = await getChannelBySlug(WORKSPACE_ID, DIGEST_CHANNEL_SLUG);
+  const channel = await getChannelBySlug(DEFAULT_WORKSPACE_ID, DIGEST_CHANNEL_SLUG);
   if (!channel) {
     return Response.json(
       { ok: false, error: `Channel #${DIGEST_CHANNEL_SLUG} not found.` },
@@ -43,9 +45,10 @@ export async function POST(request: Request) {
   }
 
   const descriptor = getAgentStrict("news-monitor");
-  const config = await loadAgentRuntimeConfig(descriptor.id);
+  const config = await loadAgentRuntimeConfig(DEFAULT_WORKSPACE_ID, descriptor.id);
+  assertScheduledAgentRunAllowed(config, descriptor.defaultName);
   const agent = descriptor.build({
-    workspaceId: WORKSPACE_ID,
+    workspaceId: DEFAULT_WORKSPACE_ID,
     siteScope: emptySiteScope(),
     config,
   });
@@ -88,7 +91,7 @@ export async function POST(request: Request) {
       runId: runRecord.id,
     });
     await insertDigest({
-      workspaceId: WORKSPACE_ID,
+      workspaceId: DEFAULT_WORKSPACE_ID,
       channelId: channel.id,
       messageId,
       dateKey: digest.dateKey || today,

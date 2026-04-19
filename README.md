@@ -10,8 +10,9 @@ NewsCraft AI is a newsroom collaboration workspace built with Next.js 16 and the
   - `News Monitor` — manages a watchlist of sources and produces a daily digest.
 - **Streaming chat** — token-level streaming from the Agents SDK, with live "searching the web…" / "inspecting…" tool pills.
 - **Structured renderers** — expert shortlist card, story-brief card, daily-digest card.
-- **Editable agents** — per-agent system prompt, model override, tool toggles, persisted in SQLite and applied at runtime.
+- **Editable agents** — workspace-scoped agent system prompt, model override, and tool toggles, persisted in SQLite and applied at runtime.
 - **Persistence** — threads, messages, agent runs, sources, digests all in local SQLite via Drizzle ORM.
+- **Future-ready admin boundary** — users, workspace memberships, and workspace agent settings are separated now so real accounts/admin controls can land without a schema rewrite.
 - **Scheduled digests** — `/api/digest/run` endpoint + `node-cron` sibling script.
 
 ## Stack
@@ -33,7 +34,7 @@ cp .env.example .env.local          # then edit OPENAI_API_KEY, OPENAI_MODEL, CR
 npm install
 npm run db:generate                  # only needed if schema changes
 npm run db:migrate                   # applies migrations to ./data/newscraft.db
-npm run db:seed                      # seeds the default workspace + agents + topic channels
+npm run db:seed                      # seeds the default workspace + agents + topic channels + local admin
 
 npm run dev                          # http://localhost:3000
 ```
@@ -60,6 +61,8 @@ Chat happens in **channels** (`#general`, `#research`, `#news-digest`). Summon a
 Include `site:domain.com` or paste a URL in any message to scope the run.
 
 Click an agent in the sidebar to edit its **system prompt**, **model** (overrides `OPENAI_MODEL`), and which **tools** it can reach for. Changes take effect on the next run.
+
+Until full authentication is added, the app resolves a local development actor from `NEWSCRAFT_DEV_USER_EMAIL`. The seed script creates that user as the owner of the default workspace.
 
 ## Project structure
 
@@ -88,11 +91,12 @@ Click an agent in the sidebar to edit its **system prompt**, **model** (override
 - `OPENAI_MODEL` — default model id when an agent has no per-agent override. Currently defaults to `gpt-5.4-mini`.
 - `DATABASE_URL` — SQLite file path. Defaults to `./data/newscraft.db`.
 - `CRON_SECRET` — shared secret required by `/api/digest/run`. Also passed by `scripts/digest-cron.ts`.
+- `NEWSCRAFT_DEV_USER_EMAIL` — local dev identity used to resolve the current workspace actor until full auth is added. Defaults to `admin@newscraft.local`.
 - `DIGEST_CRON` — cron expression for the scheduled digest (default `0 7 * * *`).
 - `NEWSCRAFT_BASE_URL` — base URL the cron script hits (default `http://localhost:3000`).
 
 ## Notes
 
 - The three agents are registered in `src/lib/agents/registry.ts`. To add a new one: write `src/lib/agents/your-agent.ts` exporting a `createYourAgent(config?)` + defaults, add an entry to `AGENT_REGISTRY`, and rerun `npm run db:seed`.
-- Agent DB rows are re-synced from the registry on each seed run; description / icon / capabilities come from code, while `name`, `instructions`, `model`, and `enabledTools` are preserved once the user edits them.
+- Base agent definitions still live in the registry, but workspace-specific behavior now comes from `workspace_agent_settings`, which is the seam for future per-workspace admin controls and user accounts.
 - Scheduled cron runs as a sibling script rather than inside `next dev` to avoid HMR double-firing.

@@ -15,6 +15,44 @@ export const workspaces = sqliteTable("workspaces", {
   createdAt: integer("created_at").notNull().default(now),
 });
 
+export const users = sqliteTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    globalRole: text("global_role", { enum: ["user", "admin"] })
+      .notNull()
+      .default("user"),
+    createdAt: integer("created_at").notNull().default(now),
+  },
+  (table) => ({
+    emailUnique: uniqueIndex("users_email_unique").on(table.email),
+  }),
+);
+
+export const workspaceMemberships = sqliteTable(
+  "workspace_memberships",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["owner", "admin", "member", "viewer"] })
+      .notNull()
+      .default("member"),
+    createdAt: integer("created_at").notNull().default(now),
+  },
+  (table) => ({
+    pk: uniqueIndex("workspace_memberships_workspace_user").on(
+      table.workspaceId,
+      table.userId,
+    ),
+  }),
+);
+
 export const agents = sqliteTable("agents", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -35,6 +73,41 @@ export const agents = sqliteTable("agents", {
     .default([]),
   createdAt: integer("created_at").notNull().default(now),
 });
+
+export const workspaceAgentSettings = sqliteTable(
+  "workspace_agent_settings",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    name: text("name"),
+    description: text("description"),
+    instructions: text("instructions"),
+    model: text("model"),
+    enabledTools: text("enabled_tools", { mode: "json" }).$type<string[] | null>(),
+    isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
+    policy: text("policy", { mode: "json" })
+      .notNull()
+      .$type<{
+        allowManualRuns: boolean;
+        allowScheduledRuns: boolean;
+        editableByWorkspaceAdmins: boolean;
+      }>(),
+    updatedAt: integer("updated_at").notNull().default(now),
+    updatedByUserId: text("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => ({
+    pk: uniqueIndex("workspace_agent_settings_workspace_agent").on(
+      table.workspaceId,
+      table.agentId,
+    ),
+  }),
+);
 
 export const channels = sqliteTable(
   "channels",
@@ -170,7 +243,11 @@ export const digests = sqliteTable(
 );
 
 export type WorkspaceRow = typeof workspaces.$inferSelect;
+export type UserRow = typeof users.$inferSelect;
+export type WorkspaceMembershipRow = typeof workspaceMemberships.$inferSelect;
 export type AgentRow = typeof agents.$inferSelect;
+export type WorkspaceAgentSettingsRow =
+  typeof workspaceAgentSettings.$inferSelect;
 export type ChannelRow = typeof channels.$inferSelect;
 export type ThreadRow = typeof threads.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;

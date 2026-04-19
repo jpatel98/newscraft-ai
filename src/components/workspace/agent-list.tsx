@@ -1,10 +1,10 @@
 "use client";
 
-import type { AgentRow } from "@/db/schema";
+import type { WorkspaceAgentRecord } from "@/db/queries/agents";
 import { SidebarItem } from "./sidebar-item";
 
 export type AgentListProps = {
-  agents: AgentRow[];
+  agents: WorkspaceAgentRecord[];
   pathname: string;
   onNavigate: (href: string) => void;
 };

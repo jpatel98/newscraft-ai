@@ -41,6 +41,12 @@ export type AgentRuntimeConfig = {
   instructions: string;
   model: string;
   enabledTools: string[];
+  policy: {
+    allowManualRuns: boolean;
+    allowScheduledRuns: boolean;
+    editableByWorkspaceAdmins: boolean;
+  };
+  isEnabled: boolean;
 };
 
 export type AgentBuildContext = {

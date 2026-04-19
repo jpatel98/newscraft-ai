@@ -2,11 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { Save } from "lucide-react";
-import type { AgentRow } from "@/db/schema";
 import type {
   AgentCommandDescriptor,
   AgentToolSpec,
 } from "@/lib/agents/registry";
+import type { WorkspaceAgentRecord } from "@/db/queries/agents";
 import { saveAgent } from "@/lib/actions/save-agent";
 
 export type AgentDescriptorForUI = {
@@ -22,7 +22,7 @@ export type AgentDescriptorForUI = {
 
 export type AgentConfigEditorProps = {
   descriptor: AgentDescriptorForUI;
-  row: AgentRow;
+  row: WorkspaceAgentRecord;
 };
 
 export function AgentConfigEditor({ descriptor, row }: AgentConfigEditorProps) {

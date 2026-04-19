@@ -1,12 +1,10 @@
 import { notFound } from "next/navigation";
-import { db } from "@/db/client";
-import { agents as agentsTable } from "@/db/schema";
+import { listWorkspaceAgentRows } from "@/db/queries/agents";
 import { getChannelBySlug } from "@/db/queries/channels";
 import { listMessagesByChannel } from "@/db/queries/messages";
 import { ChatView } from "@/components/chat/chat-view";
 import type { ChatMessage } from "@/lib/hooks/use-agent-stream";
-
-const WORKSPACE_ID = "default";
+import { getCurrentAppContext } from "@/lib/server/app-context";
 
 export default async function ChannelPage({
   params,
@@ -14,11 +12,12 @@ export default async function ChannelPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const channel = await getChannelBySlug(WORKSPACE_ID, slug);
+  const { workspace } = await getCurrentAppContext();
+  const channel = await getChannelBySlug(workspace.id, slug);
   if (!channel) notFound();
 
   const rawMessages = await listMessagesByChannel(channel.id);
-  const agents = await db.select().from(agentsTable);
+  const agents = await listWorkspaceAgentRows(workspace.id);
 
   const initialMessages: ChatMessage[] = rawMessages
     .filter((row) => row.role === "user" || row.role === "assistant")
