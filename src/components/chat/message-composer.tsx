@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import type { ChannelRow } from "@/db/schema";
+import { findAgentByCommandName } from "@/lib/agents/catalog";
 import { getChannelCommandGuidance } from "@/lib/chat-command-guidance";
 import { CommandPalette } from "./command-palette";
 
@@ -30,6 +31,7 @@ export function MessageComposer({
   const guidance = getChannelCommandGuidance(channel);
   const paletteOpen =
     !paletteDismissed && value.startsWith("/") && !value.includes(" ");
+  const canSubmitWhilePaletteOpen = isSubmitReadyCommand(value);
 
   const submit = useCallback(() => {
     const trimmed = value.trim();
@@ -43,7 +45,11 @@ export function MessageComposer({
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       submit();
-    } else if (event.key === "Enter" && !event.shiftKey && !paletteOpen) {
+    } else if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      (!paletteOpen || canSubmitWhilePaletteOpen)
+    ) {
       event.preventDefault();
       submit();
     } else if (event.key === "Escape") {
@@ -111,4 +117,13 @@ export function MessageComposer({
       </div>
     </div>
   );
+}
+
+function isSubmitReadyCommand(rawValue: string) {
+  const trimmed = rawValue.trim();
+  if (!trimmed.startsWith("/") || trimmed.includes(" ")) return false;
+  if (trimmed === "/help" || trimmed === "/clear") return true;
+
+  const match = findAgentByCommandName(trimmed);
+  return match?.command.requiresPrompt === false;
 }
