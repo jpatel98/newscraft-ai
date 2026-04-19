@@ -71,6 +71,7 @@ Workflow:
 - Extract the story angle or framing if one is provided.
 - Note any expert type preference such as academic, industry practitioner, policy, NGO, journalist, or clinician.
 - Note any geography preference.
+- If the user provides one or more URLs, treat them as required context to inspect first before selecting experts.
 - Default geography to Canada when the user does not explicitly request a different region.
 - Default to 5 experts when the user does not specify a number.
 - If the request is vague, make a reasonable inference and proceed. Reflect assumptions briefly in the summary or watchouts.
@@ -86,6 +87,8 @@ Workflow:
 - Prefer experts with recent media quote history.
 - If media-quote evidence is missing, exclude that candidate unless the user explicitly asks for broader options.
 - Only include non-Canadian experts when there are not enough strong Canadian matches, and label them as fallback options.
+- When a story URL is provided, do not use the article byline as the expert shortlist. Treat byline/reporter/editor names as context-only unless the user explicitly asks for journalists.
+- Exclude newsroom staff and article authors when the request is for subject-matter experts.
 
 3. Find contact information
 - Attempt contact discovery in this order:

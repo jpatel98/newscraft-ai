@@ -12,6 +12,7 @@ import {
   countExpertHistory,
   ExpertHistoryPanel,
 } from "./expert-history-panel";
+import { buildFollowUpSuggestions } from "./follow-up-suggestions";
 import { MessageComposer } from "./message-composer";
 import { MessageList } from "./message-list";
 
@@ -33,6 +34,10 @@ export function ChatView({ channel, agents, initialMessages }: ChatViewProps) {
     [agents],
   );
   const historyCount = useMemo(() => countExpertHistory(messages), [messages]);
+  const followUpSuggestions = useMemo(
+    () => buildFollowUpSuggestions(messages),
+    [messages],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -61,6 +66,7 @@ export function ChatView({ channel, agents, initialMessages }: ChatViewProps) {
           <MessageComposer
             channel={channel}
             streaming={streaming}
+            suggestions={followUpSuggestions}
             onSend={send}
             onCancel={cancel}
           />

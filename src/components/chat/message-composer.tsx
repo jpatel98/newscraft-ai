@@ -13,10 +13,13 @@ import { findAgentByCommandName } from "@/lib/agents/catalog";
 import { getChannelCommandGuidance } from "@/lib/chat-command-guidance";
 import { COMMANDS_CATALOG } from "@/lib/agents/commands-catalog";
 import { CommandPalette } from "./command-palette";
+import type { FollowUpSuggestion } from "./follow-up-suggestions";
+import { FollowUpSuggestions } from "./follow-up-suggestions";
 
 export type MessageComposerProps = {
   channel: ChannelRow;
   streaming: boolean;
+  suggestions: FollowUpSuggestion[];
   onSend: (message: string) => void;
   onCancel: () => void;
 };
@@ -24,6 +27,7 @@ export type MessageComposerProps = {
 export function MessageComposer({
   channel,
   streaming,
+  suggestions,
   onSend,
   onCancel,
 }: MessageComposerProps) {
@@ -48,6 +52,17 @@ export function MessageComposer({
     setPaletteDismissed(false);
     onSend(trimmed);
   }, [value, streaming, onSend]);
+  const handleSelectSuggestion = useCallback(
+    (prompt: string) => {
+      const trimmed = prompt.trim();
+      if (!trimmed || streaming) return;
+      setValue("");
+      setPaletteDismissed(false);
+      onSend(trimmed);
+      textareaRef.current?.focus();
+    },
+    [onSend, streaming],
+  );
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -92,6 +107,12 @@ export function MessageComposer({
   return (
     <div className="border-t border-[var(--border)] bg-[var(--bg)] px-6 py-4">
       <div className="mx-auto flex max-w-3xl flex-col gap-2">
+        <FollowUpSuggestions
+          suggestions={suggestions}
+          disabled={streaming}
+          onSelect={handleSelectSuggestion}
+        />
+
         <CommandPalette
           open={paletteOpen}
           query={value}

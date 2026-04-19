@@ -8,9 +8,24 @@ export function ExpertResultCard({
   result: ExpertiseFinderResult;
 }) {
   const experts = Array.isArray(result.experts) ? result.experts : [];
+  const contextUrls = Array.isArray(result.contextUrls) ? result.contextUrls : [];
 
   return (
     <article className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+      {contextUrls.length > 0 ? (
+        <p className="pb-2 text-xs text-[var(--fg-subtle)]">
+          <span className="font-medium text-[var(--fg-muted)]">
+            Context URL analyzed:
+          </span>{" "}
+          {contextUrls.map((url, index) => (
+            <span key={`${url}-${index}`}>
+              {index > 0 ? ", " : ""}
+              <ExternalLink href={url} label={url} />
+            </span>
+          ))}
+        </p>
+      ) : null}
+
       {experts.length > 0 ? (
         <ol className="flex flex-col gap-3">
           {experts.map((rawExpert, index) => {

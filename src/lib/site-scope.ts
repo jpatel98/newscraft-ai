@@ -102,7 +102,6 @@ export function parseSiteScopeTokens(input: string) {
     const normalized = normalizeSiteTarget(rawValue);
 
     if (normalized) {
-      collectedDomains.add(normalized.domain);
       collectedUrls.add(normalized.url);
     }
 
@@ -113,7 +112,6 @@ export function parseSiteScopeTokens(input: string) {
     const normalized = normalizeSiteTarget(rawValue);
 
     if (normalized) {
-      collectedDomains.add(normalized.domain);
       collectedUrls.add(normalized.url);
     }
 

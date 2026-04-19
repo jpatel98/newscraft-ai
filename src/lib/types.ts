@@ -32,6 +32,7 @@ export type ExpertiseFinderResult = {
   storyAngle: string;
   summary: string;
   confidence: "high" | "medium" | "low";
+  contextUrls?: string[];
   experts: ExpertCandidate[];
   nextMoves: string[];
   watchouts: string[];

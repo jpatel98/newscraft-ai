@@ -33,6 +33,7 @@ export const expertiseFinderResultSchema = z.object({
   storyAngle: z.string().default(""),
   summary: z.string().min(1),
   confidence: z.enum(["high", "medium", "low"]),
+  contextUrls: z.array(z.string().min(1)).max(8).default([]),
   experts: z.array(expertSchema).max(10).default([]),
   nextMoves: z.array(z.string().min(1)).max(4).default([]),
   watchouts: z.array(z.string().min(1)).max(3).default([]),
@@ -48,6 +49,7 @@ function sanitizeExpertiseResult(result: ExpertiseFinderResult): ExpertiseFinder
     topic: stripCitationMarkers(result.topic),
     storyAngle: stripCitationMarkers(result.storyAngle),
     summary: stripCitationMarkers(result.summary),
+    contextUrls: normalizeContextUrls(result.contextUrls ?? []),
     experts: result.experts.map((expert) => ({
       ...expert,
       name: stripCitationMarkers(expert.name),
@@ -137,8 +139,6 @@ function scoreCandidateLink(href: string, label: string) {
     "experts",
     "people",
     "person",
-    "author",
-    "authors",
     "faculty",
     "staff",
     "team",
@@ -160,6 +160,18 @@ function scoreCandidateLink(href: string, label: string) {
   if (haystack.includes("/topic/")) {
     score -= 1;
   }
+
+  if (haystack.includes("/author/") || haystack.includes("/authors/")) {
+    score -= 2;
+  }
+
+  ["reporter", "journalist", "columnist", "staff writer", "newsroom"].forEach(
+    (keyword) => {
+      if (haystack.includes(keyword)) {
+        score -= 2;
+      }
+    },
+  );
 
   return score;
 }
@@ -280,7 +292,6 @@ function createProbeSiteDirectoriesTool(siteScope: SiteScope) {
         "/faculty",
         "/team",
         "/staff",
-        "/authors",
         "/contributors",
         "/fellows",
         "/speakers",
@@ -338,6 +349,7 @@ Workflow:
 - Extract the story angle or framing if one is provided.
 - Note any expert type preference such as academic, industry practitioner, policy, NGO, journalist, or clinician.
 - Note any geography preference.
+- If the user provides one or more URLs, treat them as required context to inspect first before selecting experts.
 - Default geography to Canada when the user does not explicitly request a different region.
 - Default to 5 experts when the user does not specify a number.
 - If the request is vague, make a reasonable inference and proceed. Reflect assumptions briefly in the summary or watchouts.
@@ -353,6 +365,8 @@ Workflow:
 - Prefer experts with recent media quote history.
 - If media-quote evidence is missing, exclude that candidate unless the user explicitly asks for broader options.
 - Only include non-Canadian experts when there are not enough strong Canadian matches, and label them as fallback options.
+- When a story URL is provided, do not use the article byline as the expert shortlist. Treat byline/reporter/editor names as context-only unless the user explicitly asks for journalists.
+- Exclude newsroom staff and article authors when the request is for subject-matter experts.
 
 3. Find contact information
 - Attempt contact discovery in this order:
@@ -448,6 +462,9 @@ export function createExpertiseFinderAgent(
       ? `This run is scoped to these domains first: ${siteScope.allowedDomains.join(", ")}.
 Use the scoped web search and site inspection tools before broadening your assumptions.
 If preferred URLs are available, inspect them early: ${siteScope.preferredUrls.join(", ")}.`
+      : siteScope.preferredUrls.length > 0
+        ? `Use these user-provided URLs as required story context and inspect them first: ${siteScope.preferredUrls.join(", ")}.
+After extracting the topic and angle from those pages, broaden to the open web to find the best experts.`
       : "This run is broad web research unless the user narrows it during the conversation.";
   const userTuningInstructions = buildUserTuningInstructions(
     resolved.userPromptTuning,
@@ -480,6 +497,7 @@ If preferred URLs are available, inspect them early: ${siteScope.preferredUrls.j
       siteInstructions,
       userTuningInstructions,
       CANADIAN_VOICE_REQUIREMENT_INSTRUCTIONS,
+      STORY_URL_ANALYSIS_REQUIREMENT_INSTRUCTIONS,
       MEDIA_QUOTE_REQUIREMENT_INSTRUCTIONS,
     ]
       .filter(Boolean)
@@ -519,6 +537,12 @@ const CANADIAN_VOICE_REQUIREMENT_INSTRUCTIONS = `Canadian voice requirement (non
 - Keep the list majority-Canadian whenever strong candidates exist.
 - If there are not enough strong Canadian matches, add clearly labeled non-Canadian fallback options and explain the gap in summary or watchouts.`;
 
+const STORY_URL_ANALYSIS_REQUIREMENT_INSTRUCTIONS = `Story URL handling requirement (non-optional):
+- If the user includes a URL, inspect that URL first and use it to extract the topic, key issues, and who should be interviewed.
+- Treat the provided article as context for topic understanding, not as the expert list source.
+- Do not return article byline authors, reporters, editors, or outlet staff as experts unless the user explicitly asks for journalist voices.
+- Prefer independent subject-matter experts who can comment on the story's underlying issue.`;
+
 const MEDIA_QUOTE_REQUIREMENT_INSTRUCTIONS = `Media quote requirement (non-optional):
 - Before finalizing each expert, verify at least one public source showing they were quoted or interviewed in credible media.
 - Keep only candidates with verified media quote history unless the user explicitly asks for broader options.
@@ -540,12 +564,21 @@ export async function runExpertiseFinder({
       })
     : await run(agent, prompt);
 
+  const parsed = sanitizeExpertiseResult(
+    expertiseFinderResultSchema.parse(
+      result.finalOutput,
+    ) as ExpertiseFinderResult,
+  );
+  const contextUrls = normalizeContextUrls([
+    ...(parsed.contextUrls ?? []),
+    ...siteScope.preferredUrls,
+  ]);
+
   return {
-    finalOutput: sanitizeExpertiseResult(
-      expertiseFinderResultSchema.parse(
-        result.finalOutput,
-      ) as ExpertiseFinderResult,
-    ),
+    finalOutput: {
+      ...parsed,
+      contextUrls,
+    },
     lastResponseId: result.lastResponseId ?? null,
   };
 }
@@ -576,6 +609,9 @@ ${contactLines.join("\n")}`;
   return [
     "## Expert Finder Results",
     `Topic: ${result.topic}`,
+    result.contextUrls && result.contextUrls.length > 0
+      ? `Context URL analyzed: ${result.contextUrls.join(", ")}`
+      : "",
     result.storyAngle ? `Story angle: ${result.storyAngle}` : "",
     result.summary,
     `Confidence: ${result.confidence}`,
@@ -589,4 +625,25 @@ ${contactLines.join("\n")}`;
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function normalizeContextUrls(urls: string[]) {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const raw of urls) {
+    const candidate = raw.trim();
+    if (!candidate) continue;
+    try {
+      const parsed = new URL(candidate);
+      const key = parsed.toString();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      normalized.push(key);
+    } catch {
+      continue;
+    }
+  }
+
+  return normalized.slice(0, 8);
 }

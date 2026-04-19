@@ -71,7 +71,7 @@ function buildHelpReply() {
 
   lines.push("");
   lines.push(
-    "Add `site:domain.com` or paste a URL anywhere in the message to scope the search.",
+    "Add `site:domain.com` to scope a search. Paste a URL anywhere in the message to use it as story context.",
   );
 
   return lines.join("\n");
