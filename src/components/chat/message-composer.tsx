@@ -3,6 +3,7 @@
 import { Send, Square } from "lucide-react";
 import {
   useCallback,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -10,6 +11,7 @@ import {
 import type { ChannelRow } from "@/db/schema";
 import { findAgentByCommandName } from "@/lib/agents/catalog";
 import { getChannelCommandGuidance } from "@/lib/chat-command-guidance";
+import { COMMANDS_CATALOG } from "@/lib/agents/commands-catalog";
 import { CommandPalette } from "./command-palette";
 
 export type MessageComposerProps = {
@@ -31,6 +33,12 @@ export function MessageComposer({
   const guidance = getChannelCommandGuidance(channel);
   const paletteOpen =
     !paletteDismissed && value.startsWith("/") && !value.includes(" ");
+  const paletteSuggestions = useMemo(() => {
+    const lowered = value.toLowerCase();
+    return COMMANDS_CATALOG.filter((command) =>
+      command.name.toLowerCase().startsWith(lowered),
+    );
+  }, [value]);
   const canSubmitWhilePaletteOpen = isSubmitReadyCommand(value);
 
   const submit = useCallback(() => {
@@ -48,6 +56,17 @@ export function MessageComposer({
     } else if (
       event.key === "Enter" &&
       !event.shiftKey &&
+      paletteOpen &&
+      !canSubmitWhilePaletteOpen
+    ) {
+      event.preventDefault();
+      const firstSuggestion = paletteSuggestions[0];
+      if (firstSuggestion) {
+        selectCommand(firstSuggestion.name);
+      }
+    } else if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
       (!paletteOpen || canSubmitWhilePaletteOpen)
     ) {
       event.preventDefault();
@@ -58,9 +77,16 @@ export function MessageComposer({
   };
 
   const selectCommand = (commandName: string) => {
-    setValue(`${commandName} `);
+    const nextValue = `${commandName} `;
+    setValue(nextValue);
     setPaletteDismissed(false);
-    textareaRef.current?.focus();
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.value = nextValue;
+      textarea.focus();
+      const cursor = nextValue.length;
+      textarea.setSelectionRange(cursor, cursor);
+    }
   };
 
   return (
