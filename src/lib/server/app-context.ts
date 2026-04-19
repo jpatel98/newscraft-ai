@@ -1,13 +1,23 @@
 import {
-  getFirstUser,
-  getUserByEmail,
+  getUserById,
   getWorkspaceById,
   getWorkspaceMembership,
 } from "@/db/queries/access";
 import type { UserRow, WorkspaceMembershipRow, WorkspaceRow } from "@/db/schema";
+import { getSessionUserId } from "./auth";
 
 export const DEFAULT_WORKSPACE_ID = "default";
-const DEFAULT_DEV_USER_EMAIL = "admin@newscraft.local";
+
+export class AppAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AppAuthError";
+  }
+}
+
+export function isAppAuthError(error: unknown): error is AppAuthError {
+  return error instanceof AppAuthError;
+}
 
 export type CurrentAppContext = {
   workspace: WorkspaceRow;
@@ -29,8 +39,8 @@ export async function getCurrentAppContext(): Promise<CurrentAppContext> {
     );
   }
 
-  const email = process.env.NEWSCRAFT_DEV_USER_EMAIL ?? DEFAULT_DEV_USER_EMAIL;
-  const user = (await getUserByEmail(email)) ?? (await getFirstUser());
+  const userId = await getSessionUserId();
+  const user = userId ? await getUserById(userId) : null;
   const membership = user
     ? await getWorkspaceMembership(workspace.id, user.id)
     : null;
@@ -45,7 +55,7 @@ export async function getCurrentAppContext(): Promise<CurrentAppContext> {
 export async function requireWorkspaceMembership(): Promise<AuthenticatedAppContext> {
   const context = await getCurrentAppContext();
   if (!context.user || !context.membership) {
-    throw new Error("No workspace membership found for the current actor.");
+    throw new AppAuthError("Sign in is required to access this workspace.");
   }
   return {
     workspace: context.workspace,
@@ -60,7 +70,9 @@ export async function requireWorkspaceAdmin(): Promise<AuthenticatedAppContext> 
     context.membership.role !== "owner" &&
     context.membership.role !== "admin"
   ) {
-    throw new Error("Current actor is not allowed to administer this workspace.");
+    throw new AppAuthError(
+      "Current actor is not allowed to administer this workspace.",
+    );
   }
   return context;
 }

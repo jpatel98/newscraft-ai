@@ -15,7 +15,10 @@ import {
 import { deleteMessagesByChannel, insertMessage } from "@/db/queries/messages";
 import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
 import { loadAgentRuntimeConfig } from "@/db/queries/agents";
-import { requireWorkspaceMembership } from "@/lib/server/app-context";
+import {
+  isAppAuthError,
+  requireWorkspaceMembership,
+} from "@/lib/server/app-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,7 +64,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const context = await requireWorkspaceMembership();
+  let context: Awaited<ReturnType<typeof requireWorkspaceMembership>>;
+  try {
+    context = await requireWorkspaceMembership();
+  } catch (error) {
+    if (isAppAuthError(error)) {
+      return Response.json({ ok: false, error: error.message }, { status: 401 });
+    }
+    throw error;
+  }
   if (context.workspace.id !== channel.workspaceId) {
     return Response.json(
       { ok: false, error: "You do not have access to this workspace." },

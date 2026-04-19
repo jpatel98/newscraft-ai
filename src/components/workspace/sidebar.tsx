@@ -47,6 +47,12 @@ export function Sidebar({
         <p className="leading-relaxed">
           Type <span className="wkbench-kbd">/help</span> in any channel to see the available newsroom actions.
         </p>
+        <a
+          href="/auth/logout"
+          className="mt-3 inline-flex text-[0.75rem] text-[var(--fg-onDark)] underline underline-offset-2"
+        >
+          Sign out
+        </a>
       </div>
     </aside>
   );

@@ -31,6 +31,26 @@ export const users = sqliteTable(
   }),
 );
 
+export const authSessions = sqliteTable(
+  "auth_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    createdAt: integer("created_at").notNull().default(now),
+    revokedAt: integer("revoked_at"),
+  },
+  (table) => ({
+    tokenHashUnique: uniqueIndex("auth_sessions_token_hash_unique").on(
+      table.tokenHash,
+    ),
+    byUser: index("auth_sessions_user_created").on(table.userId, table.createdAt),
+  }),
+);
+
 export const workspaceMemberships = sqliteTable(
   "workspace_memberships",
   {
@@ -244,6 +264,7 @@ export const digests = sqliteTable(
 
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type UserRow = typeof users.$inferSelect;
+export type AuthSessionRow = typeof authSessions.$inferSelect;
 export type WorkspaceMembershipRow = typeof workspaceMemberships.$inferSelect;
 export type AgentRow = typeof agents.$inferSelect;
 export type WorkspaceAgentSettingsRow =

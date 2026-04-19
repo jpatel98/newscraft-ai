@@ -7,6 +7,11 @@ export async function getUserByEmail(email: string) {
   return rows[0] ?? null;
 }
 
+export async function getUserById(id: string) {
+  const rows = await db.select().from(users).where(eq(users.id, id));
+  return rows[0] ?? null;
+}
+
 export async function getFirstUser() {
   const rows = await db.select().from(users).limit(1);
   return rows[0] ?? null;
@@ -29,4 +34,3 @@ export async function getWorkspaceMembership(workspaceId: string, userId: string
     );
   return rows[0] ?? null;
 }
-

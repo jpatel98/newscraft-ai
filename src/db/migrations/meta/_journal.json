@@ -15,6 +15,13 @@
       "when": 1776540000000,
       "tag": "0001_admin_architecture",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1776552000000,
+      "tag": "0002_auth_sessions",
+      "breakpoints": true
     }
   ]
 }

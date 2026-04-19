@@ -62,7 +62,11 @@ Include `site:domain.com` or paste a URL in any message to scope the run.
 
 Click an agent in the sidebar to edit its **system prompt**, **model** (overrides `OPENAI_MODEL`), and which **tools** it can reach for. Changes take effect on the next run.
 
-Until full authentication is added, the app resolves a local development actor from `NEWSCRAFT_DEV_USER_EMAIL`. The seed script creates that user as the owner of the default workspace.
+Sign-in flow:
+
+- `GET /login` shows the standard newsroom sign-in button (general account).
+- `GET /auth/special/<token>` signs in as admin via a hidden link.
+- Admin is never listed in the UI; the only admin entry point is the special link token.
 
 ## Project structure
 
@@ -91,7 +95,9 @@ Until full authentication is added, the app resolves a local development actor f
 - `OPENAI_MODEL` — default model id when an agent has no per-agent override. Currently defaults to `gpt-5.4-mini`.
 - `DATABASE_URL` — SQLite file path. Defaults to `./data/newscraft.db`.
 - `CRON_SECRET` — shared secret required by `/api/digest/run`. Also passed by `scripts/digest-cron.ts`.
-- `NEWSCRAFT_DEV_USER_EMAIL` — local dev identity used to resolve the current workspace actor until full auth is added. Defaults to `admin@newscraft.local`.
+- `NEWSCRAFT_GENERAL_USER_EMAIL` — email for the seeded general account used by `/auth/general`. Defaults to `producer@newscraft.local`.
+- `NEWSCRAFT_ADMIN_USER_EMAIL` — email for the seeded admin account used by the hidden admin link. Defaults to `admin@newscraft.local`.
+- `NEWSCRAFT_ADMIN_SIGNIN_TOKEN` — token embedded in the hidden admin URL `/auth/special/<token>`. Defaults to `local-admin-link` for local development.
 - `DIGEST_CRON` — cron expression for the scheduled digest (default `0 7 * * *`).
 - `NEWSCRAFT_BASE_URL` — base URL the cron script hits (default `http://localhost:3000`).
 

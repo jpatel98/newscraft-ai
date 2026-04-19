@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { listWorkspaceAgentRows } from "@/db/queries/agents";
 import { listChannels } from "@/db/queries/channels";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
@@ -9,10 +10,12 @@ export default async function WorkspaceLayout({
   children: React.ReactNode;
 }) {
   const { workspace, membership } = await getCurrentAppContext();
+  if (!membership) {
+    redirect("/login");
+  }
   const channels = await listChannels(workspace.id);
   const agents = await listWorkspaceAgentRows(workspace.id);
-  const showAdminTools =
-    membership?.role === "owner" || membership?.role === "admin";
+  const showAdminTools = membership.role === "owner" || membership.role === "admin";
 
   if (channels.length === 0) {
     return <BootstrapNotice />;

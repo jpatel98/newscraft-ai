@@ -8,11 +8,16 @@ import {
 } from "@/db/schema";
 import { seedWorkspaceAgentSettings } from "@/db/queries/agents";
 import { listAgents } from "@/lib/agents/registry";
+import {
+  getAdminEmail,
+  getGeneralEmail,
+} from "@/lib/server/auth-identities";
 
 const WORKSPACE_ID = "default";
 const DEV_ADMIN_ID = "user-admin";
-const DEV_ADMIN_EMAIL =
-  process.env.NEWSCRAFT_DEV_USER_EMAIL ?? "admin@newscraft.local";
+const GENERAL_USER_ID = "user-general";
+const DEV_ADMIN_EMAIL = getAdminEmail();
+const GENERAL_USER_EMAIL = getGeneralEmail();
 
 const TOPIC_CHANNELS = [
   { slug: "general", name: "general", sortOrder: 100 },
@@ -37,11 +42,30 @@ async function main() {
     .onConflictDoNothing();
 
   await db
+    .insert(users)
+    .values({
+      id: GENERAL_USER_ID,
+      email: GENERAL_USER_EMAIL,
+      name: "Newsroom User",
+      globalRole: "user",
+    })
+    .onConflictDoNothing();
+
+  await db
     .insert(workspaceMemberships)
     .values({
       workspaceId: WORKSPACE_ID,
       userId: DEV_ADMIN_ID,
       role: "owner",
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(workspaceMemberships)
+    .values({
+      workspaceId: WORKSPACE_ID,
+      userId: GENERAL_USER_ID,
+      role: "member",
     })
     .onConflictDoNothing();
 
@@ -92,7 +116,7 @@ async function main() {
   });
 
   console.log(
-    `Seeded workspace \`${WORKSPACE_ID}\` with agents, topic channels, and local admin ${DEV_ADMIN_EMAIL}.`,
+    `Seeded workspace \`${WORKSPACE_ID}\` with agents, topic channels, admin ${DEV_ADMIN_EMAIL}, and general user ${GENERAL_USER_EMAIL}.`,
   );
 }
 

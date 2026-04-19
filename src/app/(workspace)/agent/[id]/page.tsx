@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   AgentConfigEditor,
   type AgentSourceRecord,
@@ -7,7 +7,7 @@ import {
 import { getWorkspaceAgentRow } from "@/db/queries/agents";
 import { listSources } from "@/db/queries/sources";
 import { getAgent } from "@/lib/agents/catalog";
-import { requireWorkspaceAdmin } from "@/lib/server/app-context";
+import { getCurrentAppContext } from "@/lib/server/app-context";
 
 export default async function AgentConfigPage({
   params,
@@ -15,7 +15,13 @@ export default async function AgentConfigPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { workspace } = await requireWorkspaceAdmin();
+  const { workspace, membership } = await getCurrentAppContext();
+  if (!membership) {
+    redirect("/login");
+  }
+  if (membership.role !== "owner" && membership.role !== "admin") {
+    notFound();
+  }
   const descriptor = getAgent(id);
   const row = await getWorkspaceAgentRow(workspace.id, id);
   if (!descriptor || !row) notFound();
