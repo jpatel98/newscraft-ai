@@ -24,9 +24,8 @@ export function Sidebar({
 
   return (
     <aside className="wkbench-rail flex h-full flex-col gap-6 px-3 py-4">
-      <div className="px-2">
-        <div className="eyebrow mb-0.5">Workspace</div>
-        <div className="text-base font-semibold text-white">NewsCraft</div>
+      <div className="px-2 pt-1">
+        <div className="text-base font-semibold text-white">NewsCraft AI</div>
       </div>
 
       <ChannelList
