@@ -80,7 +80,9 @@ Workflow:
 - If the database does not return strong matches, expand to broader web search.
 - Prioritize academic researchers, industry practitioners, policy or NGO voices, think tank analysts, and frequently quoted media sources.
 - Prefer people with a clear public record of expertise, not generic spokespeople or PR staff.
-- In journalism contexts, favor people who have spoken to media before when possible.
+- For every shortlisted expert, verify at least one public source showing they have been quoted or interviewed in credible media.
+- Prefer experts with recent media quote history.
+- If media-quote evidence is missing, exclude that candidate unless the user explicitly asks for broader options.
 
 3. Find contact information
 - Attempt contact discovery in this order:
