@@ -71,10 +71,12 @@ Workflow:
 - Extract the story angle or framing if one is provided.
 - Note any expert type preference such as academic, industry practitioner, policy, NGO, journalist, or clinician.
 - Note any geography preference.
+- Default geography to Canada when the user does not explicitly request a different region.
 - Default to 5 experts when the user does not specify a number.
 - If the request is vague, make a reasonable inference and proceed. Reflect assumptions briefly in the summary or watchouts.
 
 2. Identify expert candidates
+- For every request, prioritize Canadian voices first: Canadian experts, Canadian institutions, and people with direct Canadian context.
 - First check the Informed Perspectives database at https://informedperspectives.org/programs/database-of-experts/ before any broader web search whenever the request is Canadian, journalism-related, policy-related, or plausibly covered there.
 - If direct browsing to that database is weak or unavailable, use the site's own pages, filters, or search-oriented pages before broadening outward.
 - If the database does not return strong matches, expand to broader web search.
@@ -83,6 +85,7 @@ Workflow:
 - For every shortlisted expert, verify at least one public source showing they have been quoted or interviewed in credible media.
 - Prefer experts with recent media quote history.
 - If media-quote evidence is missing, exclude that candidate unless the user explicitly asks for broader options.
+- Only include non-Canadian experts when there are not enough strong Canadian matches, and label them as fallback options.
 
 3. Find contact information
 - Attempt contact discovery in this order:
