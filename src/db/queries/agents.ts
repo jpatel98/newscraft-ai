@@ -20,6 +20,8 @@ export type WorkspaceAgentPolicy = {
 
 export type WorkspaceAgentRecord = AgentRow & {
   workspaceId: string;
+  userPromptTuning: string | null;
+  preferredSourceUrls: string[];
   isEnabled: boolean;
   policy: WorkspaceAgentPolicy;
   updatedAt: number;
@@ -61,6 +63,8 @@ export async function listWorkspaceAgentRows(
       name: settings?.name ?? baseRow.name,
       description: settings?.description ?? baseRow.description,
       instructions: settings?.instructions ?? baseRow.instructions,
+      userPromptTuning: settings?.userPromptTuning ?? null,
+      preferredSourceUrls: settings?.preferredSourceUrls ?? [],
       model: settings?.model ?? baseRow.model,
       enabledTools: settings?.enabledTools ?? baseRow.enabledTools,
       workspaceId,
@@ -91,6 +95,8 @@ export async function loadAgentRuntimeConfig(
   return {
     name: row?.name ?? descriptor.defaultName,
     instructions: row?.instructions ?? descriptor.defaults.instructions,
+    userPromptTuning: row?.userPromptTuning ?? null,
+    preferredSourceUrls: row?.preferredSourceUrls ?? [],
     model: row?.model ?? fallbackModel,
     enabledTools:
       row?.enabledTools && row.enabledTools.length > 0
@@ -108,6 +114,8 @@ export async function updateWorkspaceAgentConfig(
     name?: string;
     description?: string;
     instructions?: string;
+    userPromptTuning?: string | null;
+    preferredSourceUrls?: string[];
     model?: string | null;
     enabledTools?: string[];
   },
@@ -136,6 +144,12 @@ export async function updateWorkspaceAgentConfig(
     description: patch.description ?? existing?.description ?? baseAgent.description,
     instructions:
       patch.instructions ?? existing?.instructions ?? baseAgent.instructions,
+    userPromptTuning:
+      patch.userPromptTuning !== undefined
+        ? patch.userPromptTuning
+        : (existing?.userPromptTuning ?? null),
+    preferredSourceUrls:
+      patch.preferredSourceUrls ?? existing?.preferredSourceUrls ?? [],
     model:
       patch.model !== undefined ? patch.model : (existing?.model ?? baseAgent.model),
     enabledTools:
@@ -155,6 +169,8 @@ export async function updateWorkspaceAgentConfig(
         name: next.name,
         description: next.description,
         instructions: next.instructions,
+        userPromptTuning: next.userPromptTuning,
+        preferredSourceUrls: next.preferredSourceUrls,
         model: next.model,
         enabledTools: next.enabledTools,
         updatedAt: next.updatedAt,
@@ -176,6 +192,8 @@ export async function seedWorkspaceAgentSettings(
         name: agent.defaultName,
         description: agent.description,
         instructions: agent.defaults.instructions,
+        userPromptTuning: null,
+        preferredSourceUrls: [],
         model: null,
         enabledTools: agent.defaults.enabledTools,
         isEnabled: true,

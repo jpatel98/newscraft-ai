@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { listWorkspaceAgentRows } from "@/db/queries/agents";
 import { getChannelBySlug } from "@/db/queries/channels";
 import { listMessagesByChannel } from "@/db/queries/messages";
+import type { AgentChatRecord } from "@/lib/agents/ui-types";
 import { ChatView } from "@/components/chat/chat-view";
 import type { ChatMessage } from "@/lib/hooks/use-agent-stream";
 import { getCurrentAppContext } from "@/lib/server/app-context";
@@ -17,7 +18,13 @@ export default async function ChannelPage({
   if (!channel) notFound();
 
   const rawMessages = await listMessagesByChannel(channel.id);
-  const agents = await listWorkspaceAgentRows(workspace.id);
+  const agents = (await listWorkspaceAgentRows(workspace.id)).map(
+    (agent) =>
+      ({
+        id: agent.id,
+        name: agent.name,
+      }) satisfies AgentChatRecord,
+  );
 
   const initialMessages: ChatMessage[] = rawMessages
     .filter((row) => row.role === "user" || row.role === "assistant")

@@ -106,6 +106,10 @@ export const workspaceAgentSettings = sqliteTable(
     name: text("name"),
     description: text("description"),
     instructions: text("instructions"),
+    userPromptTuning: text("user_prompt_tuning"),
+    preferredSourceUrls: text("preferred_source_urls", { mode: "json" })
+      .$type<string[] | null>()
+      .default([]),
     model: text("model"),
     enabledTools: text("enabled_tools", { mode: "json" }).$type<string[] | null>(),
     isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),

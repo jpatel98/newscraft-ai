@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { listWorkspaceAgentRows } from "@/db/queries/agents";
 import { listChannels } from "@/db/queries/channels";
+import type { AgentNavRecord } from "@/lib/agents/ui-types";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 import { getCurrentAppContext } from "@/lib/server/app-context";
 
@@ -14,7 +15,15 @@ export default async function WorkspaceLayout({
     redirect("/login");
   }
   const channels = await listChannels(workspace.id);
-  const agents = await listWorkspaceAgentRows(workspace.id);
+  const agents = (await listWorkspaceAgentRows(workspace.id)).map(
+    (agent) =>
+      ({
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        iconKey: agent.iconKey,
+      }) satisfies AgentNavRecord,
+  );
 
   if (channels.length === 0) {
     return <BootstrapNotice />;

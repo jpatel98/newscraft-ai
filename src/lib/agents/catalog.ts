@@ -20,6 +20,8 @@ export type AgentToolSpec = {
 export type AgentRuntimeConfig = {
   name: string;
   instructions: string;
+  userPromptTuning?: string | null;
+  preferredSourceUrls?: string[];
   model: string;
   enabledTools: string[];
   policy: {

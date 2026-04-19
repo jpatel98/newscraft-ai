@@ -6,7 +6,7 @@ import type {
   AgentCommandDescriptor,
   AgentToolSpec,
 } from "@/lib/agents/catalog";
-import type { WorkspaceAgentRecord } from "@/db/queries/agents";
+import type { AgentConfigRowForUI } from "@/lib/agents/ui-types";
 import { saveAgent } from "@/lib/actions/save-agent";
 import {
   deleteNewsSource,
@@ -25,15 +25,11 @@ export type AgentDescriptorForUI = {
   defaultName: string;
   availableTools: AgentToolSpec[];
   commands: AgentCommandDescriptor[];
-  defaults: {
-    instructions: string;
-    enabledTools: string[];
-  };
 };
 
 export type AgentConfigEditorProps = {
   descriptor: AgentDescriptorForUI;
-  row: WorkspaceAgentRecord;
+  row: AgentConfigRowForUI;
   sources?: AgentSourceRecord[];
 };
 
@@ -44,7 +40,13 @@ export function AgentConfigEditor({
 }: AgentConfigEditorProps) {
   const [name, setName] = useState(row.name);
   const [description, setDescription] = useState(row.description);
-  const [instructions, setInstructions] = useState(row.instructions);
+  const [userPromptTuning, setUserPromptTuning] = useState(
+    row.userPromptTuning ?? "",
+  );
+  const [preferredSourceInput, setPreferredSourceInput] = useState("");
+  const [preferredSourceUrls, setPreferredSourceUrls] = useState<string[]>(
+    row.preferredSourceUrls ?? [],
+  );
   const [model, setModel] = useState(row.model ?? "");
   const [enabledTools, setEnabledTools] = useState<Set<string>>(
     new Set(row.enabledTools ?? []),
@@ -64,23 +66,36 @@ export function AgentConfigEditor({
     });
   };
 
-  const resetToDefaults = () => {
-    setInstructions(descriptor.defaults.instructions);
-    setEnabledTools(new Set(descriptor.defaults.enabledTools));
-  };
-
   const submit = () => {
     startTransition(async () => {
       await saveAgent({
         id: row.id,
         name: name.trim() || descriptor.defaultName,
         description: description.trim(),
-        instructions: instructions.trim(),
+        userPromptTuning: userPromptTuning.trim() || null,
+        preferredSourceUrls,
         model: model.trim() ? model.trim() : null,
         enabledTools: Array.from(enabledTools),
       });
       setSavedAt(Date.now());
     });
+  };
+
+  const addPreferredSource = () => {
+    const normalized = normalizePreferredSource(preferredSourceInput);
+    if (!normalized) return;
+    setPreferredSourceUrls((previous) =>
+      previous.some((source) => sameSource(source, normalized))
+        ? previous
+        : [...previous, normalized],
+    );
+    setPreferredSourceInput("");
+  };
+
+  const removePreferredSource = (url: string) => {
+    setPreferredSourceUrls((previous) =>
+      previous.filter((source) => !sameSource(source, url)),
+    );
   };
 
   return (
@@ -113,26 +128,75 @@ export function AgentConfigEditor({
             </Field>
           </Section>
 
-          <Section
-            title="System prompt"
-            hint="Admin-only runtime instructions. Producers do not see this in chat."
-            right={
-              <button
-                type="button"
-                onClick={resetToDefaults}
-                className="text-xs text-[var(--accent-link)] hover:underline"
+          {row.id === "expertise-finder" ? (
+            <Section
+              title="Expertise Finder preferences"
+              hint="The base system prompt is managed in the backend. Use these controls to shape what this agent prioritizes."
+            >
+              <Field
+                label="What should this agent prioritize?"
+                hint="Example: prioritize Canadian academics and public-contact experts for same-day commentary."
               >
-                Reset to default
-              </button>
-            }
-          >
-            <textarea
-              value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
-              rows={16}
-              className={`${inputClass} font-mono text-[0.85rem] leading-6`}
-            />
-          </Section>
+                <textarea
+                  value={userPromptTuning}
+                  onChange={(event) => setUserPromptTuning(event.target.value)}
+                  rows={4}
+                  className={`${inputClass} text-[0.9rem] leading-6`}
+                />
+              </Field>
+
+              <Field
+                label="Preferred sources to check first"
+                hint="Add expert directories, institutions, or trusted sites."
+              >
+                <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                  <input
+                    value={preferredSourceInput}
+                    placeholder="https://example.org/experts"
+                    onChange={(event) => setPreferredSourceInput(event.target.value)}
+                    className={inputClass}
+                  />
+                  <button
+                    type="button"
+                    onClick={addPreferredSource}
+                    disabled={!normalizePreferredSource(preferredSourceInput)}
+                    className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--fg)] px-3 py-2 text-sm text-white disabled:opacity-50"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add source
+                  </button>
+                </div>
+              </Field>
+
+              {preferredSourceUrls.length > 0 ? (
+                <ul className="flex flex-col gap-2">
+                  {preferredSourceUrls.map((source) => (
+                    <li
+                      key={source}
+                      className="flex items-center gap-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-elevated)] p-3"
+                    >
+                      <div className="min-w-0 flex-1 truncate text-sm text-[var(--fg)]">
+                        {source}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removePreferredSource(source)}
+                        disabled={isPending}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--fg-muted)] hover:border-[var(--border-strong)] hover:text-[var(--danger)] disabled:opacity-50"
+                        aria-label={`Remove ${source}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-sm text-[var(--fg-muted)]">
+                  No preferred sources configured yet.
+                </div>
+              )}
+            </Section>
+          ) : null}
 
           <Section title="Model" hint="Overrides the default model for this agent only. Leave blank to fall back to OPENAI_MODEL.">
             <input
@@ -296,6 +360,21 @@ export function AgentConfigEditor({
       </div>
     </>
   );
+}
+
+function normalizePreferredSource(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`)
+      .toString();
+  } catch {
+    return null;
+  }
+}
+
+function sameSource(left: string, right: string) {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
 const inputClass =

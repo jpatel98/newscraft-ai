@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { ChannelRow } from "@/db/schema";
-import type { WorkspaceAgentRecord } from "@/db/queries/agents";
+import type { AgentChatRecord } from "@/lib/agents/ui-types";
 import { getChannelCommandGuidance } from "@/lib/chat-command-guidance";
 import type {
   ChatMessage,
@@ -15,7 +15,7 @@ export type MessageListProps = {
   channel: ChannelRow;
   messages: ChatMessage[];
   pending: PendingAssistant | null;
-  agentMap: Map<string, WorkspaceAgentRecord>;
+  agentMap: Map<string, AgentChatRecord>;
 };
 
 export function MessageList({

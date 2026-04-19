@@ -6,6 +6,7 @@ import {
 } from "@/components/agent/agent-config-editor";
 import { getWorkspaceAgentRow } from "@/db/queries/agents";
 import { listSources } from "@/db/queries/sources";
+import type { AgentConfigRowForUI } from "@/lib/agents/ui-types";
 import { getAgent } from "@/lib/agents/catalog";
 import { getCurrentAppContext } from "@/lib/server/app-context";
 
@@ -37,13 +38,21 @@ export default async function AgentConfigPage({
     defaultName: descriptor.defaultName,
     availableTools: descriptor.availableTools,
     commands: descriptor.commands,
-    defaults: descriptor.defaults,
+  };
+  const rowForUI: AgentConfigRowForUI = {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    model: row.model,
+    enabledTools: row.enabledTools ?? [],
+    userPromptTuning: row.userPromptTuning ?? null,
+    preferredSourceUrls: row.preferredSourceUrls ?? [],
   };
 
   return (
     <AgentConfigEditor
       descriptor={descriptorForUI}
-      row={row}
+      row={rowForUI}
       sources={sources}
     />
   );

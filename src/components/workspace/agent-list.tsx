@@ -1,10 +1,10 @@
 "use client";
 
-import type { WorkspaceAgentRecord } from "@/db/queries/agents";
+import type { AgentNavRecord } from "@/lib/agents/ui-types";
 import { SidebarItem } from "./sidebar-item";
 
 export type AgentListProps = {
-  agents: WorkspaceAgentRecord[];
+  agents: AgentNavRecord[];
   pathname: string;
   onNavigate: (href: string) => void;
 };

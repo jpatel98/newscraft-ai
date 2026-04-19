@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ChannelRow } from "@/db/schema";
-import type { WorkspaceAgentRecord } from "@/db/queries/agents";
+import type { AgentChatRecord } from "@/lib/agents/ui-types";
 import {
   useAgentStream,
   type ChatMessage,
@@ -17,7 +17,7 @@ import { MessageList } from "./message-list";
 
 export type ChatViewProps = {
   channel: ChannelRow;
-  agents: WorkspaceAgentRecord[];
+  agents: AgentChatRecord[];
   initialMessages: ChatMessage[];
 };
 

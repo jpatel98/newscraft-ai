@@ -1,6 +1,6 @@
 "use client";
 
-import type { WorkspaceAgentRecord } from "@/db/queries/agents";
+import type { AgentChatRecord } from "@/lib/agents/ui-types";
 import type { ChatMessage } from "@/lib/hooks/use-agent-stream";
 import { ExpertResultCard } from "@/components/renderers/expert-result-card";
 import { Markdown } from "@/components/renderers/markdown";
@@ -12,7 +12,7 @@ import type { ExpertiseFinderResult } from "@/lib/types";
 
 export type MessageItemProps = {
   message: ChatMessage;
-  agent: WorkspaceAgentRecord | null;
+  agent: AgentChatRecord | null;
 };
 
 export function MessageItem({ message, agent }: MessageItemProps) {

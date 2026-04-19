@@ -10,7 +10,8 @@ export type SaveAgentInput = {
   id: string;
   name: string;
   description: string;
-  instructions: string;
+  userPromptTuning?: string | null;
+  preferredSourceUrls?: string[];
   model: string | null;
   enabledTools: string[];
 };
@@ -21,13 +22,14 @@ export async function saveAgent(input: SaveAgentInput) {
   await updateWorkspaceAgentConfig(
     workspace.id,
     input.id,
-    {
-    name: input.name,
-    description: input.description,
-    instructions: input.instructions,
-    model: input.model,
-    enabledTools: input.enabledTools,
-    },
+      {
+        name: input.name,
+        description: input.description,
+        userPromptTuning: input.userPromptTuning,
+        preferredSourceUrls: input.preferredSourceUrls,
+        model: input.model,
+        enabledTools: input.enabledTools,
+      },
     user?.id ?? null,
   );
   revalidatePath(`/agent/${input.id}`);

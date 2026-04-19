@@ -417,6 +417,8 @@ export const EXPERTISE_FINDER_DEFAULT_ENABLED_TOOLS = EXPERTISE_FINDER_AVAILABLE
 export type ExpertiseFinderConfig = {
   name: string;
   instructions: string;
+  userPromptTuning?: string | null;
+  preferredSourceUrls?: string[];
   model: string;
   enabledTools: string[];
 };
@@ -429,6 +431,8 @@ export function createExpertiseFinderAgent(
     name: config?.name ?? "Expertise Finder",
     instructions:
       config?.instructions ?? EXPERTISE_FINDER_DEFAULT_INSTRUCTIONS,
+    userPromptTuning: config?.userPromptTuning ?? null,
+    preferredSourceUrls: config?.preferredSourceUrls ?? [],
     model:
       config?.model ?? process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
     enabledTools: config?.enabledTools ?? EXPERTISE_FINDER_DEFAULT_ENABLED_TOOLS,
@@ -440,6 +444,10 @@ export function createExpertiseFinderAgent(
 Use the scoped web search and site inspection tools before broadening your assumptions.
 If preferred URLs are available, inspect them early: ${siteScope.preferredUrls.join(", ")}.`
       : "This run is broad web research unless the user narrows it during the conversation.";
+  const userTuningInstructions = buildUserTuningInstructions(
+    resolved.userPromptTuning,
+    resolved.preferredSourceUrls,
+  );
 
   const tools = [];
   if (resolved.enabledTools.includes("web_search")) {
@@ -462,10 +470,40 @@ If preferred URLs are available, inspect them early: ${siteScope.preferredUrls.j
   return new Agent({
     name: resolved.name,
     model: resolved.model,
-    instructions: `${resolved.instructions}\n\n${siteInstructions}`,
+    instructions: [
+      resolved.instructions,
+      siteInstructions,
+      userTuningInstructions,
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     outputType: expertiseFinderResultSchema,
     tools,
   });
+}
+
+function buildUserTuningInstructions(
+  userPromptTuning: string | null | undefined,
+  preferredSourceUrls: string[] | null | undefined,
+) {
+  const cleanedTuning = userPromptTuning?.trim() ?? "";
+  const cleanedSources = (preferredSourceUrls ?? [])
+    .map((source) => source.trim())
+    .filter(Boolean);
+
+  if (!cleanedTuning && cleanedSources.length === 0) return "";
+
+  return [
+    "Workspace preferences (set in agent settings):",
+    cleanedTuning
+      ? `- Editorial preferences: ${cleanedTuning}`
+      : "",
+    cleanedSources.length > 0
+      ? `- Check these sources early before broadening out: ${cleanedSources.join(", ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export async function runExpertiseFinder({

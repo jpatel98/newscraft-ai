@@ -2,12 +2,12 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import type { ChannelRow } from "@/db/schema";
-import type { WorkspaceAgentRecord } from "@/db/queries/agents";
+import type { AgentNavRecord } from "@/lib/agents/ui-types";
 import { Sidebar } from "./sidebar";
 
 export type WorkspaceShellProps = {
   channels: ChannelRow[];
-  agents: WorkspaceAgentRecord[];
+  agents: AgentNavRecord[];
   showAdminTools: boolean;
   children: React.ReactNode;
 };
