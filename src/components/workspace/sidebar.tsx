@@ -8,6 +8,7 @@ import { ChannelList } from "./channel-list";
 export type SidebarProps = {
   channels: ChannelRow[];
   agents: WorkspaceAgentRecord[];
+  showAdminTools: boolean;
   pathname: string;
   onNavigate: (href: string) => void;
 };
@@ -15,6 +16,7 @@ export type SidebarProps = {
 export function Sidebar({
   channels,
   agents,
+  showAdminTools,
   pathname,
   onNavigate,
 }: SidebarProps) {
@@ -33,16 +35,17 @@ export function Sidebar({
         onNavigate={onNavigate}
       />
 
-      <AgentList
-        agents={agents}
-        pathname={pathname}
-        onNavigate={onNavigate}
-      />
+      {showAdminTools ? (
+        <AgentList
+          agents={agents}
+          pathname={pathname}
+          onNavigate={onNavigate}
+        />
+      ) : null}
 
       <div className="mt-auto px-2 pt-4 text-[0.7rem] text-[var(--fg-onDark-muted)]">
         <p className="leading-relaxed">
-          Type <span className="wkbench-kbd">/help</span> in any channel. Open an
-          agent to edit its instructions and tools.
+          Type <span className="wkbench-kbd">/help</span> in any channel to see the available newsroom actions.
         </p>
       </div>
     </aside>

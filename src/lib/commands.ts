@@ -1,7 +1,6 @@
 import {
   allCommandSuggestions,
   findAgentByCommandName,
-  findAgentByMention,
 } from "@/lib/agents/catalog";
 import {
   mergeSiteScopes,
@@ -72,9 +71,6 @@ function buildHelpReply() {
 
   lines.push("");
   lines.push(
-    "Use `@expertise-finder`, `@story-scout`, or `@news-monitor` from any channel.",
-  );
-  lines.push(
     "Add `site:domain.com` or paste a URL anywhere in the message to scope the search.",
   );
 
@@ -82,8 +78,11 @@ function buildHelpReply() {
 }
 
 export { HELP_REPLY };
-
-const MENTION_PATTERN = /@[a-z0-9-]+/gi;
+const LEGACY_MENTION_MAP: Record<string, string> = {
+  "@expertise-finder": "/expert",
+  "@story-scout": "/scout",
+  "@news-monitor": "/digest",
+};
 
 export function parseProducerInput(rawMessage: string): ParsedProducerInput {
   const message = rawMessage.trim();
@@ -102,8 +101,6 @@ export function parseProducerInput(rawMessage: string): ParsedProducerInput {
   if (message === "/clear") {
     return { kind: "clear" };
   }
-
-  const mentionedAgent = findAgentByMention(message);
 
   if (message.startsWith("/")) {
     const [rawCommand, ...rest] = message.split(/\s+/);
@@ -174,33 +171,25 @@ export function parseProducerInput(rawMessage: string): ParsedProducerInput {
     };
   }
 
-  if (!mentionedAgent) {
+  const legacyMention = Object.entries(LEGACY_MENTION_MAP).find(([mention]) =>
+    message.toLowerCase().includes(mention),
+  );
+  if (legacyMention) {
     return {
       kind: "error",
-      message:
-        "Summon an agent with a `/command` or an `@mention` — try `/help` for options.",
+      message: `NewsCraft now uses slash commands only. Replace ${legacyMention[0]} with ${legacyMention[1]}, or try /help.`,
     };
   }
 
-  const withoutMentions = message
-    .replace(MENTION_PATTERN, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const extracted = parseSiteScopeTokens(withoutMentions);
-
-  if (!extracted.cleanedText) {
+  if (!message) {
     return {
       kind: "error",
-      message: "Add a brief after the @mention so the agent knows where to start.",
+      message: "Add a brief so the agent has something to work on.",
     };
   }
 
   return {
-    kind: "command",
-    agentId: mentionedAgent.id,
-    commandName: mentionedAgent.mention,
-    intent: "freeform",
-    cleanedPrompt: extracted.cleanedText,
-    siteScope: extracted.siteScope,
+    kind: "error",
+    message: "Run a newsroom action with a slash command like /expert, /scout, /digest, or /sources. Try /help for options.",
   };
 }

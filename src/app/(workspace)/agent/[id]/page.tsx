@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import {
   AgentConfigEditor,
+  type AgentSourceRecord,
   type AgentDescriptorForUI,
 } from "@/components/agent/agent-config-editor";
 import { getWorkspaceAgentRow } from "@/db/queries/agents";
+import { listSources } from "@/db/queries/sources";
 import { getAgent } from "@/lib/agents/catalog";
-import { getCurrentAppContext } from "@/lib/server/app-context";
+import { requireWorkspaceAdmin } from "@/lib/server/app-context";
 
 export default async function AgentConfigPage({
   params,
@@ -13,10 +15,19 @@ export default async function AgentConfigPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { workspace } = await getCurrentAppContext();
+  const { workspace } = await requireWorkspaceAdmin();
   const descriptor = getAgent(id);
   const row = await getWorkspaceAgentRow(workspace.id, id);
   if (!descriptor || !row) notFound();
+  const sources: AgentSourceRecord[] =
+    id === "news-monitor"
+      ? (await listSources(workspace.id)).map((source) => ({
+          id: source.id,
+          url: source.url,
+          label: source.label,
+          kind: source.kind,
+        }))
+      : [];
 
   const descriptorForUI: AgentDescriptorForUI = {
     id: descriptor.id,
@@ -26,5 +37,11 @@ export default async function AgentConfigPage({
     defaults: descriptor.defaults,
   };
 
-  return <AgentConfigEditor descriptor={descriptorForUI} row={row} />;
+  return (
+    <AgentConfigEditor
+      descriptor={descriptorForUI}
+      row={row}
+      sources={sources}
+    />
+  );
 }

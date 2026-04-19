@@ -1,13 +1,24 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Save } from "lucide-react";
+import { Plus, Save, Trash2 } from "lucide-react";
 import type {
   AgentCommandDescriptor,
   AgentToolSpec,
 } from "@/lib/agents/catalog";
 import type { WorkspaceAgentRecord } from "@/db/queries/agents";
 import { saveAgent } from "@/lib/actions/save-agent";
+import {
+  deleteNewsSource,
+  saveNewsSource,
+} from "@/lib/actions/save-news-source";
+
+export type AgentSourceRecord = {
+  id: string;
+  url: string;
+  label: string;
+  kind: "rss" | "html";
+};
 
 export type AgentDescriptorForUI = {
   id: string;
@@ -23,9 +34,14 @@ export type AgentDescriptorForUI = {
 export type AgentConfigEditorProps = {
   descriptor: AgentDescriptorForUI;
   row: WorkspaceAgentRecord;
+  sources?: AgentSourceRecord[];
 };
 
-export function AgentConfigEditor({ descriptor, row }: AgentConfigEditorProps) {
+export function AgentConfigEditor({
+  descriptor,
+  row,
+  sources = [],
+}: AgentConfigEditorProps) {
   const [name, setName] = useState(row.name);
   const [description, setDescription] = useState(row.description);
   const [instructions, setInstructions] = useState(row.instructions);
@@ -33,6 +49,9 @@ export function AgentConfigEditor({ descriptor, row }: AgentConfigEditorProps) {
   const [enabledTools, setEnabledTools] = useState<Set<string>>(
     new Set(row.enabledTools ?? []),
   );
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [sourceLabel, setSourceLabel] = useState("");
+  const [sourceKind, setSourceKind] = useState<"rss" | "html">("html");
   const [isPending, startTransition] = useTransition();
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
@@ -96,6 +115,7 @@ export function AgentConfigEditor({ descriptor, row }: AgentConfigEditorProps) {
 
           <Section
             title="System prompt"
+            hint="Admin-only runtime instructions. Producers do not see this in chat."
             right={
               <button
                 type="button"
@@ -151,6 +171,96 @@ export function AgentConfigEditor({ descriptor, row }: AgentConfigEditorProps) {
               })}
             </ul>
           </Section>
+
+          {row.id === "news-monitor" ? (
+            <Section
+              title="Digest sources"
+              hint="Manage the watchlist used by /digest. This lives in the database and updates live."
+            >
+              <div className="grid gap-3 md:grid-cols-[1.4fr_1fr_140px_auto]">
+                <input
+                  value={sourceUrl}
+                  placeholder="https://example.com/news or feed URL"
+                  onChange={(event) => setSourceUrl(event.target.value)}
+                  className={inputClass}
+                />
+                <input
+                  value={sourceLabel}
+                  placeholder="Short label"
+                  onChange={(event) => setSourceLabel(event.target.value)}
+                  className={inputClass}
+                />
+                <select
+                  value={sourceKind}
+                  onChange={(event) =>
+                    setSourceKind(event.target.value as "rss" | "html")
+                  }
+                  className={inputClass}
+                >
+                  <option value="html">HTML page</option>
+                  <option value="rss">RSS feed</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    startTransition(async () => {
+                      await saveNewsSource({
+                        url: sourceUrl,
+                        label: sourceLabel,
+                        kind: sourceKind,
+                      });
+                      setSourceUrl("");
+                      setSourceLabel("");
+                      setSourceKind("html");
+                    });
+                  }}
+                  disabled={isPending || !sourceUrl.trim()}
+                  className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--fg)] px-3 py-2 text-sm text-white disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add source
+                </button>
+              </div>
+
+              {sources.length > 0 ? (
+                <ul className="flex flex-col gap-2">
+                  {sources.map((source) => (
+                    <li
+                      key={source.id}
+                      className="flex items-center gap-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-elevated)] p-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-[var(--fg)]">
+                          {source.label}
+                        </div>
+                        <div className="truncate text-sm text-[var(--fg-muted)]">
+                          {source.url}
+                        </div>
+                      </div>
+                      <span className="wkbench-kbd">{source.kind}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          startTransition(async () => {
+                            await deleteNewsSource(source.id);
+                          });
+                        }}
+                        disabled={isPending}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--fg-muted)] hover:border-[var(--border-strong)] hover:text-[var(--danger)] disabled:opacity-50"
+                        aria-label={`Remove ${source.label}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-sm text-[var(--fg-muted)]">
+                  No sources configured yet.
+                </div>
+              )}
+            </Section>
+          ) : null}
 
           <Section title="Commands" hint="Shown in the /palette to summon this agent from any channel.">
             <ul className="flex flex-col gap-1.5 text-sm">

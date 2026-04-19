@@ -8,12 +8,14 @@ import { Sidebar } from "./sidebar";
 export type WorkspaceShellProps = {
   channels: ChannelRow[];
   agents: WorkspaceAgentRecord[];
+  showAdminTools: boolean;
   children: React.ReactNode;
 };
 
 export function WorkspaceShell({
   channels,
   agents,
+  showAdminTools,
   children,
 }: WorkspaceShellProps) {
   const router = useRouter();
@@ -24,6 +26,7 @@ export function WorkspaceShell({
       <Sidebar
         channels={channels}
         agents={agents}
+        showAdminTools={showAdminTools}
         pathname={pathname}
         onNavigate={(to) => router.push(to)}
       />

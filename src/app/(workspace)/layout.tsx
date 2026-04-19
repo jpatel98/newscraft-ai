@@ -8,16 +8,22 @@ export default async function WorkspaceLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { workspace } = await getCurrentAppContext();
+  const { workspace, membership } = await getCurrentAppContext();
   const channels = await listChannels(workspace.id);
   const agents = await listWorkspaceAgentRows(workspace.id);
+  const showAdminTools =
+    membership?.role === "owner" || membership?.role === "admin";
 
   if (channels.length === 0) {
     return <BootstrapNotice />;
   }
 
   return (
-    <WorkspaceShell channels={channels} agents={agents}>
+    <WorkspaceShell
+      channels={channels}
+      agents={agents}
+      showAdminTools={showAdminTools}
+    >
       {children}
     </WorkspaceShell>
   );

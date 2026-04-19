@@ -18,7 +18,7 @@ export function ChatHeader({ channel }: { channel: ChannelRow }) {
             <span className="wkbench-kbd">{command}</span>
             {index === guidance.headerCommands.length - 1 ? "" : ", "}
           </span>
-        ))} or @mentions.
+        ))}.
       </p>
     </header>
   );

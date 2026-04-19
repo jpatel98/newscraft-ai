@@ -19,31 +19,31 @@ export function ExpertResultCard({
             return (
               <li
                 key={`${expert.name}-${index}`}
-                className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg)] p-3"
+                className="min-w-0 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg)] p-3"
               >
                 <h3 className="text-sm font-semibold text-[var(--fg)]">
                   {index + 1}) {expert.name}
                 </h3>
-                <div className="mt-2 space-y-1.5 text-sm">
-                  <p className="text-[var(--fg-muted)]">
+                <div className="mt-2 min-w-0 space-y-1.5 text-sm">
+                  <p className="min-w-0 text-[var(--fg-muted)]">
                     <span className="font-medium text-[var(--fg)]">Role:</span>{" "}
                     {expert.role}, {expert.organization}
                   </p>
-                  <p className="text-[var(--fg)]">
+                  <p className="min-w-0 text-[var(--fg)]">
                     <span className="font-medium">Why {firstName(expert.name)}:</span>{" "}
                     {expert.whyRelevant}
                   </p>
-                  <p className="text-[var(--fg)]">
+                  <p className="min-w-0 text-[var(--fg)]">
                     <span className="font-medium">Contact:</span>{" "}
                     {expert.email || "not publicly listed"}
                   </p>
                   {expert.phone ? (
-                    <p className="text-[var(--fg)]">
+                    <p className="min-w-0 text-[var(--fg)]">
                       <span className="font-medium">Phone:</span> {expert.phone}
                     </p>
                   ) : null}
                   {expert.website ? (
-                    <p className="text-[var(--fg)]">
+                    <p className="min-w-0 text-[var(--fg)]">
                       <span className="font-medium">Website:</span>{" "}
                       <ExternalLink href={expert.website} label={expert.website} />
                     </p>
@@ -51,7 +51,7 @@ export function ExpertResultCard({
                   {expert.socials.map((social, i) => (
                     <p
                       key={`${social.label}-${social.value}-${i}`}
-                      className="text-[var(--fg)]"
+                      className="min-w-0 text-[var(--fg)]"
                     >
                       <span className="font-medium">Also:</span>{" "}
                       {isUrl(social.value) ? (
@@ -64,19 +64,19 @@ export function ExpertResultCard({
                   {expert.otherLinks.map((link, i) => (
                     <p
                       key={`${link.title}-${link.url}-${i}`}
-                      className="text-[var(--fg)]"
+                      className="min-w-0 text-[var(--fg)]"
                     >
                       <span className="font-medium">{link.title}:</span>{" "}
                       <ExternalLink href={link.url} label={link.url} />
                     </p>
                   ))}
                   {expert.contactNote ? (
-                    <p className="text-sm text-[var(--fg-muted)]">
+                    <p className="min-w-0 text-sm text-[var(--fg-muted)]">
                       {expert.contactNote}
                     </p>
                   ) : null}
                   {expert.source ? (
-                    <p className="text-[var(--fg)]">
+                    <p className="min-w-0 text-[var(--fg)]">
                       <span className="font-medium">Source:</span>{" "}
                       <ExternalLink href={expert.source.url} label={expert.source.url} />
                     </p>
@@ -98,6 +98,33 @@ export function ExpertResultCard({
 
 function firstName(name: string) {
   return name.trim().split(/\s+/)[0] || "them";
+}
+
+function normalizePersonName(name: string) {
+  const cleaned = name.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "Unnamed expert";
+
+  const tokens = cleaned.split(" ");
+  if (tokens.length < 3) return cleaned;
+
+  const first = tokens[0];
+  const last = tokens[tokens.length - 1];
+  const middle = tokens.slice(1, -1);
+
+  const normalizedMiddle = middle.map((token) =>
+    token.replace(/\.+$/g, "").toUpperCase(),
+  );
+  const repeatedInitial =
+    normalizedMiddle.length >= 2 &&
+    normalizedMiddle.every(
+      (token) => token.length === 1 && token === normalizedMiddle[0],
+    );
+
+  if (repeatedInitial) {
+    return `${first} ${last}`;
+  }
+
+  return cleaned;
 }
 
 function normalizeExpert(rawExpert: unknown) {
@@ -153,7 +180,7 @@ function normalizeExpert(rawExpert: unknown) {
       : legacySources[0];
 
   return {
-    name: expert.name || "Unnamed expert",
+    name: normalizePersonName(expert.name || "Unnamed expert"),
     role: expert.role || "Role not listed",
     organization: expert.organization || "Organization not listed",
     whyRelevant:
@@ -178,7 +205,7 @@ function ExternalLink({ href, label }: { href: string; label: string }) {
       href={href}
       target="_blank"
       rel="noreferrer noopener"
-      className="text-[var(--accent-link)] hover:underline"
+      className="inline break-all text-[var(--accent-link)] hover:underline"
     >
       {label}
     </a>

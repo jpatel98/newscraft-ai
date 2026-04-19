@@ -14,12 +14,6 @@ const COMMAND_RENDERERS: Record<string, string> = {
   "/sources": "digest",
 };
 
-const MENTION_RENDERERS: Record<string, string> = {
-  "@expertise-finder": "expert",
-  "@story-scout": "scout",
-  "@news-monitor": "digest",
-};
-
 export function getChannelCommandGuidance(
   channel: Pick<ChannelRow, "slug" | "name">,
 ): ChannelCommandGuidance {
@@ -27,7 +21,7 @@ export function getChannelCommandGuidance(
     return {
       headerCommands: ["/digest", "/sources", "/scout"],
       placeholder:
-        "Run /digest, manage sources with /sources, or @mention an agent",
+        "Run /digest, manage sources with /sources, or use /help",
       emptyState:
         "No messages yet. Try /digest to run today's roundup, /sources to manage the watchlist, or /help to see everything available.",
     };
@@ -37,7 +31,7 @@ export function getChannelCommandGuidance(
     return {
       headerCommands: ["/scout", "/expert", "/digest"],
       placeholder:
-        "Message this channel — use /scout, /expert, /digest, /help, or @mention an agent",
+        "Message this channel — use /scout, /expert, /digest, or /help",
       emptyState:
         "No messages yet. Try /scout for a story brief, /expert for source discovery, or /help to see everything available.",
     };
@@ -46,7 +40,7 @@ export function getChannelCommandGuidance(
   return {
     headerCommands: ["/expert", "/scout", "/digest"],
     placeholder:
-      "Message this channel — use /expert, /scout, /digest, /help, or @mention an agent",
+      "Message this channel — use /expert, /scout, /digest, or /help",
     emptyState:
       "No messages yet. Try /expert, /scout, or /digest, or type /help to see everything available.",
   };
@@ -59,10 +53,6 @@ export function previewRequestedRenderer(rawMessage: string) {
   if (message.startsWith("/")) {
     const [command] = message.split(/\s+/);
     return COMMAND_RENDERERS[command] ?? null;
-  }
-
-  for (const [mention, renderer] of Object.entries(MENTION_RENDERERS)) {
-    if (message.includes(mention)) return renderer;
   }
 
   return null;
