@@ -144,7 +144,7 @@ function normalizeExpert(rawExpert: unknown) {
     sources?: Array<{ title?: string; url?: string }>;
   };
 
-  const socials = Array.isArray(expert.socials)
+  const socialsRaw = Array.isArray(expert.socials)
     ? expert.socials
         .filter((social) => social?.value)
         .map((social) => ({
@@ -152,8 +152,11 @@ function normalizeExpert(rawExpert: unknown) {
           value: social.value || "",
         }))
     : [];
+  const socials = uniqueBy(socialsRaw, (social) =>
+    normalizeComparable(social.value),
+  );
 
-  const otherLinks = Array.isArray(expert.otherLinks)
+  const otherLinksRaw = Array.isArray(expert.otherLinks)
     ? expert.otherLinks
         .filter((link) => link?.url)
         .map((link) => ({
@@ -161,8 +164,11 @@ function normalizeExpert(rawExpert: unknown) {
           url: link.url || "",
         }))
     : [];
+  const otherLinks = uniqueBy(otherLinksRaw, (link) =>
+    normalizeComparable(link.url),
+  );
 
-  const legacySources = Array.isArray(expert.sources)
+  const legacySourcesRaw = Array.isArray(expert.sources)
     ? expert.sources
         .filter((link) => link?.url)
         .map((link) => ({
@@ -170,6 +176,9 @@ function normalizeExpert(rawExpert: unknown) {
           url: link.url || "",
         }))
     : [];
+  const legacySources = uniqueBy(legacySourcesRaw, (link) =>
+    normalizeComparable(link.url),
+  );
 
   const source =
     expert.source?.url
@@ -178,6 +187,11 @@ function normalizeExpert(rawExpert: unknown) {
           url: expert.source.url,
         }
       : legacySources[0];
+
+  const linksWithoutSource = (source ? otherLinks : legacySources.slice(1)).filter(
+    (link) =>
+      !source || normalizeComparable(link.url) !== normalizeComparable(source.url),
+  );
 
   return {
     name: normalizePersonName(expert.name || "Unnamed expert"),
@@ -189,10 +203,28 @@ function normalizeExpert(rawExpert: unknown) {
     phone: expert.phone || "",
     website: expert.website || "",
     socials,
-    otherLinks: source ? otherLinks : legacySources.slice(1),
+    otherLinks: linksWithoutSource,
     source,
     contactNote: expert.contactNote || "",
   };
+}
+
+function uniqueBy<T>(values: T[], getKey: (value: T) => string) {
+  const seen = new Set<string>();
+  const result: T[] = [];
+
+  for (const value of values) {
+    const key = getKey(value);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+
+  return result;
+}
+
+function normalizeComparable(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function isUrl(value: string) {
