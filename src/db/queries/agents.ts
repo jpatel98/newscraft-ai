@@ -10,7 +10,7 @@ import {
   getAgentStrict,
   listAgents,
   type AgentRuntimeConfig,
-} from "@/lib/agents/registry";
+} from "@/lib/agents/catalog";
 
 export type WorkspaceAgentPolicy = {
   allowManualRuns: boolean;
@@ -195,4 +195,3 @@ export function canEditAgentSettings(
   if (role === "admin") return policy.editableByWorkspaceAdmins;
   return false;
 }
-

@@ -7,15 +7,19 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import type { ChannelRow } from "@/db/schema";
+import { getChannelCommandGuidance } from "@/lib/chat-command-guidance";
 import { CommandPalette } from "./command-palette";
 
 export type MessageComposerProps = {
+  channel: ChannelRow;
   streaming: boolean;
   onSend: (message: string) => void;
   onCancel: () => void;
 };
 
 export function MessageComposer({
+  channel,
   streaming,
   onSend,
   onCancel,
@@ -23,6 +27,7 @@ export function MessageComposer({
   const [value, setValue] = useState("");
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const guidance = getChannelCommandGuidance(channel);
   const paletteOpen =
     !paletteDismissed && value.startsWith("/") && !value.includes(" ");
 
@@ -66,7 +71,7 @@ export function MessageComposer({
             ref={textareaRef}
             rows={1}
             value={value}
-            placeholder="Message this channel — use /expert, /scout, /clear, or @mention an agent"
+            placeholder={guidance.placeholder}
             className="max-h-48 min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-[0.9375rem] leading-6 outline-none placeholder:text-[var(--fg-subtle)]"
             onChange={(event) => {
               setValue(event.target.value);

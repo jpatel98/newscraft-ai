@@ -12,6 +12,10 @@ import { ToolStatusPill } from "./tool-status-pill";
 
 export function StreamingMessage({ pending }: { pending: PendingAssistant }) {
   const finalReady = pending.payload !== null && pending.renderer !== null;
+  const shouldHoldStructuredDraft =
+    !finalReady &&
+    pending.expectedRenderer !== null &&
+    pending.expectedRenderer !== "markdown";
   const runningToolCount = pending.toolEvents.filter((evt) => evt.ok === null).length;
   const status =
     runningToolCount > 0
@@ -67,7 +71,7 @@ export function StreamingMessage({ pending }: { pending: PendingAssistant }) {
           <ScoutBriefCard brief={pending.payload as StoryScoutBrief} />
         ) : finalReady && pending.renderer === "digest" ? (
           <DigestCard digest={pending.payload as DailyDigest} />
-        ) : pending.text ? (
+        ) : pending.text && !shouldHoldStructuredDraft ? (
           <div>
             <Markdown content={pending.text} />
             <span className="wkbench-caret" aria-hidden />

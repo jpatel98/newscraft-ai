@@ -41,8 +41,18 @@ function createAddSourceTool(workspaceId: string) {
       "Add a news source URL to this workspace's monitored list. Use for things like 'monitor nytimes.com/section/politics'.",
     parameters: z.object({
       url: z.string().min(1),
-      label: z.string().optional(),
-      kind: z.enum(["rss", "html"]).optional(),
+      label: z
+        .string()
+        .default("")
+        .describe(
+          "A short readable label for the source. Use an empty string to infer it from the domain.",
+        ),
+      kind: z
+        .enum(["rss", "html"])
+        .default("html")
+        .describe(
+          "The source type. Use html unless the user explicitly provided an RSS feed URL.",
+        ),
     }),
     async execute({ url, label, kind }) {
       const normalized = normalizeUrl(url);
@@ -52,8 +62,8 @@ function createAddSourceTool(workspaceId: string) {
       const row = await addSource({
         workspaceId,
         url: normalized.toString(),
-        label: label ?? normalized.hostname.replace(/^www\./, ""),
-        kind: kind ?? "html",
+        label: label.trim() || normalized.hostname.replace(/^www\./, ""),
+        kind,
       });
       return { ok: true, id: row.id, url: row.url, label: row.label };
     },
@@ -101,7 +111,9 @@ export const NEWS_MONITOR_DEFAULT_INSTRUCTIONS = `You are a newsroom monitor.
 Your job is to help producers manage a watchlist of news sources and, when asked, produce a concise daily digest.
 
 Rules for source management:
-- When the user says to add, monitor, or track a source, call add_source. Infer a short readable label from the domain if none is given.
+- When the user says to add, monitor, or track a source, call add_source.
+- add_source always requires url, label, and kind. If no label is provided, pass an empty string and let the system infer it from the domain.
+- Use kind="html" unless the user explicitly gives an RSS feed URL or says it is an RSS feed.
 - When the user asks what you're monitoring, call list_sources.
 - When the user asks to drop or stop monitoring a source, call remove_source.
 - After any source change, briefly confirm what you did — one line.

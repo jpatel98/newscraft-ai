@@ -5,7 +5,7 @@ import { Save } from "lucide-react";
 import type {
   AgentCommandDescriptor,
   AgentToolSpec,
-} from "@/lib/agents/registry";
+} from "@/lib/agents/catalog";
 import type { WorkspaceAgentRecord } from "@/db/queries/agents";
 import { saveAgent } from "@/lib/actions/save-agent";
 

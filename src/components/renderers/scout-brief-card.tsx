@@ -1,6 +1,7 @@
 "use client";
 
 import type { StoryScoutBrief } from "@/lib/agents/story-scout";
+import { Markdown } from "./markdown";
 
 const difficultyColor: Record<
   StoryScoutBrief["angles"][number]["difficulty"],
@@ -22,9 +23,10 @@ export function ScoutBriefCard({ brief }: { brief: StoryScoutBrief }) {
       </header>
 
       <h2 className="text-base font-semibold text-[var(--fg)]">{brief.topic}</h2>
-      <p className="mt-2 text-[0.9375rem] leading-relaxed text-[var(--fg)]">
-        {brief.summary}
-      </p>
+      <Markdown
+        content={brief.summary}
+        className="mt-2 text-[0.9375rem] leading-relaxed text-[var(--fg)]"
+      />
 
       {brief.angles.length > 0 ? (
         <section className="mt-4">
@@ -49,7 +51,10 @@ export function ScoutBriefCard({ brief }: { brief: StoryScoutBrief }) {
                 <p className="mt-1 text-sm text-[var(--fg-muted)]">
                   {angle.audience}
                 </p>
-                <p className="mt-1 text-sm text-[var(--fg)]">{angle.why}</p>
+                <Markdown
+                  content={angle.why}
+                  className="mt-1 text-sm text-[var(--fg)]"
+                />
               </li>
             ))}
           </ul>
@@ -97,7 +102,10 @@ export function ScoutBriefCard({ brief }: { brief: StoryScoutBrief }) {
                   — {item.outlet}
                   {item.publishedAt ? ` · ${item.publishedAt}` : ""}
                 </span>
-                <div className="text-[var(--fg-muted)]">{item.takeaway}</div>
+                <Markdown
+                  content={item.takeaway}
+                  className="text-[var(--fg-muted)]"
+                />
               </li>
             ))}
           </ul>
@@ -116,7 +124,10 @@ export function ScoutBriefCard({ brief }: { brief: StoryScoutBrief }) {
                   {voice.name}
                 </span>{" "}
                 <span className="text-[var(--fg-muted)]">— {voice.role}</span>
-                <div className="text-[var(--fg-muted)]">{voice.why}</div>
+                <Markdown
+                  content={voice.why}
+                  className="text-[var(--fg-muted)]"
+                />
               </li>
             ))}
           </ul>
@@ -143,7 +154,9 @@ export function ScoutBriefCard({ brief }: { brief: StoryScoutBrief }) {
           <div className="eyebrow pb-1 text-[var(--fg-subtle)]">Watchouts</div>
           <ul className="list-disc pl-5 text-sm text-[var(--fg-muted)]">
             {brief.watchouts.map((watchout, i) => (
-              <li key={i}>{watchout}</li>
+              <li key={i}>
+                <Markdown content={watchout} />
+              </li>
             ))}
           </ul>
         </section>

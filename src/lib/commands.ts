@@ -1,7 +1,8 @@
 import {
+  allCommandSuggestions,
   findAgentByCommandName,
   findAgentByMention,
-} from "@/lib/agents/registry";
+} from "@/lib/agents/catalog";
 import {
   mergeSiteScopes,
   normalizeSiteTarget,
@@ -22,13 +23,65 @@ export type ParsedProducerInput =
       siteScope: SiteScope;
     };
 
-export const HELP_REPLY =
-  "**Commands**\n\n" +
-  "- `/expert <brief>` — broad expert discovery with public contact paths.\n" +
-  "- `/scan-site <domain> <brief>` — restrict the search to one organization or source list.\n" +
-  "- `@expertise-finder <brief>` — at-mention from any channel.\n\n" +
-  "- `/clear` — clear this channel's chat history.\n" +
-  "Add `site:domain.com` or paste a URL anywhere in the message to scope the search.";
+const COMMAND_ORDER = [
+  "/expert",
+  "/scan-site",
+  "/scout",
+  "/digest",
+  "/sources",
+  "/help",
+  "/clear",
+] as const;
+
+function sortCommands(commands: string[]) {
+  return [...commands].sort((a, b) => {
+    const aIndex = COMMAND_ORDER.indexOf(a as (typeof COMMAND_ORDER)[number]);
+    const bIndex = COMMAND_ORDER.indexOf(b as (typeof COMMAND_ORDER)[number]);
+    return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex) -
+      (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex) ||
+      a.localeCompare(b);
+  });
+}
+
+const HELP_REPLY = buildHelpReply();
+
+function buildHelpReply() {
+  const lines = ["**Commands**", ""];
+  const suggestions = allCommandSuggestions();
+
+  for (const command of sortCommands(
+    [...suggestions.map((item) => item.name), "/help", "/clear"],
+  )) {
+    const descriptor = suggestions.find(
+      (item) => item.name === command,
+    );
+    if (descriptor) {
+      lines.push(`- \`${descriptor.name}\` — ${descriptor.summary}`);
+      continue;
+    }
+
+    if (command === "/help") {
+      lines.push("- `/help` — list the available commands and agent mentions.");
+      continue;
+    }
+
+    if (command === "/clear") {
+      lines.push("- `/clear` — clear this channel's chat history.");
+    }
+  }
+
+  lines.push("");
+  lines.push(
+    "Use `@expertise-finder`, `@story-scout`, or `@news-monitor` from any channel.",
+  );
+  lines.push(
+    "Add `site:domain.com` or paste a URL anywhere in the message to scope the search.",
+  );
+
+  return lines.join("\n");
+}
+
+export { HELP_REPLY };
 
 const MENTION_PATTERN = /@[a-z0-9-]+/gi;
 

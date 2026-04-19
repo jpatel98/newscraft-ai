@@ -4,7 +4,7 @@ import {
   type AgentDescriptorForUI,
 } from "@/components/agent/agent-config-editor";
 import { getWorkspaceAgentRow } from "@/db/queries/agents";
-import { getAgent } from "@/lib/agents/registry";
+import { getAgent } from "@/lib/agents/catalog";
 import { getCurrentAppContext } from "@/lib/server/app-context";
 
 export default async function AgentConfigPage({

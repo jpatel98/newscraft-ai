@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { previewRequestedRenderer } from "@/lib/chat-command-guidance";
 import type { AgentWireEvent } from "@/lib/stream/agent-events";
 
 export type ChatMessage = {
@@ -25,6 +26,7 @@ export type PendingAssistant = {
   text: string;
   toolEvents: ToolEvent[];
   payload: unknown | null;
+  expectedRenderer: string | null;
   renderer: string | null;
 };
 
@@ -105,6 +107,7 @@ export function useAgentStream({
         text: "",
         toolEvents: [],
         payload: null,
+        expectedRenderer: previewRequestedRenderer(trimmed),
         renderer: null,
       };
       setPending(accumulator);
@@ -192,6 +195,7 @@ export function useAgentStream({
                 break;
               case "error":
                 setError(wire.message);
+                setPending(null);
                 break;
               case "done": {
                 const committed: ChatMessage = {

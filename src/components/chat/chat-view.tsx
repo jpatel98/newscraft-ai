@@ -33,6 +33,7 @@ export function ChatView({ channel, agents, initialMessages }: ChatViewProps) {
       <ChatHeader channel={channel} />
 
       <MessageList
+        channel={channel}
         messages={messages}
         pending={pending}
         agentMap={agentMap}
@@ -45,6 +46,7 @@ export function ChatView({ channel, agents, initialMessages }: ChatViewProps) {
       ) : null}
 
       <MessageComposer
+        channel={channel}
         streaming={streaming}
         onSend={send}
         onCancel={cancel}

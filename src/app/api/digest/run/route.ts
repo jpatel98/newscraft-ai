@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import { assertScheduledAgentRunAllowed } from "@/lib/agents/policy";
-import { getAgentStrict } from "@/lib/agents/registry";
+import { getAgentStrict } from "@/lib/agents/catalog";
+import { buildAgentRuntime } from "@/lib/agents/runtime";
 import { loadAgentRuntimeConfig } from "@/db/queries/agents";
 import { getChannelBySlug } from "@/db/queries/channels";
 import {
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
   const descriptor = getAgentStrict("news-monitor");
   const config = await loadAgentRuntimeConfig(DEFAULT_WORKSPACE_ID, descriptor.id);
   assertScheduledAgentRunAllowed(config, descriptor.defaultName);
-  const agent = descriptor.build({
+  const agent = await buildAgentRuntime(descriptor.id, {
     workspaceId: DEFAULT_WORKSPACE_ID,
     siteScope: emptySiteScope(),
     config,

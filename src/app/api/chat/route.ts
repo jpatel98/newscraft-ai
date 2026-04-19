@@ -1,7 +1,8 @@
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { assertManualAgentRunAllowed } from "@/lib/agents/policy";
-import { getAgentStrict } from "@/lib/agents/registry";
+import { getAgentStrict } from "@/lib/agents/catalog";
+import { buildAgentRuntime } from "@/lib/agents/runtime";
 import { HELP_REPLY, parseProducerInput } from "@/lib/commands";
 import { encodeSSE } from "@/lib/stream/sse";
 import { runAgentWithStream } from "@/lib/stream/run-agent-stream";
@@ -29,6 +30,10 @@ const sseHeaders = {
   "Cache-Control": "no-cache, no-transform",
   Connection: "keep-alive",
 } as const;
+
+function getPublicAgentErrorMessage(agentName: string) {
+  return `${agentName} hit an internal error and could not finish this run. Try again in a moment.`;
+}
 
 export async function POST(request: Request) {
   if (!process.env.OPENAI_API_KEY) {
@@ -120,7 +125,7 @@ export async function POST(request: Request) {
   const descriptor = getAgentStrict(parsed.agentId);
   const config = await loadAgentRuntimeConfig(channel.workspaceId, descriptor.id);
   assertManualAgentRunAllowed(config, descriptor.defaultName);
-  const agent = descriptor.build({
+  const agent = await buildAgentRuntime(descriptor.id, {
     workspaceId: channel.workspaceId,
     siteScope: parsed.siteScope,
     config,
@@ -193,13 +198,23 @@ export async function POST(request: Request) {
           }),
         );
       } catch (error) {
-        const message =
+        const internalMessage =
           error instanceof Error ? error.message : "Unknown agent error.";
-        controller.enqueue(encodeSSE({ type: "error", message }));
+        console.error("[api/chat] agent run failed", {
+          agentId: descriptor.id,
+          runId: runRecord.id,
+          error: internalMessage,
+        });
+        controller.enqueue(
+          encodeSSE({
+            type: "error",
+            message: getPublicAgentErrorMessage(descriptor.defaultName),
+          }),
+        );
         await finishAgentRun(runRecord.id, {
           status: abortController.signal.aborted ? "cancelled" : "failed",
           lastResponseId: null,
-          error: message,
+          error: internalMessage,
         });
       } finally {
         controller.close();
