@@ -15,7 +15,6 @@ export default async function WorkspaceLayout({
   }
   const channels = await listChannels(workspace.id);
   const agents = await listWorkspaceAgentRows(workspace.id);
-  const showAdminTools = membership.role === "owner" || membership.role === "admin";
 
   if (channels.length === 0) {
     return <BootstrapNotice />;
@@ -25,7 +24,7 @@ export default async function WorkspaceLayout({
     <WorkspaceShell
       channels={channels}
       agents={agents}
-      showAdminTools={showAdminTools}
+      showAdminTools
     >
       {children}
     </WorkspaceShell>

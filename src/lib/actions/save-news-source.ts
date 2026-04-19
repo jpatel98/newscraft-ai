@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { addSource, removeSource } from "@/db/queries/sources";
-import { requireWorkspaceAdmin } from "@/lib/server/app-context";
+import { requireWorkspaceMembership } from "@/lib/server/app-context";
 
 export type SaveNewsSourceInput = {
   url: string;
@@ -19,7 +19,7 @@ function normalizeSourceUrl(raw: string) {
 }
 
 export async function saveNewsSource(input: SaveNewsSourceInput) {
-  const { workspace } = await requireWorkspaceAdmin();
+  const { workspace } = await requireWorkspaceMembership();
   const normalized = normalizeSourceUrl(input.url.trim());
   if (!normalized) {
     throw new Error("Enter a valid source URL.");
@@ -38,7 +38,7 @@ export async function saveNewsSource(input: SaveNewsSourceInput) {
 }
 
 export async function deleteNewsSource(idOrUrl: string) {
-  const { workspace } = await requireWorkspaceAdmin();
+  const { workspace } = await requireWorkspaceMembership();
   await removeSource(workspace.id, idOrUrl);
   revalidatePath("/agent/news-monitor");
   revalidatePath("/channel/news-digest");

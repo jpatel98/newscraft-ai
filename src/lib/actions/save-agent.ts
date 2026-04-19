@@ -2,11 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import {
-  canEditAgentSettings,
-  getWorkspaceAgentRow,
   updateWorkspaceAgentConfig,
 } from "@/db/queries/agents";
-import { requireWorkspaceAdmin } from "@/lib/server/app-context";
+import { requireWorkspaceMembership } from "@/lib/server/app-context";
 
 export type SaveAgentInput = {
   id: string;
@@ -18,12 +16,7 @@ export type SaveAgentInput = {
 };
 
 export async function saveAgent(input: SaveAgentInput) {
-  const { workspace, user, membership } = await requireWorkspaceAdmin();
-  const current = await getWorkspaceAgentRow(workspace.id, input.id);
-
-  if (current && !canEditAgentSettings(current.policy, membership.role)) {
-    throw new Error("This agent is locked from workspace-admin edits.");
-  }
+  const { workspace, user } = await requireWorkspaceMembership();
 
   await updateWorkspaceAgentConfig(
     workspace.id,

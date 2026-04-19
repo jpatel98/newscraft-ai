@@ -23,17 +23,16 @@ export default async function LoginPage({
       <section className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-[var(--shadow-md)]">
         <h1 className="text-xl font-semibold text-[var(--fg)]">Sign in</h1>
         <p className="mt-2 text-sm text-[var(--fg-muted)]">
-          Continue to the newsroom workspace with the general account.
+          Continue to the workspace.
         </p>
 
         <Link
           href={generalSigninHref}
           className="mt-5 inline-flex w-full items-center justify-center rounded-[var(--radius-sm)] bg-[var(--fg)] px-4 py-2 text-sm font-medium text-white"
         >
-          Continue as newsroom user
+          Continue
         </Link>
       </section>
     </main>
   );
 }
-

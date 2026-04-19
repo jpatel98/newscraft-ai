@@ -19,9 +19,6 @@ export default async function AgentConfigPage({
   if (!membership) {
     redirect("/login");
   }
-  if (membership.role !== "owner" && membership.role !== "admin") {
-    notFound();
-  }
   const descriptor = getAgent(id);
   const row = await getWorkspaceAgentRow(workspace.id, id);
   if (!descriptor || !row) notFound();
