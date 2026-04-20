@@ -31,6 +31,10 @@ export const dailyDigestSchema = z.object({
 
 export type DailyDigest = z.infer<typeof dailyDigestSchema>;
 
+function todayDateKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export function normalizeDailyDigest(digest: DailyDigest): DailyDigest {
   return {
     ...digest,
@@ -44,6 +48,38 @@ export function normalizeDailyDigest(digest: DailyDigest): DailyDigest {
       }
     }).slice(0, 20),
     producerNotes: digest.producerNotes.slice(0, 5),
+  };
+}
+
+export function createEmptyDailyDigest(input?: {
+  dateKey?: string;
+  mode?: "no-sources" | "no-items";
+  note?: string;
+}): DailyDigest {
+  const dateKey = input?.dateKey ?? todayDateKey();
+  const mode = input?.mode ?? "no-items";
+
+  if (mode === "no-sources") {
+    return {
+      dateKey,
+      headline: "No monitored sources configured yet",
+      summary:
+        "The digest could not run against a source watchlist because this workspace is not monitoring any sites yet.",
+      items: [],
+      producerNotes: [
+        input?.note ??
+          "Add one or more sources with /sources before running the digest again.",
+      ],
+    };
+  }
+
+  return {
+    dateKey,
+    headline: "No qualifying digest items found today",
+    summary:
+      "The monitored sources did not produce any verifiable digest items that cleared the source gate in this run.",
+    items: [],
+    producerNotes: input?.note ? [input.note] : [],
   };
 }
 
@@ -172,11 +208,13 @@ Rules for source management:
 
 Rules for digests:
 - Always call list_sources first.
+- If list_sources returns no monitored sources, return a valid digest with zero items and explain that setup is still needed in producerNotes.
 - Use live web search scoped to each source's domain when available.
 - Produce the structured output: a headline for the day, a 2-3 sentence summary, up to 20 items across sources, each with a reason it matters to a newsroom producer.
 - dateKey must be today's ISO date (YYYY-MM-DD in the producer's local timezone if known, otherwise UTC).
 - Prefer the past 24 hours unless the user says otherwise.
-- Do not invent items. If a source yields nothing, skip it but mention in producerNotes.`;
+- Do not invent items. If a source yields nothing, skip it but mention in producerNotes.
+- If no monitored source yields a valid item, return zero items with a clear summary and producerNotes instead of filler.`;
 
 export const NEWS_MONITOR_AVAILABLE_TOOLS = [
   {

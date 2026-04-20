@@ -8,7 +8,10 @@ import {
   storyScoutBriefSchema,
   normalizeStoryScoutBrief,
 } from "@/lib/agents/story-scout";
-import { dailyDigestSchema, normalizeDailyDigest } from "@/lib/agents/news-monitor";
+import {
+  dailyDigestSchema,
+  normalizeDailyDigest,
+} from "@/lib/agents/news-monitor";
 
 const verifierSchema = z.object({
   score: z.number().min(0).max(1),
@@ -58,16 +61,13 @@ function getSchemaAndNormalizer(agentId: string): {
 function evidenceIssues(agentId: string, normalized: unknown): string[] {
   if (agentId === "expertise-finder") {
     const parsed = normalized as z.infer<typeof expertiseFinderResultSchema>;
-    if (parsed.experts.length < 1) {
+    if (parsed.experts.length < 1 && !allowsEmptyExpertResult(parsed)) {
       return ["No-source-no-claim gate failed: no valid experts remained."];
     }
   }
   if (agentId === "story-scout") {
     const parsed = normalized as z.infer<typeof storyScoutBriefSchema>;
-    const hasInsufficientEvidenceSummary =
-      /(insufficient|unable|could not|cannot|not enough|no access|no verifiable)/i.test(
-        parsed.summary,
-      );
+    const hasInsufficientEvidenceSummary = isLowEvidenceSummary(parsed.summary);
     const hasAdvisoryOrClaimExpansions =
       parsed.angles.length > 0 ||
       parsed.suggestedVoices.length > 0 ||
@@ -82,11 +82,73 @@ function evidenceIssues(agentId: string, normalized: unknown): string[] {
   }
   if (agentId === "news-monitor") {
     const parsed = normalized as z.infer<typeof dailyDigestSchema>;
-    if (parsed.items.length < 1) {
+    if (parsed.items.length < 1 && !allowsEmptyDigest(parsed)) {
       return ["No-source-no-claim gate failed: no valid digest items remained."];
     }
   }
   return [];
+}
+
+function allowsEmptyExpertResult(
+  parsed: z.infer<typeof expertiseFinderResultSchema>,
+) {
+  const combined = [
+    parsed.summary,
+    ...parsed.nextMoves,
+    ...parsed.watchouts,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const emptyExpertSignals = [
+    "no strong candidates",
+    "no suitable experts",
+    "no verified experts",
+    "could not verify",
+    "couldn't verify",
+    "not enough public evidence",
+    "not enough public contact",
+    "no direct public contact",
+    "widen the brief",
+    "narrow the brief",
+    "broaden the search",
+    "search was too narrow",
+    "evidence was weak",
+  ];
+
+  return emptyExpertSignals.some((signal) => combined.includes(signal));
+}
+
+function isLowEvidenceSummary(summary: string) {
+  return /(?:insufficient|limited reporting|thin coverage|early reporting|still emerging|unable|could not|cannot|not enough|no access|no verifiable|few verifiable|not yet clear|unclear from available reporting)/i.test(
+    summary,
+  );
+}
+
+function allowsEmptyDigest(parsed: z.infer<typeof dailyDigestSchema>) {
+  if (parsed.producerNotes.length < 1) return false;
+
+  const combined = [
+    parsed.headline,
+    parsed.summary,
+    ...parsed.producerNotes,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const emptyDigestSignals = [
+    "no monitored sources",
+    "not monitoring any",
+    "no sources configured",
+    "setup is still needed",
+    "no qualifying digest items",
+    "no valid item",
+    "no new items",
+    "no major updates",
+    "nothing qualified",
+  ];
+
+  return emptyDigestSignals.some((signal) => combined.includes(signal));
 }
 
 async function repairOnce(input: {

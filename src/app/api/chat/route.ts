@@ -5,6 +5,7 @@ import { loadAgentRuntimeConfig } from "@/db/queries/agents";
 import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
 import { getChannelById } from "@/db/queries/channels";
 import { deleteMessagesByChannel, insertMessage } from "@/db/queries/messages";
+import { listSources } from "@/db/queries/sources";
 import {
   clearThreadConversation,
   ensureThreadForChannel,
@@ -19,6 +20,7 @@ import {
 import { assertManualAgentRunAllowed } from "@/lib/agents/policy";
 import { buildAgentRuntime } from "@/lib/agents/runtime";
 import { getAgentStrict } from "@/lib/agents/catalog";
+import { createEmptyDailyDigest } from "@/lib/agents/news-monitor";
 import { getModelForTier, resolveModelTierForIntent } from "@/lib/agents/model-routing";
 import { HELP_REPLY, parseProducerInput } from "@/lib/commands";
 import {
@@ -154,16 +156,72 @@ export async function POST(request: Request) {
     modelDefault,
   );
   assertManualAgentRunAllowed(config, descriptor.defaultName);
-  const agent = await buildAgentRuntime(descriptor.id, {
-    workspaceId: channel.workspaceId,
-    siteScope: parsed.siteScope,
-    config,
-  });
-
   const runRecord = await startAgentRun({
     threadId: thread.id,
     agentId: descriptor.id,
     inputSummary: parsed.cleanedPrompt,
+  });
+
+  if (descriptor.id === "news-monitor") {
+    const sources = await listSources(channel.workspaceId);
+    if (sources.length < 1) {
+      const assistantId = nanoid();
+      const payload = createEmptyDailyDigest({ mode: "no-sources" });
+      await insertMessage({
+        id: assistantId,
+        threadId: thread.id,
+        channelId: channel.id,
+        role: "assistant",
+        agentId: descriptor.id,
+        content: payload.summary,
+        payload,
+        renderer: descriptor.renderer,
+        runId: runRecord.id,
+      });
+      await finishAgentRun(runRecord.id, {
+        status: "succeeded",
+        lastResponseId: null,
+        error: null,
+      });
+      await insertAgentOutputAudit({
+        runId: runRecord.id,
+        agentId: descriptor.id,
+        validationStatus: "passed",
+        verifierScore: 1,
+        issues: ["No monitored sources were configured for this workspace."],
+        latencyMs: 0,
+        toolFailureCount: 0,
+      });
+
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encodeSSE({
+                type: "final",
+                payload,
+                renderer: descriptor.renderer,
+              }),
+            );
+            controller.enqueue(
+              encodeSSE({
+                type: "done",
+                messageId: assistantId,
+                agentId: descriptor.id,
+              }),
+            );
+            controller.close();
+          },
+        }),
+        { headers: sseHeaders },
+      );
+    }
+  }
+
+  const agent = await buildAgentRuntime(descriptor.id, {
+    workspaceId: channel.workspaceId,
+    siteScope: parsed.siteScope,
+    config,
   });
 
   const shouldContinueConversation = parsed.intent === "freeform";

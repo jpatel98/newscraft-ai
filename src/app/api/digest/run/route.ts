@@ -8,6 +8,7 @@ import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
 import { getChannelBySlug } from "@/db/queries/channels";
 import { insertDigest } from "@/db/queries/digests";
 import { insertMessage } from "@/db/queries/messages";
+import { listSources } from "@/db/queries/sources";
 import {
   ensureThreadForChannel,
   updateThreadLastResponse,
@@ -22,6 +23,7 @@ import {
 import { assertScheduledAgentRunAllowed } from "@/lib/agents/policy";
 import { buildAgentRuntime } from "@/lib/agents/runtime";
 import { getAgentStrict } from "@/lib/agents/catalog";
+import { createEmptyDailyDigest } from "@/lib/agents/news-monitor";
 import { getModelForTier } from "@/lib/agents/model-routing";
 import { emptySiteScope } from "@/lib/site-scope";
 import { runAgentWithStream } from "@/lib/stream/run-agent-stream";
@@ -135,17 +137,42 @@ async function runDigestForWorkspace(target: WorkspaceTarget) {
     getModelForTier("fast"),
   );
   assertScheduledAgentRunAllowed(config, descriptor.defaultName);
-  const agent = await buildAgentRuntime(descriptor.id, {
-    workspaceId: target.workspaceId,
-    siteScope: emptySiteScope(),
-    config,
-  });
-
   const thread = await ensureThreadForChannel(channel.id);
   const runRecord = await startAgentRun({
     threadId: thread.id,
     agentId: descriptor.id,
     inputSummary: "scheduled digest",
+  });
+  const sources = await listSources(target.workspaceId);
+  if (sources.length < 1) {
+    await finishAgentRun(runRecord.id, {
+      status: "succeeded",
+      lastResponseId: null,
+      error: null,
+    });
+    await insertAgentOutputAudit({
+      runId: runRecord.id,
+      agentId: descriptor.id,
+      validationStatus: "passed",
+      verifierScore: 1,
+      issues: ["Skipped scheduled digest because no sources are configured."],
+      latencyMs: 0,
+      toolFailureCount: 0,
+    });
+    return {
+      ok: true,
+      workspaceId: target.workspaceId,
+      workspaceSlug: target.workspaceSlug,
+      itemCount: 0,
+      skipped: "no-sources-configured",
+      digest: createEmptyDailyDigest({ mode: "no-sources" }),
+    };
+  }
+
+  const agent = await buildAgentRuntime(descriptor.id, {
+    workspaceId: target.workspaceId,
+    siteScope: emptySiteScope(),
+    config,
   });
 
   const today = new Date().toISOString().slice(0, 10);

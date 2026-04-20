@@ -104,6 +104,7 @@ Workflow:
 4. Output rules
 - Return 3 to 5 experts by default, up to 10 when the user asks for more.
 - If evidence is weak, return fewer experts and explain the gap.
+- If no strong candidates clear the evidence bar, return zero experts and explain the gap in summary, watchouts, or nextMoves instead of guessing.
 - Every expert must have at least one public source confirming their expertise.
 - Every expert entry should be practical for outreach: role, why they fit, public contact path, and the best confirming source.
 - Favor diversity of institution, geography, and perspective when it improves the list.
@@ -164,6 +165,7 @@ Rules:
 - Keep \`angles\`, \`suggestedVoices\`, \`interviewQuestions\`, and \`watchouts\` empty unless the user explicitly requests those planning sections.
 - Prefer recency (past six months) for related coverage unless the story has a longer arc.
 - Keep the summary to 2-4 neutral sentences describing what is known right now.
+- If reporting is too thin to support sourced background facts, return a gap response with empty structured sections and state that clearly in the summary.
 - Never invent names, quotes, or stats. Cite or skip.`;
 
 const STORY_SCOUT_AVAILABLE_TOOLS = [
@@ -193,11 +195,13 @@ Rules for source management:
 
 Rules for digests:
 - Always call list_sources first.
+- If list_sources returns no monitored sources, return a valid digest with zero items and explain that setup is still needed in producerNotes.
 - Use live web search scoped to each source's domain when available.
 - Produce the structured output: a headline for the day, a 2-3 sentence summary, up to 20 items across sources, each with a reason it matters to a newsroom producer.
 - dateKey must be today's ISO date (YYYY-MM-DD in the producer's local timezone if known, otherwise UTC).
 - Prefer the past 24 hours unless the user says otherwise.
-- Do not invent items. If a source yields nothing, skip it but mention in producerNotes.`;
+- Do not invent items. If a source yields nothing, skip it but mention in producerNotes.
+- If no monitored source yields a valid item, return zero items with a clear summary and producerNotes instead of filler.`;
 
 const NEWS_MONITOR_AVAILABLE_TOOLS = [
   {

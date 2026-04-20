@@ -435,6 +435,7 @@ Workflow:
 4. Output rules
 - Return 3 to 5 experts by default, up to 10 when the user asks for more.
 - If evidence is weak, return fewer experts and explain the gap.
+- If no strong candidates clear the evidence bar, return zero experts and explain the gap in summary, watchouts, or nextMoves instead of guessing.
 - Every expert must have at least one public source confirming their expertise.
 - Every expert entry should be practical for outreach: role, why they fit, public contact path, and the best confirming source.
 - Favor diversity of institution, geography, and perspective when it improves the list.

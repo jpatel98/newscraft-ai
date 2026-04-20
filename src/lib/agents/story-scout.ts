@@ -146,6 +146,7 @@ Rules:
 - Keep \`angles\`, \`suggestedVoices\`, \`interviewQuestions\`, and \`watchouts\` empty unless the user explicitly requests those planning sections.
 - Prefer recency (past six months) for related coverage unless the story has a longer arc.
 - Keep the summary to 2-4 neutral sentences describing what is known right now.
+- If reporting is too thin to support sourced background facts, return a gap response with empty structured sections and state that clearly in the summary.
 - Never invent names, quotes, or stats. Cite or skip.`;
 
 export const STORY_SCOUT_AVAILABLE_TOOLS = [
