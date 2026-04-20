@@ -10,10 +10,11 @@ NewsCraft AI is a newsroom collaboration workspace built with Next.js 16 and the
   - `News Monitor` — manages a watchlist of sources and produces a daily digest.
 - **Streaming chat** — token-level streaming from the Agents SDK, with live "searching the web…" / "inspecting…" tool pills.
 - **Structured renderers** — expert shortlist card, story-brief card, daily-digest card.
-- **Editable agents** — workspace-scoped agent system prompt, model override, and tool toggles, persisted in SQLite and applied at runtime.
+- **Editable agents** — org + workspace-scoped agent config (with workspace override precedence), persisted in SQLite and applied at runtime.
 - **Persistence** — threads, messages, agent runs, sources, digests all in local SQLite via Drizzle ORM.
-- **Future-ready admin boundary** — users, workspace memberships, and workspace agent settings are separated now so real accounts/admin controls can land without a schema rewrite.
+- **Multi-tenant accounts** — organizations, org memberships, workspace memberships, invites, and tenant-scoped routing (`/o/:org/w/:workspace`).
 - **Scheduled digests** — `/api/digest/run` endpoint + `node-cron` sibling script.
+- **Quality gates** — schema validation, one-shot repair attempt, verifier pass, and `agent_output_audits` telemetry.
 
 ## Stack
 
@@ -37,6 +38,7 @@ npm run db:migrate                   # applies migrations to ./data/newscraft.db
 npm run db:seed                      # seeds the default workspace + agents + topic channels + local admin
 
 npm run dev                          # http://localhost:3000
+npm run evals                        # offline eval suite + quality gate
 ```
 
 Optional for scheduled digests (keep running in a second terminal):
@@ -70,13 +72,16 @@ Sign-in flow:
 
 ## Project structure
 
-- `src/app/(workspace)/` — route group with shared shell layout.
-  - `layout.tsx` — loads channels + agents, renders the sidebar.
-  - `page.tsx` — redirects `/` to the first channel.
-  - `channel/[slug]/page.tsx` — chat view for one channel.
+- `src/app/o/[orgSlug]/w/[workspaceSlug]/` — tenant-scoped workspace routes.
+  - `layout.tsx` — loads channels + agents for a tenant workspace.
+  - `page.tsx` — redirects to the first channel.
+  - `channel/[slug]/page.tsx` — chat view.
   - `agent/[id]/page.tsx` — agent config editor.
 - `src/app/api/chat/route.ts` — POST endpoint, streams Agents SDK events as SSE.
 - `src/app/api/digest/run/route.ts` — scheduled-digest endpoint, secured by `x-cron-secret`.
+- `src/app/api/admin/organizations/route.ts` — creates a new org/workspace from template.
+- `src/app/api/admin/organizations/[orgId]/invites/route.ts` — creates invite links.
+- `src/app/api/invites/accept/route.ts` — accepts invite + grants memberships.
 - `src/components/workspace/` — shell, sidebar, agent + channel lists.
 - `src/components/chat/` — message list, streaming bubble, composer, command palette.
 - `src/components/agent/agent-config-editor.tsx` — editable form for per-agent settings.
@@ -88,11 +93,16 @@ Sign-in flow:
 - `src/lib/actions/save-agent.ts` — Server Action for saving agent config.
 - `src/db/` — Drizzle client, schema, queries, migrations.
 - `scripts/` — `migrate.ts`, `seed.ts`, `digest-cron.ts`.
+- `scripts/evals.ts` + `evals/*.jsonl` — regression metrics and release gate.
 
 ## Environment
 
 - `OPENAI_API_KEY` — required.
-- `OPENAI_MODEL` — default model id when an agent has no per-agent override. Currently defaults to `gpt-5.4-mini`.
+- `OPENAI_MODEL` — fallback model id.
+- `OPENAI_MODEL_STRONG` — default strong model for higher-stakes runs (default `gpt-5.4`).
+- `OPENAI_MODEL_FAST` — default fast model for lower-risk runs (default `gpt-5.4-mini`).
+- `VERIFIER_MODEL` — model used for output verification.
+- `VERIFIER_MIN_SCORE` — numeric verifier cutoff (default `0.70`).
 - `DATABASE_URL` — SQLite file path. Defaults to `./data/newscraft.db`.
 - `CRON_SECRET` — shared secret required by `/api/digest/run`. Also passed by `scripts/digest-cron.ts`.
 - `NEWSCRAFT_GENERAL_USER_EMAIL` — email for the seeded general account used by `/auth/general`. Defaults to `producer@newscraft.local`.
@@ -100,6 +110,8 @@ Sign-in flow:
 - `NEWSCRAFT_ADMIN_SIGNIN_TOKEN` — token embedded in the hidden admin URL `/auth/special/<token>`. Defaults to `local-admin-link` for local development.
 - `DIGEST_CRON` — cron expression for the scheduled digest (default `0 7 * * *`).
 - `NEWSCRAFT_BASE_URL` — base URL the cron script hits (default `http://localhost:3000`).
+- `EVALS_LIVE_VERIFY` — set `1` to run live verifier checks in `npm run evals`.
+- `EVAL_MAX_REGRESSION` — allowed pass-rate drop vs baseline (default `0.03`).
 
 ## Notes
 

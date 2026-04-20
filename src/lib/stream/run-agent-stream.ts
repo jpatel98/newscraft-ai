@@ -73,6 +73,8 @@ export type RunAgentResult = {
   finalOutput: unknown;
   lastResponseId: string | null;
   accumulatedText: string;
+  toolFailureCount: number;
+  toolFailureSummaries: string[];
 };
 
 export async function runAgentWithStream({
@@ -89,6 +91,8 @@ export async function runAgentWithStream({
   });
 
   let accumulatedText = "";
+  let toolFailureCount = 0;
+  const toolFailureSummaries: string[] = [];
 
   for await (const event of streamed) {
     switch (event.type) {
@@ -116,6 +120,12 @@ export async function runAgentWithStream({
         } else if (name === "tool_output") {
           const outputRaw = raw as ToolOutputRaw;
           const ok = outputRaw.status !== "error" && !outputRaw.error;
+          if (!ok) {
+            toolFailureCount += 1;
+            toolFailureSummaries.push(
+              summarizeToolOutput(outputRaw.output) || "Tool execution failed.",
+            );
+          }
           emit({
             type: "tool_end",
             id: extractCallId(raw),
@@ -139,6 +149,8 @@ export async function runAgentWithStream({
     finalOutput: streamed.finalOutput ?? null,
     lastResponseId: streamed.lastResponseId ?? null,
     accumulatedText,
+    toolFailureCount,
+    toolFailureSummaries,
   };
 }
 

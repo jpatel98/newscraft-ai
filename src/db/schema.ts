@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -9,11 +10,21 @@ import {
 
 const now = sql`(unixepoch() * 1000)`;
 
-export const workspaces = sqliteTable("workspaces", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  createdAt: integer("created_at").notNull().default(now),
-});
+export const organizations = sqliteTable(
+  "organizations",
+  {
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    status: text("status", { enum: ["active", "paused"] })
+      .notNull()
+      .default("active"),
+    createdAt: integer("created_at").notNull().default(now),
+  },
+  (table) => ({
+    slugUnique: uniqueIndex("organizations_slug_unique").on(table.slug),
+  }),
+);
 
 export const users = sqliteTable(
   "users",
@@ -28,6 +39,25 @@ export const users = sqliteTable(
   },
   (table) => ({
     emailUnique: uniqueIndex("users_email_unique").on(table.email),
+  }),
+);
+
+export const workspaces = sqliteTable(
+  "workspaces",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    createdAt: integer("created_at").notNull().default(now),
+  },
+  (table) => ({
+    byOrgSlug: uniqueIndex("workspaces_org_slug_unique").on(
+      table.organizationId,
+      table.slug,
+    ),
   }),
 );
 
@@ -48,6 +78,54 @@ export const authSessions = sqliteTable(
       table.tokenHash,
     ),
     byUser: index("auth_sessions_user_created").on(table.userId, table.createdAt),
+  }),
+);
+
+export const organizationMemberships = sqliteTable(
+  "organization_memberships",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["owner", "admin", "member", "viewer"] })
+      .notNull()
+      .default("member"),
+    createdAt: integer("created_at").notNull().default(now),
+  },
+  (table) => ({
+    pk: uniqueIndex("org_memberships_org_user").on(
+      table.organizationId,
+      table.userId,
+    ),
+  }),
+);
+
+export const organizationInvites = sqliteTable(
+  "organization_invites",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role", { enum: ["owner", "admin", "member", "viewer"] })
+      .notNull()
+      .default("member"),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    invitedByUserId: text("invited_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    acceptedAt: integer("accepted_at"),
+    createdAt: integer("created_at").notNull().default(now),
+  },
+  (table) => ({
+    tokenHashUnique: uniqueIndex("org_invites_token_hash_unique").on(
+      table.tokenHash,
+    ),
   }),
 );
 
@@ -93,6 +171,45 @@ export const agents = sqliteTable("agents", {
     .default([]),
   createdAt: integer("created_at").notNull().default(now),
 });
+
+export const organizationAgentSettings = sqliteTable(
+  "organization_agent_settings",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    name: text("name"),
+    description: text("description"),
+    instructions: text("instructions"),
+    userPromptTuning: text("user_prompt_tuning"),
+    preferredSourceUrls: text("preferred_source_urls", { mode: "json" })
+      .$type<string[] | null>()
+      .default([]),
+    model: text("model"),
+    enabledTools: text("enabled_tools", { mode: "json" }).$type<string[] | null>(),
+    isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
+    policy: text("policy", { mode: "json" })
+      .notNull()
+      .$type<{
+        allowManualRuns: boolean;
+        allowScheduledRuns: boolean;
+        editableByWorkspaceAdmins: boolean;
+      }>(),
+    updatedAt: integer("updated_at").notNull().default(now),
+    updatedByUserId: text("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => ({
+    pk: uniqueIndex("org_agent_settings_org_agent").on(
+      table.organizationId,
+      table.agentId,
+    ),
+  }),
+);
 
 export const workspaceAgentSettings = sqliteTable(
   "workspace_agent_settings",
@@ -220,6 +337,22 @@ export const agentRuns = sqliteTable("agent_runs", {
   endedAt: integer("ended_at"),
 });
 
+export const agentOutputAudits = sqliteTable("agent_output_audits", {
+  id: text("id").primaryKey(),
+  runId: text("run_id")
+    .notNull()
+    .references(() => agentRuns.id, { onDelete: "cascade" }),
+  agentId: text("agent_id").notNull(),
+  validationStatus: text("validation_status", {
+    enum: ["passed", "repaired", "failed"],
+  }).notNull(),
+  verifierScore: real("verifier_score"),
+  issues: text("issues", { mode: "json" }).$type<string[] | null>().default([]),
+  latencyMs: integer("latency_ms"),
+  toolFailureCount: integer("tool_failure_count").notNull().default(0),
+  createdAt: integer("created_at").notNull().default(now),
+});
+
 export const newsSources = sqliteTable(
   "news_sources",
   {
@@ -266,11 +399,16 @@ export const digests = sqliteTable(
   }),
 );
 
-export type WorkspaceRow = typeof workspaces.$inferSelect;
+export type OrganizationRow = typeof organizations.$inferSelect;
 export type UserRow = typeof users.$inferSelect;
+export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type AuthSessionRow = typeof authSessions.$inferSelect;
+export type OrganizationMembershipRow = typeof organizationMemberships.$inferSelect;
+export type OrganizationInviteRow = typeof organizationInvites.$inferSelect;
 export type WorkspaceMembershipRow = typeof workspaceMemberships.$inferSelect;
 export type AgentRow = typeof agents.$inferSelect;
+export type OrganizationAgentSettingsRow =
+  typeof organizationAgentSettings.$inferSelect;
 export type WorkspaceAgentSettingsRow =
   typeof workspaceAgentSettings.$inferSelect;
 export type ChannelRow = typeof channels.$inferSelect;
@@ -278,5 +416,6 @@ export type ThreadRow = typeof threads.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;
 export type NewMessageRow = typeof messages.$inferInsert;
 export type AgentRunRow = typeof agentRuns.$inferSelect;
+export type AgentOutputAuditRow = typeof agentOutputAudits.$inferSelect;
 export type NewsSourceRow = typeof newsSources.$inferSelect;
 export type DigestRow = typeof digests.$inferSelect;

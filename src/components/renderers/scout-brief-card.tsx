@@ -3,20 +3,11 @@
 import type { StoryScoutBrief } from "@/lib/agents/story-scout";
 import { Markdown } from "./markdown";
 
-const difficultyColor: Record<
-  StoryScoutBrief["angles"][number]["difficulty"],
-  string
-> = {
-  easy: "var(--success)",
-  medium: "#b7791f",
-  ambitious: "var(--danger)",
-};
-
 export function ScoutBriefCard({ brief }: { brief: StoryScoutBrief }) {
   return (
     <article className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
       <header className="flex items-center gap-2 pb-2">
-        <span className="eyebrow text-[var(--fg-subtle)]">Story brief</span>
+        <span className="eyebrow text-[var(--fg-subtle)]">Story intelligence</span>
         <span className="ml-auto text-xs text-[var(--fg-muted)]">
           {brief.confidence} confidence
         </span>
@@ -27,39 +18,6 @@ export function ScoutBriefCard({ brief }: { brief: StoryScoutBrief }) {
         content={brief.summary}
         className="mt-2 text-[0.9375rem] leading-relaxed text-[var(--fg)]"
       />
-
-      {brief.angles.length > 0 ? (
-        <section className="mt-4">
-          <div className="eyebrow pb-1 text-[var(--fg-subtle)]">Angles</div>
-          <ul className="flex flex-col gap-2">
-            {brief.angles.map((angle, i) => (
-              <li
-                key={i}
-                className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg)] p-3"
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-[var(--fg)]">
-                    {angle.title}
-                  </h3>
-                  <span
-                    className="text-xs uppercase tracking-wider"
-                    style={{ color: difficultyColor[angle.difficulty] }}
-                  >
-                    {angle.difficulty}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                  {angle.audience}
-                </p>
-                <Markdown
-                  content={angle.why}
-                  className="mt-1 text-sm text-[var(--fg)]"
-                />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       {brief.background.length > 0 ? (
         <section className="mt-4">
@@ -106,56 +64,6 @@ export function ScoutBriefCard({ brief }: { brief: StoryScoutBrief }) {
                   content={item.takeaway}
                   className="text-[var(--fg-muted)]"
                 />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {brief.suggestedVoices.length > 0 ? (
-        <section className="mt-4">
-          <div className="eyebrow pb-1 text-[var(--fg-subtle)]">
-            Voices to consider
-          </div>
-          <ul className="flex flex-col gap-1 text-sm">
-            {brief.suggestedVoices.map((voice, i) => (
-              <li key={i}>
-                <span className="font-medium text-[var(--fg)]">
-                  {voice.name}
-                </span>{" "}
-                <span className="text-[var(--fg-muted)]">— {voice.role}</span>
-                <Markdown
-                  content={voice.why}
-                  className="text-[var(--fg-muted)]"
-                />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {brief.interviewQuestions.length > 0 ? (
-        <section className="mt-4">
-          <div className="eyebrow pb-1 text-[var(--fg-subtle)]">
-            Interview questions
-          </div>
-          <ol className="list-decimal pl-5 text-sm text-[var(--fg)]">
-            {brief.interviewQuestions.map((question, i) => (
-              <li key={i} className="py-0.5">
-                {question}
-              </li>
-            ))}
-          </ol>
-        </section>
-      ) : null}
-
-      {brief.watchouts.length > 0 ? (
-        <section className="mt-4">
-          <div className="eyebrow pb-1 text-[var(--fg-subtle)]">Watchouts</div>
-          <ul className="list-disc pl-5 text-sm text-[var(--fg-muted)]">
-            {brief.watchouts.map((watchout, i) => (
-              <li key={i}>
-                <Markdown content={watchout} />
               </li>
             ))}
           </ul>

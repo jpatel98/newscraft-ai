@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getUserByEmail } from "@/db/queries/access";
 import { createSessionForUser } from "@/lib/server/auth";
+import { getDefaultTenantRouteForUser } from "@/lib/server/app-context";
 import { safeRedirectTarget } from "@/lib/server/auth-redirect";
 import { getGeneralEmail } from "@/lib/server/auth-identities";
 
@@ -23,6 +24,9 @@ export async function GET(request: Request) {
   }
 
   await createSessionForUser(user.id);
+  if (next === "/") {
+    const tenantRoute = await getDefaultTenantRouteForUser(user.id);
+    redirect(tenantRoute?.href ?? "/");
+  }
   redirect(next);
 }
-

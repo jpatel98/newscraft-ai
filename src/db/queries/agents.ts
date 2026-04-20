@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   agents,
+  organizationAgentSettings,
   workspaceAgentSettings,
   type AgentRow,
   type UserRow,
@@ -86,24 +87,46 @@ export async function getWorkspaceAgentRow(
 
 export async function loadAgentRuntimeConfig(
   workspaceId: string,
+  organizationId: string,
   agentId: string,
+  fallbackModel?: string | null,
 ): Promise<AgentRuntimeConfig> {
   const descriptor = getAgentStrict(agentId);
-  const row = await getWorkspaceAgentRow(workspaceId, agentId);
-  const fallbackModel = process.env.OPENAI_MODEL ?? "gpt-5.4-mini";
+  const [workspaceRow, orgRows] = await Promise.all([
+    getWorkspaceAgentRow(workspaceId, agentId),
+    db
+      .select()
+      .from(organizationAgentSettings)
+      .where(
+        and(
+          eq(organizationAgentSettings.organizationId, organizationId),
+          eq(organizationAgentSettings.agentId, agentId),
+        ),
+      ),
+  ]);
+  const orgRow = orgRows[0];
+  const resolvedFallbackModel =
+    fallbackModel ?? process.env.OPENAI_MODEL_FAST ?? "gpt-5.4-mini";
 
   return {
-    name: row?.name ?? descriptor.defaultName,
-    instructions: row?.instructions ?? descriptor.defaults.instructions,
-    userPromptTuning: row?.userPromptTuning ?? null,
-    preferredSourceUrls: row?.preferredSourceUrls ?? [],
-    model: row?.model ?? fallbackModel,
+    name: workspaceRow?.name ?? orgRow?.name ?? descriptor.defaultName,
+    instructions:
+      workspaceRow?.instructions ??
+      orgRow?.instructions ??
+      descriptor.defaults.instructions,
+    userPromptTuning:
+      workspaceRow?.userPromptTuning ?? orgRow?.userPromptTuning ?? null,
+    preferredSourceUrls:
+      workspaceRow?.preferredSourceUrls ?? orgRow?.preferredSourceUrls ?? [],
+    model: workspaceRow?.model ?? orgRow?.model ?? resolvedFallbackModel,
     enabledTools:
-      row?.enabledTools && row.enabledTools.length > 0
-        ? row.enabledTools
+      workspaceRow?.enabledTools && workspaceRow.enabledTools.length > 0
+        ? workspaceRow.enabledTools
+        : orgRow?.enabledTools && orgRow.enabledTools.length > 0
+          ? orgRow.enabledTools
         : descriptor.defaults.enabledTools,
-    policy: row?.policy ?? DEFAULT_AGENT_POLICY,
-    isEnabled: row?.isEnabled ?? true,
+    policy: workspaceRow?.policy ?? orgRow?.policy ?? DEFAULT_AGENT_POLICY,
+    isEnabled: workspaceRow?.isEnabled ?? orgRow?.isEnabled ?? true,
   };
 }
 
@@ -188,6 +211,32 @@ export async function seedWorkspaceAgentSettings(
       .insert(workspaceAgentSettings)
       .values({
         workspaceId,
+        agentId: agent.id,
+        name: agent.defaultName,
+        description: agent.description,
+        instructions: agent.defaults.instructions,
+        userPromptTuning: null,
+        preferredSourceUrls: [],
+        model: null,
+        enabledTools: agent.defaults.enabledTools,
+        isEnabled: true,
+        policy: DEFAULT_AGENT_POLICY,
+        updatedAt: Date.now(),
+        updatedByUserId: actor?.id ?? null,
+      })
+      .onConflictDoNothing();
+  }
+}
+
+export async function seedOrganizationAgentSettings(
+  organizationId: string,
+  actor: UserRow | null,
+) {
+  for (const agent of listAgents()) {
+    await db
+      .insert(organizationAgentSettings)
+      .values({
+        organizationId,
         agentId: agent.id,
         name: agent.defaultName,
         description: agent.description,

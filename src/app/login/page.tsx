@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentAppContext } from "@/lib/server/app-context";
+import { getSessionUserId } from "@/lib/server/auth";
+import { getDefaultTenantRouteForUser } from "@/lib/server/app-context";
 import { safeRedirectTarget } from "@/lib/server/auth-redirect";
 
 export default async function LoginPage({
@@ -8,12 +9,14 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ next?: string }>;
 }) {
-  const { membership } = await getCurrentAppContext();
   const { next } = await searchParams;
   const safeNext = safeRedirectTarget(next);
-
-  if (membership) {
-    redirect(safeNext);
+  const userId = await getSessionUserId();
+  if (userId) {
+    const nextTenant = await getDefaultTenantRouteForUser(userId);
+    if (nextTenant) {
+      redirect(safeNext === "/" ? nextTenant.href : safeNext);
+    }
   }
 
   const generalSigninHref = `/auth/general?next=${encodeURIComponent(safeNext)}`;

@@ -20,12 +20,22 @@ export type ChatViewProps = {
   channel: ChannelRow;
   agents: AgentChatRecord[];
   initialMessages: ChatMessage[];
+  orgSlug: string;
+  workspaceSlug: string;
 };
 
-export function ChatView({ channel, agents, initialMessages }: ChatViewProps) {
+export function ChatView({
+  channel,
+  agents,
+  initialMessages,
+  orgSlug,
+  workspaceSlug,
+}: ChatViewProps) {
   const { messages, pending, error, streaming, send, cancel } = useAgentStream({
     channelId: channel.id,
     initialMessages,
+    orgSlug,
+    workspaceSlug,
   });
   const [historyOpen, setHistoryOpen] = useState(false);
 

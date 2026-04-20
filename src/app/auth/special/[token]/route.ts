@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getUserByEmail } from "@/db/queries/access";
 import { createSessionForUser } from "@/lib/server/auth";
+import { getDefaultTenantRouteForUser } from "@/lib/server/app-context";
 import { safeRedirectTarget } from "@/lib/server/auth-redirect";
 import {
   getAdminEmail,
@@ -34,6 +35,9 @@ export async function GET(
   await createSessionForUser(adminUser.id);
   const url = new URL(request.url);
   const next = safeRedirectTarget(url.searchParams.get("next"));
+  if (next === "/") {
+    const tenantRoute = await getDefaultTenantRouteForUser(adminUser.id);
+    redirect(tenantRoute?.href ?? "/");
+  }
   redirect(next);
 }
-

@@ -1,25 +1,49 @@
 import { nanoid } from "nanoid";
-import { assertScheduledAgentRunAllowed } from "@/lib/agents/policy";
-import { getAgentStrict } from "@/lib/agents/catalog";
-import { buildAgentRuntime } from "@/lib/agents/runtime";
+import { z } from "zod";
+import { and, eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { insertAgentOutputAudit } from "@/db/queries/agent-output-audits";
 import { loadAgentRuntimeConfig } from "@/db/queries/agents";
+import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
 import { getChannelBySlug } from "@/db/queries/channels";
+import { insertDigest } from "@/db/queries/digests";
+import { insertMessage } from "@/db/queries/messages";
 import {
   ensureThreadForChannel,
   updateThreadLastResponse,
 } from "@/db/queries/threads";
-import { insertMessage } from "@/db/queries/messages";
-import { insertDigest } from "@/db/queries/digests";
-import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
+import { organizations, workspaces } from "@/db/schema";
+import {
+  getVerifierMinScore,
+  repairOutputForVerifierIssues,
+  validateNormalizeAndRepair,
+  verifyOutputQuality,
+} from "@/lib/agents/output-quality";
+import { assertScheduledAgentRunAllowed } from "@/lib/agents/policy";
+import { buildAgentRuntime } from "@/lib/agents/runtime";
+import { getAgentStrict } from "@/lib/agents/catalog";
+import { getModelForTier } from "@/lib/agents/model-routing";
 import { emptySiteScope } from "@/lib/site-scope";
 import { runAgentWithStream } from "@/lib/stream/run-agent-stream";
-import type { DailyDigest } from "@/lib/agents/news-monitor";
-import { DEFAULT_WORKSPACE_ID } from "@/lib/server/app-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DIGEST_CHANNEL_SLUG = "news-digest";
+
+const bodySchema = z
+  .object({
+    orgSlug: z.string().min(1).optional(),
+    workspaceSlug: z.string().min(1).optional(),
+  })
+  .optional();
+
+type WorkspaceTarget = {
+  organizationId: string;
+  organizationSlug: string;
+  workspaceId: string;
+  workspaceSlug: string;
+};
 
 export async function POST(request: Request) {
   const secret = request.headers.get("x-cron-secret");
@@ -37,19 +61,82 @@ export async function POST(request: Request) {
     );
   }
 
-  const channel = await getChannelBySlug(DEFAULT_WORKSPACE_ID, DIGEST_CHANNEL_SLUG);
+  let body: z.infer<typeof bodySchema> = undefined;
+  try {
+    const raw = await request.json().catch(() => null);
+    body = bodySchema.parse(raw ?? undefined);
+  } catch {
+    return Response.json({ ok: false, error: "Invalid request body." }, { status: 400 });
+  }
+
+  const targets = await resolveTargets(body);
+  if (targets.length === 0) {
+    return Response.json({ ok: false, error: "No target workspace found." }, { status: 404 });
+  }
+
+  const results = [];
+  for (const target of targets) {
+    results.push(await runDigestForWorkspace(target));
+  }
+
+  return Response.json({ ok: true, results });
+}
+
+async function resolveTargets(
+  body: z.infer<typeof bodySchema>,
+): Promise<WorkspaceTarget[]> {
+  if (body?.orgSlug && body.workspaceSlug) {
+    const rows = await db
+      .select({
+        organizationId: organizations.id,
+        organizationSlug: organizations.slug,
+        workspaceId: workspaces.id,
+        workspaceSlug: workspaces.slug,
+      })
+      .from(workspaces)
+      .innerJoin(organizations, eq(organizations.id, workspaces.organizationId))
+      .where(
+        and(
+          eq(organizations.slug, body.orgSlug),
+          eq(workspaces.slug, body.workspaceSlug),
+        ),
+      )
+      .limit(1);
+    return rows;
+  }
+
+  return db
+    .select({
+      organizationId: organizations.id,
+      organizationSlug: organizations.slug,
+      workspaceId: workspaces.id,
+      workspaceSlug: workspaces.slug,
+    })
+    .from(workspaces)
+    .innerJoin(organizations, eq(organizations.id, workspaces.organizationId));
+}
+
+async function runDigestForWorkspace(target: WorkspaceTarget) {
+  const channel = await getChannelBySlug(target.workspaceId, DIGEST_CHANNEL_SLUG);
   if (!channel) {
-    return Response.json(
-      { ok: false, error: `Channel #${DIGEST_CHANNEL_SLUG} not found.` },
-      { status: 404 },
-    );
+    return {
+      ok: false,
+      workspaceId: target.workspaceId,
+      workspaceSlug: target.workspaceSlug,
+      error: `Channel #${DIGEST_CHANNEL_SLUG} not found.`,
+    };
   }
 
   const descriptor = getAgentStrict("news-monitor");
-  const config = await loadAgentRuntimeConfig(DEFAULT_WORKSPACE_ID, descriptor.id);
+  const config = await loadAgentRuntimeConfig(
+    target.workspaceId,
+    target.organizationId,
+    descriptor.id,
+    getModelForTier("fast"),
+  );
   assertScheduledAgentRunAllowed(config, descriptor.defaultName);
   const agent = await buildAgentRuntime(descriptor.id, {
-    workspaceId: DEFAULT_WORKSPACE_ID,
+    workspaceId: target.workspaceId,
     siteScope: emptySiteScope(),
     config,
   });
@@ -63,21 +150,70 @@ export async function POST(request: Request) {
 
   const today = new Date().toISOString().slice(0, 10);
   const prompt = `Generate today's newsroom digest. Today is ${today}. Call list_sources first. Prioritize the past 24 hours.`;
+  const startedAt = Date.now();
 
   try {
     const result = await runAgentWithStream({
       agent,
       prompt,
       previousResponseId: null,
-      emit: () => {
-        // No client to receive events for scheduled runs.
-      },
+      emit: () => {},
     });
 
-    const digest = (result.finalOutput ?? null) as DailyDigest | null;
-    if (!digest) {
-      throw new Error("News Monitor did not return a digest.");
+    const validated = await validateNormalizeAndRepair({
+      agentId: descriptor.id,
+      payload: result.finalOutput ?? null,
+      repairModel: getModelForTier("strong"),
+    });
+    if (!validated.ok) {
+      throw new Error(
+        `Structured output validation failed: ${validated.issues.join("; ")}`,
+      );
     }
+
+    let finalPayload = validated.normalized;
+    let verifierRepaired = false;
+    let verification = await verifyOutputQuality({
+      agentId: descriptor.id,
+      prompt,
+      output: finalPayload,
+      model: process.env.VERIFIER_MODEL ?? getModelForTier("strong"),
+    });
+
+    if (verification.criticalIssues.length > 0) {
+      const verifierRepair = await repairOutputForVerifierIssues({
+        agentId: descriptor.id,
+        payload: finalPayload,
+        criticalIssues: verification.criticalIssues,
+        model: getModelForTier("strong"),
+      });
+      if (verifierRepair.ok) {
+        finalPayload = verifierRepair.output;
+        verifierRepaired = true;
+        verification = await verifyOutputQuality({
+          agentId: descriptor.id,
+          prompt,
+          output: finalPayload,
+          model: process.env.VERIFIER_MODEL ?? getModelForTier("strong"),
+        });
+      }
+    }
+
+    const minScore = getVerifierMinScore();
+    if (
+      verification.score < minScore ||
+      verification.criticalIssues.length > 0
+    ) {
+      throw new Error(
+        `Verifier blocked output: score=${verification.score.toFixed(2)} issues=${verification.criticalIssues.join(", ")}`,
+      );
+    }
+
+    const digest = finalPayload as {
+      dateKey: string;
+      headline: string;
+      items: unknown[];
+    };
 
     const messageId = nanoid();
     await insertMessage({
@@ -92,7 +228,7 @@ export async function POST(request: Request) {
       runId: runRecord.id,
     });
     await insertDigest({
-      workspaceId: DEFAULT_WORKSPACE_ID,
+      workspaceId: target.workspaceId,
       channelId: channel.id,
       messageId,
       dateKey: digest.dateKey || today,
@@ -104,13 +240,25 @@ export async function POST(request: Request) {
       error: null,
     });
     await updateThreadLastResponse(thread.id, result.lastResponseId);
+    await insertAgentOutputAudit({
+      runId: runRecord.id,
+      agentId: descriptor.id,
+      validationStatus:
+        validated.repaired || verifierRepaired ? "repaired" : "passed",
+      verifierScore: verification.score,
+      issues: verification.notes,
+      latencyMs: Date.now() - startedAt,
+      toolFailureCount: result.toolFailureCount,
+    });
 
-    return Response.json({
+    return {
       ok: true,
+      workspaceId: target.workspaceId,
+      workspaceSlug: target.workspaceSlug,
       digestId: messageId,
       dateKey: digest.dateKey || today,
       itemCount: digest.items.length,
-    });
+    };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown digest error.";
@@ -119,6 +267,20 @@ export async function POST(request: Request) {
       lastResponseId: null,
       error: message,
     });
-    return Response.json({ ok: false, error: message }, { status: 500 });
+    await insertAgentOutputAudit({
+      runId: runRecord.id,
+      agentId: descriptor.id,
+      validationStatus: "failed",
+      verifierScore: null,
+      issues: [message],
+      latencyMs: Date.now() - startedAt,
+      toolFailureCount: 0,
+    });
+    return {
+      ok: false,
+      workspaceId: target.workspaceId,
+      workspaceSlug: target.workspaceSlug,
+      error: message,
+    };
   }
 }

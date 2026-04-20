@@ -1,10 +1,15 @@
 import { Agent, tool, webSearchTool } from "@openai/agents";
 import { load } from "cheerio";
 import { z } from "zod";
+import { runWithToolGuard } from "@/lib/agents/tool-utils";
+
+const httpUrlSchema = z
+  .string()
+  .regex(/^https?:\/\/\S+$/i, "Must be an absolute http(s) URL");
 
 const scoutSourceSchema = z.object({
   title: z.string().min(1),
-  url: z.string().min(1),
+  url: httpUrlSchema,
 });
 
 const scoutAngleSchema = z.object({
@@ -22,7 +27,7 @@ const scoutBackgroundSchema = z.object({
 const scoutCoverageSchema = z.object({
   outlet: z.string().min(1),
   headline: z.string().min(1),
-  url: z.string().min(1),
+  url: httpUrlSchema,
   publishedAt: z.string().optional(),
   takeaway: z.string().min(1),
 });
@@ -36,16 +41,42 @@ const scoutVoiceSchema = z.object({
 export const storyScoutBriefSchema = z.object({
   topic: z.string().min(1),
   summary: z.string().min(1),
-  angles: z.array(scoutAngleSchema).min(3).max(6),
-  background: z.array(scoutBackgroundSchema).min(3).max(8),
-  relatedCoverage: z.array(scoutCoverageSchema).max(8).default([]),
-  suggestedVoices: z.array(scoutVoiceSchema).max(5).default([]),
-  interviewQuestions: z.array(z.string().min(1)).min(5).max(10),
-  watchouts: z.array(z.string().min(1)).max(4).default([]),
+  angles: z.array(scoutAngleSchema).max(20).default([]),
+  background: z.array(scoutBackgroundSchema).max(40).default([]),
+  relatedCoverage: z.array(scoutCoverageSchema).max(40).default([]),
+  suggestedVoices: z.array(scoutVoiceSchema).max(20).default([]),
+  interviewQuestions: z.array(z.string().min(1)).max(30).default([]),
+  watchouts: z.array(z.string().min(1)).max(20).default([]),
   confidence: z.enum(["high", "medium", "low"]),
 });
 
 export type StoryScoutBrief = z.infer<typeof storyScoutBriefSchema>;
+
+export function normalizeStoryScoutBrief(brief: StoryScoutBrief): StoryScoutBrief {
+  return {
+    ...brief,
+    angles: brief.angles.slice(0, 6),
+    background: brief.background.filter((item) => {
+      try {
+        new URL(item.source.url);
+        return true;
+      } catch {
+        return false;
+      }
+    }).slice(0, 8),
+    relatedCoverage: brief.relatedCoverage.filter((item) => {
+      try {
+        new URL(item.url);
+        return true;
+      } catch {
+        return false;
+      }
+    }).slice(0, 8),
+    suggestedVoices: brief.suggestedVoices.slice(0, 5),
+    interviewQuestions: brief.interviewQuestions.slice(0, 10),
+    watchouts: brief.watchouts.slice(0, 4),
+  };
+}
 
 const inspectParameters = z.object({
   url: z.string().min(1),
@@ -62,53 +93,59 @@ const inspectWebpageTool = tool({
     } catch {
       return { ok: false as const, error: `${url} is not a valid URL.` };
     }
+    const outcome = await runWithToolGuard(
+      "inspect_webpage",
+      async () => {
+        const response = await fetch(url, {
+          headers: { "User-Agent": "NewsCraftAI/0.1 story-scout" },
+          signal: AbortSignal.timeout(15000),
+        });
+        const html = await response.text();
+        const $ = load(html);
+        $("script, style, noscript, iframe, nav, footer, form").remove();
+        const title = $("title").first().text().trim();
+        const text =
+          $("article").first().text().trim() ||
+          $("main").first().text().trim() ||
+          $("body").text().trim();
+        const cleaned = text.replace(/\s+/g, " ").trim();
 
-    try {
-      const response = await fetch(url, {
-        headers: { "User-Agent": "NewsCraftAI/0.1 story-scout" },
-        signal: AbortSignal.timeout(15000),
-      });
-      const html = await response.text();
-      const $ = load(html);
-      $("script, style, noscript, iframe, nav, footer, form").remove();
-      const title = $("title").first().text().trim();
-      const text =
-        $("article").first().text().trim() ||
-        $("main").first().text().trim() ||
-        $("body").text().trim();
-      const cleaned = text.replace(/\s+/g, " ").trim();
-
-      return {
-        ok: true as const,
-        url,
-        title: title || url,
-        excerpt: cleaned.slice(0, 5000),
-      };
-    } catch (error) {
+        return {
+          url,
+          title: title || url,
+          excerpt: cleaned.slice(0, 5000),
+        };
+      },
+      { timeoutMs: 15_000, retries: 1 },
+    );
+    if (!outcome.ok) {
       return {
         ok: false as const,
-        error:
-          error instanceof Error
-            ? error.message
-            : `Could not fetch ${url}.`,
+        error: outcome.error,
+        meta: outcome.meta,
       };
     }
+    return {
+      ok: true as const,
+      ...outcome.result,
+      meta: outcome.meta,
+    };
   },
 });
 
-export const STORY_SCOUT_DEFAULT_INSTRUCTIONS = `You are a senior editorial strategist helping newsroom producers scope a story before a pitch meeting.
+export const STORY_SCOUT_DEFAULT_INSTRUCTIONS = `You are a neutral newsroom intelligence analyst.
 
-Given a topic, return a brief a producer can take straight into the rundown.
+Given a topic, return a sourced intelligence brief with facts as-is.
 
 Rules:
 - Always search the web before drafting.
 - Every background fact must cite a source (title + URL).
-- Distinguish *reported fact* from *emerging speculation* in your language.
-- Angles must be distinct — not three rewordings of the same angle. Cover at least one consumer, one policy, and one industry angle when they apply.
-- Interview questions must be open-ended. Avoid yes/no questions.
-- If the evidence for a claim is thin, move it to "watchouts" instead of the brief.
+- Distinguish clearly between reported fact and unresolved/uncertain information.
+- Do not give editorial advice, strategy, coaching, or recommendations.
+- Do not tell producers or journalists what they should do or think.
+- Keep \`angles\`, \`suggestedVoices\`, \`interviewQuestions\`, and \`watchouts\` empty unless the user explicitly requests those planning sections.
 - Prefer recency (past six months) for related coverage unless the story has a longer arc.
-- Keep the summary to 2–4 sentences framing *why this matters now*.
+- Keep the summary to 2-4 neutral sentences describing what is known right now.
 - Never invent names, quotes, or stats. Cite or skip.`;
 
 export const STORY_SCOUT_AVAILABLE_TOOLS = [

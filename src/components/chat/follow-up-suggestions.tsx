@@ -88,10 +88,6 @@ function findLatestSearchMessage(messages: ChatMessage[]) {
 function buildExpertSuggestions(payload: unknown) {
   const result = payload as Partial<ExpertiseFinderResult>;
   const topic = cleanText(result.topic) || "this topic";
-  const firstExpert =
-    Array.isArray(result.experts) && result.experts[0]?.name
-      ? cleanText(result.experts[0].name) || "the top expert"
-      : "the top expert";
 
   return uniqueSuggestions([
     {
@@ -107,12 +103,12 @@ function buildExpertSuggestions(payload: unknown) {
     {
       id: "expert-prioritize",
       label: "Prioritize top 3",
-      prompt: `From this list, rank the top 3 interview targets for ${topic} and explain the order.`,
+      prompt: `/expert For ${topic}, return only the top 3 Canadian interview targets ranked by urgency with public contact details.`,
     },
     {
       id: "expert-outreach",
-      label: "Draft outreach message",
-      prompt: `Draft a concise outreach email for ${firstExpert} about ${topic}.`,
+      label: "Find backup voices",
+      prompt: `/expert Find 5 additional backup Canadian experts we can contact for ${topic}.`,
     },
   ]);
 }
@@ -120,10 +116,10 @@ function buildExpertSuggestions(payload: unknown) {
 function buildScoutSuggestions(payload: unknown) {
   const brief = payload as Partial<StoryScoutBrief>;
   const topic = cleanText(brief.topic) || "this story";
-  const firstAngle =
-    Array.isArray(brief.angles) && brief.angles[0]?.title
-      ? cleanText(brief.angles[0].title) || "the top angle"
-      : "the top angle";
+  const firstCoverageHeadline =
+    Array.isArray(brief.relatedCoverage) && brief.relatedCoverage[0]?.headline
+      ? cleanText(brief.relatedCoverage[0].headline) || "the top related article"
+      : "the top related article";
 
   return uniqueSuggestions([
     {
@@ -132,19 +128,19 @@ function buildScoutSuggestions(payload: unknown) {
       prompt: `/expert Find 5 Canadian experts we can quote on ${topic}.`,
     },
     {
-      id: "scout-angle-plan",
-      label: "Turn angle into plan",
-      prompt: `Turn "${firstAngle}" into a same-day reporting plan with concrete next steps.`,
+      id: "scout-latest",
+      label: "Get latest updates",
+      prompt: `/scout Refresh this brief with only new developments in the past 24 hours on ${topic}.`,
     },
     {
-      id: "scout-sharper-questions",
-      label: "Generate sharper questions",
-      prompt: `Write 8 sharper follow-up interview questions for ${topic}.`,
+      id: "scout-primary-sources",
+      label: "Primary sources only",
+      prompt: `/scout Re-run on ${topic} using only primary sources and official documents where possible.`,
     },
     {
-      id: "scout-fact-check",
-      label: "Fact-check checklist",
-      prompt: `Create a pre-publication fact-check checklist for this ${topic} story.`,
+      id: "scout-coverage-comparison",
+      label: "Compare coverage",
+      prompt: `/scout Compare how major outlets are reporting this item: ${firstCoverageHeadline}.`,
     },
   ]);
 }
@@ -158,15 +154,15 @@ function buildDigestSuggestions(payload: unknown) {
 
   return uniqueSuggestions([
     {
-      id: "digest-priority",
-      label: "Prioritize rundown",
+      id: "digest-latest",
+      label: "Get latest updates",
       prompt:
-        "Pick the top 2 items for today's rundown and explain why they matter most right now.",
+        `/scout Build a sourced intelligence brief from this digest item with updates from the past 24 hours: ${firstHeadline}.`,
     },
     {
       id: "digest-scout",
-      label: "Build story brief",
-      prompt: `/scout Build a story brief from this item: ${firstHeadline}.`,
+      label: "Build intelligence brief",
+      prompt: `/scout Build a sourced intelligence brief from this item: ${firstHeadline}.`,
     },
     {
       id: "digest-experts",
@@ -174,10 +170,10 @@ function buildDigestSuggestions(payload: unknown) {
       prompt: `/expert Find Canadian experts to quote on this item: ${firstHeadline}.`,
     },
     {
-      id: "digest-producer-note",
-      label: "Draft producer note",
+      id: "digest-primary-sources",
+      label: "Primary sources only",
       prompt:
-        "Draft a tight producer note and segment setup for an on-air hit based on this digest.",
+        `/scout Re-run this item using primary sources only: ${firstHeadline}.`,
     },
   ]);
 }

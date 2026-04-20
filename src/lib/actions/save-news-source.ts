@@ -2,9 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { addSource, removeSource } from "@/db/queries/sources";
-import { requireWorkspaceMembership } from "@/lib/server/app-context";
+import { requireTenantContext } from "@/lib/server/app-context";
+import { tenantAgentPath, tenantChannelPath } from "@/lib/server/tenant-path";
 
 export type SaveNewsSourceInput = {
+  orgSlug: string;
+  workspaceSlug: string;
   url: string;
   label: string;
   kind: "rss" | "html";
@@ -19,7 +22,10 @@ function normalizeSourceUrl(raw: string) {
 }
 
 export async function saveNewsSource(input: SaveNewsSourceInput) {
-  const { workspace } = await requireWorkspaceMembership();
+  const { workspace } = await requireTenantContext(
+    input.orgSlug,
+    input.workspaceSlug,
+  );
   const normalized = normalizeSourceUrl(input.url.trim());
   if (!normalized) {
     throw new Error("Enter a valid source URL.");
@@ -32,15 +38,30 @@ export async function saveNewsSource(input: SaveNewsSourceInput) {
     kind: input.kind,
   });
 
-  revalidatePath("/agent/news-monitor");
-  revalidatePath("/channel/news-digest");
+  const tenantPath = {
+    orgSlug: input.orgSlug,
+    workspaceSlug: input.workspaceSlug,
+  };
+  revalidatePath(tenantAgentPath(tenantPath, "news-monitor"));
+  revalidatePath(tenantChannelPath(tenantPath, "news-digest"));
   return { ok: true as const };
 }
 
-export async function deleteNewsSource(idOrUrl: string) {
-  const { workspace } = await requireWorkspaceMembership();
-  await removeSource(workspace.id, idOrUrl);
-  revalidatePath("/agent/news-monitor");
-  revalidatePath("/channel/news-digest");
+export async function deleteNewsSource(input: {
+  orgSlug: string;
+  workspaceSlug: string;
+  idOrUrl: string;
+}) {
+  const { workspace } = await requireTenantContext(
+    input.orgSlug,
+    input.workspaceSlug,
+  );
+  await removeSource(workspace.id, input.idOrUrl);
+  const tenantPath = {
+    orgSlug: input.orgSlug,
+    workspaceSlug: input.workspaceSlug,
+  };
+  revalidatePath(tenantAgentPath(tenantPath, "news-monitor"));
+  revalidatePath(tenantChannelPath(tenantPath, "news-digest"));
   return { ok: true as const };
 }

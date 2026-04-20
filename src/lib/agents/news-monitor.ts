@@ -5,13 +5,18 @@ import {
   listSources,
   removeSource,
 } from "@/db/queries/sources";
+import { runWithToolGuard } from "@/lib/agents/tool-utils";
+
+const httpUrlSchema = z
+  .string()
+  .regex(/^https?:\/\/\S+$/i, "Must be an absolute http(s) URL");
 
 const digestItemSchema = z.object({
   sourceLabel: z.string().min(1),
-  sourceUrl: z.string().min(1),
+  sourceUrl: httpUrlSchema,
   headline: z.string().min(1),
   summary: z.string().min(1),
-  url: z.string().optional(),
+  url: httpUrlSchema.optional(),
   publishedAt: z.string().optional(),
   why: z.string().min(1),
 });
@@ -20,11 +25,27 @@ export const dailyDigestSchema = z.object({
   dateKey: z.string().min(1),
   headline: z.string().min(1),
   summary: z.string().min(1),
-  items: z.array(digestItemSchema).max(20).default([]),
-  producerNotes: z.array(z.string().min(1)).max(5).default([]),
+  items: z.array(digestItemSchema).max(60).default([]),
+  producerNotes: z.array(z.string().min(1)).max(20).default([]),
 });
 
 export type DailyDigest = z.infer<typeof dailyDigestSchema>;
+
+export function normalizeDailyDigest(digest: DailyDigest): DailyDigest {
+  return {
+    ...digest,
+    items: digest.items.filter((item) => {
+      try {
+        new URL(item.sourceUrl);
+        if (item.url) new URL(item.url);
+        return true;
+      } catch {
+        return false;
+      }
+    }).slice(0, 20),
+    producerNotes: digest.producerNotes.slice(0, 5),
+  };
+}
 
 function normalizeUrl(raw: string): URL | null {
   try {
@@ -59,13 +80,28 @@ function createAddSourceTool(workspaceId: string) {
       if (!normalized) {
         return { ok: false, error: `"${url}" is not a valid URL.` };
       }
-      const row = await addSource({
-        workspaceId,
-        url: normalized.toString(),
-        label: label.trim() || normalized.hostname.replace(/^www\./, ""),
-        kind,
-      });
-      return { ok: true, id: row.id, url: row.url, label: row.label };
+      const outcome = await runWithToolGuard(
+        "add_source",
+        () =>
+          addSource({
+            workspaceId,
+            url: normalized.toString(),
+            label: label.trim() || normalized.hostname.replace(/^www\./, ""),
+            kind,
+          }),
+        { timeoutMs: 8_000, retries: 1 },
+      );
+      if (!outcome.ok) {
+        return { ok: false, error: outcome.error, meta: outcome.meta };
+      }
+      const row = outcome.result;
+      return {
+        ok: true,
+        id: row.id,
+        url: row.url,
+        label: row.label,
+        meta: outcome.meta,
+      };
     },
   });
 }
@@ -77,7 +113,15 @@ function createListSourcesTool(workspaceId: string) {
       "List this workspace's monitored news sources. Always call this before generating a digest.",
     parameters: z.object({}),
     async execute() {
-      const rows = await listSources(workspaceId);
+      const outcome = await runWithToolGuard(
+        "list_sources",
+        () => listSources(workspaceId),
+        { timeoutMs: 8_000, retries: 1 },
+      );
+      if (!outcome.ok) {
+        return { ok: false, error: outcome.error, meta: outcome.meta };
+      }
+      const rows = outcome.result;
       return {
         ok: true,
         sources: rows.map((row) => ({
@@ -86,6 +130,7 @@ function createListSourcesTool(workspaceId: string) {
           label: row.label,
           kind: row.kind,
         })),
+        meta: outcome.meta,
       };
     },
   });
@@ -100,8 +145,15 @@ function createRemoveSourceTool(workspaceId: string) {
       idOrUrl: z.string().min(1),
     }),
     async execute({ idOrUrl }) {
-      await removeSource(workspaceId, idOrUrl);
-      return { ok: true };
+      const outcome = await runWithToolGuard(
+        "remove_source",
+        () => removeSource(workspaceId, idOrUrl),
+        { timeoutMs: 8_000, retries: 1 },
+      );
+      if (!outcome.ok) {
+        return { ok: false, error: outcome.error, meta: outcome.meta };
+      }
+      return { ok: true, meta: outcome.meta };
     },
   });
 }

@@ -2,6 +2,8 @@ import { db } from "@/db/client";
 import {
   agents,
   channels,
+  organizationMemberships,
+  organizations,
   users,
   workspaceMemberships,
   workspaces,
@@ -13,7 +15,10 @@ import {
   getGeneralEmail,
 } from "@/lib/server/auth-identities";
 
+const ORG_ID = "org-newscraft";
+const ORG_SLUG = "newscraft";
 const WORKSPACE_ID = "default";
+const WORKSPACE_SLUG = "main";
 const DEV_ADMIN_ID = "user-admin";
 const GENERAL_USER_ID = "user-general";
 const DEV_ADMIN_EMAIL = getAdminEmail();
@@ -27,8 +32,23 @@ const TOPIC_CHANNELS = [
 
 async function main() {
   await db
+    .insert(organizations)
+    .values({
+      id: ORG_ID,
+      slug: ORG_SLUG,
+      name: "NewsCraft",
+      status: "active",
+    })
+    .onConflictDoNothing();
+
+  await db
     .insert(workspaces)
-    .values({ id: WORKSPACE_ID, name: "NewsCraft" })
+    .values({
+      id: WORKSPACE_ID,
+      organizationId: ORG_ID,
+      slug: WORKSPACE_SLUG,
+      name: "NewsCraft",
+    })
     .onConflictDoNothing();
 
   await db
@@ -57,6 +77,24 @@ async function main() {
       workspaceId: WORKSPACE_ID,
       userId: DEV_ADMIN_ID,
       role: "owner",
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(organizationMemberships)
+    .values({
+      organizationId: ORG_ID,
+      userId: DEV_ADMIN_ID,
+      role: "owner",
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(organizationMemberships)
+    .values({
+      organizationId: ORG_ID,
+      userId: GENERAL_USER_ID,
+      role: "member",
     })
     .onConflictDoNothing();
 
@@ -116,7 +154,7 @@ async function main() {
   });
 
   console.log(
-    `Seeded workspace \`${WORKSPACE_ID}\` with agents, topic channels, admin ${DEV_ADMIN_EMAIL}, and general user ${GENERAL_USER_EMAIL}.`,
+    `Seeded org \`${ORG_SLUG}\` and workspace \`${WORKSPACE_SLUG}\` with agents, channels, admin ${DEV_ADMIN_EMAIL}, and general user ${GENERAL_USER_EMAIL}.`,
   );
 }
 

@@ -5,18 +5,24 @@ import { SidebarItem } from "./sidebar-item";
 
 export type AgentListProps = {
   agents: AgentNavRecord[];
+  basePath: string;
   pathname: string;
   onNavigate: (href: string) => void;
 };
 
-export function AgentList({ agents, pathname, onNavigate }: AgentListProps) {
+export function AgentList({
+  agents,
+  basePath,
+  pathname,
+  onNavigate,
+}: AgentListProps) {
   if (agents.length === 0) return null;
 
   return (
     <section className="flex flex-col gap-1">
       <div className="eyebrow px-2 pb-1">Agents</div>
       {agents.map((agent) => {
-        const href = `/agent/${agent.id}`;
+        const href = `${basePath}/agent/${agent.id}`;
         return (
           <SidebarItem
             key={agent.id}

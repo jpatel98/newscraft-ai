@@ -1,12 +1,17 @@
 import { Agent, run, tool, webSearchTool } from "@openai/agents";
 import { load } from "cheerio";
 import { z } from "zod";
+import { runWithToolGuard } from "@/lib/agents/tool-utils";
 import { isAllowedDomain } from "@/lib/site-scope";
 import type { ExpertiseFinderResult, SiteScope } from "@/lib/types";
 
+const httpUrlSchema = z
+  .string()
+  .regex(/^https?:\/\/\S+$/i, "Must be an absolute http(s) URL");
+
 const sourceSchema = z.object({
   title: z.string().min(1),
-  url: z.string().min(1),
+  url: httpUrlSchema,
 });
 
 const contactLinkSchema = z.object({
@@ -21,9 +26,9 @@ const expertSchema = z.object({
   whyRelevant: z.string().min(1),
   email: z.string().default("not publicly listed"),
   phone: z.string().default(""),
-  website: z.string().default(""),
-  socials: z.array(contactLinkSchema).max(3).default([]),
-  otherLinks: z.array(sourceSchema).max(4).default([]),
+  website: z.union([httpUrlSchema, z.literal("")]).default(""),
+  socials: z.array(contactLinkSchema).max(10).default([]),
+  otherLinks: z.array(sourceSchema).max(20).default([]),
   source: sourceSchema,
   contactNote: z.string().default(""),
 });
@@ -33,49 +38,69 @@ export const expertiseFinderResultSchema = z.object({
   storyAngle: z.string().default(""),
   summary: z.string().min(1),
   confidence: z.enum(["high", "medium", "low"]),
-  contextUrls: z.array(z.string().min(1)).max(8).default([]),
-  experts: z.array(expertSchema).max(10).default([]),
-  nextMoves: z.array(z.string().min(1)).max(4).default([]),
-  watchouts: z.array(z.string().min(1)).max(3).default([]),
+  contextUrls: z.array(httpUrlSchema).max(30).default([]),
+  experts: z.array(expertSchema).max(30).default([]),
+  nextMoves: z.array(z.string().min(1)).max(15).default([]),
+  watchouts: z.array(z.string().min(1)).max(15).default([]),
 });
 
 function stripCitationMarkers(text: string) {
   return text.replace(/ ?cite[^]+/g, "").replace(/\s+/g, " ").trim();
 }
 
-function sanitizeExpertiseResult(result: ExpertiseFinderResult): ExpertiseFinderResult {
+function sanitizeExpertiseResult(
+  result: ExpertiseFinderResult,
+): ExpertiseFinderResult {
   return {
     ...result,
     topic: stripCitationMarkers(result.topic),
     storyAngle: stripCitationMarkers(result.storyAngle),
     summary: stripCitationMarkers(result.summary),
-    contextUrls: normalizeContextUrls(result.contextUrls ?? []),
-    experts: result.experts.map((expert) => ({
-      ...expert,
-      name: stripCitationMarkers(expert.name),
-      role: stripCitationMarkers(expert.role),
-      organization: stripCitationMarkers(expert.organization),
-      whyRelevant: stripCitationMarkers(expert.whyRelevant),
-      email: stripCitationMarkers(expert.email),
-      phone: stripCitationMarkers(expert.phone),
-      website: expert.website,
-      socials: expert.socials.map((link) => ({
-        label: stripCitationMarkers(link.label),
-        value: stripCitationMarkers(link.value),
-      })),
-      otherLinks: expert.otherLinks.map((source) => ({
-        title: stripCitationMarkers(source.title),
-        url: source.url,
-      })),
-      source: {
-        title: stripCitationMarkers(expert.source.title),
-        url: expert.source.url,
-      },
-      contactNote: stripCitationMarkers(expert.contactNote),
-    })),
-    nextMoves: result.nextMoves.map(stripCitationMarkers),
-    watchouts: result.watchouts.map(stripCitationMarkers),
+    contextUrls: normalizeContextUrls(result.contextUrls ?? []).slice(0, 8),
+    experts: result.experts
+      .map((expert) => ({
+        ...expert,
+        name: stripCitationMarkers(expert.name),
+        role: stripCitationMarkers(expert.role),
+        organization: stripCitationMarkers(expert.organization),
+        whyRelevant: stripCitationMarkers(expert.whyRelevant),
+        email: stripCitationMarkers(expert.email),
+        phone: stripCitationMarkers(expert.phone),
+        website: expert.website,
+        socials: expert.socials
+          .map((link) => ({
+            label: stripCitationMarkers(link.label),
+            value: stripCitationMarkers(link.value),
+          }))
+          .slice(0, 3),
+        otherLinks: expert.otherLinks
+          .map((source) => ({
+            title: stripCitationMarkers(source.title),
+            url: source.url,
+          }))
+          .slice(0, 4),
+        source: {
+          title: stripCitationMarkers(expert.source.title),
+          url: expert.source.url,
+        },
+        contactNote: stripCitationMarkers(expert.contactNote),
+      }))
+      .filter((expert) => {
+        try {
+          new URL(expert.source.url);
+          return true;
+        } catch {
+          return false;
+        }
+      })
+      .slice(0, 10),
+    nextMoves: result.nextMoves.map(stripCitationMarkers).slice(0, 4),
+    watchouts: result.watchouts.map(stripCitationMarkers).slice(0, 3),
   };
+}
+
+export function normalizeExpertiseFinderResult(result: ExpertiseFinderResult) {
+  return sanitizeExpertiseResult(result);
 }
 
 const inspectWebpageParameters = z.object({
@@ -199,63 +224,75 @@ function createInspectWebpageTool(siteScope: SiteScope) {
         };
       }
 
-      try {
-        const response = await fetch(url, {
-          headers: {
-            "User-Agent": "NewsCraftAI/0.1 newsroom-research-agent",
-          },
-          signal: AbortSignal.timeout(15000),
-        });
+      const outcome = await runWithToolGuard(
+        "inspect_webpage",
+        async () => {
+          const response = await fetch(url, {
+            headers: {
+              "User-Agent": "NewsCraftAI/0.1 newsroom-research-agent",
+            },
+            signal: AbortSignal.timeout(15000),
+          });
 
-        const html = await response.text();
-        const parsed = textFromHtml(html);
-        const baseUrl = new URL(url);
-        const likelyPeoplePages = parsed.links
-          .map((link) => {
-            if (!link) {
-              return null;
-            }
-
-            try {
-              const absolute = new URL(link.href, baseUrl).toString();
-
-              if (!isAllowedDomain(absolute, siteScope.allowedDomains)) {
+          const html = await response.text();
+          const parsed = textFromHtml(html);
+          const baseUrl = new URL(url);
+          const likelyPeoplePages = parsed.links
+            .map((link) => {
+              if (!link) {
                 return null;
               }
 
-              return {
-                title: link.label || absolute,
-                url: absolute,
-                score: scoreCandidateLink(absolute, link.label),
-              };
-            } catch {
-              return null;
-            }
-          })
-          .filter((link): link is { title: string; url: string; score: number } => Boolean(link))
-          .sort((left, right) => right.score - left.score)
-          .slice(0, 8)
-          .map(({ title, url: linkUrl }) => ({
-            title,
-            url: linkUrl,
-          }));
+              try {
+                const absolute = new URL(link.href, baseUrl).toString();
 
-        return {
-          ok: true,
-          url,
-          title: parsed.title || url,
-          excerpt: parsed.text.slice(0, 5000),
-          likelyPeoplePages,
-        };
-      } catch (error) {
+                if (!isAllowedDomain(absolute, siteScope.allowedDomains)) {
+                  return null;
+                }
+
+                return {
+                  title: link.label || absolute,
+                  url: absolute,
+                  score: scoreCandidateLink(absolute, link.label),
+                };
+              } catch {
+                return null;
+              }
+            })
+            .filter(
+              (link): link is { title: string; url: string; score: number } =>
+                Boolean(link),
+            )
+            .sort((left, right) => right.score - left.score)
+            .slice(0, 8)
+            .map(({ title, url: linkUrl }) => ({
+              title,
+              url: linkUrl,
+            }));
+
+          return {
+            url,
+            title: parsed.title || url,
+            excerpt: parsed.text.slice(0, 5000),
+            likelyPeoplePages,
+          };
+        },
+        { timeoutMs: 15_000, retries: 1 },
+      );
+
+      if (!outcome.ok) {
         return {
           ok: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : `Unable to inspect ${url}.`,
+          error: outcome.error,
+          meta: outcome.meta,
         };
       }
+
+      return {
+        ok: true,
+        ...outcome.result,
+        meta: outcome.meta,
+      };
     },
   });
 }
@@ -298,39 +335,55 @@ function createProbeSiteDirectoriesTool(siteScope: SiteScope) {
         "/our-experts",
       ];
 
-      const results = await Promise.all(
-        candidatePaths.map(async (path) => {
-          const candidateUrl = new URL(path, baseUrl.origin).toString();
+      const outcome = await runWithToolGuard(
+        "probe_site_directories",
+        async () => {
+          const results = await Promise.all(
+            candidatePaths.map(async (path) => {
+              const candidateUrl = new URL(path, baseUrl.origin).toString();
 
-          try {
-            const response = await fetch(candidateUrl, {
-              headers: {
-                "User-Agent": "NewsCraftAI/0.1 newsroom-research-agent",
-              },
-              signal: AbortSignal.timeout(8000),
-            });
+              try {
+                const response = await fetch(candidateUrl, {
+                  headers: {
+                    "User-Agent": "NewsCraftAI/0.1 newsroom-research-agent",
+                  },
+                  signal: AbortSignal.timeout(8000),
+                });
 
-            if (!response.ok) {
-              return null;
-            }
+                if (!response.ok) {
+                  return null;
+                }
 
-            const html = await response.text();
-            const parsed = textFromHtml(html);
+                const html = await response.text();
+                const parsed = textFromHtml(html);
 
-            return {
-              url: candidateUrl,
-              title: parsed.title || candidateUrl,
-              excerpt: parsed.text.slice(0, 320),
-            };
-          } catch {
-            return null;
-          }
-        }),
+                return {
+                  url: candidateUrl,
+                  title: parsed.title || candidateUrl,
+                  excerpt: parsed.text.slice(0, 320),
+                };
+              } catch {
+                return null;
+              }
+            }),
+          );
+          return results.filter(Boolean);
+        },
+        { timeoutMs: 12_000, retries: 1 },
       );
+
+      if (!outcome.ok) {
+        return {
+          ok: false,
+          error: outcome.error,
+          meta: outcome.meta,
+        };
+      }
 
       return {
         ok: true,
-        directories: results.filter(Boolean),
+        directories: outcome.result,
+        meta: outcome.meta,
       };
     },
   });

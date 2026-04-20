@@ -4,10 +4,13 @@ import { revalidatePath } from "next/cache";
 import {
   updateWorkspaceAgentConfig,
 } from "@/db/queries/agents";
-import { requireWorkspaceMembership } from "@/lib/server/app-context";
+import { requireTenantContext } from "@/lib/server/app-context";
+import { tenantAgentPath, tenantBasePath } from "@/lib/server/tenant-path";
 
 export type SaveAgentInput = {
   id: string;
+  orgSlug: string;
+  workspaceSlug: string;
   name: string;
   description: string;
   userPromptTuning?: string | null;
@@ -17,7 +20,10 @@ export type SaveAgentInput = {
 };
 
 export async function saveAgent(input: SaveAgentInput) {
-  const { workspace, user } = await requireWorkspaceMembership();
+  const { workspace, user } = await requireTenantContext(
+    input.orgSlug,
+    input.workspaceSlug,
+  );
 
   await updateWorkspaceAgentConfig(
     workspace.id,
@@ -32,7 +38,11 @@ export async function saveAgent(input: SaveAgentInput) {
       },
     user?.id ?? null,
   );
-  revalidatePath(`/agent/${input.id}`);
-  revalidatePath("/");
+  const tenantPath = {
+    orgSlug: input.orgSlug,
+    workspaceSlug: input.workspaceSlug,
+  };
+  revalidatePath(tenantAgentPath(tenantPath, input.id));
+  revalidatePath(tenantBasePath(tenantPath));
   return { ok: true as const };
 }

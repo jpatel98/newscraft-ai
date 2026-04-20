@@ -28,12 +28,16 @@ export type AgentDescriptorForUI = {
 };
 
 export type AgentConfigEditorProps = {
+  orgSlug: string;
+  workspaceSlug: string;
   descriptor: AgentDescriptorForUI;
   row: AgentConfigRowForUI;
   sources?: AgentSourceRecord[];
 };
 
 export function AgentConfigEditor({
+  orgSlug,
+  workspaceSlug,
   descriptor,
   row,
   sources = [],
@@ -70,6 +74,8 @@ export function AgentConfigEditor({
     startTransition(async () => {
       await saveAgent({
         id: row.id,
+        orgSlug,
+        workspaceSlug,
         name: name.trim() || descriptor.defaultName,
         description: description.trim(),
         userPromptTuning: userPromptTuning.trim() || null,
@@ -269,6 +275,8 @@ export function AgentConfigEditor({
                   onClick={() => {
                     startTransition(async () => {
                       await saveNewsSource({
+                        orgSlug,
+                        workspaceSlug,
                         url: sourceUrl,
                         label: sourceLabel,
                         kind: sourceKind,
@@ -306,7 +314,11 @@ export function AgentConfigEditor({
                         type="button"
                         onClick={() => {
                           startTransition(async () => {
-                            await deleteNewsSource(source.id);
+                            await deleteNewsSource({
+                              orgSlug,
+                              workspaceSlug,
+                              idOrUrl: source.id,
+                            });
                           });
                         }}
                         disabled={isPending}

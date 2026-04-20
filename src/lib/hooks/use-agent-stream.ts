@@ -42,9 +42,13 @@ export type UseAgentStreamResult = {
 export function useAgentStream({
   channelId,
   initialMessages,
+  orgSlug,
+  workspaceSlug,
 }: {
   channelId: string;
   initialMessages: ChatMessage[];
+  orgSlug: string;
+  workspaceSlug: string;
 }): UseAgentStreamResult {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [pending, setPending] = useState<PendingAssistant | null>(null);
@@ -68,7 +72,12 @@ export function useAgentStream({
           const response = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ channelId, message: trimmed }),
+            body: JSON.stringify({
+              channelId,
+              message: trimmed,
+              orgSlug,
+              workspaceSlug,
+            }),
           });
 
           if (!response.ok) {
@@ -116,7 +125,12 @@ export function useAgentStream({
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelId, message: trimmed }),
+          body: JSON.stringify({
+            channelId,
+            message: trimmed,
+            orgSlug,
+            workspaceSlug,
+          }),
           signal: controller.signal,
         });
 
@@ -226,7 +240,7 @@ export function useAgentStream({
         controllerRef.current = null;
       }
     },
-    [channelId],
+    [channelId, orgSlug, workspaceSlug],
   );
 
   return { messages, pending, error, streaming, send, cancel };

@@ -11,7 +11,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:studio": "drizzle-kit studio",
-    "cron:dev": "tsx --env-file=.env.local scripts/digest-cron.ts"
+    "cron:dev": "tsx --env-file=.env.local scripts/digest-cron.ts",
+    "evals": "tsx scripts/evals.ts"
   },
   "dependencies": {
     "@openai/agents": "^0.8.3",

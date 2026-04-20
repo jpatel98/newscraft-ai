@@ -9,6 +9,7 @@ export type SidebarProps = {
   channels: ChannelRow[];
   agents: AgentNavRecord[];
   showAdminTools: boolean;
+  basePath: string;
   pathname: string;
   onNavigate: (href: string) => void;
 };
@@ -17,6 +18,7 @@ export function Sidebar({
   channels,
   agents,
   showAdminTools,
+  basePath,
   pathname,
   onNavigate,
 }: SidebarProps) {
@@ -30,6 +32,7 @@ export function Sidebar({
 
       <ChannelList
         topicChannels={topicChannels}
+        basePath={basePath}
         pathname={pathname}
         onNavigate={onNavigate}
       />
@@ -37,6 +40,7 @@ export function Sidebar({
       {showAdminTools ? (
         <AgentList
           agents={agents}
+          basePath={basePath}
           pathname={pathname}
           onNavigate={onNavigate}
         />
@@ -47,7 +51,7 @@ export function Sidebar({
           Type <span className="wkbench-kbd">/help</span> in any channel to see the available newsroom actions.
         </p>
         <a
-          href="/auth/logout"
+          href={`${basePath}/logout`}
           className="mt-3 inline-flex text-[0.75rem] text-[var(--fg-onDark)] underline underline-offset-2"
         >
           Sign out

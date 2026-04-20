@@ -29,6 +29,34 @@
       "when": 1776555600000,
       "tag": "0003_agent_user_preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1776589200000,
+      "tag": "0004_multi_tenant_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1776650400000,
+      "tag": "0005_story_scout_intelligence_tone",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1776650500000,
+      "tag": "0006_story_scout_workspace_instruction_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1776650600000,
+      "tag": "0007_story_scout_org_instruction_backfill",
+      "breakpoints": true
     }
   ]
 }

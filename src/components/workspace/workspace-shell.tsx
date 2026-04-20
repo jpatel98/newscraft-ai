@@ -9,6 +9,7 @@ export type WorkspaceShellProps = {
   channels: ChannelRow[];
   agents: AgentNavRecord[];
   showAdminTools: boolean;
+  basePath: string;
   children: React.ReactNode;
 };
 
@@ -16,6 +17,7 @@ export function WorkspaceShell({
   channels,
   agents,
   showAdminTools,
+  basePath,
   children,
 }: WorkspaceShellProps) {
   const router = useRouter();
@@ -27,6 +29,7 @@ export function WorkspaceShell({
         channels={channels}
         agents={agents}
         showAdminTools={showAdminTools}
+        basePath={basePath}
         pathname={pathname}
         onNavigate={(to) => router.push(to)}
       />

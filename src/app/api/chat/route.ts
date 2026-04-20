@@ -1,30 +1,40 @@
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import { assertManualAgentRunAllowed } from "@/lib/agents/policy";
-import { getAgentStrict } from "@/lib/agents/catalog";
-import { buildAgentRuntime } from "@/lib/agents/runtime";
-import { HELP_REPLY, parseProducerInput } from "@/lib/commands";
-import { encodeSSE } from "@/lib/stream/sse";
-import { runAgentWithStream } from "@/lib/stream/run-agent-stream";
+import { insertAgentOutputAudit } from "@/db/queries/agent-output-audits";
+import { loadAgentRuntimeConfig } from "@/db/queries/agents";
+import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
 import { getChannelById } from "@/db/queries/channels";
+import { deleteMessagesByChannel, insertMessage } from "@/db/queries/messages";
 import {
-  ensureThreadForChannel,
   clearThreadConversation,
+  ensureThreadForChannel,
   updateThreadLastResponse,
 } from "@/db/queries/threads";
-import { deleteMessagesByChannel, insertMessage } from "@/db/queries/messages";
-import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
-import { loadAgentRuntimeConfig } from "@/db/queries/agents";
+import {
+  getVerifierMinScore,
+  repairOutputForVerifierIssues,
+  validateNormalizeAndRepair,
+  verifyOutputQuality,
+} from "@/lib/agents/output-quality";
+import { assertManualAgentRunAllowed } from "@/lib/agents/policy";
+import { buildAgentRuntime } from "@/lib/agents/runtime";
+import { getAgentStrict } from "@/lib/agents/catalog";
+import { getModelForTier, resolveModelTierForIntent } from "@/lib/agents/model-routing";
+import { HELP_REPLY, parseProducerInput } from "@/lib/commands";
 import {
   isAppAuthError,
-  requireWorkspaceMembership,
+  requireTenantContext,
 } from "@/lib/server/app-context";
+import { runAgentWithStream } from "@/lib/stream/run-agent-stream";
+import { encodeSSE } from "@/lib/stream/sse";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
   channelId: z.string().min(1),
+  orgSlug: z.string().min(1),
+  workspaceSlug: z.string().min(1),
   message: z.string().trim().min(1),
 });
 
@@ -64,15 +74,16 @@ export async function POST(request: Request) {
     );
   }
 
-  let context: Awaited<ReturnType<typeof requireWorkspaceMembership>>;
+  let context: Awaited<ReturnType<typeof requireTenantContext>>;
   try {
-    context = await requireWorkspaceMembership();
+    context = await requireTenantContext(body.orgSlug, body.workspaceSlug);
   } catch (error) {
     if (isAppAuthError(error)) {
       return Response.json({ ok: false, error: error.message }, { status: 401 });
     }
     throw error;
   }
+
   if (context.workspace.id !== channel.workspaceId) {
     return Response.json(
       { ok: false, error: "You do not have access to this workspace." },
@@ -81,7 +92,6 @@ export async function POST(request: Request) {
   }
 
   const parsed = parseProducerInput(body.message);
-
   if (parsed.kind === "error") {
     return Response.json(
       { ok: false, error: parsed.message },
@@ -134,7 +144,15 @@ export async function POST(request: Request) {
   }
 
   const descriptor = getAgentStrict(parsed.agentId);
-  const config = await loadAgentRuntimeConfig(channel.workspaceId, descriptor.id);
+  const modelTier = resolveModelTierForIntent(parsed.intent);
+  const modelDefault = getModelForTier(modelTier);
+  const verifierModel = process.env.VERIFIER_MODEL ?? getModelForTier("strong");
+  const config = await loadAgentRuntimeConfig(
+    channel.workspaceId,
+    context.organization.id,
+    descriptor.id,
+    modelDefault,
+  );
   assertManualAgentRunAllowed(config, descriptor.defaultName);
   const agent = await buildAgentRuntime(descriptor.id, {
     workspaceId: channel.workspaceId,
@@ -148,10 +166,6 @@ export async function POST(request: Request) {
     inputSummary: parsed.cleanedPrompt,
   });
 
-  // Slash commands are each an independent task — don't thread the previous
-  // response id, or the model treats a new brief as a refinement of the old
-  // one and hands back the same shortlist. Only free-form follow-ups should
-  // continue the conversation.
   const shouldContinueConversation = parsed.intent === "freeform";
   const previousResponseId = shouldContinueConversation
     ? thread.lastResponseId
@@ -163,6 +177,7 @@ export async function POST(request: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const assistantId = nanoid();
+      const startedAt = Date.now();
       try {
         const result = await runAgentWithStream({
           agent,
@@ -172,10 +187,59 @@ export async function POST(request: Request) {
           emit: (event) => controller.enqueue(encodeSSE(event)),
         });
 
+        const validated = await validateNormalizeAndRepair({
+          agentId: descriptor.id,
+          payload: result.finalOutput ?? null,
+          repairModel: getModelForTier("strong"),
+        });
+        if (!validated.ok) {
+          throw new Error(
+            `Structured output validation failed: ${validated.issues.join("; ")}`,
+          );
+        }
+
+        let finalPayload = validated.normalized;
+        let verifierRepaired = false;
+        let verification = await verifyOutputQuality({
+          agentId: descriptor.id,
+          prompt: parsed.cleanedPrompt,
+          output: finalPayload,
+          model: verifierModel,
+        });
+
+        if (verification.criticalIssues.length > 0) {
+          const verifierRepair = await repairOutputForVerifierIssues({
+            agentId: descriptor.id,
+            payload: finalPayload,
+            criticalIssues: verification.criticalIssues,
+            model: getModelForTier("strong"),
+          });
+          if (verifierRepair.ok) {
+            finalPayload = verifierRepair.output;
+            verifierRepaired = true;
+            verification = await verifyOutputQuality({
+              agentId: descriptor.id,
+              prompt: parsed.cleanedPrompt,
+              output: finalPayload,
+              model: verifierModel,
+            });
+          }
+        }
+
+        const minScore = getVerifierMinScore();
+        if (
+          verification.score < minScore ||
+          verification.criticalIssues.length > 0
+        ) {
+          throw new Error(
+            `Verifier blocked output: score=${verification.score.toFixed(2)} issues=${verification.criticalIssues.join(", ")}`,
+          );
+        }
+
         controller.enqueue(
           encodeSSE({
             type: "final",
-            payload: result.finalOutput ?? null,
+            payload: finalPayload,
             renderer: descriptor.renderer,
           }),
         );
@@ -187,10 +251,10 @@ export async function POST(request: Request) {
           role: "assistant",
           agentId: descriptor.id,
           content: summarizeFinalContent(
-            result.finalOutput,
+            finalPayload,
             result.accumulatedText,
           ),
-          payload: result.finalOutput ?? null,
+          payload: finalPayload,
           renderer: descriptor.renderer,
           runId: runRecord.id,
         });
@@ -199,6 +263,16 @@ export async function POST(request: Request) {
           status: "succeeded",
           lastResponseId: result.lastResponseId,
           error: null,
+        });
+        await insertAgentOutputAudit({
+          runId: runRecord.id,
+          agentId: descriptor.id,
+          validationStatus:
+            validated.repaired || verifierRepaired ? "repaired" : "passed",
+          verifierScore: verification.score,
+          issues: verification.notes,
+          latencyMs: Date.now() - startedAt,
+          toolFailureCount: result.toolFailureCount,
         });
 
         controller.enqueue(
@@ -226,6 +300,15 @@ export async function POST(request: Request) {
           status: abortController.signal.aborted ? "cancelled" : "failed",
           lastResponseId: null,
           error: internalMessage,
+        });
+        await insertAgentOutputAudit({
+          runId: runRecord.id,
+          agentId: descriptor.id,
+          validationStatus: "failed",
+          verifierScore: null,
+          issues: [internalMessage],
+          latencyMs: Date.now() - startedAt,
+          toolFailureCount: 0,
         });
       } finally {
         controller.close();

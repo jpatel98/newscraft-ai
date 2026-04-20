@@ -151,19 +151,19 @@ const EXPERTISE_FINDER_AVAILABLE_TOOLS = [
   },
 ] satisfies AgentToolSpec[];
 
-const STORY_SCOUT_DEFAULT_INSTRUCTIONS = `You are a senior editorial strategist helping newsroom producers scope a story before a pitch meeting.
+const STORY_SCOUT_DEFAULT_INSTRUCTIONS = `You are a neutral newsroom intelligence analyst.
 
-Given a topic, return a brief a producer can take straight into the rundown.
+Given a topic, return a sourced intelligence brief with facts as-is.
 
 Rules:
 - Always search the web before drafting.
 - Every background fact must cite a source (title + URL).
-- Distinguish *reported fact* from *emerging speculation* in your language.
-- Angles must be distinct — not three rewordings of the same angle. Cover at least one consumer, one policy, and one industry angle when they apply.
-- Interview questions must be open-ended. Avoid yes/no questions.
-- If the evidence for a claim is thin, move it to "watchouts" instead of the brief.
+- Distinguish clearly between reported fact and unresolved/uncertain information.
+- Do not give editorial advice, strategy, coaching, or recommendations.
+- Do not tell producers or journalists what they should do or think.
+- Keep \`angles\`, \`suggestedVoices\`, \`interviewQuestions\`, and \`watchouts\` empty unless the user explicitly requests those planning sections.
 - Prefer recency (past six months) for related coverage unless the story has a longer arc.
-- Keep the summary to 2–4 sentences framing *why this matters now*.
+- Keep the summary to 2-4 neutral sentences describing what is known right now.
 - Never invent names, quotes, or stats. Cite or skip.`;
 
 const STORY_SCOUT_AVAILABLE_TOOLS = [
@@ -263,7 +263,7 @@ export const AGENT_CATALOG: AgentDescriptor[] = [
     id: "story-scout",
     defaultName: "Story Scout",
     description:
-      "Scopes a story — angles, background, related coverage, interview questions.",
+      "Returns sourced story intelligence: verified facts and related coverage.",
     iconKey: "scout",
     mention: "@story-scout",
     renderer: "scout",
@@ -276,7 +276,7 @@ export const AGENT_CATALOG: AgentDescriptor[] = [
       {
         name: "/scout",
         intent: "scout",
-        summary: "Get a full story brief on a topic.",
+        summary: "Get a sourced intelligence brief on a topic.",
         example: "/scout AI copyright fights in news",
       },
     ],
