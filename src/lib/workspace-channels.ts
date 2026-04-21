@@ -4,9 +4,7 @@ export const FRONTEND_CHANNELS = ["experts", "digest"] as const;
 export type WorkspaceChannelSlug = (typeof FRONTEND_CHANNELS)[number];
 
 type ChannelConfig = {
-  canonicalSlug: WorkspaceChannelSlug;
   canonicalName: string;
-  aliases: readonly string[];
   allowedCommands: readonly string[];
 };
 
@@ -17,24 +15,14 @@ type CanonicalConfig = {
 
 const WORKSPACE_CHANNELS: CanonicalConfig = {
   experts: {
-    canonicalSlug: "experts",
     canonicalName: "Experts",
-    aliases: ["experts", "general"],
     allowedCommands: ["/expert", "/clear"],
   },
   digest: {
-    canonicalSlug: "digest",
     canonicalName: "Digest",
-    aliases: ["digest", "news-digest"],
     allowedCommands: ["/digest", "/clear"],
   },
 } as const;
-
-const ALIAS_LOOKUP = Object.fromEntries(
-  Object.values(WORKSPACE_CHANNELS).flatMap((config) =>
-    config.aliases.map((alias) => [alias.toLowerCase(), config.canonicalSlug] as const),
-  ),
-) as Record<string, WorkspaceChannelSlug>;
 
 const CANONICAL_AGENT_IDS = new Set(["expertise-finder", "news-monitor"]);
 
@@ -46,7 +34,10 @@ export type VisibleChannel = ChannelRow & {
 export function getCanonicalWorkspaceChannelSlug(
   slug: string,
 ): WorkspaceChannelSlug | null {
-  return ALIAS_LOOKUP[slug.toLowerCase()] ?? null;
+  const normalized = slug.toLowerCase();
+  return FRONTEND_CHANNELS.includes(normalized as WorkspaceChannelSlug)
+    ? (normalized as WorkspaceChannelSlug)
+    : null;
 }
 
 export function projectVisibleChannels(rawChannels: ChannelRow[]): VisibleChannel[] {
@@ -85,6 +76,5 @@ export function isVisibleFrontendAgent(agentId: string): boolean {
 }
 
 export function isExpertHistoryChannel(slug: string): boolean {
-  const canonical = getCanonicalWorkspaceChannelSlug(slug);
-  return canonical === "experts";
+  return getCanonicalWorkspaceChannelSlug(slug) === "experts";
 }
