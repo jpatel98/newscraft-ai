@@ -57,6 +57,34 @@
       "when": 1776650600000,
       "tag": "0007_story_scout_org_instruction_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1776650700000,
+      "tag": "0008_rename_general_channel_slug",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1776650701000,
+      "tag": "0009_rename_news_digest_channel_slug",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1776650702000,
+      "tag": "0010_delete_legacy_general_channels",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1776650703000,
+      "tag": "0011_delete_legacy_news_digest_channels",
+      "breakpoints": true
     }
   ]
 }
