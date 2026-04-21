@@ -9,6 +9,7 @@ import { listSources } from "@/db/queries/sources";
 import type { AgentConfigRowForUI } from "@/lib/agents/ui-types";
 import { getAgent } from "@/lib/agents/catalog";
 import { getTenantContext } from "@/lib/server/app-context";
+import { isVisibleFrontendAgent } from "@/lib/workspace-channels";
 
 export default async function TenantAgentConfigPage({
   params,
@@ -23,6 +24,9 @@ export default async function TenantAgentConfigPage({
   }
 
   const descriptor = getAgent(id);
+  if (!isVisibleFrontendAgent(id)) {
+    return notFound();
+  }
   const row = await getWorkspaceAgentRow(context.workspace.id, id);
   if (!descriptor || !row) notFound();
 

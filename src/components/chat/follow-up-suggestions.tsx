@@ -1,9 +1,8 @@
 "use client";
 
-import type { DailyDigest } from "@/lib/agents/news-monitor";
-import type { StoryScoutBrief } from "@/lib/agents/story-scout";
 import type { ChatMessage } from "@/lib/hooks/use-agent-stream";
 import type { ExpertiseFinderResult } from "@/lib/types";
+import { getCanonicalWorkspaceChannelSlug } from "@/lib/workspace-channels";
 
 export type FollowUpSuggestion = {
   id: string;
@@ -47,18 +46,19 @@ export function FollowUpSuggestions({
   );
 }
 
-export function buildFollowUpSuggestions(messages: ChatMessage[]) {
+export function buildFollowUpSuggestions(
+  messages: ChatMessage[],
+  channelSlug: string,
+) {
   const latest = findLatestSearchMessage(messages);
   if (!latest) return [] as FollowUpSuggestion[];
 
-  if (latest.renderer === "expert") {
+  const canonical = getCanonicalWorkspaceChannelSlug(channelSlug);
+  if (canonical === "experts" && latest.renderer === "expert") {
     return buildExpertSuggestions(latest.payload).slice(0, 4);
   }
-  if (latest.renderer === "scout") {
-    return buildScoutSuggestions(latest.payload).slice(0, 4);
-  }
-  if (latest.renderer === "digest") {
-    return buildDigestSuggestions(latest.payload).slice(0, 4);
+  if (canonical === "digest" && latest.renderer === "digest") {
+    return buildDigestSuggestions().slice(0, 4);
   }
 
   return [] as FollowUpSuggestion[];
@@ -113,67 +113,18 @@ function buildExpertSuggestions(payload: unknown) {
   ]);
 }
 
-function buildScoutSuggestions(payload: unknown) {
-  const brief = payload as Partial<StoryScoutBrief>;
-  const topic = cleanText(brief.topic) || "this story";
-  const firstCoverageHeadline =
-    Array.isArray(brief.relatedCoverage) && brief.relatedCoverage[0]?.headline
-      ? cleanText(brief.relatedCoverage[0].headline) || "the top related article"
-      : "the top related article";
-
-  return uniqueSuggestions([
-    {
-      id: "scout-experts",
-      label: "Find experts for this story",
-      prompt: `/expert Find 5 Canadian experts we can quote on ${topic}.`,
-    },
-    {
-      id: "scout-latest",
-      label: "Get latest updates",
-      prompt: `/scout Refresh this brief with only new developments in the past 24 hours on ${topic}.`,
-    },
-    {
-      id: "scout-primary-sources",
-      label: "Primary sources only",
-      prompt: `/scout Re-run on ${topic} using only primary sources and official documents where possible.`,
-    },
-    {
-      id: "scout-coverage-comparison",
-      label: "Compare coverage",
-      prompt: `/scout Compare how major outlets are reporting this item: ${firstCoverageHeadline}.`,
-    },
-  ]);
-}
-
-function buildDigestSuggestions(payload: unknown) {
-  const digest = payload as Partial<DailyDigest>;
-  const firstHeadline =
-    Array.isArray(digest.items) && digest.items[0]?.headline
-      ? cleanText(digest.items[0].headline) || "the top digest item"
-      : "the top digest item";
+function buildDigestSuggestions() {
 
   return uniqueSuggestions([
     {
       id: "digest-latest",
-      label: "Get latest updates",
-      prompt:
-        `/scout Build a sourced intelligence brief from this digest item with updates from the past 24 hours: ${firstHeadline}.`,
+      label: "Run digest now",
+      prompt: "/digest",
     },
     {
       id: "digest-scout",
-      label: "Build intelligence brief",
-      prompt: `/scout Build a sourced intelligence brief from this item: ${firstHeadline}.`,
-    },
-    {
-      id: "digest-experts",
-      label: "Find expert voices",
-      prompt: `/expert Find Canadian experts to quote on this item: ${firstHeadline}.`,
-    },
-    {
-      id: "digest-primary-sources",
-      label: "Primary sources only",
-      prompt:
-        `/scout Re-run this item using primary sources only: ${firstHeadline}.`,
+      label: "Run digest for latest news",
+      prompt: "/digest",
     },
   ]);
 }

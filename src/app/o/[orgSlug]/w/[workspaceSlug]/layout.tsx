@@ -5,6 +5,10 @@ import type { AgentNavRecord } from "@/lib/agents/ui-types";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 import { getTenantContext } from "@/lib/server/app-context";
 import { tenantBasePath } from "@/lib/server/tenant-path";
+import {
+  isVisibleFrontendAgent,
+  projectVisibleChannels,
+} from "@/lib/workspace-channels";
 
 export default async function TenantWorkspaceLayout({
   children,
@@ -20,16 +24,20 @@ export default async function TenantWorkspaceLayout({
     redirect(`/login?next=${encodeURIComponent(tenantBasePath({ orgSlug, workspaceSlug }))}`);
   }
 
-  const channels = await listChannels(context.workspace.id);
-  const agents = (await listWorkspaceAgentRows(context.workspace.id)).map(
-    (agent) =>
-      ({
-        id: agent.id,
-        name: agent.name,
-        description: agent.description,
-        iconKey: agent.iconKey,
-      }) satisfies AgentNavRecord,
+  const channels = projectVisibleChannels(
+    await listChannels(context.workspace.id),
   );
+  const agents = (await listWorkspaceAgentRows(context.workspace.id))
+    .filter((agent) => isVisibleFrontendAgent(agent.id))
+    .map(
+      (agent) =>
+        ({
+          id: agent.id,
+          name: agent.name,
+          description: agent.description,
+          iconKey: agent.iconKey,
+        }) satisfies AgentNavRecord,
+    );
 
   if (channels.length === 0) {
     return <BootstrapNotice />;

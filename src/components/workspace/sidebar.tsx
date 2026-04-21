@@ -47,9 +47,7 @@ export function Sidebar({
       ) : null}
 
       <div className="mt-auto px-2 pt-4 text-[0.7rem] text-[var(--fg-onDark-muted)]">
-        <p className="leading-relaxed">
-          Type <span className="wkbench-kbd">/help</span> in any channel to see the available newsroom actions.
-        </p>
+        <p className="leading-relaxed">Slash commands drive this workspace.</p>
         <a
           href={`${basePath}/logout`}
           className="mt-3 inline-flex text-[0.75rem] text-[var(--fg-onDark)] underline underline-offset-2"

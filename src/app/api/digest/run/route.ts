@@ -5,7 +5,7 @@ import { db } from "@/db/client";
 import { insertAgentOutputAudit } from "@/db/queries/agent-output-audits";
 import { loadAgentRuntimeConfig } from "@/db/queries/agents";
 import { finishAgentRun, startAgentRun } from "@/db/queries/agent-runs";
-import { getChannelBySlug } from "@/db/queries/channels";
+import { listChannels } from "@/db/queries/channels";
 import { insertDigest } from "@/db/queries/digests";
 import { insertMessage } from "@/db/queries/messages";
 import { listSources } from "@/db/queries/sources";
@@ -26,12 +26,13 @@ import { getAgentStrict } from "@/lib/agents/catalog";
 import { createEmptyDailyDigest } from "@/lib/agents/news-monitor";
 import { getModelForTier } from "@/lib/agents/model-routing";
 import { emptySiteScope } from "@/lib/site-scope";
+import { projectVisibleChannels } from "@/lib/workspace-channels";
 import { runAgentWithStream } from "@/lib/stream/run-agent-stream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DIGEST_CHANNEL_SLUG = "news-digest";
+const DIGEST_CHANNEL_SLUG = "digest";
 
 const bodySchema = z
   .object({
@@ -119,7 +120,9 @@ async function resolveTargets(
 }
 
 async function runDigestForWorkspace(target: WorkspaceTarget) {
-  const channel = await getChannelBySlug(target.workspaceId, DIGEST_CHANNEL_SLUG);
+  const channel = projectVisibleChannels(await listChannels(target.workspaceId)).find(
+    (candidate) => candidate.slug === DIGEST_CHANNEL_SLUG,
+  );
   if (!channel) {
     return {
       ok: false,

@@ -148,7 +148,6 @@ export async function updateWorkspaceAgentConfig(
   if (!baseAgent) {
     throw new Error(`Unknown agent id: ${agentId}`);
   }
-
   const existingRows = await db
     .select()
     .from(workspaceAgentSettings)
@@ -165,8 +164,7 @@ export async function updateWorkspaceAgentConfig(
     agentId,
     name: patch.name ?? existing?.name ?? baseAgent.name,
     description: patch.description ?? existing?.description ?? baseAgent.description,
-    instructions:
-      patch.instructions ?? existing?.instructions ?? baseAgent.instructions,
+    instructions: patch.instructions ?? existing?.instructions ?? baseAgent.instructions,
     userPromptTuning:
       patch.userPromptTuning !== undefined
         ? patch.userPromptTuning

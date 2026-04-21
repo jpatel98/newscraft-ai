@@ -10,7 +10,7 @@ import {
 import type { SiteScope } from "@/lib/types";
 
 export type ParsedProducerInput =
-  | { kind: "help" }
+  | { kind: "help"; allowedCommands: string[] }
   | { kind: "clear" }
   | { kind: "error"; message: string }
   | {
@@ -21,6 +21,10 @@ export type ParsedProducerInput =
       cleanedPrompt: string;
       siteScope: SiteScope;
     };
+
+type ParseOptions = {
+  allowedCommands?: readonly string[];
+};
 
 const COMMAND_ORDER = [
   "/expert",
@@ -42,49 +46,87 @@ function sortCommands(commands: string[]) {
   });
 }
 
-const HELP_REPLY = buildHelpReply();
-
-function buildHelpReply() {
-  const lines = ["**Commands**", ""];
-  const suggestions = allCommandSuggestions();
-
-  for (const command of sortCommands(
-    [...suggestions.map((item) => item.name), "/help", "/clear"],
-  )) {
-    const descriptor = suggestions.find(
-      (item) => item.name === command,
-    );
-    if (descriptor) {
-      lines.push(`- \`${descriptor.name}\` — ${descriptor.summary}`);
-      continue;
-    }
-
-    if (command === "/help") {
-      lines.push("- `/help` — list the available commands and agent mentions.");
-      continue;
-    }
-
-    if (command === "/clear") {
-      lines.push("- `/clear` — clear this channel's chat history.");
-    }
-  }
-
-  lines.push("");
-  lines.push(
-    "Add `site:domain.com` to scope a search. Paste a URL anywhere in the message to use it as story context.",
-  );
-
-  return lines.join("\n");
-}
-
-export { HELP_REPLY };
 const LEGACY_MENTION_MAP: Record<string, string> = {
   "@expertise-finder": "/expert",
   "@story-scout": "/scout",
   "@news-monitor": "/digest",
 };
 
-export function parseProducerInput(rawMessage: string): ParsedProducerInput {
+function normalizeAllowedCommands(commands?: readonly string[]) {
+  return commands ? commands.map((command) => command.toLowerCase()) : [];
+}
+
+function buildAllowedSet(commands?: string[]) {
+  const normalized = new Set<string>();
+  for (const command of normalizeAllowedCommands(commands)) {
+    normalized.add(command);
+  }
+  return normalized;
+}
+
+function formatAllowedCommandList(commands: string[]) {
+  const unique = Array.from(new Set(sortCommands(commands)));
+  const quoted = unique.map((command) => `\`${command}\``);
+  if (quoted.length === 0) return "";
+  if (quoted.length === 1) return quoted[0];
+  if (quoted.length === 2) return `${quoted[0]} or ${quoted[1]}`;
+  return `${quoted.slice(0, -1).join(", ")}, and ${quoted.at(-1)}`;
+}
+
+function buildHelpReply(allowedCommands: string[]) {
+  const allowedSet = buildAllowedSet(allowedCommands);
+  const suggestions = sortCommands(
+    allCommandSuggestions()
+      .filter((item) => allowedSet.has(item.name.toLowerCase()))
+      .map((item) => item.name),
+  );
+  const lines = ["**Commands**", ""];
+  const includeHelp = allowedSet.has("/help");
+
+  for (const command of suggestions) {
+    const descriptor = allCommandSuggestions().find(
+      (item) => item.name === command,
+    );
+    if (descriptor) {
+      lines.push(`- \`${descriptor.name}\` — ${descriptor.summary}`);
+    }
+  }
+
+  if (includeHelp) {
+    lines.push("- `/help` — list the available commands and agent mentions.");
+  }
+  if (allowedSet.has("/clear")) {
+    lines.push("- `/clear` — clear this channel's chat history.");
+  }
+
+  if (suggestions.length > 0 || includeHelp || allowedSet.has("/clear")) {
+    lines.push("");
+    lines.push(
+      "Add `site:domain.com` to scope a search. Paste a URL anywhere in the message to use it as story context.",
+    );
+  }
+
+  return lines.join("\n");
+}
+
+function buildChannelRestrictionMessage(allowedCommands: string[]) {
+  const readable = formatAllowedCommandList(allowedCommands);
+  return readable
+    ? `Run one of ${readable} for this channel.`
+    : "This channel does not accept slash commands.";
+}
+
+function isCommandAllowed(rawCommand: string, allowedSet: Set<string>) {
+  return allowedSet.size === 0 || allowedSet.has(rawCommand.toLowerCase());
+}
+
+export function parseProducerInput(
+  rawMessage: string,
+  options: ParseOptions = {},
+): ParsedProducerInput {
+  const allowedCommands = normalizeAllowedCommands(options.allowedCommands);
+  const allowedSet = buildAllowedSet(allowedCommands);
+  const enforceAllowed = options.allowedCommands !== undefined;
   const message = rawMessage.trim();
 
   if (!message) {
@@ -95,21 +137,40 @@ export function parseProducerInput(rawMessage: string): ParsedProducerInput {
   }
 
   if (message === "/help") {
-    return { kind: "help" };
+    if (enforceAllowed && !isCommandAllowed(message, allowedSet)) {
+      return {
+        kind: "error",
+        message: buildChannelRestrictionMessage(allowedCommands),
+      };
+    }
+    return { kind: "help", allowedCommands };
   }
 
   if (message === "/clear") {
+    if (enforceAllowed && !isCommandAllowed(message, allowedSet)) {
+      return {
+        kind: "error",
+        message: buildChannelRestrictionMessage(allowedCommands),
+      };
+    }
     return { kind: "clear" };
   }
 
   if (message.startsWith("/")) {
     const [rawCommand, ...rest] = message.split(/\s+/);
-    const match = findAgentByCommandName(rawCommand);
 
+    if (enforceAllowed && !isCommandAllowed(rawCommand, allowedSet)) {
+      return {
+        kind: "error",
+        message: buildChannelRestrictionMessage(allowedCommands),
+      };
+    }
+
+    const match = findAgentByCommandName(rawCommand);
     if (!match) {
       return {
         kind: "error",
-        message: `Unknown command ${rawCommand}. Try /help to see available commands.`,
+        message: `Unknown command ${rawCommand}. ${buildChannelRestrictionMessage(allowedCommands)}`,
       };
     }
 
@@ -131,7 +192,7 @@ export function parseProducerInput(rawMessage: string): ParsedProducerInput {
       if (!extracted.cleanedText) {
         return {
           kind: "error",
-          message: `Add a brief after the site. Example: ${match.command.example}`,
+          message: `Add a brief after ${match.command.name}. Example: ${match.command.example}`,
         };
       }
 
@@ -175,21 +236,23 @@ export function parseProducerInput(rawMessage: string): ParsedProducerInput {
     message.toLowerCase().includes(mention),
   );
   if (legacyMention) {
+    const replacement = legacyMention[1];
+    if (enforceAllowed && !isCommandAllowed(replacement, allowedSet)) {
+      return {
+        kind: "error",
+        message: buildChannelRestrictionMessage(allowedCommands),
+      };
+    }
     return {
       kind: "error",
-      message: `NewsCraft now uses slash commands only. Replace ${legacyMention[0]} with ${legacyMention[1]}, or try /help.`,
-    };
-  }
-
-  if (!message) {
-    return {
-      kind: "error",
-      message: "Add a brief so the agent has something to work on.",
+      message: `NewsCraft now uses slash commands only. Replace ${legacyMention[0]} with ${replacement}.`,
     };
   }
 
   return {
     kind: "error",
-    message: "Run a newsroom action with a slash command like /expert, /scout, /digest, or /sources. Try /help for options.",
+    message: buildChannelRestrictionMessage(allowedCommands),
   };
 }
+
+export { buildHelpReply };

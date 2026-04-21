@@ -22,13 +22,14 @@ import { buildAgentRuntime } from "@/lib/agents/runtime";
 import { getAgentStrict } from "@/lib/agents/catalog";
 import { createEmptyDailyDigest } from "@/lib/agents/news-monitor";
 import { getModelForTier, resolveModelTierForIntent } from "@/lib/agents/model-routing";
-import { HELP_REPLY, parseProducerInput } from "@/lib/commands";
+import { buildHelpReply, parseProducerInput } from "@/lib/commands";
 import {
   isAppAuthError,
   requireTenantContext,
 } from "@/lib/server/app-context";
 import { runAgentWithStream } from "@/lib/stream/run-agent-stream";
 import { encodeSSE } from "@/lib/stream/sse";
+import { getAllowedCommandsForChannelSlug } from "@/lib/workspace-channels";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,7 +94,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const parsed = parseProducerInput(body.message);
+  const parsed = parseProducerInput(body.message, {
+    allowedCommands: getAllowedCommandsForChannelSlug(channel.slug),
+  });
   if (parsed.kind === "error") {
     return Response.json(
       { ok: false, error: parsed.message },
@@ -119,19 +122,20 @@ export async function POST(request: Request) {
 
   if (parsed.kind === "help") {
     const assistantId = nanoid();
+    const helpReply = buildHelpReply(parsed.allowedCommands);
     await insertMessage({
       id: assistantId,
       threadId: thread.id,
       channelId: channel.id,
       role: "assistant",
       agentId: null,
-      content: HELP_REPLY,
+      content: helpReply,
       renderer: "markdown",
     });
     return new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(encodeSSE({ type: "token", delta: HELP_REPLY }));
+          controller.enqueue(encodeSSE({ type: "token", delta: helpReply }));
           controller.enqueue(
             encodeSSE({ type: "final", payload: null, renderer: "markdown" }),
           );

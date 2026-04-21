@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { ChannelRow } from "@/db/schema";
 import { findAgentByCommandName } from "@/lib/agents/catalog";
+import { getAllowedCommandsForChannelSlug } from "@/lib/workspace-channels";
 import { getChannelCommandGuidance } from "@/lib/chat-command-guidance";
 import { COMMANDS_CATALOG } from "@/lib/agents/commands-catalog";
 import { CommandPalette } from "./command-palette";
@@ -35,15 +36,21 @@ export function MessageComposer({
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const guidance = getChannelCommandGuidance(channel);
+  const allowedCommands = useMemo(
+    () => getAllowedCommandsForChannelSlug(channel.slug),
+    [channel.slug],
+  );
   const paletteOpen =
     !paletteDismissed && value.startsWith("/") && !value.includes(" ");
   const paletteSuggestions = useMemo(() => {
     const lowered = value.toLowerCase();
-    return COMMANDS_CATALOG.filter((command) =>
-      command.name.toLowerCase().startsWith(lowered),
+    return COMMANDS_CATALOG.filter(
+      (command) =>
+        allowedCommands.includes(command.name) &&
+        command.name.toLowerCase().startsWith(lowered),
     );
-  }, [value]);
-  const canSubmitWhilePaletteOpen = isSubmitReadyCommand(value);
+  }, [allowedCommands, value]);
+  const canSubmitWhilePaletteOpen = isSubmitReadyCommand(value, allowedCommands);
 
   const submit = useCallback(() => {
     const trimmed = value.trim();
@@ -92,6 +99,7 @@ export function MessageComposer({
   };
 
   const selectCommand = (commandName: string) => {
+    if (!allowedCommands.includes(commandName)) return;
     const nextValue = `${commandName} `;
     setValue(nextValue);
     setPaletteDismissed(false);
@@ -116,6 +124,7 @@ export function MessageComposer({
         <CommandPalette
           open={paletteOpen}
           query={value}
+          suggestions={paletteSuggestions}
           onSelect={selectCommand}
         />
 
@@ -166,11 +175,19 @@ export function MessageComposer({
   );
 }
 
-function isSubmitReadyCommand(rawValue: string) {
+function isSubmitReadyCommand(
+  rawValue: string,
+  allowedCommands: readonly string[],
+) {
   const trimmed = rawValue.trim();
   if (!trimmed.startsWith("/") || trimmed.includes(" ")) return false;
-  if (trimmed === "/help" || trimmed === "/clear") return true;
+  if (trimmed === "/help") return false;
+  if (trimmed === "/clear") return allowedCommands.includes("/clear");
 
   const match = findAgentByCommandName(trimmed);
-  return match?.command.requiresPrompt === false;
+  return (
+    !!match &&
+    allowedCommands.includes(trimmed) &&
+    match.command.requiresPrompt === false
+  );
 }

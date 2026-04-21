@@ -7,11 +7,13 @@ import { getChannelCommandGuidance } from "@/lib/chat-command-guidance";
 export function ChatHeader({
   channel,
   historyOpen,
+  showHistory,
   historyCount,
   onToggleHistory,
 }: {
   channel: ChannelRow;
   historyOpen: boolean;
+  showHistory: boolean;
   historyCount: number;
   onToggleHistory: () => void;
 }) {
@@ -33,19 +35,20 @@ export function ChatHeader({
           ))}.
         </p>
       </div>
-
-      <button
-        type="button"
-        onClick={onToggleHistory}
-        className="ml-auto inline-flex h-9 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-2.5 text-[var(--fg-muted)] hover:border-[var(--border-strong)] hover:text-[var(--fg)]"
-        aria-expanded={historyOpen}
-        aria-label="Toggle expert history"
-      >
-        <History className="h-4 w-4" />
-        {historyCount > 0 ? (
-          <span className="wkbench-kbd">{historyCount}</span>
-        ) : null}
-      </button>
+      {showHistory ? (
+        <button
+          type="button"
+          onClick={onToggleHistory}
+          className="ml-auto inline-flex h-9 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-2.5 text-[var(--fg-muted)] hover:border-[var(--border-strong)] hover:text-[var(--fg)]"
+          aria-expanded={historyOpen}
+          aria-label="Toggle expert history"
+        >
+          <History className="h-4 w-4" />
+          {historyCount > 0 ? (
+            <span className="wkbench-kbd">{historyCount}</span>
+          ) : null}
+        </button>
+      ) : null}
     </header>
   );
 }

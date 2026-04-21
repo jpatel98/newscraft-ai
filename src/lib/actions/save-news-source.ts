@@ -43,7 +43,7 @@ export async function saveNewsSource(input: SaveNewsSourceInput) {
     workspaceSlug: input.workspaceSlug,
   };
   revalidatePath(tenantAgentPath(tenantPath, "news-monitor"));
-  revalidatePath(tenantChannelPath(tenantPath, "news-digest"));
+  revalidatePath(tenantChannelPath(tenantPath, "digest"));
   return { ok: true as const };
 }
 
@@ -62,6 +62,6 @@ export async function deleteNewsSource(input: {
     workspaceSlug: input.workspaceSlug,
   };
   revalidatePath(tenantAgentPath(tenantPath, "news-monitor"));
-  revalidatePath(tenantChannelPath(tenantPath, "news-digest"));
+  revalidatePath(tenantChannelPath(tenantPath, "digest"));
   return { ok: true as const };
 }

@@ -1,11 +1,13 @@
 import { notFound, redirect } from "next/navigation";
 import { listWorkspaceAgentRows } from "@/db/queries/agents";
-import { getChannelBySlug } from "@/db/queries/channels";
 import { listMessagesByChannel } from "@/db/queries/messages";
+import { listChannels } from "@/db/queries/channels";
 import type { AgentChatRecord } from "@/lib/agents/ui-types";
 import { ChatView } from "@/components/chat/chat-view";
 import type { ChatMessage } from "@/lib/hooks/use-agent-stream";
 import { getTenantContext } from "@/lib/server/app-context";
+import { getCanonicalWorkspaceChannelSlug, projectVisibleChannels } from "@/lib/workspace-channels";
+import { tenantChannelPath } from "@/lib/server/tenant-path";
 
 export default async function TenantChannelPage({
   params,
@@ -16,20 +18,38 @@ export default async function TenantChannelPage({
   const context = await getTenantContext(orgSlug, workspaceSlug);
   if (!context) notFound();
   if (!context.workspaceMembership) {
-    redirect(`/login?next=${encodeURIComponent(`/o/${orgSlug}/w/${workspaceSlug}/channel/${slug}`)}`);
+    redirect(
+      `/login?next=${encodeURIComponent(`/o/${orgSlug}/w/${workspaceSlug}/channel/${slug}`)}`,
+    );
   }
 
-  const channel = await getChannelBySlug(context.workspace.id, slug);
-  if (!channel) notFound();
+  const rawChannels = await listChannels(context.workspace.id);
+  const channels = projectVisibleChannels(rawChannels);
+  if (channels.length === 0) notFound();
+
+  const canonicalSlug = getCanonicalWorkspaceChannelSlug(slug);
+  if (!canonicalSlug) {
+    redirect(tenantChannelPath({ orgSlug, workspaceSlug }, channels[0].slug));
+  }
+
+  const channel = channels.find((item) => item.slug === canonicalSlug);
+  if (!channel) {
+    redirect(tenantChannelPath({ orgSlug, workspaceSlug }, channels[0].slug));
+  }
+  if (slug !== canonicalSlug) {
+    redirect(tenantChannelPath({ orgSlug, workspaceSlug }, canonicalSlug));
+  }
 
   const rawMessages = await listMessagesByChannel(channel.id);
-  const agents = (await listWorkspaceAgentRows(context.workspace.id)).map(
-    (agent) =>
-      ({
-        id: agent.id,
-        name: agent.name,
-      }) satisfies AgentChatRecord,
-  );
+  const agents = (await listWorkspaceAgentRows(context.workspace.id))
+    .filter((agent) => agent.id === "expertise-finder" || agent.id === "news-monitor")
+    .map(
+      (agent) =>
+        ({
+          id: agent.id,
+          name: agent.name,
+        }) satisfies AgentChatRecord,
+    );
 
   const initialMessages: ChatMessage[] = rawMessages
     .filter((row) => row.role === "user" || row.role === "assistant")

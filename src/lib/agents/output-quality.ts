@@ -142,6 +142,8 @@ function allowsEmptyDigest(parsed: z.infer<typeof dailyDigestSchema>) {
     "no sources configured",
     "setup is still needed",
     "no qualifying digest items",
+    "did not confirm any digest items",
+    "no confirmed item links",
     "no valid item",
     "no new items",
     "no major updates",

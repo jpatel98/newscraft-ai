@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ChannelRow } from "@/db/schema";
 import type { AgentChatRecord } from "@/lib/agents/ui-types";
+import { isExpertHistoryChannel } from "@/lib/workspace-channels";
 import {
   useAgentStream,
   type ChatMessage,
@@ -38,15 +39,19 @@ export function ChatView({
     workspaceSlug,
   });
   const [historyOpen, setHistoryOpen] = useState(false);
+  const showHistoryPanel = isExpertHistoryChannel(channel.slug);
+  const historyCount = useMemo(
+    () => (showHistoryPanel ? countExpertHistory(messages) : 0),
+    [messages, showHistoryPanel],
+  );
 
   const agentMap = useMemo(
     () => new Map(agents.map((item) => [item.id, item])),
     [agents],
   );
-  const historyCount = useMemo(() => countExpertHistory(messages), [messages]);
   const followUpSuggestions = useMemo(
-    () => buildFollowUpSuggestions(messages),
-    [messages],
+    () => buildFollowUpSuggestions(messages, channel.slug),
+    [messages, channel.slug],
   );
 
   return (
@@ -54,6 +59,7 @@ export function ChatView({
       <ChatHeader
         channel={channel}
         historyOpen={historyOpen}
+        showHistory={showHistoryPanel}
         historyCount={historyCount}
         onToggleHistory={() => setHistoryOpen((value) => !value)}
       />
@@ -82,7 +88,9 @@ export function ChatView({
           />
         </div>
 
-        {historyOpen ? <ExpertHistoryPanel messages={messages} /> : null}
+        {showHistoryPanel && historyOpen ? (
+          <ExpertHistoryPanel messages={messages} />
+        ) : null}
       </div>
     </div>
   );

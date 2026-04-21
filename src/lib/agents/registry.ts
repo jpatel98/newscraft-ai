@@ -147,7 +147,7 @@ export const AGENT_REGISTRY: AgentDescriptor[] = [
     id: "news-monitor",
     defaultName: "News Monitor",
     description:
-      "Tracks a watchlist of sources and produces a daily digest into #news-digest.",
+      "Tracks a watchlist of sources and produces a daily digest into #digest.",
     iconKey: "monitor",
     mention: "@news-monitor",
     renderer: "digest",

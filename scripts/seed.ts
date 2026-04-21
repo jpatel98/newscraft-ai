@@ -25,9 +25,8 @@ const DEV_ADMIN_EMAIL = getAdminEmail();
 const GENERAL_USER_EMAIL = getGeneralEmail();
 
 const TOPIC_CHANNELS = [
-  { slug: "general", name: "general", sortOrder: 100 },
-  { slug: "research", name: "research", sortOrder: 101 },
-  { slug: "news-digest", name: "news-digest", sortOrder: 102 },
+  { slug: "experts", name: "experts", sortOrder: 100 },
+  { slug: "digest", name: "digest", sortOrder: 101 },
 ];
 
 async function main() {

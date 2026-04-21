@@ -42,7 +42,7 @@ export function DigestCard({ digest }: { digest: DailyDigest }) {
               </div>
               <p className="mt-1 text-sm text-[var(--fg)]">{item.summary}</p>
               <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                <span className="font-medium text-[var(--fg)]">Why:</span>{" "}
+                <span className="font-medium text-[var(--fg)]">Signal:</span>{" "}
                 {item.why}
               </p>
             </li>
@@ -57,7 +57,7 @@ export function DigestCard({ digest }: { digest: DailyDigest }) {
       {digest.producerNotes.length > 0 ? (
         <section className="mt-4">
           <div className="eyebrow pb-1 text-[var(--fg-subtle)]">
-            Producer notes
+            Intelligence notes
           </div>
           <ul className="list-disc pl-5 text-sm text-[var(--fg-muted)]">
             {digest.producerNotes.map((note, i) => (
