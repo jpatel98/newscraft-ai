@@ -1,23 +1,32 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
+import { migrate } from "drizzle-orm/libsql/migrator";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { resolveDatabaseTarget } from "../src/db/database-url";
 
-const databaseUrl = process.env.DATABASE_URL ?? "./data/newscraft.db";
-const directory = dirname(databaseUrl);
+async function main() {
+  const { databaseUrl, authToken, localFilePath } = resolveDatabaseTarget();
 
-if (!existsSync(directory)) {
-  mkdirSync(directory, { recursive: true });
+  if (localFilePath) {
+    const directory = dirname(localFilePath);
+    if (!existsSync(directory)) {
+      mkdirSync(directory, { recursive: true });
+    }
+  }
+
+  const sqlite = createClient({
+    url: databaseUrl,
+    authToken,
+  });
+
+  const db = drizzle(sqlite);
+  await migrate(db, { migrationsFolder: "./src/db/migrations" });
+  sqlite.close();
+  console.log(`Applied migrations to ${databaseUrl}`);
 }
 
-const sqlite = new Database(databaseUrl);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
-
-const db = drizzle(sqlite);
-
-migrate(db, { migrationsFolder: "./src/db/migrations" });
-
-console.log(`Applied migrations to ${databaseUrl}`);
-sqlite.close();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

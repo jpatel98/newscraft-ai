@@ -60,6 +60,7 @@ export default async function TenantChannelPage({
       initialMessages={initialMessages}
       orgSlug={orgSlug}
       workspaceSlug={workspaceSlug}
+      onboardingStorageKey={`newscraft:onboarding/${orgSlug}/${workspaceSlug}/${channel.slug}/v1`}
     />
   );
 }

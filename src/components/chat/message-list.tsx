@@ -16,6 +16,7 @@ export type MessageListProps = {
   messages: ChatMessage[];
   pending: PendingAssistant | null;
   agentMap: Map<string, AgentChatRecord>;
+  suppressEmptyState?: boolean;
 };
 
 export function MessageList({
@@ -23,6 +24,7 @@ export function MessageList({
   messages,
   pending,
   agentMap,
+  suppressEmptyState = false,
 }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const guidance = getChannelCommandGuidance(channel);
@@ -34,7 +36,7 @@ export function MessageList({
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-6">
-        {messages.length === 0 && !pending ? (
+        {messages.length === 0 && !pending && !suppressEmptyState ? (
           <div className="text-sm text-[var(--fg-muted)]">
             {guidance.emptyState}
           </div>

@@ -1,10 +1,15 @@
-import type { Config } from "drizzle-kit";
+import "dotenv/config";
+import { defineConfig } from "drizzle-kit";
+import { resolveDatabaseTarget } from "./src/db/database-url";
 
-export default {
+const { databaseUrl, authToken } = resolveDatabaseTarget();
+
+export default defineConfig({
   schema: "./src/db/schema.ts",
   out: "./src/db/migrations",
-  dialect: "sqlite",
+  dialect: "turso",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "./data/newscraft.db",
+    url: databaseUrl,
+    authToken,
   },
-} satisfies Config;
+});

@@ -1,19 +1,23 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import * as schema from "./schema";
+import { resolveDatabaseTarget } from "./database-url";
 
-const databaseUrl = process.env.DATABASE_URL ?? "./data/newscraft.db";
-const directory = dirname(databaseUrl);
+const { databaseUrl, authToken, localFilePath } = resolveDatabaseTarget();
 
-if (!existsSync(directory)) {
-  mkdirSync(directory, { recursive: true });
+if (localFilePath) {
+  const directory = dirname(localFilePath);
+  if (!existsSync(directory)) {
+    mkdirSync(directory, { recursive: true });
+  }
 }
 
-const sqlite = new Database(databaseUrl);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
+const sqlite = createClient({
+  url: databaseUrl,
+  authToken,
+});
 
 export const db = drizzle(sqlite, { schema });
 export { schema };

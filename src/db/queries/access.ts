@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { db } from "@/db/client";
 import {
   organizationMemberships,
@@ -31,6 +32,57 @@ export async function getWorkspaceById(id: string) {
 export async function getFirstWorkspace() {
   const rows = await db.select().from(workspaces).limit(1);
   return rows[0] ?? null;
+}
+
+export async function createUser(input: {
+  email: string;
+  name: string;
+  globalRole?: "user" | "admin";
+}) {
+  const email = input.email.toLowerCase().trim();
+  const name = input.name.trim() || email;
+  const globalRole = input.globalRole ?? "user";
+
+  const existing = await getUserByEmail(email);
+  if (existing) return existing;
+
+  const row = {
+    id: nanoid(),
+    email,
+    name,
+    globalRole,
+    createdAt: Date.now(),
+  };
+
+  await db.insert(users).values(row);
+  return row;
+}
+
+export async function ensureUserMembershipInFirstWorkspace(userId: string) {
+  const defaultWorkspace = await getFirstWorkspace();
+  if (!defaultWorkspace) return null;
+
+  await db
+    .insert(organizationMemberships)
+    .values({
+      organizationId: defaultWorkspace.organizationId,
+      userId,
+      role: "member",
+      createdAt: Date.now(),
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(workspaceMemberships)
+    .values({
+      workspaceId: defaultWorkspace.id,
+      userId,
+      role: "member",
+      createdAt: Date.now(),
+    })
+    .onConflictDoNothing();
+
+  return defaultWorkspace;
 }
 
 export async function getOrganizationBySlug(slug: string) {

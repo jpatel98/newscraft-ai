@@ -30,11 +30,11 @@ NewsCraft AI is a newsroom collaboration workspace built with Next.js 16 and the
 ## Local setup
 
 ```bash
-cp .env.example .env.local          # then edit OPENAI_API_KEY, OPENAI_MODEL, CRON_SECRET
+cp .env.example .env.local          # then edit OPENAI_API_KEY, CRON_SECRET, and DB envs
 
 npm install
 npm run db:generate                  # only needed if schema changes
-npm run db:migrate                   # applies migrations to ./data/newscraft.db
+npm run db:migrate                   # applies migrations to Turso or the local file DB
 npm run db:seed                      # seeds the default workspace + agents + topic channels + local admin
 
 npm run dev                          # http://localhost:3000
@@ -69,6 +69,8 @@ Sign-in flow:
 - `GET /login` shows the standard newsroom sign-in button (general account).
 - `GET /auth/special/<token>` signs in as admin via a hidden link.
 - Admin is never listed in the UI; the only admin entry point is the special link token.
+- `GET /auth/google` starts Google OAuth sign-in.
+- `GET /auth/google/callback` completes Google OAuth and signs in the user.
 
 ## Project structure
 
@@ -103,10 +105,16 @@ Sign-in flow:
 - `OPENAI_MODEL_FAST` — default fast model for lower-risk runs (default `gpt-5.4-mini`).
 - `VERIFIER_MODEL` — model used for output verification.
 - `VERIFIER_MIN_SCORE` — numeric verifier cutoff (default `0.70`).
-- `DATABASE_URL` — SQLite file path. Defaults to `./data/newscraft.db`.
+- `DATABASE_URL` — local libSQL/SQLite file URL for development. Defaults to `file:./data/newscraft.db`.
+- `TURSO_DATABASE_URL` — remote Turso database URL. When set, it takes precedence over `DATABASE_URL`.
+- `TURSO_AUTH_TOKEN` — auth token for `TURSO_DATABASE_URL`.
 - `CRON_SECRET` — shared secret required by `/api/digest/run`. Also passed by `scripts/digest-cron.ts`.
 - `NEWSCRAFT_GENERAL_USER_EMAIL` — email for the seeded general account used by `/auth/general`. Defaults to `producer@newscraft.local`.
 - `NEWSCRAFT_ADMIN_USER_EMAIL` — email for the seeded admin account used by the hidden admin link. Defaults to `admin@newscraft.local`.
+- `GOOGLE_CLIENT_ID` — OAuth client ID for Google sign-in.
+- `GOOGLE_CLIENT_SECRET` — OAuth client secret for Google sign-in.
+- `GOOGLE_REDIRECT_URI` — optional callback URL (defaults to request origin + `/auth/google/callback`).
+- `GOOGLE_OAUTH_SCOPES` — optional scope override (defaults to `openid email profile`).
 - `NEWSCRAFT_ADMIN_SIGNIN_TOKEN` — token embedded in the hidden admin URL `/auth/special/<token>`. Defaults to `local-admin-link` for local development.
 - `DIGEST_CRON` — cron expression for the scheduled digest (default `0 7 * * *`).
 - `NEWSCRAFT_BASE_URL` — base URL the cron script hits (default `http://localhost:3000`).
@@ -118,3 +126,4 @@ Sign-in flow:
 - The three agents are registered in `src/lib/agents/registry.ts`. To add a new one: write `src/lib/agents/your-agent.ts` exporting a `createYourAgent(config?)` + defaults, add an entry to `AGENT_REGISTRY`, and rerun `npm run db:seed`.
 - Base agent definitions still live in the registry, but workspace-specific behavior now comes from `workspace_agent_settings`, which is the seam for future per-workspace admin controls and user accounts.
 - Scheduled cron runs as a sibling script rather than inside `next dev` to avoid HMR double-firing.
+- Vercel is not a good fit for the default local file DB setup. Vercel Functions use a read-only filesystem apart from ephemeral `/tmp`, so `file:./data/newscraft.db` will fail at runtime. For a real deployment, set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. `DATABASE_URL=file:/tmp/newscraft.db` is only suitable for a throwaway demo because data will reset across cold starts and instances.

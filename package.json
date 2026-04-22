@@ -8,15 +8,16 @@
     "start": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed": "tsx scripts/seed.ts",
+    "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
+    "db:seed": "tsx --env-file=.env.local scripts/seed.ts",
     "db:studio": "drizzle-kit studio",
     "cron:dev": "tsx --env-file=.env.local scripts/digest-cron.ts",
+    "test": "node --test --import tsx scripts/tests/*.test.ts",
     "evals": "tsx scripts/evals.ts"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.2",
     "@openai/agents": "^0.8.3",
-    "better-sqlite3": "^12.9.0",
     "cheerio": "^1.2.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
@@ -33,7 +34,6 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",
     "@types/react": "^19",
