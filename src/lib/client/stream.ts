@@ -1,12 +1,17 @@
 import { readSSE } from '$lib/utils/sse-client';
 
-interface StreamArgs {
+export interface StreamArgs {
 	conversation_id?: string;
-	content: string;
+	content?: string;
+	regenerate?: boolean;
 }
-interface StreamCallbacks {
+
+export interface StreamCallbacks {
 	onDelta: (piece: string) => void;
 	onMeta?: (meta: { conversation_id: string }) => void;
+	onToolProgress?: (t: { id: string; name: string; emoji?: string }) => void;
+	onToolDone?: (id: string) => void;
+	onTitle?: (title: string) => void;
 	signal?: AbortSignal;
 }
 
@@ -34,7 +39,27 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 			continue;
 		}
 		if (ev.event === 'hermes.tool.progress') {
-			// ephemeral progress strip — no-op for the bare-bones round-trip
+			try {
+				const j = JSON.parse(ev.data) as { id?: string; name?: string; emoji?: string; status?: string };
+				const id = String(j.id ?? j.name ?? Math.random());
+				const name = String(j.name ?? 'tool');
+				if (j.status === 'done' || j.status === 'end' || j.status === 'complete') {
+					cb.onToolDone?.(id);
+				} else {
+					cb.onToolProgress?.({ id, name, emoji: j.emoji });
+				}
+			} catch {
+				/* malformed progress event — skip */
+			}
+			continue;
+		}
+		if (ev.event === 'hermes.title') {
+			try {
+				const { title } = JSON.parse(ev.data) as { title: string };
+				if (title) cb.onTitle?.(title);
+			} catch {
+				/* ignore */
+			}
 			continue;
 		}
 		if (ev.data === '[DONE]') return;

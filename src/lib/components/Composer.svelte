@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import Send from 'lucide-svelte/icons/send-horizontal';
 	import Paperclip from 'lucide-svelte/icons/paperclip';
+	import { chat } from '$lib/stores/chat.svelte';
 
 	interface Props {
 		onSend?: (content: string) => Promise<void> | void;
@@ -11,8 +12,27 @@
 	let { onSend, disabled = false, placeholder = 'Message NewsCraft' }: Props = $props();
 
 	let value = $state('');
-	let textarea: HTMLTextAreaElement | undefined;
+	let textarea: HTMLTextAreaElement | undefined = $state();
 	let busy = $state(false);
+
+	// Consume any edit-last handoff from the ↑ shortcut.
+	$effect(() => {
+		const recall = chat.editRequest;
+		if (recall != null && !value) {
+			value = recall;
+			chat.consumeEdit();
+			queueMicrotask(() => {
+				if (textarea) {
+					textarea.focus();
+					autosize();
+				}
+			});
+		}
+	});
+
+	export function focus() {
+		textarea?.focus();
+	}
 
 	async function send() {
 		const content = value.trim();
@@ -24,8 +44,6 @@
 				autosize();
 				await onSend(content);
 			} else {
-				// no handler → start a new conversation: stream once, capture the
-				// conversation_id from the meta frame, navigate.
 				const r = await fetch('/api/chat/stream', {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
@@ -65,6 +83,13 @@
 		if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
 			e.preventDefault();
 			send();
+			return;
+		}
+		// Esc inside the composer first blurs; the global handler will then
+		// catch a second Esc to abort the stream. Keeps both gestures usable.
+		if (e.key === 'Escape' && document.activeElement === textarea) {
+			textarea?.blur();
+			e.preventDefault();
 		}
 	}
 
@@ -117,5 +142,6 @@
 		<span><kbd>Enter</kbd> to send</span>
 		<span><kbd>Shift</kbd> + <kbd>Enter</kbd> for newline</span>
 		<span><kbd>Esc</kbd> to abort</span>
+		<span><kbd>↑</kbd> to edit last</span>
 	</div>
 </form>

@@ -1,6 +1,6 @@
 import { db } from './index';
 import { conversations, messages } from './schema';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, gte } from 'drizzle-orm';
 import { newId } from '$lib/utils/id';
 
 export type Role = 'user' | 'assistant' | 'system' | 'tool';
@@ -86,4 +86,43 @@ export function setConversationTitle(id: string, title: string) {
 
 export function deleteConversation(id: string) {
 	db.delete(conversations).where(eq(conversations.id, id)).run();
+}
+
+/**
+ * Delete a message and every message created after it in the same
+ * conversation. Used by edit/regenerate to truncate the transcript before
+ * re-streaming.
+ */
+export function deleteMessagesFrom(conversationId: string, messageId: string): number {
+	const target = db.select().from(messages).where(eq(messages.id, messageId)).get() as
+		| MessageRow
+		| undefined;
+	if (!target || target.conversationId !== conversationId) return 0;
+	const result = db
+		.delete(messages)
+		.where(
+			and(eq(messages.conversationId, conversationId), gte(messages.createdAt, target.createdAt))
+		)
+		.run();
+	return result.changes ?? 0;
+}
+
+export function lastUserMessage(conversationId: string): MessageRow | undefined {
+	return db
+		.select()
+		.from(messages)
+		.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
+		.orderBy(desc(messages.createdAt))
+		.limit(1)
+		.get() as MessageRow | undefined;
+}
+
+export function lastAssistantMessage(conversationId: string): MessageRow | undefined {
+	return db
+		.select()
+		.from(messages)
+		.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'assistant')))
+		.orderBy(desc(messages.createdAt))
+		.limit(1)
+		.get() as MessageRow | undefined;
 }

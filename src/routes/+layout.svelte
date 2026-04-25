@@ -7,6 +7,7 @@
 	import Settings from 'lucide-svelte/icons/settings';
 	import LogOut from 'lucide-svelte/icons/log-out';
 	import Hash from 'lucide-svelte/icons/hash';
+	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 
 	let { children, data } = $props();
 
@@ -89,4 +90,5 @@
 			{@render children()}
 		</main>
 	</div>
+	<KeyboardShortcuts conversations={data.conversations} />
 {/if}
