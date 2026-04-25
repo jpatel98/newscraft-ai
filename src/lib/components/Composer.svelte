@@ -44,35 +44,21 @@
 				autosize();
 				await onSend(content);
 			} else {
-				const r = await fetch('/api/chat/stream', {
+				// New-thread flow: create the conversation synchronously, then
+				// navigate to /c/<id> with the prompt in the URL hash. The hash
+				// stays client-side and is consumed by the page on mount, which
+				// fires the actual stream from there. Avoids the prior bug where
+				// the in-flight fetch was cancelled during navigation.
+				const r = await fetch('/api/conversations', {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ content })
+					body: '{}'
 				});
-				if (!r.ok) throw new Error(`stream ${r.status}`);
-				if (!r.body) throw new Error('no stream body');
-				const dec = new TextDecoder();
-				const reader = r.body.getReader();
-				let buf = '';
-				let convoId: string | null = null;
-				while (!convoId) {
-					const { value: chunk, done } = await reader.read();
-					if (done) break;
-					buf += dec.decode(chunk, { stream: true });
-					const m = buf.match(/event:\s*hermes\.meta\s*\ndata:\s*(\{[^\n]+\})/);
-					if (m) {
-						try {
-							convoId = (JSON.parse(m[1]) as { conversation_id: string }).conversation_id;
-						} catch {
-							/* ignore */
-						}
-					}
-				}
-				reader.cancel().catch(() => {});
-				if (convoId) {
-					value = '';
-					await goto(`/c/${convoId}`);
-				}
+				if (!r.ok) throw new Error(`create-conv ${r.status}`);
+				const { id } = (await r.json()) as { id: string };
+				value = '';
+				autosize();
+				await goto(`/c/${id}#p=${encodeURIComponent(content)}`);
 			}
 		} finally {
 			busy = false;

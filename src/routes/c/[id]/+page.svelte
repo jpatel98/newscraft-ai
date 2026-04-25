@@ -5,6 +5,7 @@
 	import type { ChatMessage } from '$lib/types';
 	import { invalidateAll } from '$app/navigation';
 	import { chat } from '$lib/stores/chat.svelte';
+	import { onMount } from 'svelte';
 
 	let { data } = $props();
 
@@ -102,6 +103,23 @@
 	async function handleRegenerate() {
 		await runStream({ conversation_id: data.conversation.id, regenerate: true });
 	}
+
+	// Pending prompt handoff: when the empty-state composer creates a new
+	// conversation, it navigates here with #p=<encoded prompt>. We strip the
+	// hash and fire the stream once.
+	onMount(() => {
+		if (typeof location === 'undefined') return;
+		const m = location.hash.match(/^#p=(.+)$/);
+		if (!m) return;
+		let pending = '';
+		try {
+			pending = decodeURIComponent(m[1]);
+		} catch {
+			pending = '';
+		}
+		history.replaceState(null, '', location.pathname + location.search);
+		if (pending) void handleSend(pending);
+	});
 </script>
 
 <header class="pane__header">
