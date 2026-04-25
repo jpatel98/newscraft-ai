@@ -76,8 +76,8 @@
 						<span class="msg__time">{timeOf(m)}</span>
 					</div>
 
-					<div class="msg__body" aria-live={m.role === 'assistant' && m.partial ? 'polite' : 'off'}>
-						{#if m.role === 'assistant' && m.partial && m.content.length === 0}
+					<div class="msg__body" aria-live={m.role === 'assistant' && m.streaming ? 'polite' : 'off'}>
+						{#if m.role === 'assistant' && m.streaming && m.content.length === 0}
 							<span class="pulse">
 								<span class="pulse__dots" aria-hidden="true"
 									><span></span><span></span><span></span></span
@@ -85,10 +85,17 @@
 								Drafting reply
 							</span>
 						{:else if m.role === 'assistant'}
-							<Markdown content={m.content} partial={m.partial} />
-							{#if m.partial}<span class="msg__caret" aria-hidden="true"></span>{/if}
+							<Markdown content={m.content} partial={m.streaming === true} />
+							{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
+							{#if m.partial && !m.streaming}
+								<span
+									style="display:inline-block;margin-left:6px;font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em"
+								>
+									— interrupted
+								</span>
+							{/if}
 						{:else}
-							{m.content}{#if m.partial}<span class="msg__caret" aria-hidden="true"></span>{/if}
+							{m.content}{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 						{/if}
 					</div>
 

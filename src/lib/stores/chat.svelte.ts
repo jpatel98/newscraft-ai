@@ -19,6 +19,12 @@ class ChatSession {
 	lastUserContent = $state<string | null>(null); // set by the active conversation page; read by ↑ handler
 
 	startStream(): AbortController {
+		// If a stream is already in flight, abort it so the next one can take
+		// over cleanly. The previous runStream's finally clause will detect
+		// that the active controller has changed and skip the state reset.
+		if (this.abort && !this.abort.signal.aborted) {
+			this.abort.abort();
+		}
 		const c = new AbortController();
 		this.abort = c;
 		this.streaming = true;

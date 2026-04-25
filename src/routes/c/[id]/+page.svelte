@@ -9,8 +9,11 @@
 
 	let { data } = $props();
 
+	// Per-stream overlay items keyed by their tmp ids. Each runStream pushes
+	// its own user + assistant pair and removes them after invalidateAll picks
+	// the persisted versions up. Using append-and-filter (not replace) so
+	// concurrent or back-to-back runs don't trample each other.
 	let overlay = $state<ChatMessage[]>([]);
-	let streaming = $state(false);
 
 	const persisted = $derived(
 		data.messages.map<ChatMessage>((m) => ({
@@ -32,7 +35,6 @@
 		return `${n} message${n === 1 ? '' : 's'} · last update ${h}:${m} · ${last.role}`;
 	});
 
-	// Expose the last user message to the global ↑ shortcut.
 	$effect(() => {
 		const reversed = [...persisted].reverse();
 		const lastUser = reversed.find((m) => m.role === 'user');
@@ -42,58 +44,76 @@
 		};
 	});
 
+	// Serialise runStream calls so abort + restart from a mid-stream send can't
+	// race the previous run's finally block.
+	let activeStream: Promise<void> = Promise.resolve();
+
 	async function runStream(args: {
 		conversation_id: string;
 		content?: string;
 		regenerate?: boolean;
 	}) {
-		streaming = true;
+		// startStream aborts any prior controller; wait for the previous run to
+		// fully unwind so its overlay cleanup completes before we add our own.
+		const prior = activeStream;
+		const controller = chat.startStream();
+		await prior.catch(() => {});
+
 		const userMsg: ChatMessage | null = args.regenerate
 			? null
-			: { id: 'tmp-u-' + Date.now(), role: 'user', content: args.content ?? '', partial: false };
+			: {
+					id: 'tmp-u-' + Math.random().toString(36).slice(2),
+					role: 'user',
+					content: args.content ?? '',
+					partial: false
+				};
 		const asstMsg: ChatMessage = {
-			id: 'tmp-a-' + Date.now(),
+			id: 'tmp-a-' + Math.random().toString(36).slice(2),
 			role: 'assistant',
 			content: '',
-			partial: true
+			partial: true,
+			streaming: true
 		};
-		overlay = userMsg ? [userMsg, asstMsg] : [asstMsg];
+		overlay = [...overlay, ...(userMsg ? [userMsg] : []), asstMsg];
 
-		const controller = chat.startStream();
-		try {
-			const { streamChat } = await import('$lib/client/stream');
-			await streamChat(args, {
-				signal: controller.signal,
-				onDelta: (s) => {
-					asstMsg.content += s;
-					overlay = userMsg ? [userMsg, asstMsg] : [asstMsg];
-				},
-				onToolProgress: (t) => chat.pushTool({ ...t, startedAt: Date.now() }),
-				onToolDone: (id) => chat.clearTool(id),
-				onTitle: () => {
-					/* title is updated server-side; invalidateAll below will pick it up */
+		const run = (async () => {
+			try {
+				const { streamChat } = await import('$lib/client/stream');
+				await streamChat(args, {
+					signal: controller.signal,
+					onDelta: (s) => {
+						asstMsg.content += s;
+						overlay = [...overlay];
+					},
+					onToolProgress: (t) => chat.pushTool({ ...t, startedAt: Date.now() }),
+					onToolDone: (id) => chat.clearTool(id)
+				});
+				asstMsg.partial = false;
+				asstMsg.streaming = false;
+				overlay = [...overlay];
+			} catch (e) {
+				const aborted = (e as { name?: string })?.name === 'AbortError' || controller.signal.aborted;
+				asstMsg.partial = false;
+				asstMsg.streaming = false;
+				if (!aborted) {
+					asstMsg.content += `\n\nCouldn't reach the agent. ${String(e)}`;
 				}
-			});
-			asstMsg.partial = false;
-			overlay = userMsg ? [userMsg, asstMsg] : [asstMsg];
-			await invalidateAll();
-			overlay = [];
-		} catch (e) {
-			console.error(e);
-			const aborted = (e as { name?: string })?.name === 'AbortError' || controller.signal.aborted;
-			asstMsg.partial = false;
-			if (!aborted) {
-				asstMsg.content += `\n\nCouldn't reach the agent. ${String(e)}`;
-				overlay = userMsg ? [userMsg, asstMsg] : [asstMsg];
-			} else {
-				// keep whatever streamed so far; the server has persisted partial
-				await invalidateAll();
-				overlay = [];
+				overlay = [...overlay];
+			} finally {
+				try {
+					await invalidateAll();
+				} catch {
+					/* ignore */
+				}
+				// Drop only this run's items from the overlay (other runs may have
+				// added their own).
+				const ids = new Set([asstMsg.id, ...(userMsg ? [userMsg.id] : [])]);
+				overlay = overlay.filter((m) => !ids.has(m.id));
+				if (chat.abort === controller) chat.endStream();
 			}
-		} finally {
-			chat.endStream();
-			streaming = false;
-		}
+		})();
+		activeStream = run;
+		return run;
 	}
 
 	async function handleSend(content: string) {
@@ -104,9 +124,6 @@
 		await runStream({ conversation_id: data.conversation.id, regenerate: true });
 	}
 
-	// Pending prompt handoff: when the empty-state composer creates a new
-	// conversation, it navigates here with #p=<encoded prompt>. We strip the
-	// hash and fire the stream once.
 	onMount(() => {
 		if (typeof location === 'undefined') return;
 		const m = location.hash.match(/^#p=(.+)$/);
@@ -136,6 +153,6 @@
 <div class="composer-zone">
 	<div class="composer-zone__inner">
 		<ToolStrip />
-		<Composer onSend={handleSend} disabled={streaming} />
+		<Composer onSend={handleSend} disabled={chat.streaming} />
 	</div>
 </div>

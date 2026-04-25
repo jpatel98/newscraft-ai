@@ -14,7 +14,7 @@
 
 	let value = $state('');
 	let textarea: HTMLTextAreaElement | undefined = $state();
-	let busy = $state(false);
+	let busy = $state(false); // only used to gate the new-thread fetch (synchronous create-conv)
 
 	function autosize() {
 		if (!textarea) return;
@@ -52,24 +52,29 @@
 
 	async function send() {
 		const content = value.trim();
-		if (!content || busy || disabled) return;
+		if (!content || disabled) return;
+		if (onSend) {
+			// Hand the content off and clear the input immediately. The parent
+			// owns serialisation (abort current stream, await previous, start new),
+			// so we don't gate on a local busy flag — the user can keep typing.
+			value = '';
+			void onSend(content);
+			queueMicrotask(() => textarea?.focus());
+			return;
+		}
+		// New-thread flow: synchronous create-conv then navigate.
+		if (busy) return;
 		busy = true;
 		try {
-			if (onSend) {
-				value = '';
-				await onSend(content);
-				queueMicrotask(() => textarea?.focus());
-			} else {
-				const r = await fetch('/api/conversations', {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: '{}'
-				});
-				if (!r.ok) throw new Error(`create-conv ${r.status}`);
-				const { id } = (await r.json()) as { id: string };
-				value = '';
-				await goto(`/c/${id}#p=${encodeURIComponent(content)}`);
-			}
+			const r = await fetch('/api/conversations', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: '{}'
+			});
+			if (!r.ok) throw new Error(`create-conv ${r.status}`);
+			const { id } = (await r.json()) as { id: string };
+			value = '';
+			await goto(`/c/${id}#p=${encodeURIComponent(content)}`);
 		} finally {
 			busy = false;
 		}
@@ -87,7 +92,10 @@
 		}
 	}
 
+	// Send is allowed while a stream is in flight — the parent will abort the
+	// current reply, persist the partial, and start a new one.
 	const canSend = $derived(value.trim().length > 0 && !busy && !disabled);
+	const showInterruptHint = $derived(disabled && value.trim().length > 0);
 </script>
 
 <form
@@ -113,7 +121,7 @@
 			class="composer__textarea"
 			{placeholder}
 			rows="1"
-			disabled={disabled || busy}
+			disabled={busy}
 			aria-label="Message NewsCraft"
 		></textarea>
 		<button
@@ -127,6 +135,15 @@
 		</button>
 	</div>
 	<div class="composer__hint">
-		<span><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline · <kbd>Esc</kbd> to abort · <kbd>↑</kbd> to edit last</span>
+		{#if showInterruptHint}
+			<span style="color:var(--accent-fg)"
+				><kbd>Enter</kbd> interrupts the current reply and sends</span
+			>
+		{:else}
+			<span
+				><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline · <kbd>Esc</kbd>
+				to abort · <kbd>↑</kbd> to edit last</span
+			>
+		{/if}
 	</div>
 </form>
