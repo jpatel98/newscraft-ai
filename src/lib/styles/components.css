@@ -419,9 +419,9 @@ body,
 
 .composer {
 	display: flex;
-	align-items: flex-end;
-	gap: 8px;
-	padding: 8px 8px 8px 12px;
+	align-items: end;
+	gap: 6px;
+	padding: 6px 6px 6px 8px;
 	background: var(--bg-surface);
 	border: 1px solid var(--border-default);
 	border-radius: var(--radius-2);
@@ -431,21 +431,106 @@ body,
 	border-color: var(--cobalt-500);
 	box-shadow: var(--shadow-focus);
 }
+.composer--busy {
+	opacity: 0.85;
+}
 .composer__textarea {
 	flex: 1;
+	min-width: 0;
 	border: 0;
 	outline: 0;
 	background: transparent;
 	resize: none;
 	font-family: var(--font-body);
 	font-size: 14.5px;
-	line-height: 1.5;
+	line-height: 1.45;
 	color: var(--fg-1);
-	padding: 4px 0;
-	min-height: 1.5em;
+	padding: 8px 4px;
+	margin: 0;
+	box-sizing: border-box;
+	/* Keep the textarea sized to its content; JS autosize fallback also runs.
+	 * field-sizing is supported in Chromium/WebKit; Firefox falls back to JS. */
+	field-sizing: content;
+	min-height: calc(1.45em + 16px);
+	max-height: 40vh;
+	overflow-y: auto;
+	scrollbar-width: thin;
 }
 .composer__textarea::placeholder {
 	color: var(--fg-3);
+}
+.composer__textarea:disabled {
+	color: var(--fg-2);
+	cursor: not-allowed;
+}
+
+.composer__icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	margin-bottom: 1px;
+	background: transparent;
+	border: 0;
+	color: var(--fg-3);
+	cursor: pointer;
+	border-radius: var(--radius-1);
+	flex-shrink: 0;
+	transition: color var(--dur-fast) var(--ease-std), background var(--dur-fast) var(--ease-std);
+}
+.composer__icon-btn:hover:not(:disabled) {
+	color: var(--fg-1);
+	background: var(--bg-raised);
+}
+.composer__icon-btn:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+.composer__icon-btn:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+.composer__send {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	height: 32px;
+	min-width: 78px;
+	padding: 0 12px;
+	margin-bottom: 1px;
+	background: var(--cobalt-500);
+	color: var(--ink-25);
+	border: 1px solid var(--cobalt-500);
+	border-radius: var(--radius-2);
+	font-family: var(--font-body);
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	flex-shrink: 0;
+	transition:
+		background var(--dur-fast) var(--ease-std),
+		border-color var(--dur-fast) var(--ease-std);
+}
+.composer__send:hover:not(:disabled) {
+	background: var(--cobalt-600);
+	border-color: var(--cobalt-600);
+}
+.composer__send:active:not(:disabled) {
+	background: var(--cobalt-700);
+	border-color: var(--cobalt-700);
+	transform: translateY(1px);
+}
+.composer__send:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+.composer__send:disabled {
+	cursor: not-allowed;
+	opacity: 0.45;
 }
 
 .composer__hint {
@@ -455,9 +540,9 @@ body,
 	color: var(--fg-3);
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
-	display: flex;
-	align-items: center;
-	gap: 12px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 .composer__hint kbd {
 	font-family: var(--font-mono);
@@ -467,6 +552,7 @@ body,
 	padding: 1px 5px;
 	border-radius: var(--radius-1);
 	border: 0;
+	margin: 0 1px;
 }
 @media (prefers-color-scheme: dark) {
 	.composer__hint kbd {
