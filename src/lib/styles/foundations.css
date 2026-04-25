@@ -1,0 +1,265 @@
+/* ============================================================
+   NewsCraft AI — Foundations
+   Color tokens, type scale, spacing, radii, shadows, motion.
+   Import once at the top of any page:
+   <link rel="stylesheet" href="colors_and_type.css">
+   ============================================================ */
+
+/* ---------- Fonts ---------- */
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ============================================================
+     COLOR — RAW SCALES
+     Newsprint neutrals + cobalt accent + functional semantics.
+     ============================================================ */
+
+  /* Ink (neutrals — warm-ish, not pure gray, to feel printed) */
+  --ink-0:  #FFFFFF;
+  --ink-25: #FBFAF7;   /* page bg, "newsprint" */
+  --ink-50: #F4F2EC;   /* surface raised */
+  --ink-100:#E9E6DD;   /* hairline / divider on cream */
+  --ink-200:#D6D2C6;
+  --ink-300:#B5B0A2;
+  --ink-400:#8A8676;
+  --ink-500:#5E5B50;
+  --ink-600:#3F3D36;
+  --ink-700:#2A2925;
+  --ink-800:#1A1A18;
+  --ink-900:#0E0E0D;   /* "ink" — primary text */
+
+  /* Cobalt — primary accent */
+  --cobalt-50: #EAF0FE;
+  --cobalt-100:#CBD8FB;
+  --cobalt-200:#94AEF6;
+  --cobalt-300:#5C84F1;
+  --cobalt-400:#2F5FE5;
+  --cobalt-500:#1F4FD8;   /* primary */
+  --cobalt-600:#163FB5;
+  --cobalt-700:#11308C;
+  --cobalt-800:#0C2266;
+  --cobalt-900:#081744;
+
+  /* Signal — verification green */
+  --signal-50: #E6F6EE;
+  --signal-300:#4FB37C;
+  --signal-500:#0F8A5F;
+  --signal-700:#0A6043;
+
+  /* Flag — urgency / breaking red */
+  --flag-50:  #FCEBE7;
+  --flag-300: #E8745C;
+  --flag-500: #D8362A;
+  --flag-700: #971F18;
+
+  /* Caution — pending review amber */
+  --caution-50: #FBF1DC;
+  --caution-300:#E8B85B;
+  --caution-500:#C58E1F;
+  --caution-700:#8A5F0F;
+
+  /* ============================================================
+     SEMANTIC COLOR
+     Always reference these in components, not the raw scales.
+     ============================================================ */
+  --bg-page:        var(--ink-25);
+  --bg-surface:     var(--ink-0);
+  --bg-raised:      var(--ink-50);
+  --bg-sunken:      var(--ink-100);
+  --bg-inverse:     var(--ink-900);
+
+  --fg-1:           var(--ink-900);  /* primary text */
+  --fg-2:           var(--ink-600);  /* secondary text */
+  --fg-3:           var(--ink-400);  /* tertiary, metadata */
+  --fg-4:           var(--ink-300);  /* disabled */
+  --fg-inverse:     var(--ink-0);
+  --fg-on-accent:   var(--ink-0);
+
+  --accent:         var(--cobalt-500);
+  --accent-hover:   var(--cobalt-600);
+  --accent-press:   var(--cobalt-700);
+  --accent-soft:    var(--cobalt-50);
+  --accent-fg:      var(--cobalt-700);
+
+  --border-soft:    var(--ink-100);
+  --border-default: var(--ink-200);
+  --border-strong:  var(--ink-300);
+  --border-inverse: var(--ink-700);
+
+  --status-verified-bg: var(--signal-50);
+  --status-verified-fg: var(--signal-700);
+  --status-verified:    var(--signal-500);
+
+  --status-breaking-bg: var(--flag-50);
+  --status-breaking-fg: var(--flag-700);
+  --status-breaking:    var(--flag-500);
+
+  --status-review-bg:   var(--caution-50);
+  --status-review-fg:   var(--caution-700);
+  --status-review:      var(--caution-500);
+
+  /* ============================================================
+     TYPE
+     Display: Inter Tight  | Body: Inter  | Mono: JetBrains Mono
+     ============================================================ */
+  --font-display: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  --font-body:    'Inter', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Sizes (rem-based, 16px root). Tight type uses negative tracking. */
+  --fs-display: 64px;   --lh-display: 0.96;  --tr-display: -0.035em;
+  --fs-h1:      44px;   --lh-h1:      1.04;  --tr-h1:      -0.028em;
+  --fs-h2:      32px;   --lh-h2:      1.10;  --tr-h2:      -0.022em;
+  --fs-h3:      24px;   --lh-h3:      1.20;  --tr-h3:      -0.015em;
+  --fs-h4:      18px;   --lh-h4:      1.30;  --tr-h4:      -0.010em;
+  --fs-body-lg: 17px;   --lh-body-lg: 1.55;
+  --fs-body:    15px;   --lh-body:    1.55;
+  --fs-body-sm: 13px;   --lh-body-sm: 1.50;
+  --fs-meta:    12px;   --lh-meta:    1.40;  --tr-meta:    0.04em;
+  --fs-mono:    13px;   --lh-mono:    1.50;
+
+  --fw-regular: 400;
+  --fw-medium:  500;
+  --fw-semibold:600;
+  --fw-bold:    700;
+  --fw-black:   800;
+
+  /* ============================================================
+     SPACING — 4pt grid
+     ============================================================ */
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* ============================================================
+     RADII — sharp by default, soft only for chips & avatars
+     ============================================================ */
+  --radius-0:    0;        /* most cards, panels, buttons */
+  --radius-1:    2px;      /* hairline rounding on small surfaces */
+  --radius-2:    4px;      /* inputs, secondary buttons */
+  --radius-3:    8px;      /* tooltips, popovers */
+  --radius-pill: 999px;    /* status chips, avatars */
+
+  /* ============================================================
+     SHADOWS — flat first, lift only on float surfaces
+     ============================================================ */
+  --shadow-0: none;
+  --shadow-hairline: inset 0 0 0 1px var(--border-default);
+  --shadow-1: 0 1px 0 0 rgba(14, 14, 13, 0.04), 0 0 0 1px rgba(14, 14, 13, 0.06);
+  --shadow-2: 0 2px 8px -2px rgba(14, 14, 13, 0.10), 0 0 0 1px rgba(14, 14, 13, 0.06);
+  --shadow-3: 0 12px 32px -8px rgba(14, 14, 13, 0.18), 0 0 0 1px rgba(14, 14, 13, 0.06);
+  --shadow-focus: 0 0 0 3px var(--cobalt-100);
+
+  /* ============================================================
+     MOTION
+     ============================================================ */
+  --ease-out:  cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in:   cubic-bezier(0.6, 0.04, 0.98, 0.34);
+  --ease-std:  cubic-bezier(0.4, 0.0, 0.2, 1);
+  --dur-fast:  120ms;
+  --dur-base:  200ms;
+  --dur-slow:  320ms;
+
+  /* ============================================================
+     LAYOUT
+     ============================================================ */
+  --container-max: 1280px;
+  --container-narrow: 720px;
+  --header-h: 56px;
+  --rule-thickness: 1px;
+}
+
+/* ============================================================
+   RESET-LITE
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg-page);
+  color: var(--fg-1);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ============================================================
+   SEMANTIC TYPE CLASSES
+   Use these everywhere instead of redefining font sizes.
+   ============================================================ */
+.t-display, h1.display {
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  line-height: var(--lh-display);
+  letter-spacing: var(--tr-display);
+  font-weight: var(--fw-black);
+  margin: 0;
+}
+.t-h1, h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  line-height: var(--lh-h1);
+  letter-spacing: var(--tr-h1);
+  font-weight: var(--fw-bold);
+  margin: 0;
+}
+.t-h2, h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  line-height: var(--lh-h2);
+  letter-spacing: var(--tr-h2);
+  font-weight: var(--fw-bold);
+  margin: 0;
+}
+.t-h3, h3 {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  line-height: var(--lh-h3);
+  letter-spacing: var(--tr-h3);
+  font-weight: var(--fw-semibold);
+  margin: 0;
+}
+.t-h4, h4 {
+  font-family: var(--font-display);
+  font-size: var(--fs-h4);
+  line-height: var(--lh-h4);
+  letter-spacing: var(--tr-h4);
+  font-weight: var(--fw-semibold);
+  margin: 0;
+}
+.t-body-lg { font-size: var(--fs-body-lg); line-height: var(--lh-body-lg); }
+.t-body    { font-size: var(--fs-body);    line-height: var(--lh-body); }
+.t-body-sm { font-size: var(--fs-body-sm); line-height: var(--lh-body-sm); color: var(--fg-2); }
+
+/* Eyebrow / metadata — uppercase, tracked, mono */
+.t-meta {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  letter-spacing: var(--tr-meta);
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: var(--fw-medium);
+}
+
+.t-mono { font-family: var(--font-mono); font-size: var(--fs-mono); line-height: var(--lh-mono); }
+
+p { margin: 0 0 var(--space-4) 0; }
+a { color: var(--accent); text-decoration: none; border-bottom: 1px solid currentColor; }
+a:hover { color: var(--accent-hover); }
+hr { border: 0; border-top: var(--rule-thickness) solid var(--border-default); margin: var(--space-6) 0; }
+
+/* Selection */
+::selection { background: var(--cobalt-100); color: var(--ink-900); }

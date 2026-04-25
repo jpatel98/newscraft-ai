@@ -9,32 +9,35 @@
 </script>
 
 <svelte:head>
-	<title>Sign in · Hermes</title>
+	<title>Sign in · NewsCraft</title>
 </svelte:head>
 
-<main style="max-width:320px;margin:10vh auto;font-family:system-ui">
-	<h1 style="margin-bottom:1rem">Hermes</h1>
-	<form method="post">
+<div class="page page--centered">
+	<form method="post" class="card" autocomplete="off">
+		<div class="card__eyebrow">NewsCraft · Sign in</div>
+		<h1 class="card__title">Welcome back.</h1>
+
 		<input type="hidden" name="next" value={next} />
-		<label style="display:block;margin-bottom:0.5rem">
-			<span style="display:block;font-size:0.85rem;color:#555">password</span>
+
+		<div class="field">
+			<label class="field__label" for="pw">Password</label>
 			<input
+				id="pw"
+				class="field__input"
 				type="password"
 				name="password"
 				autocomplete="current-password"
 				bind:this={pwInput}
 				required
-				style="width:100%;padding:0.5rem;border:1px solid #ccc;border-radius:4px"
 			/>
-		</label>
-		<button
-			type="submit"
-			style="width:100%;padding:0.5rem;border:0;border-radius:4px;background:#111;color:#fff;cursor:pointer"
-		>
+		</div>
+
+		<button type="submit" class="btn btn--primary" style="width:100%;padding:10px 16px">
 			Sign in
 		</button>
+
 		{#if form?.error}
-			<p style="color:#c00;margin-top:0.75rem;font-size:0.9rem">{form.error}</p>
+			<div class="field__error">{form.error}</div>
 		{/if}
 	</form>
-</main>
+</div>

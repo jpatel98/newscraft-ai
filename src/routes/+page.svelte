@@ -1,10 +1,21 @@
 <script lang="ts">
 	import Composer from '$lib/components/Composer.svelte';
+	let { data } = $props();
 </script>
 
-<div style="display:flex;flex-direction:column;height:100%;justify-content:center;align-items:center;padding:2rem">
-	<h2 style="margin-bottom:1rem;color:#444;font-weight:400">What's on your mind?</h2>
-	<div style="width:100%;max-width:720px">
-		<Composer />
+<svelte:head>
+	<title>NewsCraft</title>
+</svelte:head>
+
+<div class="empty">
+	<div class="empty__eyebrow">New thread · {new Date().toISOString().slice(0, 10)}</div>
+	<h1 class="empty__title">What are we working on?</h1>
+	<Composer placeholder="Start a thread — e.g. “Pull the day's politics-desk hits.”" />
+	<div class="empty__hint">
+		{#if data.conversations.length > 0}
+			Or pick a recent thread from the sidebar.
+		{:else}
+			This is the first thread. The agent's reply, sources, and tool runs will appear here.
+		{/if}
 	</div>
 </div>

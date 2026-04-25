@@ -1,47 +1,91 @@
 <script lang="ts">
+	import '$lib/styles/foundations.css';
+	import '$lib/styles/components.css';
+
 	import { page } from '$app/state';
+	import Plus from 'lucide-svelte/icons/plus';
+	import Settings from 'lucide-svelte/icons/settings';
+	import LogOut from 'lucide-svelte/icons/log-out';
+	import Hash from 'lucide-svelte/icons/hash';
+
 	let { children, data } = $props();
 
-	const onChat = $derived(page.url.pathname.startsWith('/c/') || page.url.pathname === '/');
 	const onLogin = $derived(page.url.pathname === '/login');
+
+	function relTime(ts: number): string {
+		const ms = Date.now() - ts;
+		const m = Math.floor(ms / 60_000);
+		if (m < 1) return 'just now';
+		if (m < 60) return `${m}m`;
+		const h = Math.floor(m / 60);
+		if (h < 24) return `${h}h`;
+		const d = Math.floor(h / 24);
+		return `${d}d`;
+	}
 </script>
 
 <svelte:head>
-	<title>Hermes</title>
+	<title>NewsCraft</title>
 </svelte:head>
 
 {#if onLogin || !data.user}
 	{@render children()}
 {:else}
-	<div style="display:grid;grid-template-columns:240px 1fr;height:100vh;font-family:system-ui">
-		<aside style="border-right:1px solid #eee;padding:0.75rem;overflow:auto">
-			<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
-				<strong>Hermes</strong>
-				<a href="/" style="font-size:0.85rem">+ new</a>
+	<div class="shell">
+		<aside class="sidebar">
+			<div class="sidebar__masthead">
+				<a class="sidebar__brand" href="/" aria-label="NewsCraft home">
+					<img src="/brand/logo-mark-inverse.svg" alt="" />
+					<span>NewsCraft</span>
+				</a>
+				<a
+					class="sidebar__action"
+					href="/"
+					aria-label="New chat"
+					title="New chat (Cmd+Shift+O)"
+				>
+					<Plus size="14" strokeWidth={2} />
+					<span>New</span>
+				</a>
 			</div>
-			<nav style="display:flex;flex-direction:column;gap:0.25rem">
+
+			<div class="sidebar__section">Threads</div>
+			<div class="sidebar__list">
+				{#if data.conversations.length === 0}
+					<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
+						<span class="sidebar__row__name">No threads yet</span>
+					</div>
+				{/if}
 				{#each data.conversations as c (c.id)}
 					<a
+						class="sidebar__row {page.params.id === c.id ? 'sidebar__row--active' : ''}"
 						href={`/c/${c.id}`}
-						style:background={page.params.id === c.id ? '#eef' : 'transparent'}
-						style="padding:0.4rem 0.5rem;border-radius:4px;text-decoration:none;color:#222;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
 					>
-						{c.title}
+						<Hash class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+						<span class="sidebar__row__name">{c.title || 'Untitled thread'}</span>
+						<span
+							style="font-family:var(--font-mono);font-size:10px;color:var(--ink-400);text-transform:uppercase;letter-spacing:0.04em;flex-shrink:0"
+							>{relTime(c.updatedAt)}</span
+						>
 					</a>
 				{/each}
-			</nav>
-			<div style="margin-top:1rem;border-top:1px solid #eee;padding-top:0.75rem">
-				<a href="/settings" style="font-size:0.85rem;color:#555">Settings</a>
-				<form method="post" action="/logout" style="display:inline;margin-left:0.5rem">
-					<button
-						type="submit"
-						style="background:none;border:0;color:#555;font-size:0.85rem;cursor:pointer;padding:0"
-						>Logout</button
-					>
+			</div>
+
+			<div class="sidebar__footer">
+				<a href="/settings" aria-label="Settings">
+					<Settings size="14" strokeWidth={1.5} style="vertical-align:-2px;margin-right:4px" />
+					Settings
+				</a>
+				<form method="post" action="/logout" style="display:inline;margin-left:auto">
+					<button type="submit" aria-label="Sign out">
+						<LogOut size="14" strokeWidth={1.5} style="vertical-align:-2px;margin-right:4px" />
+						Sign out
+					</button>
 				</form>
 			</div>
 		</aside>
-		<main style="overflow:auto">
+
+		<main class="pane">
 			{@render children()}
 		</main>
 	</div>

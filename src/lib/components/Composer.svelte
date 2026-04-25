@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import Send from 'lucide-svelte/icons/send-horizontal';
+	import Paperclip from 'lucide-svelte/icons/paperclip';
 
 	interface Props {
 		onSend?: (content: string) => Promise<void> | void;
 		disabled?: boolean;
+		placeholder?: string;
 	}
-	let { onSend, disabled = false }: Props = $props();
+	let { onSend, disabled = false, placeholder = 'Message NewsCraft' }: Props = $props();
 
 	let value = $state('');
 	let textarea: HTMLTextAreaElement | undefined;
@@ -21,7 +24,8 @@
 				autosize();
 				await onSend(content);
 			} else {
-				// no handler → start a new conversation by streaming once and navigating
+				// no handler → start a new conversation: stream once, capture the
+				// conversation_id from the meta frame, navigate.
 				const r = await fetch('/api/chat/stream', {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
@@ -29,8 +33,6 @@
 				});
 				if (!r.ok) throw new Error(`stream ${r.status}`);
 				if (!r.body) throw new Error('no stream body');
-				// Read just the meta frame to get the conversation id, then redirect.
-				// The stream still runs server-side and will persist the assistant message.
 				const dec = new TextDecoder();
 				const reader = r.body.getReader();
 				let buf = '';
@@ -78,23 +80,42 @@
 		e.preventDefault();
 		send();
 	}}
-	style="display:flex;gap:0.5rem;align-items:flex-end"
 >
-	<textarea
-		bind:this={textarea}
-		bind:value
-		oninput={autosize}
-		onkeydown={onKey}
-		placeholder="Message Hermes…  (Enter to send, Shift+Enter for newline)"
-		rows="1"
-		disabled={disabled || busy}
-		style="flex:1;resize:none;padding:0.6rem 0.75rem;border:1px solid #ccc;border-radius:8px;font:inherit;line-height:1.4;outline:none"
-	></textarea>
-	<button
-		type="submit"
-		disabled={disabled || busy || !value.trim()}
-		style="padding:0.6rem 1rem;border:0;border-radius:8px;background:#111;color:#fff;cursor:pointer;font:inherit"
-	>
-		{busy ? '…' : 'Send'}
-	</button>
+	<div class="composer">
+		<button
+			type="button"
+			class="btn btn--ghost"
+			disabled
+			aria-label="Attach (coming soon)"
+			title="Attachments coming soon"
+			style="padding:6px;border:0;background:transparent;color:var(--fg-3)"
+		>
+			<Paperclip size="16" strokeWidth={1.5} />
+		</button>
+		<textarea
+			bind:this={textarea}
+			bind:value
+			oninput={autosize}
+			onkeydown={onKey}
+			class="composer__textarea"
+			{placeholder}
+			rows="1"
+			disabled={disabled || busy}
+			aria-label="Message NewsCraft"
+		></textarea>
+		<button
+			type="submit"
+			class="btn btn--primary"
+			disabled={disabled || busy || !value.trim()}
+			aria-label="Send"
+		>
+			<Send size="14" strokeWidth={2} />
+			<span>{busy ? 'Sending' : 'Send'}</span>
+		</button>
+	</div>
+	<div class="composer__hint">
+		<span><kbd>Enter</kbd> to send</span>
+		<span><kbd>Shift</kbd> + <kbd>Enter</kbd> for newline</span>
+		<span><kbd>Esc</kbd> to abort</span>
+	</div>
 </form>

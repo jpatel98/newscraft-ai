@@ -6,8 +6,6 @@
 
 	let { data } = $props();
 
-	// In-flight messages for the current send. After the server persists them
-	// and we invalidate(), they appear in `data.messages` and we drop them.
 	let overlay = $state<ChatMessage[]>([]);
 	let streaming = $state(false);
 
@@ -20,6 +18,16 @@
 		}))
 	);
 	const messages = $derived([...persisted, ...overlay]);
+
+	const topic = $derived.by(() => {
+		const n = messages.length;
+		if (n === 0) return '0 messages';
+		const last = messages[n - 1];
+		const ts = new Date(data.conversation.updatedAt);
+		const h = ts.getHours().toString().padStart(2, '0');
+		const m = ts.getMinutes().toString().padStart(2, '0');
+		return `${n} message${n === 1 ? '' : 's'} · last update ${h}:${m} · ${last.role}`;
+	});
 
 	async function handleSend(content: string) {
 		streaming = true;
@@ -54,7 +62,8 @@
 			overlay = [];
 		} catch (e) {
 			console.error(e);
-			asstMsg.content += `\n\n[stream error: ${String(e)}]`;
+			asstMsg.content += `\n\nCouldn't reach the agent. ${String(e)}`;
+			asstMsg.partial = false;
 			overlay = [userMsg, asstMsg];
 		} finally {
 			streaming = false;
@@ -62,11 +71,19 @@
 	}
 </script>
 
-<div style="display:flex;flex-direction:column;height:100%">
-	<Thread {messages} />
-	<div style="border-top:1px solid #eee;padding:1rem;background:#fafafa">
-		<div style="max-width:760px;margin:0 auto">
-			<Composer onSend={handleSend} disabled={streaming} />
+<header class="pane__header">
+	<div>
+		<div class="pane__header__title">
+			{data.conversation.title || 'Untitled thread'}
 		</div>
+		<div class="pane__header__topic">{topic}</div>
+	</div>
+</header>
+
+<Thread {messages} />
+
+<div class="composer-zone">
+	<div class="composer-zone__inner">
+		<Composer onSend={handleSend} disabled={streaming} />
 	</div>
 </div>
