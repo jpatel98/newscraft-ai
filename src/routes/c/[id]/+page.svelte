@@ -153,6 +153,6 @@
 <div class="composer-zone">
 	<div class="composer-zone__inner">
 		<ToolStrip />
-		<Composer onSend={handleSend} disabled={chat.streaming} />
+		<Composer onSend={handleSend} />
 	</div>
 </div>

@@ -95,7 +95,7 @@
 	// Send is allowed while a stream is in flight — the parent will abort the
 	// current reply, persist the partial, and start a new one.
 	const canSend = $derived(value.trim().length > 0 && !busy && !disabled);
-	const showInterruptHint = $derived(disabled && value.trim().length > 0);
+	const showInterruptHint = $derived(chat.streaming && value.trim().length > 0);
 </script>
 
 <form
