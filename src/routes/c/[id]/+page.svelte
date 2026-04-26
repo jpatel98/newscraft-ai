@@ -2,7 +2,8 @@
 	import Composer from '$lib/components/Composer.svelte';
 	import Thread from '$lib/components/Thread.svelte';
 	import ToolStrip from '$lib/components/ToolStrip.svelte';
-	import type { ChatMessage } from '$lib/types';
+	import type { ChatMessage, MessageContent } from '$lib/types';
+	import { contentText } from '$lib/types';
 	import { invalidateAll, replaceState } from '$app/navigation';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { onMount } from 'svelte';
@@ -38,7 +39,7 @@
 	$effect(() => {
 		const reversed = [...persisted].reverse();
 		const lastUser = reversed.find((m) => m.role === 'user');
-		chat.lastUserContent = lastUser ? lastUser.content : null;
+		chat.lastUserContent = lastUser ? contentText(lastUser.content) : null;
 		return () => {
 			chat.lastUserContent = null;
 		};
@@ -50,7 +51,7 @@
 
 	async function runStream(args: {
 		conversation_id: string;
-		content?: string;
+		content?: MessageContent;
 		regenerate?: boolean;
 	}) {
 		// startStream aborts any prior controller; wait for the previous run to
@@ -66,7 +67,7 @@
 					role: 'user',
 					content: args.content ?? '',
 					partial: false
-				};
+				} satisfies ChatMessage;
 		const asstMsg: ChatMessage = {
 			id: 'tmp-a-' + Math.random().toString(36).slice(2),
 			role: 'assistant',
@@ -74,6 +75,7 @@
 			partial: true,
 			streaming: true
 		};
+		let asstText = '';
 		overlay = [...overlay, ...(userMsg ? [userMsg] : []), asstMsg];
 
 		const run = (async () => {
@@ -82,7 +84,8 @@
 				await streamChat(args, {
 					signal: controller.signal,
 					onDelta: (s) => {
-						asstMsg.content += s;
+						asstText += s;
+						asstMsg.content = asstText;
 						overlay = [...overlay];
 					},
 					onToolProgress: (t) => chat.pushTool({ ...t, startedAt: Date.now() }),
@@ -96,7 +99,8 @@
 				asstMsg.partial = false;
 				asstMsg.streaming = false;
 				if (!aborted) {
-					asstMsg.content += `\n\nCouldn't reach the agent. ${String(e)}`;
+					asstText += `\n\nCouldn't reach the agent. ${String(e)}`;
+					asstMsg.content = asstText;
 				}
 				overlay = [...overlay];
 			} finally {
@@ -116,7 +120,7 @@
 		return run;
 	}
 
-	async function handleSend(content: string) {
+	async function handleSend(content: MessageContent) {
 		await runStream({ conversation_id: data.conversation.id, content });
 	}
 
@@ -126,8 +130,19 @@
 
 	onMount(() => {
 		if (typeof location === 'undefined') return;
-		const m = location.hash.match(/^#p=(.+)$/);
+		const m = location.hash.match(/^#p=(.*)$/);
 		if (!m) return;
+		const stashKey = 'hermes:pending:' + data.conversation.id;
+		let stashed: MessageContent | null = null;
+		try {
+			const raw = sessionStorage.getItem(stashKey);
+			if (raw) {
+				sessionStorage.removeItem(stashKey);
+				stashed = JSON.parse(raw) as MessageContent;
+			}
+		} catch {
+			stashed = null;
+		}
 		let pending = '';
 		try {
 			pending = decodeURIComponent(m[1]);
@@ -135,7 +150,8 @@
 			pending = '';
 		}
 		replaceState(location.pathname + location.search, {});
-		if (pending) void handleSend(pending);
+		if (stashed) void handleSend(stashed);
+		else if (pending) void handleSend(pending);
 	});
 </script>
 

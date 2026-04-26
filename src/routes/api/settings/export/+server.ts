@@ -1,5 +1,5 @@
 import { error, type RequestHandler } from '@sveltejs/kit';
-import { getMessages, listConversations } from '$lib/server/db/conversations';
+import { getMessages, listConversations, parseContent } from '$lib/server/db/conversations';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
@@ -31,7 +31,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 									conversationId: c.id,
 									id: m.id,
 									role: m.role,
-									content: m.content,
+									content: parseContent(m.content),
 									createdAt: m.createdAt
 								}) + '\n'
 							)
