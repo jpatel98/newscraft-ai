@@ -128,6 +128,19 @@ export function setConversationPinned(id: string, pinned: 0 | 1): ConversationRo
 	return getConversation(id);
 }
 
+export function setConversationSystemPrompt(
+	id: string,
+	prompt: string | null
+): ConversationRow | undefined {
+	const trimmed = prompt == null ? null : prompt.trim() || null;
+	const now = Date.now();
+	db.update(conversations)
+		.set({ systemPrompt: trimmed, updatedAt: now })
+		.where(eq(conversations.id, id))
+		.run();
+	return getConversation(id);
+}
+
 export function deleteConversation(id: string) {
 	db.delete(conversations).where(eq(conversations.id, id)).run();
 }
