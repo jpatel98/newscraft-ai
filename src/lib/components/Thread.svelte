@@ -85,9 +85,6 @@
 				{/if}
 				<div>
 					<div class="msg__head">
-						<span class="msg__name">
-							{m.role === 'assistant' ? 'NewsCraft' : m.role === 'user' ? 'You' : m.role}
-						</span>
 						{#if m.role === 'assistant'}
 							<span class="msg__app-tag">App</span>
 						{/if}
