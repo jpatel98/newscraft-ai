@@ -1,8 +1,7 @@
 <script lang="ts">
 	import Composer from '$lib/components/Composer.svelte';
 	import Thread from '$lib/components/Thread.svelte';
-	import ToolStrip from '$lib/components/ToolStrip.svelte';
-	import type { ChatMessage, MessageContent } from '$lib/types';
+	import type { ChatCommand, ChatMessage, MessageContent } from '$lib/types';
 	import { contentText } from '$lib/types';
 	import { invalidateAll, replaceState } from '$app/navigation';
 	import { chat } from '$lib/stores/chat.svelte';
@@ -64,6 +63,7 @@
 		regenerate?: boolean;
 		resume?: boolean;
 		message_id?: string;
+		command?: ChatCommand;
 	}) {
 		// startStream aborts any prior controller; wait for the previous run to
 		// fully unwind so its overlay cleanup completes before we add our own.
@@ -155,8 +155,8 @@
 		return run;
 	}
 
-	async function handleSend(content: MessageContent) {
-		await runStream({ conversation_id: data.conversation.id, content });
+	async function handleSend(content: MessageContent, command?: ChatCommand) {
+		await runStream({ conversation_id: data.conversation.id, content, command });
 	}
 
 	async function handleRegenerate() {
@@ -228,7 +228,6 @@
 
 <div class="composer-zone">
 	<div class="composer-zone__inner">
-		<ToolStrip />
 		<Composer onSend={handleSend} />
 	</div>
 </div>

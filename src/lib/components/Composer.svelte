@@ -5,6 +5,7 @@
 	import Paperclip from 'lucide-svelte/icons/paperclip';
 	import X from 'lucide-svelte/icons/x';
 	import { chat } from '$lib/stores/chat.svelte';
+	import { filterSlashCommands, parseSlashCommand } from '$lib/utils/slash';
 	import {
 		resizeImage,
 		MAX_TOTAL_BYTES,
@@ -12,10 +13,10 @@
 		UnsupportedImageError,
 		type ResizedImage
 	} from '$lib/utils/image-resize';
-	import type { ContentPart, MessageContent } from '$lib/types';
+	import type { ChatCommand, ContentPart, HermesCommand, MessageContent } from '$lib/types';
 
 	interface Props {
-		onSend?: (content: MessageContent) => Promise<void> | void;
+		onSend?: (content: MessageContent, command?: ChatCommand) => Promise<void> | void;
 		disabled?: boolean;
 		placeholder?: string;
 	}
@@ -36,6 +37,20 @@
 	let attachments = $state<Attachment[]>([]);
 	let dropActive = $state(false);
 	let attachError = $state<string | null>(null);
+	let commands = $state<HermesCommand[]>([]);
+	let commandsLoaded = $state(false);
+	let slashIndex = $state(0);
+	let slashMenu: HTMLDivElement | undefined = $state();
+
+	const slashToken = $derived.by(() => {
+		if (attachments.length > 0) return null;
+		const match = value.match(/^\/([A-Za-z0-9_-]*)$/);
+		return match ? match[1] : null;
+	});
+	const slashRows = $derived.by(() =>
+		slashToken == null ? [] : filterSlashCommands(commands, slashToken)
+	);
+	const slashOpen = $derived(slashToken != null && slashRows.length > 0);
 
 	function autosize() {
 		if (!textarea) return;
@@ -50,6 +65,31 @@
 
 	onMount(() => {
 		autosize();
+		fetch('/api/hermes/commands')
+			.then((r) => (r.ok ? r.json() : { commands: [] }))
+			.then((j: { commands?: HermesCommand[] }) => {
+				commands = j.commands ?? [];
+				commandsLoaded = true;
+			})
+			.catch(() => {
+				commandsLoaded = true;
+			});
+	});
+
+	$effect(() => {
+		void slashToken;
+		slashIndex = 0;
+	});
+
+	$effect(() => {
+		if (!slashMenu || !slashOpen) return;
+		slashRows;
+		slashIndex;
+		queueMicrotask(() => {
+			slashMenu
+				?.querySelector<HTMLElement>(`[data-slash-index="${slashIndex}"]`)
+				?.scrollIntoView({ block: 'nearest' });
+		});
 	});
 
 	$effect(() => {
@@ -176,10 +216,17 @@
 		}
 
 		if (onSend) {
+			const parsed = typeof content === 'string' ? parseSlashCommand(content) : null;
+			const matched = parsed
+				? commands.find((cmd) => cmd.slash.toLowerCase() === parsed.slash)
+				: undefined;
+			const command: ChatCommand | undefined = matched
+				? { slash: matched.slash, kind: matched.kind, raw: parsed!.raw }
+				: undefined;
 			value = '';
 			attachments = [];
 			attachError = null;
-			void onSend(content);
+			void onSend(content, command);
 			queueMicrotask(() => textarea?.focus());
 			return;
 		}
@@ -213,6 +260,23 @@
 	}
 
 	function onKey(e: KeyboardEvent) {
+		if (slashOpen) {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				slashIndex = (slashIndex + 1) % slashRows.length;
+				return;
+			}
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				slashIndex = (slashIndex - 1 + slashRows.length) % slashRows.length;
+				return;
+			}
+			if (e.key === 'Tab' || e.key === 'Enter') {
+				e.preventDefault();
+				selectSlash(slashRows[slashIndex]);
+				return;
+			}
+		}
 		if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
 			e.preventDefault();
 			send();
@@ -222,6 +286,14 @@
 			textarea?.blur();
 			e.preventDefault();
 		}
+	}
+
+	function selectSlash(cmd: HermesCommand) {
+		value = `${cmd.slash} `;
+		queueMicrotask(() => {
+			textarea?.focus();
+			autosize();
+		});
 	}
 
 	const compressing = $derived(attachments.some((a) => a.state === 'compressing'));
@@ -296,6 +368,39 @@
 		{/if}
 		{#if attachError}
 			<div class="composer__error" role="alert">{attachError}</div>
+		{/if}
+		{#if slashOpen}
+			<div
+				class="slash-menu"
+				bind:this={slashMenu}
+				role="listbox"
+				aria-label="Slash commands"
+			>
+				{#each slashRows as cmd, i (cmd.slash)}
+					<button
+						type="button"
+						class="slash-menu__row"
+						class:slash-menu__row--active={i === slashIndex}
+						role="option"
+						aria-selected={i === slashIndex}
+						data-slash-index={i}
+						onmousemove={() => (slashIndex = i)}
+						onclick={() => selectSlash(cmd)}
+					>
+						<span class="slash-menu__main">
+							<span class="slash-menu__slash">{cmd.slash}</span>
+							<span class="slash-menu__kind">{cmd.kind === 'skill' ? 'skill' : cmd.category}</span>
+						</span>
+						<span class="slash-menu__desc">{cmd.description}</span>
+					</button>
+				{/each}
+				{#if commandsLoaded}
+					<div class="slash-menu__hint">
+						<span>Tab or Enter to insert</span>
+						<span>{slashRows.length} command{slashRows.length === 1 ? '' : 's'}</span>
+					</div>
+				{/if}
+			</div>
 		{/if}
 		<div class="composer" class:composer--busy={busy}>
 			<button
@@ -441,6 +546,85 @@
 		font-size: 11px;
 		letter-spacing: 0;
 		color: var(--danger-fg, #b34040);
+	}
+	.slash-menu {
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: calc(100% + 8px);
+		z-index: 20;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		box-shadow: var(--shadow-2);
+		padding: 5px;
+		max-height: 292px;
+		overflow-y: auto;
+	}
+	.slash-menu__row {
+		width: 100%;
+		border: 0;
+		background: transparent;
+		color: var(--fg-1);
+		border-radius: var(--radius-1);
+		padding: 8px 9px;
+		text-align: left;
+		cursor: pointer;
+		display: grid;
+		grid-template-columns: minmax(120px, 0.36fr) minmax(0, 1fr);
+		gap: 10px;
+		align-items: center;
+	}
+	.slash-menu__row:hover,
+	.slash-menu__row--active {
+		background: var(--bg-raised);
+	}
+	.slash-menu__main {
+		min-width: 0;
+		display: flex;
+		align-items: baseline;
+		gap: 7px;
+	}
+	.slash-menu__slash {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--fg-1);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.slash-menu__kind {
+		font-family: var(--font-mono);
+		font-size: 9px;
+		color: var(--fg-3);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		white-space: nowrap;
+	}
+	.slash-menu__desc {
+		min-width: 0;
+		font-size: 12.5px;
+		line-height: 1.35;
+		color: var(--fg-2);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.slash-menu__hint {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+		padding: 5px 9px 3px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--fg-4);
+	}
+	@media (max-width: 640px) {
+		.slash-menu__row {
+			grid-template-columns: 1fr;
+			gap: 3px;
+		}
 	}
 	.composer__hint--interrupt {
 		color: var(--accent-fg);

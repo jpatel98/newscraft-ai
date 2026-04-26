@@ -1,32 +1,19 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { sqliteClient } from '$lib/server/db';
+import { parseContent } from '$lib/server/db/conversations';
+import { contentText } from '$lib/types';
+import { dedupeByConversation, type SearchRow } from '$lib/utils/search-dedupe';
 
 interface Body {
 	q?: string;
 	limit?: number;
 }
 
-interface Result {
-	conversationId: string;
-	conversationTitle: string;
-	messageId: string;
-	role: 'user' | 'assistant' | 'system' | 'tool' | 'thread';
-	snippet: string;
-	createdAt: number;
-}
-
-interface Row {
-	messageId: string;
-	conversationId: string;
-	conversationTitle: string;
-	role: Result['role'];
-	snippet: string;
-	createdAt: number;
-}
+type Result = SearchRow;
+type Row = SearchRow;
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
-const PARTS_PREFIX = 'P:';
 
 // FTS5 reserves `"`, `*`, `:`, `-`, `^`, `(`, `)`, `AND`/`OR`/`NOT`. Splitting on
 // whitespace and double-quoting each token (with `"` doubled) turns any input
@@ -73,20 +60,7 @@ function allTermsWhere(column: string, terms: string[]): string {
 }
 
 function textContent(stored: string): string {
-	if (!stored.startsWith(PARTS_PREFIX)) return stored;
-	try {
-		const parsed = JSON.parse(stored.slice(PARTS_PREFIX.length)) as unknown;
-		if (!Array.isArray(parsed)) return stored;
-		return parsed
-			.map((part) => {
-				const p = part as { type?: unknown; text?: unknown };
-				return p.type === 'text' && typeof p.text === 'string' ? p.text : '';
-			})
-			.filter(Boolean)
-			.join('\n');
-	} catch {
-		return stored;
-	}
+	return contentText(parseContent(stored));
 }
 
 function markSnippet(text: string, terms: string[], max = 180): string {
@@ -108,13 +82,6 @@ function markSnippet(text: string, terms: string[], max = 180): string {
 	return clipped.replace(pattern, '<mark>$1</mark>');
 }
 
-function addUnique(results: Result[], seen: Set<string>, row: Result): void {
-	const key = `${row.conversationId}:${row.messageId || 'thread'}:${row.role}`;
-	if (seen.has(key)) return;
-	seen.add(key);
-	results.push(row);
-}
-
 export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 
@@ -133,8 +100,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const requested = Number.isFinite(body.limit) ? Number(body.limit) : DEFAULT_LIMIT;
 	const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(requested) || DEFAULT_LIMIT));
 
-	const results: Result[] = [];
-	const seen = new Set<string>();
+	// Over-fetch so the per-conversation collapse leaves us with a useful
+	// page after duplicate suppression.
+	const fetchLimit = Math.min(MAX_LIMIT, limit * 4);
+	const collected: Row[] = [];
 
 	const likeParams = terms.map(likeTerm);
 	const titleRows = sqliteClient
@@ -153,10 +122,10 @@ ORDER BY c.pinned DESC, c.updated_at DESC
 LIMIT ?
 `
 		)
-		.all(...likeParams, limit) as Row[];
+		.all(...likeParams, fetchLimit) as Row[];
 
 	for (const row of titleRows) {
-		addUnique(results, seen, {
+		collected.push({
 			...row,
 			role: 'thread',
 			snippet: markSnippet(row.conversationTitle || 'Untitled thread', terms)
@@ -164,14 +133,14 @@ LIMIT ?
 	}
 
 	try {
-		const rows = sqliteClient.prepare(SQL).all(match, limit) as Row[];
-		for (const row of rows) addUnique(results, seen, row);
+		const rows = sqliteClient.prepare(SQL).all(match, fetchLimit) as Row[];
+		for (const row of rows) collected.push(row);
 	} catch {
 		// Fall through to the LIKE scan below. Older or partially migrated local
 		// databases can have a stale FTS table; title/content search should still work.
 	}
 
-	if (results.length < limit) {
+	if (collected.length < fetchLimit) {
 		const messageRows = sqliteClient
 			.prepare(
 				`
@@ -189,16 +158,16 @@ ORDER BY m.created_at DESC
 LIMIT ?
 `
 			)
-			.all(...likeParams, limit) as Row[];
+			.all(...likeParams, fetchLimit) as Row[];
 
 		for (const row of messageRows) {
-			addUnique(results, seen, {
+			collected.push({
 				...row,
 				snippet: markSnippet(textContent(row.snippet), terms)
 			});
-			if (results.length >= limit) break;
 		}
 	}
 
-	return json({ results: results.slice(0, limit) satisfies Result[] });
+	const deduped = dedupeByConversation(collected).slice(0, limit);
+	return json({ results: deduped satisfies Result[] });
 };

@@ -23,6 +23,40 @@ export interface ChatMessage {
 	streaming?: boolean;
 }
 
+export type HermesCommandKind = 'builtin' | 'skill';
+
+export interface HermesCommand {
+	name: string;
+	slash: string;
+	description: string;
+	category: string;
+	argsHint?: string;
+	kind: HermesCommandKind;
+	enabled: boolean;
+	blockedReason?: string | null;
+}
+
+export interface HermesSkillSummary {
+	name: string;
+	slash: string;
+	description: string;
+	category?: string | null;
+	path: string;
+	enabled: boolean;
+}
+
+export interface HermesSkillDetail extends HermesSkillSummary {
+	frontmatter: Record<string, unknown>;
+	content: string;
+	supportingFiles: string[];
+}
+
+export interface ChatCommand {
+	slash: string;
+	kind: HermesCommandKind;
+	raw: string;
+}
+
 /** Plain-text projection of a message for callers that don't render parts (copy, recall, etc.). */
 export function contentText(c: MessageContent): string {
 	if (typeof c === 'string') return c;

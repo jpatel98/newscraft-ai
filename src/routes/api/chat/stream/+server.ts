@@ -2,10 +2,12 @@ import { error, type RequestHandler } from '@sveltejs/kit';
 import {
 	streamChatCompletion,
 	completion,
+	gatewayHealth,
 	type HermesMessage,
 	type HermesContent,
 	type HermesContentPart
 } from '$lib/server/hermes/transport';
+import { expandHermesSkill, listHermesCommands } from '$lib/server/hermes/bridge';
 import {
 	addMessage,
 	appendMessageContent,
@@ -19,7 +21,8 @@ import {
 	parseContent,
 	setConversationTitle
 } from '$lib/server/db/conversations';
-import type { ContentPart, MessageContent } from '$lib/types';
+import type { ChatCommand, ContentPart, HermesCommand, MessageContent } from '$lib/types';
+import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
 
 interface Body {
 	conversation_id?: string;
@@ -27,6 +30,7 @@ interface Body {
 	regenerate?: boolean;
 	resume?: boolean;
 	message_id?: string;
+	command?: ChatCommand;
 }
 
 // In-memory guard against rapid double-resume of the same partial row.
@@ -84,6 +88,70 @@ const TITLE_SYSTEM =
 	'You generate a 4-to-8-word, sentence-case title for a conversation. ' +
 	'Reply with ONLY the title text — no quotes, no markdown, no trailing punctuation.';
 
+function textFrame(text: string): string {
+	return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
+}
+
+function localAssistantResponse(convoId: string, text: string): Response {
+	addMessage({ conversationId: convoId, role: 'assistant', content: text });
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(
+				enc.encode(`event: hermes.meta\ndata: ${JSON.stringify({ conversation_id: convoId })}\n\n`)
+			);
+			controller.enqueue(enc.encode(textFrame(text)));
+			controller.enqueue(enc.encode('data: [DONE]\n\n'));
+			controller.close();
+		}
+	});
+	return new Response(stream, {
+		status: 200,
+		headers: {
+			'content-type': 'text/event-stream; charset=utf-8',
+			'cache-control': 'no-cache, no-transform',
+			connection: 'keep-alive',
+			'x-accel-buffering': 'no'
+		}
+	});
+}
+
+function findCommand(commands: HermesCommand[], parsed: SlashParseResult): HermesCommand | undefined {
+	return commands.find((cmd) => cmd.slash.toLowerCase() === parsed.slash);
+}
+
+function commandsHelp(commands: HermesCommand[]): string {
+	const safeBuiltins = commands.filter((cmd) => cmd.kind === 'builtin' && cmd.enabled);
+	const skills = commands.filter((cmd) => cmd.kind === 'skill' && cmd.enabled).slice(0, 32);
+	const lines = ['Available web commands:', ''];
+	for (const cmd of safeBuiltins) {
+		lines.push(`- ${cmd.slash}${cmd.argsHint ? ` ${cmd.argsHint}` : ''}: ${cmd.description}`);
+	}
+	if (skills.length) {
+		lines.push('', 'Installed skill commands:');
+		for (const cmd of skills) lines.push(`- ${cmd.slash}: ${cmd.description}`);
+		if (commands.filter((cmd) => cmd.kind === 'skill' && cmd.enabled).length > skills.length) {
+			lines.push('', 'Open Settings -> Skills to browse the full list.');
+		}
+	}
+	return lines.join('\n');
+}
+
+async function builtinResponse(command: HermesCommand, commands: HermesCommand[]): Promise<string> {
+	if (!command.enabled) return command.blockedReason || 'This command is not available from the web UI yet.';
+	if (command.slash === '/help' || command.slash === '/commands') return commandsHelp(commands);
+	if (command.slash === '/status') {
+		const health = await gatewayHealth();
+		return health.ok
+			? `Hermes gateway is reachable. Status ${health.status}.`
+			: `Hermes gateway is not reachable right now. ${health.body}`;
+	}
+	if (command.slash === '/profile') {
+		const skillCount = commands.filter((cmd) => cmd.kind === 'skill' && cmd.enabled).length;
+		return `Profile: hermes-agent\nInstalled skills: ${skillCount}`;
+	}
+	return 'This command is not available from the web UI yet.';
+}
+
 export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 
@@ -129,7 +197,43 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		const cleaned = sanitizeContent(body.content);
 		if (cleaned == null) throw error(400, 'content required');
 		if (typeof cleaned === 'string' && !cleaned.trim()) throw error(400, 'content required');
+		let upstreamContent = cleaned;
 		addMessage({ conversationId: convoId, role: 'user', content: cleaned });
+
+		if (typeof cleaned === 'string') {
+			const parsed = parseSlashCommand(cleaned);
+			if (parsed) {
+				const commands = await listHermesCommands();
+				const command = findCommand(commands, parsed);
+				if (!command) {
+					return localAssistantResponse(
+						convoId,
+						`I don't recognize ${parsed.slash}. Use /commands to browse available commands, or remove the slash to send it as normal text.`
+					);
+				}
+				if (command.kind === 'builtin') {
+					return localAssistantResponse(convoId, await builtinResponse(command, commands));
+				}
+				if (!command.enabled) {
+					return localAssistantResponse(
+						convoId,
+						command.blockedReason || 'This command is not available from the web UI yet.'
+					);
+				}
+				const expanded = await expandHermesSkill(command.slash, parsed.args, convoId);
+				if (!expanded.trim()) {
+					return localAssistantResponse(
+						convoId,
+						`I found ${command.slash}, but it did not produce a usable skill prompt.`
+					);
+				}
+				upstreamContent = expanded;
+			}
+		}
+
+		if (upstreamContent !== cleaned) {
+			body = { ...body, content: upstreamContent };
+		}
 	}
 
 	const history = getMessages(convoId).map<HermesMessage>((m) => {
@@ -139,6 +243,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			content: toHermesContent(parsed)
 		};
 	});
+	if (!isResume && !isRegenerate && body.content) {
+		const lastUser = [...history].reverse().find((m) => m.role === 'user');
+		if (lastUser) lastUser.content = toHermesContent(body.content);
+	}
 
 	const override = convo.systemPrompt?.trim();
 	if (override) {

@@ -5,6 +5,7 @@
 	import Copy from 'lucide-svelte/icons/copy';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Markdown from './Markdown.svelte';
+	import ToolActivity from './ToolActivity.svelte';
 	import ToolInspector, { type InspectorToolCall } from './ToolInspector.svelte';
 	import { formatShortTime } from '$lib/utils/time';
 
@@ -55,6 +56,13 @@
 	let scroller: HTMLDivElement | undefined = $state();
 	let copied = $state<string | null>(null);
 	let scrolledToHash = $state(false);
+	// Track conversation by the first message id; switching threads resets
+	// the initial-scroll machinery so a fresh open always lands deterministically.
+	let conversationKey = $state<string | null>(null);
+	let didInitialScroll = $state(false);
+	// Stay glued to the bottom while streaming, but only when the user hasn't
+	// scrolled up to read history. Default true so the first stream tail-follows.
+	let stickToBottom = $state(true);
 
 	function lengthOf(c: MessageContent): number {
 		return typeof c === 'string' ? c.length : c.length;
@@ -67,23 +75,67 @@
 		return c;
 	}
 
+	function isNearBottom(): boolean {
+		if (!scroller) return true;
+		return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 96;
+	}
+
+	function scrollToBottom(): void {
+		if (!scroller) return;
+		scroller.scrollTop = scroller.scrollHeight;
+	}
+
+	function onScroll(): void {
+		stickToBottom = isNearBottom();
+	}
+
+	// Reset initial-scroll state when switching conversations (first message id
+	// changes). Without this, navigating from one thread to another would keep
+	// the previous scroll position instead of landing at the latest message.
 	$effect(() => {
+		const key = messages[0]?.id ?? null;
+		if (key !== conversationKey) {
+			conversationKey = key;
+			didInitialScroll = false;
+			scrolledToHash = false;
+			stickToBottom = true;
+		}
+	});
+
+	$effect(() => {
+		// Track length AND the tail's content length so streaming token-by-token
+		// triggers re-evaluation and tail-follow scroll.
 		messages.length;
 		const last = messages[messages.length - 1];
 		if (last) lengthOf(last.content);
-		queueMicrotask(() => {
-			if (!scroller) return;
-			const target = typeof location === 'undefined' ? null : location.hash.match(/^#m=(.+)$/);
-			if (target && !scrolledToHash) {
-				const el = document.getElementById(`m-${decodeURIComponent(target[1])}`);
-				if (el) {
-					el.scrollIntoView({ block: 'center' });
-					scrolledToHash = true;
-					return;
-				}
-			}
-			scroller.scrollTop = scroller.scrollHeight;
-		});
+
+		if (!scroller) return;
+
+		if (!didInitialScroll) {
+			const hashMatch =
+				typeof location === 'undefined' ? null : location.hash.match(/^#m=(.+)$/);
+			// Two rAFs let markdown + late-loading images settle before we measure
+			// scrollHeight; a 60ms re-anchor catches images that decode after that.
+			requestAnimationFrame(() =>
+				requestAnimationFrame(() => {
+					if (hashMatch && !scrolledToHash) {
+						const el = document.getElementById(`m-${decodeURIComponent(hashMatch[1])}`);
+						if (el) {
+							el.scrollIntoView({ block: 'center' });
+							scrolledToHash = true;
+							didInitialScroll = true;
+							return;
+						}
+					}
+					scrollToBottom();
+					setTimeout(scrollToBottom, 60);
+					didInitialScroll = true;
+				})
+			);
+			return;
+		}
+
+		if (stickToBottom) queueMicrotask(scrollToBottom);
 	});
 
 	function timeOf(m: ChatMessage): string {
@@ -111,7 +163,7 @@
 	}
 </script>
 
-<div class="thread" bind:this={scroller}>
+<div class="thread" bind:this={scroller} onscroll={onScroll}>
 	<div class="thread__inner">
 		{#each messages as m, i (m.id)}
 			{@const prev = messages[i - 1]}
@@ -150,12 +202,9 @@
 
 					<div class="msg__body" aria-live={m.role === 'assistant' && m.streaming ? 'polite' : 'off'}>
 						{#if m.role === 'assistant' && m.streaming && lengthOf(m.content) === 0}
-							<span class="pulse">
-								<span class="pulse__dots" aria-hidden="true"
-									><span></span><span></span><span></span></span
-								>
-								Drafting reply
-							</span>
+							<!-- Empty streaming state intentionally renders nothing here; the
+							   ToolActivity card below shows the live "Drafting answer" pulse.
+							   That avoids two pulses competing for the same moment. -->
 						{:else if m.role === 'assistant'}
 							<Markdown content={textOf(m.content)} partial={m.streaming === true} />
 							{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
@@ -186,6 +235,10 @@
 							{m.content}{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 						{/if}
 					</div>
+
+					{#if m.role === 'assistant' && m.id === lastAssistantId}
+						<ToolActivity activeTurn={true} />
+					{/if}
 
 					{#if m.role === 'assistant' && m.partial && !m.streaming && !m.id.startsWith('tmp-')}
 						<div class="msg__resume" role="status">

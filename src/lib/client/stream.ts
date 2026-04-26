@@ -1,5 +1,5 @@
 import { readSSE } from '$lib/utils/sse-client';
-import type { MessageContent } from '$lib/types';
+import type { ChatCommand, MessageContent } from '$lib/types';
 
 export interface StreamArgs {
 	conversation_id?: string;
@@ -7,6 +7,7 @@ export interface StreamArgs {
 	regenerate?: boolean;
 	resume?: boolean;
 	message_id?: string;
+	command?: ChatCommand;
 }
 
 export interface StreamCallbacks {

@@ -1426,6 +1426,20 @@ body,
 .md a:hover {
 	color: var(--accent-hover);
 }
+/* Bare-URL links that the renderer collapses to host+path. Styled smaller
+ * and in mono so a paragraph of citations doesn't dominate the page; the
+ * accent stays subtle until hover. */
+.md a.md-source-link {
+	font-family: var(--font-mono);
+	font-size: 12px;
+	color: var(--accent-fg);
+	text-decoration-color: var(--ink-200);
+	letter-spacing: 0;
+}
+.md a.md-source-link:hover {
+	color: var(--accent-hover);
+	text-decoration-color: var(--cobalt-300);
+}
 .md blockquote {
 	margin: 10px 0 14px;
 	padding: 8px 0 8px 14px;
@@ -1572,28 +1586,6 @@ body,
 .md .md-code__copy:focus-visible {
 	outline: none;
 	box-shadow: var(--shadow-focus);
-}
-
-/* ---------- Tool-call ephemeral strip ---------- */
-.tool-strip {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	padding: 6px 12px;
-	margin-bottom: 8px;
-	background: var(--bg-surface);
-	border: 1px solid var(--border-soft);
-	border-left: 3px solid var(--cobalt-500);
-	font-family: var(--font-mono);
-	font-size: 11px;
-	color: var(--fg-2);
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
-	border-radius: var(--radius-1);
-}
-.tool-strip strong {
-	color: var(--fg-1);
-	font-weight: 600;
 }
 
 /* ---------- Resume banner (partial assistant messages) ---------- */
@@ -1950,29 +1942,6 @@ body,
 }
 
 /* ---------- Tool-call inspector ---------- */
-.tool-strip__inspect {
-	margin-left: auto;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	background: transparent;
-	border: 1px solid transparent;
-	color: var(--fg-3);
-	cursor: pointer;
-	padding: 1px 4px;
-	border-radius: var(--radius-1);
-	transition: color var(--dur-fast) var(--ease-std), border-color var(--dur-fast) var(--ease-std);
-}
-.tool-strip__inspect:hover {
-	color: var(--fg-1);
-	border-color: var(--border-soft);
-}
-.tool-strip__inspect:focus-visible {
-	outline: none;
-	box-shadow: var(--shadow-focus);
-	color: var(--fg-1);
-}
-
 .msg__tools-link {
 	background: transparent;
 	border: 0;

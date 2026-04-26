@@ -1,7 +1,70 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
+	import { onMount } from 'svelte';
+	import Markdown from '$lib/components/Markdown.svelte';
+	import type { HermesSkillDetail, HermesSkillSummary } from '$lib/types';
 
 	let { data } = $props();
+
+	let skills = $state<HermesSkillSummary[]>([]);
+	let skillsQuery = $state('');
+	let skillsBusy = $state(false);
+	let skillsError = $state<string | null>(null);
+	let selectedSkill = $state<HermesSkillSummary | null>(null);
+	let skillDetail = $state<HermesSkillDetail | null>(null);
+	let skillDetailBusy = $state(false);
+
+	const filteredSkills = $derived.by(() => {
+		const q = skillsQuery.trim().toLowerCase();
+		if (!q) return skills;
+		return skills.filter((skill) =>
+			`${skill.name} ${skill.slash} ${skill.description} ${skill.category ?? ''}`
+				.toLowerCase()
+				.includes(q)
+		);
+	});
+
+	onMount(() => {
+		void loadSkills();
+	});
+
+	async function loadSkills() {
+		skillsBusy = true;
+		skillsError = null;
+		try {
+			const r = await fetch('/api/hermes/skills');
+			if (!r.ok) throw new Error(`skills ${r.status}`);
+			const j = (await r.json()) as { skills?: HermesSkillSummary[] };
+			skills = j.skills ?? [];
+			selectedSkill = skills[0] ?? null;
+			if (selectedSkill) await selectSkill(selectedSkill);
+		} catch (err) {
+			skillsError = err instanceof Error ? err.message : String(err);
+		} finally {
+			skillsBusy = false;
+		}
+	}
+
+	async function selectSkill(skill: HermesSkillSummary) {
+		selectedSkill = skill;
+		skillDetail = null;
+		skillDetailBusy = true;
+		try {
+			const slug = skill.slash.replace(/^\//, '');
+			const r = await fetch(`/api/hermes/skills/${encodeURIComponent(slug)}`);
+			if (!r.ok) throw new Error(`skill ${r.status}`);
+			const j = (await r.json()) as { skill?: HermesSkillDetail };
+			skillDetail = j.skill ?? null;
+		} catch {
+			skillDetail = null;
+		} finally {
+			skillDetailBusy = false;
+		}
+	}
+
+	function useSkill(skill: HermesSkillSummary) {
+		goto(`/?draft=${encodeURIComponent(skill.slash + ' ')}`);
+	}
 
 	// --- Change password ---
 	let pwCurrent = $state('');
@@ -125,6 +188,94 @@
 				<span>Agent</span>
 				<strong>NewsCraft</strong>
 				<code>hermes-agent</code>
+			</div>
+		</section>
+
+		<section class="settings__group" aria-labelledby="settings-skills">
+			<div class="settings__group__head">
+				<h2 id="settings-skills" class="settings__group__title">Skills</h2>
+				<p class="settings__group__copy">Browse installed Hermes skills and start with a slash command.</p>
+			</div>
+			<div class="settings__section-body">
+				<div class="skills-panel">
+					<div class="skills-panel__list">
+						<div class="field">
+							<label class="field__label" for="skills-search">Installed skills</label>
+							<input
+								id="skills-search"
+								class="field__input"
+								type="search"
+								placeholder="Search skills"
+								bind:value={skillsQuery}
+							/>
+						</div>
+						<div class="skills-panel__count">
+							{#if skillsBusy}
+								Loading skills…
+							{:else}
+								{filteredSkills.length} of {skills.length} shown
+							{/if}
+						</div>
+						{#if skillsError}
+							<div class="field__error">{skillsError}</div>
+						{/if}
+						<div class="skills-list" role="listbox" aria-label="Installed Hermes skills">
+							{#each filteredSkills as skill (skill.slash)}
+								<button
+									type="button"
+									class="skills-list__row"
+									class:skills-list__row--active={selectedSkill?.slash === skill.slash}
+									onclick={() => selectSkill(skill)}
+								>
+									<span class="skills-list__slash">{skill.slash}</span>
+									<span class="skills-list__name">{skill.name}</span>
+									<span class="skills-list__desc">{skill.description}</span>
+								</button>
+							{:else}
+								<div class="skills-list__empty">No skills found.</div>
+							{/each}
+						</div>
+					</div>
+					<div class="skills-panel__detail">
+						{#if selectedSkill}
+							<div class="skill-detail__head">
+								<div>
+									<div class="skill-detail__slash">{selectedSkill.slash}</div>
+									<div class="skill-detail__title">{selectedSkill.name}</div>
+								</div>
+								<button type="button" class="btn btn--primary" onclick={() => useSkill(selectedSkill!)}>
+									Use in chat
+								</button>
+							</div>
+							<p class="settings__section-copy">{selectedSkill.description}</p>
+							<div class="skill-detail__meta">
+								<span>{selectedSkill.category || 'Skill'}</span>
+								<code>{selectedSkill.path}</code>
+							</div>
+							{#if skillDetailBusy}
+								<div class="skills-list__empty">Loading detail…</div>
+							{:else if skillDetail}
+								{#if skillDetail.supportingFiles.length > 0}
+									<div class="skill-detail__files">
+										<div class="settings__section-title">Supporting files</div>
+										<div class="skill-detail__file-list">
+											{#each skillDetail.supportingFiles.slice(0, 24) as file}
+												<code>{file}</code>
+											{/each}
+										</div>
+									</div>
+								{/if}
+								<div class="skill-detail__content">
+									<Markdown content={skillDetail.content || '_No preview content._'} />
+								</div>
+							{:else}
+								<div class="skills-list__empty">Skill detail is unavailable.</div>
+							{/if}
+						{:else}
+							<div class="skills-list__empty">Select a skill to preview it.</div>
+						{/if}
+					</div>
+				</div>
 			</div>
 		</section>
 
@@ -327,6 +478,133 @@
 			color: var(--signal-300);
 		}
 	}
+	.skills-panel {
+		display: grid;
+		grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+		gap: 16px;
+		align-items: start;
+	}
+	.skills-panel__list,
+	.skills-panel__detail {
+		min-width: 0;
+	}
+	.skills-panel__count {
+		margin: 7px 0;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--fg-3);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.skills-list {
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		max-height: 430px;
+		overflow-y: auto;
+		padding: 4px;
+	}
+	.skills-list__row {
+		width: 100%;
+		border: 0;
+		border-radius: var(--radius-1);
+		background: transparent;
+		color: var(--fg-1);
+		text-align: left;
+		padding: 9px;
+		cursor: pointer;
+		display: grid;
+		gap: 2px;
+	}
+	.skills-list__row:hover,
+	.skills-list__row--active {
+		background: var(--bg-raised);
+	}
+	.skills-list__slash {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--accent-fg);
+	}
+	.skills-list__name {
+		font-family: var(--font-display);
+		font-size: 13.5px;
+		font-weight: 700;
+		color: var(--fg-1);
+		letter-spacing: -0.01em;
+	}
+	.skills-list__desc {
+		font-size: 12px;
+		line-height: 1.35;
+		color: var(--fg-3);
+		overflow: hidden;
+		display: -webkit-box;
+		line-clamp: 2;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+	}
+	.skills-list__empty {
+		padding: 14px;
+		color: var(--fg-3);
+		font-size: 13px;
+	}
+	.skill-detail__head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 8px;
+	}
+	.skill-detail__slash {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--accent-fg);
+	}
+	.skill-detail__title {
+		font-family: var(--font-display);
+		font-size: 20px;
+		font-weight: 700;
+		letter-spacing: -0.016em;
+		color: var(--fg-1);
+	}
+	.skill-detail__meta {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-bottom: 14px;
+		font-size: 12px;
+		color: var(--fg-3);
+	}
+	.skill-detail__meta span {
+		font-family: var(--font-mono);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.skill-detail__meta code,
+	.skill-detail__file-list code {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--fg-2);
+		background: var(--bg-raised);
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-1);
+		padding: 2px 5px;
+	}
+	.skill-detail__files {
+		margin: 14px 0;
+	}
+	.skill-detail__file-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 5px;
+	}
+	.skill-detail__content {
+		border-top: 1px solid var(--border-soft);
+		margin-top: 14px;
+		padding-top: 14px;
+		max-height: 620px;
+		overflow-y: auto;
+	}
 	.settings__danger {
 		border: 1px solid var(--flag-700);
 		border-radius: var(--radius-2);
@@ -406,6 +684,12 @@
 		outline: none;
 	}
 	@media (max-width: 520px) {
+		.skills-panel {
+			grid-template-columns: 1fr;
+		}
+		.skill-detail__head {
+			flex-direction: column;
+		}
 		.settings__confirm-actions {
 			flex-direction: column-reverse;
 		}

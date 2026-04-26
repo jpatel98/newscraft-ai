@@ -11,9 +11,21 @@ export interface ToolProgress {
 	startedAt: number;
 }
 
+export interface ToolHistoryEntry {
+	id: string;
+	name: string;
+	startedAt: number;
+	finishedAt: number;
+}
+
 class ChatSession {
 	abort = $state<AbortController | null>(null);
 	tools = $state<ToolProgress[]>([]);
+	// Names of tools that completed during the current run. Cleared on the
+	// next startStream so each turn shows its own summary; powers the
+	// "Sources checked" recap that replaces the live activity component.
+	toolHistory = $state<ToolHistoryEntry[]>([]);
+	streamStartedAt = $state<number | null>(null);
 	streaming = $state(false);
 	editRequest = $state<string | null>(null); // populated by ↑; consumed by Composer
 	lastUserContent = $state<string | null>(null); // set by the active conversation page; read by ↑ handler
@@ -29,6 +41,8 @@ class ChatSession {
 		this.abort = c;
 		this.streaming = true;
 		this.tools = [];
+		this.toolHistory = [];
+		this.streamStartedAt = Date.now();
 		return c;
 	}
 
@@ -36,6 +50,9 @@ class ChatSession {
 		this.abort = null;
 		this.streaming = false;
 		this.tools = [];
+		this.streamStartedAt = null;
+		// Keep toolHistory so the recap stays visible against the latest
+		// assistant message until the next stream begins.
 	}
 
 	cancel() {
@@ -50,7 +67,19 @@ class ChatSession {
 	}
 
 	clearTool(id: string) {
+		const finished = this.tools.find((t) => t.id === id);
 		this.tools = this.tools.filter((t) => t.id !== id);
+		if (finished) {
+			this.toolHistory = [
+				...this.toolHistory,
+				{
+					id: finished.id,
+					name: finished.name,
+					startedAt: finished.startedAt,
+					finishedAt: Date.now()
+				}
+			];
+		}
 	}
 
 	requestEdit(content: string) {

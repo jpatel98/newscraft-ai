@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { replaceState } from '$app/navigation';
 	import Composer from '$lib/components/Composer.svelte';
+	import { onMount } from 'svelte';
 
 	let composer: Composer | undefined = $state();
 
@@ -8,6 +10,13 @@
 		'Compare the latest coverage',
 		'Turn this into an edit plan'
 	];
+
+	onMount(() => {
+		const draft = new URL(location.href).searchParams.get('draft');
+		if (!draft) return;
+		composer?.setValue(draft);
+		replaceState('/', {});
+	});
 </script>
 
 <svelte:head>

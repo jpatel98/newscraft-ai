@@ -22,15 +22,21 @@
 		const rendered = defaultLinkRenderer(token);
 		try {
 			const url = new URL(token.href);
-			const isTextUrl = text === token.href || text.replace(/^https?:\/\//, '') === token.href.replace(/^https?:\/\//, '');
+			const isTextUrl =
+				text === token.href ||
+				text.replace(/^https?:\/\//, '') === token.href.replace(/^https?:\/\//, '');
 			if (!isTextUrl) return rendered;
 			const host = url.hostname.replace(/^www\./, '');
 			const path = url.pathname === '/' ? '' : url.pathname;
-			const label = `${host}${path}`.slice(0, 72) + (`${host}${path}`.length > 72 ? '...' : '');
-			return defaultLinkRenderer({
+			const full = `${host}${path}`;
+			const label = full.length > 56 ? full.slice(0, 56) + '…' : full;
+			const html = defaultLinkRenderer({
 				...token,
 				tokens: [{ type: 'text', raw: label, text: label }]
 			});
+			// Inject a class so the host-only rendering can be styled compactly
+			// (smaller, mono-ish) without competing with body prose.
+			return html.replace(/^<a /, '<a class="md-source-link" ');
 		} catch {
 			return rendered;
 		}
