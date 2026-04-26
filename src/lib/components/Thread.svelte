@@ -5,6 +5,42 @@
 	import Copy from 'lucide-svelte/icons/copy';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Markdown from './Markdown.svelte';
+	import ToolInspector, { type InspectorToolCall } from './ToolInspector.svelte';
+
+	function parseToolCalls(m: ChatMessage): InspectorToolCall[] {
+		// `messages.toolCalls` is a JSON column on the row but not part of the
+		// ChatMessage type today. Read it best-effort; persistence isn't wired
+		// yet (Hermes-side work) — when it lights up, the link/panel populate.
+		const raw = (m as unknown as { toolCalls?: string | null }).toolCalls;
+		if (!raw) return [];
+		try {
+			const parsed = JSON.parse(raw) as unknown;
+			if (!Array.isArray(parsed)) return [];
+			return parsed.map((c, i) => {
+				const o = (c ?? {}) as Record<string, unknown>;
+				return {
+					id: String(o.id ?? `${m.id}-${i}`),
+					name: String(o.name ?? 'tool'),
+					status: (o.status as InspectorToolCall['status']) ?? 'unknown',
+					startedAt: typeof o.startedAt === 'number' ? o.startedAt : undefined,
+					endedAt: typeof o.endedAt === 'number' ? o.endedAt : undefined,
+					durationMs: typeof o.durationMs === 'number' ? o.durationMs : undefined,
+					arguments: o.arguments,
+					result: o.result,
+					transcript: typeof o.transcript === 'string' ? o.transcript : undefined
+				};
+			});
+		} catch {
+			return [];
+		}
+	}
+
+	let inspectorOpen = $state(false);
+	let inspectorCalls = $state<InspectorToolCall[]>([]);
+	function openInspector(m: ChatMessage) {
+		inspectorCalls = parseToolCalls(m);
+		inspectorOpen = true;
+	}
 
 	interface Props {
 		messages: ChatMessage[];
@@ -91,6 +127,14 @@
 							<span class="msg__app-tag">App</span>
 						{/if}
 						<span class="msg__time">{timeOf(m)}</span>
+						{#if m.role === 'assistant'}
+							{@const tc = parseToolCalls(m)}
+							{#if tc.length > 0}
+								<button type="button" class="msg__tools-link" onclick={() => openInspector(m)}>
+									[{tc.length} {tc.length === 1 ? 'tool' : 'tools'}]
+								</button>
+							{/if}
+						{/if}
 					</div>
 
 					<div class="msg__body" aria-live={m.role === 'assistant' && m.streaming ? 'polite' : 'off'}>
@@ -185,6 +229,8 @@
 		{/each}
 	</div>
 </div>
+
+<ToolInspector toolCalls={inspectorCalls} open={inspectorOpen} onClose={() => (inspectorOpen = false)} />
 
 <style>
 	:global(.msg__img-link) {
