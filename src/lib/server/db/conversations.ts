@@ -151,6 +151,51 @@ export function deleteMessagesFrom(conversationId: string, messageId: string): n
 	return result.changes ?? 0;
 }
 
+export function getMessageById(id: string): MessageRow | undefined {
+	return db.select().from(messages).where(eq(messages.id, id)).get() as MessageRow | undefined;
+}
+
+/**
+ * Append a text chunk to a message's stored content. Resume-after-disconnect
+ * accumulates streamed deltas onto the existing partial assistant row instead
+ * of inserting a new one. Plain-string content is concatenated directly;
+ * arrays (multimodal) get the chunk pushed onto a trailing text part.
+ */
+export function appendMessageContent(id: string, chunk: string): void {
+	if (!chunk) return;
+	const row = getMessageById(id);
+	if (!row) return;
+	const parsed = parseContent(row.content);
+	let next: MessageContent;
+	if (typeof parsed === 'string') {
+		next = parsed + chunk;
+	} else {
+		const parts = [...parsed];
+		const last = parts[parts.length - 1];
+		if (last && last.type === 'text') {
+			parts[parts.length - 1] = { type: 'text', text: last.text + chunk };
+		} else {
+			parts.push({ type: 'text', text: chunk });
+		}
+		next = parts;
+	}
+	const now = Date.now();
+	db.update(messages).set({ content: serializeContent(next) }).where(eq(messages.id, id)).run();
+	db.update(conversations)
+		.set({ updatedAt: now })
+		.where(eq(conversations.id, row.conversationId))
+		.run();
+}
+
+export function finalizeMessage(id: string): void {
+	db.update(messages).set({ partial: 0 }).where(eq(messages.id, id)).run();
+}
+
+export function clearMessagePartial(id: string): MessageRow | undefined {
+	db.update(messages).set({ partial: 0 }).where(eq(messages.id, id)).run();
+	return getMessageById(id);
+}
+
 export function lastUserMessage(conversationId: string): MessageRow | undefined {
 	return db
 		.select()

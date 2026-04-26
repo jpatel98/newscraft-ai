@@ -15,14 +15,20 @@
 	// the persisted versions up. Using append-and-filter (not replace) so
 	// concurrent or back-to-back runs don't trample each other.
 	let overlay = $state<ChatMessage[]>([]);
+	// Persisted message ids that are currently being shadowed by an overlay
+	// stream (resume). Hides the partial row while we re-stream into it; on
+	// invalidateAll the partial flag flips and the row reappears finalized.
+	let hiddenIds = $state<Set<string>>(new Set());
 
 	const persisted = $derived(
-		data.messages.map<ChatMessage>((m) => ({
-			id: m.id,
-			role: m.role,
-			content: m.content,
-			partial: m.partial
-		}))
+		data.messages
+			.filter((m) => !hiddenIds.has(m.id))
+			.map<ChatMessage>((m) => ({
+				id: m.id,
+				role: m.role,
+				content: m.content,
+				partial: m.partial
+			}))
 	);
 	const messages = $derived([...persisted, ...overlay]);
 
@@ -53,6 +59,8 @@
 		conversation_id: string;
 		content?: MessageContent;
 		regenerate?: boolean;
+		resume?: boolean;
+		message_id?: string;
 	}) {
 		// startStream aborts any prior controller; wait for the previous run to
 		// fully unwind so its overlay cleanup completes before we add our own.
@@ -60,7 +68,10 @@
 		const controller = chat.startStream();
 		await prior.catch(() => {});
 
-		const userMsg: ChatMessage | null = args.regenerate
+		const isResume = args.resume === true && !!args.message_id;
+		const resumingId = isResume ? (args.message_id as string) : null;
+
+		const userMsg: ChatMessage | null = args.regenerate || isResume
 			? null
 			: {
 					id: 'tmp-u-' + Math.random().toString(36).slice(2),
@@ -68,15 +79,29 @@
 					content: args.content ?? '',
 					partial: false
 				} satisfies ChatMessage;
+
+		// Resume: seed the overlay with the partial's existing content so
+		// streaming visually continues from where it left off, and hide the
+		// persisted row so we don't double-render it.
+		const seedContent = isResume
+			? (() => {
+					const src = data.messages.find((m) => m.id === resumingId);
+					if (!src) return '';
+					return contentText(src.content);
+				})()
+			: '';
 		const asstMsg: ChatMessage = {
 			id: 'tmp-a-' + Math.random().toString(36).slice(2),
 			role: 'assistant',
-			content: '',
+			content: seedContent,
 			partial: true,
 			streaming: true
 		};
-		let asstText = '';
+		let asstText = seedContent;
 		overlay = [...overlay, ...(userMsg ? [userMsg] : []), asstMsg];
+		if (resumingId) {
+			hiddenIds = new Set([...hiddenIds, resumingId]);
+		}
 
 		const run = (async () => {
 			try {
@@ -113,6 +138,11 @@
 				// added their own).
 				const ids = new Set([asstMsg.id, ...(userMsg ? [userMsg.id] : [])]);
 				overlay = overlay.filter((m) => !ids.has(m.id));
+				if (resumingId) {
+					const next = new Set(hiddenIds);
+					next.delete(resumingId);
+					hiddenIds = next;
+				}
 				if (chat.abort === controller) chat.endStream();
 			}
 		})();
@@ -126,6 +156,31 @@
 
 	async function handleRegenerate() {
 		await runStream({ conversation_id: data.conversation.id, regenerate: true });
+	}
+
+	async function handleResume(messageId: string) {
+		await runStream({
+			conversation_id: data.conversation.id,
+			resume: true,
+			message_id: messageId
+		});
+	}
+
+	async function handleDiscard(messageId: string) {
+		try {
+			await fetch(`/api/messages/${messageId}/clear-partial`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ conversation_id: data.conversation.id })
+			});
+		} catch {
+			/* ignore — invalidateAll surfaces any persisted state */
+		}
+		try {
+			await invalidateAll();
+		} catch {
+			/* ignore */
+		}
 	}
 
 	onMount(() => {
@@ -164,7 +219,7 @@
 	</div>
 </header>
 
-<Thread {messages} onRegenerate={handleRegenerate} />
+<Thread {messages} onRegenerate={handleRegenerate} onResume={handleResume} onDiscard={handleDiscard} />
 
 <div class="composer-zone">
 	<div class="composer-zone__inner">
