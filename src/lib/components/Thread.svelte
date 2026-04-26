@@ -57,7 +57,7 @@
 			{@const stacked = prev && prev.role === m.role}
 			{@const roleChange = prev && prev.role !== m.role}
 			<article
-				class="msg {stacked ? 'msg--stacked' : ''} {roleChange ? 'msg--role-change' : ''}"
+				class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange ? 'msg--role-change' : ''}"
 			>
 				{#if m.role === 'assistant'}
 					<div class="msg__avatar msg__avatar--bot" aria-hidden="true">

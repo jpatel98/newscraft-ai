@@ -331,6 +331,32 @@ body,
 	color: var(--ink-25);
 }
 
+/* User messages: ChatGPT-style right-aligned bubble. Grid collapses
+ * to a single column, content cell right-aligns with a max-width,
+ * body gets a sunken-cream backdrop. Avatar dropped — the bubble's
+ * placement signals authorship. */
+.msg.msg--user {
+	grid-template-columns: minmax(0, 1fr);
+}
+.msg.msg--user .msg__avatar {
+	display: none;
+}
+.msg.msg--user > div {
+	justify-self: end;
+	max-width: 75%;
+}
+.msg.msg--user .msg__head {
+	justify-content: flex-end;
+}
+.msg.msg--user .msg__body {
+	background: var(--bg-sunken);
+	padding: 8px 12px;
+	border-radius: var(--radius-2);
+}
+.msg.msg--user .msg__actions {
+	justify-content: flex-end;
+}
+
 .msg__head {
 	display: flex;
 	align-items: center;
