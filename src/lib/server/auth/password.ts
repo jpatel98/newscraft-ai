@@ -1,5 +1,6 @@
 import { hash, verify } from '@node-rs/argon2';
 import { env } from '$env/dynamic/private';
+import { getSetting, setSetting } from '$lib/server/db';
 
 const ARGON2ID = 2 as const; // @node-rs/argon2 Algorithm.Argon2id; const enum can't be imported under verbatimModuleSyntax
 const PARAMS = {
@@ -9,8 +10,14 @@ const PARAMS = {
 	parallelism: 1
 };
 
+const HASH_KEY = 'auth.password_hash';
+
+function storedHash(): string | undefined {
+	return getSetting(HASH_KEY) ?? env.APP_PASSWORD_HASH;
+}
+
 export async function verifyPassword(plain: string): Promise<boolean> {
-	const stored = env.APP_PASSWORD_HASH;
+	const stored = storedHash();
 	if (!stored) return false;
 	if (!plain) return false;
 	try {
@@ -22,6 +29,11 @@ export async function verifyPassword(plain: string): Promise<boolean> {
 
 export async function hashPassword(plain: string): Promise<string> {
 	return hash(plain, PARAMS);
+}
+
+export async function setPassword(plain: string): Promise<void> {
+	const h = await hashPassword(plain);
+	setSetting(HASH_KEY, h);
 }
 
 // In-memory brute-force defense (single-process, single-VPS; resets on restart).
