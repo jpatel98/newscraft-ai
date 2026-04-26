@@ -650,7 +650,7 @@ body,
 	 * (which extends to ~118px from the viewport left). On mobile, the
 	 * cmdbar is wider relative to the screen — we push the title below it
 	 * vertically instead with extra padding-top. */
-	padding: 12px 24px 12px 64px;
+	padding: 12px 24px 12px 96px;
 	border-bottom: 1px solid var(--border-default);
 	background: var(--bg-surface);
 	display: flex;
