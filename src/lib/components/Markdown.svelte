@@ -67,7 +67,8 @@
 	});
 
 	function decorate(pre: HTMLPreElement, text: string) {
-		if (pre.querySelector('.md-code__copy')) return;
+		if (pre.parentElement?.classList.contains('md-code-wrap')) return; // already wrapped
+
 		const head = document.createElement('div');
 		head.className = 'md-code__head';
 
@@ -93,8 +94,15 @@
 		});
 		head.appendChild(btn);
 
-		pre.style.position = 'relative';
-		pre.prepend(head);
+		// Wrap the <pre> so the head sits OUTSIDE the horizontal scroll
+		// container — otherwise scrolling the code drags the bar along with it.
+		const wrap = document.createElement('div');
+		wrap.className = 'md-code-wrap';
+		const parent = pre.parentNode;
+		if (!parent) return;
+		parent.insertBefore(wrap, pre);
+		wrap.appendChild(head);
+		wrap.appendChild(pre);
 	}
 </script>
 

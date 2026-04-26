@@ -879,7 +879,22 @@ body,
 	font-weight: 600;
 }
 
-/* ---------- Code block (Shiki-rendered) ---------- */
+/* ---------- Code block (Shiki-rendered) ----------
+ * Layout: a non-scrolling .md-code-wrap holds the head and the scrolling
+ * <pre> as siblings. The head is in normal flow, fixed at the top of the
+ * wrap; only the inner pre scrolls horizontally. This stops the lang/copy
+ * bar from dragging when the user scrolls long lines of code.
+ */
+.md .md-code-wrap {
+	background: var(--bg-raised);
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-2);
+	margin: 8px 0 14px;
+	max-width: 100%;
+	overflow: hidden; /* clips inner <pre>'s top corners against the wrap radius */
+}
+
+/* Bare pre fallback (Shiki not yet finished, or failed). */
 .md pre,
 .md .md-code {
 	font-family: var(--font-mono);
@@ -888,11 +903,10 @@ body,
 	background: var(--bg-raised);
 	border: 1px solid var(--border-default);
 	border-radius: var(--radius-2);
-	padding: 32px 14px 14px;
+	padding: 12px 14px;
 	margin: 8px 0 14px;
 	overflow-x: auto;
 	max-width: 100%;
-	position: relative;
 }
 .md pre code {
 	background: transparent !important;
@@ -902,20 +916,27 @@ body,
 	font-size: inherit;
 	color: inherit;
 }
+
+/* Pre when wrapped — let the wrap own border, radius, margin. */
+.md .md-code-wrap > pre,
+.md .md-code-wrap > .md-code {
+	border: 0;
+	border-radius: 0;
+	margin: 0;
+	padding: 12px 14px;
+	overflow-x: auto;
+	max-width: 100%;
+}
+
 .md .md-code__head {
-	position: absolute;
-	top: 0;
-	left: 0;
-	right: 0;
-	height: 26px;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	height: 28px;
 	padding: 0 8px 0 12px;
 	border-bottom: 1px solid var(--border-soft);
 	background: var(--bg-raised);
-	border-top-left-radius: var(--radius-2);
-	border-top-right-radius: var(--radius-2);
+	flex-shrink: 0;
 }
 .md .md-code__lang {
 	font-family: var(--font-mono);
