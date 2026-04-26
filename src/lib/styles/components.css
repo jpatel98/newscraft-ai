@@ -303,8 +303,6 @@ body,
 .msg > div {
 	/* Belt-and-braces for the same shrinking issue on the content cell itself. */
 	min-width: 0;
-	/* Anchor for the absolute-positioned hover action row below. */
-	position: relative;
 }
 .msg__avatar {
 	width: 32px;
@@ -1021,26 +1019,19 @@ body,
 }
 
 /* ---------- Per-message hover action row ---------- */
-/* Floats top-right of the content cell, in line with the message
- * header — uses the empty space to the right of the timestamp so it
- * never overlaps the next message and never takes vertical space. */
+/* In-flow below the body. Tight: short buttons, minimal margin-top,
+ * so the reserved space when un-hovered reads as breathing room
+ * rather than dead space. */
 .msg__actions {
-	position: absolute;
-	top: -2px;
-	right: 0;
 	display: flex;
-	gap: 4px;
+	gap: 2px;
+	margin-top: 2px;
 	opacity: 0;
-	pointer-events: none;
 	transition: opacity var(--dur-fast) var(--ease-std);
-	z-index: 2;
-	background: var(--bg-page);
-	padding-left: 8px;
 }
 .msg:hover .msg__actions,
 .msg:focus-within .msg__actions {
 	opacity: 1;
-	pointer-events: auto;
 }
 .msg__action {
 	display: inline-flex;
@@ -1050,10 +1041,10 @@ body,
 	border: 1px solid transparent;
 	color: var(--fg-3);
 	font-family: var(--font-mono);
-	font-size: 10.5px;
+	font-size: 10px;
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
-	padding: 3px 8px;
+	padding: 1px 6px;
 	cursor: pointer;
 	border-radius: var(--radius-1);
 	transition:
