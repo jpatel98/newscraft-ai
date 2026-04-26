@@ -228,6 +228,10 @@ body,
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
+	/* Critical: a grid child (the .shell parent uses grid 240px / 1fr) won't
+	 * shrink below its content size without this. Without min-width:0, long
+	 * thread content widens the pane past the viewport. */
+	min-width: 0;
 }
 
 .pane__header {
@@ -237,6 +241,8 @@ body,
 	display: flex;
 	align-items: baseline;
 	gap: 16px;
+	min-width: 0;
+	flex-wrap: wrap;
 }
 .pane__header__title {
 	font-family: var(--font-display);
@@ -244,6 +250,8 @@ body,
 	font-weight: 700;
 	letter-spacing: -0.018em;
 	color: var(--fg-1);
+	overflow-wrap: anywhere;
+	min-width: 0;
 }
 .pane__header__topic {
 	font-family: var(--font-mono);
@@ -251,13 +259,19 @@ body,
 	color: var(--fg-3);
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
 }
 
 /* ---------- Thread ---------- */
 .thread {
 	flex: 1;
-	overflow: auto;
+	overflow-y: auto;
+	overflow-x: hidden;
 	padding: 24px 0 8px;
+	min-width: 0;
 }
 .thread__inner {
 	max-width: 880px;
@@ -266,13 +280,21 @@ body,
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
+	min-width: 0;
 }
 
 .msg {
 	display: grid;
-	grid-template-columns: 36px 1fr;
+	/* minmax(0, 1fr) lets the content cell shrink below its intrinsic content
+	 * width — without this, a single long word/URL/code line stretches the
+	 * whole row past the viewport. */
+	grid-template-columns: 36px minmax(0, 1fr);
 	gap: 12px;
 	padding: 10px 0;
+}
+.msg > div {
+	/* Belt-and-braces for the same shrinking issue on the content cell itself. */
+	min-width: 0;
 }
 .msg__avatar {
 	width: 36px;
@@ -331,7 +353,9 @@ body,
 	color: var(--fg-1);
 	line-height: 1.55;
 	white-space: pre-wrap;
-	word-wrap: break-word;
+	overflow-wrap: anywhere;
+	min-width: 0;
+	max-width: 100%;
 }
 
 .msg__caret {
@@ -411,10 +435,12 @@ body,
 	padding: 12px 24px 18px;
 	background: var(--bg-page);
 	border-top: 1px solid var(--border-soft);
+	min-width: 0;
 }
 .composer-zone__inner {
 	max-width: 880px;
 	margin: 0 auto;
+	min-width: 0;
 }
 
 .composer {
@@ -756,6 +782,9 @@ body,
 	font-size: 14.5px;
 	line-height: 1.6;
 	color: var(--fg-1);
+	min-width: 0;
+	max-width: 100%;
+	overflow-wrap: anywhere;
 }
 .md > *:first-child {
 	margin-top: 0;
@@ -828,11 +857,16 @@ body,
 	padding: 1px 5px;
 	border-radius: var(--radius-1);
 	color: var(--accent-fg);
+	overflow-wrap: anywhere;
+	word-break: break-word;
 }
 .md table {
 	border-collapse: collapse;
 	margin: 8px 0 14px;
 	font-size: 13.5px;
+	display: block;
+	max-width: 100%;
+	overflow-x: auto;
 }
 .md th,
 .md td {
@@ -857,6 +891,7 @@ body,
 	padding: 32px 14px 14px;
 	margin: 8px 0 14px;
 	overflow-x: auto;
+	max-width: 100%;
 	position: relative;
 }
 .md pre code {
