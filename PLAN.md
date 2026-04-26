@@ -1,6 +1,6 @@
 # hermes-ui — Plan
 
-Last updated: 2026-04-25
+Last updated: 2026-04-26
 
 Replacing `newscraft-ai-workspace`. Connects to Hermes gateway at `127.0.0.1:8642`.
 
@@ -35,11 +35,11 @@ Replacing `newscraft-ai-workspace`. Connects to Hermes gateway at `127.0.0.1:864
 Sequence to taste once Phase 1 is shipped.
 
 - [ ] **Conversation actions.** Sidebar 3-dot menu: pin, rename, delete, export markdown / JSONL.
-- [ ] **Command palette `Cmd+K`.** Fuzzy on thread titles + commands (new chat, settings, toggle theme, abort, sign out, jump to recent message). 200-line in-house component, no third-party.
-- [ ] **FTS5 search.** Sqlite virtual table over `messages.content`. Search box at the top of the sidebar.
+- [x] **Command palette `Cmd+K`.** Fuzzy on thread titles + commands (new chat, settings, abort, sign out). 200-line in-house component, no third-party. *Toggle-theme command deferred — no class/attr toggle exists yet (CSS uses `prefers-color-scheme: dark` only); revisit when a real toggle ships.*
+- [x] **FTS5 search — backend.** External-content FTS5 virtual table mirroring `messages.content` (`content='messages', content_rowid='rowid'`). `POST /api/search` returns ranked snippets. Sidebar search box still TODO.
 - [ ] **Resume-after-disconnect.** When a partial assistant message exists on load, show a yellow banner with `[Resume]` / `[Discard]`. Resume = re-POST with the partial included as a "continue from here" signal.
 - [ ] **Vision attachments.** Paperclip → image-only. Canvas-resize to ≤1.5 MB JPEG/PNG before assembling multimodal `image_url` data-URI parts (Hermes rejects file parts; 1 MB body cap).
-- [ ] **Real settings surface.** Change password (no SSH), export all conversations as JSONL, wipe-DB with double-confirm.
+- [x] **Real settings surface.** Change password (no SSH — hash now lives in `settings` table, seeded from env on first boot), export all conversations as JSONL, wipe-DB with double-confirm.
 - [ ] **Virtualization.** `virtua/svelte` for the message thread once any conversation crosses ~50 messages.
 
 ---
