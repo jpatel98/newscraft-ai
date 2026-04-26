@@ -646,7 +646,11 @@ body,
 }
 
 .pane__header {
-	padding: 12px 24px;
+	/* Extra left padding so the title sits clear of the floating cmdbar
+	 * (which extends to ~118px from the viewport left). On mobile, the
+	 * cmdbar is wider relative to the screen — we push the title below it
+	 * vertically instead with extra padding-top. */
+	padding: 12px 24px 12px 64px;
 	border-bottom: 1px solid var(--border-default);
 	background: var(--bg-surface);
 	display: flex;
@@ -654,6 +658,17 @@ body,
 	gap: 16px;
 	min-width: 0;
 	flex-wrap: wrap;
+}
+.shell--drawer-open .pane__header {
+	padding-left: 24px;
+}
+@media (max-width: 760px) {
+	.pane__header {
+		padding: 56px 16px 12px;
+	}
+	.shell--drawer-open .pane__header {
+		padding-left: 16px;
+	}
 }
 .pane__header__title {
 	font-family: var(--font-display);
