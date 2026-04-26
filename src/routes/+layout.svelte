@@ -8,6 +8,7 @@
 	import PanelLeft from 'lucide-svelte/icons/panel-left';
 	import SquarePen from 'lucide-svelte/icons/square-pen';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Newspaper from 'lucide-svelte/icons/newspaper';
 	import Settings from 'lucide-svelte/icons/settings';
 	import LogOut from 'lucide-svelte/icons/log-out';
 	import Hash from 'lucide-svelte/icons/hash';
@@ -563,6 +564,10 @@
 			{/if}
 
 			<div class="sidebar__footer">
+				<a href="/board" aria-label="Board" onclick={onSelectThread}>
+					<Newspaper size="14" strokeWidth={1.5} style="vertical-align:-2px;margin-right:4px" />
+					Board
+				</a>
 				<a href="/settings" aria-label="Settings" onclick={onSelectThread}>
 					<Settings size="14" strokeWidth={1.5} style="vertical-align:-2px;margin-right:4px" />
 					Settings

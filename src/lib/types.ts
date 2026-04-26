@@ -57,6 +57,50 @@ export interface ChatCommand {
 	raw: string;
 }
 
+export interface HermesJob {
+	id: string;
+	name: string;
+	scheduleDisplay: string;
+	state: string;
+	enabled: boolean;
+	nextRunAt: string | null;
+	lastRunAt: string | null;
+	lastStatus: string | null;
+	lastError: string | null;
+	lastDeliveryError: string | null;
+	deliver: string | null;
+}
+
+export interface BoardPost {
+	id: string;
+	jobId: string;
+	channel: string;
+	channelSlug: string;
+	runTime: string | null;
+	schedule: string | null;
+	filename: string;
+	responseMarkdown: string;
+	preview: string;
+	archived: boolean;
+}
+
+export interface BoardChannel {
+	slug: string;
+	name: string;
+	jobId?: string;
+	active: boolean;
+	state?: string | null;
+	latestRunAt?: string | null;
+	postCount: number;
+}
+
+export interface BoardData {
+	channels: BoardChannel[];
+	posts: BoardPost[];
+	jobs: HermesJob[];
+	jobsError?: string | null;
+}
+
 /** Plain-text projection of a message for callers that don't render parts (copy, recall, etc.). */
 export function contentText(c: MessageContent): string {
 	if (typeof c === 'string') return c;

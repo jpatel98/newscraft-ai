@@ -58,6 +58,10 @@ body,
 	display: flex;
 	height: 100vh;
 	background: var(--bg-page);
+	--drawer-w: 296px;
+	--cmdbar-clear: 120px;
+	--pane-title-inset: 24px;
+	--menu-title-gap: 32px;
 }
 
 /* ---------- Floating command bar ---------- *
@@ -124,7 +128,7 @@ body,
 	top: 0;
 	left: 0;
 	bottom: 0;
-	width: 296px;
+	width: var(--drawer-w);
 	z-index: 25;
 	background: var(--ink-900);
 	color: var(--ink-200);
@@ -682,19 +686,16 @@ body,
 	flex-direction: column;
 	overflow: hidden;
 	flex: 1;
-	/* Pane's padding-left always clears whatever lives on the left — the
-	 * floating cmdbar (~118px wide, plus a modest visual buffer) when the
-	 * drawer is closed, the drawer's full 280px width when open. Children
-	 * (header, thread, composer) can use a uniform inset from the pane
-	 * edge in both states, so the title's gap from the left visual
-	 * boundary stays the same when toggling.
+	/* Keep the thread title the same distance from the visible left control,
+	 * whether that control is the compact floating bar or the open drawer.
+	 * Title x = pane padding + header inset; menu-title gap stays constant.
 	 */
-	padding-left: 136px;
+	padding-left: calc(var(--cmdbar-clear) + var(--menu-title-gap) - var(--pane-title-inset));
 	min-width: 0;
 	transition: padding-left var(--dur-base) var(--ease-std);
 }
 .shell--drawer-open .pane {
-	padding-left: 280px;
+	padding-left: calc(var(--drawer-w) + var(--menu-title-gap) - var(--pane-title-inset));
 }
 @media (max-width: 760px) {
 	.pane,
@@ -709,10 +710,10 @@ body,
 }
 
 .pane__header {
-	/* Uniform 24px inset from the pane's left edge in both drawer states —
+	/* Uniform inset from the pane's left edge in both drawer states —
 	 * the pane itself handles clearing the cmdbar/drawer, so the title's
  * gap from whatever's on the left stays consistent when toggling. */
-	padding: 14px 24px 11px;
+	padding: 14px var(--pane-title-inset) 11px;
 	border-bottom: 0;
 	background: var(--bg-page);
 	display: flex;

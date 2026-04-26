@@ -32,6 +32,15 @@ function apiKey(): string {
 	return k;
 }
 
+export async function hermesFetch(path: string, init: RequestInit = {}): Promise<Response> {
+	const headers = new Headers(init.headers);
+	if (!headers.has('authorization')) headers.set('authorization', `Bearer ${apiKey()}`);
+	if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
+
+	const suffix = path.startsWith('/') ? path : `/${path}`;
+	return fetch(`${gatewayUrl()}${suffix}`, { ...init, headers });
+}
+
 /**
  * Deterministic session id from (system prompt, first user message).
  * Lets Hermes pin the agent across turns without exposing the key choice
