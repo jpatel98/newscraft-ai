@@ -2,16 +2,31 @@
 	import '$lib/styles/foundations.css';
 	import '$lib/styles/components.css';
 
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import Plus from 'lucide-svelte/icons/plus';
 	import Settings from 'lucide-svelte/icons/settings';
 	import LogOut from 'lucide-svelte/icons/log-out';
 	import Hash from 'lucide-svelte/icons/hash';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
+	import CommandPalette from '$lib/components/CommandPalette.svelte';
 
 	let { children, data } = $props();
 
 	const onLogin = $derived(page.url.pathname === '/login');
+
+	let paletteOpen = $state(false);
+
+	onMount(() => {
+		const handler = (e: KeyboardEvent) => {
+			if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+				e.preventDefault();
+				paletteOpen = !paletteOpen;
+			}
+		};
+		window.addEventListener('keydown', handler);
+		return () => window.removeEventListener('keydown', handler);
+	});
 
 	function relTime(ts: number): string {
 		const ms = Date.now() - ts;
@@ -91,4 +106,9 @@
 		</main>
 	</div>
 	<KeyboardShortcuts conversations={data.conversations} />
+	<CommandPalette
+		open={paletteOpen}
+		conversations={data.conversations}
+		onClose={() => (paletteOpen = false)}
+	/>
 {/if}
