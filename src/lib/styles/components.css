@@ -1021,20 +1021,21 @@ body,
 }
 
 /* ---------- Per-message hover action row ---------- */
-/* Floats below the content cell on hover. Absolute-positioned so it
- * takes no vertical space when hidden — no permanent gap, no layout
- * shift on hover. pointer-events:none prevents clicks landing on
- * invisible buttons. */
+/* Floats top-right of the content cell, in line with the message
+ * header — uses the empty space to the right of the timestamp so it
+ * never overlaps the next message and never takes vertical space. */
 .msg__actions {
 	position: absolute;
-	top: calc(100% + 2px);
-	left: 0;
+	top: -2px;
+	right: 0;
 	display: flex;
 	gap: 4px;
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity var(--dur-fast) var(--ease-std);
 	z-index: 2;
+	background: var(--bg-page);
+	padding-left: 8px;
 }
 .msg:hover .msg__actions,
 .msg:focus-within .msg__actions {
