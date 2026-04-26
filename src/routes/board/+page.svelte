@@ -1,23 +1,33 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Markdown from '$lib/components/Markdown.svelte';
-	import type { BoardChannel, BoardData, BoardPost, HermesJob } from '$lib/types';
+	import type { BoardChannel, BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
 	import { formatRelativeTime } from '$lib/utils/time';
+	import Check from 'lucide-svelte/icons/check';
+	import Copy from 'lucide-svelte/icons/copy';
+	import ExternalLink from 'lucide-svelte/icons/external-link';
 	import Pause from 'lucide-svelte/icons/pause';
 	import Play from 'lucide-svelte/icons/play';
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 
+	type ReportScope = 'latest' | 'all';
+	type HermesJobWithRun = HermesJob & { currentRun?: HermesRun | null };
+
 	let channels = $state<BoardChannel[]>([]);
 	let posts = $state<BoardPost[]>([]);
 	let jobs = $state<HermesJob[]>([]);
+	let runs = $state<HermesRun[]>([]);
 	let jobsError = $state<string | null>(null);
 	let selectedSlug = $state('');
 	let selectedPostId = $state('');
+	let reportScope = $state<ReportScope>('latest');
 	let busy = $state(true);
 	let actionBusy = $state<string | null>(null);
 	let error = $state<string | null>(null);
 	let notice = $state<string | null>(null);
+	let copiedReportId = $state<string | null>(null);
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
+	let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const selectedChannel = $derived(
 		channels.find((channel) => channel.slug === selectedSlug) ?? channels[0] ?? null
@@ -25,18 +35,36 @@
 	const selectedPosts = $derived(
 		selectedChannel ? posts.filter((post) => post.channelSlug === selectedChannel.slug) : []
 	);
+	const visiblePosts = $derived(reportScope === 'latest' ? selectedPosts.slice(0, 1) : selectedPosts);
 	const selectedPost = $derived(
 		selectedPosts.find((post) => post.id === selectedPostId) ?? selectedPosts[0] ?? null
 	);
 	const selectedJob = $derived(
 		selectedChannel?.jobId ? jobs.find((job) => job.id === selectedChannel.jobId) ?? null : null
 	);
+	const selectedRun = $derived(currentRunForJob(selectedChannel, selectedJob));
+	const selectedRecentRun = $derived(selectedChannel?.recentRun ?? selectedRun ?? null);
+	const selectedRunError = $derived(
+		selectedRun?.lastError ||
+			selectedRecentRun?.lastError ||
+			selectedJob?.lastError ||
+			selectedJob?.lastDeliveryError ||
+			null
+	);
+	const selectedJobRunning = $derived(Boolean(selectedRun));
 	const activeJobCount = $derived(jobs.filter((job) => job.enabled).length);
 	const latestRun = $derived(posts[0]?.runTime ?? channels[0]?.latestRunAt ?? null);
 
 	onMount(() => {
-		void loadBoard();
-		return () => clearRunPoll();
+		const params = new URLSearchParams(window.location.search);
+		selectedSlug = params.get('channel') ?? '';
+		selectedPostId = params.get('report') ?? '';
+		if (selectedPostId) reportScope = 'all';
+		void loadBoard(true);
+		return () => {
+			clearRunPoll();
+			clearCopiedTimer();
+		};
 	});
 
 	async function loadBoard(preserveSelection = false, silent = false) {
@@ -49,6 +77,7 @@
 			channels = data.channels ?? [];
 			posts = data.posts ?? [];
 			jobs = data.jobs ?? [];
+			runs = data.runs ?? [];
 			jobsError = data.jobsError ?? null;
 
 			if (!preserveSelection || !channels.some((channel) => channel.slug === selectedSlug)) {
@@ -58,6 +87,8 @@
 			if (!preserveSelection || !channelPosts.some((post) => post.id === selectedPostId)) {
 				selectedPostId = channelPosts[0]?.id ?? '';
 			}
+			syncReportScopeSelection();
+			replaceReportUrl();
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -68,10 +99,30 @@
 	function selectChannel(channel: BoardChannel) {
 		selectedSlug = channel.slug;
 		selectedPostId = posts.find((post) => post.channelSlug === channel.slug)?.id ?? '';
+		reportScope = 'latest';
+		replaceReportUrl();
 	}
 
 	function selectPost(post: BoardPost) {
 		selectedPostId = post.id;
+		if (post.id !== selectedPosts[0]?.id) reportScope = 'all';
+		replaceReportUrl();
+	}
+
+	function setReportScope(scope: ReportScope) {
+		reportScope = scope;
+		syncReportScopeSelection();
+		replaceReportUrl();
+	}
+
+	function syncReportScopeSelection() {
+		if (reportScope === 'latest') {
+			selectedPostId = selectedPosts[0]?.id ?? '';
+			return;
+		}
+		if (!selectedPosts.some((post) => post.id === selectedPostId)) {
+			selectedPostId = selectedPosts[0]?.id ?? '';
+		}
 	}
 
 	async function jobAction(action: 'run' | 'pause' | 'resume') {
@@ -105,6 +156,11 @@
 	function clearRunPoll() {
 		if (pollTimer) clearTimeout(pollTimer);
 		pollTimer = null;
+	}
+
+	function clearCopiedTimer() {
+		if (copiedTimer) clearTimeout(copiedTimer);
+		copiedTimer = null;
 	}
 
 	function startRunPoll(channelSlug: string, previousLatest: string) {
@@ -149,19 +205,40 @@
 		return formatRelativeTime(date.getTime());
 	}
 
+	function formatElapsed(ms: number | null | undefined): string | null {
+		if (!Number.isFinite(ms ?? Number.NaN)) return null;
+		const totalSeconds = Math.max(0, Math.round((ms ?? 0) / 1000));
+		const minutes = Math.floor(totalSeconds / 60);
+		const seconds = totalSeconds % 60;
+		if (minutes <= 0) return `${seconds}s`;
+		const hours = Math.floor(minutes / 60);
+		const remainingMinutes = minutes % 60;
+		if (hours <= 0) return `${minutes}m ${seconds}s`;
+		return `${hours}h ${remainingMinutes}m`;
+	}
+
 	function statusLabel(channel: BoardChannel, job: HermesJob | null): string {
 		if (!channel.active) return 'Archived';
+		const activeRun = currentRunForJob(channel, job);
+		if (activeRun) return runStatusLabel(activeRun);
+		if (!job?.enabled || channel.state === 'paused') return 'Paused';
+		if (channel.recentRun?.status) return runStatusLabel(channel.recentRun);
 		if (job?.lastStatus && job.lastStatus !== 'ok') return 'Error';
 		if (isQueued(job)) return 'Queued';
-		if (!job?.enabled || channel.state === 'paused') return 'Paused';
 		return channel.state || 'Active';
 	}
 
-	function statusTone(channel: BoardChannel, job: HermesJob | null): 'ok' | 'warn' | 'error' | 'archived' {
+	function statusTone(
+		channel: BoardChannel,
+		job: HermesJob | null
+	): 'ok' | 'warn' | 'error' | 'archived' | 'running' {
 		if (!channel.active) return 'archived';
+		const activeRun = currentRunForJob(channel, job);
+		if (activeRun) return runStatusTone(activeRun);
+		if (!job?.enabled || channel.state === 'paused') return 'warn';
+		if (channel.recentRun?.status) return runStatusTone(channel.recentRun);
 		if (job?.lastStatus && job.lastStatus !== 'ok') return 'error';
 		if (isQueued(job)) return 'warn';
-		if (!job?.enabled || channel.state === 'paused') return 'warn';
 		return 'ok';
 	}
 
@@ -171,6 +248,77 @@
 		if (!Number.isFinite(next)) return false;
 		const last = job.lastRunAt ? Date.parse(job.lastRunAt) : 0;
 		return next <= Date.now() + 60_000 && (!Number.isFinite(last) || last < next);
+	}
+
+	function currentRunForJob(channel: BoardChannel | null, job: HermesJob | null): HermesRun | null {
+		if (!job) return null;
+		if (isActiveRun(channel?.activeRun)) return channel.activeRun;
+		const inline = (job as HermesJobWithRun).currentRun;
+		if (isActiveRun(inline)) return inline;
+		return runs.find((run) => run.jobId === job.id && isActiveRun(run)) ?? null;
+	}
+
+	function isActiveRun(run: HermesRun | null | undefined): run is HermesRun {
+		if (!run) return false;
+		const status = String(run.status ?? '').toLowerCase();
+		if (['running', 'queued', 'pending', 'started', 'in_progress'].includes(status)) return true;
+		if (['ok', 'error', 'failed', 'cancelled', 'canceled', 'complete', 'completed'].includes(status)) {
+			return false;
+		}
+		return Boolean(run.startedAt || run.queuedAt) && !run.completedAt;
+	}
+
+	function runStartedAt(run: HermesRun | null): string | null {
+		return run?.startedAt ?? run?.queuedAt ?? run?.updatedAt ?? null;
+	}
+
+	function runStatusLabel(run: HermesRun): string {
+		const status = String(run.status ?? '').toLowerCase();
+		if (['queued', 'pending'].includes(status)) return 'Queued';
+		if (['running', 'started', 'in_progress'].includes(status)) return 'Running';
+		if (['failed', 'error'].includes(status)) return 'Failed';
+		if (['completed', 'complete', 'ok', 'success'].includes(status)) return 'Completed';
+		if (['cancelled', 'canceled'].includes(status)) return 'Cancelled';
+		return run.status || 'Active';
+	}
+
+	function runStatusTone(run: HermesRun): 'ok' | 'warn' | 'error' | 'running' {
+		const status = String(run.status ?? '').toLowerCase();
+		if (['running', 'started', 'in_progress'].includes(status)) return 'running';
+		if (['queued', 'pending'].includes(status)) return 'warn';
+		if (['failed', 'error', 'cancelled', 'canceled'].includes(status)) return 'error';
+		return 'ok';
+	}
+
+	function reportUrl(post: BoardPost | null): string {
+		if (!post || typeof window === 'undefined') return '';
+		const url = new URL(window.location.href);
+		url.pathname = '/board';
+		url.searchParams.set('channel', post.channelSlug);
+		url.searchParams.set('report', post.id);
+		return url.toString();
+	}
+
+	function replaceReportUrl() {
+		if (typeof window === 'undefined') return;
+		const url = selectedPost ? reportUrl(selectedPost) : new URL('/board', window.location.href).toString();
+		window.history.replaceState(null, '', url);
+	}
+
+	async function copyReportLink(post: BoardPost | null) {
+		if (!post) return;
+		const url = reportUrl(post);
+		try {
+			await navigator.clipboard.writeText(url);
+			copiedReportId = post.id;
+			clearCopiedTimer();
+			copiedTimer = setTimeout(() => {
+				copiedReportId = null;
+				copiedTimer = null;
+			}, 1800);
+		} catch {
+			notice = url;
+		}
 	}
 </script>
 
@@ -231,13 +379,14 @@
 							type="button"
 							class="channel-row"
 							class:channel-row--active={selectedChannel?.slug === channel.slug}
+							class:channel-row--archived={!channel.active}
 							onclick={() => selectChannel(channel)}
 						>
 							<span class="channel-row__main">
 								<span class="channel-row__name">{channel.name}</span>
 								<span class="channel-row__meta">
 									{channel.postCount}
-									{channel.postCount === 1 ? 'post' : 'posts'} · {relativeDate(channel.latestRunAt)}
+									{channel.postCount === 1 ? 'report' : 'reports'} · {relativeDate(channel.latestRunAt)}
 								</span>
 							</span>
 							<span class={`board-status board-status--${statusTone(channel, job)}`}>
@@ -261,6 +410,15 @@
 									{statusLabel(selectedChannel, selectedJob)}
 								</span>
 								<span>{selectedChannel.postCount} saved reports</span>
+								{#if !selectedChannel.active}
+									<span>Archived output</span>
+								{/if}
+								{#if selectedRun}
+									<span>Started: {relativeDate(runStartedAt(selectedRun))}</span>
+								{/if}
+								{#if formatElapsed(selectedRecentRun?.elapsedMs)}
+									<span>Elapsed: {formatElapsed(selectedRecentRun?.elapsedMs)}</span>
+								{/if}
 								{#if selectedJob?.scheduleDisplay}
 									<span>{selectedJob.scheduleDisplay}</span>
 								{/if}
@@ -278,11 +436,11 @@
 									<button
 										type="button"
 										class="btn btn--ghost"
-										disabled={Boolean(actionBusy)}
+										disabled={Boolean(actionBusy) || selectedJobRunning}
 										onclick={() => jobAction('run')}
 									>
 										<Play size="13" strokeWidth={1.8} />
-										{actionBusy === 'run' ? 'Running' : 'Run now'}
+										{selectedJobRunning ? 'Running' : actionBusy === 'run' ? 'Starting' : 'Run now'}
 									</button>
 									<button
 										type="button"
@@ -310,20 +468,56 @@
 
 					<div class="board__content">
 						<div class="board__runs" aria-label="Saved reports">
-							<div class="board__rail-title">Reports</div>
-							{#each selectedPosts as post (post.id)}
+							<div class="board__runs-head">
+								<div>
+									<div class="board__rail-title">Reports</div>
+									<div class="board__runs-count">{selectedPosts.length} saved</div>
+								</div>
+								<div class="board__toggle" aria-label="Report list scope">
+									<button
+										type="button"
+										class:board__toggle-button--active={reportScope === 'latest'}
+										onclick={() => setReportScope('latest')}
+									>
+										Latest
+									</button>
+									<button
+										type="button"
+										class:board__toggle-button--active={reportScope === 'all'}
+										onclick={() => setReportScope('all')}
+									>
+										All
+									</button>
+								</div>
+							</div>
+							{#if busy && selectedPosts.length === 0}
+								<div class="board__empty">Fetching reports...</div>
+							{:else}
+								{#each visiblePosts as post (post.id)}
 								<button
 									type="button"
 									class="run-row"
 									class:run-row--active={selectedPost?.id === post.id}
 									onclick={() => selectPost(post)}
 								>
-									<span class="run-row__time">{formatDate(post.runTime)}</span>
+									<span class="run-row__top">
+										<span class="run-row__time">{formatDate(post.runTime)}</span>
+										{#if post.archived}
+											<span class="run-row__chip">Archived</span>
+										{/if}
+									</span>
 									<span class="run-row__preview">{post.preview || 'No response body captured.'}</span>
 								</button>
-							{:else}
-								<div class="board__empty">No saved reports for this channel yet.</div>
-							{/each}
+								{:else}
+									<div class="board__empty">
+										{#if reportScope === 'latest'}
+											No latest report for this channel yet.
+										{:else}
+											No saved reports for this channel yet.
+										{/if}
+									</div>
+								{/each}
+							{/if}
 						</div>
 
 						<article class="board__post">
@@ -341,12 +535,36 @@
 										{/if}
 										{#if selectedJob?.lastStatus}
 											<span>Status: {selectedJob.lastStatus}</span>
+										{:else if selectedRecentRun?.status}
+											<span>Status: {runStatusLabel(selectedRecentRun)}</span>
+										{/if}
+										{#if formatElapsed(selectedRecentRun?.elapsedMs)}
+											<span>Elapsed: {formatElapsed(selectedRecentRun?.elapsedMs)}</span>
 										{/if}
 									</div>
+									<div class="board__report-actions" aria-label="Report actions">
+										<button
+											type="button"
+											class="btn btn--ghost"
+											onclick={() => copyReportLink(selectedPost)}
+										>
+											{#if copiedReportId === selectedPost.id}
+												<Check size="13" strokeWidth={1.8} />
+												Copied link
+											{:else}
+												<Copy size="13" strokeWidth={1.8} />
+												Copy link
+											{/if}
+										</button>
+										<a class="btn btn--ghost" href={reportUrl(selectedPost)}>
+											<ExternalLink size="13" strokeWidth={1.8} />
+											Open report
+										</a>
+									</div>
 								</header>
-								{#if selectedJob?.lastError || selectedJob?.lastDeliveryError}
+								{#if selectedRunError}
 									<div class="board__notice board__notice--error">
-										{selectedJob.lastError || selectedJob.lastDeliveryError}
+										{selectedRunError}
 									</div>
 								{/if}
 								<div class="board__markdown">
@@ -489,6 +707,13 @@
 		background: var(--bg-surface);
 		border-color: var(--border-soft);
 	}
+	.channel-row--archived {
+		color: var(--fg-2);
+		background: color-mix(in srgb, var(--bg-raised) 54%, transparent);
+	}
+	.channel-row--archived .channel-row__name {
+		font-weight: 600;
+	}
 	.channel-row:focus-visible,
 	.run-row:focus-visible {
 		outline: none;
@@ -542,6 +767,11 @@
 		color: var(--status-breaking-fg);
 		background: var(--status-breaking-bg);
 		border-color: color-mix(in srgb, var(--status-breaking) 24%, var(--border-soft));
+	}
+	.board-status--running {
+		color: var(--status-verified-fg);
+		background: color-mix(in srgb, var(--status-verified-bg) 72%, var(--bg-surface));
+		border-color: color-mix(in srgb, var(--status-verified) 36%, var(--border-soft));
 	}
 	.board-status--archived {
 		color: var(--fg-3);
@@ -608,19 +838,81 @@
 		display: grid;
 		gap: 5px;
 	}
+	.board__runs-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 10px;
+		margin-bottom: 2px;
+	}
+	.board__runs-count {
+		margin-top: 2px;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--fg-3);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.board__toggle {
+		display: inline-flex;
+		flex: 0 0 auto;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		padding: 2px;
+	}
+	.board__toggle button {
+		border: 0;
+		border-radius: var(--radius-1);
+		background: transparent;
+		color: var(--fg-3);
+		cursor: pointer;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		line-height: 1.2;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		padding: 5px 7px;
+	}
+	.board__toggle button:hover,
+	.board__toggle button:focus-visible,
+	.board__toggle-button--active {
+		background: var(--bg-raised);
+		color: var(--fg-1);
+		outline: none;
+	}
 	.run-row {
 		display: grid;
-		gap: 3px;
-		padding: 9px;
+		gap: 2px;
+		padding: 8px;
+		min-height: 58px;
+	}
+	.run-row__top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		min-width: 0;
 	}
 	.run-row__time {
 		font-family: var(--font-mono);
 		font-size: 11px;
 		color: var(--fg-2);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.run-row__chip {
+		flex: 0 0 auto;
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+		color: var(--fg-3);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
 	}
 	.run-row__preview {
 		font-size: 12px;
-		line-height: 1.35;
+		line-height: 1.3;
 		color: var(--fg-3);
 		overflow: hidden;
 		display: -webkit-box;
@@ -634,6 +926,12 @@
 		border: 1px solid var(--border-soft);
 		border-radius: var(--radius-2);
 		padding: 18px;
+	}
+	.board__report-actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 7px;
 	}
 	.board__markdown {
 		border-top: 1px solid var(--border-soft);
@@ -675,7 +973,9 @@
 			grid-template-columns: 1fr;
 		}
 		.board__actions,
-		.board__actions :global(.btn) {
+		.board__actions :global(.btn),
+		.board__report-actions,
+		.board__report-actions :global(.btn) {
 			width: 100%;
 		}
 		.board__actions {

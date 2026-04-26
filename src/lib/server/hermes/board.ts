@@ -2,7 +2,7 @@ import { env } from '$env/dynamic/private';
 import { readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import type { BoardData, BoardPost, HermesJob } from '$lib/types';
+import type { BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
 import {
 	boardPostId,
 	buildBoardData,
@@ -13,6 +13,13 @@ import {
 import { hermesFetch } from './transport';
 
 const JOB_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
+const RUN_ENDPOINTS = [
+	'/api/runs?include_completed=true&include_recent=true',
+	'/api/job-runs?include_completed=true&include_recent=true',
+	'/api/jobs/runs?include_completed=true&include_recent=true',
+	'/api/cron/runs?include_completed=true&include_recent=true'
+];
+const RUN_FETCH_TIMEOUT_MS = 2500;
 
 function cronOutputRoot(): string {
 	return env.HERMES_CRON_OUTPUT_DIR || path.join(homedir(), '.hermes', 'cron', 'output');
@@ -32,6 +39,15 @@ function stringValue(value: unknown): string | null {
 
 function boolValue(value: unknown, fallback = true): boolean {
 	return typeof value === 'boolean' ? value : fallback;
+}
+
+function numberValue(value: unknown): number | null {
+	if (typeof value === 'number' && Number.isFinite(value)) return value;
+	if (typeof value === 'string' && value.trim()) {
+		const parsed = Number(value);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+	return null;
 }
 
 function normalizeDate(value: unknown): string | null {
@@ -80,21 +96,153 @@ export function normalizeHermesJob(value: unknown): HermesJob | null {
 	};
 }
 
-export async function listHermesJobs(): Promise<HermesJob[]> {
+function rawJobsFromBody(body: unknown): unknown[] {
+	const raw = objectValue(body);
+	if (Array.isArray(body)) return body;
+	if (Array.isArray(raw?.jobs)) return raw.jobs;
+	if (Array.isArray(raw?.data)) return raw.data;
+	return [];
+}
+
+function rawRunsFromBody(body: unknown): unknown[] {
+	const raw = objectValue(body);
+	if (Array.isArray(body)) return body;
+	if (Array.isArray(raw?.runs)) return raw.runs;
+	if (Array.isArray(raw?.job_runs)) return raw.job_runs;
+	if (Array.isArray(raw?.jobRuns)) return raw.jobRuns;
+	if (Array.isArray(raw?.active_runs)) return raw.active_runs;
+	if (Array.isArray(raw?.activeRuns)) return raw.activeRuns;
+	if (Array.isArray(raw?.data)) return raw.data;
+	return [];
+}
+
+function embeddedRunsFromJob(rawJob: unknown): unknown[] {
+	const raw = objectValue(rawJob);
+	if (!raw) return [];
+	const runs: unknown[] = [];
+	for (const key of ['runs', 'recent_runs', 'recentRuns', 'history']) {
+		const value = raw[key];
+		if (Array.isArray(value)) runs.push(...value);
+	}
+	for (const key of ['run', 'active_run', 'activeRun', 'current_run', 'currentRun', 'last_run', 'lastRun']) {
+		const value = raw[key];
+		if (objectValue(value)) runs.push(value);
+	}
+	return runs;
+}
+
+function normalizeElapsedMs(raw: Record<string, unknown>, startedAt: string | null, completedAt: string | null): number | null {
+	const explicitMs = numberValue(raw.elapsed_ms ?? raw.elapsedMs ?? raw.duration_ms ?? raw.durationMs);
+	if (explicitMs !== null) return Math.max(0, Math.round(explicitMs));
+	const explicitSeconds = numberValue(raw.elapsed_seconds ?? raw.elapsedSeconds ?? raw.duration_seconds ?? raw.durationSeconds);
+	if (explicitSeconds !== null) return Math.max(0, Math.round(explicitSeconds * 1000));
+	if (!startedAt) return null;
+	const start = Date.parse(startedAt);
+	const end = completedAt ? Date.parse(completedAt) : Date.now();
+	if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+	return end - start;
+}
+
+function normalizeRunStatus(status: string): HermesRun['status'] {
+	const normalized = status.toLowerCase();
+	if (['pending', 'scheduled'].includes(normalized)) return 'queued';
+	if (['started', 'in_progress', 'active'].includes(normalized)) return 'running';
+	if (['ok', 'success', 'complete'].includes(normalized)) return 'completed';
+	if (['error', 'errored'].includes(normalized)) return 'failed';
+	return status;
+}
+
+export function normalizeHermesRun(value: unknown, fallbackJob?: HermesJob): HermesRun | null {
+	const raw = objectValue(value);
+	if (!raw) return null;
+	const rawJob = objectValue(raw.job);
+	const jobId = stringValue(raw.job_id ?? raw.jobId ?? raw.jobID ?? rawJob?.id) ?? fallbackJob?.id ?? null;
+	if (!jobId) return null;
+
+	const status = normalizeRunStatus(
+		stringValue(raw.status ?? raw.state ?? raw.phase) ||
+			(raw.failed_at || raw.failedAt || raw.error ? 'failed' : raw.completed_at || raw.completedAt ? 'completed' : 'running')
+	);
+	const queuedAt = normalizeDate(raw.queued_at ?? raw.queuedAt ?? raw.created_at ?? raw.createdAt);
+	const startedAt = normalizeDate(raw.started_at ?? raw.startedAt ?? raw.run_at ?? raw.runAt);
+	const completedAt = normalizeDate(
+		raw.completed_at ?? raw.completedAt ?? raw.finished_at ?? raw.finishedAt ?? raw.ended_at ?? raw.endedAt
+	);
+	const updatedAt = normalizeDate(raw.updated_at ?? raw.updatedAt);
+	const id =
+		stringValue(raw.id ?? raw.run_id ?? raw.runId ?? raw.execution_id ?? raw.executionId) ||
+		[jobId, status, completedAt ?? startedAt ?? queuedAt ?? updatedAt ?? 'run'].join(':');
+
+	return {
+		id,
+		jobId,
+		jobName:
+			stringValue(raw.job_name ?? raw.jobName ?? raw.name ?? rawJob?.name ?? rawJob?.title) ?? fallbackJob?.name ?? null,
+		status,
+		queuedAt,
+		startedAt,
+		completedAt,
+		updatedAt,
+		elapsedMs: normalizeElapsedMs(raw, startedAt, completedAt),
+		lastError: stringValue(raw.last_error ?? raw.lastError ?? raw.error ?? raw.error_message ?? raw.errorMessage)
+	};
+}
+
+function dedupeRuns(runs: HermesRun[]): HermesRun[] {
+	const byId = new Map<string, HermesRun>();
+	for (const run of runs) byId.set(run.id, run);
+	return Array.from(byId.values());
+}
+
+async function fetchHermesJobsBody(): Promise<unknown> {
 	const response = await hermesFetch('/api/jobs?include_disabled=true', {
 		method: 'GET',
 		signal: AbortSignal.timeout(5000)
 	});
 	if (!response.ok) throw new Error(`Hermes jobs ${response.status}: ${await response.text()}`);
-	const body = await response.json();
-	const rawJobs: unknown[] = Array.isArray(body)
-		? body
-		: Array.isArray(body?.jobs)
-			? body.jobs
-			: Array.isArray(body?.data)
-				? body.data
-				: [];
-	return rawJobs.map(normalizeHermesJob).filter((job): job is HermesJob => Boolean(job));
+	return response.json();
+}
+
+async function listHermesJobsWithRuns(): Promise<{ jobs: HermesJob[]; runs: HermesRun[] }> {
+	const body = await fetchHermesJobsBody();
+	const rawJobs = rawJobsFromBody(body);
+	const jobs = rawJobs.map(normalizeHermesJob).filter((job): job is HermesJob => Boolean(job));
+	const jobsById = new Map(jobs.map((job) => [job.id, job]));
+	const runs = rawJobs.flatMap((rawJob) => {
+		const job = normalizeHermesJob(rawJob);
+		return embeddedRunsFromJob(rawJob)
+			.map((run) => normalizeHermesRun(run, job ?? undefined))
+			.filter((run): run is HermesRun => Boolean(run));
+	});
+	return { jobs, runs: dedupeRuns(runs.map((run) => ({ ...run, jobName: run.jobName ?? jobsById.get(run.jobId)?.name ?? null }))) };
+}
+
+export async function listHermesJobs(): Promise<HermesJob[]> {
+	return (await listHermesJobsWithRuns()).jobs;
+}
+
+export async function listHermesRuns(jobs: HermesJob[] = []): Promise<HermesRun[]> {
+	const jobsById = new Map(jobs.map((job) => [job.id, job]));
+	for (const endpoint of RUN_ENDPOINTS) {
+		try {
+			const response = await hermesFetch(endpoint, {
+				method: 'GET',
+				signal: AbortSignal.timeout(RUN_FETCH_TIMEOUT_MS)
+			});
+			if (response.status === 404) continue;
+			if (!response.ok) continue;
+			const body = await response.json();
+			return dedupeRuns(
+				rawRunsFromBody(body)
+					.map((run) => normalizeHermesRun(run))
+					.filter((run): run is HermesRun => Boolean(run))
+					.map((run) => ({ ...run, jobName: run.jobName ?? jobsById.get(run.jobId)?.name ?? null }))
+			);
+		} catch {
+			continue;
+		}
+	}
+	return [];
 }
 
 async function listCronPosts(jobs: HermesJob[]): Promise<BoardPost[]> {
@@ -145,14 +293,18 @@ async function listCronPosts(jobs: HermesJob[]): Promise<BoardPost[]> {
 
 export async function boardData(): Promise<BoardData> {
 	let jobs: HermesJob[] = [];
+	let runs: HermesRun[] = [];
 	let jobsError: string | null = null;
 	try {
-		jobs = await listHermesJobs();
+		const live = await listHermesJobsWithRuns();
+		jobs = live.jobs;
+		runs = live.runs;
 	} catch (err) {
 		jobsError = err instanceof Error ? err.message : String(err);
 	}
+	if (!jobsError) runs = dedupeRuns([...runs, ...(await listHermesRuns(jobs))]);
 	const posts = await listCronPosts(jobs);
-	return { ...buildBoardData(posts, jobs), jobsError };
+	return { ...buildBoardData(posts, jobs, runs), jobsError };
 }
 
 export async function runJobAction(id: string, action: 'run' | 'pause' | 'resume'): Promise<HermesJob | null> {

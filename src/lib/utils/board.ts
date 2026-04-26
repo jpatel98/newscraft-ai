@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { BoardChannel, BoardData, BoardPost, HermesJob } from '$lib/types';
+import type { BoardChannel, BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
 
 export interface ParsedCronMarkdown {
 	jobId: string;
@@ -101,24 +101,63 @@ function channelTime(channel: BoardChannel): number {
 	return Number.isFinite(time) ? time : 0;
 }
 
+function runTime(run: HermesRun): number {
+	const candidates = [run.completedAt, run.updatedAt, run.startedAt, run.queuedAt];
+	for (const candidate of candidates) {
+		const time = candidate ? Date.parse(candidate) : Number.NaN;
+		if (Number.isFinite(time)) return time;
+	}
+	return 0;
+}
+
+export function isActiveRun(run: HermesRun): boolean {
+	const status = run.status.toLowerCase();
+	return status === 'queued' || status === 'running';
+}
+
 function channelState(job: HermesJob): string {
 	if (!job.enabled) return 'paused';
 	return job.state || 'scheduled';
 }
 
-export function buildBoardData(rawPosts: BoardPost[], jobs: HermesJob[]): BoardData {
+export function buildBoardData(rawPosts: BoardPost[], jobs: HermesJob[], runs: HermesRun[] = []): BoardData {
 	const jobById = new Map(jobs.map((job) => [job.id, job]));
 	const channels = new Map<string, BoardChannel>();
+	const sortedRuns = [...runs].sort((a, b) => runTime(b) - runTime(a) || a.id.localeCompare(b.id));
+	const runsByJobId = new Map<string, HermesRun[]>();
+
+	for (const run of sortedRuns) {
+		const jobRuns = runsByJobId.get(run.jobId) ?? [];
+		jobRuns.push(run);
+		runsByJobId.set(run.jobId, jobRuns);
+	}
 
 	for (const job of jobs) {
 		const slug = channelSlug(job.name || job.id, job.id);
+		const jobRuns = runsByJobId.get(job.id) ?? [];
+		const activeRun = jobRuns.find(isActiveRun) ?? null;
+		const recentRun = jobRuns[0] ?? null;
+		const latestRunAt = [
+			job.lastRunAt,
+			job.nextRunAt,
+			recentRun?.completedAt,
+			recentRun?.updatedAt,
+			recentRun?.startedAt,
+			recentRun?.queuedAt
+		]
+			.map((value) => (value ? { value, time: Date.parse(value) } : null))
+			.filter((value): value is { value: string; time: number } => value !== null && Number.isFinite(value.time))
+			.sort((a, b) => b.time - a.time)[0]?.value ?? null;
+
 		channels.set(slug, {
 			slug,
 			name: job.name || job.id,
 			jobId: job.id,
 			active: true,
-			state: channelState(job),
-			latestRunAt: job.lastRunAt ?? job.nextRunAt ?? null,
+			state: activeRun?.status ?? channelState(job),
+			latestRunAt,
+			activeRun,
+			recentRun,
 			postCount: 0
 		});
 	}
@@ -154,6 +193,8 @@ export function buildBoardData(rawPosts: BoardPost[], jobs: HermesJob[]): BoardD
 				active: false,
 				state: 'archived',
 				latestRunAt,
+				activeRun: null,
+				recentRun: (runsByJobId.get(post.jobId) ?? [])[0] ?? null,
 				postCount: 1
 			});
 		}
@@ -167,6 +208,7 @@ export function buildBoardData(rawPosts: BoardPost[], jobs: HermesJob[]): BoardD
 				a.name.localeCompare(b.name)
 		),
 		posts,
-		jobs
+		jobs,
+		runs: sortedRuns
 	};
 }

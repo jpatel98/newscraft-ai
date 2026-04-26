@@ -71,6 +71,19 @@ export interface HermesJob {
 	deliver: string | null;
 }
 
+export interface HermesRun {
+	id: string;
+	jobId: string;
+	jobName?: string | null;
+	status: 'queued' | 'running' | 'completed' | 'failed' | string;
+	queuedAt?: string | null;
+	startedAt?: string | null;
+	completedAt?: string | null;
+	updatedAt?: string | null;
+	elapsedMs?: number | null;
+	lastError?: string | null;
+}
+
 export interface BoardPost {
 	id: string;
 	jobId: string;
@@ -91,6 +104,8 @@ export interface BoardChannel {
 	active: boolean;
 	state?: string | null;
 	latestRunAt?: string | null;
+	activeRun?: HermesRun | null;
+	recentRun?: HermesRun | null;
 	postCount: number;
 }
 
@@ -98,6 +113,7 @@ export interface BoardData {
 	channels: BoardChannel[];
 	posts: BoardPost[];
 	jobs: HermesJob[];
+	runs?: HermesRun[];
 	jobsError?: string | null;
 }
 
