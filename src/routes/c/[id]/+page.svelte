@@ -3,7 +3,7 @@
 	import Thread from '$lib/components/Thread.svelte';
 	import ToolStrip from '$lib/components/ToolStrip.svelte';
 	import type { ChatMessage } from '$lib/types';
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, replaceState } from '$app/navigation';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { onMount } from 'svelte';
 
@@ -134,7 +134,7 @@
 		} catch {
 			pending = '';
 		}
-		history.replaceState(null, '', location.pathname + location.search);
+		replaceState(location.pathname + location.search, {});
 		if (pending) void handleSend(pending);
 	});
 </script>

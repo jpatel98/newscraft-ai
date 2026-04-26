@@ -52,8 +52,13 @@
 
 <div class="thread" bind:this={scroller}>
 	<div class="thread__inner">
-		{#each messages as m (m.id)}
-			<article class="msg">
+		{#each messages as m, i (m.id)}
+			{@const prev = messages[i - 1]}
+			{@const stacked = prev && prev.role === m.role}
+			{@const roleChange = prev && prev.role !== m.role}
+			<article
+				class="msg {stacked ? 'msg--stacked' : ''} {roleChange ? 'msg--role-change' : ''}"
+			>
 				{#if m.role === 'assistant'}
 					<div class="msg__avatar msg__avatar--bot" aria-hidden="true">
 						<Bot size="18" strokeWidth={1.5} color="#FBFAF7" />

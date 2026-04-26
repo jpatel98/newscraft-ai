@@ -70,6 +70,45 @@ const ALIAS: Record<string, string> = {
 	md: 'markdown'
 };
 
+const LANG_LOADERS: Record<string, () => Promise<{ default: unknown }>> = {
+	bash: () => import('shiki/langs/bash.mjs'),
+	sh: () => import('shiki/langs/bash.mjs'),
+	js: () => import('shiki/langs/javascript.mjs'),
+	javascript: () => import('shiki/langs/javascript.mjs'),
+	ts: () => import('shiki/langs/typescript.mjs'),
+	typescript: () => import('shiki/langs/typescript.mjs'),
+	json: () => import('shiki/langs/json.mjs'),
+	yaml: () => import('shiki/langs/yaml.mjs'),
+	toml: () => import('shiki/langs/toml.mjs'),
+	python: () => import('shiki/langs/python.mjs'),
+	py: () => import('shiki/langs/python.mjs'),
+	go: () => import('shiki/langs/go.mjs'),
+	rust: () => import('shiki/langs/rust.mjs'),
+	rs: () => import('shiki/langs/rust.mjs'),
+	sql: () => import('shiki/langs/sql.mjs'),
+	html: () => import('shiki/langs/html.mjs'),
+	css: () => import('shiki/langs/css.mjs'),
+	scss: () => import('shiki/langs/scss.mjs'),
+	svelte: () => import('shiki/langs/svelte.mjs'),
+	jsx: () => import('shiki/langs/jsx.mjs'),
+	tsx: () => import('shiki/langs/tsx.mjs'),
+	md: () => import('shiki/langs/markdown.mjs'),
+	markdown: () => import('shiki/langs/markdown.mjs'),
+	diff: () => import('shiki/langs/diff.mjs'),
+	dockerfile: () => import('shiki/langs/dockerfile.mjs'),
+	lua: () => import('shiki/langs/lua.mjs'),
+	java: () => import('shiki/langs/java.mjs'),
+	c: () => import('shiki/langs/c.mjs'),
+	cpp: () => import('shiki/langs/cpp.mjs'),
+	csharp: () => import('shiki/langs/csharp.mjs'),
+	php: () => import('shiki/langs/php.mjs'),
+	ruby: () => import('shiki/langs/ruby.mjs'),
+	swift: () => import('shiki/langs/swift.mjs'),
+	kotlin: () => import('shiki/langs/kotlin.mjs'),
+	r: () => import('shiki/langs/r.mjs'),
+	xml: () => import('shiki/langs/xml.mjs')
+};
+
 export async function highlight(
 	code: string,
 	lang: string,
@@ -83,12 +122,15 @@ export async function highlight(
 	const hl = await getHighlighter();
 
 	if (safeLang !== 'text' && !loadedLangs.has(safeLang)) {
-		try {
-			const grammar = await import(`shiki/langs/${safeLang}.mjs`);
-			await hl.loadLanguage(grammar.default);
-			loadedLangs.add(safeLang);
-		} catch {
-			// fallback to plain text on grammar load failure
+		const loader = LANG_LOADERS[safeLang];
+		if (loader) {
+			try {
+				const grammar = await loader();
+				await hl.loadLanguage(grammar.default as Parameters<typeof hl.loadLanguage>[0]);
+				loadedLangs.add(safeLang);
+			} catch {
+				// fallback to plain text on grammar load failure
+			}
 		}
 	}
 

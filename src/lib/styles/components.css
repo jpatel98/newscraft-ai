@@ -270,7 +270,7 @@ body,
 	flex: 1;
 	overflow-y: auto;
 	overflow-x: hidden;
-	padding: 24px 0 8px;
+	padding: 12px 0 8px;
 	min-width: 0;
 }
 .thread__inner {
@@ -279,7 +279,7 @@ body,
 	padding: 0 24px;
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: 0;
 	min-width: 0;
 }
 
@@ -288,24 +288,39 @@ body,
 	/* minmax(0, 1fr) lets the content cell shrink below its intrinsic content
 	 * width — without this, a single long word/URL/code line stretches the
 	 * whole row past the viewport. */
-	grid-template-columns: 36px minmax(0, 1fr);
+	grid-template-columns: 32px minmax(0, 1fr);
 	gap: 12px;
-	padding: 10px 0;
+	padding: 8px 0;
+}
+/* Same-role consecutive messages cling tighter; role boundaries get the
+ * full breathing room. Mimics Claude/ChatGPT grouping. */
+.msg + .msg {
+	padding-top: 4px;
+}
+.msg.msg--role-change {
+	padding-top: 12px;
 }
 .msg > div {
 	/* Belt-and-braces for the same shrinking issue on the content cell itself. */
 	min-width: 0;
 }
 .msg__avatar {
-	width: 36px;
-	height: 36px;
+	width: 32px;
+	height: 32px;
 	border-radius: var(--radius-2);
 	display: grid;
 	place-items: center;
 	font-family: var(--font-mono);
-	font-size: 12px;
+	font-size: 11px;
 	font-weight: 600;
 	flex-shrink: 0;
+}
+/* Hide the avatar on stacked same-role messages — only the first message
+ * in a run shows it, like Slack/Claude. The grid column stays so content
+ * remains aligned. */
+.msg--stacked .msg__avatar,
+.msg--stacked .msg__head {
+	display: none;
 }
 .msg__avatar--bot {
 	background: var(--ink-900);
@@ -320,7 +335,10 @@ body,
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	margin-bottom: 2px;
+	margin-bottom: 1px;
+	/* Pull the header up so the avatar's vertical center aligns with the
+	 * first line of body text, not the gap above it. */
+	margin-top: -2px;
 }
 .msg__name {
 	font-family: var(--font-display);
@@ -785,6 +803,9 @@ body,
 	min-width: 0;
 	max-width: 100%;
 	overflow-wrap: anywhere;
+	/* Reset pre-wrap inherited from .msg__body — marked emits literal \n
+	 * between block tags, and pre-wrap turns those into visible blank lines. */
+	white-space: normal;
 }
 .md > *:first-child {
 	margin-top: 0;
@@ -793,16 +814,23 @@ body,
 	margin-bottom: 0;
 }
 .md p {
-	margin: 0 0 12px;
+	margin: 0 0 10px;
 }
 .md h1,
 .md h2,
 .md h3,
 .md h4 {
 	font-family: var(--font-display);
-	margin: 16px 0 8px;
+	margin: 14px 0 6px;
 	letter-spacing: -0.018em;
 	font-weight: 700;
+}
+/* No top margin if a heading is the first thing in the body. */
+.md > h1:first-child,
+.md > h2:first-child,
+.md > h3:first-child,
+.md > h4:first-child {
+	margin-top: 0;
 }
 .md h1 {
 	font-size: 22px;
@@ -818,11 +846,11 @@ body,
 }
 .md ul,
 .md ol {
-	margin: 0 0 12px;
+	margin: 0 0 10px;
 	padding-left: 22px;
 }
 .md li {
-	margin: 2px 0;
+	margin: 1px 0;
 }
 .md li > p {
 	margin: 0 0 4px;
