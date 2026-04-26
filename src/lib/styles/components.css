@@ -1256,6 +1256,79 @@ body,
 	font-weight: 600;
 }
 
+/* ---------- Resume banner (partial assistant messages) ---------- */
+.msg__resume {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 8px;
+	padding: 4px 8px 4px 10px;
+	background: var(--caution-50);
+	border: 1px solid var(--caution-300);
+	border-left: 3px solid var(--caution-500);
+	border-radius: var(--radius-1);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	color: var(--caution-700);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+.msg__resume__label {
+	font-weight: 600;
+}
+.msg__resume__btn {
+	background: transparent;
+	border: 1px solid transparent;
+	color: var(--caution-700);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	padding: 1px 8px;
+	cursor: pointer;
+	border-radius: var(--radius-1);
+	transition:
+		color var(--dur-fast) var(--ease-std),
+		background var(--dur-fast) var(--ease-std),
+		border-color var(--dur-fast) var(--ease-std);
+}
+.msg__resume__btn:hover {
+	background: var(--bg-surface);
+	border-color: var(--caution-300);
+}
+.msg__resume__btn:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+.msg__resume__btn--primary {
+	color: var(--cobalt-700);
+	border-color: var(--cobalt-500);
+}
+.msg__resume__btn--primary:hover {
+	background: var(--cobalt-500);
+	color: var(--ink-25);
+	border-color: var(--cobalt-500);
+}
+@media (prefers-color-scheme: dark) {
+	.msg__resume {
+		background: var(--ink-800);
+		border-color: var(--caution-500);
+		color: var(--caution-300);
+	}
+	.msg__resume__btn {
+		color: var(--caution-300);
+	}
+	.msg__resume__btn--primary {
+		color: var(--cobalt-300);
+		border-color: var(--cobalt-500);
+	}
+	.msg__resume__btn--primary:hover {
+		background: var(--cobalt-500);
+		color: var(--ink-25);
+	}
+}
+
 /* ---------- Per-message hover action row ---------- */
 /* In-flow below the body. Tight: short buttons, minimal margin-top,
  * so the reserved space when un-hovered reads as breathing room

@@ -10,8 +10,10 @@
 		messages: ChatMessage[];
 		userInitials?: string;
 		onRegenerate?: () => void;
+		onResume?: (messageId: string) => void;
+		onDiscard?: (messageId: string) => void;
 	}
-	let { messages, userInitials = 'YOU', onRegenerate }: Props = $props();
+	let { messages, userInitials = 'YOU', onRegenerate, onResume, onDiscard }: Props = $props();
 
 	let scroller: HTMLDivElement | undefined = $state();
 	let copied = $state<string | null>(null);
@@ -129,6 +131,30 @@
 							{m.content}{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 						{/if}
 					</div>
+
+					{#if m.role === 'assistant' && m.partial && !m.streaming && !m.id.startsWith('tmp-')}
+						<div class="msg__resume" role="status">
+							<span class="msg__resume__label">Stream interrupted</span>
+							{#if onResume}
+								<button
+									type="button"
+									class="msg__resume__btn msg__resume__btn--primary"
+									onclick={() => onResume?.(m.id)}
+								>
+									Resume
+								</button>
+							{/if}
+							{#if onDiscard}
+								<button
+									type="button"
+									class="msg__resume__btn"
+									onclick={() => onDiscard?.(m.id)}
+								>
+									Discard
+								</button>
+							{/if}
+						</div>
+					{/if}
 
 					{#if !m.partial && (m.role === 'assistant' || m.role === 'user')}
 						<div class="msg__actions">

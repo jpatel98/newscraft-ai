@@ -5,6 +5,8 @@ export interface StreamArgs {
 	conversation_id?: string;
 	content?: MessageContent;
 	regenerate?: boolean;
+	resume?: boolean;
+	message_id?: string;
 }
 
 export interface StreamCallbacks {

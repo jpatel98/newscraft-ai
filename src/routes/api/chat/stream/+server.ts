@@ -8,9 +8,12 @@ import {
 } from '$lib/server/hermes/transport';
 import {
 	addMessage,
+	appendMessageContent,
 	createConversation,
 	deleteMessagesFrom,
+	finalizeMessage,
 	getConversation,
+	getMessageById,
 	getMessages,
 	lastAssistantMessage,
 	parseContent,
@@ -22,7 +25,13 @@ interface Body {
 	conversation_id?: string;
 	content?: MessageContent;
 	regenerate?: boolean;
+	resume?: boolean;
+	message_id?: string;
 }
+
+// In-memory guard against rapid double-resume of the same partial row.
+// Cleared on stream completion or cancellation.
+const resumingIds = new Set<string>();
 
 // Hermes caps the request body around 1 MB; keep some headroom for the
 // surrounding JSON envelope, system prompt, and prior turns.
@@ -91,13 +100,29 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	// --- Resolve conversation + decide what to stream ---
+	const isResume = body.resume === true;
 	let convo = body.conversation_id ? getConversation(body.conversation_id) : undefined;
-	const isNew = !convo;
-	if (!convo) convo = createConversation();
+	const isNew = !convo && !isResume;
+	if (!convo) {
+		if (isResume) throw error(404, 'conversation not found');
+		convo = createConversation();
+	}
 	const convoId = convo.id;
 
 	const isRegenerate = body.regenerate === true;
-	if (isRegenerate) {
+	let resumeMessageId: string | null = null;
+
+	if (isResume) {
+		const messageId = body.message_id;
+		if (!messageId) throw error(400, 'message_id required for resume');
+		const target = getMessageById(messageId);
+		if (!target || target.conversationId !== convoId) throw error(404, 'message not found');
+		if (target.role !== 'assistant') throw error(400, 'can only resume assistant messages');
+		if (target.partial !== 1) throw error(400, 'message is not partial');
+		if (resumingIds.has(messageId)) throw error(409, 'already resuming');
+		resumingIds.add(messageId);
+		resumeMessageId = messageId;
+	} else if (isRegenerate) {
 		const lastA = lastAssistantMessage(convoId);
 		if (lastA) deleteMessagesFrom(convoId, lastA.id);
 	} else {
@@ -121,6 +146,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	);
 
 	if (!upstream.ok || !upstream.body) {
+		if (resumeMessageId) resumingIds.delete(resumeMessageId);
 		const text = await upstream.text().catch(() => '');
 		throw error(upstream.status || 502, `gateway: ${text || upstream.statusText}`);
 	}
@@ -134,6 +160,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	function persistAssistant() {
 		if (persisted) return undefined;
 		persisted = true;
+		if (resumeMessageId) {
+			if (assistantBuf) appendMessageContent(resumeMessageId, assistantBuf);
+			if (done) finalizeMessage(resumeMessageId);
+			resumingIds.delete(resumeMessageId);
+			return getMessageById(resumeMessageId);
+		}
 		if (!assistantBuf) return undefined;
 		return addMessage({
 			conversationId: convoId,
