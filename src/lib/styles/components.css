@@ -621,12 +621,14 @@ body,
 	flex-direction: column;
 	overflow: hidden;
 	flex: 1;
-	/* Reserve room for the floating command bar at top-left when the drawer
-	 * is closed; on open, shift to clear the drawer width so chat content
-	 * never sits underneath. Mobile keeps overlay behavior — drawer floats
-	 * over content with a tap-to-close backdrop.
+	/* Pane's padding-left always clears whatever lives on the left — the
+	 * floating cmdbar (~118px wide, plus a small visual buffer) when the
+	 * drawer is closed, the drawer's full 280px width when open. Children
+	 * (header, thread, composer) can use a uniform inset from the pane
+	 * edge in both states, so the title's gap from the left visual
+	 * boundary stays the same when toggling.
 	 */
-	padding-left: 64px;
+	padding-left: 128px;
 	min-width: 0;
 	transition: padding-left var(--dur-base) var(--ease-std);
 }
@@ -646,11 +648,10 @@ body,
 }
 
 .pane__header {
-	/* Extra left padding so the title sits clear of the floating cmdbar
-	 * (which extends to ~118px from the viewport left). On mobile, the
-	 * cmdbar is wider relative to the screen — we push the title below it
-	 * vertically instead with extra padding-top. */
-	padding: 12px 24px 12px 96px;
+	/* Uniform 24px inset from the pane's left edge in both drawer states —
+	 * the pane itself handles clearing the cmdbar/drawer, so the title's
+	 * gap from whatever's on the left stays consistent when toggling. */
+	padding: 12px 24px;
 	border-bottom: 1px solid var(--border-default);
 	background: var(--bg-surface);
 	display: flex;
@@ -659,15 +660,15 @@ body,
 	min-width: 0;
 	flex-wrap: wrap;
 }
-.shell--drawer-open .pane__header {
-	padding-left: 24px;
-}
 @media (max-width: 760px) {
 	.pane__header {
+		/* Mobile: pane has no left padding, so push the title below the
+		 * cmdbar's vertical footprint instead. Drawer-open mobile
+		 * overlays the pane entirely, so this padding is hidden. */
 		padding: 56px 16px 12px;
 	}
 	.shell--drawer-open .pane__header {
-		padding-left: 16px;
+		padding-top: 12px;
 	}
 }
 .pane__header__title {
