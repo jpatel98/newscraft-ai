@@ -1019,16 +1019,23 @@ body,
 }
 
 /* ---------- Per-message hover action row ---------- */
+/* Collapses to zero height when not hovered so it doesn't carve out a
+ * permanent gap below every message. Snap-expands on hover (no height
+ * transition — height:auto can't tween cleanly), opacity fades. */
 .msg__actions {
 	display: flex;
 	gap: 4px;
-	margin-top: 6px;
+	height: 0;
+	margin-top: 0;
+	overflow: hidden;
 	opacity: 0;
 	transition: opacity var(--dur-fast) var(--ease-std);
 }
 .msg:hover .msg__actions,
 .msg:focus-within .msg__actions {
 	opacity: 1;
+	height: auto;
+	margin-top: 4px;
 }
 .msg__action {
 	display: inline-flex;
