@@ -336,9 +336,10 @@
 {#if onLogin || !data.user}
 	{@render children()}
 {:else}
-	<div class="shell">
-		<!-- Floating command bar — top-left, fixed, three icon buttons. -->
-		<div class="cmdbar" role="toolbar" aria-label="App actions">
+	<div class="shell {drawerOpen ? 'shell--drawer-open' : ''}">
+		<!-- Floating command bar — top-left, fixed, three icon buttons.
+		     Hides when the drawer is open (drawer's own header has the toggle). -->
+		<div class="cmdbar" role="toolbar" aria-label="App actions" data-hidden={drawerOpen}>
 			<button
 				type="button"
 				class="cmdbar__btn"

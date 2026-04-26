@@ -61,10 +61,9 @@ body,
 }
 
 /* ---------- Floating command bar ---------- *
- * Compact horizontal pill of three icon buttons, top-left corner. Translucent
- * over the main pane so the surface beneath bleeds through. Gentle rounding
- * (radius-3) is a deliberate exception to the design system's sharp-corners
- * default — floating elements get this treatment.
+ * Compact horizontal pill of three icon buttons, top-left corner. Solid
+ * brand surface (no translucency); hidden when the drawer is open since the
+ * drawer's own header carries the toggle.
  */
 .cmdbar {
 	position: fixed;
@@ -77,19 +76,12 @@ body,
 	padding: 3px;
 	background: var(--bg-raised);
 	border: 1px solid var(--border-default);
-	border-radius: var(--radius-3);
+	border-radius: var(--radius-2);
+	transition: opacity var(--dur-fast) var(--ease-std);
 }
-@supports (backdrop-filter: blur(1px)) {
-	.cmdbar {
-		background: rgba(251, 250, 247, 0.7);
-		backdrop-filter: blur(10px) saturate(1.5);
-		-webkit-backdrop-filter: blur(10px) saturate(1.5);
-	}
-	@media (prefers-color-scheme: dark) {
-		.cmdbar {
-			background: rgba(26, 26, 24, 0.7);
-		}
-	}
+.cmdbar[data-hidden='true'] {
+	opacity: 0;
+	pointer-events: none;
 }
 .cmdbar__btn {
 	display: inline-flex;
@@ -629,16 +621,27 @@ body,
 	flex-direction: column;
 	overflow: hidden;
 	flex: 1;
-	/* Reserve room for the floating command bar at top-left. The bar is
-	 * 12 + 32*3 + 2*2 + 6 ≈ 112px wide; left padding keeps content clear of it
-	 * but the bar itself only floats over the very top of the pane.
+	/* Reserve room for the floating command bar at top-left when the drawer
+	 * is closed; on open, shift to clear the drawer width so chat content
+	 * never sits underneath. Mobile keeps overlay behavior — drawer floats
+	 * over content with a tap-to-close backdrop.
 	 */
 	padding-left: 64px;
 	min-width: 0;
+	transition: padding-left var(--dur-base) var(--ease-std);
+}
+.shell--drawer-open .pane {
+	padding-left: 280px;
 }
 @media (max-width: 760px) {
-	.pane {
+	.pane,
+	.shell--drawer-open .pane {
 		padding-left: 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pane {
+		transition: none;
 	}
 }
 
