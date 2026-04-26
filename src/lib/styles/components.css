@@ -683,13 +683,13 @@ body,
 	overflow: hidden;
 	flex: 1;
 	/* Pane's padding-left always clears whatever lives on the left — the
-	 * floating cmdbar (~118px wide, plus a small visual buffer) when the
+	 * floating cmdbar (~118px wide, plus a modest visual buffer) when the
 	 * drawer is closed, the drawer's full 280px width when open. Children
 	 * (header, thread, composer) can use a uniform inset from the pane
 	 * edge in both states, so the title's gap from the left visual
 	 * boundary stays the same when toggling.
 	 */
-	padding-left: 128px;
+	padding-left: 136px;
 	min-width: 0;
 	transition: padding-left var(--dur-base) var(--ease-std);
 }
