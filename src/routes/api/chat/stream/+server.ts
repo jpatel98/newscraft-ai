@@ -140,6 +140,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		};
 	});
 
+	const override = convo.systemPrompt?.trim();
+	if (override) {
+		const idx = history.findIndex((m) => m.role === 'system');
+		const sys: HermesMessage = { role: 'system', content: override };
+		if (idx >= 0) history[idx] = sys;
+		else history.unshift(sys);
+	}
+
 	const upstream = await streamChatCompletion(
 		{ messages: history, stream: true },
 		{ signal: request.signal }

@@ -14,12 +14,14 @@
 	import Search from 'lucide-svelte/icons/search';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import SystemPromptEditor from '$lib/components/SystemPromptEditor.svelte';
 
 	interface SidebarConvo {
 		id: string;
 		title: string;
 		updatedAt: number;
 		pinned: number;
+		systemPrompt: string | null;
 	}
 
 	let { children, data } = $props();
@@ -152,6 +154,16 @@
 		} else {
 			armDelete(c.id);
 		}
+	}
+
+	let systemPromptFor = $state<string | null>(null);
+	const systemPromptConvo = $derived(
+		systemPromptFor ? data.conversations.find((c) => c.id === systemPromptFor) ?? null : null
+	);
+
+	function openSystemPrompt(c: SidebarConvo) {
+		closeMenu();
+		systemPromptFor = c.id;
 	}
 
 	function onDocClick(e: MouseEvent) {
@@ -409,6 +421,9 @@
 									<button type="button" role="menuitem" onclick={() => startRename(c)}>
 										Rename
 									</button>
+									<button type="button" role="menuitem" onclick={() => openSystemPrompt(c)}>
+										System prompt{c.systemPrompt ? ' •' : ''}
+									</button>
 									<button type="button" role="menuitem" onclick={() => exportConvo(c, 'md')}>
 										Export Markdown
 									</button>
@@ -454,4 +469,12 @@
 		conversations={data.conversations}
 		onClose={() => (paletteOpen = false)}
 	/>
+	{#if systemPromptConvo}
+		<SystemPromptEditor
+			conversationId={systemPromptConvo.id}
+			initial={systemPromptConvo.systemPrompt}
+			open={true}
+			onClose={() => (systemPromptFor = null)}
+		/>
+	{/if}
 {/if}

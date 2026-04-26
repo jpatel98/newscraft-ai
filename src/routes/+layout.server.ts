@@ -11,7 +11,8 @@ export const load: LayoutServerLoad = ({ locals }) => {
 			id: c.id,
 			title: c.title || '(untitled)',
 			updatedAt: c.updatedAt,
-			pinned: c.pinned
+			pinned: c.pinned,
+			systemPrompt: c.systemPrompt
 		}))
 	};
 };

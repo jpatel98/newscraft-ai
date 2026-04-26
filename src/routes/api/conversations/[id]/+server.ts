@@ -3,12 +3,16 @@ import {
 	deleteConversation,
 	getConversation,
 	renameConversation,
-	setConversationPinned
+	setConversationPinned,
+	setConversationSystemPrompt
 } from '$lib/server/db/conversations';
+
+const MAX_SYSTEM_PROMPT_CHARS = 8000;
 
 interface PatchBody {
 	title?: string;
 	pinned?: 0 | 1;
+	systemPrompt?: string | null;
 }
 
 export const PATCH: RequestHandler = async ({ params, request, locals }) => {
@@ -41,10 +45,22 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 		row = setConversationPinned(id, next) ?? row;
 	}
 
+	if (body.systemPrompt !== undefined) {
+		const raw = body.systemPrompt;
+		if (raw !== null && typeof raw !== 'string') {
+			throw error(400, 'systemPrompt must be string or null');
+		}
+		if (typeof raw === 'string' && raw.length > MAX_SYSTEM_PROMPT_CHARS) {
+			throw error(400, `systemPrompt must be ≤ ${MAX_SYSTEM_PROMPT_CHARS} chars`);
+		}
+		row = setConversationSystemPrompt(id, raw) ?? row;
+	}
+
 	return json({
 		id: row.id,
 		title: row.title,
 		pinned: row.pinned,
+		systemPrompt: row.systemPrompt,
 		updatedAt: row.updatedAt
 	});
 };
