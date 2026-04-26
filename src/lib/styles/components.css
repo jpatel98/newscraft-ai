@@ -303,6 +303,8 @@ body,
 .msg > div {
 	/* Belt-and-braces for the same shrinking issue on the content cell itself. */
 	min-width: 0;
+	/* Anchor for the absolute-positioned hover action row below. */
+	position: relative;
 }
 .msg__avatar {
 	width: 32px;
@@ -1019,23 +1021,25 @@ body,
 }
 
 /* ---------- Per-message hover action row ---------- */
-/* Collapses to zero height when not hovered so it doesn't carve out a
- * permanent gap below every message. Snap-expands on hover (no height
- * transition — height:auto can't tween cleanly), opacity fades. */
+/* Floats below the content cell on hover. Absolute-positioned so it
+ * takes no vertical space when hidden — no permanent gap, no layout
+ * shift on hover. pointer-events:none prevents clicks landing on
+ * invisible buttons. */
 .msg__actions {
+	position: absolute;
+	top: calc(100% + 2px);
+	left: 0;
 	display: flex;
 	gap: 4px;
-	height: 0;
-	margin-top: 0;
-	overflow: hidden;
 	opacity: 0;
+	pointer-events: none;
 	transition: opacity var(--dur-fast) var(--ease-std);
+	z-index: 2;
 }
 .msg:hover .msg__actions,
 .msg:focus-within .msg__actions {
 	opacity: 1;
-	height: auto;
-	margin-top: 4px;
+	pointer-events: auto;
 }
 .msg__action {
 	display: inline-flex;
