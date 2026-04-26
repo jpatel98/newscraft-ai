@@ -18,6 +18,7 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import SystemPromptEditor from '$lib/components/SystemPromptEditor.svelte';
 	import { groupByDate } from '$lib/utils/group-by-date';
+	import { formatRelativeTime } from '$lib/utils/time';
 
 	interface SidebarConvo {
 		id: string;
@@ -85,17 +86,6 @@
 			mq.removeEventListener('change', apply);
 		};
 	});
-
-	function relTime(ts: number): string {
-		const ms = Date.now() - ts;
-		const m = Math.floor(ms / 60_000);
-		if (m < 1) return 'just now';
-		if (m < 60) return `${m}m`;
-		const h = Math.floor(m / 60);
-		if (h < 24) return `${h}h`;
-		const d = Math.floor(h / 24);
-		return `${d}d`;
-	}
 
 	let menuFor = $state<string | null>(null);
 	let renamingFor = $state<string | null>(null);
@@ -237,7 +227,7 @@
 		conversationId: string;
 		conversationTitle: string;
 		messageId: string;
-		role: 'user' | 'assistant' | 'system' | 'tool';
+		role: 'user' | 'assistant' | 'system' | 'tool' | 'thread';
 		snippet: string;
 		createdAt: number;
 	}
@@ -315,14 +305,14 @@
 	}
 
 	async function openResult(r: SearchResult) {
-		const target = `/c/${r.conversationId}#m=${r.messageId}`;
+		const target = r.messageId ? `/c/${r.conversationId}#m=${r.messageId}` : `/c/${r.conversationId}`;
 		searchQ = '';
 		searchActive = false;
 		searchResults = [];
 		await goto(target);
 		await tick();
-		const el = document.getElementById(`m-${r.messageId}`);
-		if (el && typeof el.scrollIntoView === 'function') {
+		const el = r.messageId ? document.getElementById(`m-${r.messageId}`) : null;
+		if (el) {
 			el.scrollIntoView({ block: 'center' });
 		}
 		onSelectThread();
@@ -440,7 +430,7 @@
 							<span class="sidebar__row__name">No matches</span>
 						</div>
 					{/if}
-					{#each searchResults as r (r.messageId)}
+					{#each searchResults as r (`${r.conversationId}:${r.messageId || 'thread'}:${r.role}`)}
 						<button
 							type="button"
 							class="sidebar__hit"
@@ -449,9 +439,9 @@
 							aria-selected="false"
 						>
 							<div class="sidebar__hit__head">
-								<span class="sidebar__hit__role">{r.role}</span>
+								<span class="sidebar__hit__role">{r.role === 'thread' ? 'thread' : r.role}</span>
 								<span class="sidebar__hit__title">{r.conversationTitle || 'Untitled thread'}</span>
-								<span class="sidebar__hit__time">{relTime(r.createdAt)}</span>
+								<span class="sidebar__hit__time">{formatRelativeTime(r.createdAt)}</span>
 							</div>
 							<div class="sidebar__hit__snippet">
 								{@html sanitiseSnippet(r.snippet)}
@@ -485,6 +475,7 @@
 												bind:this={renameInput}
 												bind:value={renameDraft}
 												class="sidebar__rename"
+												aria-label="Thread title"
 												maxlength="200"
 												onkeydown={(e) => {
 													if (e.key === 'Enter') {
@@ -495,8 +486,17 @@
 														cancelRename();
 													}
 												}}
-												onblur={() => commitRename(c)}
 											/>
+											<button
+												type="button"
+												class="sidebar__rename-btn"
+												onclick={() => commitRename(c)}
+											>
+												Save
+											</button>
+											<button type="button" class="sidebar__rename-btn" onclick={cancelRename}>
+												Cancel
+											</button>
 										</div>
 									{:else}
 										<a
@@ -514,7 +514,7 @@
 												/>
 											{/if}
 											<span class="sidebar__row__name">{c.title || 'Untitled thread'}</span>
-											<span class="sidebar__row__time">{relTime(c.updatedAt)}</span>
+											<span class="sidebar__row__time">{formatRelativeTime(c.updatedAt)}</span>
 										</a>
 										<button
 											type="button"

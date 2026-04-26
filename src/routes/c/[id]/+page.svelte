@@ -7,6 +7,9 @@
 	import { invalidateAll, replaceState } from '$app/navigation';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { onMount } from 'svelte';
+	import { formatThreadUpdated } from '$lib/utils/time';
+
+	type ThreadMessage = ChatMessage & { createdAt?: number };
 
 	let { data } = $props();
 
@@ -14,7 +17,7 @@
 	// its own user + assistant pair and removes them after invalidateAll picks
 	// the persisted versions up. Using append-and-filter (not replace) so
 	// concurrent or back-to-back runs don't trample each other.
-	let overlay = $state<ChatMessage[]>([]);
+	let overlay = $state<ThreadMessage[]>([]);
 	// Persisted message ids that are currently being shadowed by an overlay
 	// stream (resume). Hides the partial row while we re-stream into it; on
 	// invalidateAll the partial flag flips and the row reappears finalized.
@@ -23,11 +26,12 @@
 	const persisted = $derived(
 		data.messages
 			.filter((m) => !hiddenIds.has(m.id))
-			.map<ChatMessage>((m) => ({
+			.map<ThreadMessage>((m) => ({
 				id: m.id,
 				role: m.role,
 				content: m.content,
-				partial: m.partial
+				partial: m.partial,
+				createdAt: m.createdAt
 			}))
 	);
 	const messages = $derived([...persisted, ...overlay]);
@@ -36,10 +40,9 @@
 		const n = messages.length;
 		if (n === 0) return '0 messages';
 		const last = messages[n - 1];
-		const ts = new Date(data.conversation.updatedAt);
-		const h = ts.getHours().toString().padStart(2, '0');
-		const m = ts.getMinutes().toString().padStart(2, '0');
-		return `${n} message${n === 1 ? '' : 's'} · last update ${h}:${m} · ${last.role}`;
+		return `${n} message${n === 1 ? '' : 's'} · updated ${formatThreadUpdated(
+			data.conversation.updatedAt
+		)} · ${last.role}`;
 	});
 
 	$effect(() => {
@@ -71,14 +74,15 @@
 		const isResume = args.resume === true && !!args.message_id;
 		const resumingId = isResume ? (args.message_id as string) : null;
 
-		const userMsg: ChatMessage | null = args.regenerate || isResume
+		const userMsg: ThreadMessage | null = args.regenerate || isResume
 			? null
 			: {
 					id: 'tmp-u-' + Math.random().toString(36).slice(2),
 					role: 'user',
 					content: args.content ?? '',
-					partial: false
-				} satisfies ChatMessage;
+					partial: false,
+					createdAt: Date.now()
+				};
 
 		// Resume: seed the overlay with the partial's existing content so
 		// streaming visually continues from where it left off, and hide the
@@ -90,12 +94,13 @@
 					return contentText(src.content);
 				})()
 			: '';
-		const asstMsg: ChatMessage = {
+		const asstMsg: ThreadMessage = {
 			id: 'tmp-a-' + Math.random().toString(36).slice(2),
 			role: 'assistant',
 			content: seedContent,
 			partial: true,
-			streaming: true
+			streaming: true,
+			createdAt: Date.now()
 		};
 		let asstText = seedContent;
 		overlay = [...overlay, ...(userMsg ? [userMsg] : []), asstMsg];

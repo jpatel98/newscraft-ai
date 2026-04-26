@@ -12,7 +12,31 @@
 	}
 	let { content, partial = false }: Props = $props();
 
-	marked.setOptions({ gfm: true, breaks: true });
+	const renderer = new marked.Renderer();
+	const defaultLinkRenderer = renderer.link.bind(renderer);
+
+	renderer.link = (token) => {
+		const text = token.tokens
+			.map((t) => ('text' in t && typeof t.text === 'string' ? t.text : ''))
+			.join('');
+		const rendered = defaultLinkRenderer(token);
+		try {
+			const url = new URL(token.href);
+			const isTextUrl = text === token.href || text.replace(/^https?:\/\//, '') === token.href.replace(/^https?:\/\//, '');
+			if (!isTextUrl) return rendered;
+			const host = url.hostname.replace(/^www\./, '');
+			const path = url.pathname === '/' ? '' : url.pathname;
+			const label = `${host}${path}`.slice(0, 72) + (`${host}${path}`.length > 72 ? '...' : '');
+			return defaultLinkRenderer({
+				...token,
+				tokens: [{ type: 'text', raw: label, text: label }]
+			});
+		} catch {
+			return rendered;
+		}
+	};
+
+	marked.setOptions({ gfm: true, breaks: true, renderer });
 
 	const html = $derived.by(() => {
 		try {

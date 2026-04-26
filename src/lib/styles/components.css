@@ -61,9 +61,9 @@ body,
 }
 
 /* ---------- Floating command bar ---------- *
- * Compact horizontal pill of three icon buttons, top-left corner. Solid
- * brand surface (no translucency); hidden when the drawer is open since the
- * drawer's own header carries the toggle.
+ * Compact horizontal pill of three icon buttons, top-left corner. It belongs
+ * visually to the pane header when collapsed; the dark sidebar treatment stays
+ * inside the drawer itself.
  */
 .cmdbar {
 	position: fixed;
@@ -72,12 +72,16 @@ body,
 	z-index: 30;
 	display: inline-flex;
 	align-items: center;
-	gap: 2px;
-	padding: 3px;
-	background: var(--bg-raised);
+	gap: 1px;
+	padding: 4px;
+	background: var(--bg-surface);
 	border: 1px solid var(--border-default);
 	border-radius: var(--radius-2);
-	transition: opacity var(--dur-fast) var(--ease-std);
+	box-shadow: var(--shadow-1);
+	transition:
+		opacity var(--dur-fast) var(--ease-std),
+		background var(--dur-fast) var(--ease-std),
+		border-color var(--dur-fast) var(--ease-std);
 }
 .cmdbar[data-hidden='true'] {
 	opacity: 0;
@@ -107,7 +111,7 @@ body,
 	color: var(--fg-1);
 }
 .cmdbar__btn[aria-expanded='true'] {
-	color: var(--accent);
+	color: var(--accent-fg);
 }
 
 /* ---------- Drawer (slide-out left sidebar) ---------- *
@@ -120,13 +124,13 @@ body,
 	top: 0;
 	left: 0;
 	bottom: 0;
-	width: 280px;
+	width: 296px;
 	z-index: 25;
 	background: var(--ink-900);
 	color: var(--ink-200);
 	display: flex;
 	flex-direction: column;
-	border-right: 1px solid var(--ink-800);
+	border-right: 1px solid var(--ink-700);
 	overflow: hidden;
 	transform: translateX(-100%);
 	transition: transform var(--dur-base) var(--ease-std);
@@ -156,7 +160,7 @@ body,
 	grid-template-columns: 28px 1fr 28px;
 	align-items: center;
 	gap: 8px;
-	padding: 12px 12px 10px;
+	padding: 14px 14px 12px;
 	border-bottom: 1px solid var(--ink-800);
 }
 .drawer__head__btn {
@@ -199,7 +203,7 @@ body,
 }
 
 .drawer__newchat-wrap {
-	padding: 10px 12px 6px;
+	padding: 12px 14px 8px;
 }
 .drawer__newchat {
 	display: flex;
@@ -207,6 +211,7 @@ body,
 	justify-content: center;
 	gap: 6px;
 	width: 100%;
+	min-height: 34px;
 	padding: 8px 12px;
 	background: var(--cobalt-500);
 	color: var(--ink-25);
@@ -217,7 +222,9 @@ body,
 	font-weight: 600;
 	cursor: pointer;
 	text-decoration: none;
-	transition: background var(--dur-fast) var(--ease-std);
+	transition:
+		background var(--dur-fast) var(--ease-std),
+		box-shadow var(--dur-fast) var(--ease-std);
 }
 .drawer__newchat:hover {
 	background: var(--cobalt-600);
@@ -232,7 +239,7 @@ body,
 
 .drawer__divider {
 	height: 1px;
-	margin: 8px 12px 4px;
+	margin: 8px 14px 2px;
 	background: var(--ink-800);
 }
 
@@ -315,17 +322,19 @@ body,
 .sidebar__section {
 	font-family: var(--font-mono);
 	font-size: 10.5px;
-	color: var(--ink-400);
+	color: var(--ink-500);
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
 	font-weight: 500;
-	padding: 14px 16px 4px;
+	padding: 15px 16px 5px;
 }
 
 .sidebar__list {
 	flex: 1;
 	overflow: auto;
-	padding-bottom: 8px;
+	padding: 0 8px 10px;
+	scrollbar-width: thin;
+	scrollbar-color: var(--ink-700) transparent;
 }
 
 .sidebar__row {
@@ -333,19 +342,24 @@ body,
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	padding: 5px 16px;
+	min-height: 32px;
+	padding: 6px 8px;
 	color: var(--ink-200);
 	font-size: 13.5px;
 	cursor: pointer;
 	border: 0;
+	border-radius: var(--radius-2);
 	text-decoration: none;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	transition: background var(--dur-fast) var(--ease-std);
+	transition:
+		background var(--dur-fast) var(--ease-std),
+		color var(--dur-fast) var(--ease-std);
 }
 .sidebar__row:hover {
-	background: var(--ink-800);
+	background: rgba(255, 255, 255, 0.045);
+	color: var(--ink-25);
 }
 .sidebar__row--active {
 	background: var(--ink-800);
@@ -355,9 +369,10 @@ body,
 	content: '';
 	position: absolute;
 	left: 0;
-	top: 0;
-	bottom: 0;
+	top: 7px;
+	bottom: 7px;
 	width: 2px;
+	border-radius: var(--radius-pill);
 	background: var(--cobalt-500);
 }
 .sidebar__row__glyph {
@@ -367,8 +382,13 @@ body,
 	display: inline-flex;
 	flex-shrink: 0;
 }
+.sidebar__row--active .sidebar__row__glyph,
+.sidebar__row:hover .sidebar__row__glyph {
+	color: var(--ink-300);
+}
 .sidebar__row__name {
 	flex: 1;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
@@ -377,15 +397,21 @@ body,
 .sidebar__search {
 	display: flex;
 	align-items: center;
-	gap: 6px;
-	margin: 8px 12px 4px;
-	padding: 4px 8px;
+	gap: 7px;
+	margin: 8px 14px 4px;
+	padding: 5px 9px;
 	background: var(--ink-800);
 	border: 1px solid var(--ink-700);
-	border-radius: var(--radius-1);
+	border-radius: var(--radius-2);
+	transition:
+		border-color var(--dur-fast) var(--ease-std),
+		background var(--dur-fast) var(--ease-std),
+		box-shadow var(--dur-fast) var(--ease-std);
 }
 .sidebar__search:focus-within {
 	border-color: var(--cobalt-500);
+	background: var(--ink-900);
+	box-shadow: 0 0 0 2px var(--cobalt-900);
 }
 .sidebar__search__glyph {
 	color: var(--ink-400);
@@ -398,8 +424,8 @@ body,
 	background: transparent;
 	color: var(--ink-25);
 	font-family: var(--font-body);
-	font-size: 12.5px;
-	padding: 4px 0;
+	font-size: 13px;
+	padding: 5px 0;
 	outline: 0;
 }
 .sidebar__search__input::placeholder {
@@ -409,14 +435,15 @@ body,
 /* ---------- Sidebar row hover menu ---------- */
 .sidebar__row-wrap {
 	position: relative;
+	margin: 1px 0;
 }
 .sidebar__row-wrap .sidebar__row {
-	padding-right: 32px;
+	padding-right: 34px;
 }
 .sidebar__row-menu-btn {
 	position: absolute;
 	top: 50%;
-	right: 8px;
+	right: 4px;
 	transform: translateY(-50%);
 	display: inline-flex;
 	align-items: center;
@@ -426,11 +453,14 @@ body,
 	padding: 0;
 	background: transparent;
 	border: 0;
-	color: var(--ink-300);
+	color: var(--ink-400);
 	cursor: pointer;
-	border-radius: var(--radius-1);
+	border-radius: var(--radius-2);
 	opacity: 0;
-	transition: opacity var(--dur-fast) var(--ease-std), background var(--dur-fast) var(--ease-std);
+	transition:
+		opacity var(--dur-fast) var(--ease-std),
+		background var(--dur-fast) var(--ease-std),
+		color var(--dur-fast) var(--ease-std);
 }
 .sidebar__row-wrap:hover .sidebar__row-menu-btn,
 .sidebar__row-wrap:focus-within .sidebar__row-menu-btn,
@@ -455,52 +485,81 @@ body,
 
 .sidebar__row__time {
 	font-family: var(--font-mono);
-	font-size: 10px;
-	color: var(--ink-400);
+	font-size: 9.5px;
+	color: var(--ink-500);
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
 	flex-shrink: 0;
+	margin-left: 4px;
+}
+.sidebar__row:hover .sidebar__row__time,
+.sidebar__row--active .sidebar__row__time {
+	color: var(--ink-300);
 }
 
 .sidebar__row--editing {
 	cursor: text;
+	background: var(--ink-800);
 }
 .sidebar__rename {
 	flex: 1;
 	min-width: 0;
-	background: var(--ink-800);
+	background: var(--ink-900);
 	border: 1px solid var(--cobalt-500);
 	color: var(--ink-25);
 	font-family: var(--font-body);
 	font-size: 13.5px;
-	padding: 2px 6px;
-	border-radius: var(--radius-1);
+	padding: 5px 7px;
+	border-radius: var(--radius-2);
 	outline: 0;
+	box-shadow: 0 0 0 2px var(--cobalt-900);
+}
+.sidebar__rename-btn {
+	flex-shrink: 0;
+	background: transparent;
+	border: 1px solid var(--ink-700);
+	color: var(--ink-200);
+	font-family: var(--font-body);
+	font-size: 12px;
+	font-weight: 600;
+	padding: 5px 7px;
+	border-radius: var(--radius-1);
+	cursor: pointer;
+}
+.sidebar__rename-btn:hover {
+	background: var(--ink-700);
+	color: var(--ink-25);
+}
+.sidebar__rename-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--cobalt-700);
 }
 
 .sidebar__menu {
 	position: absolute;
 	top: 100%;
-	right: 8px;
+	right: 4px;
 	z-index: 20;
-	margin-top: 2px;
-	min-width: 168px;
+	margin-top: 4px;
+	min-width: 176px;
 	background: var(--ink-800);
 	border: 1px solid var(--ink-700);
+	border-radius: var(--radius-2);
 	box-shadow: var(--shadow-3);
 	display: flex;
 	flex-direction: column;
-	padding: 4px 0;
+	padding: 5px;
 }
 .sidebar__menu button {
 	background: transparent;
 	border: 0;
 	color: var(--ink-200);
 	font-family: var(--font-body);
-	font-size: 12.5px;
+	font-size: 13px;
 	text-align: left;
-	padding: 6px 12px;
+	padding: 7px 8px;
 	cursor: pointer;
+	border-radius: var(--radius-1);
 }
 .sidebar__menu button:hover {
 	background: var(--ink-700);
@@ -524,10 +583,11 @@ body,
 	width: 100%;
 	background: transparent;
 	border: 0;
-	border-bottom: 1px solid var(--ink-800);
+	border-radius: var(--radius-2);
 	color: var(--ink-200);
 	text-align: left;
-	padding: 8px 16px;
+	padding: 9px 8px;
+	margin: 1px 0;
 	cursor: pointer;
 	transition: background var(--dur-fast) var(--ease-std);
 }
@@ -557,7 +617,7 @@ body,
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: var(--ink-300);
+	color: var(--ink-200);
 	text-transform: none;
 	letter-spacing: 0;
 	font-family: var(--font-body);
@@ -586,11 +646,12 @@ body,
 }
 
 .sidebar__footer {
-	padding: 12px 16px;
+	padding: 12px 16px 14px;
 	border-top: 1px solid var(--ink-800);
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	gap: 8px;
+	justify-content: space-between;
 	font-family: var(--font-mono);
 	font-size: 11px;
 	color: var(--ink-300);
@@ -603,7 +664,7 @@ body,
 	text-decoration: none;
 	border: 0;
 	background: none;
-	padding: 0;
+	padding: 4px 0;
 	font: inherit;
 	cursor: pointer;
 	letter-spacing: 0.04em;
@@ -650,40 +711,41 @@ body,
 .pane__header {
 	/* Uniform 24px inset from the pane's left edge in both drawer states —
 	 * the pane itself handles clearing the cmdbar/drawer, so the title's
-	 * gap from whatever's on the left stays consistent when toggling. */
-	padding: 12px 24px;
-	border-bottom: 1px solid var(--border-default);
-	background: var(--bg-surface);
+ * gap from whatever's on the left stays consistent when toggling. */
+	padding: 14px 24px 11px;
+	border-bottom: 0;
+	background: var(--bg-page);
 	display: flex;
 	align-items: baseline;
 	gap: 16px;
 	min-width: 0;
 	flex-wrap: wrap;
+	position: relative;
 }
 @media (max-width: 760px) {
 	.pane__header {
 		/* Mobile: pane has no left padding, so push the title below the
 		 * cmdbar's vertical footprint instead. Drawer-open mobile
 		 * overlays the pane entirely, so this padding is hidden. */
-		padding: 56px 16px 12px;
+		padding: 56px 16px 11px;
 	}
 	.shell--drawer-open .pane__header {
-		padding-top: 12px;
+		padding-top: 14px;
 	}
 }
 .pane__header__title {
 	font-family: var(--font-display);
-	font-size: 17px;
-	font-weight: 700;
-	letter-spacing: -0.018em;
+	font-size: 16.5px;
+	font-weight: 650;
+	letter-spacing: -0.012em;
 	color: var(--fg-1);
 	overflow-wrap: anywhere;
 	min-width: 0;
 }
 .pane__header__topic {
 	font-family: var(--font-mono);
-	font-size: 11px;
-	color: var(--fg-3);
+	font-size: 10.5px;
+	color: var(--fg-4);
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
 	overflow: hidden;
@@ -825,6 +887,7 @@ body,
 	line-height: 1.55;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
+	word-break: normal;
 	min-width: 0;
 	max-width: 100%;
 }
@@ -903,13 +966,13 @@ body,
 
 /* ---------- Composer ---------- */
 .composer-zone {
-	padding: 12px 24px 18px;
+	padding: 14px 24px 18px;
 	background: var(--bg-page);
 	border-top: 1px solid var(--border-soft);
 	min-width: 0;
 }
 .composer-zone__inner {
-	max-width: 880px;
+	max-width: 920px;
 	margin: 0 auto;
 	min-width: 0;
 }
@@ -917,16 +980,20 @@ body,
 .composer {
 	display: flex;
 	align-items: end;
-	gap: 6px;
-	padding: 6px 6px 6px 8px;
+	gap: 8px;
+	padding: 7px 7px 7px 9px;
 	background: var(--bg-surface);
 	border: 1px solid var(--border-default);
 	border-radius: var(--radius-2);
-	transition: border-color var(--dur-fast) var(--ease-std);
+	box-shadow: var(--shadow-1);
+	transition:
+		border-color var(--dur-fast) var(--ease-std),
+		box-shadow var(--dur-fast) var(--ease-std),
+		background var(--dur-fast) var(--ease-std);
 }
 .composer:focus-within {
 	border-color: var(--cobalt-500);
-	box-shadow: var(--shadow-focus);
+	box-shadow: var(--shadow-focus), var(--shadow-1);
 }
 .composer--busy {
 	opacity: 0.85;
@@ -942,7 +1009,7 @@ body,
 	font-size: 14.5px;
 	line-height: 1.45;
 	color: var(--fg-1);
-	padding: 8px 4px;
+	padding: 9px 2px;
 	margin: 0;
 	box-sizing: border-box;
 	/* Keep the textarea sized to its content; JS autosize fallback also runs.
@@ -965,21 +1032,25 @@ body,
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 32px;
-	height: 32px;
+	width: 34px;
+	height: 34px;
 	padding: 0;
-	margin-bottom: 1px;
+	margin-bottom: 0;
 	background: transparent;
-	border: 0;
+	border: 1px solid transparent;
 	color: var(--fg-3);
 	cursor: pointer;
 	border-radius: var(--radius-1);
 	flex-shrink: 0;
-	transition: color var(--dur-fast) var(--ease-std), background var(--dur-fast) var(--ease-std);
+	transition:
+		color var(--dur-fast) var(--ease-std),
+		background var(--dur-fast) var(--ease-std),
+		border-color var(--dur-fast) var(--ease-std);
 }
 .composer__icon-btn:hover:not(:disabled) {
 	color: var(--fg-1);
 	background: var(--bg-raised);
+	border-color: var(--border-soft);
 }
 .composer__icon-btn:focus-visible {
 	outline: none;
@@ -995,10 +1066,10 @@ body,
 	align-items: center;
 	justify-content: center;
 	gap: 5px;
-	height: 32px;
-	min-width: 78px;
-	padding: 0 12px;
-	margin-bottom: 1px;
+	height: 34px;
+	min-width: 84px;
+	padding: 0 13px;
+	margin-bottom: 0;
 	background: var(--cobalt-500);
 	color: var(--ink-25);
 	border: 1px solid var(--cobalt-500);
@@ -1010,7 +1081,9 @@ body,
 	flex-shrink: 0;
 	transition:
 		background var(--dur-fast) var(--ease-std),
-		border-color var(--dur-fast) var(--ease-std);
+		border-color var(--dur-fast) var(--ease-std),
+		opacity var(--dur-fast) var(--ease-std),
+		transform var(--dur-fast) var(--ease-std);
 }
 .composer__send:hover:not(:disabled) {
 	background: var(--cobalt-600);
@@ -1027,34 +1100,37 @@ body,
 }
 .composer__send:disabled {
 	cursor: not-allowed;
-	opacity: 0.45;
+	opacity: 1;
+	background: var(--bg-raised);
+	border-color: var(--border-default);
+	color: var(--fg-4);
 }
 
 .composer__hint {
-	margin-top: 8px;
+	margin-top: 7px;
 	font-family: var(--font-mono);
-	font-size: 10.5px;
-	color: var(--fg-3);
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
+	font-size: 10px;
+	color: var(--fg-4);
+	letter-spacing: 0;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 .composer__hint kbd {
 	font-family: var(--font-mono);
-	font-size: 10.5px;
-	background: var(--ink-50);
-	color: var(--cobalt-700);
-	padding: 1px 5px;
+	font-size: 10px;
+	background: transparent;
+	color: var(--fg-3);
+	padding: 0 2px;
 	border-radius: var(--radius-1);
-	border: 0;
+	border: 1px solid var(--border-soft);
 	margin: 0 1px;
 }
 @media (prefers-color-scheme: dark) {
 	.composer__hint kbd {
-		background: var(--ink-700);
-		color: var(--cobalt-300);
+		background: transparent;
+		color: var(--ink-300);
+		border-color: var(--ink-700);
 	}
 }
 
@@ -1237,7 +1313,36 @@ body,
 	letter-spacing: -0.028em;
 	line-height: 1.04;
 	color: var(--fg-1);
-	margin: 0 0 24px;
+	margin: 0 0 18px;
+}
+.empty__prompts {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 16px;
+}
+.empty__prompts button {
+	background: var(--bg-surface);
+	border: 1px solid var(--border-default);
+	color: var(--fg-2);
+	border-radius: var(--radius-2);
+	font-family: var(--font-body);
+	font-size: 13px;
+	padding: 7px 10px;
+	cursor: pointer;
+	transition:
+		background var(--dur-fast) var(--ease-std),
+		border-color var(--dur-fast) var(--ease-std),
+		color var(--dur-fast) var(--ease-std);
+}
+.empty__prompts button:hover {
+	background: var(--bg-raised);
+	border-color: var(--border-strong);
+	color: var(--fg-1);
+}
+.empty__prompts button:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
 }
 .empty__hint {
 	font-family: var(--font-mono);
@@ -1251,7 +1356,7 @@ body,
 /* ---------- Markdown body (assistant messages) ---------- */
 .md {
 	font-size: 14.5px;
-	line-height: 1.6;
+	line-height: 1.65;
 	color: var(--fg-1);
 	min-width: 0;
 	max-width: 100%;
@@ -1267,16 +1372,17 @@ body,
 	margin-bottom: 0;
 }
 .md p {
-	margin: 0 0 10px;
+	margin: 0 0 12px;
 }
 .md h1,
 .md h2,
 .md h3,
 .md h4 {
 	font-family: var(--font-display);
-	margin: 14px 0 6px;
+	margin: 18px 0 8px;
 	letter-spacing: -0.018em;
 	font-weight: 700;
+	line-height: 1.22;
 }
 /* No top margin if a heading is the first thing in the body. */
 .md > h1:first-child,
@@ -1299,11 +1405,11 @@ body,
 }
 .md ul,
 .md ol {
-	margin: 0 0 10px;
+	margin: 0 0 12px;
 	padding-left: 22px;
 }
 .md li {
-	margin: 1px 0;
+	margin: 3px 0;
 }
 .md li > p {
 	margin: 0 0 4px;
@@ -1314,16 +1420,22 @@ body,
 	text-decoration-color: var(--cobalt-200);
 	text-underline-offset: 2px;
 	border: 0;
+	overflow-wrap: anywhere;
+	word-break: break-word;
 }
 .md a:hover {
 	color: var(--accent-hover);
 }
 .md blockquote {
-	margin: 8px 0 12px;
-	padding: 4px 0 4px 14px;
+	margin: 10px 0 14px;
+	padding: 8px 0 8px 14px;
 	border-left: 2px solid var(--cobalt-500);
 	color: var(--fg-2);
+	background: color-mix(in srgb, var(--bg-raised) 72%, transparent);
 	font-style: normal;
+}
+.md blockquote > :last-child {
+	margin-bottom: 0;
 }
 .md hr {
 	border: 0;
@@ -1341,23 +1453,34 @@ body,
 	overflow-wrap: anywhere;
 	word-break: break-word;
 }
+.md :not(pre) > code {
+	white-space: normal;
+}
 .md table {
 	border-collapse: collapse;
-	margin: 8px 0 14px;
+	margin: 10px 0 16px;
 	font-size: 13.5px;
 	display: block;
 	max-width: 100%;
 	overflow-x: auto;
+	white-space: nowrap;
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-2);
 }
 .md th,
 .md td {
-	padding: 6px 10px;
+	padding: 7px 10px;
 	border: 1px solid var(--border-default);
 	text-align: left;
+	vertical-align: top;
 }
 .md th {
 	background: var(--bg-raised);
 	font-weight: 600;
+	color: var(--fg-1);
+}
+.md tr:nth-child(even) td {
+	background: color-mix(in srgb, var(--bg-raised) 45%, transparent);
 }
 
 /* ---------- Code block (Shiki-rendered) ----------
@@ -1367,10 +1490,10 @@ body,
  * bar from dragging when the user scrolls long lines of code.
  */
 .md .md-code-wrap {
-	background: var(--bg-raised);
+	background: var(--bg-surface);
 	border: 1px solid var(--border-default);
 	border-radius: var(--radius-2);
-	margin: 8px 0 14px;
+	margin: 10px 0 16px;
 	max-width: 100%;
 	overflow: hidden; /* clips inner <pre>'s top corners against the wrap radius */
 }
@@ -1380,14 +1503,15 @@ body,
 .md .md-code {
 	font-family: var(--font-mono);
 	font-size: 12.5px;
-	line-height: 1.55;
+	line-height: 1.6;
 	background: var(--bg-raised);
 	border: 1px solid var(--border-default);
 	border-radius: var(--radius-2);
-	padding: 12px 14px;
-	margin: 8px 0 14px;
+	padding: 13px 14px;
+	margin: 10px 0 16px;
 	overflow-x: auto;
 	max-width: 100%;
+	tab-size: 2;
 }
 .md pre code {
 	background: transparent !important;
@@ -1404,7 +1528,7 @@ body,
 	border: 0;
 	border-radius: 0;
 	margin: 0;
-	padding: 12px 14px;
+	padding: 13px 14px;
 	overflow-x: auto;
 	max-width: 100%;
 }
@@ -1413,10 +1537,10 @@ body,
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	height: 28px;
+	min-height: 30px;
 	padding: 0 8px 0 12px;
 	border-bottom: 1px solid var(--border-soft);
-	background: var(--bg-raised);
+	background: var(--bg-surface);
 	flex-shrink: 0;
 }
 .md .md-code__lang {
@@ -1429,7 +1553,7 @@ body,
 }
 .md .md-code__copy {
 	background: transparent;
-	border: 0;
+	border: 1px solid transparent;
 	font-family: var(--font-mono);
 	font-size: 10.5px;
 	color: var(--fg-3);
@@ -1441,8 +1565,9 @@ body,
 	transition: color var(--dur-fast) var(--ease-std), background var(--dur-fast) var(--ease-std);
 }
 .md .md-code__copy:hover {
-	color: var(--accent);
-	background: var(--bg-surface);
+	color: var(--fg-1);
+	background: var(--bg-raised);
+	border-color: var(--border-soft);
 }
 .md .md-code__copy:focus-visible {
 	outline: none;
@@ -1550,8 +1675,8 @@ body,
  * rather than dead space. */
 .msg__actions {
 	display: flex;
-	gap: 2px;
-	margin-top: 5px;
+	gap: 4px;
+	margin-top: 6px;
 	opacity: 0;
 	transition: opacity var(--dur-fast) var(--ease-std);
 }
@@ -1567,10 +1692,10 @@ body,
 	border: 1px solid transparent;
 	color: var(--fg-3);
 	font-family: var(--font-mono);
-	font-size: 10px;
+	font-size: 10.5px;
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
-	padding: 1px 6px;
+	padding: 2px 7px;
 	cursor: pointer;
 	border-radius: var(--radius-1);
 	transition:
@@ -1587,6 +1712,14 @@ body,
 	outline: none;
 	box-shadow: var(--shadow-focus);
 	color: var(--fg-1);
+}
+.msg__action--success {
+	color: var(--signal-700);
+}
+@media (prefers-color-scheme: dark) {
+	.msg__action--success {
+		color: var(--signal-300);
+	}
 }
 
 /* ---------- Keyboard help overlay ---------- */
@@ -1661,13 +1794,13 @@ body,
 .settings {
 	max-width: 720px;
 	margin: 0 auto;
-	padding: 32px 24px 64px;
+	padding: 32px 24px 72px;
 	width: 100%;
 }
 .settings__masthead {
 	border-top: 2px solid var(--ink-900);
 	padding-top: 12px;
-	margin-bottom: 24px;
+	margin-bottom: 22px;
 }
 .settings__eyebrow {
 	font-family: var(--font-mono);
@@ -1683,25 +1816,137 @@ body,
 	letter-spacing: -0.022em;
 	margin: 4px 0 0;
 }
-
-.settings__row {
+.settings__intro {
+	max-width: 520px;
+	margin: 8px 0 0;
+	color: var(--fg-2);
+	font-size: 14.5px;
+	line-height: 1.5;
+}
+.settings__group {
 	display: grid;
-	grid-template-columns: 180px 1fr;
+	grid-template-columns: 176px minmax(0, 1fr);
 	gap: 24px;
-	padding: 16px 0;
+	padding: 20px 0;
+	border-top: 1px solid var(--border-soft);
+}
+.settings__group:last-child {
 	border-bottom: 1px solid var(--border-soft);
 }
-.settings__row__label {
+.settings__group__title {
+	font-family: var(--font-display);
+	font-size: 15px;
+	font-weight: 700;
+	letter-spacing: -0.012em;
+	margin: 0 0 4px;
+	color: var(--fg-1);
+}
+.settings__group__copy {
+	margin: 0;
+	font-size: 13px;
+	color: var(--fg-3);
+	line-height: 1.45;
+}
+.settings__section-body {
+	min-width: 0;
+	font-size: 14.5px;
+	color: var(--fg-1);
+}
+.settings__section-title {
+	font-family: var(--font-display);
+	font-size: 15px;
+	font-weight: 700;
+	letter-spacing: -0.012em;
+	color: var(--fg-1);
+	margin-bottom: 3px;
+}
+.settings__section-copy {
+	margin: 0 0 12px;
+	font-size: 13.5px;
+	color: var(--fg-2);
+	line-height: 1.5;
+}
+.settings__stats {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+}
+.settings__stat {
+	border: 1px solid var(--border-soft);
+	background: var(--bg-surface);
+	border-radius: var(--radius-2);
+	padding: 10px 12px;
+	min-width: 0;
+}
+.settings__stat__label,
+.settings__meta-row span {
 	font-family: var(--font-mono);
-	font-size: 11px;
+	font-size: 10.5px;
 	color: var(--fg-3);
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
-	padding-top: 4px;
 }
-.settings__row__value {
-	font-size: 14.5px;
+.settings__stat__value {
+	margin-top: 3px;
+	font-family: var(--font-display);
+	font-size: 18px;
+	font-weight: 700;
+	letter-spacing: -0.014em;
 	color: var(--fg-1);
+}
+.settings__meta-row {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 10px;
+	color: var(--fg-2);
+	font-size: 13.5px;
+}
+.settings__meta-row code {
+	font-family: var(--font-mono);
+	font-size: 12px;
+	color: var(--accent-fg);
+	background: var(--bg-raised);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-1);
+	padding: 1px 5px;
+}
+.settings__form {
+	max-width: 380px;
+}
+.settings__form-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.settings__session {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+}
+.settings__group--danger {
+	border-top-color: color-mix(in srgb, var(--flag-700) 28%, var(--border-soft));
+}
+@media (max-width: 680px) {
+	.settings {
+		padding: 24px 16px 56px;
+	}
+	.settings__title {
+		font-size: 28px;
+	}
+	.settings__group {
+		grid-template-columns: 1fr;
+		gap: 12px;
+	}
+	.settings__stats {
+		grid-template-columns: 1fr;
+	}
+	.settings__session {
+		align-items: flex-start;
+		flex-direction: column;
+	}
 }
 
 /* ---------- Tool-call inspector ---------- */
@@ -2229,6 +2474,23 @@ body,
 		width: min(88vw, 320px);
 	}
 	.composer-zone {
-		padding: 10px 14px 14px;
+		padding: 10px 12px 14px;
+	}
+	.composer {
+		gap: 6px;
+		padding: 6px;
+	}
+	.composer__icon-btn,
+	.composer__send {
+		width: 34px;
+		min-width: 34px;
+		padding: 0;
+	}
+	.composer__send span {
+		display: none;
+	}
+	.composer__hint {
+		white-space: normal;
+		line-height: 1.45;
 	}
 }

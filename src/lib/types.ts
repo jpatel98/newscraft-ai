@@ -17,6 +17,7 @@ export interface ChatMessage {
 	role: Role;
 	content: MessageContent;
 	partial: boolean;
+	createdAt?: number;
 	/** True only for the message currently being streamed in the live overlay.
 	 * Persisted partial messages have partial=1 but streaming=false. */
 	streaming?: boolean;

@@ -99,37 +99,42 @@
 		<header class="settings__masthead">
 			<div class="settings__eyebrow">Settings · v0.1</div>
 			<h1 class="settings__title">Account &amp; preferences</h1>
+			<p class="settings__intro">Manage your account, exports, and local conversation data.</p>
 		</header>
 
-		<section class="settings__row">
-			<div class="settings__row__label">Signed in</div>
-			<div class="settings__row__value">{data.user ? 'Yes' : 'No'}</div>
-		</section>
-
-		<section class="settings__row">
-			<div class="settings__row__label">Threads</div>
-			<div class="settings__row__value">
-				{data.conversations.length} on record
+		<section class="settings__group" aria-labelledby="settings-overview">
+			<div class="settings__group__head">
+				<h2 id="settings-overview" class="settings__group__title">Overview</h2>
+				<p class="settings__group__copy">Current workspace state.</p>
+			</div>
+			<div class="settings__stats">
+				<div class="settings__stat">
+					<div class="settings__stat__label">Signed in</div>
+					<div class="settings__stat__value">{data.user ? 'Yes' : 'No'}</div>
+				</div>
+				<div class="settings__stat">
+					<div class="settings__stat__label">Threads</div>
+					<div class="settings__stat__value">{data.conversations.length}</div>
+				</div>
+				<div class="settings__stat">
+					<div class="settings__stat__label">Theme</div>
+					<div class="settings__stat__value">System</div>
+				</div>
+			</div>
+			<div class="settings__meta-row">
+				<span>Agent</span>
+				<strong>NewsCraft</strong>
+				<code>hermes-agent</code>
 			</div>
 		</section>
 
-		<section class="settings__row">
-			<div class="settings__row__label">Theme</div>
-			<div class="settings__row__value">System default · light + dark.</div>
-		</section>
-
-		<section class="settings__row">
-			<div class="settings__row__label">Agent</div>
-			<div class="settings__row__value">
-				NewsCraft · model
-				<code style="font-family:var(--font-mono);font-size:13px">hermes-agent</code>
+		<section class="settings__group" aria-labelledby="settings-security">
+			<div class="settings__group__head">
+				<h2 id="settings-security" class="settings__group__title">Security</h2>
+				<p class="settings__group__copy">Update the password for this account.</p>
 			</div>
-		</section>
-
-		<section class="settings__row">
-			<div class="settings__row__label">Password</div>
-			<div class="settings__row__value">
-				<form onsubmit={submitPassword} autocomplete="off" style="max-width:360px">
+			<div class="settings__section-body">
+				<form class="settings__form" onsubmit={submitPassword} autocomplete="off">
 					<div class="field">
 						<label class="field__label" for="pw-current">Current password</label>
 						<input
@@ -165,9 +170,11 @@
 							required
 						/>
 					</div>
-					<button type="submit" class="btn btn--primary" disabled={pwBusy}>
-						{pwBusy ? 'Updating…' : 'Update password'}
-					</button>
+					<div class="settings__form-actions">
+						<button type="submit" class="btn btn--primary" disabled={pwBusy}>
+							{pwBusy ? 'Updating…' : 'Update password'}
+						</button>
+					</div>
 					{#if pwMsg}
 						<div class={pwMsg.kind === 'ok' ? 'settings__ok' : 'field__error'}>
 							{pwMsg.text}
@@ -177,30 +184,40 @@
 			</div>
 		</section>
 
-		<section class="settings__row">
-			<div class="settings__row__label">Export</div>
-			<div class="settings__row__value">
+		<section class="settings__group" aria-labelledby="settings-data">
+			<div class="settings__group__head">
+				<h2 id="settings-data" class="settings__group__title">Data</h2>
+				<p class="settings__group__copy">Download or remove conversation records.</p>
+			</div>
+			<div class="settings__section-body">
+				<div class="settings__section-title">Export conversations</div>
+				<p class="settings__section-copy">
+					Download every conversation as JSONL, newest conversations first.
+				</p>
 				<a class="btn btn--ghost" href="/api/settings/export" download>
 					Download all conversations (JSONL)
 				</a>
 				<div class="settings__hint">
-					One record per line. Conversations newest-first; messages chronological.
+					One record per line. Messages remain chronological inside each conversation.
 				</div>
 			</div>
 		</section>
 
-		<section class="settings__row settings__row--danger">
-			<div class="settings__row__label">Danger zone</div>
-			<div class="settings__row__value">
+		<section class="settings__group settings__group--danger" aria-labelledby="settings-danger">
+			<div class="settings__group__head">
+				<h2 id="settings-danger" class="settings__group__title">Danger zone</h2>
+				<p class="settings__group__copy">Destructive actions require confirmation.</p>
+			</div>
+			<div class="settings__section-body">
 				<div class="settings__danger">
 					<div class="settings__danger__title">Wipe all conversations</div>
 					<div class="settings__danger__copy">
 						Deletes every conversation and message. Settings (including this password) are kept.
 						This cannot be undone.
 					</div>
-					<div class="field" style="margin-top:12px">
+					<div class="field settings__danger__field">
 						<label class="field__label" for="wipe-phrase">
-							Type <code style="font-family:var(--font-mono);font-size:12px">{PHRASE}</code>
+							Type <code class="settings__phrase">{PHRASE}</code>
 							to enable
 						</label>
 						<input
@@ -229,9 +246,16 @@
 			</div>
 		</section>
 
-		<section class="settings__row">
-			<div class="settings__row__label">Session</div>
-			<div class="settings__row__value">
+		<section class="settings__group" aria-labelledby="settings-session">
+			<div class="settings__group__head">
+				<h2 id="settings-session" class="settings__group__title">Session</h2>
+				<p class="settings__group__copy">End the current browser session.</p>
+			</div>
+			<div class="settings__section-body settings__session">
+				<div>
+					<div class="settings__section-title">Signed in session</div>
+					<p class="settings__section-copy">Sign out of this device.</p>
+				</div>
 				<form method="post" action="/logout">
 					<button type="submit" class="btn btn--ghost">Sign out</button>
 				</form>
@@ -260,11 +284,11 @@
 		<div class="kbd-help__panel" role="document">
 			<div id="wipe-confirm-title" class="kbd-help__title">Wipe everything?</div>
 			<div class="kbd-help__sub">This cannot be undone</div>
-			<p style="font-size:14px;color:var(--fg-1);margin:0 0 18px">
+			<p class="settings__confirm-copy">
 				All {data.conversations.length} conversation{data.conversations.length === 1 ? '' : 's'}
 				and every message will be deleted. Your password and theme stay.
 			</p>
-			<div style="display:flex;gap:8px;justify-content:flex-end">
+			<div class="settings__confirm-actions">
 				<button type="button" class="btn btn--ghost" onclick={cancelWipe} disabled={wipeBusy}>
 					Cancel
 				</button>
@@ -293,27 +317,27 @@
 	.settings__ok {
 		font-family: var(--font-mono);
 		font-size: 11px;
-		color: var(--cobalt-700);
+		color: var(--signal-700);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		margin-top: 6px;
 	}
 	@media (prefers-color-scheme: dark) {
 		.settings__ok {
-			color: var(--cobalt-300);
+			color: var(--signal-300);
 		}
-	}
-	.settings__row--danger {
-		border-top: 1px solid var(--border-default);
 	}
 	.settings__danger {
 		border: 1px solid var(--flag-700);
-		padding: 14px 16px;
-		max-width: 480px;
+		border-radius: var(--radius-2);
+		padding: 16px;
+		max-width: 520px;
+		background: color-mix(in srgb, var(--flag-50) 34%, var(--bg-surface));
 	}
 	@media (prefers-color-scheme: dark) {
 		.settings__danger {
 			border-color: var(--flag-300);
+			background: color-mix(in srgb, var(--flag-700) 16%, var(--bg-surface));
 		}
 	}
 	.settings__danger__title {
@@ -333,6 +357,25 @@
 		font-size: 13px;
 		color: var(--fg-2);
 		line-height: 1.5;
+	}
+	.settings__danger__field {
+		margin-top: 12px;
+	}
+	.settings__phrase {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--flag-700);
+	}
+	.settings__confirm-copy {
+		font-size: 14px;
+		color: var(--fg-1);
+		margin: 0 0 18px;
+		line-height: 1.5;
+	}
+	.settings__confirm-actions {
+		display: flex;
+		gap: 8px;
+		justify-content: flex-end;
 	}
 	:global(.btn--danger) {
 		background: var(--flag-700);
@@ -361,5 +404,13 @@
 	}
 	.modal-backdrop:focus-visible {
 		outline: none;
+	}
+	@media (max-width: 520px) {
+		.settings__confirm-actions {
+			flex-direction: column-reverse;
+		}
+		.settings__confirm-actions :global(.btn) {
+			width: 100%;
+		}
 	}
 </style>

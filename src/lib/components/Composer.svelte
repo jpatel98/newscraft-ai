@@ -68,6 +68,14 @@
 		textarea?.focus();
 	}
 
+	export function setValue(next: string) {
+		value = next;
+		queueMicrotask(() => {
+			textarea?.focus();
+			autosize();
+		});
+	}
+
 	function newAttachmentId(): string {
 		return 'att-' + Math.random().toString(36).slice(2, 9);
 	}
@@ -321,11 +329,9 @@
 			</button>
 		</div>
 	</div>
-	<div class="composer__hint">
+	<div class="composer__hint" class:composer__hint--interrupt={showInterruptHint}>
 		{#if showInterruptHint}
-			<span style="color:var(--accent-fg)"
-				><kbd>Enter</kbd> interrupts the current reply and sends</span
-			>
+			<span><kbd>Enter</kbd> interrupts the current reply and sends</span>
 		{:else}
 			<span
 				><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline · <kbd>Esc</kbd>
@@ -348,8 +354,7 @@
 		justify-content: center;
 		font-family: var(--font-mono);
 		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
+		letter-spacing: 0;
 		color: var(--cobalt-700);
 		background: color-mix(in srgb, var(--cobalt-500) 8%, transparent);
 		border: 1px dashed var(--cobalt-500);
@@ -360,8 +365,8 @@
 	.composer__attachments {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 8px;
-		margin-bottom: 8px;
+		gap: 10px;
+		margin-bottom: 10px;
 	}
 	.composer__att {
 		position: relative;
@@ -372,7 +377,7 @@
 		height: 72px;
 		object-fit: cover;
 		border: 1px solid var(--border-default);
-		border-radius: var(--radius-1);
+		border-radius: var(--radius-2);
 		display: block;
 		background: var(--bg-raised);
 	}
@@ -382,8 +387,7 @@
 		justify-content: center;
 		font-family: var(--font-mono);
 		font-size: 9.5px;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		letter-spacing: 0;
 		color: var(--fg-3);
 		text-align: center;
 		padding: 4px;
@@ -406,17 +410,25 @@
 		justify-content: center;
 		cursor: pointer;
 		padding: 0;
+		transition:
+			background var(--dur-fast) var(--ease-std),
+			color var(--dur-fast) var(--ease-std),
+			border-color var(--dur-fast) var(--ease-std);
 	}
 	.composer__att__remove:hover {
 		color: var(--fg-1);
 		background: var(--bg-raised);
+		border-color: var(--border-strong);
+	}
+	.composer__att__remove:focus-visible {
+		outline: none;
+		box-shadow: var(--shadow-focus);
 	}
 	.composer__att__meta {
 		margin-top: 4px;
 		font-family: var(--font-mono);
 		font-size: 9.5px;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		letter-spacing: 0;
 		color: var(--fg-3);
 		text-align: center;
 		white-space: nowrap;
@@ -424,11 +436,13 @@
 		text-overflow: ellipsis;
 	}
 	.composer__error {
-		margin-bottom: 6px;
+		margin-bottom: 8px;
 		font-family: var(--font-mono);
-		font-size: 10.5px;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		font-size: 11px;
+		letter-spacing: 0;
 		color: var(--danger-fg, #b34040);
+	}
+	.composer__hint--interrupt {
+		color: var(--accent-fg);
 	}
 </style>

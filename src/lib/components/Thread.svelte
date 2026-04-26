@@ -6,6 +6,7 @@
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Markdown from './Markdown.svelte';
 	import ToolInspector, { type InspectorToolCall } from './ToolInspector.svelte';
+	import { formatShortTime } from '$lib/utils/time';
 
 	function parseToolCalls(m: ChatMessage): InspectorToolCall[] {
 		// `messages.toolCalls` is a JSON column on the row but not part of the
@@ -53,6 +54,7 @@
 
 	let scroller: HTMLDivElement | undefined = $state();
 	let copied = $state<string | null>(null);
+	let scrolledToHash = $state(false);
 
 	function lengthOf(c: MessageContent): number {
 		return typeof c === 'string' ? c.length : c.length;
@@ -70,15 +72,23 @@
 		const last = messages[messages.length - 1];
 		if (last) lengthOf(last.content);
 		queueMicrotask(() => {
-			if (scroller) scroller.scrollTop = scroller.scrollHeight;
+			if (!scroller) return;
+			const target = typeof location === 'undefined' ? null : location.hash.match(/^#m=(.+)$/);
+			if (target && !scrolledToHash) {
+				const el = document.getElementById(`m-${decodeURIComponent(target[1])}`);
+				if (el) {
+					el.scrollIntoView({ block: 'center' });
+					scrolledToHash = true;
+					return;
+				}
+			}
+			scroller.scrollTop = scroller.scrollHeight;
 		});
 	});
 
-	function timeOf(_m: ChatMessage): string {
-		const d = new Date();
-		const h = d.getHours().toString().padStart(2, '0');
-		const min = d.getMinutes().toString().padStart(2, '0');
-		return `${h}:${min}`;
+	function timeOf(m: ChatMessage): string {
+		const ts = (m as ChatMessage & { createdAt?: number }).createdAt ?? Date.now();
+		return formatShortTime(ts);
 	}
 
 	const lastAssistantId = $derived.by(() => {
@@ -108,6 +118,7 @@
 			{@const stacked = prev && prev.role === m.role}
 			{@const roleChange = prev && prev.role !== m.role}
 			<article
+				id={`m-${m.id}`}
 				class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange ? 'msg--role-change' : ''}"
 			>
 				{#if m.role === 'assistant'}
@@ -204,9 +215,9 @@
 						<div class="msg__actions">
 							<button
 								type="button"
-								class="msg__action"
+								class="msg__action {copied === m.id ? 'msg__action--success' : ''}"
 								onclick={() => copy(m)}
-								aria-label="Copy message"
+								aria-label={copied === m.id ? 'Message copied' : 'Copy message'}
 							>
 								<Copy size="11" strokeWidth={1.5} />
 								<span>{copied === m.id ? 'Copied' : 'Copy'}</span>
@@ -217,6 +228,7 @@
 									class="msg__action"
 									onclick={() => onRegenerate?.()}
 									aria-label="Regenerate reply"
+									title="Regenerate reply"
 								>
 									<RotateCcw size="11" strokeWidth={1.5} />
 									<span>Regenerate</span>
