@@ -5,7 +5,9 @@
 	import { onMount, tick } from 'svelte';
 	import { page } from '$app/state';
 	import { goto, invalidateAll } from '$app/navigation';
-	import Plus from 'lucide-svelte/icons/plus';
+	import PanelLeft from 'lucide-svelte/icons/panel-left';
+	import SquarePen from 'lucide-svelte/icons/square-pen';
+	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import Settings from 'lucide-svelte/icons/settings';
 	import LogOut from 'lucide-svelte/icons/log-out';
 	import Hash from 'lucide-svelte/icons/hash';
@@ -15,6 +17,7 @@
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import SystemPromptEditor from '$lib/components/SystemPromptEditor.svelte';
+	import { groupByDate } from '$lib/utils/group-by-date';
 
 	interface SidebarConvo {
 		id: string;
@@ -29,16 +32,58 @@
 	const onLogin = $derived(page.url.pathname === '/login');
 
 	let paletteOpen = $state(false);
+	let drawerOpen = $state(false);
+	let isMobile = $state(false);
+
+	// `now` snapshot for date-bucketing; refreshed on conversation list change so
+	// labels don't drift mid-session without forcing a tight re-eval each tick.
+	const groups = $derived(groupByDate(data.conversations as SidebarConvo[], Date.now()));
+
+	function toggleDrawer() {
+		drawerOpen = !drawerOpen;
+	}
+
+	function closeDrawer() {
+		drawerOpen = false;
+	}
+
+	async function newChat() {
+		await goto('/');
+	}
+
+	async function openDrawerForSearch() {
+		drawerOpen = true;
+		await tick();
+		searchInput?.focus();
+	}
+
+	function onSelectThread() {
+		if (isMobile) drawerOpen = false;
+	}
 
 	onMount(() => {
+		const mq = window.matchMedia('(max-width: 760px)');
+		const apply = () => (isMobile = mq.matches);
+		apply();
+		mq.addEventListener('change', apply);
+
 		const handler = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
 				e.preventDefault();
 				paletteOpen = !paletteOpen;
+				return;
+			}
+			if ((e.metaKey || e.ctrlKey) && (e.key === 'b' || e.key === 'B') && !e.shiftKey) {
+				e.preventDefault();
+				toggleDrawer();
+				return;
 			}
 		};
 		window.addEventListener('keydown', handler);
-		return () => window.removeEventListener('keydown', handler);
+		return () => {
+			window.removeEventListener('keydown', handler);
+			mq.removeEventListener('change', apply);
+		};
 	});
 
 	function relTime(ts: number): string {
@@ -280,6 +325,7 @@
 		if (el && typeof el.scrollIntoView === 'function') {
 			el.scrollIntoView({ block: 'center' });
 		}
+		onSelectThread();
 	}
 </script>
 
@@ -291,20 +337,79 @@
 	{@render children()}
 {:else}
 	<div class="shell">
-		<aside class="sidebar">
-			<div class="sidebar__masthead">
-				<a class="sidebar__brand" href="/" aria-label="NewsCraft home">
-					<img src="/brand/logo-mark-inverse.svg" alt="" />
+		<!-- Floating command bar — top-left, fixed, three icon buttons. -->
+		<div class="cmdbar" role="toolbar" aria-label="App actions">
+			<button
+				type="button"
+				class="cmdbar__btn"
+				aria-label="Toggle sidebar"
+				aria-expanded={drawerOpen}
+				title="Toggle sidebar (Cmd+B)"
+				onclick={toggleDrawer}
+			>
+				<PanelLeft size="16" strokeWidth={1.7} />
+			</button>
+			<button
+				type="button"
+				class="cmdbar__btn"
+				aria-label="Search threads"
+				title="Search threads"
+				onclick={openDrawerForSearch}
+			>
+				<Search size="16" strokeWidth={1.7} />
+			</button>
+			<button
+				type="button"
+				class="cmdbar__btn"
+				aria-label="New chat"
+				title="New chat (Cmd+Shift+O)"
+				onclick={newChat}
+			>
+				<SquarePen size="16" strokeWidth={1.7} />
+			</button>
+		</div>
+
+		{#if drawerOpen && isMobile}
+			<button
+				type="button"
+				class="drawer__backdrop"
+				aria-label="Close sidebar"
+				onclick={closeDrawer}
+			></button>
+		{/if}
+
+		<aside
+			class="drawer {drawerOpen ? 'drawer--open' : ''}"
+			aria-label="Sidebar"
+			aria-hidden={!drawerOpen}
+		>
+			<div class="drawer__head">
+				<button
+					type="button"
+					class="drawer__head__btn"
+					aria-label="Close sidebar"
+					onclick={toggleDrawer}
+				>
+					<PanelLeft size="15" strokeWidth={1.7} />
+				</button>
+				<a class="drawer__brand" href="/" aria-label="NewsCraft home" onclick={onSelectThread}>
 					<span>NewsCraft</span>
 				</a>
+				<span class="drawer__head__btn drawer__head__btn--static" aria-hidden="true">
+					<Sparkles size="15" strokeWidth={1.7} />
+				</span>
+			</div>
+
+			<div class="drawer__newchat-wrap">
 				<a
-					class="sidebar__action"
+					class="drawer__newchat"
 					href="/"
 					aria-label="New chat"
 					title="New chat (Cmd+Shift+O)"
+					onclick={onSelectThread}
 				>
-					<Plus size="14" strokeWidth={2} />
-					<span>New</span>
+					<SquarePen size="14" strokeWidth={1.8} />
+					<span>New chat</span>
 				</a>
 			</div>
 
@@ -317,12 +422,14 @@
 					onkeydown={onSearchKeydown}
 					type="text"
 					class="sidebar__search__input"
-					placeholder="Search messages"
+					placeholder="Search your threads..."
 					autocomplete="off"
 					spellcheck="false"
-					aria-label="Search messages"
+					aria-label="Search your threads"
 				/>
 			</div>
+
+			<div class="drawer__divider" aria-hidden="true"></div>
 
 			{#if searchActive}
 				<div class="sidebar__section">Results</div>
@@ -352,101 +459,110 @@
 					{/each}
 				</div>
 			{:else}
-				<div class="sidebar__section">Threads</div>
 				<div class="sidebar__list">
 					{#if data.conversations.length === 0}
+						<div class="sidebar__section">Threads</div>
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
 							<span class="sidebar__row__name">No threads yet</span>
 						</div>
 					{/if}
-					{#each data.conversations as c (c.id)}
-						<div
-							class="sidebar__row-wrap {page.params.id === c.id ? 'sidebar__row-wrap--active' : ''}"
-							data-row-menu
-						>
-							{#if renamingFor === c.id}
-								<div class="sidebar__row sidebar__row--editing">
-									<Hash class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
-									<input
-										bind:this={renameInput}
-										bind:value={renameDraft}
-										class="sidebar__rename"
-										maxlength="200"
-										onkeydown={(e) => {
-											if (e.key === 'Enter') {
-												e.preventDefault();
-												void commitRename(c);
-											} else if (e.key === 'Escape') {
-												e.preventDefault();
-												cancelRename();
-											}
-										}}
-										onblur={() => commitRename(c)}
-									/>
-								</div>
-							{:else}
-								<a
-									class="sidebar__row {page.params.id === c.id ? 'sidebar__row--active' : ''}"
-									href={`/c/${c.id}`}
-								>
-									<Hash class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
-									{#if c.pinned}
-										<Pin
-											class="sidebar__row__pin"
-											size="11"
-											strokeWidth={1.8}
-											fill="currentColor"
-										/>
-									{/if}
-									<span class="sidebar__row__name">{c.title || 'Untitled thread'}</span>
-									<span class="sidebar__row__time">{relTime(c.updatedAt)}</span>
-								</a>
-								<button
-									type="button"
-									class="sidebar__row-menu-btn"
-									aria-label="Conversation actions"
-									aria-haspopup="menu"
-									aria-expanded={menuFor === c.id}
-									onclick={(e) => openMenu(c.id, e)}
-								>
-									<MoreHorizontal size="14" strokeWidth={1.8} />
-								</button>
-							{/if}
 
-							{#if menuFor === c.id}
-								<div class="sidebar__menu" role="menu">
-									<button type="button" role="menuitem" onclick={() => togglePin(c)}>
-										{c.pinned ? 'Unpin' : 'Pin'}
-									</button>
-									<button type="button" role="menuitem" onclick={() => startRename(c)}>
-										Rename
-									</button>
-									<button type="button" role="menuitem" onclick={() => openSystemPrompt(c)}>
-										System prompt{c.systemPrompt ? ' •' : ''}
-									</button>
-									<button type="button" role="menuitem" onclick={() => exportConvo(c, 'md')}>
-										Export Markdown
-									</button>
-									<button type="button" role="menuitem" onclick={() => exportConvo(c, 'jsonl')}>
-										Export JSONL
-									</button>
-									<button
-										type="button"
-										role="menuitem"
-										class="sidebar__menu__danger"
-										onclick={() => onRowAction(c)}
-									>
-										{confirmDeleteFor === c.id ? 'Click again to confirm' : 'Delete'}
-									</button>
+					{#each [['PINNED', groups.pinned], ['TODAY', groups.today], ['YESTERDAY', groups.yesterday], ['LAST 7 DAYS', groups.last7], ['EARLIER', groups.earlier]] as const as [label, items] (label)}
+						{#if items.length > 0}
+							<div class="sidebar__section">{label}</div>
+							{#each items as c (c.id)}
+								<div
+									class="sidebar__row-wrap {page.params.id === c.id
+										? 'sidebar__row-wrap--active'
+										: ''}"
+									data-row-menu
+								>
+									{#if renamingFor === c.id}
+										<div class="sidebar__row sidebar__row--editing">
+											<Hash class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+											<input
+												bind:this={renameInput}
+												bind:value={renameDraft}
+												class="sidebar__rename"
+												maxlength="200"
+												onkeydown={(e) => {
+													if (e.key === 'Enter') {
+														e.preventDefault();
+														void commitRename(c);
+													} else if (e.key === 'Escape') {
+														e.preventDefault();
+														cancelRename();
+													}
+												}}
+												onblur={() => commitRename(c)}
+											/>
+										</div>
+									{:else}
+										<a
+											class="sidebar__row {page.params.id === c.id ? 'sidebar__row--active' : ''}"
+											href={`/c/${c.id}`}
+											onclick={onSelectThread}
+										>
+											<Hash class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+											{#if c.pinned}
+												<Pin
+													class="sidebar__row__pin"
+													size="11"
+													strokeWidth={1.8}
+													fill="currentColor"
+												/>
+											{/if}
+											<span class="sidebar__row__name">{c.title || 'Untitled thread'}</span>
+											<span class="sidebar__row__time">{relTime(c.updatedAt)}</span>
+										</a>
+										<button
+											type="button"
+											class="sidebar__row-menu-btn"
+											aria-label="Conversation actions"
+											aria-haspopup="menu"
+											aria-expanded={menuFor === c.id}
+											onclick={(e) => openMenu(c.id, e)}
+										>
+											<MoreHorizontal size="14" strokeWidth={1.8} />
+										</button>
+									{/if}
+
+									{#if menuFor === c.id}
+										<div class="sidebar__menu" role="menu">
+											<button type="button" role="menuitem" onclick={() => togglePin(c)}>
+												{c.pinned ? 'Unpin' : 'Pin'}
+											</button>
+											<button type="button" role="menuitem" onclick={() => startRename(c)}>
+												Rename
+											</button>
+											<button type="button" role="menuitem" onclick={() => openSystemPrompt(c)}>
+												System prompt{c.systemPrompt ? ' •' : ''}
+											</button>
+											<button type="button" role="menuitem" onclick={() => exportConvo(c, 'md')}>
+												Export Markdown
+											</button>
+											<button type="button" role="menuitem" onclick={() => exportConvo(c, 'jsonl')}>
+												Export JSONL
+											</button>
+											<button
+												type="button"
+												role="menuitem"
+												class="sidebar__menu__danger"
+												onclick={() => onRowAction(c)}
+											>
+												{confirmDeleteFor === c.id ? 'Click again to confirm' : 'Delete'}
+											</button>
+										</div>
+									{/if}
 								</div>
-							{/if}
-						</div>
+							{/each}
+						{/if}
 					{/each}
 				</div>
 			{/if}
 
 			<div class="sidebar__footer">
-				<a href="/settings" aria-label="Settings">
+				<a href="/settings" aria-label="Settings" onclick={onSelectThread}>
 					<Settings size="14" strokeWidth={1.5} style="vertical-align:-2px;margin-right:4px" />
 					Settings
 				</a>
