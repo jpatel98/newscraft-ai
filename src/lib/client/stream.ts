@@ -1,8 +1,9 @@
 import { readSSE } from '$lib/utils/sse-client';
+import type { MessageContent } from '$lib/types';
 
 export interface StreamArgs {
 	conversation_id?: string;
-	content?: string;
+	content?: MessageContent;
 	regenerate?: boolean;
 }
 

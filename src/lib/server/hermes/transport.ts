@@ -1,8 +1,14 @@
 import { env } from '$env/dynamic/private';
 import { createHash } from 'node:crypto';
 
+export type HermesContentPart =
+	| { type: 'text'; text: string }
+	| { type: 'image_url'; image_url: { url: string } };
+
+export type HermesContent = string | HermesContentPart[];
+
 export type HermesMessage =
-	| { role: 'system' | 'user' | 'assistant'; content: string }
+	| { role: 'system' | 'user' | 'assistant'; content: HermesContent }
 	| { role: 'tool'; content: string; tool_call_id?: string };
 
 export interface HermesChatRequest {
@@ -32,9 +38,18 @@ function apiKey(): string {
  * to the browser. Capped at 32 hex chars.
  */
 export function deriveSessionId(messages: HermesMessage[]): string {
-	const system = messages.find((m) => m.role === 'system')?.content ?? '';
-	const firstUser = messages.find((m) => m.role === 'user')?.content ?? '';
+	const system = flattenContent(messages.find((m) => m.role === 'system')?.content);
+	const firstUser = flattenContent(messages.find((m) => m.role === 'user')?.content);
 	return createHash('sha256').update(system).update('\0').update(firstUser).digest('hex').slice(0, 32);
+}
+
+function flattenContent(c: HermesContent | undefined): string {
+	if (!c) return '';
+	if (typeof c === 'string') return c;
+	return c
+		.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+		.map((p) => p.text)
+		.join('\n');
 }
 
 /**

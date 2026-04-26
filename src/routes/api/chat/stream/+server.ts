@@ -2,7 +2,9 @@ import { error, type RequestHandler } from '@sveltejs/kit';
 import {
 	streamChatCompletion,
 	completion,
-	type HermesMessage
+	type HermesMessage,
+	type HermesContent,
+	type HermesContentPart
 } from '$lib/server/hermes/transport';
 import {
 	addMessage,
@@ -11,13 +13,52 @@ import {
 	getConversation,
 	getMessages,
 	lastAssistantMessage,
+	parseContent,
 	setConversationTitle
 } from '$lib/server/db/conversations';
+import type { ContentPart, MessageContent } from '$lib/types';
 
 interface Body {
 	conversation_id?: string;
-	content?: string;
+	content?: MessageContent;
 	regenerate?: boolean;
+}
+
+// Hermes caps the request body around 1 MB; keep some headroom for the
+// surrounding JSON envelope, system prompt, and prior turns.
+const MAX_REQUEST_BYTES = 950 * 1024;
+
+function sanitizeContent(c: MessageContent | undefined): MessageContent | null {
+	if (c == null) return null;
+	if (typeof c === 'string') return c;
+	if (!Array.isArray(c)) return null;
+	const parts: ContentPart[] = [];
+	for (const p of c) {
+		if (!p || typeof p !== 'object') continue;
+		if (p.type === 'text' && typeof p.text === 'string') {
+			parts.push({ type: 'text', text: p.text });
+		} else if (
+			p.type === 'image_url' &&
+			p.image_url &&
+			typeof p.image_url.url === 'string'
+		) {
+			parts.push({ type: 'image_url', image_url: { url: p.image_url.url } });
+		}
+		// anything else (notably `type:'file'`) is dropped — Hermes rejects it.
+	}
+	if (parts.length === 0) return null;
+	const onlyText = parts.every((p) => p.type === 'text');
+	if (onlyText) return parts.map((p) => (p as { text: string }).text).join('\n');
+	return parts;
+}
+
+function toHermesContent(c: MessageContent): HermesContent {
+	if (typeof c === 'string') return c;
+	return c.map<HermesContentPart>((p) =>
+		p.type === 'text'
+			? { type: 'text', text: p.text }
+			: { type: 'image_url', image_url: { url: p.image_url.url } }
+	);
 }
 
 interface OpenAIChunk {
@@ -37,6 +78,11 @@ const TITLE_SYSTEM =
 export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 
+	const len = Number(request.headers.get('content-length') ?? '0');
+	if (len > MAX_REQUEST_BYTES) {
+		throw error(413, 'request too large — try fewer or smaller attachments');
+	}
+
 	let body: Body;
 	try {
 		body = (await request.json()) as Body;
@@ -55,15 +101,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		const lastA = lastAssistantMessage(convoId);
 		if (lastA) deleteMessagesFrom(convoId, lastA.id);
 	} else {
-		const content = (body.content ?? '').trim();
-		if (!content) throw error(400, 'content required');
-		addMessage({ conversationId: convoId, role: 'user', content });
+		const cleaned = sanitizeContent(body.content);
+		if (cleaned == null) throw error(400, 'content required');
+		if (typeof cleaned === 'string' && !cleaned.trim()) throw error(400, 'content required');
+		addMessage({ conversationId: convoId, role: 'user', content: cleaned });
 	}
 
-	const history = getMessages(convoId).map<HermesMessage>((m) => ({
-		role: m.role === 'tool' ? 'assistant' : (m.role as 'user' | 'assistant' | 'system'),
-		content: m.content
-	}));
+	const history = getMessages(convoId).map<HermesMessage>((m) => {
+		const parsed = parseContent(m.content);
+		return {
+			role: m.role === 'tool' ? 'assistant' : (m.role as 'user' | 'assistant' | 'system'),
+			content: toHermesContent(parsed)
+		};
+	});
 
 	const upstream = await streamChatCompletion(
 		{ messages: history, stream: true },
@@ -151,7 +201,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					const seedHistory = getMessages(convoId)
 						.filter((m) => m.role === 'user' || m.role === 'assistant')
 						.slice(0, 4)
-						.map<HermesMessage>((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+						.map<HermesMessage>((m) => {
+							const parsed = parseContent(m.content);
+							const text =
+								typeof parsed === 'string'
+									? parsed
+									: parsed
+											.filter((p) => p.type === 'text')
+											.map((p) => (p as { text: string }).text)
+											.join('\n');
+							return { role: m.role as 'user' | 'assistant', content: text };
+						});
 					const titleMessages: HermesMessage[] = [
 						{ role: 'system', content: TITLE_SYSTEM },
 						...seedHistory,

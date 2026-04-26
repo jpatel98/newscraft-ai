@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { ChatMessage } from '$lib/types';
+	import type { ChatMessage, ContentPart, MessageContent } from '$lib/types';
+	import { contentText } from '$lib/types';
 	import Bot from 'lucide-svelte/icons/bot';
 	import Copy from 'lucide-svelte/icons/copy';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
@@ -15,9 +16,21 @@
 	let scroller: HTMLDivElement | undefined = $state();
 	let copied = $state<string | null>(null);
 
+	function lengthOf(c: MessageContent): number {
+		return typeof c === 'string' ? c.length : c.length;
+	}
+	function textOf(c: MessageContent): string {
+		return typeof c === 'string' ? c : contentText(c);
+	}
+	function partsOf(c: MessageContent): ContentPart[] {
+		if (typeof c === 'string') return [{ type: 'text', text: c }];
+		return c;
+	}
+
 	$effect(() => {
 		messages.length;
-		messages[messages.length - 1]?.content.length;
+		const last = messages[messages.length - 1];
+		if (last) lengthOf(last.content);
 		queueMicrotask(() => {
 			if (scroller) scroller.scrollTop = scroller.scrollHeight;
 		});
@@ -39,7 +52,7 @@
 
 	async function copy(m: ChatMessage) {
 		try {
-			await navigator.clipboard.writeText(m.content);
+			await navigator.clipboard.writeText(textOf(m.content));
 			copied = m.id;
 			setTimeout(() => {
 				if (copied === m.id) copied = null;
@@ -82,7 +95,7 @@
 					</div>
 
 					<div class="msg__body" aria-live={m.role === 'assistant' && m.streaming ? 'polite' : 'off'}>
-						{#if m.role === 'assistant' && m.streaming && m.content.length === 0}
+						{#if m.role === 'assistant' && m.streaming && lengthOf(m.content) === 0}
 							<span class="pulse">
 								<span class="pulse__dots" aria-hidden="true"
 									><span></span><span></span><span></span></span
@@ -90,7 +103,7 @@
 								Drafting reply
 							</span>
 						{:else if m.role === 'assistant'}
-							<Markdown content={m.content} partial={m.streaming === true} />
+							<Markdown content={textOf(m.content)} partial={m.streaming === true} />
 							{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 							{#if m.partial && !m.streaming}
 								<span
@@ -99,6 +112,22 @@
 									— interrupted
 								</span>
 							{/if}
+						{:else if Array.isArray(m.content)}
+							{#each partsOf(m.content) as p, pi (pi)}
+								{#if p.type === 'text'}
+									{p.text}
+								{:else if p.type === 'image_url'}
+									<a
+										class="msg__img-link"
+										href={p.image_url.url}
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										<img class="msg__img" src={p.image_url.url} alt="attachment" />
+									</a>
+								{/if}
+							{/each}
+							{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 						{:else}
 							{m.content}{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 						{/if}
@@ -133,3 +162,21 @@
 		{/each}
 	</div>
 </div>
+
+<style>
+	:global(.msg__img-link) {
+		display: inline-block;
+		margin: 6px 6px 0 0;
+	}
+	:global(.msg__img) {
+		max-width: 320px;
+		max-height: 320px;
+		width: auto;
+		height: auto;
+		display: block;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		cursor: zoom-in;
+		background: var(--bg-raised);
+	}
+</style>

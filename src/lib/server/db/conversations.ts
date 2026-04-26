@@ -2,8 +2,33 @@ import { db } from './index';
 import { conversations, messages } from './schema';
 import { and, asc, desc, eq, gte } from 'drizzle-orm';
 import { newId } from '$lib/utils/id';
+import type { ContentPart, MessageContent } from '$lib/types';
 
 export type Role = 'user' | 'assistant' | 'system' | 'tool';
+
+/**
+ * Serialize a multimodal content value for the `text` content column.
+ * Plain strings stay verbatim so existing rows keep their shape; arrays are
+ * JSON-stringified with a leading sentinel so the read path can tell them
+ * apart cheaply (avoids JSON.parse on every plain message).
+ */
+const PARTS_PREFIX = 'P:';
+
+export function serializeContent(c: MessageContent): string {
+	if (typeof c === 'string') return c;
+	return PARTS_PREFIX + JSON.stringify(c);
+}
+
+export function parseContent(stored: string): MessageContent {
+	if (!stored.startsWith(PARTS_PREFIX)) return stored;
+	try {
+		const parsed = JSON.parse(stored.slice(PARTS_PREFIX.length)) as ContentPart[];
+		if (Array.isArray(parsed)) return parsed;
+	} catch {
+		/* fall through */
+	}
+	return stored;
+}
 
 export interface ConversationRow {
 	id: string;
@@ -63,7 +88,7 @@ export function createConversation(systemPrompt?: string): ConversationRow {
 export function addMessage(input: {
 	conversationId: string;
 	role: Role;
-	content: string;
+	content: MessageContent;
 	partial?: boolean;
 	toolCalls?: string | null;
 }): MessageRow {
@@ -72,7 +97,7 @@ export function addMessage(input: {
 		id: newId(),
 		conversationId: input.conversationId,
 		role: input.role,
-		content: input.content,
+		content: serializeContent(input.content),
 		toolCalls: input.toolCalls ?? null,
 		partial: input.partial ? 1 : 0,
 		createdAt: now
