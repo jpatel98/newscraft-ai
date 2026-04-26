@@ -10,7 +10,8 @@ export const load: LayoutServerLoad = ({ locals }) => {
 		conversations: listConversations(50).map((c) => ({
 			id: c.id,
 			title: c.title || '(untitled)',
-			updatedAt: c.updatedAt
+			updatedAt: c.updatedAt,
+			pinned: c.pinned
 		}))
 	};
 };
