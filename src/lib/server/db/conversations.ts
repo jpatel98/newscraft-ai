@@ -25,7 +25,12 @@ export interface MessageRow {
 }
 
 export function listConversations(limit = 100): ConversationRow[] {
-	return db.select().from(conversations).orderBy(desc(conversations.updatedAt)).limit(limit).all();
+	return db
+		.select()
+		.from(conversations)
+		.orderBy(desc(conversations.pinned), desc(conversations.updatedAt))
+		.limit(limit)
+		.all();
 }
 
 export function getConversation(id: string): ConversationRow | undefined {
@@ -82,6 +87,20 @@ export function addMessage(input: {
 
 export function setConversationTitle(id: string, title: string) {
 	db.update(conversations).set({ title }).where(eq(conversations.id, id)).run();
+}
+
+export function renameConversation(id: string, title: string): ConversationRow | undefined {
+	const now = Date.now();
+	db.update(conversations)
+		.set({ title, updatedAt: now })
+		.where(eq(conversations.id, id))
+		.run();
+	return getConversation(id);
+}
+
+export function setConversationPinned(id: string, pinned: 0 | 1): ConversationRow | undefined {
+	db.update(conversations).set({ pinned }).where(eq(conversations.id, id)).run();
+	return getConversation(id);
 }
 
 export function deleteConversation(id: string) {
