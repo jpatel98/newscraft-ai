@@ -1,6 +1,6 @@
 # hermes-ui — Plan
 
-Last updated: 2026-04-26 (Wave B merged)
+Last updated: 2026-04-26 (Wave C merged)
 
 Replacing `newscraft-ai-workspace`. Connects to Hermes gateway at `127.0.0.1:8642`.
 
@@ -37,7 +37,7 @@ Sequence to taste once Phase 1 is shipped.
 - [x] **Conversation actions.** Per-row 3-dot menu: pin, rename (inline), delete (click-twice confirm, no modal), export per-thread (markdown / JSONL). Pinned rows sort to the top.
 - [x] **Command palette `Cmd+K`.** Fuzzy on thread titles + commands (new chat, settings, abort, sign out). 200-line in-house component, no third-party. *Toggle-theme command deferred — no class/attr toggle exists yet (CSS uses `prefers-color-scheme: dark` only); revisit when a real toggle ships.*
 - [x] **FTS5 search.** External-content FTS5 virtual table mirroring `messages.content`. `POST /api/search` returns ranked snippets. Sidebar search box at the top of the list — results panel replaces the conversation list while a query is active. *Caveat: messages with image attachments are stored as `P:<json>` and the FTS index ingests that raw — image-bearing messages can produce noisy hits. Fix later (filter or dedicated text shadow column).*
-- [ ] **Resume-after-disconnect.** When a partial assistant message exists on load, show a yellow banner with `[Resume]` / `[Discard]`. Resume = re-POST with the partial included as a "continue from here" signal.
+- [x] **Resume-after-disconnect.** Amber banner on `partial && !streaming` assistant messages with `[Resume]` / `[Discard]`. Resume re-POSTs to `/api/chat/stream` with `{ resume: true, message_id }`; server appends to the existing row (no synthetic "continue" prompt — Hermes continues the open assistant turn). Discard hits `POST /api/messages/[id]/clear-partial`.
 - [x] **Vision attachments.** Paperclip + drag-drop. Client-side canvas resize: longest-edge 1600→1200→1024→768 with JPEG quality 0.85→0.75→0.6, per-image cap 800 KB, total request cap 950 KB. Multimodal `image_url` data-URI parts. DB column `content` overloaded — plain strings stay verbatim; arrays serialize as `P:<json>`.
 - [x] **Real settings surface.** Change password (no SSH — hash now lives in `settings` table, seeded from env on first boot), export all conversations as JSONL, wipe-DB with double-confirm.
 - [ ] **Virtualization.** `virtua/svelte` for the message thread once any conversation crosses ~50 messages.
@@ -49,7 +49,7 @@ Sequence to taste once Phase 1 is shipped.
 When the foundation feels stable.
 
 - [ ] **`/jobs` route** against `/api/jobs/*` — list, pause/resume/run-now, create cron jobs.
-- [ ] **Tool-call inspector.** JSON tree of arguments + results, full streamed transcripts, per-tool duration.
+- [x] **Tool-call inspector — UI shipped, awaiting persistence.** Right-anchored slide-over with collapsible per-call sections (arguments / result / transcript) and an in-house `JsonTree`. Live data from `chat.tools` (start/done pings), historical from `messages.toolCalls` parsed best-effort. *Caveat: stream endpoint doesn't yet write `messages.toolCalls`, so the `[N tools]` link won't appear on existing messages until the server-side capture pass lands.*
 - [ ] **Health badge** in sidebar footer using `/health/detailed` (currently 404 on the gateway — needs a Hermes-side fix or skip).
 - [ ] **Conversation-level system prompt override.** Per-thread `systemPrompt` is already in the schema; expose in a per-thread settings slide-over.
 - [ ] **Model picker.** Currently locked to `hermes-agent`; surface when there's a real choice.
