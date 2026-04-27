@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/private';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
@@ -10,6 +10,13 @@ import {
 	parseCronMarkdown,
 	timestampFromFilename
 } from '$lib/utils/board';
+import {
+	clearAllChannelPosts,
+	deleteChannelPostsByJobIds,
+	listChannelPosts,
+	renameChannelPostsForJob,
+	upsertChannelPost
+} from '$lib/server/db/channel-posts';
 import { hermesFetch } from './transport';
 
 const JOB_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
@@ -245,7 +252,69 @@ export async function listHermesRuns(jobs: HermesJob[] = []): Promise<HermesRun[
 	return [];
 }
 
-async function listCronPosts(jobs: HermesJob[]): Promise<BoardPost[]> {
+async function syncCronOutputToDb(jobs: HermesJob[]): Promise<void> {
+	const root = cronOutputRoot();
+	let folders;
+	try {
+		folders = await readdir(root, { withFileTypes: true });
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+		throw err;
+	}
+
+	const jobNames = new Map(jobs.map((job) => [job.id, job.name]));
+	for (const folder of folders) {
+		if (!folder.isDirectory()) continue;
+		const dirPath = path.join(root, folder.name);
+		if (!isSafeChildPath(root, dirPath)) continue;
+
+		const files = await readdir(dirPath, { withFileTypes: true });
+		for (const file of files) {
+			if (!file.isFile() || !file.name.endsWith('.md')) continue;
+			const filePath = path.join(dirPath, file.name);
+			if (!isSafeChildPath(root, filePath)) continue;
+
+			const markdown = await readFile(filePath, 'utf8');
+			const fileStat = await stat(filePath);
+			const parsed = parseCronMarkdown(markdown, folder.name);
+			const jobId = parsed.jobId || folder.name;
+			const channel = jobNames.get(jobId) || parsed.channel || jobId;
+			const runTime = parsed.runTime ?? timestampFromFilename(file.name);
+
+			upsertChannelPost({
+				id: boardPostId(jobId, file.name),
+				jobId,
+				channel,
+				runTime,
+				schedule: parsed.schedule,
+				filename: file.name,
+				filePathDisplay: path.join(folder.name, file.name),
+				responseMarkdown: parsed.responseMarkdown,
+				preview: parsed.preview,
+				sourceMtimeMs: fileStat.mtimeMs
+			});
+		}
+	}
+}
+
+function listBoardPostsFromDb(): BoardPost[] {
+	return listChannelPosts().map((row) => ({
+		id: row.id,
+		jobId: row.jobId,
+		channel: row.channel,
+		channelSlug: '',
+		kind: 'report',
+		runTime: row.runTime,
+		schedule: row.schedule,
+		filename: row.filename,
+		filePathDisplay: row.filePathDisplay,
+		responseMarkdown: row.responseMarkdown,
+		preview: row.preview,
+		archived: false
+	}));
+}
+
+async function listCronPostsFromFilesystem(jobs: HermesJob[]): Promise<BoardPost[]> {
 	const root = cronOutputRoot();
 	let folders;
 	try {
@@ -267,13 +336,11 @@ async function listCronPosts(jobs: HermesJob[]): Promise<BoardPost[]> {
 			if (!file.isFile() || !file.name.endsWith('.md')) continue;
 			const filePath = path.join(dirPath, file.name);
 			if (!isSafeChildPath(root, filePath)) continue;
-
 			const markdown = await readFile(filePath, 'utf8');
 			const parsed = parseCronMarkdown(markdown, folder.name);
 			const jobId = parsed.jobId || folder.name;
 			const channel = jobNames.get(jobId) || parsed.channel || jobId;
 			const runTime = parsed.runTime ?? timestampFromFilename(file.name);
-
 			posts.push({
 				id: boardPostId(jobId, file.name),
 				jobId,
@@ -305,7 +372,13 @@ export async function boardData(): Promise<BoardData> {
 		jobsError = err instanceof Error ? err.message : String(err);
 	}
 	if (!jobsError) runs = dedupeRuns([...runs, ...(await listHermesRuns(jobs))]);
-	const posts = await listCronPosts(jobs);
+	let posts: BoardPost[] = [];
+	try {
+		await syncCronOutputToDb(jobs);
+		posts = listBoardPostsFromDb();
+	} catch {
+		posts = await listCronPostsFromFilesystem(jobs);
+	}
 	return { ...buildBoardData(posts, jobs, runs), jobsError };
 }
 
@@ -354,4 +427,79 @@ export async function createHermesJob(input: CreateHermesJobInput): Promise<Herm
 	if (!text.trim()) return null;
 	const body = JSON.parse(text);
 	return normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
+}
+
+export interface UpdateHermesJobInput {
+	name?: string | null;
+	schedule?: string | null;
+	deliver?: string | null;
+	enabled?: boolean;
+}
+
+export async function updateHermesJob(id: string, input: UpdateHermesJobInput): Promise<HermesJob | null> {
+	if (!JOB_ID_RE.test(id)) throw new Error('Invalid job id');
+	const payload: Record<string, unknown> = {};
+	if (typeof input.name === 'string') {
+		const name = input.name.trim();
+		if (name) {
+			payload.name = name;
+			payload.title = name;
+		}
+	}
+	if (typeof input.schedule === 'string') {
+		const schedule = input.schedule.trim();
+		if (schedule) {
+			payload.schedule = schedule;
+			payload.cron = schedule;
+		}
+	}
+	if (typeof input.deliver === 'string') {
+		const deliver = input.deliver.trim();
+		payload.deliver = deliver || null;
+	}
+	if (typeof input.enabled === 'boolean') payload.enabled = input.enabled;
+
+	const response = await hermesFetch(`/api/jobs/${encodeURIComponent(id)}`, {
+		method: 'PATCH',
+		body: JSON.stringify(payload),
+		signal: AbortSignal.timeout(15000)
+	});
+	if (!response.ok) throw new Error(`Hermes job update ${response.status}: ${await response.text()}`);
+	const text = await response.text();
+	if (!text.trim()) return null;
+	const body = JSON.parse(text);
+	const job = normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
+	if (job?.name) renameChannelPostsForJob(job.id, job.name);
+	return job;
+}
+
+export async function deleteHermesJob(id: string): Promise<void> {
+	if (!JOB_ID_RE.test(id)) throw new Error('Invalid job id');
+	const response = await hermesFetch(`/api/jobs/${encodeURIComponent(id)}`, {
+		method: 'DELETE',
+		signal: AbortSignal.timeout(15000)
+	});
+	if (!response.ok) throw new Error(`Hermes job delete ${response.status}: ${await response.text()}`);
+	deleteChannelPostsByJobIds([id]);
+}
+
+export async function deleteAllHermesJobs(): Promise<{ deleted: number; failed: string[] }> {
+	const jobs = await listHermesJobs();
+	if (jobs.length === 0) {
+		clearAllChannelPosts();
+		return { deleted: 0, failed: [] };
+	}
+
+	let deleted = 0;
+	const failed: string[] = [];
+	for (const job of jobs) {
+		try {
+			await deleteHermesJob(job.id);
+			deleted += 1;
+		} catch (err) {
+			failed.push(`${job.id}: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+	if (failed.length === 0) clearAllChannelPosts();
+	return { deleted, failed };
 }

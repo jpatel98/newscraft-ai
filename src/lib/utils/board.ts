@@ -143,7 +143,6 @@ export function buildBoardData(rawPosts: BoardPost[], jobs: HermesJob[], runs: H
 		const recentRun = jobRuns[0] ?? null;
 		const latestRunAt = [
 			job.lastRunAt,
-			job.nextRunAt,
 			recentRun?.completedAt,
 			recentRun?.updatedAt,
 			recentRun?.startedAt,

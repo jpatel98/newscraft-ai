@@ -31,3 +31,25 @@ export const settings = sqliteTable('settings', {
 	key: text('key').primaryKey(),
 	value: text('value').notNull()
 });
+
+export const hermesChannelPosts = sqliteTable(
+	'hermes_channel_posts',
+	{
+		id: text('id').primaryKey(),
+		jobId: text('job_id').notNull(),
+		channel: text('channel').notNull(),
+		runTime: text('run_time'),
+		schedule: text('schedule'),
+		filename: text('filename').notNull(),
+		filePathDisplay: text('file_path_display').notNull(),
+		responseMarkdown: text('response_markdown').notNull(),
+		preview: text('preview').notNull(),
+		sourceMtimeMs: integer('source_mtime_ms').notNull().default(0),
+		createdAt: integer('created_at').notNull(),
+		updatedAt: integer('updated_at').notNull()
+	},
+	(t) => ({
+		jobRunIdx: index('hermes_posts_job_run_idx').on(t.jobId, t.runTime),
+		pathIdx: index('hermes_posts_path_idx').on(t.filePathDisplay)
+	})
+);

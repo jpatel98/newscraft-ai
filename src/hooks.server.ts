@@ -6,7 +6,7 @@ import { ensureMigrated } from '$lib/server/db';
 ensureMigrated();
 
 const PUBLIC_PATHS = new Set(['/login']);
-const PUBLIC_PREFIXES = ['/api/health'];
+const PUBLIC_PREFIXES = ['/api/health', '/api/hermes/channel-posts'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const cookie = event.cookies.get(SESSION_COOKIE_NAME);

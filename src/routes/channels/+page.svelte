@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
+	import { page } from '$app/state';
 	import Markdown from '$lib/components/Markdown.svelte';
 	import type { BoardChannel, BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
 	import { formatRelativeTime } from '$lib/utils/time';
@@ -10,10 +11,13 @@
 	import Copy from 'lucide-svelte/icons/copy';
 	import FileText from 'lucide-svelte/icons/file-text';
 	import Hash from 'lucide-svelte/icons/hash';
+	import MoreHorizontal from 'lucide-svelte/icons/more-horizontal';
 	import Pause from 'lucide-svelte/icons/pause';
+	import Pencil from 'lucide-svelte/icons/pencil';
 	import Play from 'lucide-svelte/icons/play';
 	import Plus from 'lucide-svelte/icons/plus';
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
+	import Trash2 from 'lucide-svelte/icons/trash-2';
 
 	type Tone = 'ok' | 'warn' | 'error' | 'archived' | 'running';
 	type HermesJobWithRun = HermesJob & { currentRun?: HermesRun | null };
@@ -31,12 +35,18 @@
 	let actionBusy = $state<string | null>(null);
 	let copiedPostId = $state<string | null>(null);
 	let createOpen = $state(false);
+	let formMode = $state<'create' | 'edit'>('create');
+	let editJobId = $state('');
 	let createBusy = $state(false);
 	let createName = $state('');
 	let createSchedule = $state('');
 	let createPrompt = $state('');
-	let createDeliver = $state('');
+	let createDeliver = $state('database');
 	let focusedChannelView = $state(false);
+	let renameOpen = $state(false);
+	let renameDraft = $state('');
+	let renameBusy = $state(false);
+	let menuOpen = $state(false);
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 	let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -54,16 +64,28 @@
 	const groupedPosts = $derived(groupPostsByDay(selectedPosts));
 
 	onMount(() => {
-		const params = new URLSearchParams(window.location.search);
-		selectedSlug = params.get('channel') ?? '';
-		expandedPostId = params.get('post') ?? '';
-		createOpen = params.get('new') === '1';
-		focusedChannelView = params.has('channel') && !createOpen;
+		applyQueryState(new URLSearchParams(window.location.search));
 		void loadChannels(true);
+		const closeMenuOnClick = (event: MouseEvent) => {
+			const target = event.target as HTMLElement | null;
+			if (target?.closest('[data-channel-menu]')) return;
+			menuOpen = false;
+		};
+		const closeMenuOnEscape = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') menuOpen = false;
+		};
+		window.addEventListener('click', closeMenuOnClick);
+		window.addEventListener('keydown', closeMenuOnEscape);
 		return () => {
 			clearRunPoll();
 			clearCopiedTimer();
+			window.removeEventListener('click', closeMenuOnClick);
+			window.removeEventListener('keydown', closeMenuOnEscape);
 		};
+	});
+
+	$effect(() => {
+		applyQueryState(new URLSearchParams(page.url.search), true);
 	});
 
 	async function loadChannels(preserveSelection = false, silent = false) {
@@ -134,8 +156,14 @@
 	}
 
 	function openCreate() {
+		formMode = 'create';
+		editJobId = '';
 		createOpen = true;
 		focusedChannelView = false;
+		createName = '';
+		createSchedule = '';
+		createPrompt = '';
+		createDeliver = 'database';
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.pathname = '/channels';
@@ -144,8 +172,45 @@
 		window.history.replaceState(null, '', url.toString());
 	}
 
+	function openEdit() {
+		if (!selectedJob) return;
+		formMode = 'edit';
+		editJobId = selectedJob.id;
+		createOpen = true;
+		focusedChannelView = false;
+		createName = selectedJob.name || selectedChannel?.name || '';
+		createSchedule = selectedJob.scheduleDisplay || selectedPosts[0]?.schedule || '';
+		createPrompt = '';
+		createDeliver = selectedJob.deliver || 'database';
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		url.pathname = '/channels';
+		url.searchParams.set('new', '1');
+		url.searchParams.delete('post');
+		window.history.replaceState(null, '', url.toString());
+	}
+
+	function startRenameTitle() {
+		if (!selectedJob) return;
+		renameDraft = selectedJob.name || selectedChannel?.name || '';
+		renameOpen = true;
+		menuOpen = false;
+	}
+
+	function cancelRenameTitle() {
+		renameOpen = false;
+		renameDraft = '';
+	}
+
+	function onRenameSubmit(event: SubmitEvent) {
+		event.preventDefault();
+		void saveChannelTitle();
+	}
+
 	function closeCreate() {
 		createOpen = false;
+		formMode = 'create';
+		editJobId = '';
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.searchParams.delete('new');
@@ -180,7 +245,7 @@
 			createName = '';
 			createSchedule = '';
 			createPrompt = '';
-			createDeliver = '';
+			createDeliver = 'database';
 			closeCreate();
 			notice = 'Channel created.';
 		} catch (err) {
@@ -192,7 +257,15 @@
 
 	function onCreateSubmit(event: SubmitEvent) {
 		event.preventDefault();
-		void createChannel();
+		void submitChannelForm();
+	}
+
+	async function submitChannelForm() {
+		if (formMode === 'edit') {
+			await updateChannel();
+			return;
+		}
+		await createChannel();
 	}
 
 	function channelSlugForJob(name: string, jobId: string): string {
@@ -245,6 +318,107 @@
 		} finally {
 			actionBusy = null;
 		}
+	}
+
+	async function updateChannel() {
+		if (!editJobId) return;
+		createBusy = true;
+		actionBusy = 'edit';
+		error = null;
+		notice = null;
+		try {
+			const response = await fetch(`/api/hermes/jobs/${encodeURIComponent(editJobId)}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					name: createName,
+					schedule: createSchedule,
+					deliver: createDeliver
+				})
+			});
+			if (!response.ok) throw new Error(await response.text());
+			const data = (await response.json()) as { job?: HermesJob | null };
+			await loadChannels(true, true);
+			await invalidateAll();
+			const updated = data.job ? channels.find((channel) => channel.jobId === data.job?.id) ?? null : null;
+			if (updated) selectChannel(updated);
+			closeCreate();
+			notice = 'Channel updated.';
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			createBusy = false;
+			actionBusy = null;
+		}
+	}
+
+	async function saveChannelTitle() {
+		if (!selectedJob) return;
+		const next = renameDraft.trim();
+		if (!next) {
+			error = 'Channel name is required.';
+			return;
+		}
+		renameBusy = true;
+		error = null;
+		notice = null;
+		try {
+			const response = await fetch(`/api/hermes/jobs/${encodeURIComponent(selectedJob.id)}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name: next })
+			});
+			if (!response.ok) throw new Error(await response.text());
+			const data = (await response.json()) as { job?: HermesJob | null };
+			await loadChannels(true, true);
+			await invalidateAll();
+			const updated = data.job ? channels.find((channel) => channel.jobId === data.job?.id) ?? null : null;
+			if (updated) selectChannel(updated);
+			renameOpen = false;
+			renameDraft = '';
+			notice = 'Channel title updated.';
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			renameBusy = false;
+		}
+	}
+
+	async function deleteChannel() {
+		if (!selectedJob) return;
+		if (!confirm(`Delete channel "${selectedJob.name}" and its stored posts?`)) return;
+		menuOpen = false;
+		actionBusy = 'delete';
+		error = null;
+		notice = null;
+		try {
+			const response = await fetch(`/api/hermes/jobs/${encodeURIComponent(selectedJob.id)}`, {
+				method: 'DELETE'
+			});
+			if (!response.ok) throw new Error(await response.text());
+			await loadChannels(false, true);
+			await invalidateAll();
+			notice = `Channel ${selectedJob.name} deleted.`;
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			actionBusy = null;
+		}
+	}
+
+	function applyQueryState(params: URLSearchParams, preserveSelection = false) {
+		const channel = params.get('channel') ?? '';
+		const post = params.get('post') ?? '';
+		const newOpen = params.get('new') === '1';
+		createOpen = newOpen;
+		if (newOpen && !createBusy) {
+			formMode = 'create';
+			editJobId = '';
+		}
+		focusedChannelView = params.has('channel') && !newOpen;
+		if (channel) selectedSlug = channel;
+		if (post) expandedPostId = post;
+		if (!preserveSelection && !post) expandedPostId = '';
 	}
 
 	function clearRunPoll() {
@@ -443,13 +617,39 @@
 	<div class="channels">
 			<header class="channels__masthead">
 				<div>
-					<div class="channels__eyebrow">
-						{focusedChannelView && selectedChannel ? 'Automated channel' : 'Newsroom channels'}
-					</div>
-					<h1 class="channels__title">
-						{focusedChannelView && selectedChannel ? selectedChannel.name : 'Channels'}
-					</h1>
-					<p class="channels__intro">
+						<div class="channels__eyebrow">
+							{focusedChannelView && selectedChannel ? 'Automated channel' : 'Newsroom channels'}
+						</div>
+						{#if focusedChannelView && selectedChannel}
+							{#if renameOpen}
+								<form class="channels__rename" onsubmit={onRenameSubmit}>
+									<input
+										class="field__input channels__rename-input"
+										bind:value={renameDraft}
+										placeholder="Channel title"
+										disabled={renameBusy}
+									/>
+									<div class="channels__rename-actions">
+										<button type="submit" class="btn btn--primary" disabled={renameBusy}>
+											{renameBusy ? 'Saving' : 'Save'}
+										</button>
+										<button
+											type="button"
+											class="btn btn--ghost"
+											onclick={cancelRenameTitle}
+											disabled={renameBusy}
+										>
+											Cancel
+										</button>
+									</div>
+								</form>
+							{:else}
+								<h1 class="channels__title">{selectedChannel.name}</h1>
+							{/if}
+						{:else}
+							<h1 class="channels__title">Channels</h1>
+						{/if}
+						<p class="channels__intro">
 						{#if focusedChannelView && selectedChannel}
 							Reports, schedule, and run controls for this cron job.
 						{:else}
@@ -482,14 +682,16 @@
 			{/if}
 
 			{#if createOpen}
-				<form class="channels-create" onsubmit={onCreateSubmit}>
-					<div class="channels-create__head">
-						<div>
-							<div class="channels__eyebrow">New automated channel</div>
-							<h2 class="channels-create__title">Create channel</h2>
-						</div>
-						<button type="button" class="btn btn--ghost" onclick={closeCreate} disabled={createBusy}>
-							Cancel
+					<form class="channels-create" onsubmit={onCreateSubmit}>
+						<div class="channels-create__head">
+							<div>
+								<div class="channels__eyebrow">
+									{formMode === 'edit' ? 'Edit automated channel' : 'New automated channel'}
+								</div>
+								<h2 class="channels-create__title">{formMode === 'edit' ? 'Edit channel' : 'Create channel'}</h2>
+							</div>
+							<button type="button" class="btn btn--ghost" onclick={closeCreate} disabled={createBusy}>
+								Cancel
 						</button>
 					</div>
 					<div class="channels-create__grid">
@@ -514,29 +716,36 @@
 							/>
 						</div>
 					</div>
-					<div class="field">
-						<label class="field__label" for="channel-prompt">Task prompt</label>
-						<textarea
-							id="channel-prompt"
-							class="field__input channels-create__prompt"
-							bind:value={createPrompt}
-							placeholder="Scan the latest headlines and summarize what changed."
-							required
-						></textarea>
-					</div>
+					{#if formMode === 'create'}
+						<div class="field">
+							<label class="field__label" for="channel-prompt">Task prompt</label>
+							<textarea
+								id="channel-prompt"
+								class="field__input channels-create__prompt"
+								bind:value={createPrompt}
+								placeholder="Scan the latest headlines and summarize what changed."
+								required
+							></textarea>
+						</div>
+					{/if}
 					<div class="field">
 						<label class="field__label" for="channel-deliver">Delivery target</label>
 						<input
 							id="channel-deliver"
 							class="field__input"
 							bind:value={createDeliver}
-							placeholder="Optional"
+							placeholder="database (recommended)"
 						/>
 					</div>
 					<div class="channels-create__actions">
 						<button type="submit" class="btn btn--primary" disabled={createBusy}>
-							<Plus size="14" strokeWidth={1.8} />
-							{createBusy ? 'Creating' : 'Create channel'}
+							{#if formMode === 'edit'}
+								<Pencil size="14" strokeWidth={1.8} />
+								{createBusy ? 'Saving' : 'Save changes'}
+							{:else}
+								<Plus size="14" strokeWidth={1.8} />
+								{createBusy ? 'Creating' : 'Create channel'}
+							{/if}
 						</button>
 					</div>
 				</form>
@@ -595,11 +804,11 @@
 							{/if}
 						</div>
 
-						{#if selectedJob}
-							<div class="channel-head__actions" aria-label="Channel controls">
-								{#if selectedJob.enabled}
-									<button
-										type="button"
+							{#if selectedJob}
+								<div class="channel-head__actions" aria-label="Channel controls">
+									{#if selectedJob.enabled}
+										<button
+											type="button"
 										class="btn btn--ghost"
 										disabled={Boolean(actionBusy) || selectedJobRunning}
 										onclick={() => jobAction('run')}
@@ -624,12 +833,46 @@
 										onclick={() => jobAction('resume')}
 									>
 										<Play size="13" strokeWidth={1.8} />
-										{actionBusy === 'resume' ? 'Resuming' : 'Resume'}
-									</button>
-								{/if}
-							</div>
-						{/if}
-					</header>
+											{actionBusy === 'resume' ? 'Resuming' : 'Resume'}
+										</button>
+									{/if}
+									<div class="channels-menu" data-channel-menu>
+										<button
+											type="button"
+											class="btn btn--ghost channels-menu__toggle"
+											disabled={Boolean(actionBusy)}
+											onclick={() => (menuOpen = !menuOpen)}
+											aria-expanded={menuOpen}
+											aria-haspopup="menu"
+										>
+											<MoreHorizontal size="13" strokeWidth={1.8} />
+											Options
+										</button>
+										{#if menuOpen}
+											<div class="channels-menu__panel" role="menu">
+												<button type="button" class="channels-menu__item" role="menuitem" onclick={startRenameTitle}>
+													<Pencil size="13" strokeWidth={1.8} />
+													Edit title
+												</button>
+												<button type="button" class="channels-menu__item" role="menuitem" onclick={openEdit}>
+													<Pencil size="13" strokeWidth={1.8} />
+													Edit channel
+												</button>
+												<button
+													type="button"
+													class="channels-menu__item channels-menu__item--danger"
+													role="menuitem"
+													onclick={deleteChannel}
+												>
+													<Trash2 size="13" strokeWidth={1.8} />
+													{actionBusy === 'delete' ? 'Deleting…' : 'Delete channel'}
+												</button>
+											</div>
+										{/if}
+									</div>
+								</div>
+							{/if}
+						</header>
 
 					<div class="channel-detail" aria-label="Channel details">
 						<div class="channel-detail__item">
@@ -773,14 +1016,28 @@
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 	}
-	.channels__title {
-		font-family: var(--font-display);
-		font-size: 34px;
+		.channels__title {
+			font-family: var(--font-display);
+			font-size: 34px;
 		line-height: 1.02;
 		letter-spacing: -0.028em;
 		color: var(--fg-1);
-		margin: 4px 0 0;
-	}
+			margin: 4px 0 0;
+		}
+		.channels__rename {
+			display: grid;
+			gap: 8px;
+			margin-top: 4px;
+			max-width: 560px;
+		}
+		.channels__rename-input {
+			height: 38px;
+		}
+		.channels__rename-actions {
+			display: flex;
+			gap: 8px;
+			flex-wrap: wrap;
+		}
 	.channels__intro {
 		margin: 8px 0 0;
 		max-width: 560px;
@@ -788,7 +1045,7 @@
 		line-height: 1.5;
 		color: var(--fg-2);
 	}
-	.channels__notice {
+		.channels__notice {
 		border: 1px solid var(--border-soft);
 		background: var(--bg-surface);
 		color: var(--fg-2);
@@ -797,9 +1054,18 @@
 		margin-bottom: 12px;
 		font-size: 13px;
 		line-height: 1.45;
-		overflow-wrap: anywhere;
-	}
-		.channels__notice--error {
+			overflow-wrap: anywhere;
+		}
+		.channels__btn-danger {
+			color: var(--status-breaking-fg);
+			border-color: color-mix(in srgb, var(--status-breaking) 24%, var(--border-soft));
+			background: color-mix(in srgb, var(--status-breaking-bg) 38%, var(--bg-surface));
+		}
+		.channels__btn-danger:hover:not(:disabled) {
+			border-color: color-mix(in srgb, var(--status-breaking) 38%, var(--border-soft));
+			background: color-mix(in srgb, var(--status-breaking-bg) 58%, var(--bg-surface));
+		}
+			.channels__notice--error {
 			border-color: color-mix(in srgb, var(--flag-700) 24%, var(--border-soft));
 			background: color-mix(in srgb, var(--flag-50) 36%, var(--bg-surface));
 			color: var(--flag-700);
@@ -994,12 +1260,53 @@
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 	}
-	.channel-head__actions {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-		gap: 7px;
-	}
+		.channel-head__actions {
+			display: flex;
+			flex-wrap: wrap;
+			justify-content: flex-end;
+			gap: 7px;
+		}
+		.channels-menu {
+			position: relative;
+		}
+		.channels-menu__toggle {
+			min-width: 88px;
+		}
+		.channels-menu__panel {
+			position: absolute;
+			right: 0;
+			top: calc(100% + 6px);
+			min-width: 188px;
+			background: var(--bg-surface);
+			border: 1px solid var(--border-soft);
+			border-radius: var(--radius-2);
+			box-shadow: var(--shadow-focus);
+			padding: 6px;
+			display: grid;
+			gap: 4px;
+			z-index: 12;
+		}
+		.channels-menu__item {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+			width: 100%;
+			height: 32px;
+			border: 1px solid transparent;
+			border-radius: var(--radius-1);
+			background: transparent;
+			color: var(--fg-1);
+			padding: 0 8px;
+			text-align: left;
+			cursor: pointer;
+		}
+		.channels-menu__item:hover {
+			background: var(--bg-raised);
+			border-color: var(--border-soft);
+		}
+		.channels-menu__item--danger {
+			color: var(--status-breaking-fg);
+		}
 	.channel-detail {
 		display: grid;
 		grid-template-columns: repeat(5, minmax(0, 1fr));

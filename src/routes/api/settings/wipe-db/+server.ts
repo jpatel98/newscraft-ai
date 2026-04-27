@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { conversations, messages } from '$lib/server/db/schema';
+import { conversations, hermesChannelPosts, messages } from '$lib/server/db/schema';
 
 interface Body {
 	confirm?: string;
@@ -21,6 +21,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	db.transaction((tx) => {
+		tx.delete(hermesChannelPosts).run();
 		tx.delete(messages).run();
 		tx.delete(conversations).run();
 	});

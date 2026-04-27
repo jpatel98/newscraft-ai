@@ -1,5 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { createHermesJob, listHermesJobs } from '$lib/server/hermes/board';
+import { createHermesJob, deleteAllHermesJobs, listHermesJobs } from '$lib/server/hermes/board';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
@@ -27,6 +27,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			enabled: body?.enabled !== false
 		});
 		return json({ ok: true, job });
+	} catch (err) {
+		throw error(502, err instanceof Error ? err.message : String(err));
+	}
+};
+
+export const DELETE: RequestHandler = async ({ locals }) => {
+	if (!locals.user) throw error(401, 'unauthorized');
+	try {
+		const result = await deleteAllHermesJobs();
+		return json({ ok: true, ...result });
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));
 	}
