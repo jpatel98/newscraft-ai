@@ -206,39 +206,67 @@ body,
 	white-space: nowrap;
 }
 
-.drawer__newchat-wrap {
+.drawer__quick-actions {
 	padding: 12px 14px 8px;
+	display: grid;
+	gap: 8px;
 }
-.drawer__newchat {
+.sidebar__primary-action {
 	display: flex;
 	align-items: center;
-	justify-content: center;
+	justify-content: flex-start;
 	gap: 6px;
 	width: 100%;
 	min-height: 34px;
 	padding: 8px 12px;
-	background: var(--cobalt-500);
+	border: 1px solid transparent;
 	color: var(--ink-25);
-	border: 0;
 	border-radius: var(--radius-2);
 	font-family: var(--font-body);
 	font-size: 13px;
 	font-weight: 600;
 	cursor: pointer;
 	text-decoration: none;
+	border-bottom: 0;
 	transition:
+		color var(--dur-fast) var(--ease-std),
 		background var(--dur-fast) var(--ease-std),
+		border-color var(--dur-fast) var(--ease-std),
 		box-shadow var(--dur-fast) var(--ease-std);
 }
-.drawer__newchat:hover {
+.sidebar__primary-action,
+.sidebar__primary-action:visited {
+	color: var(--ink-25);
+}
+.sidebar__primary-action--chat {
+	background: var(--cobalt-500);
+	border-color: color-mix(in srgb, var(--cobalt-400) 45%, var(--cobalt-700));
+}
+.sidebar__primary-action--chat:hover {
 	background: var(--cobalt-600);
+	color: var(--ink-25);
 }
-.drawer__newchat:active {
+.sidebar__primary-action--chat:active {
 	background: var(--cobalt-700);
+	color: var(--ink-25);
 }
-.drawer__newchat:focus-visible {
+.sidebar__primary-action--channel {
+	background: var(--ink-800);
+	border-color: var(--ink-700);
+	color: var(--ink-100);
+}
+.sidebar__primary-action--channel:hover {
+	background: color-mix(in srgb, var(--ink-700) 72%, var(--cobalt-900));
+	border-color: color-mix(in srgb, var(--ink-600) 70%, var(--cobalt-700));
+	color: var(--ink-25);
+}
+.sidebar__primary-action--channel:active {
+	background: var(--ink-700);
+}
+.sidebar__primary-action:focus-visible {
 	outline: none;
 	box-shadow: 0 0 0 3px var(--cobalt-700);
+	color: var(--ink-25);
 }
 
 .drawer__divider {
@@ -571,6 +599,7 @@ body,
 	margin-bottom: 4px;
 }
 .sidebar__menu button {
+	width: 100%;
 	background: transparent;
 	border: 0;
 	color: var(--ink-200);

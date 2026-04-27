@@ -17,7 +17,6 @@
 	import Play from 'lucide-svelte/icons/play';
 	import Plus from 'lucide-svelte/icons/plus';
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
-	import Trash2 from 'lucide-svelte/icons/trash-2';
 
 	type Tone = 'ok' | 'warn' | 'error' | 'archived' | 'running';
 	type HermesJobWithRun = HermesJob & { currentRun?: HermesRun | null };
@@ -51,6 +50,7 @@
 	let busy = $state(true);
 	let error = $state<string | null>(null);
 	let notice = $state<string | null>(null);
+	let noticeChannelSlug = $state<string | null>(null);
 	let actionBusy = $state<string | null>(null);
 	let copiedPostId = $state<string | null>(null);
 	let createOpen = $state(false);
@@ -89,6 +89,9 @@
 	const runWatchElapsed = $derived(
 		runWatch ? formatElapsed(Math.max(0, runWatchNow - runWatch.requestedAt)) : null
 	);
+	const visibleNotice = $derived(
+		notice && (!noticeChannelSlug || noticeChannelSlug === selectedChannel?.slug) ? notice : null
+	);
 
 	onMount(() => {
 		applyQueryState(new URLSearchParams(window.location.search));
@@ -124,6 +127,9 @@
 			if (!preserveSelection || !channelPosts.some((post) => post.id === expandedPostId)) {
 				expandedPostId = channelPosts[0]?.id ?? '';
 			}
+			if (typeof window !== 'undefined') {
+				applyQueryState(new URLSearchParams(window.location.search), true);
+			}
 			replaceChannelUrl();
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
@@ -147,6 +153,8 @@
 			url.searchParams.delete('post');
 		}
 		url.searchParams.delete('new');
+		url.searchParams.delete('edit');
+		url.searchParams.delete('rename');
 		url.searchParams.delete('report');
 		void goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });
 	}
@@ -172,6 +180,8 @@
 			url.searchParams.delete('post');
 		}
 		url.searchParams.delete('new');
+		url.searchParams.delete('edit');
+		url.searchParams.delete('rename');
 		url.searchParams.delete('report');
 		return url.toString();
 	}
@@ -195,37 +205,19 @@
 		const url = new URL(window.location.href);
 		url.pathname = '/channels';
 		url.searchParams.set('new', '1');
+		url.searchParams.delete('edit');
+		url.searchParams.delete('rename');
 		url.searchParams.delete('post');
 		window.history.replaceState(null, '', url.toString());
-	}
-
-	function openEdit() {
-		if (!selectedJob) return;
-		formMode = 'edit';
-		editJobId = selectedJob.id;
-		createOpen = true;
-		focusedChannelView = false;
-		createName = selectedJob.name || selectedChannel?.name || '';
-		createSchedule = selectedJob.scheduleDisplay || selectedPosts[0]?.schedule || '';
-		createPrompt = '';
-		createDeliver = selectedJob.deliver || 'database';
-		if (typeof window === 'undefined') return;
-		const url = new URL(window.location.href);
-		url.pathname = '/channels';
-		url.searchParams.set('new', '1');
-		url.searchParams.delete('post');
-		window.history.replaceState(null, '', url.toString());
-	}
-
-	function startRenameTitle() {
-		if (!selectedJob) return;
-		renameDraft = selectedJob.name || selectedChannel?.name || '';
-		renameOpen = true;
 	}
 
 	function cancelRenameTitle() {
 		renameOpen = false;
 		renameDraft = '';
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		url.searchParams.delete('rename');
+		window.history.replaceState(null, '', url.toString());
 	}
 
 	function onRenameSubmit(event: SubmitEvent) {
@@ -240,6 +232,8 @@
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.searchParams.delete('new');
+		url.searchParams.delete('edit');
+		url.searchParams.delete('rename');
 		window.history.replaceState(null, '', url.toString());
 	}
 
@@ -247,6 +241,7 @@
 		createBusy = true;
 		error = null;
 		notice = null;
+		noticeChannelSlug = null;
 		try {
 			const response = await fetch('/api/hermes/jobs', {
 				method: 'POST',
@@ -274,6 +269,7 @@
 			createDeliver = 'database';
 			closeCreate();
 			notice = 'Channel created.';
+			noticeChannelSlug = null;
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -315,6 +311,7 @@
 			}, 1600);
 		} catch {
 			notice = channelUrl(post);
+			noticeChannelSlug = selectedChannel?.slug ?? null;
 		}
 	}
 
@@ -328,6 +325,7 @@
 		actionBusy = action;
 		error = null;
 		notice = null;
+		noticeChannelSlug = null;
 		try {
 			const response = await fetch(
 				`/api/hermes/jobs/${encodeURIComponent(selectedJob.id)}/${action}`,
@@ -347,6 +345,7 @@
 				};
 				startRunWatchTicker();
 				notice = `${jobName} run requested. Waiting for the next channel post...`;
+				noticeChannelSlug = channelSlug || null;
 				startRunPoll({
 					jobId: selectedJob.id,
 					channelSlug,
@@ -356,6 +355,7 @@
 				});
 			} else {
 				notice = `${jobName} ${action === 'pause' ? 'paused' : 'resumed'}.`;
+				noticeChannelSlug = channelSlug || null;
 			}
 			await loadChannels(true, action === 'run');
 		} catch (err) {
@@ -371,6 +371,7 @@
 		actionBusy = 'edit';
 		error = null;
 		notice = null;
+		noticeChannelSlug = null;
 		try {
 			const response = await fetch(`/api/hermes/jobs/${encodeURIComponent(editJobId)}`, {
 				method: 'PATCH',
@@ -389,6 +390,7 @@
 			if (updated) selectChannel(updated);
 			closeCreate();
 			notice = 'Channel updated.';
+			noticeChannelSlug = null;
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -407,6 +409,7 @@
 		renameBusy = true;
 		error = null;
 		notice = null;
+		noticeChannelSlug = null;
 		try {
 			const response = await fetch(`/api/hermes/jobs/${encodeURIComponent(selectedJob.id)}`, {
 				method: 'PATCH',
@@ -421,7 +424,13 @@
 			if (updated) selectChannel(updated);
 			renameOpen = false;
 			renameDraft = '';
+			if (typeof window !== 'undefined') {
+				const url = new URL(window.location.href);
+				url.searchParams.delete('rename');
+				window.history.replaceState(null, '', url.toString());
+			}
 			notice = 'Channel title updated.';
+			noticeChannelSlug = selectedChannel?.slug ?? null;
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -429,46 +438,43 @@
 		}
 	}
 
-	async function deleteChannel() {
-		const jobId = selectedJob?.id ?? selectedChannel?.jobId ?? '';
-		if (!jobId) return;
-		const channelName = selectedJob?.name ?? selectedChannel?.name ?? jobId;
-		if (!confirm(`Delete channel "${channelName}" and its stored posts?`)) return;
-		actionBusy = 'delete';
-		error = null;
-		notice = null;
-		try {
-			const response = await fetch(`/api/hermes/channels/${encodeURIComponent(jobId)}`, {
-				method: 'DELETE'
-			});
-			if (!response.ok) throw new Error(await response.text());
-			const result = (await response.json()) as {
-				ok: boolean;
-				cronDeleted?: boolean;
-				cronDeleteError?: string | null;
-			};
-			await loadChannels(false, true);
-			await invalidateAll();
-			if (result.cronDeleted === false && result.cronDeleteError) {
-				notice = `Channel ${channelName} removed locally. Cron job was already missing upstream.`;
-			} else {
-				notice = `Channel ${channelName} deleted.`;
-			}
-		} catch (err) {
-			error = err instanceof Error ? err.message : String(err);
-		} finally {
-			actionBusy = null;
-		}
-	}
-
 	function applyQueryState(params: URLSearchParams, preserveSelection = false) {
 		const channel = params.get('channel') ?? '';
 		const post = params.get('post') ?? '';
 		const newOpen = params.get('new') === '1';
+		const editOpen = params.get('edit') === '1';
+		const renameRequested = params.get('rename') === '1';
+		const channelSlug = channel || selectedSlug;
+		const targetChannel = channels.find((candidate) => candidate.slug === channelSlug) ?? null;
+		const targetJob = targetChannel?.jobId
+			? jobs.find((candidate) => candidate.id === targetChannel.jobId) ?? null
+			: null;
+		const targetPosts = targetChannel
+			? posts.filter((candidate) => candidate.channelSlug === targetChannel.slug)
+			: [];
 		createOpen = newOpen;
-		if (newOpen && !createBusy) {
-			formMode = 'create';
-			editJobId = '';
+		if (newOpen && !createBusy && (!preserveSelection || !createOpen)) {
+			if (editOpen && targetJob) {
+				formMode = 'edit';
+				editJobId = targetJob.id;
+				createName = targetJob.name || targetChannel?.name || '';
+				createSchedule = targetJob.scheduleDisplay || targetPosts[0]?.schedule || '';
+				createPrompt = '';
+				createDeliver = targetJob.deliver || 'database';
+			} else {
+				formMode = 'create';
+				editJobId = '';
+			}
+		}
+		if (renameRequested && !newOpen && targetJob) {
+			renameOpen = true;
+			if (!preserveSelection || !renameDraft) {
+				renameDraft = targetJob.name || targetChannel?.name || '';
+			}
+		} else if (!renameRequested) {
+			renameOpen = false;
+		} else if (!targetJob) {
+			renameOpen = false;
 		}
 		focusedChannelView = params.has('channel') && !newOpen;
 		if (channel) selectedSlug = channel;
@@ -563,6 +569,7 @@
 					};
 				}
 				notice = 'New channel post received.';
+				noticeChannelSlug = input.channelSlug;
 				replaceChannelUrl();
 				clearRunPoll();
 				stopRunWatchTicker();
@@ -594,6 +601,7 @@
 						};
 					}
 					notice = 'Run finished, but no new channel post was saved yet.';
+					noticeChannelSlug = input.channelSlug;
 				}
 				clearRunPoll();
 				stopRunWatchTicker();
@@ -612,6 +620,7 @@
 					};
 				}
 				notice = `Run requested. Still waiting on Hermes. Last completed run: ${lastRun}.`;
+				noticeChannelSlug = input.channelSlug;
 				clearRunPoll();
 				stopRunWatchTicker();
 				return;
@@ -834,35 +843,6 @@
 					</p>
 				</div>
 				<div class="channels__masthead-actions">
-					{#if focusedChannelView && selectedChannel}
-						<button
-							type="button"
-							class="btn btn--ghost"
-							onclick={startRenameTitle}
-							disabled={!selectedJob || Boolean(actionBusy)}
-						>
-							<Pencil size="13" strokeWidth={1.8} />
-							Edit title
-						</button>
-						<button
-							type="button"
-							class="btn btn--ghost"
-							onclick={openEdit}
-							disabled={!selectedJob || Boolean(actionBusy)}
-						>
-							<Pencil size="13" strokeWidth={1.8} />
-							Edit channel
-						</button>
-						<button
-							type="button"
-							class="btn btn--ghost"
-							onclick={deleteChannel}
-							disabled={(!selectedJob && !selectedChannel?.jobId) || Boolean(actionBusy)}
-						>
-							<Trash2 size="13" strokeWidth={1.8} />
-							{actionBusy === 'delete' ? 'Deleting…' : 'Delete channel'}
-						</button>
-					{/if}
 					<button type="button" class="btn btn--primary" onclick={openCreate}>
 						<Plus size="14" strokeWidth={1.8} />
 						New channel
@@ -877,8 +857,8 @@
 		{#if error}
 			<div class="channels__notice channels__notice--error">{error}</div>
 		{/if}
-		{#if notice}
-			<div class="channels__notice">{notice}</div>
+		{#if visibleNotice}
+			<div class="channels__notice">{visibleNotice}</div>
 		{/if}
 			{#if jobsError}
 				<div class="channels__notice">
@@ -997,13 +977,12 @@
 							<span class={`channels-status channels-status--${statusTone(selectedChannel, selectedJob)}`}>
 								{statusLabel(selectedChannel, selectedJob)}
 							</span>
-							<span>{selectedChannel.postCount} posts</span>
-							{#if selectedRun}
-								<span>Started {relativeDate(runStartedAt(selectedRun))}</span>
-							{/if}
-							{#if formatElapsed(selectedRun?.elapsedMs ?? selectedChannel.recentRun?.elapsedMs)}
-								<span>Elapsed {formatElapsed(selectedRun?.elapsedMs ?? selectedChannel.recentRun?.elapsedMs)}</span>
-							{/if}
+							<span>{selectedChannel.postCount} {selectedChannel.postCount === 1 ? 'post' : 'posts'}</span>
+							<span>
+								{selectedRun
+									? `Running since ${relativeDate(runStartedAt(selectedRun))}`
+									: `Last update ${relativeDate(selectedJob?.lastRunAt ?? selectedChannel.latestRunAt)}`}
+							</span>
 							{#if !selectedChannel.active}
 								<span>Archived output</span>
 							{/if}
@@ -1063,16 +1042,23 @@
 															: 'Timed out'}
 								</span>
 								<span class="run-watch__message">{runWatch.message}</span>
-								{#if runWatchElapsed}
-									<span class="run-watch__meta">Waiting {runWatchElapsed}</span>
-								{/if}
-								{#if runWatch.lastCheckedAt}
-									<span class="run-watch__meta">
-										Last checked {formatRelativeTime(runWatch.lastCheckedAt)}
-									</span>
-								{/if}
-								{#if runWatch.detail}
-									<span class="run-watch__detail">{runWatch.detail}</span>
+								{#if runWatchElapsed || runWatch.lastCheckedAt || runWatch.detail}
+									<details class="run-watch__details">
+										<summary>Details</summary>
+										<div class="run-watch__details-body">
+											{#if runWatchElapsed}
+												<span class="run-watch__meta">Waiting {runWatchElapsed}</span>
+											{/if}
+											{#if runWatch.lastCheckedAt}
+												<span class="run-watch__meta">
+													Last checked {formatRelativeTime(runWatch.lastCheckedAt)}
+												</span>
+											{/if}
+											{#if runWatch.detail}
+												<span class="run-watch__detail">{runWatch.detail}</span>
+											{/if}
+										</div>
+									</details>
 								{/if}
 							</div>
 							<div class="run-watch__actions">
@@ -1081,9 +1067,6 @@
 										Jump to new post
 									</button>
 								{/if}
-								<button type="button" class="btn btn--ghost" onclick={() => loadChannels(true)}>
-									Refresh now
-								</button>
 								<button type="button" class="btn btn--ghost" onclick={dismissRunWatch}>
 									Dismiss
 								</button>
@@ -1091,28 +1074,31 @@
 						</div>
 					{/if}
 
-					<div class="channel-detail" aria-label="Channel details">
-						<div class="channel-detail__item">
-							<span>Job</span>
-							<strong>{selectedJob?.id ?? selectedChannel.jobId ?? selectedChannel.slug}</strong>
+					<details class="channel-detail" aria-label="Channel details">
+						<summary>Technical details</summary>
+						<div class="channel-detail__grid">
+							<div class="channel-detail__item">
+								<span>Schedule</span>
+								<strong>{selectedJob?.scheduleDisplay ?? selectedPosts[0]?.schedule ?? 'No schedule'}</strong>
+							</div>
+							<div class="channel-detail__item">
+								<span>Next run</span>
+								<strong>{formatDate(selectedJob?.nextRunAt)}</strong>
+							</div>
+							<div class="channel-detail__item">
+								<span>Last run</span>
+								<strong>{formatDate(selectedJob?.lastRunAt ?? selectedChannel.latestRunAt)}</strong>
+							</div>
+							<div class="channel-detail__item">
+								<span>Delivery</span>
+								<strong>{selectedJob?.deliver ?? 'Local archive'}</strong>
+							</div>
+							<div class="channel-detail__item">
+								<span>Job id</span>
+								<strong>{selectedJob?.id ?? selectedChannel.jobId ?? selectedChannel.slug}</strong>
+							</div>
 						</div>
-						<div class="channel-detail__item">
-							<span>Schedule</span>
-							<strong>{selectedJob?.scheduleDisplay ?? selectedPosts[0]?.schedule ?? 'No schedule'}</strong>
-						</div>
-						<div class="channel-detail__item">
-							<span>Next run</span>
-							<strong>{formatDate(selectedJob?.nextRunAt)}</strong>
-						</div>
-						<div class="channel-detail__item">
-							<span>Last run</span>
-							<strong>{formatDate(selectedJob?.lastRunAt ?? selectedChannel.latestRunAt)}</strong>
-						</div>
-						<div class="channel-detail__item">
-							<span>Delivery</span>
-							<strong>{selectedJob?.deliver ?? 'Local archive'}</strong>
-						</div>
-					</div>
+					</details>
 
 					<div class="channel-feed" aria-label="Channel posts">
 						{#if busy && selectedPosts.length === 0}
@@ -1512,8 +1498,29 @@
 		text-transform: uppercase;
 		color: var(--fg-3);
 	}
-	.run-watch__detail {
+	.run-watch__details {
 		flex-basis: 100%;
+		margin-top: 2px;
+	}
+	.run-watch__details summary {
+		display: inline-flex;
+		align-items: center;
+		cursor: pointer;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--fg-3);
+	}
+	.run-watch__details summary::marker {
+		font-size: 10px;
+	}
+	.run-watch__details-body {
+		margin-top: 6px;
+		display: grid;
+		gap: 4px;
+	}
+	.run-watch__detail {
 		font-size: 12px;
 		color: var(--fg-3);
 	}
@@ -1524,6 +1531,26 @@
 		gap: 6px;
 	}
 	.channel-detail {
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		margin-bottom: 18px;
+		padding: 10px 12px;
+	}
+	.channel-detail summary {
+		display: inline-flex;
+		align-items: center;
+		cursor: pointer;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--fg-3);
+	}
+	.channel-detail summary::marker {
+		font-size: 10px;
+	}
+	.channel-detail__grid {
 		display: grid;
 		grid-template-columns: repeat(5, minmax(0, 1fr));
 		gap: 1px;
@@ -1531,7 +1558,7 @@
 		border-radius: var(--radius-2);
 		background: var(--border-soft);
 		overflow: hidden;
-		margin-bottom: 18px;
+		margin-top: 10px;
 	}
 	.channel-detail__item {
 		min-width: 0;
@@ -1689,7 +1716,7 @@
 			.channels__layout {
 				grid-template-columns: 1fr;
 			}
-			.channel-detail {
+			.channel-detail__grid {
 				grid-template-columns: repeat(2, minmax(0, 1fr));
 			}
 			.channels-create__grid {
@@ -1722,7 +1749,7 @@
 			.channel-post__expanded {
 				padding: 0 10px 12px 67px;
 			}
-			.channel-detail {
+			.channel-detail__grid {
 				grid-template-columns: 1fr;
 			}
 			.channels__title {

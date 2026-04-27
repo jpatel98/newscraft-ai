@@ -255,6 +255,20 @@
 		}, 3000);
 	}
 
+	async function openChannelEditor(channel: BoardChannel, mode: 'rename' | 'edit') {
+		closeChannelMenu();
+		const target = new URL('/channels', window.location.origin);
+		target.searchParams.set('channel', channel.slug);
+		if (mode === 'rename') {
+			target.searchParams.set('rename', '1');
+		} else {
+			target.searchParams.set('new', '1');
+			target.searchParams.set('edit', '1');
+		}
+		await goto(target.toString(), { keepFocus: true, noScroll: true });
+		onSelectThread();
+	}
+
 	async function confirmChannelDelete(channel: BoardChannel) {
 		const jobId = (channel.jobId ?? '').trim();
 		if (!jobId) return;
@@ -519,9 +533,9 @@
 				</span>
 			</div>
 
-			<div class="drawer__newchat-wrap">
+			<div class="drawer__quick-actions">
 				<a
-					class="drawer__newchat"
+					class="sidebar__primary-action sidebar__primary-action--chat"
 					href="/"
 					aria-label="New chat"
 					title="New chat (Cmd+Shift+O)"
@@ -529,6 +543,16 @@
 				>
 					<SquarePen size="14" strokeWidth={1.8} />
 					<span>New chat</span>
+				</a>
+				<a
+					class="sidebar__primary-action sidebar__primary-action--channel"
+					href="/channels?new=1"
+					aria-label="New channel"
+					title="Create channel"
+					onclick={onSelectThread}
+				>
+					<Plus size="14" strokeWidth={1.8} />
+					<span>New channel</span>
 				</a>
 			</div>
 
@@ -636,6 +660,12 @@
 							{/if}
 							{#if jobId && channelMenuFor === jobId}
 								<div class="sidebar__menu" role="menu">
+									<button type="button" role="menuitem" onclick={() => openChannelEditor(channel, 'rename')}>
+										Edit title
+									</button>
+									<button type="button" role="menuitem" onclick={() => openChannelEditor(channel, 'edit')}>
+										Edit channel
+									</button>
 									<button
 										type="button"
 										role="menuitem"
@@ -652,10 +682,6 @@
 							<span class="sidebar__row__name">No channels yet</span>
 						</div>
 					{/each}
-					<a class="sidebar__row" href="/channels?new=1" onclick={onSelectThread}>
-						<Plus class="sidebar__row__glyph" size="14" strokeWidth={1.7} />
-						<span class="sidebar__row__name">New channel</span>
-					</a>
 					<div class="sidebar__section">Chats</div>
 					{#if data.conversations.length === 0}
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
