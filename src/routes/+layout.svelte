@@ -520,16 +520,16 @@
 						<Plus class="sidebar__row__glyph" size="14" strokeWidth={1.7} />
 						<span class="sidebar__row__name">New channel</span>
 					</a>
+					<div class="sidebar__section">Chats</div>
 					{#if data.conversations.length === 0}
-						<div class="sidebar__section">Threads</div>
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
-							<span class="sidebar__row__name">No threads yet</span>
+							<span class="sidebar__row__name">No chats yet</span>
 						</div>
 					{/if}
 
 					{#each [['PINNED', groups.pinned], ['TODAY', groups.today], ['YESTERDAY', groups.yesterday], ['LAST 7 DAYS', groups.last7], ['EARLIER', groups.earlier]] as const as [label, items] (label)}
 						{#if items.length > 0}
-							<div class="sidebar__section">{label}</div>
+							<div class="sidebar__subsection">{label}</div>
 							{#each items as c (c.id)}
 								<div
 									class="sidebar__row-wrap {page.params.id === c.id

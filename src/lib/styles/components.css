@@ -333,6 +333,16 @@ body,
 	padding: 15px 16px 5px;
 }
 
+.sidebar__subsection {
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	color: var(--ink-600);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	font-weight: 500;
+	padding: 10px 16px 4px 24px;
+}
+
 .sidebar__list {
 	flex: 1;
 	overflow: auto;
