@@ -30,26 +30,19 @@ export interface ChannelPostRow {
 	updatedAt: number;
 }
 
+function missingChannelPostsTable(err: unknown): boolean {
+	return (
+		err instanceof Error &&
+		/no such table:\s*hermes_channel_posts/i.test(err.message)
+	);
+}
+
 export function upsertChannelPost(input: ChannelPostUpsertInput): void {
 	const now = Date.now();
-	db.insert(hermesChannelPosts)
-		.values({
-			id: input.id,
-			jobId: input.jobId,
-			channel: input.channel,
-			runTime: input.runTime,
-			schedule: input.schedule,
-			filename: input.filename,
-			filePathDisplay: input.filePathDisplay,
-			responseMarkdown: input.responseMarkdown,
-			preview: input.preview,
-			sourceMtimeMs: Math.max(0, Math.round(input.sourceMtimeMs)),
-			createdAt: now,
-			updatedAt: now
-		})
-		.onConflictDoUpdate({
-			target: hermesChannelPosts.id,
-			set: {
+	try {
+		db.insert(hermesChannelPosts)
+			.values({
+				id: input.id,
 				jobId: input.jobId,
 				channel: input.channel,
 				runTime: input.runTime,
@@ -59,29 +52,79 @@ export function upsertChannelPost(input: ChannelPostUpsertInput): void {
 				responseMarkdown: input.responseMarkdown,
 				preview: input.preview,
 				sourceMtimeMs: Math.max(0, Math.round(input.sourceMtimeMs)),
+				createdAt: now,
 				updatedAt: now
-			}
-		})
-		.run();
+			})
+			.onConflictDoUpdate({
+				target: hermesChannelPosts.id,
+				set: {
+					jobId: input.jobId,
+					channel: input.channel,
+					runTime: input.runTime,
+					schedule: input.schedule,
+					filename: input.filename,
+					filePathDisplay: input.filePathDisplay,
+					responseMarkdown: input.responseMarkdown,
+					preview: input.preview,
+					sourceMtimeMs: Math.max(0, Math.round(input.sourceMtimeMs)),
+					updatedAt: now
+				}
+			})
+			.run();
+	} catch (err) {
+		if (missingChannelPostsTable(err)) return;
+		throw err;
+	}
 }
 
 export function listChannelPosts(): ChannelPostRow[] {
-	return db.select().from(hermesChannelPosts).orderBy(asc(hermesChannelPosts.updatedAt)).all();
+	try {
+		return db.select().from(hermesChannelPosts).orderBy(asc(hermesChannelPosts.updatedAt)).all();
+	} catch (err) {
+		if (missingChannelPostsTable(err)) return [];
+		throw err;
+	}
 }
 
 export function clearAllChannelPosts(): void {
-	db.delete(hermesChannelPosts).run();
+	try {
+		db.delete(hermesChannelPosts).run();
+	} catch (err) {
+		if (missingChannelPostsTable(err)) return;
+		throw err;
+	}
 }
 
 export function deleteChannelPostsByJobIds(jobIds: string[]): void {
 	const ids = jobIds.map((id) => id.trim()).filter(Boolean);
 	if (ids.length === 0) return;
-	db.delete(hermesChannelPosts).where(inArray(hermesChannelPosts.jobId, ids)).run();
+	try {
+		db.delete(hermesChannelPosts).where(inArray(hermesChannelPosts.jobId, ids)).run();
+	} catch (err) {
+		if (missingChannelPostsTable(err)) return;
+		throw err;
+	}
+}
+
+export function deleteChannelPostsByJobId(jobId: string): void {
+	const id = jobId.trim();
+	if (!id) return;
+	try {
+		db.delete(hermesChannelPosts).where(eq(hermesChannelPosts.jobId, id)).run();
+	} catch (err) {
+		if (missingChannelPostsTable(err)) return;
+		throw err;
+	}
 }
 
 export function renameChannelPostsForJob(jobId: string, channelName: string): void {
 	const id = jobId.trim();
 	const name = channelName.trim();
 	if (!id || !name) return;
-	db.update(hermesChannelPosts).set({ channel: name, updatedAt: Date.now() }).where(eq(hermesChannelPosts.jobId, id)).run();
+	try {
+		db.update(hermesChannelPosts).set({ channel: name, updatedAt: Date.now() }).where(eq(hermesChannelPosts.jobId, id)).run();
+	} catch (err) {
+		if (missingChannelPostsTable(err)) return;
+		throw err;
+	}
 }

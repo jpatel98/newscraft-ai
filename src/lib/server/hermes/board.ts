@@ -17,6 +17,7 @@ import {
 	renameChannelPostsForJob,
 	upsertChannelPost
 } from '$lib/server/db/channel-posts';
+import { listHiddenChannelJobIds, unhideChannelJobId } from '$lib/server/db/hidden-channels';
 import { hermesFetch } from './transport';
 
 const JOB_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
@@ -27,6 +28,9 @@ const RUN_ENDPOINTS = [
 	'/api/cron/runs?include_completed=true&include_recent=true'
 ];
 const RUN_FETCH_TIMEOUT_MS = 2500;
+const RUN_ENDPOINT_SOFT_DISABLE_MS = 60_000;
+const RUN_ENDPOINT_HARD_DISABLE_MS = 10 * 60_000;
+const runEndpointDisabledUntil = new Map<string, number>();
 
 function cronOutputRoot(): string {
 	return env.HERMES_CRON_OUTPUT_DIR || path.join(homedir(), '.hermes', 'cron', 'output');
@@ -230,14 +234,24 @@ export async function listHermesJobs(): Promise<HermesJob[]> {
 
 export async function listHermesRuns(jobs: HermesJob[] = []): Promise<HermesRun[]> {
 	const jobsById = new Map(jobs.map((job) => [job.id, job]));
+	const now = Date.now();
 	for (const endpoint of RUN_ENDPOINTS) {
+		const disabledUntil = runEndpointDisabledUntil.get(endpoint) ?? 0;
+		if (disabledUntil > now) continue;
 		try {
 			const response = await hermesFetch(endpoint, {
 				method: 'GET',
 				signal: AbortSignal.timeout(RUN_FETCH_TIMEOUT_MS)
 			});
-			if (response.status === 404) continue;
-			if (!response.ok) continue;
+			if (response.status === 404 || response.status === 400) {
+				runEndpointDisabledUntil.set(endpoint, now + RUN_ENDPOINT_HARD_DISABLE_MS);
+				continue;
+			}
+			if (!response.ok) {
+				runEndpointDisabledUntil.set(endpoint, now + RUN_ENDPOINT_SOFT_DISABLE_MS);
+				continue;
+			}
+			runEndpointDisabledUntil.delete(endpoint);
 			const body = await response.json();
 			return dedupeRuns(
 				rawRunsFromBody(body)
@@ -246,13 +260,14 @@ export async function listHermesRuns(jobs: HermesJob[] = []): Promise<HermesRun[
 					.map((run) => ({ ...run, jobName: run.jobName ?? jobsById.get(run.jobId)?.name ?? null }))
 			);
 		} catch {
+			runEndpointDisabledUntil.set(endpoint, now + RUN_ENDPOINT_SOFT_DISABLE_MS);
 			continue;
 		}
 	}
 	return [];
 }
 
-async function syncCronOutputToDb(jobs: HermesJob[]): Promise<void> {
+async function syncCronOutputToDb(jobs: HermesJob[], hiddenJobIds: ReadonlySet<string>): Promise<void> {
 	const root = cronOutputRoot();
 	let folders;
 	try {
@@ -265,6 +280,7 @@ async function syncCronOutputToDb(jobs: HermesJob[]): Promise<void> {
 	const jobNames = new Map(jobs.map((job) => [job.id, job.name]));
 	for (const folder of folders) {
 		if (!folder.isDirectory()) continue;
+		if (hiddenJobIds.has(folder.name)) continue;
 		const dirPath = path.join(root, folder.name);
 		if (!isSafeChildPath(root, dirPath)) continue;
 
@@ -278,6 +294,7 @@ async function syncCronOutputToDb(jobs: HermesJob[]): Promise<void> {
 			const fileStat = await stat(filePath);
 			const parsed = parseCronMarkdown(markdown, folder.name);
 			const jobId = parsed.jobId || folder.name;
+			if (hiddenJobIds.has(jobId)) continue;
 			const channel = jobNames.get(jobId) || parsed.channel || jobId;
 			const runTime = parsed.runTime ?? timestampFromFilename(file.name);
 
@@ -314,7 +331,10 @@ function listBoardPostsFromDb(): BoardPost[] {
 	}));
 }
 
-async function listCronPostsFromFilesystem(jobs: HermesJob[]): Promise<BoardPost[]> {
+async function listCronPostsFromFilesystem(
+	jobs: HermesJob[],
+	hiddenJobIds: ReadonlySet<string>
+): Promise<BoardPost[]> {
 	const root = cronOutputRoot();
 	let folders;
 	try {
@@ -328,6 +348,7 @@ async function listCronPostsFromFilesystem(jobs: HermesJob[]): Promise<BoardPost
 	const posts: BoardPost[] = [];
 	for (const folder of folders) {
 		if (!folder.isDirectory()) continue;
+		if (hiddenJobIds.has(folder.name)) continue;
 		const dirPath = path.join(root, folder.name);
 		if (!isSafeChildPath(root, dirPath)) continue;
 
@@ -339,6 +360,7 @@ async function listCronPostsFromFilesystem(jobs: HermesJob[]): Promise<BoardPost
 			const markdown = await readFile(filePath, 'utf8');
 			const parsed = parseCronMarkdown(markdown, folder.name);
 			const jobId = parsed.jobId || folder.name;
+			if (hiddenJobIds.has(jobId)) continue;
 			const channel = jobNames.get(jobId) || parsed.channel || jobId;
 			const runTime = parsed.runTime ?? timestampFromFilename(file.name);
 			posts.push({
@@ -361,23 +383,28 @@ async function listCronPostsFromFilesystem(jobs: HermesJob[]): Promise<BoardPost
 }
 
 export async function boardData(): Promise<BoardData> {
+	const hiddenJobIds = new Set(listHiddenChannelJobIds());
 	let jobs: HermesJob[] = [];
 	let runs: HermesRun[] = [];
 	let jobsError: string | null = null;
 	try {
 		const live = await listHermesJobsWithRuns();
-		jobs = live.jobs;
-		runs = live.runs;
+		jobs = live.jobs.filter((job) => !hiddenJobIds.has(job.id));
+		runs = live.runs.filter((run) => !hiddenJobIds.has(run.jobId));
 	} catch (err) {
 		jobsError = err instanceof Error ? err.message : String(err);
 	}
-	if (!jobsError) runs = dedupeRuns([...runs, ...(await listHermesRuns(jobs))]);
+	if (!jobsError) {
+		runs = dedupeRuns([...runs, ...(await listHermesRuns(jobs))]).filter(
+			(run) => !hiddenJobIds.has(run.jobId)
+		);
+	}
 	let posts: BoardPost[] = [];
 	try {
-		await syncCronOutputToDb(jobs);
-		posts = listBoardPostsFromDb();
+		await syncCronOutputToDb(jobs, hiddenJobIds);
+		posts = listBoardPostsFromDb().filter((post) => !hiddenJobIds.has(post.jobId));
 	} catch {
-		posts = await listCronPostsFromFilesystem(jobs);
+		posts = await listCronPostsFromFilesystem(jobs, hiddenJobIds);
 	}
 	return { ...buildBoardData(posts, jobs, runs), jobsError };
 }
@@ -426,7 +453,9 @@ export async function createHermesJob(input: CreateHermesJobInput): Promise<Herm
 	const text = await response.text();
 	if (!text.trim()) return null;
 	const body = JSON.parse(text);
-	return normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
+	const job = normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
+	if (job) unhideChannelJobId(job.id);
+	return job;
 }
 
 export interface UpdateHermesJobInput {
@@ -469,6 +498,7 @@ export async function updateHermesJob(id: string, input: UpdateHermesJobInput): 
 	if (!text.trim()) return null;
 	const body = JSON.parse(text);
 	const job = normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
+	if (job) unhideChannelJobId(job.id);
 	if (job?.name) renameChannelPostsForJob(job.id, job.name);
 	return job;
 }

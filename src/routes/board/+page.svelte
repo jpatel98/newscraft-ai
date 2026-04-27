@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import Markdown from '$lib/components/Markdown.svelte';
 	import type { BoardChannel, BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
+	import { detectRunRequestOutcome } from '$lib/utils/run-poll';
 	import { formatRelativeTime } from '$lib/utils/time';
 	import Check from 'lucide-svelte/icons/check';
 	import Copy from 'lucide-svelte/icons/copy';
@@ -130,6 +131,8 @@
 		const jobName = selectedJob.name;
 		const channelSlug = selectedChannel?.slug ?? '';
 		const previousLatest = selectedPosts[0]?.id ?? '';
+		const previousLastRunAt = selectedJob.lastRunAt ?? null;
+		const requestedAt = Date.now();
 		actionBusy = action;
 		error = null;
 		notice = null;
@@ -141,7 +144,13 @@
 			if (!response.ok) throw new Error(await response.text());
 			if (action === 'run') {
 				notice = `${jobName} run requested. Waiting for the next report...`;
-				startRunPoll(channelSlug, previousLatest);
+				startRunPoll({
+					jobId: selectedJob.id,
+					channelSlug,
+					previousLatest,
+					previousLastRunAt,
+					requestedAt
+				});
 			} else {
 				notice = `${jobName} ${action === 'pause' ? 'paused' : 'resumed'}.`;
 			}
@@ -163,25 +172,55 @@
 		copiedTimer = null;
 	}
 
-	function startRunPoll(channelSlug: string, previousLatest: string) {
+	function startRunPoll(input: {
+		jobId: string;
+		channelSlug: string;
+		previousLatest: string;
+		previousLastRunAt: string | null;
+		requestedAt: number;
+	}) {
 		clearRunPoll();
-		const stopAt = Date.now() + 10 * 60_000;
+		const stopAt = input.requestedAt + 45 * 60_000;
 		const poll = async () => {
 			await loadBoard(true, true);
-			const latest = posts.find((post) => post.channelSlug === channelSlug);
-			if (latest && latest.id !== previousLatest) {
-				selectedSlug = channelSlug;
-				selectedPostId = latest.id;
+			const latest = posts.find((post) => post.channelSlug === input.channelSlug);
+			const latestPostId = latest?.id ?? '';
+			const updatedJob = jobs.find((job) => job.id === input.jobId) ?? null;
+			const outcome = detectRunRequestOutcome({
+				previousLatestPostId: input.previousLatest,
+				currentLatestPostId: latestPostId,
+				previousLastRunAt: input.previousLastRunAt,
+				currentLastRunAt: updatedJob?.lastRunAt ?? null,
+				currentLastStatus: updatedJob?.lastStatus ?? null,
+				currentLastError: updatedJob?.lastError ?? updatedJob?.lastDeliveryError ?? null
+			});
+
+			if (outcome.kind === 'new-post' && latest) {
+				selectedSlug = input.channelSlug;
+				selectedPostId = latestPostId;
 				notice = 'New report received.';
 				clearRunPoll();
 				return;
 			}
-			if (Date.now() >= stopAt) {
-				notice = 'Run requested. The report is still running or waiting on Hermes.';
+			if (outcome.kind === 'run-finished') {
+				if (outcome.failed) {
+					const detail = updatedJob?.lastError ?? updatedJob?.lastDeliveryError ?? 'Unknown error';
+					error = `Run failed: ${detail}`;
+				} else {
+					notice = 'Run finished, but no new report was saved yet.';
+				}
 				clearRunPoll();
 				return;
 			}
-			pollTimer = setTimeout(() => void poll(), 8000);
+			if (Date.now() >= stopAt) {
+				const lastRun = updatedJob?.lastRunAt ? formatDate(updatedJob.lastRunAt) : 'No completed run yet';
+				notice = `Run requested. Still waiting on Hermes. Last completed run: ${lastRun}.`;
+				clearRunPoll();
+				return;
+			}
+			const elapsedMs = Date.now() - input.requestedAt;
+			const delayMs = elapsedMs < 5 * 60_000 ? 8000 : 15000;
+			pollTimer = setTimeout(() => void poll(), delayMs);
 		};
 		pollTimer = setTimeout(() => void poll(), 3000);
 	}

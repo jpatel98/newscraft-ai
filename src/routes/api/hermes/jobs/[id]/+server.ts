@@ -1,4 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
+import { hideChannelJobId } from '$lib/server/db/hidden-channels';
 import { deleteHermesJob, updateHermesJob } from '$lib/server/hermes/board';
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
@@ -27,8 +28,10 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 
 export const DELETE: RequestHandler = async ({ locals, params }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
+	const id = (params.id ?? '').trim();
+	hideChannelJobId(id);
 	try {
-		await deleteHermesJob(params.id ?? '');
+		await deleteHermesJob(id);
 		return json({ ok: true });
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));

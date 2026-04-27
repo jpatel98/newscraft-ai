@@ -564,6 +564,12 @@ body,
 	flex-direction: column;
 	padding: 5px;
 }
+.sidebar__menu--up {
+	top: auto;
+	bottom: 100%;
+	margin-top: 0;
+	margin-bottom: 4px;
+}
 .sidebar__menu button {
 	background: transparent;
 	border: 0;

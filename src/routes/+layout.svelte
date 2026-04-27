@@ -9,7 +9,8 @@
 	import SquarePen from 'lucide-svelte/icons/square-pen';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import Settings from 'lucide-svelte/icons/settings';
-	import Hash from 'lucide-svelte/icons/hash';
+	import MessageSquare from 'lucide-svelte/icons/message-square';
+	import Rss from 'lucide-svelte/icons/rss';
 	import MoreHorizontal from 'lucide-svelte/icons/more-horizontal';
 	import Pin from 'lucide-svelte/icons/pin';
 	import Plus from 'lucide-svelte/icons/plus';
@@ -91,15 +92,20 @@
 	});
 
 	let menuFor = $state<string | null>(null);
+	let menuDirection = $state<'down' | 'up'>('down');
 	let renamingFor = $state<string | null>(null);
 	let renameDraft = $state('');
 	let confirmDeleteFor = $state<string | null>(null);
 	let confirmDeleteTimer: ReturnType<typeof setTimeout> | null = null;
+	let channelMenuFor = $state<string | null>(null);
+	let channelDeleteFor = $state<string | null>(null);
+	let channelDeleteTimer: ReturnType<typeof setTimeout> | null = null;
 
 	let renameInput = $state<HTMLInputElement | null>(null);
 
 	function closeMenu() {
 		menuFor = null;
+		menuDirection = 'down';
 		if (confirmDeleteTimer) {
 			clearTimeout(confirmDeleteTimer);
 			confirmDeleteTimer = null;
@@ -107,11 +113,56 @@
 		confirmDeleteFor = null;
 	}
 
+	function closeChannelMenu() {
+		channelMenuFor = null;
+		if (channelDeleteTimer) {
+			clearTimeout(channelDeleteTimer);
+			channelDeleteTimer = null;
+		}
+		channelDeleteFor = null;
+	}
+
 	function openMenu(id: string, e: MouseEvent) {
 		e.preventDefault();
 		e.stopPropagation();
-		menuFor = menuFor === id ? null : id;
+		closeChannelMenu();
+		if (menuFor === id) {
+			closeMenu();
+			return;
+		}
+
+		const trigger = e.currentTarget as HTMLElement | null;
+		const row = trigger?.closest('[data-row-menu]') as HTMLElement | null;
+		const list = trigger?.closest('.sidebar__list') as HTMLElement | null;
+
+		menuDirection = 'down';
+		if (row && list) {
+			const rowRect = row.getBoundingClientRect();
+			const listRect = list.getBoundingClientRect();
+			const estimatedMenuHeight = 260;
+			const gap = 8;
+			const below = listRect.bottom - rowRect.bottom - gap;
+			const above = rowRect.top - listRect.top - gap;
+
+			if (below < estimatedMenuHeight && above > below) {
+				menuDirection = 'up';
+			}
+		}
+
+		menuFor = id;
 		confirmDeleteFor = null;
+	}
+
+	function openChannelMenu(jobId: string, e: MouseEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		closeMenu();
+		if (channelMenuFor === jobId) {
+			closeChannelMenu();
+			return;
+		}
+		channelMenuFor = jobId;
+		channelDeleteFor = null;
 	}
 
 	async function togglePin(c: SidebarConvo) {
@@ -194,6 +245,46 @@
 		}
 	}
 
+	function armChannelDelete(jobId: string) {
+		if (channelDeleteFor === jobId) return;
+		channelDeleteFor = jobId;
+		if (channelDeleteTimer) clearTimeout(channelDeleteTimer);
+		channelDeleteTimer = setTimeout(() => {
+			channelDeleteFor = null;
+			channelDeleteTimer = null;
+		}, 3000);
+	}
+
+	async function confirmChannelDelete(channel: BoardChannel) {
+		const jobId = (channel.jobId ?? '').trim();
+		if (!jobId) return;
+		closeChannelMenu();
+		const response = await fetch(`/api/hermes/channels/${encodeURIComponent(jobId)}`, {
+			method: 'DELETE'
+		});
+		if (!response.ok) {
+			const text = await response.text();
+			alert(text || 'Failed to delete channel.');
+			return;
+		}
+		const active = page.url.pathname === '/channels' && page.url.searchParams.get('channel') === channel.slug;
+		if (active) {
+			await goto('/channels', { invalidateAll: true });
+		} else {
+			await invalidateAll();
+		}
+	}
+
+	function onChannelRowAction(channel: BoardChannel) {
+		const jobId = (channel.jobId ?? '').trim();
+		if (!jobId) return;
+		if (channelDeleteFor === jobId) {
+			void confirmChannelDelete(channel);
+			return;
+		}
+		armChannelDelete(jobId);
+	}
+
 	let systemPromptFor = $state<string | null>(null);
 	const systemPromptConvo = $derived(
 		systemPromptFor ? data.conversations.find((c) => c.id === systemPromptFor) ?? null : null
@@ -205,16 +296,15 @@
 	}
 
 	function onDocClick(e: MouseEvent) {
-		if (!menuFor) return;
 		const t = e.target as HTMLElement | null;
-		if (t && t.closest('[data-row-menu]')) return;
-		closeMenu();
+		if (menuFor && t && !t.closest('[data-row-menu]')) closeMenu();
+		if (channelMenuFor && t && !t.closest('[data-channel-row-menu]')) closeChannelMenu();
 	}
 
 	function onDocKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && menuFor) {
-			closeMenu();
-		}
+		if (e.key !== 'Escape') return;
+		if (menuFor) closeMenu();
+		if (channelMenuFor) closeChannelMenu();
 	}
 
 	onMount(() => {
@@ -494,23 +584,69 @@
 			{:else}
 				<div class="sidebar__list">
 					<div class="sidebar__section">Channels</div>
+					<a
+						class="sidebar__row {page.url.pathname === '/channels' && !page.url.searchParams.get('channel')
+							? 'sidebar__row--active'
+							: ''}"
+						href="/channels"
+						aria-current={page.url.pathname === '/channels' && !page.url.searchParams.get('channel')
+							? 'page'
+							: undefined}
+						onclick={onSelectThread}
+					>
+						<Rss class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+						<span class="sidebar__row__name">All channels</span>
+					</a>
 					{#each sidebarChannels as channel (channel.slug)}
 						{@const href = `/channels?channel=${encodeURIComponent(channel.slug)}`}
-						<a
-							class="sidebar__row {page.url.pathname === '/channels' &&
+						{@const jobId = channel.jobId ?? ''}
+						<div
+							class="sidebar__row-wrap {page.url.pathname === '/channels' &&
 							page.url.searchParams.get('channel') === channel.slug
-								? 'sidebar__row--active'
+								? 'sidebar__row-wrap--active'
 								: ''}"
-							href={href}
-							aria-current={page.url.pathname === '/channels' &&
-							page.url.searchParams.get('channel') === channel.slug
-								? 'page'
-								: undefined}
-							onclick={onSelectThread}
+							data-channel-row-menu
 						>
-							<Hash class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
-							<span class="sidebar__row__name">{channel.name}</span>
-						</a>
+							<a
+								class="sidebar__row {page.url.pathname === '/channels' &&
+								page.url.searchParams.get('channel') === channel.slug
+									? 'sidebar__row--active'
+									: ''}"
+								href={href}
+								aria-current={page.url.pathname === '/channels' &&
+								page.url.searchParams.get('channel') === channel.slug
+									? 'page'
+									: undefined}
+								onclick={onSelectThread}
+							>
+								<Rss class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+								<span class="sidebar__row__name">{channel.name}</span>
+							</a>
+							{#if jobId}
+								<button
+									type="button"
+									class="sidebar__row-menu-btn"
+									aria-label="Channel actions"
+									aria-haspopup="menu"
+									aria-expanded={channelMenuFor === jobId}
+									onclick={(e) => openChannelMenu(jobId, e)}
+								>
+									<MoreHorizontal size="14" strokeWidth={1.8} />
+								</button>
+							{/if}
+							{#if jobId && channelMenuFor === jobId}
+								<div class="sidebar__menu" role="menu">
+									<button
+										type="button"
+										role="menuitem"
+										class="sidebar__menu__danger"
+										onclick={() => onChannelRowAction(channel)}
+									>
+										{channelDeleteFor === jobId ? 'Click again to confirm' : 'Delete channel'}
+									</button>
+								</div>
+							{/if}
+						</div>
 					{:else}
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
 							<span class="sidebar__row__name">No channels yet</span>
@@ -539,7 +675,7 @@
 								>
 									{#if renamingFor === c.id}
 										<div class="sidebar__row sidebar__row--editing">
-											<Hash class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+											<MessageSquare class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
 											<input
 												bind:this={renameInput}
 												bind:value={renameDraft}
@@ -573,7 +709,7 @@
 											href={`/c/${c.id}`}
 											onclick={onSelectThread}
 										>
-											<Hash class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+											<MessageSquare class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
 											{#if c.pinned}
 												<Pin
 													class="sidebar__row__pin"
@@ -598,7 +734,10 @@
 									{/if}
 
 									{#if menuFor === c.id}
-										<div class="sidebar__menu" role="menu">
+										<div
+											class="sidebar__menu {menuDirection === 'up' ? 'sidebar__menu--up' : ''}"
+											role="menu"
+										>
 											<button type="button" role="menuitem" onclick={() => togglePin(c)}>
 												{c.pinned ? 'Unpin' : 'Pin'}
 											</button>

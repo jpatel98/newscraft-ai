@@ -13,6 +13,5 @@ CREATE TABLE `hermes_channel_posts` (
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `hermes_posts_job_run_idx` ON `hermes_channel_posts` (`job_id`,`run_time`);
---> statement-breakpoint
+CREATE INDEX `hermes_posts_job_run_idx` ON `hermes_channel_posts` (`job_id`,`run_time`);--> statement-breakpoint
 CREATE INDEX `hermes_posts_path_idx` ON `hermes_channel_posts` (`file_path_display`);
