@@ -579,33 +579,20 @@
 			<section class="channels__main" aria-live="polite">
 				{#if selectedChannel}
 					<header class="channel-head">
-						<div class="channel-head__title">
-							<div class="channels__eyebrow">Channel</div>
-							<h2><Hash size="18" strokeWidth={1.8} />{selectedChannel.name}</h2>
-							<div class="channel-head__meta">
-								<span class={`channels-status channels-status--${statusTone(selectedChannel, selectedJob)}`}>
-									{statusLabel(selectedChannel, selectedJob)}
-								</span>
-								<span>{selectedChannel.postCount} posts</span>
-								{#if selectedRun}
-									<span>Started {relativeDate(runStartedAt(selectedRun))}</span>
-								{/if}
-								{#if formatElapsed(selectedRun?.elapsedMs ?? selectedChannel.recentRun?.elapsedMs)}
-									<span>Elapsed {formatElapsed(selectedRun?.elapsedMs ?? selectedChannel.recentRun?.elapsedMs)}</span>
-								{/if}
-								{#if selectedJob?.scheduleDisplay}
-									<span>{selectedJob.scheduleDisplay}</span>
-								{/if}
-								{#if selectedJob?.nextRunAt}
-									<span>Next {formatDate(selectedJob.nextRunAt)}</span>
-								{/if}
-								{#if selectedJob?.lastRunAt}
-									<span>Last {formatDate(selectedJob.lastRunAt)}</span>
-								{/if}
-								{#if !selectedChannel.active}
-									<span>Archived output</span>
-								{/if}
-							</div>
+						<div class="channel-head__meta" aria-label="Channel status">
+							<span class={`channels-status channels-status--${statusTone(selectedChannel, selectedJob)}`}>
+								{statusLabel(selectedChannel, selectedJob)}
+							</span>
+							<span>{selectedChannel.postCount} posts</span>
+							{#if selectedRun}
+								<span>Started {relativeDate(runStartedAt(selectedRun))}</span>
+							{/if}
+							{#if formatElapsed(selectedRun?.elapsedMs ?? selectedChannel.recentRun?.elapsedMs)}
+								<span>Elapsed {formatElapsed(selectedRun?.elapsedMs ?? selectedChannel.recentRun?.elapsedMs)}</span>
+							{/if}
+							{#if !selectedChannel.active}
+								<span>Archived output</span>
+							{/if}
 						</div>
 
 						{#if selectedJob}
@@ -992,23 +979,11 @@
 		gap: 16px;
 		margin-bottom: 18px;
 	}
-	.channel-head h2 {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		font-family: var(--font-display);
-		font-size: 26px;
-		margin: 3px 0 0;
-		color: var(--fg-1);
-		letter-spacing: -0.018em;
-		line-height: 1.15;
-	}
 	.channel-head__meta {
 		display: flex;
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 7px;
-		margin-top: 8px;
 		color: var(--fg-3);
 	}
 	.channel-head__meta span:not(.channels-status),
