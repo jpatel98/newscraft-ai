@@ -6,6 +6,8 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"start": "node build/index.js",
+		"deploy:agent": "sudo bash /home/jigar/deploy-hermes-ui.sh --deploy",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
