@@ -8,18 +8,19 @@
 	import PanelLeft from 'lucide-svelte/icons/panel-left';
 	import SquarePen from 'lucide-svelte/icons/square-pen';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
-	import Newspaper from 'lucide-svelte/icons/newspaper';
 	import Settings from 'lucide-svelte/icons/settings';
-	import LogOut from 'lucide-svelte/icons/log-out';
 	import Hash from 'lucide-svelte/icons/hash';
 	import MoreHorizontal from 'lucide-svelte/icons/more-horizontal';
 	import Pin from 'lucide-svelte/icons/pin';
+	import Plus from 'lucide-svelte/icons/plus';
 	import Search from 'lucide-svelte/icons/search';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import SystemPromptEditor from '$lib/components/SystemPromptEditor.svelte';
 	import { groupByDate } from '$lib/utils/group-by-date';
 	import { formatRelativeTime } from '$lib/utils/time';
+	import { matchesAllTokens, searchTokens } from '$lib/utils/search-dedupe';
+	import type { BoardChannel } from '$lib/types';
 
 	interface SidebarConvo {
 		id: string;
@@ -32,6 +33,7 @@
 	let { children, data } = $props();
 
 	const onLogin = $derived(page.url.pathname === '/login');
+	const sidebarChannels = $derived((data.channels ?? []) as BoardChannel[]);
 
 	let paletteOpen = $state(false);
 	let drawerOpen = $state(false);
@@ -236,6 +238,7 @@
 	let searchQ = $state('');
 	let searchResults = $state<SearchResult[]>([]);
 	let searchActive = $state(false);
+	let searchLoading = $state(false);
 	let searchInput = $state<HTMLInputElement | null>(null);
 	let searchSeq = 0;
 	let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -258,8 +261,35 @@
 			.replace(/&lt;\/mark&gt;/g, '</mark>');
 	}
 
+	function markLocalSnippet(text: string, tokens: string[]): string {
+		const escaped = escapeHtml(text || 'Untitled thread');
+		if (tokens.length === 0) return escaped;
+		const pattern = new RegExp(
+			`(${tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
+			'gi'
+		);
+		return escaped.replace(pattern, '<mark>$1</mark>');
+	}
+
+	function localTitleResults(q: string): SearchResult[] {
+		const tokens = searchTokens(q);
+		if (tokens.length === 0) return [];
+		return (data.conversations as SidebarConvo[])
+			.filter((c) => matchesAllTokens(c.title || '(untitled)', tokens))
+			.slice(0, 20)
+			.map((c) => ({
+				conversationId: c.id,
+				conversationTitle: c.title || '(untitled)',
+				messageId: '',
+				role: 'thread',
+				snippet: markLocalSnippet(c.title || '(untitled)', tokens),
+				createdAt: c.updatedAt
+			}));
+	}
+
 	async function runSearch(q: string) {
 		const seq = ++searchSeq;
+		searchLoading = true;
 		try {
 			const res = await fetch('/api/search', {
 				method: 'POST',
@@ -267,16 +297,18 @@
 				body: JSON.stringify({ q, limit: 20 })
 			});
 			if (seq !== searchSeq) return;
+			searchLoading = false;
 			if (!res.ok) {
-				searchResults = [];
+				searchResults = localTitleResults(q);
 				return;
 			}
 			const data = (await res.json()) as { results: SearchResult[] };
 			if (seq !== searchSeq) return;
-			searchResults = data.results ?? [];
+			searchResults = data.results?.length ? data.results : localTitleResults(q);
 		} catch {
 			if (seq !== searchSeq) return;
-			searchResults = [];
+			searchLoading = false;
+			searchResults = localTitleResults(q);
 		}
 	}
 
@@ -287,8 +319,11 @@
 		if (!q) {
 			searchResults = [];
 			searchSeq++;
+			searchLoading = false;
 			return;
 		}
+		searchResults = localTitleResults(q);
+		searchLoading = true;
 		searchTimer = setTimeout(() => {
 			void runSearch(q);
 		}, 150);
@@ -301,6 +336,7 @@
 			searchActive = false;
 			searchResults = [];
 			searchSeq++;
+			searchLoading = false;
 			searchInput?.focus();
 		}
 	}
@@ -310,6 +346,7 @@
 		searchQ = '';
 		searchActive = false;
 		searchResults = [];
+		searchLoading = false;
 		await goto(target);
 		await tick();
 		const el = r.messageId ? document.getElementById(`m-${r.messageId}`) : null;
@@ -426,7 +463,11 @@
 			{#if searchActive}
 				<div class="sidebar__section">Results</div>
 				<div class="sidebar__list" role="listbox" aria-label="Search results">
-					{#if searchResults.length === 0}
+					{#if searchResults.length === 0 && searchLoading}
+						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
+							<span class="sidebar__row__name">Searching…</span>
+						</div>
+					{:else if searchResults.length === 0}
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
 							<span class="sidebar__row__name">No matches</span>
 						</div>
@@ -452,6 +493,33 @@
 				</div>
 			{:else}
 				<div class="sidebar__list">
+					<div class="sidebar__section">Channels</div>
+					{#each sidebarChannels as channel (channel.slug)}
+						{@const href = `/channels?channel=${encodeURIComponent(channel.slug)}`}
+						<a
+							class="sidebar__row {page.url.pathname === '/channels' &&
+							page.url.searchParams.get('channel') === channel.slug
+								? 'sidebar__row--active'
+								: ''}"
+							href={href}
+							aria-current={page.url.pathname === '/channels' &&
+							page.url.searchParams.get('channel') === channel.slug
+								? 'page'
+								: undefined}
+							onclick={onSelectThread}
+						>
+							<Hash class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+							<span class="sidebar__row__name">{channel.name}</span>
+						</a>
+					{:else}
+						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
+							<span class="sidebar__row__name">No channels yet</span>
+						</div>
+					{/each}
+					<a class="sidebar__row" href="/channels?new=1" onclick={onSelectThread}>
+						<Plus class="sidebar__row__glyph" size="14" strokeWidth={1.7} />
+						<span class="sidebar__row__name">New channel</span>
+					</a>
 					{#if data.conversations.length === 0}
 						<div class="sidebar__section">Threads</div>
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
@@ -564,20 +632,18 @@
 			{/if}
 
 			<div class="sidebar__footer">
-				<a href="/board" aria-label="Board" onclick={onSelectThread}>
-					<Newspaper size="14" strokeWidth={1.5} style="vertical-align:-2px;margin-right:4px" />
-					Board
+				<a
+					href="/settings"
+					class="sidebar__footer-link {page.url.pathname === '/settings'
+						? 'sidebar__footer-link--active'
+						: ''}"
+					aria-label="Settings"
+					aria-current={page.url.pathname === '/settings' ? 'page' : undefined}
+					onclick={onSelectThread}
+				>
+					<Settings size="14" strokeWidth={1.5} />
+					<span>Settings</span>
 				</a>
-				<a href="/settings" aria-label="Settings" onclick={onSelectThread}>
-					<Settings size="14" strokeWidth={1.5} style="vertical-align:-2px;margin-right:4px" />
-					Settings
-				</a>
-				<form method="post" action="/logout" style="display:inline;margin-left:auto">
-					<button type="submit" aria-label="Sign out">
-						<LogOut size="14" strokeWidth={1.5} style="vertical-align:-2px;margin-right:4px" />
-						Sign out
-					</button>
-				</form>
 			</div>
 		</aside>
 

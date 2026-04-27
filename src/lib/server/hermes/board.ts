@@ -279,9 +279,11 @@ async function listCronPosts(jobs: HermesJob[]): Promise<BoardPost[]> {
 				jobId,
 				channel,
 				channelSlug: '',
+				kind: 'report',
 				runTime,
 				schedule: parsed.schedule,
 				filename: file.name,
+				filePathDisplay: path.join(folder.name, file.name),
 				responseMarkdown: parsed.responseMarkdown,
 				preview: parsed.preview,
 				archived: false
@@ -322,4 +324,34 @@ export async function runJobAction(id: string, action: 'run' | 'pause' | 'resume
 	} catch {
 		return null;
 	}
+}
+
+export interface CreateHermesJobInput {
+	name: string;
+	schedule: string;
+	prompt: string;
+	enabled?: boolean;
+	deliver?: string | null;
+}
+
+export async function createHermesJob(input: CreateHermesJobInput): Promise<HermesJob | null> {
+	const payload = {
+		name: input.name,
+		title: input.name,
+		schedule: input.schedule,
+		cron: input.schedule,
+		prompt: input.prompt,
+		enabled: input.enabled ?? true,
+		deliver: input.deliver || undefined
+	};
+	const response = await hermesFetch('/api/jobs', {
+		method: 'POST',
+		body: JSON.stringify(payload),
+		signal: AbortSignal.timeout(15000)
+	});
+	if (!response.ok) throw new Error(`Hermes job create ${response.status}: ${await response.text()}`);
+	const text = await response.text();
+	if (!text.trim()) return null;
+	const body = JSON.parse(text);
+	return normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
 }

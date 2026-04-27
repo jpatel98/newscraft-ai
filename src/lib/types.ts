@@ -89,12 +89,17 @@ export interface BoardPost {
 	jobId: string;
 	channel: string;
 	channelSlug: string;
+	kind?: 'report' | 'run';
 	runTime: string | null;
 	schedule: string | null;
 	filename: string;
+	filePathDisplay?: string | null;
 	responseMarkdown: string;
 	preview: string;
 	archived: boolean;
+	runStatus?: string | null;
+	elapsedMs?: number | null;
+	lastError?: string | null;
 }
 
 export interface BoardChannel {

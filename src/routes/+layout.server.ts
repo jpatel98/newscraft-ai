@@ -1,9 +1,17 @@
 import type { LayoutServerLoad } from './$types';
 import { listConversations } from '$lib/server/db/conversations';
+import { boardData } from '$lib/server/hermes/board';
+import type { BoardChannel } from '$lib/types';
 
-export const load: LayoutServerLoad = ({ locals }) => {
+export const load: LayoutServerLoad = async ({ locals }) => {
 	if (!locals.user) {
-		return { user: null, conversations: [] };
+		return { user: null, conversations: [], channels: [] };
+	}
+	let channels: BoardChannel[] = [];
+	try {
+		channels = (await boardData()).channels;
+	} catch {
+		channels = [];
 	}
 	return {
 		user: locals.user,
@@ -13,6 +21,7 @@ export const load: LayoutServerLoad = ({ locals }) => {
 			updatedAt: c.updatedAt,
 			pinned: c.pinned,
 			systemPrompt: c.systemPrompt
-		}))
+		})),
+		channels
 	};
 };

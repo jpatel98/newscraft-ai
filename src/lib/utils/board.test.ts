@@ -105,6 +105,20 @@ describe('board utilities', () => {
 		expect(board.posts.find((p) => p.jobId === 'ae0ac6645d2a')?.archived).toBe(true);
 	});
 
+	it('preserves safe markdown file display metadata', () => {
+		const board = buildBoardData(
+			[
+				post({
+					filePathDisplay: '4c84f5c519d7/2026-04-26_17-38-23.md'
+				})
+			],
+			[job()]
+		);
+
+		expect(board.posts[0]?.kind).toBe('report');
+		expect(board.posts[0]?.filePathDisplay).toBe('4c84f5c519d7/2026-04-26_17-38-23.md');
+	});
+
 	it('merges active runs into live job channels', () => {
 		const board = buildBoardData([post()], [job()], [
 			run({
@@ -124,6 +138,25 @@ describe('board utilities', () => {
 		expect(board.runs?.map((boardRun) => boardRun.id)).toEqual(['run-1', 'run-complete']);
 		expect(isActiveRun(run({ status: 'queued' }))).toBe(true);
 		expect(isActiveRun(run({ status: 'failed' }))).toBe(false);
+	});
+
+	it('adds failed run events when no markdown report was saved', () => {
+		const board = buildBoardData([], [job()], [
+			run({
+				id: 'run-failed',
+				status: 'failed',
+				startedAt: '2026-04-26T18:00:00.000Z',
+				completedAt: '2026-04-26T18:01:00.000Z',
+				lastError: 'source timeout'
+			})
+		]);
+
+		const event = board.posts.find((p) => p.id === 'run:run-failed');
+		expect(event?.kind).toBe('run');
+		expect(event?.runStatus).toBe('failed');
+		expect(event?.lastError).toBe('source timeout');
+		expect(event?.preview).toContain('Failed run');
+		expect(board.channels.find((channel) => channel.name === 'NEWSWATCH')?.postCount).toBe(1);
 	});
 
 	it('preserves archived channels when recent runs exist without a live job', () => {

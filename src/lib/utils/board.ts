@@ -110,6 +110,10 @@ function runTime(run: HermesRun): number {
 	return 0;
 }
 
+function runTimestamp(run: HermesRun): string | null {
+	return run.completedAt ?? run.updatedAt ?? run.startedAt ?? run.queuedAt ?? null;
+}
+
 export function isActiveRun(run: HermesRun): boolean {
 	const status = run.status.toLowerCase();
 	return status === 'queued' || status === 'running';
@@ -169,12 +173,47 @@ export function buildBoardData(rawPosts: BoardPost[], jobs: HermesJob[], runs: H
 			const slug = channelSlug(name, post.jobId);
 			return {
 				...post,
+				kind: post.kind ?? 'report',
 				channel: name,
 				channelSlug: slug,
 				archived: !job
 			};
 		})
 		.sort((a, b) => postTime(b) - postTime(a) || a.filename.localeCompare(b.filename));
+
+	const postKeys = new Set(posts.map((post) => `${post.jobId}:${post.runTime ?? ''}`));
+	for (const run of sortedRuns) {
+		const status = run.status.toLowerCase();
+		if (!isActiveRun(run) && !['failed', 'error', 'cancelled', 'canceled'].includes(status)) continue;
+		const job = jobById.get(run.jobId);
+		const name = job?.name || run.jobName || run.jobId;
+		const runAt = runTimestamp(run);
+		const key = `${run.jobId}:${runAt ?? ''}`;
+		if (postKeys.has(key)) continue;
+		const label = status === 'queued' ? 'Queued' : status === 'running' ? 'Running' : 'Failed';
+		const detail = run.lastError ? ` ${run.lastError}` : '';
+		posts.push({
+			id: `run:${run.id}`,
+			jobId: run.jobId,
+			channel: name,
+			channelSlug: channelSlug(name, run.jobId),
+			kind: 'run',
+			runTime: runAt,
+			schedule: job?.scheduleDisplay ?? null,
+			filename: '',
+			filePathDisplay: null,
+			responseMarkdown: run.lastError
+				? `**${label}**\n\n${run.lastError}`
+				: `_${label} run. No markdown report has been saved yet._`,
+			preview: `${label} run.${detail}`.trim(),
+			archived: !job,
+			runStatus: run.status,
+			elapsedMs: run.elapsedMs ?? null,
+			lastError: run.lastError ?? null
+		});
+		postKeys.add(key);
+	}
+	posts.sort((a, b) => postTime(b) - postTime(a) || a.id.localeCompare(b.id));
 
 	for (const post of posts) {
 		const current = channels.get(post.channelSlug);
