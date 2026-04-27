@@ -77,6 +77,9 @@ describe('searchTokens', () => {
 	it('returns [] for empty input', () => {
 		expect(searchTokens('   ')).toEqual([]);
 	});
+	it('splits punctuation so copied headlines still match titles', () => {
+		expect(searchTokens('Hamilton mall-shooting?')).toEqual(['hamilton', 'mall', 'shooting']);
+	});
 });
 
 describe('matchesAllTokens', () => {

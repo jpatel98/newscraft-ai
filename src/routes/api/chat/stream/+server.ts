@@ -21,7 +21,7 @@ import {
 	parseContent,
 	setConversationTitle
 } from '$lib/server/db/conversations';
-import type { ChatCommand, ContentPart, HermesCommand, MessageContent } from '$lib/types';
+import { contentText, type ChatCommand, type ContentPart, type HermesCommand, type MessageContent } from '$lib/types';
 import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
 
 interface Body {
@@ -88,8 +88,17 @@ const TITLE_SYSTEM =
 	'You generate a 4-to-8-word, sentence-case title for a conversation. ' +
 	'Reply with ONLY the title text — no quotes, no markdown, no trailing punctuation.';
 
+const FAST_SOURCE_SYSTEM =
+	'For source-backed or current-events requests, prioritize speed. Use a fast source budget: search once, read at most 4 highly relevant sources, avoid duplicate domains unless necessary, stop as soon as the answer is sufficiently supported, and answer within about 30 seconds. If sources are incomplete, provide the best supported answer with clear caveats instead of continuing to search.';
+
 function textFrame(text: string): string {
 	return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
+}
+
+function looksSourceBacked(text: string): boolean {
+	return /\b(source|sources|cite|citation|current|latest|today|yesterday|breaking|news|search|look up|verify|fact[- ]?check|according to|reports?|coverage)\b/i.test(
+		text
+	);
 }
 
 function localAssistantResponse(convoId: string, text: string): Response {
@@ -248,12 +257,32 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		if (lastUser) lastUser.content = toHermesContent(body.content);
 	}
 
+	const latestUserText =
+		body.content != null
+			? contentText(body.content)
+			: (() => {
+					const lastUser = [...getMessages(convoId)].reverse().find((m) => m.role === 'user');
+					return lastUser ? contentText(parseContent(lastUser.content)) : '';
+				})();
+
 	const override = convo.systemPrompt?.trim();
 	if (override) {
 		const idx = history.findIndex((m) => m.role === 'system');
 		const sys: HermesMessage = { role: 'system', content: override };
 		if (idx >= 0) history[idx] = sys;
 		else history.unshift(sys);
+	}
+	if (looksSourceBacked(latestUserText)) {
+		const idx = history.findIndex((m) => m.role === 'system');
+		if (idx >= 0) {
+			const existing = history[idx].content;
+			history[idx] = {
+				role: 'system',
+				content: `${typeof existing === 'string' ? existing : contentText(existing as MessageContent)}\n\n${FAST_SOURCE_SYSTEM}`
+			};
+		} else {
+			history.unshift({ role: 'system', content: FAST_SOURCE_SYSTEM });
+		}
 	}
 
 	const upstream = await streamChatCompletion(

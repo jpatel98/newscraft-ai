@@ -119,16 +119,37 @@
 						overlay = [...overlay];
 					},
 					onToolProgress: (t) => chat.pushTool({ ...t, startedAt: Date.now() }),
-					onToolDone: (id) => chat.clearTool(id)
+					onToolDone: (id) => chat.clearTool(id),
+					onSource: (source) =>
+						chat.pushSource({
+							...source,
+							domain: source.domain || source.url,
+							updatedAt: Date.now()
+						})
 				});
 				asstMsg.partial = false;
 				asstMsg.streaming = false;
 				overlay = [...overlay];
 			} catch (e) {
 				const aborted = (e as { name?: string })?.name === 'AbortError' || controller.signal.aborted;
+				const wantsPartialAnswer = aborted && chat.abortIntent === 'partial';
 				asstMsg.partial = false;
 				asstMsg.streaming = false;
-				if (!aborted) {
+				if (wantsPartialAnswer && asstText.trim() === seedContent.trim()) {
+					const note =
+						'I stopped the source run before the agent produced a usable draft. No partial answer was available yet.';
+					asstText = seedContent ? `${seedContent}\n\n${note}` : note;
+					asstMsg.content = asstText;
+					try {
+						await fetch(`/api/conversations/${data.conversation.id}/assistant-note`, {
+							method: 'POST',
+							headers: { 'content-type': 'application/json' },
+							body: JSON.stringify({ content: note })
+						});
+					} catch {
+						/* the local overlay still tells the user what happened */
+					}
+				} else if (!aborted) {
 					asstText += `\n\nCouldn't reach the agent. ${String(e)}`;
 					asstMsg.content = asstText;
 				}
@@ -224,7 +245,9 @@
 	</div>
 </header>
 
-<Thread {messages} onRegenerate={handleRegenerate} onResume={handleResume} onDiscard={handleDiscard} />
+{#key data.conversation.id}
+	<Thread {messages} onRegenerate={handleRegenerate} onResume={handleResume} onDiscard={handleDiscard} />
+{/key}
 
 <div class="composer-zone">
 	<div class="composer-zone__inner">

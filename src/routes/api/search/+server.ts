@@ -2,7 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { sqliteClient } from '$lib/server/db';
 import { parseContent } from '$lib/server/db/conversations';
 import { contentText } from '$lib/types';
-import { dedupeByConversation, type SearchRow } from '$lib/utils/search-dedupe';
+import { dedupeByConversation, searchTokens, type SearchRow } from '$lib/utils/search-dedupe';
 
 interface Body {
 	q?: string;
@@ -19,8 +19,7 @@ const MAX_LIMIT = 100;
 // whitespace and double-quoting each token (with `"` doubled) turns any input
 // into a literal phrase-AND query that the parser can't choke on.
 function sanitize(q: string): string {
-	return q
-		.split(/\s+/)
+	return searchTokens(q)
 		.map((t) => t.trim())
 		.filter(Boolean)
 		.map((t) => `"${t.replace(/"/g, '""')}"`)
@@ -39,17 +38,10 @@ FROM messages_fts
 JOIN messages m ON m.rowid = messages_fts.rowid
 JOIN conversations c ON c.id = m.conversation_id
 WHERE messages_fts MATCH ?
+  AND m.role IN ('user', 'assistant')
 ORDER BY rank
 LIMIT ?
 `;
-
-function tokens(raw: string): string[] {
-	return raw
-		.toLocaleLowerCase()
-		.split(/\s+/)
-		.map((t) => t.trim())
-		.filter(Boolean);
-}
 
 function likeTerm(t: string): string {
 	return `%${t.replace(/[\\%_]/g, '\\$&')}%`;
@@ -94,7 +86,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	const raw = (body.q ?? '').toString();
 	const match = sanitize(raw);
-	const terms = tokens(raw);
+	const terms = searchTokens(raw);
 	if (!match) return json({ results: [] satisfies Result[] });
 
 	const requested = Number.isFinite(body.limit) ? Number(body.limit) : DEFAULT_LIMIT;
@@ -154,6 +146,7 @@ SELECT
 FROM messages m
 JOIN conversations c ON c.id = m.conversation_id
 WHERE ${allTermsWhere('m.content', terms)}
+  AND m.role IN ('user', 'assistant')
 ORDER BY m.created_at DESC
 LIMIT ?
 `

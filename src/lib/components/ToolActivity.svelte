@@ -38,6 +38,7 @@
 
 	const hasRunning = $derived(chat.tools.length > 0);
 	const hasFinished = $derived(chat.toolHistory.length > 0);
+	const hasSources = $derived(chat.sources.length > 0);
 	const liveNames = $derived(chat.tools.map((t) => t.name));
 	const finishedNames = $derived(chat.toolHistory.map((t) => t.name));
 
@@ -63,6 +64,7 @@
 	const visible = $derived(
 		hasRunning ||
 			(activeTurn && chat.streaming) ||
+			(activeTurn && hasSources) ||
 			(activeTurn && hasFinished)
 	);
 
@@ -83,7 +85,7 @@
 
 	function answerWithWhatWeHave() {
 		recoveryDismissed = true;
-		chat.cancel();
+		chat.cancel('partial');
 	}
 
 	function stop() {
@@ -127,6 +129,23 @@
 				strokeWidth={1.75}
 			/>
 		</button>
+
+		{#if hasSources}
+			<div class="tool-activity__sources" aria-label="Sources">
+				{#each chat.sources as source (source.id)}
+					<a class="tool-source" href={source.url} target="_blank" rel="noopener noreferrer">
+						<span class="tool-source__status">{source.status}</span>
+						<span class="tool-source__main">
+							<span class="tool-source__title">{source.title}</span>
+							<span class="tool-source__domain">{source.domain}</span>
+							{#if source.detail}
+								<span class="tool-source__detail">{source.detail}</span>
+							{/if}
+						</span>
+					</a>
+				{/each}
+			</div>
+		{/if}
 
 		{#if expanded}
 			<div class="tool-activity__body">
@@ -264,6 +283,66 @@
 		border-top: 1px solid var(--border-soft);
 		padding: 8px 10px;
 		background: var(--bg-page);
+	}
+	.tool-activity__sources {
+		display: grid;
+		gap: 4px;
+		padding: 0 8px 8px;
+	}
+	.tool-source {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-1);
+		background: var(--bg-page);
+		padding: 6px 7px;
+		color: inherit;
+		text-decoration: none;
+		text-transform: none;
+		letter-spacing: 0;
+		font-family: var(--font-body);
+	}
+	.tool-source:hover {
+		border-color: var(--border-default);
+		background: var(--bg-raised);
+	}
+	.tool-source__status {
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-pill);
+		padding: 1px 5px;
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+		color: var(--fg-3);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.tool-source__main {
+		display: grid;
+		gap: 1px;
+		min-width: 0;
+	}
+	.tool-source__title,
+	.tool-source__domain,
+	.tool-source__detail {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.tool-source__title {
+		color: var(--fg-1);
+		font-size: 12px;
+		font-weight: 600;
+	}
+	.tool-source__domain {
+		color: var(--fg-3);
+		font-size: 11px;
+	}
+	.tool-source__detail {
+		color: var(--fg-2);
+		font-size: 11.5px;
 	}
 	.tool-activity__sub {
 		font-size: 10px;

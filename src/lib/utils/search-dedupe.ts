@@ -43,7 +43,7 @@ export function dedupeByConversation(rows: SearchRow[]): SearchRow[] {
 export function searchTokens(raw: string): string[] {
 	return raw
 		.toLocaleLowerCase()
-		.split(/\s+/)
+		.split(/[^\p{L}\p{N}]+/u)
 		.map((t) => t.trim())
 		.filter(Boolean);
 }
