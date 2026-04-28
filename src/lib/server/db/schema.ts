@@ -1,4 +1,23 @@
-import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+export const accounts = sqliteTable(
+	'accounts',
+	{
+		id: text('id').primaryKey(),
+		email: text('email').notNull(),
+		name: text('name').notNull().default(''),
+		passwordHash: text('password_hash'),
+		setupTokenHash: text('setup_token_hash'),
+		setupTokenExpiresAt: integer('setup_token_expires_at'),
+		createdAt: integer('created_at').notNull(),
+		updatedAt: integer('updated_at').notNull(),
+		lastLoginAt: integer('last_login_at')
+	},
+	(t) => ({
+		emailUnique: uniqueIndex('accounts_email_unique').on(t.email),
+		setupTokenIdx: index('accounts_setup_token_idx').on(t.setupTokenHash)
+	})
+);
 
 export const conversations = sqliteTable('conversations', {
 	id: text('id').primaryKey(),

@@ -7,16 +7,19 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	const name = typeof body?.name === 'string' ? body.name.trim() : undefined;
 	const schedule = typeof body?.schedule === 'string' ? body.schedule.trim() : undefined;
+	const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : undefined;
 	const deliver = typeof body?.deliver === 'string' ? body.deliver.trim() : undefined;
 	const enabled = typeof body?.enabled === 'boolean' ? body.enabled : undefined;
 
 	if (name !== undefined && !name) throw error(400, 'Channel name is required');
 	if (schedule !== undefined && !schedule) throw error(400, 'Schedule is required');
+	if (prompt !== undefined && !prompt) throw error(400, 'Prompt is required');
 
 	try {
 		const job = await updateHermesJob(params.id ?? '', {
 			name,
 			schedule,
+			prompt,
 			deliver,
 			enabled
 		});

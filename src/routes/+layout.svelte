@@ -33,7 +33,11 @@
 
 	let { children, data } = $props();
 
-	const onLogin = $derived(page.url.pathname === '/login');
+	const onAuthPage = $derived(
+		page.url.pathname === '/login' ||
+			page.url.pathname === '/setup' ||
+			page.url.pathname.startsWith('/account-setup')
+	);
 	const sidebarChannels = $derived((data.channels ?? []) as BoardChannel[]);
 
 	let paletteOpen = $state(false);
@@ -465,7 +469,7 @@
 	<title>NewsCraft</title>
 </svelte:head>
 
-{#if onLogin || !data.user}
+{#if onAuthPage || !data.user}
 	{@render children()}
 {:else}
 	<div class="shell {drawerOpen ? 'shell--drawer-open' : ''}">

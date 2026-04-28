@@ -66,6 +66,112 @@
 		goto(`/?draft=${encodeURIComponent(skill.slash + ' ')}`);
 	}
 
+	// --- Accounts ---
+	let accountName = $state('');
+	let accountEmail = $state('');
+	let accountBusy = $state(false);
+	let accountMsg = $state<{ kind: 'ok' | 'err'; text: string } | null>(null);
+	let setupUrl = $state('');
+	let setupLinkBusyId = $state<string | null>(null);
+	let deleteBusyId = $state<string | null>(null);
+
+	async function submitAccount(e: Event) {
+		e.preventDefault();
+		accountMsg = null;
+		setupUrl = '';
+		if (!accountEmail.trim()) {
+			accountMsg = { kind: 'err', text: 'email is required' };
+			return;
+		}
+		accountBusy = true;
+		try {
+			const r = await fetch('/api/settings/accounts', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email: accountEmail, name: accountName })
+			});
+			if (!r.ok) {
+				const t = await r.text();
+				accountMsg = { kind: 'err', text: t || `error ${r.status}` };
+				return;
+			}
+			const j = (await r.json()) as { setupUrl: string };
+			setupUrl = j.setupUrl;
+			accountMsg = { kind: 'ok', text: 'setup link created' };
+			accountName = '';
+			accountEmail = '';
+			await invalidateAll();
+		} catch (err) {
+			accountMsg = { kind: 'err', text: (err as Error).message };
+		} finally {
+			accountBusy = false;
+		}
+	}
+
+	async function createSetupLink(accountId: string) {
+		accountMsg = null;
+		setupUrl = '';
+		setupLinkBusyId = accountId;
+		try {
+			const r = await fetch(`/api/settings/accounts/${encodeURIComponent(accountId)}/setup-link`, {
+				method: 'POST'
+			});
+			if (!r.ok) {
+				const t = await r.text();
+				accountMsg = { kind: 'err', text: t || `error ${r.status}` };
+				return;
+			}
+			const j = (await r.json()) as { setupUrl: string };
+			setupUrl = j.setupUrl;
+			accountMsg = { kind: 'ok', text: 'setup link created' };
+		} catch (err) {
+			accountMsg = { kind: 'err', text: (err as Error).message };
+		} finally {
+			setupLinkBusyId = null;
+		}
+	}
+
+	async function copySetupUrl() {
+		if (!setupUrl) return;
+		try {
+			await navigator.clipboard.writeText(setupUrl);
+			accountMsg = { kind: 'ok', text: 'setup link copied' };
+		} catch {
+			accountMsg = { kind: 'err', text: 'copy failed' };
+		}
+	}
+
+	async function removeAccount(accountId: string, email: string) {
+		if (!confirm(`Remove ${email}?`)) return;
+		accountMsg = null;
+		deleteBusyId = accountId;
+		try {
+			const r = await fetch(`/api/settings/accounts/${encodeURIComponent(accountId)}`, {
+				method: 'DELETE'
+			});
+			if (!r.ok) {
+				const t = await r.text();
+				accountMsg = { kind: 'err', text: t || `error ${r.status}` };
+				return;
+			}
+			setupUrl = '';
+			accountMsg = { kind: 'ok', text: 'account removed' };
+			await invalidateAll();
+		} catch (err) {
+			accountMsg = { kind: 'err', text: (err as Error).message };
+		} finally {
+			deleteBusyId = null;
+		}
+	}
+
+	function formatDate(ms: number | null) {
+		if (!ms) return 'Never';
+		return new Intl.DateTimeFormat(undefined, {
+			dateStyle: 'medium',
+			timeStyle: 'short'
+		}).format(new Date(ms));
+	}
+
 	// --- Change password ---
 	let pwCurrent = $state('');
 	let pwNew = $state('');
@@ -172,22 +278,133 @@
 			</div>
 			<div class="settings__stats">
 				<div class="settings__stat">
-					<div class="settings__stat__label">Signed in</div>
-					<div class="settings__stat__value">{data.user ? 'Yes' : 'No'}</div>
+					<div class="settings__stat__label">Account</div>
+					<div class="settings__stat__value">{data.user?.name ?? 'Signed out'}</div>
 				</div>
 				<div class="settings__stat">
 					<div class="settings__stat__label">Threads</div>
 					<div class="settings__stat__value">{data.conversations.length}</div>
 				</div>
 				<div class="settings__stat">
-					<div class="settings__stat__label">Theme</div>
-					<div class="settings__stat__value">System</div>
+					<div class="settings__stat__label">Accounts</div>
+					<div class="settings__stat__value">{data.accounts.length}</div>
 				</div>
 			</div>
 			<div class="settings__meta-row">
 				<span>Agent</span>
 				<strong>NewsCraft</strong>
 				<code>hermes-agent</code>
+				{#if data.user}
+					<code>{data.user.email}</code>
+				{/if}
+			</div>
+		</section>
+
+		<section class="settings__group" aria-labelledby="settings-accounts">
+			<div class="settings__group__head">
+				<h2 id="settings-accounts" class="settings__group__title">Accounts</h2>
+				<p class="settings__group__copy">Add people and issue password setup links.</p>
+			</div>
+			<div class="settings__section-body">
+				<div class="accounts-panel">
+					<form class="settings__form accounts-create" onsubmit={submitAccount} autocomplete="off">
+						<div class="settings__section-title">Add account</div>
+						<div class="field">
+							<label class="field__label" for="account-name">Name</label>
+							<input
+								id="account-name"
+								class="field__input"
+								type="text"
+								autocomplete="off"
+								bind:value={accountName}
+							/>
+						</div>
+						<div class="field">
+							<label class="field__label" for="account-email">Email</label>
+							<input
+								id="account-email"
+								class="field__input"
+								type="email"
+								autocomplete="off"
+								bind:value={accountEmail}
+								required
+							/>
+						</div>
+						<div class="settings__form-actions">
+							<button type="submit" class="btn btn--primary" disabled={accountBusy}>
+								{accountBusy ? 'Creating…' : 'Create setup link'}
+							</button>
+						</div>
+					</form>
+
+					{#if setupUrl}
+						<div class="setup-link">
+							<label class="field__label" for="setup-url">Setup link</label>
+							<div class="setup-link__row">
+								<input
+									id="setup-url"
+									class="field__input"
+									type="text"
+									readonly
+									value={setupUrl}
+									onfocus={(e) => e.currentTarget.select()}
+								/>
+								<button type="button" class="btn btn--ghost" onclick={copySetupUrl}>Copy</button>
+							</div>
+							<div class="settings__hint">Share this link with the account owner.</div>
+						</div>
+					{/if}
+
+					{#if accountMsg}
+						<div class={accountMsg.kind === 'ok' ? 'settings__ok' : 'field__error'}>
+							{accountMsg.text}
+						</div>
+					{/if}
+
+					<div class="accounts-list" aria-label="Accounts">
+						{#each data.accounts as account (account.id)}
+							<div class="account-row">
+								<div class="account-row__main">
+									<div class="account-row__name">
+										{account.name}
+										{#if account.isCurrent}
+											<span>Current</span>
+										{/if}
+									</div>
+									<div class="account-row__email">{account.email}</div>
+									<div class="account-row__meta">
+										<span>{account.status === 'active' ? 'Active' : 'Pending setup'}</span>
+										<span>Last login: {formatDate(account.lastLoginAt)}</span>
+									</div>
+								</div>
+								<div class="account-row__actions">
+									<button
+										type="button"
+										class="btn btn--ghost"
+										disabled={setupLinkBusyId === account.id}
+										onclick={() => createSetupLink(account.id)}
+									>
+										{#if setupLinkBusyId === account.id}
+											Creating…
+										{:else if account.status === 'active'}
+											Reset link
+										{:else}
+											Setup link
+										{/if}
+									</button>
+									<button
+										type="button"
+										class="btn btn--ghost"
+										disabled={account.isCurrent || deleteBusyId === account.id}
+										onclick={() => removeAccount(account.id, account.email)}
+									>
+										{deleteBusyId === account.id ? 'Removing…' : 'Remove'}
+									</button>
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
 			</div>
 		</section>
 
@@ -363,8 +580,8 @@
 				<div class="settings__danger">
 					<div class="settings__danger__title">Wipe all conversations</div>
 					<div class="settings__danger__copy">
-						Deletes every conversation and message. Settings (including this password) are kept.
-						This cannot be undone.
+						Deletes every conversation and message. Accounts and passwords are kept. This
+						cannot be undone.
 					</div>
 					<div class="field settings__danger__field">
 						<label class="field__label" for="wipe-phrase">
@@ -437,7 +654,7 @@
 			<div class="kbd-help__sub">This cannot be undone</div>
 			<p class="settings__confirm-copy">
 				All {data.conversations.length} conversation{data.conversations.length === 1 ? '' : 's'}
-				and every message will be deleted. Your password and theme stay.
+				and every message will be deleted. Accounts and passwords stay.
 			</p>
 			<div class="settings__confirm-actions">
 				<button type="button" class="btn btn--ghost" onclick={cancelWipe} disabled={wipeBusy}>
@@ -472,6 +689,83 @@
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		margin-top: 6px;
+	}
+	.settings__stat__value {
+		overflow-wrap: anywhere;
+	}
+	.accounts-panel {
+		display: grid;
+		gap: 16px;
+	}
+	.accounts-create {
+		display: grid;
+		gap: 10px;
+	}
+	.setup-link {
+		display: grid;
+		gap: 6px;
+		max-width: 680px;
+	}
+	.setup-link__row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 8px;
+		align-items: center;
+	}
+	.accounts-list {
+		border-top: 1px solid var(--border-soft);
+	}
+	.account-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 12px;
+		align-items: center;
+		padding: 12px 0;
+		border-bottom: 1px solid var(--border-soft);
+	}
+	.account-row__main {
+		min-width: 0;
+		display: grid;
+		gap: 3px;
+	}
+	.account-row__name {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 6px;
+		font-weight: 700;
+		color: var(--fg-1);
+		overflow-wrap: anywhere;
+	}
+	.account-row__name span,
+	.account-row__meta {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--fg-3);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.account-row__name span {
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-1);
+		padding: 1px 5px;
+		background: var(--bg-raised);
+	}
+	.account-row__email {
+		color: var(--fg-2);
+		font-size: 13.5px;
+		overflow-wrap: anywhere;
+	}
+	.account-row__meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.account-row__actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 8px;
 	}
 	@media (prefers-color-scheme: dark) {
 		.settings__ok {
@@ -686,6 +980,13 @@
 	@media (max-width: 520px) {
 		.skills-panel {
 			grid-template-columns: 1fr;
+		}
+		.account-row,
+		.setup-link__row {
+			grid-template-columns: 1fr;
+		}
+		.account-row__actions {
+			justify-content: flex-start;
 		}
 		.skill-detail__head {
 			flex-direction: column;

@@ -1,5 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { setPassword, verifyPassword } from '$lib/server/auth/password';
+import { verifyHash } from '$lib/server/auth/password';
+import { getAccount, updateAccountPassword } from '$lib/server/db/accounts';
 
 interface Body {
 	current?: string;
@@ -22,9 +23,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (next.length < 8) throw error(400, 'new password must be at least 8 characters');
 	if (next === current) throw error(400, 'new password must differ from current');
 
-	const ok = await verifyPassword(current);
+	const account = getAccount(locals.user.id);
+	if (!account?.passwordHash) throw error(401, 'current password is incorrect');
+	const ok = await verifyHash(account.passwordHash, current);
 	if (!ok) throw error(401, 'current password is incorrect');
 
-	await setPassword(next);
+	await updateAccountPassword(account.id, next);
 	return json({ ok: true });
 };

@@ -22,6 +22,13 @@
       "when": 1777308827616,
       "tag": "0002_calm_juggernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1777387351715,
+      "tag": "0003_mushy_vertigo",
+      "breakpoints": true
     }
   ]
 }

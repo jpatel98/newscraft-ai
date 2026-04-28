@@ -2,25 +2,37 @@ import type { Handle } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
 import { verifySessionCookie, SESSION_COOKIE_NAME } from '$lib/server/auth/cookie';
 import { ensureMigrated } from '$lib/server/db';
+import { accountCount, getAccount } from '$lib/server/db/accounts';
 
 ensureMigrated();
 
-const PUBLIC_PATHS = new Set(['/login']);
-const PUBLIC_PREFIXES = ['/api/health', '/api/hermes/channel-posts'];
+const PUBLIC_PATHS = new Set(['/login', '/setup']);
+const PUBLIC_PREFIXES = ['/api/health', '/api/hermes/channel-posts', '/account-setup'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const cookie = event.cookies.get(SESSION_COOKIE_NAME);
-	const authed = verifySessionCookie(cookie);
-	event.locals.user = authed ? { authed: true } : null;
+	const session = verifySessionCookie(cookie);
+	const account = session ? getAccount(session.accountId) : undefined;
+	event.locals.user = account
+		? { id: account.id, email: account.email, name: account.name }
+		: null;
 
 	const path = event.url.pathname;
 	const isPublic = PUBLIC_PATHS.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
+	const hasAccounts = accountCount() > 0;
 
-	if (!authed && !isPublic) {
+	if (!hasAccounts && path !== '/setup' && !PUBLIC_PREFIXES.some((p) => path.startsWith(p))) {
+		throw redirect(303, '/setup');
+	}
+	if (hasAccounts && path === '/setup') {
+		throw redirect(303, event.locals.user ? '/' : '/login');
+	}
+
+	if (!event.locals.user && !isPublic) {
 		const dest = path === '/' ? '/' : path + event.url.search;
 		throw redirect(303, `/login?next=${encodeURIComponent(dest)}`);
 	}
-	if (authed && path === '/login') {
+	if (event.locals.user && path === '/login') {
 		throw redirect(303, '/');
 	}
 

@@ -24,6 +24,7 @@ function job(overrides: Partial<HermesJob> = {}): HermesJob {
 	return {
 		id: '4c84f5c519d7',
 		name: 'NEWSWATCH',
+		prompt: 'Scan the news',
 		scheduleDisplay: 'every 180m',
 		state: 'scheduled',
 		enabled: true,

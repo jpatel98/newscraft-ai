@@ -62,6 +62,7 @@ export interface ChatCommand {
 export interface HermesJob {
 	id: string;
 	name: string;
+	prompt: string | null;
 	scheduleDisplay: string;
 	state: string;
 	enabled: boolean;

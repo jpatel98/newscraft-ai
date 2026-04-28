@@ -95,6 +95,7 @@ export function normalizeHermesJob(value: unknown): HermesJob | null {
 	return {
 		id,
 		name,
+		prompt: stringValue(raw.prompt),
 		scheduleDisplay:
 			stringValue(raw.schedule_display ?? raw.scheduleDisplay ?? raw.schedule ?? raw.cron) || 'unscheduled',
 		state,
@@ -462,6 +463,7 @@ export async function createHermesJob(input: CreateHermesJobInput): Promise<Herm
 export interface UpdateHermesJobInput {
 	name?: string | null;
 	schedule?: string | null;
+	prompt?: string | null;
 	deliver?: string | null;
 	enabled?: boolean;
 }
@@ -482,6 +484,9 @@ export async function updateHermesJob(id: string, input: UpdateHermesJobInput): 
 			payload.schedule = schedule;
 			payload.cron = schedule;
 		}
+	}
+	if (typeof input.prompt === 'string') {
+		payload.prompt = input.prompt.trim();
 	}
 	if (typeof input.deliver === 'string') {
 		payload.deliver = toHermesDeliverTarget(input.deliver);

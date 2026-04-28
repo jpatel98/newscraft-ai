@@ -415,6 +415,7 @@
 				body: JSON.stringify({
 					name: createName,
 					schedule: createSchedule,
+					prompt: createPrompt,
 					deliver: createDeliver
 				})
 			});
@@ -479,6 +480,7 @@
 		const post = params.get('post') ?? '';
 		const newOpen = params.get('new') === '1';
 		const editOpen = params.get('edit') === '1';
+		const formOpen = newOpen || editOpen;
 		const renameRequested = params.get('rename') === '1';
 		const channelSlug = channel || selectedSlug;
 		const targetChannel = channels.find((candidate) => candidate.slug === channelSlug) ?? null;
@@ -488,21 +490,40 @@
 		const targetPosts = targetChannel
 			? posts.filter((candidate) => candidate.channelSlug === targetChannel.slug)
 			: [];
-		createOpen = newOpen;
-		if (newOpen && !createBusy && (!preserveSelection || !createOpen)) {
+		const wasFormOpen = createOpen;
+		const previousMode = formMode;
+		const previousEditJobId = editJobId;
+		createOpen = formOpen;
+		const shouldHydrateForm =
+			!preserveSelection ||
+			!wasFormOpen ||
+			(editOpen && targetJob && (previousMode !== 'edit' || previousEditJobId !== targetJob.id)) ||
+			(!editOpen && previousMode !== 'create');
+		if (formOpen && !createBusy && shouldHydrateForm) {
 			if (editOpen && targetJob) {
 				formMode = 'edit';
 				editJobId = targetJob.id;
 				createName = targetJob.name || targetChannel?.name || '';
 				createSchedule = targetJob.scheduleDisplay || targetPosts[0]?.schedule || '';
-				createPrompt = '';
+				createPrompt = targetJob.prompt ?? '';
 				createDeliver = targetJob.deliver || 'database';
+			} else if (editOpen) {
+				formMode = 'edit';
+				editJobId = '';
+				createName = '';
+				createSchedule = '';
+				createPrompt = '';
+				createDeliver = 'database';
 			} else {
 				formMode = 'create';
 				editJobId = '';
+				createName = '';
+				createSchedule = '';
+				createPrompt = '';
+				createDeliver = 'database';
 			}
 		}
-		if (renameRequested && !newOpen && targetJob) {
+		if (renameRequested && !formOpen && targetJob) {
 			const wasClosed = !renameOpen;
 			renameOpen = true;
 			if (!preserveSelection || wasClosed) {
@@ -513,7 +534,7 @@
 		} else if (!targetJob) {
 			renameOpen = false;
 		}
-		focusedChannelView = params.has('channel') && !newOpen;
+		focusedChannelView = params.has('channel') && !formOpen;
 		if (channel) selectedSlug = channel;
 		if (post) expandedPostId = post;
 		if (!preserveSelection && !post) expandedPostId = '';
@@ -960,18 +981,16 @@
 							/>
 						</div>
 					</div>
-					{#if formMode === 'create'}
-						<div class="field">
-							<label class="field__label" for="channel-prompt">Task prompt</label>
-							<textarea
-								id="channel-prompt"
-								class="field__input channels-create__prompt"
-								bind:value={createPrompt}
-								placeholder="Scan the latest headlines and summarize what changed."
-								required
-							></textarea>
-						</div>
-					{/if}
+					<div class="field">
+						<label class="field__label" for="channel-prompt">Task prompt</label>
+						<textarea
+							id="channel-prompt"
+							class="field__input channels-create__prompt"
+							bind:value={createPrompt}
+							placeholder="Scan the latest headlines and summarize what changed."
+							required
+						></textarea>
+					</div>
 					<div class="field">
 						<label class="field__label" for="channel-deliver">Delivery target</label>
 						<input

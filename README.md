@@ -31,9 +31,12 @@ Required `.env` values:
 
 ```sh
 HERMES_API_KEY=
-APP_PASSWORD_HASH=
 APP_SESSION_SECRET=
 ```
+
+`APP_PASSWORD_HASH` is now optional. When present and no accounts exist yet, the
+first-account setup page requires that legacy password before creating the first
+email/password account.
 
 For a production build without cutover:
 
