@@ -7,13 +7,11 @@
 	import Markdown from './Markdown.svelte';
 	import ToolActivity from './ToolActivity.svelte';
 	import ToolInspector, { type InspectorToolCall } from './ToolInspector.svelte';
+	import { chat, type ToolHistoryEntry, type ToolProgress } from '$lib/stores/chat.svelte';
 	import { formatShortTime } from '$lib/utils/time';
 
 	function parseToolCalls(m: ChatMessage): InspectorToolCall[] {
-		// `messages.toolCalls` is a JSON column on the row but not part of the
-		// ChatMessage type today. Read it best-effort; persistence isn't wired
-		// yet (Hermes-side work) — when it lights up, the link/panel populate.
-		const raw = (m as unknown as { toolCalls?: string | null }).toolCalls;
+		const raw = m.toolCalls;
 		if (!raw) return [];
 		try {
 			const parsed = JSON.parse(raw) as unknown;
@@ -39,9 +37,46 @@
 
 	let inspectorOpen = $state(false);
 	let inspectorCalls = $state<InspectorToolCall[]>([]);
-	function openInspector(m: ChatMessage) {
-		inspectorCalls = parseToolCalls(m);
+	function openInspector(calls: InspectorToolCall[]) {
+		inspectorCalls = calls;
 		inspectorOpen = true;
+	}
+
+	function inspectorStatus(status: string | undefined): InspectorToolCall['status'] {
+		const value = (status || 'unknown').toLowerCase();
+		if (['running', 'started', 'start', 'active', 'queued', 'pending', 'in_progress'].includes(value)) {
+			return 'running';
+		}
+		if (['ok', 'done', 'complete', 'completed', 'success'].includes(value)) return 'ok';
+		if (['failed', 'failure', 'error', 'errored'].includes(value)) return 'failed';
+		return 'unknown';
+	}
+
+	function liveToolCall(t: ToolProgress | ToolHistoryEntry, statusOverride?: string): InspectorToolCall {
+		const endedAt = 'finishedAt' in t ? t.finishedAt : t.endedAt;
+		return {
+			id: t.id,
+			name: t.name,
+			status: inspectorStatus(statusOverride ?? t.status),
+			startedAt: t.startedAt,
+			endedAt,
+			durationMs: 'durationMs' in t ? t.durationMs : endedAt ? endedAt - t.startedAt : undefined,
+			arguments: t.arguments,
+			result: t.result,
+			transcript: t.transcript
+		};
+	}
+
+	function liveToolCalls(): InspectorToolCall[] {
+		return [
+			...chat.tools.map((tool) => liveToolCall(tool, 'running')),
+			...chat.toolHistory.map((tool) => liveToolCall(tool))
+		];
+	}
+
+	function toolCallsForMessage(m: ChatMessage): InspectorToolCall[] {
+		const live = m.id === lastAssistantId ? liveToolCalls() : [];
+		return live.length ? live : parseToolCalls(m);
 	}
 
 	interface Props {
@@ -191,9 +226,9 @@
 						{/if}
 						<span class="msg__time">{timeOf(m)}</span>
 						{#if m.role === 'assistant'}
-							{@const tc = parseToolCalls(m)}
+							{@const tc = toolCallsForMessage(m)}
 							{#if tc.length > 0}
-								<button type="button" class="msg__tools-link" onclick={() => openInspector(m)}>
+								<button type="button" class="msg__tools-link" onclick={() => openInspector(tc)}>
 									[{tc.length} {tc.length === 1 ? 'tool' : 'tools'}]
 								</button>
 							{/if}

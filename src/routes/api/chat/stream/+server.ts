@@ -1,11 +1,15 @@
 import { error, type RequestHandler } from '@sveltejs/kit';
 import {
 	streamChatCompletion,
+	streamResponse,
 	completion,
+	deriveSessionId,
 	gatewayHealth,
 	type HermesMessage,
 	type HermesContent,
-	type HermesContentPart
+	type HermesContentPart,
+	type HermesResponseContentPart,
+	type HermesResponseInputMessage
 } from '$lib/server/hermes/transport';
 import { expandHermesSkill, listHermesCommands } from '$lib/server/hermes/bridge';
 import {
@@ -19,10 +23,13 @@ import {
 	getMessages,
 	lastAssistantMessage,
 	parseContent,
+	setMessageToolCalls,
 	setConversationTitle
 } from '$lib/server/db/conversations';
 import { contentText, type ChatCommand, type ContentPart, type HermesCommand, type MessageContent } from '$lib/types';
+import { readSSE } from '$lib/utils/sse-client';
 import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
+import { StreamEventState, sseFrame, type StreamToolCall } from '$lib/utils/stream-events';
 
 interface Body {
 	conversation_id?: string;
@@ -74,15 +81,40 @@ function toHermesContent(c: MessageContent): HermesContent {
 	);
 }
 
-interface OpenAIChunk {
-	choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+function toResponsesContent(c: HermesContent): string | HermesResponseContentPart[] {
+	if (typeof c === 'string') return c;
+	return c.map<HermesResponseContentPart>((p) =>
+		p.type === 'text'
+			? { type: 'input_text', text: p.text }
+			: { type: 'input_image', image_url: p.image_url.url }
+	);
 }
+
+type ResponseHistoryMessage = { role: 'user' | 'assistant'; content: HermesContent };
+
+function responseInputFromHistory(history: HermesMessage[]): {
+	instructions?: string;
+	input: HermesResponseInputMessage[];
+} {
+	const instructions = history
+		.filter((m) => m.role === 'system')
+		.map((m) => (typeof m.content === 'string' ? m.content : contentText(m.content)))
+		.join('\n\n')
+		.trim();
+	const input = history
+		.filter((m): m is ResponseHistoryMessage => m.role === 'user' || m.role === 'assistant')
+		.map<HermesResponseInputMessage>((m) => ({
+			role: m.role,
+			content: toResponsesContent(m.content)
+		}));
+	return { input, instructions: instructions || undefined };
+}
+
 interface OpenAINonStream {
 	choices?: Array<{ message?: { content?: string } }>;
 }
 
 const enc = new TextEncoder();
-const dec = new TextDecoder();
 
 const TITLE_SYSTEM =
 	'You generate a 4-to-8-word, sentence-case title for a conversation. ' +
@@ -285,38 +317,90 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 	}
 
-	const upstream = await streamChatCompletion(
-		{ messages: history, stream: true },
-		{ signal: request.signal }
-	);
+	const upstreamAbort = new AbortController();
+	if (request.signal.aborted) upstreamAbort.abort();
+	else request.signal.addEventListener('abort', () => upstreamAbort.abort(), { once: true });
+
+	const sessionId = deriveSessionId(history);
+	let upstream = isResume
+		? await streamChatCompletion(
+				{ messages: history, stream: true },
+				{ signal: upstreamAbort.signal, sessionId }
+			)
+		: await streamResponse(
+				{ ...responseInputFromHistory(history), stream: true, store: false },
+				{ signal: upstreamAbort.signal, sessionId }
+			);
+
+	if (!isResume && !upstream.ok && [400, 404, 405].includes(upstream.status)) {
+		await upstream.text().catch(() => '');
+		upstream = await streamChatCompletion(
+			{ messages: history, stream: true },
+			{ signal: upstreamAbort.signal, sessionId }
+		);
+	}
 
 	if (!upstream.ok || !upstream.body) {
 		if (resumeMessageId) resumingIds.delete(resumeMessageId);
 		const text = await upstream.text().catch(() => '');
 		throw error(upstream.status || 502, `gateway: ${text || upstream.statusText}`);
 	}
+	const upstreamBody = upstream.body;
 
 	let assistantBuf = '';
-	let buffered = '';
 	let done = false;
 	let persisted = false;
-	const reader = upstream.body.getReader();
+	let sentDone = false;
+	const streamState = new StreamEventState();
+
+	function toolCallsJson(calls: StreamToolCall[]): string | null {
+		return calls.length ? JSON.stringify(calls) : null;
+	}
+
+	function mergeToolCalls(existingRaw: string | null, next: StreamToolCall[]): StreamToolCall[] {
+		const byId = new Map<string, StreamToolCall>();
+		if (existingRaw) {
+			try {
+				const parsed = JSON.parse(existingRaw) as unknown;
+				if (Array.isArray(parsed)) {
+					for (const item of parsed) {
+						if (!item || typeof item !== 'object') continue;
+						const call = item as StreamToolCall;
+						if (call.id) byId.set(call.id, call);
+					}
+				}
+			} catch {
+				/* ignore old malformed tool metadata */
+			}
+		}
+		for (const call of next) byId.set(call.id, { ...byId.get(call.id), ...call });
+		return Array.from(byId.values());
+	}
 
 	function persistAssistant() {
 		if (persisted) return undefined;
 		persisted = true;
+		const capturedToolCalls = streamState.toolCalls();
 		if (resumeMessageId) {
 			if (assistantBuf) appendMessageContent(resumeMessageId, assistantBuf);
+			if (capturedToolCalls.length) {
+				const row = getMessageById(resumeMessageId);
+				setMessageToolCalls(
+					resumeMessageId,
+					toolCallsJson(mergeToolCalls(row?.toolCalls ?? null, capturedToolCalls))
+				);
+			}
 			if (done) finalizeMessage(resumeMessageId);
 			resumingIds.delete(resumeMessageId);
 			return getMessageById(resumeMessageId);
 		}
-		if (!assistantBuf) return undefined;
+		if (!assistantBuf && capturedToolCalls.length === 0) return undefined;
 		return addMessage({
 			conversationId: convoId,
 			role: 'assistant',
 			content: assistantBuf,
-			partial: !done
+			partial: !done,
+			toolCalls: toolCallsJson(capturedToolCalls)
 		});
 	}
 
@@ -327,39 +411,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			);
 
 			try {
-				for (;;) {
-					const { value, done: rDone } = await reader.read();
-					if (rDone) break;
-					if (!value) continue;
-
-					controller.enqueue(value);
-
-					buffered += dec.decode(value, { stream: true });
-					let idx: number;
-					while ((idx = buffered.indexOf('\n\n')) >= 0) {
-						const frame = buffered.slice(0, idx);
-						buffered = buffered.slice(idx + 2);
-						let event = 'message';
-						const dataLines: string[] = [];
-						for (const line of frame.split('\n')) {
-							if (line.startsWith('event:')) event = line.slice(6).trim();
-							else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
-						}
-						const data = dataLines.join('\n');
-						if (!data) continue;
-						if (event !== 'message') continue;
-						if (data === '[DONE]') {
-							done = true;
-							continue;
-						}
-						try {
-							const j = JSON.parse(data) as OpenAIChunk;
-							const piece = j.choices?.[0]?.delta?.content ?? '';
-							if (piece) assistantBuf += piece;
-						} catch {
-							/* ignore malformed chunk */
-						}
+				for await (const ev of readSSE(upstreamBody)) {
+					for (const update of streamState.apply(ev.event, ev.data)) {
+						if (update.delta) assistantBuf += update.delta;
+						if (update.done) done = true;
+						if (update.failed) throw new Error(update.failed);
 					}
+					if (ev.data === '[DONE]') {
+						sentDone = true;
+						continue;
+					}
+					controller.enqueue(enc.encode(sseFrame(ev.event, ev.data)));
 				}
 			} catch (e) {
 				persistAssistant();
@@ -412,10 +474,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				/* title generation is best-effort; never fails the stream */
 			}
 
+			if (sentDone || done) controller.enqueue(enc.encode('data: [DONE]\n\n'));
 			controller.close();
 		},
 		cancel() {
-			reader.cancel().catch(() => {});
+			upstreamAbort.abort();
 			persistAssistant();
 		}
 	});

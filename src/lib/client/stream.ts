@@ -1,4 +1,5 @@
 import { readSSE } from '$lib/utils/sse-client';
+import { StreamEventState, type StreamToolUpdate } from '$lib/utils/stream-events';
 import type { ChatCommand, MessageContent } from '$lib/types';
 
 export interface StreamArgs {
@@ -21,8 +22,11 @@ export interface StreamCallbacks {
 		detail?: string;
 		url?: string;
 		title?: string;
+		arguments?: unknown;
+		result?: unknown;
+		transcript?: string;
 	}) => void;
-	onToolDone?: (id: string) => void;
+	onToolDone?: (id: string, tool?: StreamToolUpdate) => void;
 	onSource?: (source: {
 		id: string;
 		url: string;
@@ -35,53 +39,6 @@ export interface StreamCallbacks {
 	signal?: AbortSignal;
 }
 
-interface OpenAIChunk {
-	choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
-}
-
-function stringValue(value: unknown): string | null {
-	if (typeof value === 'string' && value.trim()) return value.trim();
-	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-	return null;
-}
-
-function objectValue(value: unknown): Record<string, unknown> | null {
-	return value && typeof value === 'object' && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
-}
-
-function domainOf(url: string): string | undefined {
-	try {
-		return new URL(url).hostname.replace(/^www\./, '');
-	} catch {
-		return undefined;
-	}
-}
-
-function emitSourceFromPayload(payload: Record<string, unknown>, cb: StreamCallbacks): boolean {
-	const nested = objectValue(payload.source) ?? objectValue(payload.url) ?? null;
-	const source = nested ?? payload;
-	const url = stringValue(source.url ?? source.href ?? source.link ?? source.uri);
-	if (!url || !/^https?:\/\//i.test(url)) return false;
-	const title =
-		stringValue(source.title ?? source.name ?? source.label) ||
-		stringValue(payload.title ?? payload.name) ||
-		url;
-	const status = stringValue(source.status ?? payload.status ?? payload.phase) || 'reading';
-	const detail =
-		stringValue(source.detail ?? source.summary ?? source.snippet ?? payload.detail ?? payload.message) ?? undefined;
-	cb.onSource?.({
-		id: stringValue(source.id ?? payload.id) || url,
-		url,
-		title,
-		status,
-		domain: stringValue(source.domain ?? payload.domain) ?? domainOf(url),
-		detail
-	});
-	return true;
-}
-
 export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise<void> {
 	const r = await fetch('/api/chat/stream', {
 		method: 'POST',
@@ -92,6 +49,7 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 	if (!r.ok) throw new Error(`stream ${r.status}: ${await r.text().catch(() => '')}`);
 	if (!r.body) throw new Error('no stream body');
 
+	const streamState = new StreamEventState();
 	for await (const ev of readSSE(r.body)) {
 		if (ev.event === 'hermes.meta') {
 			try {
@@ -101,63 +59,15 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 			}
 			continue;
 		}
-		if (ev.event === 'hermes.tool.progress') {
-			try {
-				const j = JSON.parse(ev.data) as Record<string, unknown>;
-				const id = String(j.id ?? j.name ?? Math.random());
-				const name = String(j.name ?? 'tool');
-				const status = stringValue(j.status);
-				emitSourceFromPayload(j, cb);
-				if (status === 'done' || status === 'end' || status === 'complete' || status === 'completed') {
-					cb.onToolDone?.(id);
-				} else {
-					cb.onToolProgress?.({
-						id,
-						name,
-						emoji: stringValue(j.emoji) ?? undefined,
-						status: status ?? undefined,
-						detail: stringValue(j.detail ?? j.message ?? j.summary) ?? undefined,
-						url: stringValue(j.url ?? j.href ?? j.link) ?? undefined,
-						title: stringValue(j.title) ?? undefined
-					});
-				}
-			} catch {
-				/* malformed progress event — skip */
+		for (const update of streamState.apply(ev.event, ev.data)) {
+			if (update.title) cb.onTitle?.(update.title);
+			if (update.delta) cb.onDelta(update.delta);
+			if (update.source) cb.onSource?.(update.source);
+			if (update.tool) {
+				if (update.tool.done) cb.onToolDone?.(update.tool.id, update.tool);
+				else cb.onToolProgress?.(update.tool);
 			}
-			continue;
-		}
-		if (ev.event.startsWith('hermes.source') || ev.event.startsWith('hermes.progress')) {
-			try {
-				const payload = JSON.parse(ev.data) as Record<string, unknown>;
-				if (emitSourceFromPayload(payload, cb)) continue;
-				const id = String(payload.id ?? payload.name ?? ev.event);
-				cb.onToolProgress?.({
-					id,
-					name: stringValue(payload.name ?? payload.label ?? ev.event) ?? ev.event,
-					status: stringValue(payload.status ?? payload.phase) ?? undefined,
-					detail: stringValue(payload.detail ?? payload.message ?? payload.text) ?? undefined
-				});
-			} catch {
-				/* ignore */
-			}
-			continue;
-		}
-		if (ev.event === 'hermes.title') {
-			try {
-				const { title } = JSON.parse(ev.data) as { title: string };
-				if (title) cb.onTitle?.(title);
-			} catch {
-				/* ignore */
-			}
-			continue;
-		}
-		if (ev.data === '[DONE]') return;
-		try {
-			const j = JSON.parse(ev.data) as OpenAIChunk;
-			const piece = j.choices?.[0]?.delta?.content ?? '';
-			if (piece) cb.onDelta(piece);
-		} catch {
-			/* ignore malformed frames */
+			if (update.failed) throw new Error(update.failed);
 		}
 	}
 }

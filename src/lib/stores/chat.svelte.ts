@@ -9,10 +9,14 @@ export interface ToolProgress {
 	name: string;
 	emoji?: string;
 	startedAt: number;
+	endedAt?: number;
 	detail?: string;
 	url?: string;
 	title?: string;
 	status?: string;
+	arguments?: unknown;
+	result?: unknown;
+	transcript?: string;
 }
 
 export interface ToolHistoryEntry {
@@ -20,11 +24,18 @@ export interface ToolHistoryEntry {
 	name: string;
 	startedAt: number;
 	finishedAt: number;
+	endedAt?: number;
+	durationMs?: number;
 	detail?: string;
 	url?: string;
 	title?: string;
 	status?: string;
+	arguments?: unknown;
+	result?: unknown;
+	transcript?: string;
 }
+
+type ToolUpdate = Omit<ToolProgress, 'startedAt'> & { startedAt?: number; durationMs?: number };
 
 export interface SourceProgress {
 	id: string;
@@ -86,44 +97,64 @@ class ChatSession {
 		this.tools = [];
 	}
 
-	pushTool(t: ToolProgress) {
+	pushTool(t: ToolUpdate) {
 		const existing = this.tools.find((tool) => tool.id === t.id);
+		const next: ToolProgress = {
+			...existing,
+			...t,
+			name: t.name || existing?.name || t.id,
+			startedAt: existing?.startedAt ?? t.startedAt ?? Date.now()
+		};
 		if (existing) {
-			this.tools = this.tools.map((tool) => (tool.id === t.id ? { ...tool, ...t } : tool));
+			this.tools = this.tools.map((tool) => (tool.id === t.id ? next : tool));
 		} else {
-			this.tools = [...this.tools, t];
+			this.tools = [...this.tools, next];
 		}
-		if (t.url) {
+		if (next.url) {
 			this.pushSource({
-				id: t.url,
-				url: t.url,
-				title: t.title || t.url,
-				status: normalizeSourceStatus(t.status),
-				domain: domainOf(t.url),
-				detail: t.detail,
+				id: next.url,
+				url: next.url,
+				title: next.title || next.url,
+				status: normalizeSourceStatus(next.status),
+				domain: domainOf(next.url),
+				detail: next.detail,
 				updatedAt: Date.now()
 			});
 		}
 	}
 
-	clearTool(id: string) {
+	clearTool(id: string, update?: Partial<ToolUpdate>) {
 		const finished = this.tools.find((t) => t.id === id);
 		this.tools = this.tools.filter((t) => t.id !== id);
-		if (finished) {
-			this.toolHistory = [
-				...this.toolHistory,
-				{
-					id: finished.id,
-					name: finished.name,
-					startedAt: finished.startedAt,
-					finishedAt: Date.now(),
-					detail: finished.detail,
-					url: finished.url,
-					title: finished.title,
-					status: finished.status
-				}
-			];
-		}
+		const merged: ToolProgress = {
+			...(finished ?? {
+				id,
+				name: update?.name ?? id,
+				startedAt: update?.startedAt ?? Date.now()
+			}),
+			...update,
+			id,
+			name: update?.name ?? finished?.name ?? id,
+			startedAt: finished?.startedAt ?? update?.startedAt ?? Date.now()
+		};
+		const finishedAt = update?.endedAt ?? merged.endedAt ?? Date.now();
+		const status = normalizeDoneStatus(update?.status ?? merged.status);
+		const entry: ToolHistoryEntry = {
+			id: merged.id,
+			name: merged.name,
+			startedAt: merged.startedAt,
+			finishedAt,
+			endedAt: finishedAt,
+			durationMs: update?.durationMs ?? (finishedAt ? finishedAt - merged.startedAt : undefined),
+			detail: update?.detail ?? merged.detail,
+			url: update?.url ?? merged.url,
+			title: update?.title ?? merged.title,
+			status,
+			arguments: update?.arguments ?? merged.arguments,
+			result: update?.result ?? merged.result,
+			transcript: update?.transcript ?? merged.transcript
+		};
+		this.toolHistory = [...this.toolHistory.filter((t) => t.id !== id), entry];
 	}
 
 	pushSource(source: SourceProgress) {
@@ -154,6 +185,13 @@ function normalizeSourceStatus(status: string | undefined): SourceProgress['stat
 	const value = (status || 'reading').toLowerCase();
 	if (['done', 'complete', 'completed', 'success', 'ok'].includes(value)) return 'used';
 	if (['start', 'started', 'running', 'open', 'fetch'].includes(value)) return 'reading';
+	return value;
+}
+
+function normalizeDoneStatus(status: string | undefined): string {
+	const value = (status || 'ok').toLowerCase();
+	if (['done', 'complete', 'completed', 'success'].includes(value)) return 'ok';
+	if (['error', 'errored', 'failure'].includes(value)) return 'failed';
 	return value;
 }
 

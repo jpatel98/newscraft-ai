@@ -19,6 +19,25 @@ export interface HermesChatRequest {
 	max_tokens?: number;
 }
 
+export type HermesResponseContentPart =
+	| { type: 'input_text'; text: string }
+	| { type: 'input_image'; image_url: string };
+
+export interface HermesResponseInputMessage {
+	role: 'user' | 'assistant' | 'system';
+	content: string | HermesResponseContentPart[];
+}
+
+export interface HermesResponsesRequest {
+	input: string | HermesResponseInputMessage[];
+	model?: string;
+	instructions?: string;
+	stream?: boolean;
+	store?: boolean;
+	conversation?: string;
+	previous_response_id?: string;
+}
+
 const DEFAULT_MODEL = 'hermes-agent';
 
 function gatewayUrl(): string {
@@ -81,6 +100,26 @@ export async function streamChatCompletion(
 			authorization: `Bearer ${apiKey()}`,
 			'x-hermes-session-id': sessionId
 		},
+		body: JSON.stringify(payload),
+		signal: opts.signal
+	});
+}
+
+export async function streamResponse(
+	body: HermesResponsesRequest,
+	opts: { signal?: AbortSignal; sessionId?: string } = {}
+): Promise<Response> {
+	const payload: HermesResponsesRequest = { model: DEFAULT_MODEL, stream: true, store: false, ...body };
+	const headers: Record<string, string> = {
+		'content-type': 'application/json',
+		accept: 'text/event-stream',
+		authorization: `Bearer ${apiKey()}`
+	};
+	if (opts.sessionId) headers['x-hermes-session-id'] = opts.sessionId;
+
+	return fetch(`${gatewayUrl()}/v1/responses`, {
+		method: 'POST',
+		headers,
 		body: JSON.stringify(payload),
 		signal: opts.signal
 	});

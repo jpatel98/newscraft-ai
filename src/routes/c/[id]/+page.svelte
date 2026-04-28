@@ -7,8 +7,9 @@
 	import { chat } from '$lib/stores/chat.svelte';
 	import { onMount } from 'svelte';
 	import { formatThreadUpdated } from '$lib/utils/time';
+	import { persistedThreadMessages, type PersistedThreadMessage } from '$lib/utils/thread-messages';
 
-	type ThreadMessage = ChatMessage & { createdAt?: number };
+	type ThreadMessage = PersistedThreadMessage;
 
 	let { data } = $props();
 
@@ -22,17 +23,7 @@
 	// invalidateAll the partial flag flips and the row reappears finalized.
 	let hiddenIds = $state<Set<string>>(new Set());
 
-	const persisted = $derived(
-		data.messages
-			.filter((m) => !hiddenIds.has(m.id))
-			.map<ThreadMessage>((m) => ({
-				id: m.id,
-				role: m.role,
-				content: m.content,
-				partial: m.partial,
-				createdAt: m.createdAt
-			}))
-	);
+	const persisted = $derived(persistedThreadMessages(data.messages, hiddenIds));
 	const messages = $derived([...persisted, ...overlay]);
 
 	const topic = $derived.by(() => {
@@ -118,8 +109,8 @@
 						asstMsg.content = asstText;
 						overlay = [...overlay];
 					},
-					onToolProgress: (t) => chat.pushTool({ ...t, startedAt: Date.now() }),
-					onToolDone: (id) => chat.clearTool(id),
+					onToolProgress: (t) => chat.pushTool(t),
+					onToolDone: (id, tool) => chat.clearTool(id, tool),
 					onSource: (source) =>
 						chat.pushSource({
 							...source,

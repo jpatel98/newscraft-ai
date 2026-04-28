@@ -12,6 +12,7 @@ export const load: PageServerLoad = ({ params, locals }) => {
 			id: m.id,
 			role: m.role,
 			content: parseContent(m.content),
+			toolCalls: m.toolCalls,
 			partial: m.partial === 1,
 			createdAt: m.createdAt
 		}))

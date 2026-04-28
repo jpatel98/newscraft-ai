@@ -204,6 +204,10 @@ export function finalizeMessage(id: string): void {
 	db.update(messages).set({ partial: 0 }).where(eq(messages.id, id)).run();
 }
 
+export function setMessageToolCalls(id: string, toolCalls: string | null): void {
+	db.update(messages).set({ toolCalls }).where(eq(messages.id, id)).run();
+}
+
 export function clearMessagePartial(id: string): MessageRow | undefined {
 	db.update(messages).set({ partial: 0 }).where(eq(messages.id, id)).run();
 	return getMessageById(id);

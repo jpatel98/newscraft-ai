@@ -18,6 +18,8 @@ export interface ChatMessage {
 	content: MessageContent;
 	partial: boolean;
 	createdAt?: number;
+	/** JSON-encoded tool-call metadata captured while streaming, when available. */
+	toolCalls?: string | null;
 	/** True only for the message currently being streamed in the live overlay.
 	 * Persisted partial messages have partial=1 but streaming=false. */
 	streaming?: boolean;
