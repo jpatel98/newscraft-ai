@@ -3,6 +3,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
+import { toHermesDeliverTarget, toUiDeliverTarget } from '$lib/utils/cron-delivery';
 import {
 	boardPostId,
 	buildBoardData,
@@ -103,7 +104,7 @@ export function normalizeHermesJob(value: unknown): HermesJob | null {
 		lastStatus: stringValue(raw.last_status ?? raw.lastStatus),
 		lastError: stringValue(raw.last_error ?? raw.lastError),
 		lastDeliveryError: stringValue(raw.last_delivery_error ?? raw.lastDeliveryError),
-		deliver: deliveryValue(raw.deliver ?? raw.delivery ?? raw.delivery_target)
+		deliver: toUiDeliverTarget(deliveryValue(raw.deliver ?? raw.delivery ?? raw.delivery_target))
 	};
 }
 
@@ -442,7 +443,7 @@ export async function createHermesJob(input: CreateHermesJobInput): Promise<Herm
 		cron: input.schedule,
 		prompt: input.prompt,
 		enabled: input.enabled ?? true,
-		deliver: input.deliver || undefined
+		deliver: toHermesDeliverTarget(input.deliver)
 	};
 	const response = await hermesFetch('/api/jobs', {
 		method: 'POST',
@@ -483,8 +484,7 @@ export async function updateHermesJob(id: string, input: UpdateHermesJobInput): 
 		}
 	}
 	if (typeof input.deliver === 'string') {
-		const deliver = input.deliver.trim();
-		payload.deliver = deliver || null;
+		payload.deliver = toHermesDeliverTarget(input.deliver);
 	}
 	if (typeof input.enabled === 'boolean') payload.enabled = input.enabled;
 

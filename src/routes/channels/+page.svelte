@@ -5,6 +5,7 @@
 	import Markdown from '$lib/components/Markdown.svelte';
 	import type { BoardChannel, BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
 	import { detectRunRequestOutcome } from '$lib/utils/run-poll';
+	import { effectiveRunError } from '$lib/utils/cron-delivery';
 	import { formatRelativeTime } from '$lib/utils/time';
 	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
 	import Check from 'lucide-svelte/icons/check';
@@ -584,13 +585,14 @@
 								: runWatch.message
 				};
 			}
+			const runError = effectiveRunError(updatedJob);
 			const outcome = detectRunRequestOutcome({
 				previousLatestPostId: input.previousLatest,
 				currentLatestPostId: latestPostId,
 				previousLastRunAt: input.previousLastRunAt,
 				currentLastRunAt: updatedJob?.lastRunAt ?? null,
 				currentLastStatus: updatedJob?.lastStatus ?? null,
-				currentLastError: updatedJob?.lastError ?? updatedJob?.lastDeliveryError ?? null
+				currentLastError: runError
 			});
 
 			if (outcome.kind === 'new-post' && latest) {
@@ -615,7 +617,7 @@
 			}
 			if (outcome.kind === 'run-finished') {
 				if (outcome.failed) {
-					const detail = updatedJob?.lastError ?? updatedJob?.lastDeliveryError ?? 'Unknown error';
+					const detail = runError ?? 'Unknown error';
 					if (runWatch && runWatch.jobId === input.jobId) {
 						runWatch = {
 							...runWatch,

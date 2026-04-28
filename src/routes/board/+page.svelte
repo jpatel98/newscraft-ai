@@ -3,6 +3,7 @@
 	import Markdown from '$lib/components/Markdown.svelte';
 	import type { BoardChannel, BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
 	import { detectRunRequestOutcome } from '$lib/utils/run-poll';
+	import { effectiveRunError } from '$lib/utils/cron-delivery';
 	import { formatRelativeTime } from '$lib/utils/time';
 	import Check from 'lucide-svelte/icons/check';
 	import Copy from 'lucide-svelte/icons/copy';
@@ -47,11 +48,11 @@
 	const selectedRun = $derived(currentRunForJob(selectedChannel, selectedJob));
 	const selectedRecentRun = $derived(selectedChannel?.recentRun ?? selectedRun ?? null);
 	const selectedRunError = $derived(
-		selectedRun?.lastError ||
-			selectedRecentRun?.lastError ||
-			selectedJob?.lastError ||
-			selectedJob?.lastDeliveryError ||
-			null
+		effectiveRunError({
+			lastError: selectedRun?.lastError || selectedRecentRun?.lastError || selectedJob?.lastError || null,
+			lastDeliveryError: selectedJob?.lastDeliveryError || null,
+			deliver: selectedJob?.deliver || null
+		})
 	);
 	const selectedJobRunning = $derived(Boolean(selectedRun));
 	const activeJobCount = $derived(jobs.filter((job) => job.enabled).length);
@@ -194,13 +195,14 @@
 			const latest = posts.find((post) => post.channelSlug === input.channelSlug);
 			const latestPostId = latest?.id ?? '';
 			const updatedJob = jobs.find((job) => job.id === input.jobId) ?? null;
+			const runError = effectiveRunError(updatedJob);
 			const outcome = detectRunRequestOutcome({
 				previousLatestPostId: input.previousLatest,
 				currentLatestPostId: latestPostId,
 				previousLastRunAt: input.previousLastRunAt,
 				currentLastRunAt: updatedJob?.lastRunAt ?? null,
 				currentLastStatus: updatedJob?.lastStatus ?? null,
-				currentLastError: updatedJob?.lastError ?? updatedJob?.lastDeliveryError ?? null
+				currentLastError: runError
 			});
 
 			if (outcome.kind === 'new-post' && latest) {
@@ -212,7 +214,7 @@
 			}
 			if (outcome.kind === 'run-finished') {
 				if (outcome.failed) {
-					const detail = updatedJob?.lastError ?? updatedJob?.lastDeliveryError ?? 'Unknown error';
+					const detail = runError ?? 'Unknown error';
 					error = `Run failed: ${detail}`;
 					clearRunPoll();
 					return;
