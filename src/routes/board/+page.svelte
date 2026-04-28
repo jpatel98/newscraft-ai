@@ -28,6 +28,7 @@
 	let notice = $state<string | null>(null);
 	let copiedReportId = $state<string | null>(null);
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
+	let silentRefreshTimer: ReturnType<typeof setInterval> | null = null;
 	let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const selectedChannel = $derived(
@@ -62,8 +63,13 @@
 		selectedPostId = params.get('report') ?? '';
 		if (selectedPostId) reportScope = 'all';
 		void loadBoard(true);
+		silentRefreshTimer = setInterval(() => {
+			if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+			void loadBoard(true, true);
+		}, 15_000);
 		return () => {
 			clearRunPoll();
+			if (silentRefreshTimer) clearInterval(silentRefreshTimer);
 			clearCopiedTimer();
 		};
 	});
@@ -181,6 +187,8 @@
 	}) {
 		clearRunPoll();
 		const stopAt = input.requestedAt + 45 * 60_000;
+		const finishGraceMs = 90_000;
+		let finishedAt: number | null = null;
 		const poll = async () => {
 			await loadBoard(true, true);
 			const latest = posts.find((post) => post.channelSlug === input.channelSlug);
@@ -206,10 +214,18 @@
 				if (outcome.failed) {
 					const detail = updatedJob?.lastError ?? updatedJob?.lastDeliveryError ?? 'Unknown error';
 					error = `Run failed: ${detail}`;
-				} else {
-					notice = 'Run finished, but no new report was saved yet.';
+					clearRunPoll();
+					return;
 				}
-				clearRunPoll();
+
+				finishedAt ??= Date.now();
+				if (Date.now() - finishedAt >= finishGraceMs) {
+					notice = 'Run finished, but no new report was saved yet.';
+					clearRunPoll();
+					return;
+				}
+				notice = 'Run finished. Waiting for the report file to sync...';
+				pollTimer = setTimeout(() => void poll(), 4000);
 				return;
 			}
 			if (Date.now() >= stopAt) {

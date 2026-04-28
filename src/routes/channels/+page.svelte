@@ -24,6 +24,7 @@
 		| 'requested'
 		| 'queued'
 		| 'running'
+		| 'finishing'
 		| 'new-post'
 		| 'failed'
 		| 'finished-no-post'
@@ -67,9 +68,13 @@
 	let renameBusy = $state(false);
 	let runWatch = $state<RunWatchState | null>(null);
 	let runWatchNow = $state(Date.now());
+	let hasInitialLoad = $state(false);
+	let lastRouteRefreshKey = $state('');
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 	let runWatchTicker: ReturnType<typeof setInterval> | null = null;
+	let silentRefreshTimer: ReturnType<typeof setInterval> | null = null;
 	let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+	let loadSeq = 0;
 
 	const selectedChannel = $derived(
 		channels.find((channel) => channel.slug === selectedSlug) ?? channels[0] ?? null
@@ -94,26 +99,53 @@
 	);
 
 	onMount(() => {
-		applyQueryState(new URLSearchParams(window.location.search));
-		void loadChannels(true);
+		const params = new URLSearchParams(window.location.search);
+		lastRouteRefreshKey = routeRefreshKey(params);
+		applyQueryState(params);
+		void loadChannels(true).finally(() => {
+			hasInitialLoad = true;
+		});
+		silentRefreshTimer = setInterval(() => {
+			if (createOpen || renameOpen) return;
+			if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+			void loadChannels(true, true);
+		}, 15_000);
 		return () => {
 			clearRunPoll();
 			stopRunWatchTicker();
+			if (silentRefreshTimer) clearInterval(silentRefreshTimer);
 			clearCopiedTimer();
 		};
 	});
 
 	$effect(() => {
-		applyQueryState(new URLSearchParams(page.url.search), true);
+		const params = new URLSearchParams(page.url.search);
+		applyQueryState(params, true);
+		const nextKey = routeRefreshKey(params);
+		if (!hasInitialLoad) {
+			lastRouteRefreshKey = nextKey;
+			return;
+		}
+		if (nextKey === lastRouteRefreshKey) return;
+		lastRouteRefreshKey = nextKey;
+		void loadChannels(true, true);
 	});
 
+	function routeRefreshKey(params: URLSearchParams): string {
+		return `${params.get('channel') ?? ''}|${params.get('post') ?? ''}|${params.get('new') ?? ''}|${params.get('rename') ?? ''}|${params.get('edit') ?? ''}`;
+	}
+
 	async function loadChannels(preserveSelection = false, silent = false) {
-		if (!silent) busy = true;
-		error = null;
+		if (!silent) {
+			busy = true;
+			error = null;
+		}
+		const seq = ++loadSeq;
 		try {
 			const response = await fetch('/api/hermes/board', { cache: 'no-store' });
 			if (!response.ok) throw new Error(`Channels ${response.status}`);
 			const data = (await response.json()) as BoardData;
+			if (seq !== loadSeq) return;
 			channels = data.channels ?? [];
 			posts = data.posts ?? [];
 			jobs = data.jobs ?? [];
@@ -124,7 +156,9 @@
 				selectedSlug = channels[0]?.slug ?? '';
 			}
 			const channelPosts = posts.filter((post) => post.channelSlug === selectedSlug);
-			if (!preserveSelection || !channelPosts.some((post) => post.id === expandedPostId)) {
+			if (!preserveSelection) {
+				expandedPostId = channelPosts[0]?.id ?? '';
+			} else if (expandedPostId && !channelPosts.some((post) => post.id === expandedPostId)) {
 				expandedPostId = channelPosts[0]?.id ?? '';
 			}
 			if (typeof window !== 'undefined') {
@@ -132,7 +166,8 @@
 			}
 			replaceChannelUrl();
 		} catch (err) {
-			error = err instanceof Error ? err.message : String(err);
+			if (seq !== loadSeq) return;
+			if (!silent) error = err instanceof Error ? err.message : String(err);
 		} finally {
 			if (!silent) busy = false;
 		}
@@ -467,8 +502,9 @@
 			}
 		}
 		if (renameRequested && !newOpen && targetJob) {
+			const wasClosed = !renameOpen;
 			renameOpen = true;
-			if (!preserveSelection || !renameDraft) {
+			if (!preserveSelection || wasClosed) {
 				renameDraft = targetJob.name || targetChannel?.name || '';
 			}
 		} else if (!renameRequested) {
@@ -526,6 +562,8 @@
 	}) {
 		clearRunPoll();
 		const stopAt = input.requestedAt + 45 * 60_000;
+		const finishGraceMs = 90_000;
+		let finishedAt: number | null = null;
 		const poll = async () => {
 			await loadChannels(true, true);
 			const latest = posts.find((post) => post.channelSlug === input.channelSlug);
@@ -589,7 +627,24 @@
 						};
 					}
 					error = `Run failed: ${detail}`;
-				} else {
+					clearRunPoll();
+					stopRunWatchTicker();
+					return;
+				}
+
+				finishedAt ??= Date.now();
+				if (runWatch && runWatch.jobId === input.jobId) {
+					runWatch = {
+						...runWatch,
+						status: 'finishing',
+						lastCheckedAt: Date.now(),
+						message: 'Run finished. Waiting for the report file to sync...',
+						detail: null,
+						latestPostId: null
+					};
+				}
+
+				if (Date.now() - finishedAt >= finishGraceMs) {
 					if (runWatch && runWatch.jobId === input.jobId) {
 						runWatch = {
 							...runWatch,
@@ -602,9 +657,11 @@
 					}
 					notice = 'Run finished, but no new channel post was saved yet.';
 					noticeChannelSlug = input.channelSlug;
+					clearRunPoll();
+					stopRunWatchTicker();
+					return;
 				}
-				clearRunPoll();
-				stopRunWatchTicker();
+				pollTimer = setTimeout(() => void poll(), 4000);
 				return;
 			}
 			if (Date.now() >= stopAt) {
@@ -1033,6 +1090,8 @@
 											? 'Queued'
 											: runWatch.status === 'running'
 												? 'Running'
+												: runWatch.status === 'finishing'
+													? 'Finishing'
 												: runWatch.status === 'new-post'
 													? 'New post'
 													: runWatch.status === 'failed'
