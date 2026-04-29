@@ -18,7 +18,8 @@
 	let { activeTurn }: Props = $props();
 
 	const ELAPSED_VISIBLE_MS = 5_000;
-	const RECOVERY_AFTER_MS = 30_000;
+	const RECOVERY_AFTER_MS = 45_000;
+	const RECOVERY_QUIET_MS = 15_000;
 
 	let now = $state(Date.now());
 	let expanded = $state(true);
@@ -53,8 +54,14 @@
 	});
 	const elapsedMs = $derived(Math.max(0, now - oldestStart));
 	const showElapsed = $derived(hasRunning && elapsedMs >= ELAPSED_VISIBLE_MS);
+	const lastActivityAt = $derived(chat.toolUpdatedAt ?? chat.streamStartedAt ?? oldestStart);
+	const quietMs = $derived(Math.max(0, now - lastActivityAt));
+	const canUsePartial = $derived(chat.hasAssistantOutput);
 	const showRecovery = $derived(
-		hasRunning && elapsedMs >= RECOVERY_AFTER_MS && !recoveryDismissed
+		hasRunning &&
+			elapsedMs >= RECOVERY_AFTER_MS &&
+			quietMs >= RECOVERY_QUIET_MS &&
+			!recoveryDismissed
 	);
 
 	const liveText = $derived(dominantLiveLabel(liveNames));
@@ -89,10 +96,6 @@
 
 	function toggle() {
 		expanded = !expanded;
-	}
-
-	function keepWaiting() {
-		recoveryDismissed = true;
 	}
 
 	function answerWithWhatWeHave() {
@@ -163,11 +166,13 @@
 		{#if expanded && (hasRunning || hasFinished)}
 			<div class="tool-activity__body">
 				{#if hasRunning}
-					<div class="tool-activity__sub">Running</div>
-					<ul class="tool-activity__list">
+					<div class="tool-activity__sub tool-activity__sub--running">
+						{chat.tools.length === 1 ? 'Running task' : 'Running tasks'}
+					</div>
+					<ul class="tool-activity__list tool-activity__list--running">
 						{#each chat.tools as t, i (t.id)}
 							{@const detail = toolStepDetail(t)}
-							<li>
+							<li class="tool-activity__step tool-activity__step--running">
 								<span class="tool-activity__step-index">{i + 1}</span>
 								<span class="tool-activity__step-main">
 									<span class="tool-activity__step-row">
@@ -186,11 +191,17 @@
 					</ul>
 				{/if}
 				{#if hasFinished}
-					<div class="tool-activity__sub">Completed</div>
+					<div class="tool-activity__sub tool-activity__sub--done">
+						{chat.toolHistory.length === 1 ? 'Task completed' : 'Tasks completed'}
+					</div>
 					<ul class="tool-activity__list tool-activity__list--done">
 						{#each chat.toolHistory as t, i (t.id)}
 							{@const detail = toolStepDetail(t)}
-							<li>
+							<li
+								class="tool-activity__step tool-activity__step--done {t.status === 'failed'
+									? 'tool-activity__step--failed'
+									: ''}"
+							>
 								<span class="tool-activity__step-index">{i + 1}</span>
 								<span class="tool-activity__step-main">
 									<span class="tool-activity__step-row">
@@ -214,25 +225,20 @@
 		{/if}
 
 		{#if showRecovery}
-			<div class="tool-activity__recovery" role="alert">
+			<div class="tool-activity__recovery" role="status">
 				<span class="tool-activity__recovery__msg">
-					This is taking longer than expected.
+					This step is taking a while.
 				</span>
 				<div class="tool-activity__recovery__actions">
-					<button
-						type="button"
-						class="tool-activity__btn tool-activity__btn--primary"
-						onclick={keepWaiting}
-					>
-						Keep waiting
-					</button>
-					<button
-						type="button"
-						class="tool-activity__btn"
-						onclick={answerWithWhatWeHave}
-					>
-						Answer with what we have
-					</button>
+					{#if canUsePartial}
+						<button
+							type="button"
+							class="tool-activity__btn tool-activity__btn--primary"
+							onclick={answerWithWhatWeHave}
+						>
+							Use current draft
+						</button>
+					{/if}
 					<button type="button" class="tool-activity__btn" onclick={stop}>Stop</button>
 				</div>
 			</div>
@@ -258,7 +264,7 @@
 		overflow: hidden;
 	}
 	.tool-activity--idle {
-		border-left-color: var(--ink-300);
+		border-left-color: var(--signal-500);
 	}
 	.tool-activity__head {
 		display: flex;
@@ -398,6 +404,13 @@
 		color: var(--fg-3);
 		margin-bottom: 4px;
 	}
+	.tool-activity__sub--running {
+		color: var(--cobalt-700);
+	}
+	.tool-activity__sub--done {
+		color: var(--signal-700);
+		margin-top: 3px;
+	}
 	.tool-activity__list {
 		list-style: none;
 		margin: 0 0 8px 0;
@@ -409,7 +422,7 @@
 	.tool-activity__list:last-child {
 		margin-bottom: 0;
 	}
-	.tool-activity__list li {
+	.tool-activity__step {
 		display: grid;
 		grid-template-columns: 18px minmax(0, 1fr) auto;
 		align-items: start;
@@ -428,6 +441,21 @@
 		font-size: 9px;
 		line-height: 1;
 	}
+	.tool-activity__list--running .tool-activity__step-index {
+		border-color: color-mix(in srgb, var(--cobalt-500) 60%, var(--border-soft));
+		background: var(--cobalt-50);
+		color: var(--cobalt-700);
+	}
+	.tool-activity__list--done .tool-activity__step-index {
+		border-color: color-mix(in srgb, var(--signal-500) 55%, var(--border-soft));
+		background: var(--signal-50);
+		color: var(--signal-700);
+	}
+	.tool-activity__step--failed .tool-activity__step-index {
+		border-color: color-mix(in srgb, var(--caution-500) 60%, var(--border-soft));
+		background: var(--caution-50);
+		color: var(--caution-700);
+	}
 	.tool-activity__step-main {
 		display: grid;
 		gap: 2px;
@@ -444,8 +472,14 @@
 		font-weight: 500;
 		flex: 0 0 auto;
 	}
+	.tool-activity__list--running .tool-activity__name {
+		color: var(--cobalt-700);
+	}
 	.tool-activity__list--done .tool-activity__name {
-		color: var(--fg-2);
+		color: var(--signal-700);
+	}
+	.tool-activity__step--failed .tool-activity__name {
+		color: var(--caution-700);
 	}
 	.tool-activity__rawname {
 		min-width: 0;
@@ -472,9 +506,9 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 6px 10px 8px;
-		border-top: 1px solid var(--caution-300);
-		background: var(--caution-50);
-		color: var(--caution-700);
+		border-top: 1px solid var(--border-soft);
+		background: var(--bg-raised);
+		color: var(--fg-2);
 	}
 	.tool-activity__recovery__msg {
 		font-weight: 600;
@@ -496,8 +530,8 @@
 		letter-spacing: 0.04em;
 		padding: 2px 8px;
 		background: transparent;
-		border: 1px solid var(--caution-300);
-		color: var(--caution-700);
+		border: 1px solid var(--border-default);
+		color: var(--fg-2);
 		border-radius: var(--radius-1);
 		cursor: pointer;
 		transition:
@@ -506,6 +540,7 @@
 			border-color var(--dur-fast) var(--ease-std);
 	}
 	.tool-activity__btn:hover {
+		border-color: var(--border-strong);
 		background: var(--bg-surface);
 	}
 	.tool-activity__btn:focus-visible {
@@ -513,13 +548,13 @@
 		box-shadow: var(--shadow-focus);
 	}
 	.tool-activity__btn--primary {
-		background: var(--caution-500);
+		background: var(--cobalt-500);
 		color: var(--ink-0);
-		border-color: var(--caution-500);
+		border-color: var(--cobalt-500);
 	}
 	.tool-activity__btn--primary:hover {
-		background: var(--caution-700);
-		border-color: var(--caution-700);
+		background: var(--cobalt-700);
+		border-color: var(--cobalt-700);
 		color: var(--ink-0);
 	}
 	@media (prefers-color-scheme: dark) {
@@ -529,14 +564,45 @@
 		.tool-activity__body {
 			background: var(--ink-700);
 		}
-		.tool-activity__recovery {
-			background: var(--ink-800);
+		.tool-activity__sub--running,
+		.tool-activity__list--running .tool-activity__name {
+			color: var(--cobalt-300);
+		}
+		.tool-activity__sub--done,
+		.tool-activity__list--done .tool-activity__name {
+			color: var(--signal-300);
+		}
+		.tool-activity__step--failed .tool-activity__name {
+			color: var(--caution-300);
+		}
+		.tool-activity__list--running .tool-activity__step-index {
+			background: var(--cobalt-900);
+			border-color: var(--cobalt-700);
+			color: var(--cobalt-300);
+		}
+		.tool-activity__list--done .tool-activity__step-index {
+			background: color-mix(in srgb, var(--signal-700) 28%, var(--ink-800));
+			border-color: var(--signal-700);
+			color: var(--signal-300);
+		}
+		.tool-activity__step--failed .tool-activity__step-index {
+			background: color-mix(in srgb, var(--caution-700) 30%, var(--ink-800));
 			border-color: var(--caution-500);
 			color: var(--caution-300);
 		}
+		.tool-activity__recovery {
+			background: var(--ink-800);
+			border-color: var(--ink-700);
+			color: var(--ink-200);
+		}
 		.tool-activity__btn {
-			color: var(--caution-300);
-			border-color: var(--caution-500);
+			color: var(--ink-200);
+			border-color: var(--ink-600);
+		}
+		.tool-activity__btn--primary {
+			background: var(--cobalt-500);
+			color: var(--ink-25);
+			border-color: var(--cobalt-500);
 		}
 	}
 </style>

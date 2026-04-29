@@ -59,7 +59,7 @@
 		// startStream aborts any prior controller; wait for the previous run to
 		// fully unwind so its overlay cleanup completes before we add our own.
 		const prior = activeStream;
-		const controller = chat.startStream();
+		const controller = chat.startStream(args.conversation_id);
 		await prior.catch(() => {});
 
 		const isResume = args.resume === true && !!args.message_id;
@@ -105,6 +105,7 @@
 				await streamChat(args, {
 					signal: controller.signal,
 					onDelta: (s) => {
+						chat.noteAssistantOutput(s);
 						asstText += s;
 						asstMsg.content = asstText;
 						overlay = [...overlay];
@@ -237,7 +238,13 @@
 </header>
 
 {#key data.conversation.id}
-	<Thread {messages} onRegenerate={handleRegenerate} onResume={handleResume} onDiscard={handleDiscard} />
+	<Thread
+		{messages}
+		conversationId={data.conversation.id}
+		onRegenerate={handleRegenerate}
+		onResume={handleResume}
+		onDiscard={handleDiscard}
+	/>
 {/key}
 
 <div class="composer-zone">

@@ -51,6 +51,14 @@ function stringValue(value: unknown): string | null {
 	return null;
 }
 
+function firstString(...values: unknown[]): string | null {
+	for (const value of values) {
+		const text = stringValue(value);
+		if (text) return text;
+	}
+	return null;
+}
+
 function rawString(value: unknown): string | null {
 	return typeof value === 'string' ? value : stringValue(value);
 }
@@ -88,7 +96,7 @@ function statusValue(value: unknown, fallback = 'running'): StreamToolCall['stat
 	const raw = stringValue(value)?.toLowerCase() ?? fallback;
 	if (['done', 'end', 'complete', 'completed', 'success', 'ok'].includes(raw)) return 'ok';
 	if (['failed', 'failure', 'error', 'errored'].includes(raw)) return 'failed';
-	if (['start', 'started', 'running', 'active', 'in_progress', 'queued', 'pending'].includes(raw)) {
+	if (['start', 'started', 'running', 'active', 'in_progress', 'progress', 'queued', 'pending'].includes(raw)) {
 		return 'running';
 	}
 	return raw;
@@ -109,6 +117,12 @@ function isTerminalStatus(value: unknown): boolean {
 		'error',
 		'errored'
 	].includes(raw);
+}
+
+function isStartLikeStatus(value: unknown): boolean {
+	const raw = stringValue(value)?.toLowerCase();
+	if (!raw) return true;
+	return ['start', 'started', 'queued', 'pending', 'open', 'fetch', 'reading'].includes(raw);
 }
 
 function domainOf(url: string): string | undefined {
@@ -184,6 +198,8 @@ export class StreamEventState {
 	private calls = new Map<string, StreamToolCall>();
 	private itemToCall = new Map<string, string>();
 	private argumentText = new Map<string, string>();
+	private anonymousActive = new Map<string, string>();
+	private anonymousKeys = new Map<string, string>();
 	private textDeltaSeen = false;
 	private seq = 0;
 
@@ -213,8 +229,7 @@ export class StreamEventState {
 		if (event.startsWith('hermes.source') || event.startsWith('hermes.progress')) {
 			const source = sourceFromPayload(payload);
 			if (source) return [{ source }];
-			const tool = this.upsertTool(payload, now);
-			return tool ? [{ tool }] : [];
+			return this.upsertTool(payload, now).map((tool) => ({ tool }));
 		}
 
 		if (event.startsWith('response.')) return this.applyResponseEvent(event, payload, now);
@@ -234,8 +249,7 @@ export class StreamEventState {
 		if (source) updates.push({ source });
 
 		const terminal = isTerminalStatus(payload.status ?? payload.phase);
-		const tool = this.upsertTool(payload, now);
-		if (tool) {
+		for (const tool of this.upsertTool(payload, now)) {
 			if (terminal) {
 				tool.done = true;
 				tool.endedAt ??= now;
@@ -348,26 +362,146 @@ export class StreamEventState {
 		return [{ tool: { ...call, done: false } }];
 	}
 
-	private upsertTool(payload: JsonObject, now: number): StreamToolUpdate | null {
-		const id =
-			stringValue(payload.id ?? payload.call_id ?? payload.callId ?? payload.tool_call_id) ||
-			stringValue(payload.name) ||
-			`tool-${++this.seq}`;
+	private upsertTool(payload: JsonObject, now: number): StreamToolUpdate[] {
+		const nestedTool = objectValue(payload.tool);
 		const name =
-			stringValue(payload.name ?? payload.tool ?? payload.tool_name ?? payload.type) || 'tool';
+			firstString(
+				payload.name,
+				payload.tool,
+				payload.tool_name,
+				nestedTool?.name,
+				nestedTool?.tool_name,
+				nestedTool?.type,
+				payload.type
+			) || 'tool';
+		const explicitId = firstString(
+			payload.id,
+			payload.call_id,
+			payload.callId,
+			payload.tool_call_id,
+			nestedTool?.id,
+			nestedTool?.call_id,
+			nestedTool?.callId,
+			nestedTool?.tool_call_id
+		);
+		const status = payload.status ?? payload.phase ?? nestedTool?.status ?? nestedTool?.phase;
+		const terminal = isTerminalStatus(status);
+		const semanticKey = this.semanticToolKey(name, payload, nestedTool);
+		const completed: StreamToolUpdate[] = [];
+		const id =
+			explicitId ?? this.anonymousToolId(name, semanticKey, status, terminal, now, completed);
 		const call = this.ensureTool(id, name, now);
 		call.name = name;
-		call.status = statusValue(payload.status ?? payload.phase, call.status ?? 'running');
+		call.status = statusValue(status, call.status ?? 'running');
 		call.detail =
-			stringValue(payload.detail ?? payload.message ?? payload.summary ?? payload.error) ?? call.detail;
-		call.url = stringValue(payload.url ?? payload.href ?? payload.link) ?? call.url;
-		call.title = stringValue(payload.title) ?? call.title;
-		call.transcript = stringValue(payload.transcript) ?? call.transcript;
-		this.applyArgumentsValue(call, payload.arguments ?? payload.args ?? payload.input);
-		const result = payload.result ?? payload.output ?? payload.response;
+			firstString(
+				payload.detail,
+				nestedTool?.detail,
+				payload.message,
+				nestedTool?.message,
+				payload.summary,
+				nestedTool?.summary,
+				payload.label,
+				nestedTool?.label,
+				payload.preview,
+				nestedTool?.preview,
+				payload.error,
+				nestedTool?.error
+			) ?? call.detail;
+		call.url =
+			firstString(
+				payload.url,
+				payload.href,
+				payload.link,
+				payload.uri,
+				nestedTool?.url,
+				nestedTool?.href,
+				nestedTool?.link,
+				nestedTool?.uri
+			) ?? call.url;
+		call.title = firstString(payload.title, nestedTool?.title, payload.label, nestedTool?.label) ?? call.title;
+		call.transcript =
+			firstString(payload.transcript, nestedTool?.transcript, payload.preview, nestedTool?.preview) ??
+			call.transcript;
+		this.applyArgumentsValue(
+			call,
+			payload.arguments ?? payload.args ?? payload.input ?? nestedTool?.arguments ?? nestedTool?.args ?? nestedTool?.input
+		);
+		const result =
+			payload.result ?? payload.output ?? payload.response ?? nestedTool?.result ?? nestedTool?.output ?? nestedTool?.response;
 		if (result !== undefined) call.result = parseMaybeJson(result);
-		if (isTerminalStatus(payload.status ?? payload.phase)) call.endedAt ??= now;
-		return { ...call, done: Boolean(call.endedAt) };
+		if (terminal) {
+			call.endedAt ??= now;
+			if (!explicitId && this.anonymousActive.get(name) === id) {
+				this.anonymousActive.delete(name);
+			}
+		} else if (!explicitId) {
+			this.anonymousActive.set(name, id);
+			if (semanticKey) this.anonymousKeys.set(id, semanticKey);
+		}
+		return [...completed, { ...call, done: Boolean(call.endedAt) }];
+	}
+
+	private anonymousToolId(
+		name: string,
+		semanticKey: string,
+		status: unknown,
+		terminal: boolean,
+		now: number,
+		completed: StreamToolUpdate[]
+	): string {
+		const activeId = this.anonymousActive.get(name);
+		const active = activeId ? this.calls.get(activeId) : undefined;
+		const activeKey = activeId ? (this.anonymousKeys.get(activeId) ?? '') : '';
+
+		if (terminal && active && !active.endedAt) return active.id;
+
+		if (active && !active.endedAt) {
+			const sameStep = !semanticKey || !activeKey || semanticKey === activeKey;
+			if (sameStep || !isStartLikeStatus(status)) return active.id;
+
+			const finished = this.finishTool(active.id, now);
+			if (finished) completed.push(finished);
+		}
+
+		const id = `${name}-${++this.seq}`;
+		if (semanticKey) this.anonymousKeys.set(id, semanticKey);
+		this.anonymousActive.set(name, id);
+		return id;
+	}
+
+	private semanticToolKey(name: string, payload: JsonObject, nestedTool: JsonObject | null): string {
+		const parts = [
+			name,
+			firstString(payload.url, payload.href, payload.link, payload.uri, nestedTool?.url, nestedTool?.href, nestedTool?.link, nestedTool?.uri),
+			firstString(payload.title, nestedTool?.title),
+			firstString(payload.detail, nestedTool?.detail),
+			firstString(payload.message, nestedTool?.message),
+			firstString(payload.summary, nestedTool?.summary),
+			firstString(payload.label, nestedTool?.label),
+			firstString(payload.preview, nestedTool?.preview),
+			this.argumentsKey(payload.arguments ?? payload.args ?? payload.input ?? nestedTool?.arguments ?? nestedTool?.args ?? nestedTool?.input)
+		].filter(Boolean);
+		return parts.join('\n');
+	}
+
+	private argumentsKey(value: unknown): string {
+		if (value === undefined || value === null) return '';
+		const parsed = parseMaybeJson(value);
+		if (typeof parsed === 'string') return parsed.trim();
+		try {
+			return JSON.stringify(parsed);
+		} catch {
+			return '';
+		}
+	}
+
+	private finishTool(id: string, now: number): StreamToolUpdate | null {
+		const call = this.calls.get(id);
+		if (!call || call.endedAt) return null;
+		call.status = statusValue('ok');
+		call.endedAt = now;
+		return { ...call, done: true };
 	}
 
 	private ensureTool(id: string, name: string, now: number): StreamToolCall {

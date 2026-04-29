@@ -23,6 +23,11 @@ interface ToolIntent {
 }
 
 const TABLE: Array<{ test: RegExp; label: ToolLabel }> = [
+	{ test: /skill[_-]?view|view[_-]?skill/i, label: { live: 'Loading skill', done: 'Skill loaded' } },
+	{
+		test: /delegate[_-]?task|task[_-]?delegate/i,
+		label: { live: 'Starting helper task', done: 'Helper task finished' }
+	},
 	{ test: /search|google|bing|duckduckgo|web/i, label: { live: 'Searching sources', done: 'Sources checked' } },
 	{ test: /fetch|read|browse|open|http|url|page/i, label: { live: 'Reading results', done: 'Pages read' } },
 	{ test: /verify|check|validate|fact/i, label: { live: 'Checking details', done: 'Details checked' } },
@@ -204,6 +209,38 @@ function toolIntent(tool: ToolStep): ToolIntent | null {
 	const code = codeFromArguments(args);
 	const url = findString(args, ['url', 'href', 'link', 'uri']) || tool.url || '';
 
+	if (/skill[_-]?view|view[_-]?skill/.test(name)) {
+		return {
+			live: 'Loading skill',
+			done: 'Skill loaded',
+			detail: skillDetail(args)
+		};
+	}
+
+	if (/delegate[_-]?task|task[_-]?delegate/.test(name)) {
+		return {
+			live: 'Starting helper task',
+			done: 'Helper task finished',
+			detail: delegateDetail(args)
+		};
+	}
+
+	if (/browser[_-]?click/.test(name)) {
+		return {
+			live: 'Clicking page',
+			done: 'Page click completed',
+			detail: browserTargetDetail(args)
+		};
+	}
+
+	if (/browser[_-]?snapshot/.test(name)) {
+		return {
+			live: 'Reading page',
+			done: 'Page read',
+			detail: browserTargetDetail(args)
+		};
+	}
+
 	if (/browser_navigate|browse|open/.test(name)) {
 		if (/informed(opinions|perspectives)\.org/i.test(url)) {
 			return {
@@ -333,6 +370,39 @@ function intentFromCode(code: string, result: unknown): ToolIntent {
 	};
 }
 
+function skillDetail(value: unknown): string | undefined {
+	const skill = findString(value, [
+		'skill',
+		'skill_name',
+		'skillname',
+		'skill_id',
+		'skillid',
+		'name',
+		'id',
+		'path'
+	]);
+	if (skill) return `Skill: ${skill}`;
+	const primitive = primitiveString(value);
+	return primitive ? `Skill: ${primitive}` : undefined;
+}
+
+function delegateDetail(value: unknown): string | undefined {
+	const task = findString(value, ['task', 'instruction', 'prompt', 'description']);
+	if (task) return `Task: ${task}`;
+	const primitive = primitiveString(value);
+	return primitive ? `Task: ${primitive}` : undefined;
+}
+
+function browserTargetDetail(value: unknown): string | undefined {
+	const target = findString(value, ['url', 'href', 'link', 'selector', 'ref', 'element', 'text']);
+	return target ? cleanDetail(target) : undefined;
+}
+
+function primitiveString(value: unknown): string {
+	const normalized = normalizeValue(value);
+	return typeof normalized === 'string' ? cleanDetail(normalized) : '';
+}
+
 function findString(value: unknown, keys: string[], depth = 0, allowPrimitive = false): string {
 	if (depth > 3 || value == null) return '';
 
@@ -433,7 +503,9 @@ function summarizeOutput(output: string): string {
 }
 
 function isInternalTool(name: string): boolean {
-	return /execute_code|browser_navigate|terminal|shell|bash|exec|command|python/i.test(name);
+	return /execute_code|browser[_-]?(navigate|click|snapshot)|terminal|shell|bash|exec|command|python|skill[_-]?view|view[_-]?skill|delegate[_-]?task|task[_-]?delegate/i.test(
+		name
+	);
 }
 
 function extractListStrings(code: string, marker: string): string[] {

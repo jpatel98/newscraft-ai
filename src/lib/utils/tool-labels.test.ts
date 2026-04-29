@@ -27,6 +27,13 @@ describe('tool labels', () => {
 		expect(doneLabel('synthesize_widget_42')).toBe('Tools used');
 	});
 
+	it('maps internal skill and delegation tools to friendly labels', () => {
+		expect(liveLabel('SKILL_VIEW')).toBe('Loading skill');
+		expect(doneLabel('skill_view')).toBe('Skill loaded');
+		expect(liveLabel('DELEGATE_TASK')).toBe('Starting helper task');
+		expect(doneLabel('delegate_task')).toBe('Helper task finished');
+	});
+
 	it('returns "Drafting answer" when no tools are running', () => {
 		expect(dominantLiveLabel([])).toBe('Drafting answer');
 	});
@@ -98,6 +105,39 @@ print('duckduckgo')`
 		);
 		expect(showToolRawName({ name: 'execute_code' })).toBe(false);
 		expect(showToolRawName({ name: 'browser_navigate' })).toBe(false);
+	});
+
+	it('summarizes skill and delegated task steps without raw internal names', () => {
+		expect(
+			toolStepSummary({
+				name: 'SKILL_VIEW',
+				arguments: { skill_name: 'openai-docs' }
+			})
+		).toBe('Loading skill: Skill: openai-docs');
+
+		expect(
+			toolStepSummary(
+				{
+					name: 'DELEGATE_TASK',
+					arguments: { task: 'Check whether the test suite covers tool labels' }
+				},
+				true
+			)
+		).toBe('Helper task finished: Task: Check whether the test suite covers tool labels');
+
+		expect(showToolRawName({ name: 'SKILL_VIEW' })).toBe(false);
+		expect(showToolRawName({ name: 'DELEGATE_TASK' })).toBe(false);
+	});
+
+	it('turns browser action tools into readable running and completed steps', () => {
+		expect(toolStepLabel({ name: 'browser_snapshot' })).toBe('Reading page');
+		expect(toolStepLabel({ name: 'browser_snapshot' }, true)).toBe('Page read');
+		expect(toolStepLabel({ name: 'browser_click', arguments: { ref: 'e56' } })).toBe(
+			'Clicking page'
+		);
+		expect(toolStepDetail({ name: 'browser_click', arguments: { ref: 'e56' } })).toBe('e56');
+		expect(showToolRawName({ name: 'browser_snapshot' })).toBe(false);
+		expect(showToolRawName({ name: 'browser_click' })).toBe(false);
 	});
 
 	it('summarizes wrapped tool outputs instead of showing one result', () => {

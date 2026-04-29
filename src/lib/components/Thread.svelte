@@ -9,6 +9,12 @@
 	import ToolInspector, { type InspectorToolCall } from './ToolInspector.svelte';
 	import { chat, type ToolHistoryEntry, type ToolProgress } from '$lib/stores/chat.svelte';
 	import { formatShortTime } from '$lib/utils/time';
+	import {
+		formatElapsed,
+		showToolRawName,
+		toolStepDetail,
+		toolStepLabel
+	} from '$lib/utils/tool-labels';
 
 	function parseToolCalls(m: ChatMessage): InspectorToolCall[] {
 		const raw = m.toolCalls;
@@ -27,7 +33,10 @@
 					durationMs: typeof o.durationMs === 'number' ? o.durationMs : undefined,
 					arguments: o.arguments,
 					result: o.result,
-					transcript: typeof o.transcript === 'string' ? o.transcript : undefined
+					transcript: typeof o.transcript === 'string' ? o.transcript : undefined,
+					detail: typeof o.detail === 'string' ? o.detail : undefined,
+					url: typeof o.url === 'string' ? o.url : undefined,
+					title: typeof o.title === 'string' ? o.title : undefined
 				};
 			});
 		} catch {
@@ -63,7 +72,10 @@
 			durationMs: 'durationMs' in t ? t.durationMs : endedAt ? endedAt - t.startedAt : undefined,
 			arguments: t.arguments,
 			result: t.result,
-			transcript: t.transcript
+			transcript: t.transcript,
+			detail: t.detail,
+			url: t.url,
+			title: t.title
 		};
 	}
 
@@ -79,14 +91,45 @@
 		return live.length ? live : parseToolCalls(m);
 	}
 
+	function persistedStepCallsForMessage(m: ChatMessage): InspectorToolCall[] {
+		if (m.role !== 'assistant' || m.streaming) return [];
+		if (
+			m.id === lastAssistantId &&
+			conversationId != null &&
+			chat.activityConversationId === conversationId &&
+			(chat.streaming || chat.tools.length > 0 || chat.toolHistory.length > 0)
+		) {
+			return [];
+		}
+		return parseToolCalls(m).filter((t) => t.status !== 'running');
+	}
+
+	function stepDuration(t: InspectorToolCall): string {
+		const ms =
+			typeof t.durationMs === 'number'
+				? t.durationMs
+				: t.startedAt && t.endedAt
+					? t.endedAt - t.startedAt
+					: undefined;
+		return typeof ms === 'number' && Number.isFinite(ms) ? formatElapsed(ms) : '';
+	}
+
 	interface Props {
 		messages: ChatMessage[];
+		conversationId?: string | null;
 		userInitials?: string;
 		onRegenerate?: () => void;
 		onResume?: (messageId: string) => void;
 		onDiscard?: (messageId: string) => void;
 	}
-	let { messages, userInitials = 'YOU', onRegenerate, onResume, onDiscard }: Props = $props();
+	let {
+		messages,
+		conversationId = null,
+		userInitials = 'YOU',
+		onRegenerate,
+		onResume,
+		onDiscard
+	}: Props = $props();
 
 	let scroller: HTMLDivElement | undefined = $state();
 	let copied = $state<string | null>(null);
@@ -305,7 +348,52 @@
 						{/if}
 					</div>
 
-					{#if m.role === 'assistant' && m.id === lastAssistantId}
+					{#if m.role === 'assistant'}
+						{@const persistedSteps = persistedStepCallsForMessage(m)}
+						{#if persistedSteps.length > 0}
+							<div class="msg__tool-recap" aria-label="Completed tool steps">
+								<div class="msg__tool-recap__head">
+									<span>{persistedSteps.length === 1 ? 'Task completed' : 'Tasks completed'}</span>
+									<button
+										type="button"
+										class="msg__tool-recap__inspect"
+										onclick={() => openInspector(persistedSteps)}
+									>
+										Inspect
+									</button>
+								</div>
+								<ol class="msg__tool-recap__list">
+									{#each persistedSteps as t, ti (t.id)}
+										{@const detail = toolStepDetail(t)}
+										{@const duration = stepDuration(t)}
+										<li
+											class="msg__tool-step {t.status === 'failed'
+												? 'msg__tool-step--failed'
+												: ''}"
+										>
+											<span class="msg__tool-step__index">{ti + 1}</span>
+											<span class="msg__tool-step__main">
+												<span class="msg__tool-step__row">
+													<span class="msg__tool-step__name">{toolStepLabel(t, true)}</span>
+													{#if showToolRawName(t)}
+														<span class="msg__tool-step__raw">{t.name}</span>
+													{/if}
+												</span>
+												{#if detail}
+													<span class="msg__tool-step__detail">{detail}</span>
+												{/if}
+											</span>
+											{#if duration}
+												<span class="msg__tool-step__duration">{duration}</span>
+											{/if}
+										</li>
+									{/each}
+								</ol>
+							</div>
+						{/if}
+					{/if}
+
+					{#if m.role === 'assistant' && m.id === lastAssistantId && chat.activityConversationId === conversationId}
 						<ToolActivity activeTurn={true} />
 					{/if}
 

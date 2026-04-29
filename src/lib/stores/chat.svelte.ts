@@ -57,11 +57,14 @@ class ChatSession {
 	// "Sources checked" recap that replaces the live activity component.
 	toolHistory = $state<ToolHistoryEntry[]>([]);
 	streamStartedAt = $state<number | null>(null);
+	toolUpdatedAt = $state<number | null>(null);
+	hasAssistantOutput = $state(false);
+	activityConversationId = $state<string | null>(null);
 	streaming = $state(false);
 	editRequest = $state<string | null>(null); // populated by ↑; consumed by Composer
 	lastUserContent = $state<string | null>(null); // set by the active conversation page; read by ↑ handler
 
-	startStream(): AbortController {
+	startStream(conversationId?: string): AbortController {
 		// If a stream is already in flight, abort it so the next one can take
 		// over cleanly. The previous runStream's finally clause will detect
 		// that the active controller has changed and skip the state reset.
@@ -76,6 +79,9 @@ class ChatSession {
 		this.sources = [];
 		this.toolHistory = [];
 		this.streamStartedAt = Date.now();
+		this.toolUpdatedAt = null;
+		this.hasAssistantOutput = false;
+		this.activityConversationId = conversationId ?? null;
 		return c;
 	}
 
@@ -85,6 +91,7 @@ class ChatSession {
 		this.streaming = false;
 		this.tools = [];
 		this.streamStartedAt = null;
+		this.toolUpdatedAt = null;
 		// Keep toolHistory so the recap stays visible against the latest
 		// assistant message until the next stream begins.
 	}
@@ -97,7 +104,12 @@ class ChatSession {
 		this.tools = [];
 	}
 
+	noteAssistantOutput(piece: string) {
+		if (piece.trim()) this.hasAssistantOutput = true;
+	}
+
 	pushTool(t: ToolUpdate) {
+		this.toolUpdatedAt = Date.now();
 		const existing = this.tools.find((tool) => tool.id === t.id);
 		const next: ToolProgress = {
 			...existing,
@@ -124,6 +136,7 @@ class ChatSession {
 	}
 
 	clearTool(id: string, update?: Partial<ToolUpdate>) {
+		this.toolUpdatedAt = Date.now();
 		const finished = this.tools.find((t) => t.id === id);
 		this.tools = this.tools.filter((t) => t.id !== id);
 		const merged: ToolProgress = {

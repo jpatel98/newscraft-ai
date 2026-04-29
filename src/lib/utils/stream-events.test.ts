@@ -70,6 +70,177 @@ describe('StreamEventState', () => {
 		]);
 	});
 
+	it('preserves Hermes progress labels and previews across tool updates', () => {
+		const state = new StreamEventState();
+
+		const started = state.apply(
+			'hermes.tool.progress',
+			JSON.stringify({
+				tool: 'delegate_task',
+				label: 'Compare current coverage',
+				preview: 'worker started',
+				status: 'start'
+			}),
+			1000
+		);
+
+		expect(started).toMatchObject([
+			{
+				tool: {
+					id: 'delegate_task-1',
+					name: 'delegate_task',
+					status: 'running',
+					title: 'Compare current coverage',
+					detail: 'Compare current coverage',
+					transcript: 'worker started',
+					done: false
+				}
+			}
+		]);
+
+		expect(
+			state.apply(
+				'hermes.tool.progress',
+				JSON.stringify({ tool: 'delegate_task', status: 'progress' }),
+				1200
+			)
+		).toMatchObject([
+			{
+				tool: {
+					id: 'delegate_task-1',
+					name: 'delegate_task',
+					status: 'running',
+					title: 'Compare current coverage',
+					detail: 'Compare current coverage',
+					transcript: 'worker started',
+					done: false
+				}
+			}
+		]);
+
+		expect(
+			state.apply(
+				'hermes.tool.progress',
+				JSON.stringify({ tool: 'delegate_task', status: 'done', result: { ok: true } }),
+				1500
+			)
+		).toMatchObject([
+			{
+				tool: {
+					id: 'delegate_task-1',
+					name: 'delegate_task',
+					status: 'ok',
+					title: 'Compare current coverage',
+					detail: 'Compare current coverage',
+					transcript: 'worker started',
+					result: { ok: true },
+					done: true
+				}
+			}
+		]);
+
+		expect(state.toolCalls()).toMatchObject([
+			{
+				id: 'delegate_task-1',
+				name: 'delegate_task',
+				startedAt: 1000,
+				endedAt: 1500,
+				title: 'Compare current coverage',
+				detail: 'Compare current coverage',
+				transcript: 'worker started'
+			}
+		]);
+		expect(state.toolCalls()).toHaveLength(1);
+	});
+
+	it('creates separate anonymous Hermes tool steps when the target changes', () => {
+		const state = new StreamEventState();
+
+		const first = state.apply(
+			'hermes.tool.progress',
+			JSON.stringify({
+				tool: 'browser_navigate',
+				label: 'https://example.com/first',
+				url: 'https://example.com/first'
+			}),
+			1000
+		);
+		expect(first).toMatchObject([
+			{ source: { url: 'https://example.com/first' } },
+			{
+				tool: {
+					id: 'browser_navigate-1',
+					name: 'browser_navigate',
+					url: 'https://example.com/first',
+					done: false
+				}
+			}
+		]);
+
+		const second = state.apply(
+			'hermes.tool.progress',
+			JSON.stringify({
+				tool: 'browser_navigate',
+				label: 'https://example.com/second',
+				url: 'https://example.com/second'
+			}),
+			2000
+		);
+		expect(second).toMatchObject([
+			{ source: { url: 'https://example.com/second' } },
+			{
+				tool: {
+					id: 'browser_navigate-1',
+					name: 'browser_navigate',
+					status: 'ok',
+					done: true,
+					endedAt: 2000
+				}
+			},
+			{
+				tool: {
+					id: 'browser_navigate-2',
+					name: 'browser_navigate',
+					url: 'https://example.com/second',
+					done: false
+				}
+			}
+		]);
+
+		expect(
+			state.apply(
+				'hermes.tool.progress',
+				JSON.stringify({ tool: 'browser_navigate', status: 'done' }),
+				2500
+			)
+		).toMatchObject([
+			{
+				tool: {
+					id: 'browser_navigate-2',
+					name: 'browser_navigate',
+					status: 'ok',
+					done: true,
+					endedAt: 2500
+				}
+			}
+		]);
+
+		expect(state.toolCalls()).toMatchObject([
+			{
+				id: 'browser_navigate-1',
+				url: 'https://example.com/first',
+				startedAt: 1000,
+				endedAt: 2000
+			},
+			{
+				id: 'browser_navigate-2',
+				url: 'https://example.com/second',
+				startedAt: 2000,
+				endedAt: 2500
+			}
+		]);
+	});
+
 	it('extracts Responses API text deltas and function call outputs', () => {
 		const state = new StreamEventState();
 

@@ -123,8 +123,24 @@ const TITLE_SYSTEM =
 const FAST_SOURCE_SYSTEM =
 	'For source-backed or current-events requests, prioritize speed. Use a fast source budget: search once, read at most 4 highly relevant sources, avoid duplicate domains unless necessary, stop as soon as the answer is sufficiently supported, and answer within about 30 seconds. If sources are incomplete, provide the best supported answer with clear caveats instead of continuing to search.';
 
+const INTERACTIVE_WEB_SYSTEM =
+	'You are running inside the NewsCraft web chat, where the user expects live visible progress. For ordinary requests, avoid delegate_task, subagents, and skill_view; do the work directly with available browser, search, file, and terminal tools so progress streams back step by step. Only delegate or inspect skills when the user explicitly asks for subagents, parallel agents, or a named skill. If a tool path is slow or inconclusive, give the best current answer with caveats instead of waiting indefinitely.';
+
 function textFrame(text: string): string {
 	return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
+}
+
+function appendSystemInstruction(history: HermesMessage[], instruction: string): void {
+	const idx = history.findIndex((m) => m.role === 'system');
+	if (idx >= 0) {
+		const existing = history[idx].content;
+		history[idx] = {
+			role: 'system',
+			content: `${typeof existing === 'string' ? existing : contentText(existing)}\n\n${instruction}`
+		};
+	} else {
+		history.unshift({ role: 'system', content: instruction });
+	}
 }
 
 function looksSourceBacked(text: string): boolean {
@@ -330,17 +346,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		if (idx >= 0) history[idx] = sys;
 		else history.unshift(sys);
 	}
+	appendSystemInstruction(history, INTERACTIVE_WEB_SYSTEM);
 	if (looksSourceBacked(latestUserText)) {
-		const idx = history.findIndex((m) => m.role === 'system');
-		if (idx >= 0) {
-			const existing = history[idx].content;
-			history[idx] = {
-				role: 'system',
-				content: `${typeof existing === 'string' ? existing : contentText(existing as MessageContent)}\n\n${FAST_SOURCE_SYSTEM}`
-			};
-		} else {
-			history.unshift({ role: 'system', content: FAST_SOURCE_SYSTEM });
-		}
+		appendSystemInstruction(history, FAST_SOURCE_SYSTEM);
 	}
 
 	const upstreamAbort = new AbortController();
@@ -350,20 +358,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const sessionId = deriveSessionId(history);
 	let upstream: Response;
 	try {
-		upstream = isResume
-			? await streamChatCompletion(
-					{ messages: history, stream: true },
-					{ signal: upstreamAbort.signal, sessionId }
-				)
-			: await streamResponse(
-					{ ...responseInputFromHistory(history), stream: true, store: false },
-					{ signal: upstreamAbort.signal, sessionId }
-				);
-
+		// Prefer chat completions for the live app: Hermes emits rich
+		// hermes.tool.progress/source events there, which power the visible
+		// browser/search/tool activity strip. Keep Responses as a fallback for
+		// gateways that only expose the newer endpoint shape.
+		upstream = await streamChatCompletion(
+			{ messages: history, stream: true },
+			{ signal: upstreamAbort.signal, sessionId }
+		);
 		if (!isResume && !upstream.ok && [400, 404, 405].includes(upstream.status)) {
 			await upstream.text().catch(() => '');
-			upstream = await streamChatCompletion(
-				{ messages: history, stream: true },
+			upstream = await streamResponse(
+				{ ...responseInputFromHistory(history), stream: true, store: false },
 				{ signal: upstreamAbort.signal, sessionId }
 			);
 		}

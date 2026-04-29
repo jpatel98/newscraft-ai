@@ -9,6 +9,9 @@
 		arguments?: unknown;
 		result?: unknown;
 		transcript?: string;
+		detail?: string;
+		url?: string;
+		title?: string;
 	}
 </script>
 
