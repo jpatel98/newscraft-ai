@@ -67,8 +67,6 @@
 	}
 
 	// --- Accounts ---
-	let accountName = $state('');
-	let accountEmail = $state('');
 	let accountBusy = $state(false);
 	let accountMsg = $state<{ kind: 'ok' | 'err'; text: string } | null>(null);
 	let setupUrl = $state('');
@@ -79,16 +77,10 @@
 		e.preventDefault();
 		accountMsg = null;
 		setupUrl = '';
-		if (!accountEmail.trim()) {
-			accountMsg = { kind: 'err', text: 'email is required' };
-			return;
-		}
 		accountBusy = true;
 		try {
 			const r = await fetch('/api/settings/accounts', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email: accountEmail, name: accountName })
+				method: 'POST'
 			});
 			if (!r.ok) {
 				const t = await r.text();
@@ -98,8 +90,6 @@
 			const j = (await r.json()) as { setupUrl: string };
 			setupUrl = j.setupUrl;
 			accountMsg = { kind: 'ok', text: 'setup link created' };
-			accountName = '';
-			accountEmail = '';
 			await invalidateAll();
 		} catch (err) {
 			accountMsg = { kind: 'err', text: (err as Error).message };
@@ -141,8 +131,8 @@
 		}
 	}
 
-	async function removeAccount(accountId: string, email: string) {
-		if (!confirm(`Remove ${email}?`)) return;
+	async function removeAccount(accountId: string, label: string) {
+		if (!confirm(`Remove ${label}?`)) return;
 		accountMsg = null;
 		deleteBusyId = accountId;
 		try {
@@ -170,6 +160,10 @@
 			dateStyle: 'medium',
 			timeStyle: 'short'
 		}).format(new Date(ms));
+	}
+
+	function accountLabel(id: string) {
+		return `Account ${id.slice(-6).toUpperCase()}`;
 	}
 
 	// --- Change password ---
@@ -279,7 +273,7 @@
 			<div class="settings__stats">
 				<div class="settings__stat">
 					<div class="settings__stat__label">Account</div>
-					<div class="settings__stat__value">{data.user?.name ?? 'Signed out'}</div>
+					<div class="settings__stat__value">{data.user ? 'Signed in' : 'Signed out'}</div>
 				</div>
 				<div class="settings__stat">
 					<div class="settings__stat__label">Threads</div>
@@ -294,42 +288,22 @@
 				<span>Agent</span>
 				<strong>NewsCraft</strong>
 				<code>hermes-agent</code>
-				{#if data.user}
-					<code>{data.user.email}</code>
-				{/if}
 			</div>
 		</section>
 
 		<section class="settings__group" aria-labelledby="settings-accounts">
 			<div class="settings__group__head">
 				<h2 id="settings-accounts" class="settings__group__title">Accounts</h2>
-				<p class="settings__group__copy">Add people and issue password setup links.</p>
+				<p class="settings__group__copy">Create password setup links for new people.</p>
 			</div>
 			<div class="settings__section-body">
 				<div class="accounts-panel">
 					<form class="settings__form accounts-create" onsubmit={submitAccount} autocomplete="off">
-						<div class="settings__section-title">Add account</div>
-						<div class="field">
-							<label class="field__label" for="account-name">Name</label>
-							<input
-								id="account-name"
-								class="field__input"
-								type="text"
-								autocomplete="off"
-								bind:value={accountName}
-							/>
-						</div>
-						<div class="field">
-							<label class="field__label" for="account-email">Email</label>
-							<input
-								id="account-email"
-								class="field__input"
-								type="email"
-								autocomplete="off"
-								bind:value={accountEmail}
-								required
-							/>
-						</div>
+						<div class="settings__section-title">New account link</div>
+						<p class="settings__section-copy">
+							Create a one-time setup link. The person who opens it only needs to choose a
+							password.
+						</p>
 						<div class="settings__form-actions">
 							<button type="submit" class="btn btn--primary" disabled={accountBusy}>
 								{accountBusy ? 'Creating…' : 'Create setup link'}
@@ -366,12 +340,11 @@
 							<div class="account-row">
 								<div class="account-row__main">
 									<div class="account-row__name">
-										{account.name}
+										{accountLabel(account.id)}
 										{#if account.isCurrent}
 											<span>Current</span>
 										{/if}
 									</div>
-									<div class="account-row__email">{account.email}</div>
 									<div class="account-row__meta">
 										<span>{account.status === 'active' ? 'Active' : 'Pending setup'}</span>
 										<span>Last login: {formatDate(account.lastLoginAt)}</span>
@@ -396,7 +369,7 @@
 										type="button"
 										class="btn btn--ghost"
 										disabled={account.isCurrent || deleteBusyId === account.id}
-										onclick={() => removeAccount(account.id, account.email)}
+										onclick={() => removeAccount(account.id, accountLabel(account.id))}
 									>
 										{deleteBusyId === account.id ? 'Removing…' : 'Remove'}
 									</button>
@@ -750,11 +723,6 @@
 		border-radius: var(--radius-1);
 		padding: 1px 5px;
 		background: var(--bg-raised);
-	}
-	.account-row__email {
-		color: var(--fg-2);
-		font-size: 13.5px;
-		overflow-wrap: anywhere;
 	}
 	.account-row__meta {
 		display: flex;

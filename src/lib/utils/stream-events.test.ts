@@ -134,6 +134,138 @@ describe('StreamEventState', () => {
 		]);
 	});
 
+	it('keeps fragmented Responses API function arguments on the original call id', () => {
+		const state = new StreamEventState();
+
+		state.apply(
+			'response.output_item.added',
+			JSON.stringify({
+				item: { id: 'item_1', type: 'function_call', call_id: 'call_1', name: 'web_search' }
+			}),
+			1000
+		);
+
+		expect(
+			state.apply(
+				'response.function_call_arguments.delta',
+				JSON.stringify({ item_id: 'item_1', delta: '{"query":"release' }),
+				1100
+			)
+		).toMatchObject([
+			{ tool: { id: 'call_1', name: 'web_search', arguments: '{"query":"release' } }
+		]);
+
+		expect(
+			state.apply(
+				'response.function_call_arguments.delta',
+				JSON.stringify({ item_id: 'item_1', delta: ' notes"}' }),
+				1200
+			)
+		).toMatchObject([
+			{ tool: { id: 'call_1', name: 'web_search', arguments: { query: 'release notes' } } }
+		]);
+
+		expect(state.toolCalls()).toMatchObject([
+			{
+				id: 'call_1',
+				name: 'web_search',
+				startedAt: 1000,
+				arguments: { query: 'release notes' }
+			}
+		]);
+	});
+
+	it('parses JSON string tool outputs before they are persisted', () => {
+		const state = new StreamEventState();
+
+		state.apply(
+			'response.output_item.added',
+			JSON.stringify({
+				item: { id: 'item_2', type: 'function_call', call_id: 'call_2', name: 'lookup' }
+			}),
+			2000
+		);
+
+		expect(
+			state.apply(
+				'response.completed',
+				JSON.stringify({
+					response: {
+						output: [
+							{
+								type: 'function_call_output',
+								call_id: 'call_2',
+								output: '{"ok":true,"count":2}'
+							}
+						]
+					}
+				}),
+				2500
+			)
+		).toMatchObject([
+			{
+				tool: {
+					id: 'call_2',
+					name: 'lookup',
+					status: 'ok',
+					result: { ok: true, count: 2 },
+					done: true
+				}
+			},
+			{ done: true }
+		]);
+
+		expect(state.toolCalls()).toMatchObject([
+			{
+				id: 'call_2',
+				name: 'lookup',
+				result: { ok: true, count: 2 },
+				endedAt: 2500
+			}
+		]);
+	});
+
+	it('preserves failed function calls even when no output item follows', () => {
+		const state = new StreamEventState();
+
+		expect(
+			state.apply(
+				'response.output_item.done',
+				JSON.stringify({
+					item: {
+						id: 'item_failed',
+						type: 'function_call',
+						call_id: 'call_failed',
+						name: 'web_search',
+						status: 'failed',
+						arguments: '{"query":"broken"}'
+					}
+				}),
+				3000
+			)
+		).toMatchObject([
+			{
+				tool: {
+					id: 'call_failed',
+					name: 'web_search',
+					status: 'failed',
+					arguments: { query: 'broken' },
+					done: true
+				}
+			}
+		]);
+
+		expect(state.toolCalls()).toMatchObject([
+			{
+				id: 'call_failed',
+				name: 'web_search',
+				status: 'failed',
+				startedAt: 3000,
+				endedAt: 3000
+			}
+		]);
+	});
+
 	it('falls back to completed response text when no text deltas were seen', () => {
 		const state = new StreamEventState();
 

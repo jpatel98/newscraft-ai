@@ -3,6 +3,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { mintSessionCookie } from '$lib/server/auth/cookie';
 import {
 	claimSetupToken,
+	findAccountByPassword,
 	getAccountBySetupToken,
 	touchAccountLogin
 } from '$lib/server/db/accounts';
@@ -10,12 +11,7 @@ import {
 export const load: PageServerLoad = async ({ params }) => {
 	const account = getAccountBySetupToken(params.token);
 	if (!account) throw error(404, 'invalid or expired account setup link');
-	return {
-		account: {
-			email: account.email,
-			name: account.name
-		}
-	};
+	return {};
 };
 
 export const actions: Actions = {
@@ -26,6 +22,9 @@ export const actions: Actions = {
 
 		if (password.length < 8) return fail(400, { error: 'password must be at least 8 characters' });
 		if (password !== confirm) return fail(400, { error: 'passwords do not match' });
+		if (await findAccountByPassword(password)) {
+			return fail(409, { error: 'choose a password that is not already in use' });
+		}
 
 		const account = await claimSetupToken(params.token, password);
 		if (!account) return fail(400, { error: 'invalid or expired account setup link' });

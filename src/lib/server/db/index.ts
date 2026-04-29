@@ -8,7 +8,8 @@ import { env } from '$env/dynamic/private';
 import * as schema from './schema';
 import { settings } from './schema';
 
-const dbPath = env.APP_DB_PATH ?? './data/app.db';
+export const appDbPath = env.APP_DB_PATH ?? './data/app.db';
+const dbPath = appDbPath;
 const dir = dirname(dbPath);
 if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
@@ -16,6 +17,7 @@ const sqlite = new Database(dbPath);
 sqlite.pragma('journal_mode = WAL');
 sqlite.pragma('synchronous = NORMAL');
 sqlite.pragma('foreign_keys = ON');
+sqlite.pragma('busy_timeout = 5000');
 
 export const sqliteClient = sqlite;
 export const db = drizzle(sqlite, { schema });

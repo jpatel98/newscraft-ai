@@ -40,7 +40,7 @@ export function validEmail(email: string): boolean {
 export function accountDisplayName(email: string, name: string): string {
 	const trimmed = name.trim();
 	if (trimmed) return trimmed.slice(0, 80);
-	return email.split('@')[0]?.slice(0, 80) || 'New account';
+	return generatedAccountLabel(email);
 }
 
 export function accountCount(): number {
@@ -92,6 +92,25 @@ export async function createAccountWithPassword(input: {
 	return row;
 }
 
+export async function createPasswordOnlyAccount(password: string): Promise<AccountRow> {
+	const id = newId();
+	const email = generatedAccountEmail(id);
+	const now = Date.now();
+	const row: AccountRow = {
+		id,
+		email,
+		name: generatedAccountLabel(email),
+		passwordHash: await hashPassword(password),
+		setupTokenHash: null,
+		setupTokenExpiresAt: null,
+		createdAt: now,
+		updatedAt: now,
+		lastLoginAt: null
+	};
+	db.insert(accounts).values(row).run();
+	return row;
+}
+
 export function createAccountInvite(input: { email: string; name?: string }): {
 	account: AccountRow;
 	token: string;
@@ -105,6 +124,31 @@ export function createAccountInvite(input: { email: string; name?: string }): {
 		id: newId(),
 		email,
 		name: accountDisplayName(email, input.name ?? ''),
+		passwordHash: null,
+		setupTokenHash: tokenHash(token),
+		setupTokenExpiresAt: expiresAt,
+		createdAt: now,
+		updatedAt: now,
+		lastLoginAt: null
+	};
+	db.insert(accounts).values(row).run();
+	return { account: row, token, expiresAt };
+}
+
+export function createPasswordOnlyInvite(): {
+	account: AccountRow;
+	token: string;
+	expiresAt: number;
+} {
+	const id = newId();
+	const email = generatedAccountEmail(id);
+	const now = Date.now();
+	const token = randomToken();
+	const expiresAt = now + SETUP_TOKEN_TTL_MS;
+	const row: AccountRow = {
+		id,
+		email,
+		name: generatedAccountLabel(email),
 		passwordHash: null,
 		setupTokenHash: tokenHash(token),
 		setupTokenExpiresAt: expiresAt,
@@ -169,6 +213,16 @@ export async function verifyAccountCredentials(
 	return ok ? account : undefined;
 }
 
+export async function findAccountByPassword(password: string): Promise<AccountRow | undefined> {
+	if (!password) return undefined;
+	const rows = db.select().from(accounts).all() as AccountRow[];
+	for (const account of rows) {
+		if (!account.passwordHash) continue;
+		if (await verifyHash(account.passwordHash, password)) return account;
+	}
+	return undefined;
+}
+
 export async function updateAccountPassword(accountId: string, password: string): Promise<void> {
 	db.update(accounts)
 		.set({
@@ -208,4 +262,13 @@ function randomToken(): string {
 
 function tokenHash(token: string): string {
 	return createHash('sha256').update(token).digest('base64url');
+}
+
+function generatedAccountEmail(id: string): string {
+	return `${id}@accounts.local`;
+}
+
+function generatedAccountLabel(email: string): string {
+	const stem = email.split('@')[0] || 'account';
+	return `Account ${stem.slice(-6).toUpperCase()}`;
 }

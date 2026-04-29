@@ -1,33 +1,11 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import {
-	createAccountInvite,
-	findAccountByEmail,
-	normalizeEmail,
-	validEmail
-} from '$lib/server/db/accounts';
+import { createPasswordOnlyInvite } from '$lib/server/db/accounts';
 
-interface Body {
-	email?: string;
-	name?: string;
-}
-
-export const POST: RequestHandler = async ({ request, locals, url }) => {
+export const POST: RequestHandler = async ({ locals, url }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 
-	let body: Body;
 	try {
-		body = (await request.json()) as Body;
-	} catch {
-		throw error(400, 'invalid json');
-	}
-
-	const email = normalizeEmail(String(body.email ?? ''));
-	const name = String(body.name ?? '').trim();
-	if (!validEmail(email)) throw error(400, 'enter a valid email address');
-	if (findAccountByEmail(email)) throw error(409, 'an account with that email already exists');
-
-	try {
-		const invite = createAccountInvite({ email, name });
+		const invite = createPasswordOnlyInvite();
 		const setupUrl = new URL(`/account-setup/${invite.token}`, url.origin).toString();
 		return json({
 			account: {

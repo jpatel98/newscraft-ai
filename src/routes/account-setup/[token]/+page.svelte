@@ -1,6 +1,5 @@
 <script lang="ts">
-	let { data, form } = $props<{
-		data: { account: { email: string; name: string } };
+	let { form } = $props<{
 		form?: { error?: string };
 	}>();
 	let pwInput: HTMLInputElement | undefined;
@@ -17,12 +16,6 @@
 	<form method="post" class="card" autocomplete="off">
 		<div class="card__eyebrow">NewsCraft · Account setup</div>
 		<h1 class="card__title">Set your password.</h1>
-
-		<div class="settings__meta-row settings__meta-row--card">
-			<span>Account</span>
-			<strong>{data.account.name}</strong>
-			<code>{data.account.email}</code>
-		</div>
 
 		<div class="field">
 			<label class="field__label" for="pw">Password</label>
@@ -60,9 +53,3 @@
 		{/if}
 	</form>
 </div>
-
-<style>
-	.settings__meta-row--card {
-		margin: 0 0 16px;
-	}
-</style>

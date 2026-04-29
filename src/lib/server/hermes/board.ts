@@ -31,7 +31,11 @@ const RUN_ENDPOINTS = [
 const RUN_FETCH_TIMEOUT_MS = 2500;
 const RUN_ENDPOINT_SOFT_DISABLE_MS = 60_000;
 const RUN_ENDPOINT_HARD_DISABLE_MS = 10 * 60_000;
+const JOB_FETCH_TIMEOUT_MS = 5000;
+const JOB_FETCH_ATTEMPTS = 3;
 const runEndpointDisabledUntil = new Map<string, number>();
+
+class NonRetryableHermesError extends Error {}
 
 function cronOutputRoot(): string {
 	return env.HERMES_CRON_OUTPUT_DIR || path.join(homedir(), '.hermes', 'cron', 'output');
@@ -207,13 +211,48 @@ function dedupeRuns(runs: HermesRun[]): HermesRun[] {
 	return Array.from(byId.values());
 }
 
+function retryDelayMs(attempt: number): number {
+	return 150 * 2 ** attempt;
+}
+
+function retryableStatus(status: number): boolean {
+	return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
+function isAbortTimeout(err: unknown): boolean {
+	return (
+		err instanceof DOMException &&
+		(err.name === 'TimeoutError' || err.name === 'AbortError')
+	);
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchHermesJobsBody(): Promise<unknown> {
-	const response = await hermesFetch('/api/jobs?include_disabled=true', {
-		method: 'GET',
-		signal: AbortSignal.timeout(5000)
-	});
-	if (!response.ok) throw new Error(`Hermes jobs ${response.status}: ${await response.text()}`);
-	return response.json();
+	let lastError: unknown;
+	for (let attempt = 0; attempt < JOB_FETCH_ATTEMPTS; attempt += 1) {
+		try {
+			const response = await hermesFetch('/api/jobs?include_disabled=true', {
+				method: 'GET',
+				signal: AbortSignal.timeout(JOB_FETCH_TIMEOUT_MS)
+			});
+			if (response.ok) return response.json();
+			const text = await response.text();
+			const message = `Hermes jobs ${response.status}: ${text}`;
+			if (!retryableStatus(response.status)) throw new NonRetryableHermesError(message);
+			if (attempt === JOB_FETCH_ATTEMPTS - 1) throw new Error(message);
+			lastError = new Error(message);
+		} catch (err) {
+			if (err instanceof NonRetryableHermesError) throw err;
+			lastError = err;
+			if (!isAbortTimeout(err) && attempt === JOB_FETCH_ATTEMPTS - 1) throw err;
+			if (attempt === JOB_FETCH_ATTEMPTS - 1) break;
+		}
+		await sleep(retryDelayMs(attempt));
+	}
+	throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 async function listHermesJobsWithRuns(): Promise<{ jobs: HermesJob[]; runs: HermesRun[] }> {

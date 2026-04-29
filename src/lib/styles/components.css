@@ -1337,6 +1337,22 @@ body,
 	color: var(--fg-1);
 	margin: 0 0 18px;
 }
+.auth-link {
+	display: block;
+	margin-top: 12px;
+	text-align: center;
+	font-size: 13px;
+	color: var(--accent-fg);
+	text-decoration: none;
+}
+.auth-link:hover {
+	text-decoration: underline;
+}
+.auth-link:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+	border-radius: var(--radius-1);
+}
 
 /* ---------- Empty / first-run hero ---------- */
 .empty {

@@ -2,25 +2,24 @@ import { fail, redirect } from '@sveltejs/kit';
 import type { Actions } from './$types';
 import { mintSessionCookie } from '$lib/server/auth/cookie';
 import { lockedOut, recordFailure, recordSuccess } from '$lib/server/auth/password';
-import { normalizeEmail, touchAccountLogin, verifyAccountCredentials } from '$lib/server/db/accounts';
+import { findAccountByPassword, touchAccountLogin } from '$lib/server/db/accounts';
 
 export const actions: Actions = {
 	default: async ({ request, cookies, getClientAddress, url }) => {
 		const data = await request.formData();
-		const email = normalizeEmail(String(data.get('email') ?? ''));
 		const password = String(data.get('password') ?? '');
 		const next = String(data.get('next') ?? url.searchParams.get('next') ?? '/');
 
-		const key = `${getClientAddress()}:${email}`;
+		const key = getClientAddress();
 		const lock = lockedOut(key);
 		if (lock > 0) {
 			return fail(429, { error: `too many attempts; try again in ${Math.ceil(lock / 1000)}s` });
 		}
 
-		const account = await verifyAccountCredentials(email, password);
+		const account = await findAccountByPassword(password);
 		if (!account) {
 			recordFailure(key);
-			return fail(401, { error: 'invalid email or password', email });
+			return fail(401, { error: 'invalid password' });
 		}
 
 		recordSuccess(key);

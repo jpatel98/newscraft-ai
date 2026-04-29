@@ -35,6 +35,7 @@
 
 	const onAuthPage = $derived(
 		page.url.pathname === '/login' ||
+			page.url.pathname === '/signup' ||
 			page.url.pathname === '/setup' ||
 			page.url.pathname.startsWith('/account-setup')
 	);

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	let { form } = $props<{ form?: { error?: string; email?: string } }>();
+	let { form } = $props<{ form?: { error?: string } }>();
 	const next = $derived(page.url.searchParams.get('next') ?? '/');
-	let emailInput: HTMLInputElement | undefined;
+	let pwInput: HTMLInputElement | undefined;
 	$effect(() => {
-		emailInput?.focus();
+		pwInput?.focus();
 	});
 </script>
 
@@ -20,20 +20,6 @@
 		<input type="hidden" name="next" value={next} />
 
 		<div class="field">
-			<label class="field__label" for="email">Email</label>
-			<input
-				id="email"
-				class="field__input"
-				type="email"
-				name="email"
-				autocomplete="username"
-				value={form?.email ?? ''}
-				bind:this={emailInput}
-				required
-			/>
-		</div>
-
-		<div class="field">
 			<label class="field__label" for="pw">Password</label>
 			<input
 				id="pw"
@@ -41,6 +27,7 @@
 				type="password"
 				name="password"
 				autocomplete="current-password"
+				bind:this={pwInput}
 				required
 			/>
 		</div>
@@ -48,6 +35,8 @@
 		<button type="submit" class="btn btn--primary" style="width:100%;padding:10px 16px">
 			Sign in
 		</button>
+
+		<a class="auth-link" href="/signup">No account yet? Create one</a>
 
 		{#if form?.error}
 			<div class="field__error">{form.error}</div>

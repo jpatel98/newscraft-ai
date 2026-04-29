@@ -95,9 +95,18 @@
 	// the initial-scroll machinery so a fresh open always lands deterministically.
 	let conversationKey = $state<string | null>(null);
 	let didInitialScroll = $state(false);
+	let hashMessageId = $state<string | null>(null);
 	// Stay glued to the bottom while streaming, but only when the user hasn't
 	// scrolled up to read history. Default true so the first stream tail-follows.
 	let stickToBottom = $state(true);
+
+	const THREAD_CONTAINMENT_THRESHOLD = 80;
+	const UNCONTAINED_TAIL_COUNT = 12;
+	const deferredBeforeIndex = $derived(
+		messages.length >= THREAD_CONTAINMENT_THRESHOLD
+			? Math.max(0, messages.length - UNCONTAINED_TAIL_COUNT)
+			: 0
+	);
 
 	function lengthOf(c: MessageContent): number {
 		return typeof c === 'string' ? c.length : c.length;
@@ -124,6 +133,23 @@
 		stickToBottom = isNearBottom();
 	}
 
+	function messageIdFromHash(): string | null {
+		if (typeof location === 'undefined') return null;
+		const match = location.hash.match(/^#m=(.+)$/);
+		if (!match) return null;
+		try {
+			return decodeURIComponent(match[1]);
+		} catch {
+			return null;
+		}
+	}
+
+	function shouldDeferMessage(m: ChatMessage, index: number): boolean {
+		if (index >= deferredBeforeIndex) return false;
+		if (m.streaming || m.id === hashMessageId) return false;
+		return true;
+	}
+
 	// Reset initial-scroll state when switching conversations (first message id
 	// changes). Without this, navigating from one thread to another would keep
 	// the previous scroll position instead of landing at the latest message.
@@ -133,6 +159,7 @@
 			conversationKey = key;
 			didInitialScroll = false;
 			scrolledToHash = false;
+			hashMessageId = null;
 			stickToBottom = true;
 		}
 	});
@@ -147,14 +174,14 @@
 		if (!scroller) return;
 
 		if (!didInitialScroll) {
-			const hashMatch =
-				typeof location === 'undefined' ? null : location.hash.match(/^#m=(.+)$/);
+			const hashId = messageIdFromHash();
+			hashMessageId = hashId;
 			// Two rAFs let markdown + late-loading images settle before we measure
 			// scrollHeight; a 60ms re-anchor catches images that decode after that.
 			requestAnimationFrame(() =>
 				requestAnimationFrame(() => {
-					if (hashMatch && !scrolledToHash) {
-						const el = document.getElementById(`m-${decodeURIComponent(hashMatch[1])}`);
+					if (hashId && !scrolledToHash) {
+						const el = document.getElementById(`m-${hashId}`);
 						if (el) {
 							el.scrollIntoView({ block: 'center' });
 							scrolledToHash = true;
@@ -198,15 +225,22 @@
 	}
 </script>
 
-<div class="thread" bind:this={scroller} onscroll={onScroll}>
+<div
+	class="thread {deferredBeforeIndex > 0 ? 'thread--contained' : ''}"
+	bind:this={scroller}
+	onscroll={onScroll}
+>
 	<div class="thread__inner">
 		{#each messages as m, i (m.id)}
 			{@const prev = messages[i - 1]}
 			{@const stacked = prev && prev.role === m.role}
 			{@const roleChange = prev && prev.role !== m.role}
+			{@const deferred = shouldDeferMessage(m, i)}
 			<article
 				id={`m-${m.id}`}
-				class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange ? 'msg--role-change' : ''}"
+				class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange
+					? 'msg--role-change'
+					: ''} {deferred ? 'msg--deferred' : ''}"
 			>
 				{#if m.role === 'assistant'}
 					<div class="msg__avatar msg__avatar--bot" aria-hidden="true">
@@ -333,6 +367,17 @@
 <ToolInspector toolCalls={inspectorCalls} open={inspectorOpen} onClose={() => (inspectorOpen = false)} />
 
 <style>
+	.thread--contained .msg--deferred {
+		content-visibility: auto;
+		contain-intrinsic-size: auto 120px;
+	}
+	.thread--contained .msg--deferred.msg--assistant {
+		contain-intrinsic-size: auto 220px;
+	}
+	.thread--contained .msg--deferred.msg--user {
+		contain-intrinsic-size: auto 72px;
+	}
+
 	:global(.msg__img-link) {
 		display: inline-block;
 		margin: 6px 6px 0 0;

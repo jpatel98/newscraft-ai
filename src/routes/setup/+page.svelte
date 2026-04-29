@@ -1,11 +1,13 @@
 <script lang="ts">
 	let { data, form } = $props<{
 		data: { requiresBootstrapPassword: boolean };
-		form?: { error?: string; email?: string; name?: string };
+		form?: { error?: string };
 	}>();
-	let emailInput: HTMLInputElement | undefined;
+	let bootstrapInput = $state<HTMLInputElement>();
+	let pwInput = $state<HTMLInputElement>();
 	$effect(() => {
-		emailInput?.focus();
+		if (data.requiresBootstrapPassword) bootstrapInput?.focus();
+		else pwInput?.focus();
 	});
 </script>
 
@@ -27,36 +29,11 @@
 					type="password"
 					name="bootstrapPassword"
 					autocomplete="current-password"
+					bind:this={bootstrapInput}
 					required
 				/>
 			</div>
 		{/if}
-
-		<div class="field">
-			<label class="field__label" for="name">Name</label>
-			<input
-				id="name"
-				class="field__input"
-				type="text"
-				name="name"
-				autocomplete="name"
-				value={form?.name ?? ''}
-			/>
-		</div>
-
-		<div class="field">
-			<label class="field__label" for="email">Email</label>
-			<input
-				id="email"
-				class="field__input"
-				type="email"
-				name="email"
-				autocomplete="username"
-				value={form?.email ?? ''}
-				bind:this={emailInput}
-				required
-			/>
-		</div>
 
 		<div class="field">
 			<label class="field__label" for="pw">Password</label>
@@ -67,6 +44,7 @@
 				name="password"
 				autocomplete="new-password"
 				minlength={8}
+				bind:this={pwInput}
 				required
 			/>
 		</div>

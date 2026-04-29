@@ -5,7 +5,9 @@
 		dominantDoneLabel,
 		dominantLiveLabel,
 		formatElapsed,
-		liveLabel
+		showToolRawName,
+		toolStepDetail,
+		toolStepLabel
 	} from '$lib/utils/tool-labels';
 
 	interface Props {
@@ -19,7 +21,7 @@
 	const RECOVERY_AFTER_MS = 30_000;
 
 	let now = $state(Date.now());
-	let expanded = $state(false);
+	let expanded = $state(true);
 	let recoveryDismissed = $state(false);
 
 	$effect(() => {
@@ -57,6 +59,12 @@
 
 	const liveText = $derived(dominantLiveLabel(liveNames));
 	const doneText = $derived(dominantDoneLabel(finishedNames));
+	const latestTool = $derived.by(() => {
+		if (chat.tools.length > 0) return chat.tools[chat.tools.length - 1];
+		if (chat.toolHistory.length > 0) return chat.toolHistory[chat.toolHistory.length - 1];
+		return null;
+	});
+	const headDetail = $derived(latestTool ? toolStepDetail(latestTool) : '');
 
 	// Visible while: actively streaming, tools running, or recap from this turn
 	// is still attached. After endStream() finalizes, the recap stays until the
@@ -69,9 +77,13 @@
 	);
 
 	const headLabel = $derived.by(() => {
+		if (hasRunning && latestTool) return toolStepLabel(latestTool);
 		if (hasRunning) return liveText;
 		if (activeTurn && chat.streaming) return 'Drafting answer';
-		if (hasFinished) return doneText;
+		if (hasFinished) {
+			return `${chat.toolHistory.length} ${chat.toolHistory.length === 1 ? 'step' : 'steps'} completed`;
+		}
+		if (doneText) return doneText;
 		return '';
 	});
 
@@ -115,10 +127,11 @@
 				<span class="tool-activity__check" aria-hidden="true">✓</span>
 			{/if}
 			<span class="tool-activity__label">{headLabel}</span>
+			{#if headDetail}
+				<span class="tool-activity__headline-detail">{headDetail}</span>
+			{/if}
 			{#if hasRunning && chat.tools.length > 1}
 				<span class="tool-activity__count">· {chat.tools.length} tools</span>
-			{:else if !hasRunning && hasFinished}
-				<span class="tool-activity__count">· {chat.toolHistory.length}</span>
 			{/if}
 			{#if showElapsed}
 				<span class="tool-activity__elapsed">{formatElapsed(elapsedMs)}</span>
@@ -147,15 +160,26 @@
 			</div>
 		{/if}
 
-		{#if expanded}
+		{#if expanded && (hasRunning || hasFinished)}
 			<div class="tool-activity__body">
 				{#if hasRunning}
 					<div class="tool-activity__sub">Running</div>
 					<ul class="tool-activity__list">
-						{#each chat.tools as t (t.id)}
+						{#each chat.tools as t, i (t.id)}
+							{@const detail = toolStepDetail(t)}
 							<li>
-								<span class="tool-activity__name">{liveLabel(t.name)}</span>
-								<span class="tool-activity__rawname">{t.name}</span>
+								<span class="tool-activity__step-index">{i + 1}</span>
+								<span class="tool-activity__step-main">
+									<span class="tool-activity__step-row">
+										<span class="tool-activity__name">{toolStepLabel(t)}</span>
+										{#if showToolRawName(t)}
+											<span class="tool-activity__rawname">{t.name}</span>
+										{/if}
+									</span>
+									{#if detail}
+										<span class="tool-activity__step-detail">{detail}</span>
+									{/if}
+								</span>
 								<span class="tool-activity__elapsed">{elapsedFor(t)}</span>
 							</li>
 						{/each}
@@ -164,10 +188,21 @@
 				{#if hasFinished}
 					<div class="tool-activity__sub">Completed</div>
 					<ul class="tool-activity__list tool-activity__list--done">
-						{#each chat.toolHistory as t (t.id)}
+						{#each chat.toolHistory as t, i (t.id)}
+							{@const detail = toolStepDetail(t)}
 							<li>
-								<span class="tool-activity__name">{liveLabel(t.name)}</span>
-								<span class="tool-activity__rawname">{t.name}</span>
+								<span class="tool-activity__step-index">{i + 1}</span>
+								<span class="tool-activity__step-main">
+									<span class="tool-activity__step-row">
+										<span class="tool-activity__name">{toolStepLabel(t, true)}</span>
+										{#if showToolRawName(t)}
+											<span class="tool-activity__rawname">{t.name}</span>
+										{/if}
+									</span>
+									{#if detail}
+										<span class="tool-activity__step-detail">{detail}</span>
+									{/if}
+								</span>
 								<span class="tool-activity__elapsed"
 									>{formatElapsed(t.finishedAt - t.startedAt)}</span
 								>
@@ -250,6 +285,20 @@
 	.tool-activity__label {
 		color: var(--fg-1);
 		font-weight: 600;
+		flex: 0 0 auto;
+	}
+	.tool-activity__headline-detail {
+		min-width: 0;
+		flex: 1 1 auto;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--fg-2);
+		font-family: var(--font-body);
+		font-size: 11.5px;
+		font-weight: 500;
+		text-transform: none;
+		letter-spacing: 0;
 	}
 	.tool-activity__count,
 	.tool-activity__elapsed,
@@ -355,23 +404,66 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 3px;
+		gap: 7px;
 	}
 	.tool-activity__list:last-child {
 		margin-bottom: 0;
 	}
 	.tool-activity__list li {
-		display: flex;
-		align-items: center;
+		display: grid;
+		grid-template-columns: 18px minmax(0, 1fr) auto;
+		align-items: start;
 		gap: 8px;
 		font-size: 10.5px;
+	}
+	.tool-activity__step-index {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-pill);
+		color: var(--fg-3);
+		font-size: 9px;
+		line-height: 1;
+	}
+	.tool-activity__step-main {
+		display: grid;
+		gap: 2px;
+		min-width: 0;
+	}
+	.tool-activity__step-row {
+		display: flex;
+		align-items: baseline;
+		gap: 7px;
+		min-width: 0;
 	}
 	.tool-activity__name {
 		color: var(--fg-1);
 		font-weight: 500;
+		flex: 0 0 auto;
 	}
 	.tool-activity__list--done .tool-activity__name {
 		color: var(--fg-2);
+	}
+	.tool-activity__rawname {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.tool-activity__step-detail {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--fg-2);
+		font-family: var(--font-body);
+		font-size: 11.5px;
+		line-height: 1.35;
+		text-transform: none;
+		letter-spacing: 0;
 	}
 	.tool-activity__recovery {
 		display: flex;

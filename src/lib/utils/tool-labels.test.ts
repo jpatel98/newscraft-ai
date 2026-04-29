@@ -4,7 +4,11 @@ import {
 	dominantLiveLabel,
 	doneLabel,
 	formatElapsed,
-	liveLabel
+	liveLabel,
+	showToolRawName,
+	toolStepDetail,
+	toolStepLabel,
+	toolStepSummary
 } from './tool-labels';
 
 describe('tool labels', () => {
@@ -40,5 +44,75 @@ describe('tool labels', () => {
 		expect(formatElapsed(0)).toBe('0s');
 		expect(formatElapsed(7_500)).toBe('7s');
 		expect(formatElapsed(65_000)).toBe('1m05s');
+	});
+
+	it('adds concise step details from common tool arguments', () => {
+		expect(
+			toolStepDetail({
+				name: 'web_search',
+				arguments: { search_query: [{ q: 'city council budget vote' }] }
+			})
+		).toBe('Query: city council budget vote');
+
+		expect(
+			toolStepDetail({
+				name: 'terminal',
+				arguments: { command: 'pnpm test -- --runInBand' }
+			})
+		).toBe('Command: pnpm test -- --runInBand');
+	});
+
+	it('summarizes steps without dumping raw payloads', () => {
+		expect(
+			toolStepSummary({
+				name: 'fetch_url',
+				url: 'https://www.example.com/news/story'
+			})
+		).toBe('Reading results: Opening example.com/news/story');
+
+		expect(
+			toolStepSummary(
+				{
+					name: 'web_search',
+					result: { count: 2 }
+				},
+				true
+			)
+		).toBe('Sources checked: 2 results');
+	});
+
+	it('turns internal expert-search code calls into readable steps', () => {
+		const args = JSON.stringify({
+			code: `queries = [
+ 'Informed Perspectives Canada spring economic statement budget experts Canada economy',
+ 'Canada spring economic statement 2026 experts economist fiscal policy Canada contact email'
+]
+print('duckduckgo')`
+		});
+
+		expect(toolStepLabel({ name: 'execute_code', arguments: args }, true)).toBe(
+			'Web search checked'
+		);
+		expect(toolStepDetail({ name: 'execute_code', arguments: args })).toBe(
+			'Queries: Informed Perspectives Canada spring economic statement budget experts Canada economy, Canada spring economic statement 2026 experts economist fiscal policy Canada contact email'
+		);
+		expect(showToolRawName({ name: 'execute_code' })).toBe(false);
+		expect(showToolRawName({ name: 'browser_navigate' })).toBe(false);
+	});
+
+	it('summarizes wrapped tool outputs instead of showing one result', () => {
+		const result = [
+			{
+				type: 'input_text',
+				text: JSON.stringify({
+					status: 'success',
+					output: '### Trevor Tombe\\nURL 200 https://profiles.ucalgary.ca/trevor-tombe\\n### Kevin Milligan\\nURL 200 https://economics.ubc.ca/profile/kevin-milligan/'
+				})
+			}
+		];
+
+		expect(toolStepDetail({ name: 'execute_code', result })).toBe(
+			'Profiles: Trevor Tombe, Kevin Milligan'
+		);
 	});
 });

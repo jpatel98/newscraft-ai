@@ -9,46 +9,50 @@ import {
 	verifyLegacyPassword
 } from '$lib/server/auth/password';
 import {
-	accountCount,
 	createPasswordOnlyAccount,
+	findAccountByPassword,
 	touchAccountLogin,
 } from '$lib/server/db/accounts';
 
-export const load: PageServerLoad = async () => {
-	if (accountCount() > 0) throw redirect(303, '/login');
+export const load: PageServerLoad = async ({ locals }) => {
+	if (locals.user) throw redirect(303, '/');
 	return {
-		requiresBootstrapPassword: legacyPasswordConfigured()
+		accessCodeConfigured: legacyPasswordConfigured()
 	};
 };
 
 export const actions: Actions = {
 	default: async ({ request, cookies, getClientAddress }) => {
-		if (accountCount() > 0) throw redirect(303, '/login');
-
 		const data = await request.formData();
+		const accessCode = String(data.get('accessCode') ?? '');
 		const password = String(data.get('password') ?? '');
 		const confirm = String(data.get('confirm') ?? '');
-		const bootstrapPassword = String(data.get('bootstrapPassword') ?? '');
 
+		if (!legacyPasswordConfigured()) {
+			return fail(503, { error: 'account creation is not configured' });
+		}
 		if (password.length < 8) {
 			return fail(400, { error: 'password must be at least 8 characters' });
 		}
 		if (password !== confirm) return fail(400, { error: 'passwords do not match' });
 
-		if (legacyPasswordConfigured()) {
-			const key = `setup:${getClientAddress()}`;
-			const lock = lockedOut(key);
-			if (lock > 0) {
-				return fail(429, {
-					error: `too many attempts; try again in ${Math.ceil(lock / 1000)}s`
-				});
-			}
-			const ok = await verifyLegacyPassword(bootstrapPassword);
-			if (!ok) {
-				recordFailure(key);
-				return fail(401, { error: 'current access password is incorrect' });
-			}
-			recordSuccess(key);
+		const key = `signup:${getClientAddress()}`;
+		const lock = lockedOut(key);
+		if (lock > 0) {
+			return fail(429, {
+				error: `too many attempts; try again in ${Math.ceil(lock / 1000)}s`
+			});
+		}
+
+		const accessOk = await verifyLegacyPassword(accessCode);
+		if (!accessOk) {
+			recordFailure(key);
+			return fail(401, { error: 'access code is incorrect' });
+		}
+		recordSuccess(key);
+
+		if (await findAccountByPassword(password)) {
+			return fail(409, { error: 'choose a password that is not already in use' });
 		}
 
 		try {

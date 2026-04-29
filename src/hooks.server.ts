@@ -6,7 +6,7 @@ import { accountCount, getAccount } from '$lib/server/db/accounts';
 
 ensureMigrated();
 
-const PUBLIC_PATHS = new Set(['/login', '/setup']);
+const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
 const PUBLIC_PREFIXES = ['/api/health', '/api/hermes/channel-posts', '/account-setup'];
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -21,7 +21,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const isPublic = PUBLIC_PATHS.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
 	const hasAccounts = accountCount() > 0;
 
-	if (!hasAccounts && path !== '/setup' && !PUBLIC_PREFIXES.some((p) => path.startsWith(p))) {
+	if (
+		!hasAccounts &&
+		path !== '/setup' &&
+		path !== '/signup' &&
+		!PUBLIC_PREFIXES.some((p) => path.startsWith(p))
+	) {
 		throw redirect(303, '/setup');
 	}
 	if (hasAccounts && path === '/setup') {
@@ -32,7 +37,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		const dest = path === '/' ? '/' : path + event.url.search;
 		throw redirect(303, `/login?next=${encodeURIComponent(dest)}`);
 	}
-	if (event.locals.user && path === '/login') {
+	if (event.locals.user && (path === '/login' || path === '/signup')) {
 		throw redirect(303, '/');
 	}
 
