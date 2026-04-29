@@ -135,6 +135,10 @@ function looksSourceBacked(text: string): boolean {
 
 function localAssistantResponse(convoId: string, text: string): Response {
 	addMessage({ conversationId: convoId, role: 'assistant', content: text });
+	return localTextStream(convoId, text);
+}
+
+function localTextStream(convoId: string, text: string): Response {
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
 			controller.enqueue(
@@ -154,6 +158,28 @@ function localAssistantResponse(convoId: string, text: string): Response {
 			'x-accel-buffering': 'no'
 		}
 	});
+}
+
+function gatewayUnavailableMessage(detail: string): string {
+	const cleaned = detail.replace(/\s+/g, ' ').trim().slice(0, 240);
+	return [
+		"I couldn't reach the Hermes gateway, so I couldn't draft a reply.",
+		'Your message was saved. Try regenerate or send again once the gateway is healthy.',
+		cleaned ? `Gateway detail: ${cleaned}` : ''
+	]
+		.filter(Boolean)
+		.join('\n\n');
+}
+
+function localGatewayFailureResponse(convoId: string, detail: string, resumeMessageId?: string | null): Response {
+	const text = gatewayUnavailableMessage(detail);
+	if (resumeMessageId) {
+		appendMessageContent(resumeMessageId, `\n\n${text}`);
+		finalizeMessage(resumeMessageId);
+		resumingIds.delete(resumeMessageId);
+		return localTextStream(convoId, `\n\n${text}`);
+	}
+	return localAssistantResponse(convoId, text);
 }
 
 function findCommand(commands: HermesCommand[], parsed: SlashParseResult): HermesCommand | undefined {
@@ -322,28 +348,37 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	else request.signal.addEventListener('abort', () => upstreamAbort.abort(), { once: true });
 
 	const sessionId = deriveSessionId(history);
-	let upstream = isResume
-		? await streamChatCompletion(
+	let upstream: Response;
+	try {
+		upstream = isResume
+			? await streamChatCompletion(
+					{ messages: history, stream: true },
+					{ signal: upstreamAbort.signal, sessionId }
+				)
+			: await streamResponse(
+					{ ...responseInputFromHistory(history), stream: true, store: false },
+					{ signal: upstreamAbort.signal, sessionId }
+				);
+
+		if (!isResume && !upstream.ok && [400, 404, 405].includes(upstream.status)) {
+			await upstream.text().catch(() => '');
+			upstream = await streamChatCompletion(
 				{ messages: history, stream: true },
 				{ signal: upstreamAbort.signal, sessionId }
-			)
-		: await streamResponse(
-				{ ...responseInputFromHistory(history), stream: true, store: false },
-				{ signal: upstreamAbort.signal, sessionId }
 			);
-
-	if (!isResume && !upstream.ok && [400, 404, 405].includes(upstream.status)) {
-		await upstream.text().catch(() => '');
-		upstream = await streamChatCompletion(
-			{ messages: history, stream: true },
-			{ signal: upstreamAbort.signal, sessionId }
-		);
+		}
+	} catch (err) {
+		return localGatewayFailureResponse(convoId, err instanceof Error ? err.message : String(err), resumeMessageId);
 	}
 
 	if (!upstream.ok || !upstream.body) {
 		if (resumeMessageId) resumingIds.delete(resumeMessageId);
 		const text = await upstream.text().catch(() => '');
-		throw error(upstream.status || 502, `gateway: ${text || upstream.statusText}`);
+		return localGatewayFailureResponse(
+			convoId,
+			`Hermes ${upstream.status || 502}: ${text || upstream.statusText}`,
+			resumeMessageId
+		);
 	}
 	const upstreamBody = upstream.body;
 

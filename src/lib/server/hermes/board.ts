@@ -447,7 +447,7 @@ export async function boardData(): Promise<BoardData> {
 	} catch {
 		posts = await listCronPostsFromFilesystem(jobs, hiddenJobIds);
 	}
-	return { ...buildBoardData(posts, jobs, runs), jobsError };
+	return { ...buildBoardData(posts, jobs, runs, { orphanedPostsArchived: !jobsError }), jobsError };
 }
 
 export async function runJobAction(id: string, action: 'run' | 'pause' | 'resume'): Promise<HermesJob | null> {

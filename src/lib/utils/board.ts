@@ -119,12 +119,22 @@ export function isActiveRun(run: HermesRun): boolean {
 	return status === 'queued' || status === 'running';
 }
 
+interface BuildBoardDataOptions {
+	orphanedPostsArchived?: boolean;
+}
+
 function channelState(job: HermesJob): string {
 	if (!job.enabled) return 'paused';
 	return job.state || 'scheduled';
 }
 
-export function buildBoardData(rawPosts: BoardPost[], jobs: HermesJob[], runs: HermesRun[] = []): BoardData {
+export function buildBoardData(
+	rawPosts: BoardPost[],
+	jobs: HermesJob[],
+	runs: HermesRun[] = [],
+	options: BuildBoardDataOptions = {}
+): BoardData {
+	const orphanedPostsArchived = options.orphanedPostsArchived ?? true;
 	const jobById = new Map(jobs.map((job) => [job.id, job]));
 	const channels = new Map<string, BoardChannel>();
 	const sortedRuns = [...runs].sort((a, b) => runTime(b) - runTime(a) || a.id.localeCompare(b.id));
@@ -170,12 +180,13 @@ export function buildBoardData(rawPosts: BoardPost[], jobs: HermesJob[], runs: H
 			const job = jobById.get(post.jobId);
 			const name = job?.name || post.channel || post.jobId;
 			const slug = channelSlug(name, post.jobId);
+			const archived = orphanedPostsArchived && !job;
 			return {
 				...post,
 				kind: post.kind ?? 'report',
 				channel: name,
 				channelSlug: slug,
-				archived: !job
+				archived
 			};
 		})
 		.sort((a, b) => postTime(b) - postTime(a) || a.filename.localeCompare(b.filename));
@@ -228,8 +239,8 @@ export function buildBoardData(rawPosts: BoardPost[], jobs: HermesJob[], runs: H
 				slug: post.channelSlug,
 				name: post.channel,
 				jobId: post.jobId,
-				active: false,
-				state: 'archived',
+				active: !post.archived,
+				state: post.archived ? 'archived' : 'saved',
 				latestRunAt,
 				activeRun: null,
 				recentRun: (runsByJobId.get(post.jobId) ?? [])[0] ?? null,

@@ -190,6 +190,15 @@ describe('board utilities', () => {
 		expect(board.posts[0]?.archived).toBe(true);
 	});
 
+	it('keeps saved output active when live job metadata is unavailable', () => {
+		const board = buildBoardData([post()], [], [], { orphanedPostsArchived: false });
+
+		const saved = board.channels.find((channel) => channel.name === 'NEWSWATCH');
+		expect(saved?.active).toBe(true);
+		expect(saved?.state).toBe('saved');
+		expect(board.posts[0]?.archived).toBe(false);
+	});
+
 	it('rejects traversal outside the cron output root', () => {
 		expect(isSafeChildPath('/home/me/.hermes/cron/output', '/home/me/.hermes/cron/output/job/a.md')).toBe(
 			true

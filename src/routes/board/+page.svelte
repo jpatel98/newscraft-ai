@@ -278,6 +278,7 @@
 		if (!channel.active) return 'Archived';
 		const activeRun = currentRunForJob(channel, job);
 		if (activeRun) return runStatusLabel(activeRun);
+		if (!job) return channel.state === 'saved' ? 'Saved' : channel.state || 'Unavailable';
 		if (!job?.enabled || channel.state === 'paused') return 'Paused';
 		if (channel.recentRun?.status) return runStatusLabel(channel.recentRun);
 		if (job?.lastStatus && job.lastStatus !== 'ok') return 'Error';
@@ -292,6 +293,7 @@
 		if (!channel.active) return 'archived';
 		const activeRun = currentRunForJob(channel, job);
 		if (activeRun) return runStatusTone(activeRun);
+		if (!job) return 'warn';
 		if (!job?.enabled || channel.state === 'paused') return 'warn';
 		if (channel.recentRun?.status) return runStatusTone(channel.recentRun);
 		if (job?.lastStatus && job.lastStatus !== 'ok') return 'error';
