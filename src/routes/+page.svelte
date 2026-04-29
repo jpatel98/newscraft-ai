@@ -6,9 +6,18 @@
 	let composer: Composer | undefined = $state();
 
 	const starters = [
-		'Draft a briefing from these notes',
-		'Compare the latest coverage',
-		'Turn this into an edit plan'
+		{
+			label: 'Scan latest national news',
+			prompt: 'Scan the latest national news and tell me what matters most right now.'
+		},
+		{
+			label: 'Show breaking stories',
+			prompt: 'Show me the top breaking stories right now and summarize why they matter.'
+		},
+		{
+			label: 'Track updates on a topic',
+			prompt: 'Track the latest updates on this topic: '
+		}
 	];
 
 	onMount(() => {
@@ -28,9 +37,9 @@
 	<h1 class="empty__title">Start with a question or task.</h1>
 	<div class="empty__prompts" aria-label="Starter prompts">
 		{#each starters as starter}
-			<button type="button" onclick={() => composer?.setValue(starter)}>{starter}</button>
+			<button type="button" onclick={() => composer?.setValue(starter.prompt)}>{starter.label}</button>
 		{/each}
 	</div>
-	<Composer bind:this={composer} placeholder="Ask NewsCraft to research, draft, or refine something..." />
+	<Composer bind:this={composer} placeholder="Ask NewsCraft to scan, track, or explain the news..." />
 	<div class="empty__hint">Messages, sources, and tool activity will appear here.</div>
 </div>

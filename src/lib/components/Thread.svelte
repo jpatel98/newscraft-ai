@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ChatMessage, ContentPart, MessageContent } from '$lib/types';
 	import { contentText } from '$lib/types';
-	import Bot from 'lucide-svelte/icons/bot';
+	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import Copy from 'lucide-svelte/icons/copy';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Markdown from './Markdown.svelte';
@@ -114,6 +114,11 @@
 		return typeof ms === 'number' && Number.isFinite(ms) ? formatElapsed(ms) : '';
 	}
 
+	let toolRecapExpanded = $state<Record<string, boolean>>({});
+	function toggleToolRecap(id: string) {
+		toolRecapExpanded = { ...toolRecapExpanded, [id]: !toolRecapExpanded[id] };
+	}
+
 	interface Props {
 		messages: ChatMessage[];
 		conversationId?: string | null;
@@ -203,6 +208,7 @@
 			didInitialScroll = false;
 			scrolledToHash = false;
 			hashMessageId = null;
+			toolRecapExpanded = {};
 			stickToBottom = true;
 		}
 	});
@@ -287,7 +293,7 @@
 			>
 				{#if m.role === 'assistant'}
 					<div class="msg__avatar msg__avatar--bot" aria-hidden="true">
-						<Bot size="18" strokeWidth={1.5} color="#FBFAF7" />
+						<img class="msg__avatar-img" src="/brand/newscraft-agent-avatar.png" alt="" />
 					</div>
 				{:else if m.role === 'user'}
 					<div class="msg__avatar msg__avatar--user" aria-hidden="true">{userInitials}</div>
@@ -299,7 +305,7 @@
 				<div>
 					<div class="msg__head">
 						{#if m.role === 'assistant'}
-							<span class="msg__app-tag">App</span>
+							<span class="msg__app-tag">NewsCraft AI</span>
 						{/if}
 						<span class="msg__time">{timeOf(m)}</span>
 						{#if m.role === 'assistant'}
@@ -351,9 +357,27 @@
 					{#if m.role === 'assistant'}
 						{@const persistedSteps = persistedStepCallsForMessage(m)}
 						{#if persistedSteps.length > 0}
+							{@const recapOpen = !!toolRecapExpanded[m.id]}
 							<div class="msg__tool-recap" aria-label="Completed tool steps">
 								<div class="msg__tool-recap__head">
-									<span>{persistedSteps.length === 1 ? 'Task completed' : 'Tasks completed'}</span>
+									<button
+										type="button"
+										class="msg__tool-recap__toggle"
+										onclick={() => toggleToolRecap(m.id)}
+										aria-expanded={recapOpen}
+									>
+										<ChevronRight
+											class="msg__tool-recap__chev {recapOpen
+												? 'msg__tool-recap__chev--open'
+												: ''}"
+											size="12"
+											strokeWidth={1.75}
+										/>
+										<span>{persistedSteps.length === 1 ? 'Task completed' : 'Tasks completed'}</span>
+										<span class="msg__tool-recap__count">
+											· {persistedSteps.length} {persistedSteps.length === 1 ? 'step' : 'steps'}
+										</span>
+									</button>
 									<button
 										type="button"
 										class="msg__tool-recap__inspect"
@@ -362,33 +386,35 @@
 										Inspect
 									</button>
 								</div>
-								<ol class="msg__tool-recap__list">
-									{#each persistedSteps as t, ti (t.id)}
-										{@const detail = toolStepDetail(t)}
-										{@const duration = stepDuration(t)}
-										<li
-											class="msg__tool-step {t.status === 'failed'
-												? 'msg__tool-step--failed'
-												: ''}"
-										>
-											<span class="msg__tool-step__index">{ti + 1}</span>
-											<span class="msg__tool-step__main">
-												<span class="msg__tool-step__row">
-													<span class="msg__tool-step__name">{toolStepLabel(t, true)}</span>
-													{#if showToolRawName(t)}
-														<span class="msg__tool-step__raw">{t.name}</span>
+								{#if recapOpen}
+									<ol class="msg__tool-recap__list">
+										{#each persistedSteps as t, ti (t.id)}
+											{@const detail = toolStepDetail(t)}
+											{@const duration = stepDuration(t)}
+											<li
+												class="msg__tool-step {t.status === 'failed'
+													? 'msg__tool-step--failed'
+													: ''}"
+											>
+												<span class="msg__tool-step__index">{ti + 1}</span>
+												<span class="msg__tool-step__main">
+													<span class="msg__tool-step__row">
+														<span class="msg__tool-step__name">{toolStepLabel(t, true)}</span>
+														{#if showToolRawName(t)}
+															<span class="msg__tool-step__raw">{t.name}</span>
+														{/if}
+													</span>
+													{#if detail}
+														<span class="msg__tool-step__detail">{detail}</span>
 													{/if}
 												</span>
-												{#if detail}
-													<span class="msg__tool-step__detail">{detail}</span>
+												{#if duration}
+													<span class="msg__tool-step__duration">{duration}</span>
 												{/if}
-											</span>
-											{#if duration}
-												<span class="msg__tool-step__duration">{duration}</span>
-											{/if}
-										</li>
-									{/each}
-								</ol>
+											</li>
+										{/each}
+									</ol>
+								{/if}
 							</div>
 						{/if}
 					{/if}
