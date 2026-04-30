@@ -1,5 +1,9 @@
 import { readSSE } from '$lib/utils/sse-client';
-import { StreamEventState, type StreamToolUpdate } from '$lib/utils/stream-events';
+import {
+	StreamEventState,
+	type PersistedSource,
+	type StreamToolUpdate
+} from '$lib/utils/stream-events';
 import type { ChatCommand, MessageContent } from '$lib/types';
 
 export interface StreamArgs {
@@ -27,14 +31,7 @@ export interface StreamCallbacks {
 		transcript?: string;
 	}) => void;
 	onToolDone?: (id: string, tool?: StreamToolUpdate) => void;
-	onSource?: (source: {
-		id: string;
-		url: string;
-		title: string;
-		status: string;
-		domain?: string;
-		detail?: string;
-	}) => void;
+	onSource?: (source: PersistedSource) => void;
 	onTitle?: (title: string) => void;
 	signal?: AbortSignal;
 }

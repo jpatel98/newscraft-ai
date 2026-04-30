@@ -28,12 +28,12 @@ const TABLE: Array<{ test: RegExp; label: ToolLabel }> = [
 		test: /delegate[_-]?task|task[_-]?delegate/i,
 		label: { live: 'Starting helper task', done: 'Helper task finished' }
 	},
-	{ test: /search|google|bing|duckduckgo|web/i, label: { live: 'Searching sources', done: 'Sources checked' } },
-	{ test: /fetch|read|browse|open|http|url|page/i, label: { live: 'Reading results', done: 'Pages read' } },
-	{ test: /verify|check|validate|fact/i, label: { live: 'Checking details', done: 'Details checked' } },
+	{ test: /search|google|bing|duckduckgo|web/i, label: { live: 'Scanning coverage', done: 'Coverage scanned' } },
+	{ test: /fetch|read|browse|open|http|url|page/i, label: { live: 'Reading source', done: 'Source read' } },
+	{ test: /verify|check|validate|fact/i, label: { live: 'Checking facts', done: 'Facts checked' } },
 	{ test: /summari[sz]e|brief|outline/i, label: { live: 'Summarizing', done: 'Summary ready' } },
 	{ test: /draft|write|compose/i, label: { live: 'Drafting', done: 'Draft ready' } },
-	{ test: /terminal|shell|bash|exec|command/i, label: { live: 'Running command', done: 'Command finished' } },
+	{ test: /terminal|shell|bash|exec|command/i, label: { live: 'Running internal check', done: 'Internal check finished' } },
 	{ test: /file|fs|path|document/i, label: { live: 'Checking files', done: 'Files checked' } },
 	{ test: /db|sql|query|select/i, label: { live: 'Querying data', done: 'Data fetched' } }
 ];
@@ -118,7 +118,7 @@ export function toolStepDetail(tool: ToolStep): string {
 	if (title) return title;
 
 	const url = cleanDetail(tool.url);
-	if (url) return `Opening ${prettyUrl(url)}`;
+	if (url) return prettyUrl(url);
 
 	const argDetail = detailFromArguments(tool.arguments);
 	if (argDetail) return argDetail;
@@ -142,7 +142,7 @@ export function toolStepLabel(tool: ToolStep, done = false): string {
 }
 
 export function showToolRawName(tool: ToolStep): boolean {
-	return !isInternalTool(tool.name);
+	return !isInternalTool(tool.name) && !/[_:-]/.test(tool.name);
 }
 
 function detailFromArguments(value: unknown): string {
@@ -150,13 +150,13 @@ function detailFromArguments(value: unknown): string {
 	if (codeFromArguments(normalized)) return '';
 
 	const command = findString(normalized, ['command', 'cmd', 'shell', 'script']);
-	if (command) return `Command: ${command}`;
+	if (command) return cleanDetail(command);
 
 	const query = findString(normalized, ['query', 'q', 'search_query', 'search', 'keywords']);
-	if (query) return `Query: ${query}`;
+	if (query) return cleanDetail(query);
 
 	const url = findString(normalized, ['url', 'href', 'link', 'uri']);
-	if (url) return `Opening ${prettyUrl(url)}`;
+	if (url) return prettyUrl(url);
 
 	const sql = findString(normalized, ['sql', 'statement']);
 	if (sql) return `SQL: ${sql}`;
@@ -235,8 +235,8 @@ function toolIntent(tool: ToolStep): ToolIntent | null {
 
 	if (/browser[_-]?snapshot/.test(name)) {
 		return {
-			live: 'Reading page',
-			done: 'Page read',
+			live: 'Reading source',
+			done: 'Source read',
 			detail: browserTargetDetail(args)
 		};
 	}
@@ -244,13 +244,13 @@ function toolIntent(tool: ToolStep): ToolIntent | null {
 	if (/browser_navigate|browse|open/.test(name)) {
 		if (/informed(opinions|perspectives)\.org/i.test(url)) {
 			return {
-				live: 'Opening expert database',
+				live: 'Reading source',
 				done: 'Expert database opened',
-				detail: `Opening ${prettyUrl(url)}`
+				detail: prettyUrl(url)
 			};
 		}
 		return url
-			? { live: 'Opening page', done: 'Page opened', detail: `Opening ${prettyUrl(url)}` }
+			? { live: 'Reading source', done: 'Source read', detail: prettyUrl(url) }
 			: null;
 	}
 
@@ -267,8 +267,8 @@ function intentFromCode(code: string, result: unknown): ToolIntent {
 
 	if (lower.includes('duckduckgo') || lower.includes('queries = [')) {
 		return {
-			live: 'Searching the web',
-			done: 'Web search checked',
+			live: 'Scanning coverage',
+			done: 'Coverage scanned',
 			detail: listDetail('Queries', extractListStrings(code, 'queries'), 2)
 		};
 	}

@@ -17,6 +17,7 @@ export interface HermesChatRequest {
 	stream?: boolean;
 	temperature?: number;
 	max_tokens?: number;
+	reasoning_effort?: 'low' | 'medium' | 'high';
 }
 
 export type HermesResponseContentPart =
@@ -32,6 +33,7 @@ export interface HermesResponsesRequest {
 	input: string | HermesResponseInputMessage[];
 	model?: string;
 	instructions?: string;
+	reasoning_effort?: 'low' | 'medium' | 'high';
 	stream?: boolean;
 	store?: boolean;
 	conversation?: string;
@@ -43,6 +45,20 @@ const DEFAULT_MODEL = 'hermes-agent';
 function gatewayUrl(): string {
 	const u = env.HERMES_GATEWAY_URL?.replace(/\/$/, '') ?? 'http://127.0.0.1:8642';
 	return u;
+}
+
+export function describeGatewayError(err: unknown): string {
+	const message = err instanceof Error ? err.message : String(err);
+	if (message === 'fetch failed' || message === 'Failed to fetch' || message === 'Load failed') {
+		return `Hermes gateway is not reachable at ${gatewayUrl()}. Start the gateway or update HERMES_GATEWAY_URL.`;
+	}
+	if (
+		err instanceof DOMException &&
+		(err.name === 'TimeoutError' || err.name === 'AbortError')
+	) {
+		return `Hermes gateway did not respond in time at ${gatewayUrl()}.`;
+	}
+	return message;
 }
 
 function apiKey(): string {
@@ -155,6 +171,6 @@ export async function gatewayHealth(): Promise<{ ok: boolean; status: number; bo
 		const r = await fetch(`${gatewayUrl()}/health`, { signal: AbortSignal.timeout(2000) });
 		return { ok: r.ok, status: r.status, body: await r.text() };
 	} catch (e) {
-		return { ok: false, status: 0, body: String(e) };
+		return { ok: false, status: 0, body: describeGatewayError(e) };
 	}
 }

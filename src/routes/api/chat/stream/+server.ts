@@ -29,7 +29,14 @@ import {
 import { contentText, type ChatCommand, type ContentPart, type HermesCommand, type MessageContent } from '$lib/types';
 import { readSSE } from '$lib/utils/sse-client';
 import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
-import { StreamEventState, sseFrame, type StreamToolCall } from '$lib/utils/stream-events';
+import { StreamEventState, sseFrame } from '$lib/utils/stream-events';
+import { mergeToolMetadata, serializeToolMetadata } from '$lib/utils/tool-metadata';
+import {
+	getConversationReasoningEffort,
+	parseReasoningEffort,
+	reasoningEffortLabel,
+	setConversationReasoningEffort
+} from '$lib/server/reasoning';
 
 interface Body {
 	conversation_id?: string;
@@ -219,9 +226,26 @@ function commandsHelp(commands: HermesCommand[]): string {
 	return lines.join('\n');
 }
 
-async function builtinResponse(command: HermesCommand, commands: HermesCommand[]): Promise<string> {
+async function builtinResponse(
+	command: HermesCommand,
+	commands: HermesCommand[],
+	args: string,
+	convoId: string
+): Promise<string> {
 	if (!command.enabled) return command.blockedReason || 'This command is not available from the web UI yet.';
 	if (command.slash === '/help' || command.slash === '/commands') return commandsHelp(commands);
+	if (command.slash === '/reasoning') {
+		const parsed = parseReasoningEffort(args);
+		if (!parsed) {
+			const current = getConversationReasoningEffort(convoId);
+			return [
+				`Reasoning is currently set to ${reasoningEffortLabel(current)} for this thread.`,
+				'Use `/reasoning low`, `/reasoning medium`, `/reasoning high`, or `/reasoning default`.'
+			].join('\n\n');
+		}
+		const next = setConversationReasoningEffort(convoId, parsed);
+		return `Reasoning set to ${reasoningEffortLabel(next)} for this thread.`;
+	}
 	if (command.slash === '/status') {
 		const health = await gatewayHealth();
 		return health.ok
@@ -295,7 +319,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					);
 				}
 				if (command.kind === 'builtin') {
-					return localAssistantResponse(convoId, await builtinResponse(command, commands));
+					return localAssistantResponse(
+						convoId,
+						await builtinResponse(command, commands, parsed.args, convoId)
+					);
 				}
 				if (!command.enabled) {
 					return localAssistantResponse(
@@ -355,6 +382,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (request.signal.aborted) upstreamAbort.abort();
 	else request.signal.addEventListener('abort', () => upstreamAbort.abort(), { once: true });
 
+	const reasoningEffort = getConversationReasoningEffort(convoId);
 	const sessionId = deriveSessionId(history);
 	let upstream: Response;
 	try {
@@ -363,13 +391,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		// browser/search/tool activity strip. Keep Responses as a fallback for
 		// gateways that only expose the newer endpoint shape.
 		upstream = await streamChatCompletion(
-			{ messages: history, stream: true },
+			{ messages: history, stream: true, reasoning_effort: reasoningEffort },
 			{ signal: upstreamAbort.signal, sessionId }
 		);
 		if (!isResume && !upstream.ok && [400, 404, 405].includes(upstream.status)) {
 			await upstream.text().catch(() => '');
 			upstream = await streamResponse(
-				{ ...responseInputFromHistory(history), stream: true, store: false },
+				{ ...responseInputFromHistory(history), stream: true, store: false, reasoning_effort: reasoningEffort },
 				{ signal: upstreamAbort.signal, sessionId }
 			);
 		}
@@ -394,42 +422,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	let sentDone = false;
 	const streamState = new StreamEventState();
 
-	function toolCallsJson(calls: StreamToolCall[]): string | null {
-		return calls.length ? JSON.stringify(calls) : null;
-	}
-
-	function mergeToolCalls(existingRaw: string | null, next: StreamToolCall[]): StreamToolCall[] {
-		const byId = new Map<string, StreamToolCall>();
-		if (existingRaw) {
-			try {
-				const parsed = JSON.parse(existingRaw) as unknown;
-				if (Array.isArray(parsed)) {
-					for (const item of parsed) {
-						if (!item || typeof item !== 'object') continue;
-						const call = item as StreamToolCall;
-						if (call.id) byId.set(call.id, call);
-					}
-				}
-			} catch {
-				/* ignore old malformed tool metadata */
-			}
-		}
-		for (const call of next) byId.set(call.id, { ...byId.get(call.id), ...call });
-		return Array.from(byId.values());
-	}
-
 	function persistAssistant() {
 		if (persisted) return undefined;
 		persisted = true;
 		const capturedToolCalls = streamState.toolCalls();
+		const capturedSources = streamState.sourceList();
 		if (resumeMessageId) {
 			if (assistantBuf) appendMessageContent(resumeMessageId, assistantBuf);
-			if (capturedToolCalls.length) {
+			if (capturedToolCalls.length || capturedSources.length) {
 				const row = getMessageById(resumeMessageId);
-				setMessageToolCalls(
-					resumeMessageId,
-					toolCallsJson(mergeToolCalls(row?.toolCalls ?? null, capturedToolCalls))
-				);
+				const merged = mergeToolMetadata(row?.toolCalls ?? null, capturedToolCalls, capturedSources);
+				setMessageToolCalls(resumeMessageId, serializeToolMetadata(merged.tools, merged.sources));
 			}
 			if (done) finalizeMessage(resumeMessageId);
 			resumingIds.delete(resumeMessageId);
@@ -441,7 +444,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			role: 'assistant',
 			content: assistantBuf,
 			partial: !done,
-			toolCalls: toolCallsJson(capturedToolCalls)
+			toolCalls: serializeToolMetadata(capturedToolCalls, capturedSources)
 		});
 	}
 

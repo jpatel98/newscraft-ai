@@ -520,6 +520,7 @@
 			class="drawer {drawerOpen ? 'drawer--open' : ''}"
 			aria-label="Sidebar"
 			aria-hidden={!drawerOpen}
+			inert={!drawerOpen}
 		>
 			<div class="drawer__head">
 				<button
@@ -817,7 +818,7 @@
 			</div>
 		</aside>
 
-		<main class="pane">
+		<main class="pane {page.url.pathname.startsWith('/c/') ? 'pane--thread' : 'pane--plain'}">
 			{@render children()}
 		</main>
 	</div>

@@ -1,6 +1,6 @@
 # hermes-ui — Plan
 
-Last updated: 2026-04-26 (Wave D — system prompt override)
+Last updated: 2026-04-30 (Wave E — persisted tool/source metadata)
 
 Replacing `newscraft-ai-workspace`. Connects to Hermes gateway at `127.0.0.1:8642`.
 
@@ -49,9 +49,10 @@ Sequence to taste once Phase 1 is shipped.
 When the foundation feels stable.
 
 - [ ] **`/jobs` route** against `/api/jobs/*` — list, pause/resume/run-now, create cron jobs.
-- [x] **Tool-call inspector — UI shipped, awaiting persistence.** Right-anchored slide-over with collapsible per-call sections (arguments / result / transcript) and an in-house `JsonTree`. Live data from `chat.tools` (start/done pings), historical from `messages.toolCalls` parsed best-effort. *Caveat: stream endpoint doesn't yet write `messages.toolCalls`, so the `[N tools]` link won't appear on existing messages until the server-side capture pass lands.*
+- [x] **Persisted tool/source recap.** Stream endpoint captures tool calls and source usage into `messages.toolCalls` as a v1 envelope. Assistant messages render inline source chips plus a collapsible completed-task recap; live activity remains ephemeral while the stream is running.
 - [ ] **Health badge** in sidebar footer using `/health/detailed` (currently 404 on the gateway — needs a Hermes-side fix or skip).
 - [x] **Conversation-level system prompt override.** Right-anchored slide-over reachable from the sidebar 3-dot menu. Empty/whitespace clears the override; non-empty injects a leading `system` message on every chat completion for that thread. Menu label gets a `•` when an override is active.
+- [x] **Thread reasoning control.** Built-in `/reasoning low|medium|high|default` command stores per-conversation reasoning effort and forwards it to Hermes chat/completions and Responses fallback requests.
 - [ ] **Model picker.** Currently locked to `hermes-agent`; surface when there's a real choice.
 - [ ] **Cutover.** `sudo bash /home/jigar/deploy-hermes-ui.sh --cutover` swaps Caddy `:3000 → :3001` and rewrites `ORIGIN`. After a week of confidence: `--archive` retires `newscraft-ai-workspace`.
 

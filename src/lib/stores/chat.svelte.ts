@@ -45,6 +45,9 @@ export interface SourceProgress {
 	domain: string;
 	detail?: string;
 	updatedAt: number;
+	firstSeenAt?: number;
+	lastSeenAt?: number;
+	used?: boolean;
 }
 
 class ChatSession {
@@ -130,7 +133,8 @@ class ChatSession {
 				status: normalizeSourceStatus(next.status),
 				domain: domainOf(next.url),
 				detail: next.detail,
-				updatedAt: Date.now()
+				updatedAt: Date.now(),
+				used: toolUpdateUsesSource(next)
 			});
 		}
 	}
@@ -171,13 +175,33 @@ class ChatSession {
 	}
 
 	pushSource(source: SourceProgress) {
+		const normalizedStatus = normalizeSourceStatus(source.status);
+		const normalizedSource = { ...source, status: normalizedStatus };
 		const byUrl = this.sources.find((s) => s.url === source.url || s.id === source.id);
+		const used = source.used ?? sourceStatusIsUsed(normalizedStatus);
 		if (byUrl) {
 			this.sources = this.sources.map((s) =>
-				s.url === source.url || s.id === source.id ? { ...s, ...source, id: s.id } : s
+				s.url === source.url || s.id === source.id
+					? {
+							...s,
+							...normalizedSource,
+							id: s.id,
+							firstSeenAt: s.firstSeenAt ?? source.firstSeenAt ?? source.updatedAt,
+							lastSeenAt: source.lastSeenAt ?? source.updatedAt,
+							used: Boolean(s.used || used)
+						}
+					: s
 			);
 		} else {
-			this.sources = [...this.sources, source].slice(-8);
+			this.sources = [
+				...this.sources,
+				{
+					...normalizedSource,
+					firstSeenAt: source.firstSeenAt ?? source.updatedAt,
+					lastSeenAt: source.lastSeenAt ?? source.updatedAt,
+					used
+				}
+			].slice(-8);
 		}
 	}
 
@@ -199,6 +223,35 @@ function normalizeSourceStatus(status: string | undefined): SourceProgress['stat
 	if (['done', 'complete', 'completed', 'success', 'ok'].includes(value)) return 'used';
 	if (['start', 'started', 'running', 'open', 'fetch'].includes(value)) return 'reading';
 	return value;
+}
+
+function sourceStatusIsUsed(status: string | undefined): boolean {
+	const value = (status || '').toLowerCase();
+	if (['queued', 'pending', 'discovered', 'result', 'search_result', 'skipped', 'error'].includes(value)) {
+		return false;
+	}
+	return [
+		'start',
+		'started',
+		'open',
+		'opened',
+		'fetch',
+		'fetched',
+		'reading',
+		'read',
+		'used',
+		'done',
+		'ok',
+		'complete',
+		'completed',
+		'success'
+	].includes(value);
+}
+
+function toolUpdateUsesSource(tool: ToolUpdate): boolean {
+	const name = (tool.name || '').toLowerCase();
+	if (/browse|browser|fetch|read|open|http|url|page|navigate/.test(name)) return true;
+	return sourceStatusIsUsed(tool.status);
 }
 
 function normalizeDoneStatus(status: string | undefined): string {

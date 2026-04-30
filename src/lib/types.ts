@@ -59,6 +59,8 @@ export interface ChatCommand {
 	raw: string;
 }
 
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+
 export interface HermesJob {
 	id: string;
 	name: string;

@@ -26,13 +26,20 @@ export interface StreamSourceUpdate {
 	detail?: string;
 }
 
+export interface PersistedSource extends StreamSourceUpdate {
+	domain: string;
+	firstSeenAt: number;
+	lastSeenAt: number;
+	used: boolean;
+}
+
 export interface StreamEventUpdate {
 	delta?: string;
 	done?: boolean;
 	failed?: string;
 	title?: string;
 	tool?: StreamToolUpdate;
-	source?: StreamSourceUpdate;
+	source?: PersistedSource;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -154,6 +161,48 @@ function sourceFromPayload(payload: JsonObject): StreamSourceUpdate | null {
 	};
 }
 
+function sourceStatusIsUsed(status: string | undefined, startIsUsed = false): boolean {
+	const value = (status || '').toLowerCase();
+	if (['queued', 'pending', 'discovered', 'result', 'search_result', 'skipped', 'error'].includes(value)) {
+		return false;
+	}
+	if (['start', 'started'].includes(value)) return startIsUsed;
+	return [
+		'open',
+		'opened',
+		'fetch',
+		'fetched',
+		'reading',
+		'read',
+		'used',
+		'done',
+		'ok',
+		'complete',
+		'completed',
+		'success'
+	].includes(value);
+}
+
+function sourcePayloadLooksUsed(
+	payload: JsonObject,
+	source: StreamSourceUpdate,
+	startIsUsed = false
+): boolean {
+	if (sourceStatusIsUsed(source.status, startIsUsed)) return true;
+	const nestedTool = objectValue(payload.tool);
+	const name =
+		firstString(
+			payload.name,
+			payload.tool,
+			payload.tool_name,
+			nestedTool?.name,
+			nestedTool?.tool_name,
+			nestedTool?.type,
+			payload.type
+		) || '';
+	return /browse|browser|fetch|read|open|http|url|page|navigate/i.test(name);
+}
+
 function chatDelta(payload: JsonObject): string {
 	const choices = arrayValue(payload.choices);
 	const first = objectValue(choices[0]);
@@ -196,6 +245,7 @@ export function sseFrame(event: string, data: string): string {
 
 export class StreamEventState {
 	private calls = new Map<string, StreamToolCall>();
+	private sources = new Map<string, PersistedSource>();
 	private itemToCall = new Map<string, string>();
 	private argumentText = new Map<string, string>();
 	private anonymousActive = new Map<string, string>();
@@ -228,7 +278,10 @@ export class StreamEventState {
 
 		if (event.startsWith('hermes.source') || event.startsWith('hermes.progress')) {
 			const source = sourceFromPayload(payload);
-			if (source) return [{ source }];
+			if (source) {
+				const persisted = this.upsertSource(source, now, sourcePayloadLooksUsed(payload, source, false));
+				return [{ source: persisted }];
+			}
 			return this.upsertTool(payload, now).map((tool) => ({ tool }));
 		}
 
@@ -243,10 +296,19 @@ export class StreamEventState {
 			.sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
 	}
 
+	sourceList(): PersistedSource[] {
+		return Array.from(this.sources.values())
+			.map((source) => ({ ...source }))
+			.sort((a, b) => a.firstSeenAt - b.firstSeenAt);
+	}
+
 	private applyHermesTool(payload: JsonObject, now: number): StreamEventUpdate[] {
 		const updates: StreamEventUpdate[] = [];
 		const source = sourceFromPayload(payload);
-		if (source) updates.push({ source });
+		if (source) {
+			const persisted = this.upsertSource(source, now, sourcePayloadLooksUsed(payload, source, true));
+			updates.push({ source: persisted });
+		}
 
 		const terminal = isTerminalStatus(payload.status ?? payload.phase);
 		for (const tool of this.upsertTool(payload, now)) {
@@ -439,7 +501,37 @@ export class StreamEventState {
 			this.anonymousActive.set(name, id);
 			if (semanticKey) this.anonymousKeys.set(id, semanticKey);
 		}
+		if (call.url && /^https?:\/\//i.test(call.url)) {
+			this.upsertSource(
+				{
+					id: call.url,
+					url: call.url,
+					title: call.title ?? call.url,
+					status: String(call.status ?? 'reading'),
+					domain: domainOf(call.url),
+					detail: call.detail
+				},
+				now,
+				/browse|browser|fetch|read|open|http|url|page|navigate/i.test(call.name) ||
+					sourceStatusIsUsed(String(call.status ?? ''))
+			);
+		}
 		return [...completed, { ...call, done: Boolean(call.endedAt) }];
+	}
+
+	private upsertSource(source: StreamSourceUpdate, now: number, used: boolean): PersistedSource {
+		const existing = this.sources.get(source.url);
+		const next: PersistedSource = {
+			...existing,
+			...source,
+			id: existing?.id ?? source.id,
+			domain: source.domain ?? existing?.domain ?? domainOf(source.url) ?? source.url,
+			firstSeenAt: existing?.firstSeenAt ?? now,
+			lastSeenAt: now,
+			used: Boolean(existing?.used || used)
+		};
+		this.sources.set(source.url, next);
+		return next;
 	}
 
 	private anonymousToolId(

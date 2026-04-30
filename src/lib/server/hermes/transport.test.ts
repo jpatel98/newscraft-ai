@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 
 import {
+	describeGatewayError,
 	deriveSessionId,
 	gatewayHealth,
 	streamChatCompletion,
@@ -109,6 +110,22 @@ describe('Hermes transport', () => {
 		expect(secondInit.headers['x-hermes-session-id']).toBe('manual-session');
 	});
 
+	it('passes reasoning effort through to Hermes chat completions', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+		const messages: HermesMessage[] = [{ role: 'user', content: 'think harder' }];
+
+		await streamChatCompletion({ messages, reasoning_effort: 'high' });
+
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(JSON.parse(init.body as string)).toMatchObject({
+			model: 'hermes-agent',
+			stream: true,
+			messages,
+			reasoning_effort: 'high'
+		});
+	});
+
 	it('reports gateway health from non-OK responses', async () => {
 		const fetchMock = vi.fn().mockResolvedValue(new Response('maintenance', { status: 503 }));
 		vi.stubGlobal('fetch', fetchMock);
@@ -130,7 +147,13 @@ describe('Hermes transport', () => {
 		await expect(gatewayHealth()).resolves.toEqual({
 			ok: false,
 			status: 0,
-			body: 'Error: network down'
+			body: 'network down'
 		});
+	});
+
+	it('explains raw fetch failures as an unreachable Hermes gateway', () => {
+		expect(describeGatewayError(new TypeError('fetch failed'))).toBe(
+			'Hermes gateway is not reachable at https://gateway.test. Start the gateway or update HERMES_GATEWAY_URL.'
+		);
 	});
 });

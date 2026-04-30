@@ -19,7 +19,7 @@ import {
 	upsertChannelPost
 } from '$lib/server/db/channel-posts';
 import { listHiddenChannelJobIds, unhideChannelJobId } from '$lib/server/db/hidden-channels';
-import { hermesFetch } from './transport';
+import { describeGatewayError, hermesFetch } from './transport';
 
 const JOB_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const RUN_ENDPOINTS = [
@@ -433,7 +433,7 @@ export async function boardData(): Promise<BoardData> {
 		jobs = live.jobs.filter((job) => !hiddenJobIds.has(job.id));
 		runs = live.runs.filter((run) => !hiddenJobIds.has(run.jobId));
 	} catch (err) {
-		jobsError = err instanceof Error ? err.message : String(err);
+		jobsError = describeGatewayError(err);
 	}
 	if (!jobsError) {
 		runs = dedupeRuns([...runs, ...(await listHermesRuns(jobs))]).filter(

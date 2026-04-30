@@ -70,6 +70,79 @@ describe('StreamEventState', () => {
 		]);
 	});
 
+	it('dedupes sources and marks opened sources as used', () => {
+		const state = new StreamEventState();
+
+		state.apply(
+			'hermes.source',
+			JSON.stringify({
+				id: 'result-1',
+				url: 'https://example.com/story',
+				title: 'Story',
+				status: 'queued'
+			}),
+			1000
+		);
+		const opened = state.apply(
+			'hermes.tool.progress',
+			JSON.stringify({
+				tool: 'browser_navigate',
+				url: 'https://example.com/story',
+				title: 'Story',
+				status: 'start'
+			}),
+			1200
+		);
+
+		expect(opened[0]).toMatchObject({
+			source: {
+				url: 'https://example.com/story',
+				firstSeenAt: 1000,
+				lastSeenAt: 1200,
+				used: true
+			}
+		});
+		expect(state.sourceList()).toMatchObject([
+			{
+				url: 'https://example.com/story',
+				title: 'Story',
+				domain: 'example.com',
+				firstSeenAt: 1000,
+				lastSeenAt: 1200,
+				used: true
+			}
+		]);
+	});
+
+	it('does not mark search-result-only sources as used', () => {
+		const state = new StreamEventState();
+
+		const discovered = state.apply(
+			'hermes.source',
+			JSON.stringify({
+				url: 'https://example.com/search-result',
+				title: 'Search result',
+				status: 'start'
+			}),
+			1000
+		);
+
+		expect(discovered).toMatchObject([
+			{
+				source: {
+					url: 'https://example.com/search-result',
+					used: false
+				}
+			}
+		]);
+		expect(state.sourceList()).toMatchObject([
+			{
+				url: 'https://example.com/search-result',
+				used: false
+			}
+		]);
+	});
+
 	it('preserves Hermes progress labels and previews across tool updates', () => {
 		const state = new StreamEventState();
 

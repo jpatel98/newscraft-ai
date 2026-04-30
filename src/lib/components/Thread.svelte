@@ -6,9 +6,10 @@
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Markdown from './Markdown.svelte';
 	import ToolActivity from './ToolActivity.svelte';
-	import ToolInspector, { type InspectorToolCall } from './ToolInspector.svelte';
-	import { chat, type ToolHistoryEntry, type ToolProgress } from '$lib/stores/chat.svelte';
+	import { chat } from '$lib/stores/chat.svelte';
+	import type { PersistedSource, StreamToolCall } from '$lib/utils/stream-events';
 	import { formatShortTime } from '$lib/utils/time';
+	import { parseToolMetadata, usedSources } from '$lib/utils/tool-metadata';
 	import {
 		formatElapsed,
 		showToolRawName,
@@ -16,42 +17,22 @@
 		toolStepLabel
 	} from '$lib/utils/tool-labels';
 
-	function parseToolCalls(m: ChatMessage): InspectorToolCall[] {
-		const raw = m.toolCalls;
-		if (!raw) return [];
-		try {
-			const parsed = JSON.parse(raw) as unknown;
-			if (!Array.isArray(parsed)) return [];
-			return parsed.map((c, i) => {
-				const o = (c ?? {}) as Record<string, unknown>;
-				return {
-					id: String(o.id ?? `${m.id}-${i}`),
-					name: String(o.name ?? 'tool'),
-					status: (o.status as InspectorToolCall['status']) ?? 'unknown',
-					startedAt: typeof o.startedAt === 'number' ? o.startedAt : undefined,
-					endedAt: typeof o.endedAt === 'number' ? o.endedAt : undefined,
-					durationMs: typeof o.durationMs === 'number' ? o.durationMs : undefined,
-					arguments: o.arguments,
-					result: o.result,
-					transcript: typeof o.transcript === 'string' ? o.transcript : undefined,
-					detail: typeof o.detail === 'string' ? o.detail : undefined,
-					url: typeof o.url === 'string' ? o.url : undefined,
-					title: typeof o.title === 'string' ? o.title : undefined
-				};
-			});
-		} catch {
-			return [];
-		}
+	type ToolStepCall = Omit<StreamToolCall, 'status'> & {
+		status?: 'running' | 'ok' | 'failed' | 'unknown';
+	};
+
+	function parseToolCalls(m: ChatMessage): ToolStepCall[] {
+		return parseToolMetadata(m.toolCalls).tools.map((tool) => ({
+			...tool,
+			status: inspectorStatus(tool.status)
+		}));
 	}
 
-	let inspectorOpen = $state(false);
-	let inspectorCalls = $state<InspectorToolCall[]>([]);
-	function openInspector(calls: InspectorToolCall[]) {
-		inspectorCalls = calls;
-		inspectorOpen = true;
+	function parseMessageSources(m: ChatMessage): PersistedSource[] {
+		return usedSources(parseToolMetadata(m.toolCalls).sources);
 	}
 
-	function inspectorStatus(status: string | undefined): InspectorToolCall['status'] {
+	function inspectorStatus(status: string | undefined): ToolStepCall['status'] {
 		const value = (status || 'unknown').toLowerCase();
 		if (['running', 'started', 'start', 'active', 'queued', 'pending', 'in_progress'].includes(value)) {
 			return 'running';
@@ -61,37 +42,36 @@
 		return 'unknown';
 	}
 
-	function liveToolCall(t: ToolProgress | ToolHistoryEntry, statusOverride?: string): InspectorToolCall {
-		const endedAt = 'finishedAt' in t ? t.finishedAt : t.endedAt;
-		return {
-			id: t.id,
-			name: t.name,
-			status: inspectorStatus(statusOverride ?? t.status),
-			startedAt: t.startedAt,
-			endedAt,
-			durationMs: 'durationMs' in t ? t.durationMs : endedAt ? endedAt - t.startedAt : undefined,
-			arguments: t.arguments,
-			result: t.result,
-			transcript: t.transcript,
-			detail: t.detail,
-			url: t.url,
-			title: t.title
-		};
+	function liveSources(): PersistedSource[] {
+		return usedSources(
+			chat.sources.map((source) => ({
+				id: source.id,
+				url: source.url,
+				title: source.title,
+				status: source.status,
+				domain: source.domain,
+				detail: source.detail,
+				firstSeenAt: source.firstSeenAt ?? source.updatedAt,
+				lastSeenAt: source.lastSeenAt ?? source.updatedAt,
+				used: source.used ?? true
+			}))
+		);
 	}
 
-	function liveToolCalls(): InspectorToolCall[] {
-		return [
-			...chat.tools.map((tool) => liveToolCall(tool, 'running')),
-			...chat.toolHistory.map((tool) => liveToolCall(tool))
-		];
+	function sourcesForMessage(m: ChatMessage): PersistedSource[] {
+		if (
+			m.id === lastAssistantId &&
+			conversationId != null &&
+			chat.activityConversationId === conversationId &&
+			(chat.streaming || chat.sources.length > 0)
+		) {
+			return liveSources();
+		}
+		if (m.role !== 'assistant') return [];
+		return parseMessageSources(m);
 	}
 
-	function toolCallsForMessage(m: ChatMessage): InspectorToolCall[] {
-		const live = m.id === lastAssistantId ? liveToolCalls() : [];
-		return live.length ? live : parseToolCalls(m);
-	}
-
-	function persistedStepCallsForMessage(m: ChatMessage): InspectorToolCall[] {
+	function persistedStepCallsForMessage(m: ChatMessage): ToolStepCall[] {
 		if (m.role !== 'assistant' || m.streaming) return [];
 		if (
 			m.id === lastAssistantId &&
@@ -104,7 +84,7 @@
 		return parseToolCalls(m).filter((t) => t.status !== 'running');
 	}
 
-	function stepDuration(t: InspectorToolCall): string {
+	function stepDuration(t: ToolStepCall): string {
 		const ms =
 			typeof t.durationMs === 'number'
 				? t.durationMs
@@ -115,8 +95,12 @@
 	}
 
 	let toolRecapExpanded = $state<Record<string, boolean>>({});
+	let sourceStripExpanded = $state<Record<string, boolean>>({});
 	function toggleToolRecap(id: string) {
 		toolRecapExpanded = { ...toolRecapExpanded, [id]: !toolRecapExpanded[id] };
+	}
+	function toggleSourceStrip(id: string) {
+		sourceStripExpanded = { ...sourceStripExpanded, [id]: !sourceStripExpanded[id] };
 	}
 
 	interface Props {
@@ -209,6 +193,7 @@
 			scrolledToHash = false;
 			hashMessageId = null;
 			toolRecapExpanded = {};
+			sourceStripExpanded = {};
 			stickToBottom = true;
 		}
 	});
@@ -308,14 +293,6 @@
 							<span class="msg__app-tag">NewsCraft AI</span>
 						{/if}
 						<span class="msg__time">{timeOf(m)}</span>
-						{#if m.role === 'assistant'}
-							{@const tc = toolCallsForMessage(m)}
-							{#if tc.length > 0}
-								<button type="button" class="msg__tools-link" onclick={() => openInspector(tc)}>
-									[{tc.length} {tc.length === 1 ? 'tool' : 'tools'}]
-								</button>
-							{/if}
-						{/if}
 					</div>
 
 					<div class="msg__body" aria-live={m.role === 'assistant' && m.streaming ? 'polite' : 'off'}>
@@ -355,6 +332,41 @@
 					</div>
 
 					{#if m.role === 'assistant'}
+						{@const sources = sourcesForMessage(m)}
+						{#if sources.length > 0}
+							{@const sourceOpen = !!sourceStripExpanded[m.id]}
+							{@const visibleSources = sourceOpen ? sources : sources.slice(0, 4)}
+							<div class="msg__sources" aria-label="Sources used">
+								<span class="msg__sources__label">Sources</span>
+								<div class="msg__sources__list">
+									{#each visibleSources as source (source.url)}
+										<a
+											class="msg-source"
+											href={source.url}
+											target="_blank"
+											rel="noopener noreferrer"
+											title={source.title}
+										>
+											<span class="msg-source__domain">{source.domain}</span>
+											<span class="msg-source__title">{source.title}</span>
+										</a>
+									{/each}
+									{#if sources.length > 4}
+										<button
+											type="button"
+											class="msg-source msg-source--more"
+											onclick={() => toggleSourceStrip(m.id)}
+											aria-expanded={sourceOpen}
+										>
+											{sourceOpen ? 'Show fewer' : `+${sources.length - 4} more`}
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/if}
+					{/if}
+
+					{#if m.role === 'assistant'}
 						{@const persistedSteps = persistedStepCallsForMessage(m)}
 						{#if persistedSteps.length > 0}
 							{@const recapOpen = !!toolRecapExpanded[m.id]}
@@ -377,13 +389,6 @@
 										<span class="msg__tool-recap__count">
 											· {persistedSteps.length} {persistedSteps.length === 1 ? 'step' : 'steps'}
 										</span>
-									</button>
-									<button
-										type="button"
-										class="msg__tool-recap__inspect"
-										onclick={() => openInspector(persistedSteps)}
-									>
-										Inspect
 									</button>
 								</div>
 								{#if recapOpen}
@@ -477,8 +482,6 @@
 		{/each}
 	</div>
 </div>
-
-<ToolInspector toolCalls={inspectorCalls} open={inspectorOpen} onClose={() => (inspectorOpen = false)} />
 
 <style>
 	.thread--contained .msg--deferred {
