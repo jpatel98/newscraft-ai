@@ -1,4 +1,5 @@
 import { env } from '$env/dynamic/private';
+import { timingSafeEqual } from 'node:crypto';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { boardPostId, parseCronMarkdown, timestampFromFilename } from '$lib/utils/board';
 import { upsertChannelPost } from '$lib/server/db/channel-posts';
@@ -24,6 +25,13 @@ function authToken(request: Request): string {
 
 function expectedToken(): string {
 	return (env.HERMES_INGEST_KEY || env.HERMES_API_KEY || '').trim();
+}
+
+function tokenMatches(actual: string, expected: string): boolean {
+	const actualBytes = Buffer.from(actual);
+	const expectedBytes = Buffer.from(expected);
+	if (actualBytes.length !== expectedBytes.length) return false;
+	return timingSafeEqual(actualBytes, expectedBytes);
 }
 
 function text(v: unknown): string {
@@ -61,7 +69,7 @@ function parseInput(body: Body) {
 export const POST: RequestHandler = async ({ request }) => {
 	const expected = expectedToken();
 	if (!expected) throw error(503, 'HERMES_INGEST_KEY or HERMES_API_KEY must be configured');
-	if (authToken(request) !== expected) throw error(401, 'unauthorized');
+	if (!tokenMatches(authToken(request), expected)) throw error(401, 'unauthorized');
 
 	let body: Body;
 	try {

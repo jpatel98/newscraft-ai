@@ -14,11 +14,35 @@
 
 	const renderer = new marked.Renderer();
 	const defaultLinkRenderer = renderer.link.bind(renderer);
+	const defaultImageRenderer = renderer.image.bind(renderer);
+
+	function escapeHtml(s: string): string {
+		return s
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#39;');
+	}
+
+	function safeUrl(raw: string): URL | null {
+		try {
+			return new URL(raw, 'https://newscraft.local');
+		} catch {
+			return null;
+		}
+	}
+
+	function isSafeHref(raw: string): boolean {
+		const url = safeUrl(raw);
+		return !!url && ['http:', 'https:', 'mailto:', 'tel:'].includes(url.protocol);
+	}
 
 	renderer.link = (token) => {
 		const text = token.tokens
 			.map((t) => ('text' in t && typeof t.text === 'string' ? t.text : ''))
 			.join('');
+		if (!isSafeHref(token.href)) return escapeHtml(text || token.href);
 		const rendered = defaultLinkRenderer(token);
 		try {
 			const url = new URL(token.href);
@@ -41,13 +65,18 @@
 			return rendered;
 		}
 	};
+	renderer.image = (token) => {
+		if (!isSafeHref(token.href)) return escapeHtml(token.text || token.href);
+		return defaultImageRenderer(token);
+	};
+	renderer.html = (token) => escapeHtml(token.text);
 
 	marked.setOptions({ gfm: true, breaks: true, renderer });
 
 	const html = $derived.by(() => {
 		try {
 			const raw = marked.parse(content, { async: false }) as string;
-			if (typeof window === 'undefined') return raw; // SSR — sanitize on client
+			if (typeof window === 'undefined') return raw; // Renderer escapes raw HTML before SSR.
 			return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
 		} catch {
 			return '<p>(failed to render)</p>';

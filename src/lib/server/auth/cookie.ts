@@ -19,7 +19,9 @@ export interface SessionUser {
 function secret(): Buffer {
 	const s = env.APP_SESSION_SECRET;
 	if (!s) throw new Error('APP_SESSION_SECRET not configured');
-	return Buffer.from(s, 'base64');
+	const key = Buffer.from(s, 'base64');
+	if (key.length < 32) throw new Error('APP_SESSION_SECRET must decode to at least 32 bytes');
+	return key;
 }
 
 function b64u(buf: Buffer): string {
