@@ -12,12 +12,17 @@ import {
 	timestampFromFilename
 } from '$lib/utils/board';
 import {
-	clearAllChannelPosts,
-	deleteChannelPostsByJobIds,
-	listChannelPosts,
-	renameChannelPostsForJob,
-	upsertChannelPost
-} from '$lib/server/db/channel-posts';
+	clearAllMissionReports,
+	deleteMissionReportsByMissionIds,
+	listMissionReports,
+	renameMissionReportsForMission,
+	upsertMissionReport
+} from '$lib/server/db/mission-reports';
+import {
+	clearAllMissionConfigs,
+	deleteMissionConfig,
+	overlayMissionConfigs
+} from '$lib/server/db/missions';
 import { listHiddenChannelJobIds, unhideChannelJobId } from '$lib/server/db/hidden-channels';
 import { describeGatewayError, hermesFetch } from './transport';
 
@@ -99,6 +104,7 @@ export function normalizeHermesJob(value: unknown): HermesJob | null {
 	return {
 		id,
 		name,
+		description: stringValue(raw.description) || '',
 		prompt: stringValue(raw.prompt),
 		scheduleDisplay:
 			stringValue(raw.schedule_display ?? raw.scheduleDisplay ?? raw.schedule ?? raw.cron) || 'unscheduled',
@@ -109,7 +115,8 @@ export function normalizeHermesJob(value: unknown): HermesJob | null {
 		lastStatus: stringValue(raw.last_status ?? raw.lastStatus),
 		lastError: stringValue(raw.last_error ?? raw.lastError),
 		lastDeliveryError: stringValue(raw.last_delivery_error ?? raw.lastDeliveryError),
-		deliver: toUiDeliverTarget(deliveryValue(raw.deliver ?? raw.delivery ?? raw.delivery_target))
+		deliver: toUiDeliverTarget(deliveryValue(raw.deliver ?? raw.delivery ?? raw.delivery_target)),
+		outputFormat: stringValue(raw.output_format ?? raw.outputFormat) || 'markdown'
 	};
 }
 
@@ -240,7 +247,7 @@ async function fetchHermesJobsBody(): Promise<unknown> {
 			});
 			if (response.ok) return response.json();
 			const text = await response.text();
-			const message = `Hermes jobs ${response.status}: ${text}`;
+			const message = `Mission backend ${response.status}: ${text}`;
 			if (!retryableStatus(response.status)) throw new NonRetryableHermesError(message);
 			if (attempt === JOB_FETCH_ATTEMPTS - 1) throw new Error(message);
 			lastError = new Error(message);
@@ -258,7 +265,9 @@ async function fetchHermesJobsBody(): Promise<unknown> {
 async function listHermesJobsWithRuns(): Promise<{ jobs: HermesJob[]; runs: HermesRun[] }> {
 	const body = await fetchHermesJobsBody();
 	const rawJobs = rawJobsFromBody(body);
-	const jobs = rawJobs.map(normalizeHermesJob).filter((job): job is HermesJob => Boolean(job));
+	const jobs = overlayMissionConfigs(
+		rawJobs.map(normalizeHermesJob).filter((job): job is HermesJob => Boolean(job))
+	);
 	const jobsById = new Map(jobs.map((job) => [job.id, job]));
 	const runs = rawJobs.flatMap((rawJob) => {
 		const job = normalizeHermesJob(rawJob);
@@ -336,13 +345,13 @@ async function syncCronOutputToDb(jobs: HermesJob[], hiddenJobIds: ReadonlySet<s
 			const parsed = parseCronMarkdown(markdown, folder.name);
 			const jobId = parsed.jobId || folder.name;
 			if (hiddenJobIds.has(jobId)) continue;
-			const channel = jobNames.get(jobId) || parsed.channel || jobId;
+			const missionName = jobNames.get(jobId) || parsed.channel || jobId;
 			const runTime = parsed.runTime ?? timestampFromFilename(file.name);
 
-			upsertChannelPost({
+			upsertMissionReport({
 				id: boardPostId(jobId, file.name),
-				jobId,
-				channel,
+				missionId: jobId,
+				missionName,
 				runTime,
 				schedule: parsed.schedule,
 				filename: file.name,
@@ -356,10 +365,10 @@ async function syncCronOutputToDb(jobs: HermesJob[], hiddenJobIds: ReadonlySet<s
 }
 
 function listBoardPostsFromDb(): BoardPost[] {
-	return listChannelPosts().map((row) => ({
+	return listMissionReports().map((row) => ({
 		id: row.id,
-		jobId: row.jobId,
-		channel: row.channel,
+		jobId: row.missionId,
+		channel: row.missionName,
 		channelSlug: '',
 		kind: 'report',
 		runTime: row.runTime,
@@ -456,7 +465,7 @@ export async function runJobAction(id: string, action: 'run' | 'pause' | 'resume
 		method: 'POST',
 		signal: AbortSignal.timeout(15000)
 	});
-	if (!response.ok) throw new Error(`Hermes job ${action} ${response.status}: ${await response.text()}`);
+	if (!response.ok) throw new Error(`Mission ${action} ${response.status}: ${await response.text()}`);
 	const text = await response.text();
 	if (!text.trim()) return null;
 	try {
@@ -490,7 +499,7 @@ export async function createHermesJob(input: CreateHermesJobInput): Promise<Herm
 		body: JSON.stringify(payload),
 		signal: AbortSignal.timeout(15000)
 	});
-	if (!response.ok) throw new Error(`Hermes job create ${response.status}: ${await response.text()}`);
+	if (!response.ok) throw new Error(`Mission create ${response.status}: ${await response.text()}`);
 	const text = await response.text();
 	if (!text.trim()) return null;
 	const body = JSON.parse(text);
@@ -537,13 +546,13 @@ export async function updateHermesJob(id: string, input: UpdateHermesJobInput): 
 		body: JSON.stringify(payload),
 		signal: AbortSignal.timeout(15000)
 	});
-	if (!response.ok) throw new Error(`Hermes job update ${response.status}: ${await response.text()}`);
+	if (!response.ok) throw new Error(`Mission update ${response.status}: ${await response.text()}`);
 	const text = await response.text();
 	if (!text.trim()) return null;
 	const body = JSON.parse(text);
 	const job = normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
 	if (job) unhideChannelJobId(job.id);
-	if (job?.name) renameChannelPostsForJob(job.id, job.name);
+	if (job?.name) renameMissionReportsForMission(job.id, job.name);
 	return job;
 }
 
@@ -553,14 +562,16 @@ export async function deleteHermesJob(id: string): Promise<void> {
 		method: 'DELETE',
 		signal: AbortSignal.timeout(15000)
 	});
-	if (!response.ok) throw new Error(`Hermes job delete ${response.status}: ${await response.text()}`);
-	deleteChannelPostsByJobIds([id]);
+	if (!response.ok) throw new Error(`Mission delete ${response.status}: ${await response.text()}`);
+	deleteMissionConfig(id);
+	deleteMissionReportsByMissionIds([id]);
 }
 
 export async function deleteAllHermesJobs(): Promise<{ deleted: number; failed: string[] }> {
 	const jobs = await listHermesJobs();
 	if (jobs.length === 0) {
-		clearAllChannelPosts();
+		clearAllMissionConfigs();
+		clearAllMissionReports();
 		return { deleted: 0, failed: [] };
 	}
 
@@ -574,6 +585,7 @@ export async function deleteAllHermesJobs(): Promise<{ deleted: number; failed: 
 			failed.push(`${job.id}: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	}
-	if (failed.length === 0) clearAllChannelPosts();
+	if (failed.length === 0) clearAllMissionReports();
+	if (failed.length === 0) clearAllMissionConfigs();
 	return { deleted, failed };
 }

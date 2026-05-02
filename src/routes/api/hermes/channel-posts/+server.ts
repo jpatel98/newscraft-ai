@@ -2,7 +2,7 @@ import { env } from '$env/dynamic/private';
 import { timingSafeEqual } from 'node:crypto';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { boardPostId, parseCronMarkdown, timestampFromFilename } from '$lib/utils/board';
-import { upsertChannelPost } from '$lib/server/db/channel-posts';
+import { upsertMissionReport } from '$lib/server/db/mission-reports';
 
 interface Body {
 	id?: unknown;
@@ -78,6 +78,19 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(400, 'invalid json');
 	}
 
-	upsertChannelPost(parseInput(body));
+	const input = parseInput(body);
+	upsertMissionReport({
+		id: input.id,
+		missionId: input.jobId,
+		missionName: input.channel,
+		runTime: input.runTime,
+		schedule: input.schedule,
+		filename: input.filename,
+		filePathDisplay: input.filePathDisplay,
+		responseMarkdown: input.responseMarkdown,
+		preview: input.preview,
+		sourceMtimeMs: input.sourceMtimeMs,
+		legacyChannelPostId: input.id
+	});
 	return json({ ok: true });
 };

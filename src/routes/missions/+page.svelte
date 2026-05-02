@@ -3,7 +3,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import Markdown from '$lib/components/Markdown.svelte';
-	import type { BoardChannel, BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
+	import type { BoardChannel, BoardData, BoardPost, ChannelSource, HermesJob, HermesRun } from '$lib/types';
 	import { detectRunRequestOutcome } from '$lib/utils/run-poll';
 	import { effectiveRunError } from '$lib/utils/cron-delivery';
 	import { formatRelativeTime } from '$lib/utils/time';
@@ -18,6 +18,7 @@
 	import Play from 'lucide-svelte/icons/play';
 	import Plus from 'lucide-svelte/icons/plus';
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
+	import Trash2 from 'lucide-svelte/icons/trash-2';
 
 	type Tone = 'ok' | 'warn' | 'error' | 'archived' | 'running';
 	type HermesJobWithRun = HermesJob & { currentRun?: HermesRun | null };
@@ -60,9 +61,12 @@
 	let editJobId = $state('');
 	let createBusy = $state(false);
 	let createName = $state('');
+	let createDescription = $state('');
 	let createSchedule = $state('');
 	let createPrompt = $state('');
 	let createDeliver = $state('database');
+	let createOutputFormat = $state('markdown');
+	let createSources = $state<ChannelSource[]>([]);
 	let focusedChannelView = $state(false);
 	let renameOpen = $state(false);
 	let renameDraft = $state('');
@@ -85,6 +89,11 @@
 	);
 	const selectedJob = $derived(
 		selectedChannel?.jobId ? jobs.find((job) => job.id === selectedChannel.jobId) ?? null : null
+	);
+	const selectedSources = $derived(
+		[...(selectedJob?.sources ?? [])]
+			.filter((source) => source.enabled !== false)
+			.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
 	);
 	const selectedRun = $derived(currentRunForJob(selectedChannel, selectedJob));
 	const selectedJobRunning = $derived(Boolean(selectedRun));
@@ -133,7 +142,7 @@
 	});
 
 	function routeRefreshKey(params: URLSearchParams): string {
-		return `${params.get('channel') ?? ''}|${params.get('post') ?? ''}|${params.get('new') ?? ''}|${params.get('rename') ?? ''}|${params.get('edit') ?? ''}`;
+		return `${params.get('mission') ?? params.get('channel') ?? ''}|${params.get('report') ?? params.get('post') ?? ''}|${params.get('new') ?? ''}|${params.get('rename') ?? ''}|${params.get('edit') ?? ''}`;
 	}
 
 	async function loadChannels(preserveSelection = false, silent = false) {
@@ -144,7 +153,7 @@
 		const seq = ++loadSeq;
 		try {
 			const response = await fetch('/api/hermes/board', { cache: 'no-store' });
-			if (!response.ok) throw new Error(`Channels ${response.status}`);
+			if (!response.ok) throw new Error(`Missions ${response.status}`);
 			const data = (await response.json()) as BoardData;
 			if (seq !== loadSeq) return;
 			channels = data.channels ?? [];
@@ -181,17 +190,17 @@
 		expandedPostId = posts.find((post) => post.channelSlug === channel.slug)?.id ?? '';
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
-		url.pathname = '/channels';
-		url.searchParams.set('channel', channel.slug);
+		url.pathname = '/missions';
+		url.searchParams.set('mission', channel.slug);
 		if (expandedPostId) {
-			url.searchParams.set('post', expandedPostId);
+			url.searchParams.set('report', expandedPostId);
 		} else {
+			url.searchParams.delete('report');
 			url.searchParams.delete('post');
 		}
 		url.searchParams.delete('new');
 		url.searchParams.delete('edit');
 		url.searchParams.delete('rename');
-		url.searchParams.delete('report');
 		void goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });
 	}
 
@@ -203,22 +212,23 @@
 	function channelUrl(post: BoardPost | null): string {
 		if (typeof window === 'undefined') return '';
 		const url = new URL(window.location.href);
-		url.pathname = '/channels';
+		url.pathname = '/missions';
 		if (post) {
-			url.searchParams.set('channel', post.channelSlug);
-			url.searchParams.set('post', post.id);
+			url.searchParams.set('mission', post.channelSlug);
+			url.searchParams.set('report', post.id);
 		} else if (selectedChannel) {
 			if (focusedChannelView) {
-				url.searchParams.set('channel', selectedChannel.slug);
+				url.searchParams.set('mission', selectedChannel.slug);
 			} else {
+				url.searchParams.delete('mission');
 				url.searchParams.delete('channel');
 			}
+			url.searchParams.delete('report');
 			url.searchParams.delete('post');
 		}
 		url.searchParams.delete('new');
 		url.searchParams.delete('edit');
 		url.searchParams.delete('rename');
-		url.searchParams.delete('report');
 		return url.toString();
 	}
 
@@ -234,17 +244,75 @@
 		createOpen = true;
 		focusedChannelView = false;
 		createName = '';
+		createDescription = '';
 		createSchedule = '';
 		createPrompt = '';
 		createDeliver = 'database';
+		createOutputFormat = 'markdown';
+		createSources = [];
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
-		url.pathname = '/channels';
+		url.pathname = '/missions';
 		url.searchParams.set('new', '1');
 		url.searchParams.delete('edit');
 		url.searchParams.delete('rename');
+		url.searchParams.delete('report');
 		url.searchParams.delete('post');
 		window.history.replaceState(null, '', url.toString());
+	}
+
+	function sourceDraftId(): string {
+		if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+			return crypto.randomUUID();
+		}
+		return `source-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+	}
+
+	function emptySource(sortOrder = createSources.length): ChannelSource {
+		return {
+			id: sourceDraftId(),
+			type: 'url',
+			name: '',
+			url: '',
+			enabled: true,
+			sortOrder
+		};
+	}
+
+	function cloneSources(sources: ChannelSource[] | undefined): ChannelSource[] {
+		return (sources ?? []).map((source, index) => ({
+			id: source.id || sourceDraftId(),
+			type: 'url',
+			name: source.name,
+			url: source.url,
+			enabled: source.enabled !== false,
+			sortOrder: index
+		}));
+	}
+
+	function sourcePayload(): ChannelSource[] {
+		return createSources.map((source, index) => ({
+			...source,
+			type: 'url',
+			enabled: source.enabled !== false,
+			sortOrder: index
+		}));
+	}
+
+	function addSource() {
+		createSources = [...createSources, emptySource()];
+	}
+
+	function updateSource(index: number, field: 'name' | 'url', value: string) {
+		createSources = createSources.map((source, sourceIndex) =>
+			sourceIndex === index ? { ...source, [field]: value } : source
+		);
+	}
+
+	function removeSource(index: number) {
+		createSources = createSources
+			.filter((_, sourceIndex) => sourceIndex !== index)
+			.map((source, sortOrder) => ({ ...source, sortOrder }));
 	}
 
 	function cancelRenameTitle() {
@@ -284,9 +352,12 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name: createName,
+					description: createDescription,
 					schedule: createSchedule,
 					prompt: createPrompt,
-					deliver: createDeliver
+					deliver: createDeliver,
+					outputFormat: createOutputFormat,
+					sources: sourcePayload()
 				})
 			});
 			if (!response.ok) throw new Error(await response.text());
@@ -300,11 +371,14 @@
 				: null;
 			if (created) selectChannel(created);
 			createName = '';
+			createDescription = '';
 			createSchedule = '';
 			createPrompt = '';
 			createDeliver = 'database';
+			createOutputFormat = 'markdown';
+			createSources = [];
 			closeCreate();
-			notice = 'Channel created.';
+			notice = 'Mission created.';
 			noticeChannelSlug = null;
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
@@ -375,12 +449,12 @@
 					requestedAt,
 					status: 'requested',
 					lastCheckedAt: null,
-					message: `Run request sent for ${jobName}. Waiting for Hermes...`,
+				message: `Run request sent for ${jobName}. Waiting for the mission runner...`,
 					detail: null,
 					latestPostId: null
 				};
 				startRunWatchTicker();
-				notice = `${jobName} run requested. Waiting for the next channel post...`;
+				notice = `${jobName} run requested. Waiting for the next report...`;
 				noticeChannelSlug = channelSlug || null;
 				startRunPoll({
 					jobId: selectedJob.id,
@@ -414,9 +488,12 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name: createName,
+					description: createDescription,
 					schedule: createSchedule,
 					prompt: createPrompt,
-					deliver: createDeliver
+					deliver: createDeliver,
+					outputFormat: createOutputFormat,
+					sources: sourcePayload()
 				})
 			});
 			if (!response.ok) throw new Error(await response.text());
@@ -426,7 +503,7 @@
 			const updated = data.job ? channels.find((channel) => channel.jobId === data.job?.id) ?? null : null;
 			if (updated) selectChannel(updated);
 			closeCreate();
-			notice = 'Channel updated.';
+			notice = 'Mission updated.';
 			noticeChannelSlug = null;
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
@@ -440,7 +517,7 @@
 		if (!selectedJob) return;
 		const next = renameDraft.trim();
 		if (!next) {
-			error = 'Channel name is required.';
+			error = 'Mission name is required.';
 			return;
 		}
 		renameBusy = true;
@@ -466,7 +543,7 @@
 				url.searchParams.delete('rename');
 				window.history.replaceState(null, '', url.toString());
 			}
-			notice = 'Channel title updated.';
+			notice = 'Mission name updated.';
 			noticeChannelSlug = selectedChannel?.slug ?? null;
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
@@ -476,8 +553,8 @@
 	}
 
 	function applyQueryState(params: URLSearchParams, preserveSelection = false) {
-		const channel = params.get('channel') ?? '';
-		const post = params.get('post') ?? '';
+		const channel = params.get('mission') ?? params.get('channel') ?? '';
+		const post = params.get('report') ?? params.get('post') ?? '';
 		const newOpen = params.get('new') === '1';
 		const editOpen = params.get('edit') === '1';
 		const formOpen = newOpen || editOpen;
@@ -504,23 +581,32 @@
 				formMode = 'edit';
 				editJobId = targetJob.id;
 				createName = targetJob.name || targetChannel?.name || '';
+				createDescription = targetJob.description ?? '';
 				createSchedule = targetJob.scheduleDisplay || targetPosts[0]?.schedule || '';
 				createPrompt = targetJob.prompt ?? '';
 				createDeliver = targetJob.deliver || 'database';
+				createOutputFormat = targetJob.outputFormat || 'markdown';
+				createSources = cloneSources(targetJob.sources);
 			} else if (editOpen) {
 				formMode = 'edit';
 				editJobId = '';
 				createName = '';
+				createDescription = '';
 				createSchedule = '';
 				createPrompt = '';
 				createDeliver = 'database';
+				createOutputFormat = 'markdown';
+				createSources = [];
 			} else {
 				formMode = 'create';
 				editJobId = '';
 				createName = '';
+				createDescription = '';
 				createSchedule = '';
 				createPrompt = '';
 				createDeliver = 'database';
+				createOutputFormat = 'markdown';
+				createSources = [];
 			}
 		}
 		if (renameRequested && !formOpen && targetJob) {
@@ -534,7 +620,7 @@
 		} else if (!targetJob) {
 			renameOpen = false;
 		}
-		focusedChannelView = params.has('channel') && !formOpen;
+		focusedChannelView = (params.has('mission') || params.has('channel')) && !formOpen;
 		if (channel) selectedSlug = channel;
 		if (post) expandedPostId = post;
 		if (!preserveSelection && !post) expandedPostId = '';
@@ -600,7 +686,7 @@
 					status: activeStatus === 'queued' ? 'queued' : activeRun ? 'running' : runWatch.status,
 					message:
 						activeStatus === 'queued'
-							? 'Run is queued in Hermes.'
+							? 'Run is queued.'
 							: activeRun
 								? 'Run is currently executing.'
 								: runWatch.message
@@ -624,12 +710,12 @@
 						...runWatch,
 						status: 'new-post',
 						lastCheckedAt: Date.now(),
-						message: 'New post received for this run.',
+						message: 'New report received for this run.',
 						detail: null,
 						latestPostId
 					};
 				}
-				notice = 'New channel post received.';
+				notice = 'New mission report received.';
 				noticeChannelSlug = input.channelSlug;
 				replaceChannelUrl();
 				clearRunPoll();
@@ -673,12 +759,12 @@
 							...runWatch,
 							status: 'finished-no-post',
 							lastCheckedAt: Date.now(),
-							message: 'Run finished, but no new post was saved.',
+							message: 'Run finished, but no new report was saved.',
 							detail: null,
 							latestPostId: null
 						};
 					}
-					notice = 'Run finished, but no new channel post was saved yet.';
+					notice = 'Run finished, but no new mission report was saved yet.';
 					noticeChannelSlug = input.channelSlug;
 					clearRunPoll();
 					stopRunWatchTicker();
@@ -694,12 +780,12 @@
 						...runWatch,
 						status: 'timeout',
 						lastCheckedAt: Date.now(),
-						message: 'Still waiting for completion from Hermes.',
+						message: 'Still waiting for completion.',
 						detail: `Last completed run: ${lastRun}.`,
 						latestPostId: null
 					};
 				}
-				notice = `Run requested. Still waiting on Hermes. Last completed run: ${lastRun}.`;
+				notice = `Run requested. Still waiting on completion. Last completed run: ${lastRun}.`;
 				noticeChannelSlug = input.channelSlug;
 				clearRunPoll();
 				stopRunWatchTicker();
@@ -731,8 +817,17 @@
 		return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(date);
 	}
 
+	function sourceHost(url: string): string {
+		try {
+			const parsed = new URL(url);
+			return parsed.hostname.replace(/^www\./, '') || url;
+		} catch {
+			return url;
+		}
+	}
+
 	function relativeDate(value: string | null | undefined): string {
-		if (!value) return 'No posts yet';
+	if (!value) return 'No reports yet';
 		const date = new Date(value);
 		if (!Number.isFinite(date.getTime())) return value;
 		return formatRelativeTime(date.getTime());
@@ -816,7 +911,7 @@
 	function postStatusLabel(post: BoardPost): string {
 		if (post.runStatus) return runStatusLabel({ status: post.runStatus });
 		if (post.archived) return 'Archived';
-		return post.kind === 'run' ? 'Run event' : 'Completed';
+		return post.kind === 'run' ? 'Mission run' : 'Completed';
 	}
 
 	function isQueued(job: HermesJob | null): boolean {
@@ -877,7 +972,7 @@
 </script>
 
 <svelte:head>
-	<title>{focusedChannelView && selectedChannel ? `${selectedChannel.name} · NewsCraft` : 'Channels · NewsCraft'}</title>
+	<title>{focusedChannelView && selectedChannel ? `${selectedChannel.name} · NewsCraft` : 'Missions · NewsCraft'}</title>
 </svelte:head>
 
 <div class="page">
@@ -885,7 +980,7 @@
 			<header class="channels__masthead">
 				<div>
 						<div class="channels__eyebrow">
-							{focusedChannelView && selectedChannel ? 'Automated channel' : 'Newsroom channels'}
+							{focusedChannelView && selectedChannel ? 'Recurring mission' : 'Mission control'}
 						</div>
 						{#if focusedChannelView && selectedChannel}
 							{#if renameOpen}
@@ -893,7 +988,7 @@
 									<input
 										class="field__input channels__rename-input"
 										bind:value={renameDraft}
-										placeholder="Channel title"
+										placeholder="Mission name"
 										disabled={renameBusy}
 									/>
 									<div class="channels__rename-actions">
@@ -913,21 +1008,26 @@
 							{:else}
 								<h1 class="channels__title">{selectedChannel.name}</h1>
 							{/if}
+							{#if selectedJob?.description}
+								<p class="channels__intro">{selectedJob.description}</p>
+							{/if}
 						{:else}
-							<h1 class="channels__title">Channels</h1>
+							<h1 class="channels__title">Missions</h1>
 						{/if}
+						{#if !selectedJob?.description}
 						<p class="channels__intro">
 						{#if focusedChannelView && selectedChannel}
-							Reports, schedule, and run controls for this cron job.
+							Reports, schedule, and run controls for this mission.
 						{:else}
-							Scheduled reports land here as durable posts backed by VPS markdown files.
+							Recurring newsroom intelligence tasks land here as durable mission reports.
 						{/if}
 					</p>
+						{/if}
 				</div>
 				<div class="channels__masthead-actions">
 					<button type="button" class="btn btn--primary" onclick={openCreate}>
 						<Plus size="14" strokeWidth={1.8} />
-						New channel
+						New mission
 					</button>
 					<button type="button" class="btn btn--ghost" onclick={() => loadChannels(true)} disabled={busy}>
 						<RefreshCw size="14" strokeWidth={1.7} />
@@ -944,7 +1044,7 @@
 		{/if}
 			{#if jobsError}
 				<div class="channels__notice">
-					Saved posts loaded. Live channel controls are unavailable: {jobsError}
+					Saved reports loaded. Live mission controls are unavailable: {jobsError}
 				</div>
 			{/if}
 
@@ -953,9 +1053,9 @@
 						<div class="channels-create__head">
 							<div>
 								<div class="channels__eyebrow">
-									{formMode === 'edit' ? 'Edit automated channel' : 'New automated channel'}
+									{formMode === 'edit' ? 'Edit recurring mission' : 'New recurring mission'}
 								</div>
-								<h2 class="channels-create__title">{formMode === 'edit' ? 'Edit channel' : 'Create channel'}</h2>
+								<h2 class="channels-create__title">{formMode === 'edit' ? 'Edit mission' : 'Create mission'}</h2>
 							</div>
 							<button type="button" class="btn btn--ghost" onclick={closeCreate} disabled={createBusy}>
 								Cancel
@@ -970,6 +1070,15 @@
 								bind:value={createName}
 								placeholder="News watch"
 								required
+							/>
+						</div>
+						<div class="field">
+							<label class="field__label" for="mission-description">Description</label>
+							<input
+								id="mission-description"
+								class="field__input"
+								bind:value={createDescription}
+								placeholder="Recurring brief for newsroom intelligence"
 							/>
 						</div>
 						<div class="field">
@@ -993,6 +1102,61 @@
 							required
 						></textarea>
 					</div>
+					<div class="channels-watchlist">
+						<div class="channels-watchlist__head">
+							<div>
+								<div class="field__label">Attached sources</div>
+							</div>
+							<button type="button" class="btn btn--ghost" onclick={addSource} disabled={createBusy}>
+								<Plus size="14" strokeWidth={1.8} />
+								Add source
+							</button>
+						</div>
+						{#if createSources.length > 0}
+							<div class="channels-watchlist__rows">
+								{#each createSources as source, index (source.id)}
+									<div class="channels-watchlist__row">
+										<div class="field">
+											<label class="field__label" for={`channel-source-name-${index}`}>Name</label>
+											<input
+												id={`channel-source-name-${index}`}
+												class="field__input"
+												value={source.name}
+												placeholder="FDA newsroom"
+												disabled={createBusy}
+												oninput={(event) =>
+													updateSource(index, 'name', (event.currentTarget as HTMLInputElement).value)}
+											/>
+										</div>
+										<div class="field">
+											<label class="field__label" for={`channel-source-url-${index}`}>URL</label>
+											<input
+												id={`channel-source-url-${index}`}
+												class="field__input"
+												value={source.url}
+												placeholder="https://example.com/news"
+												disabled={createBusy}
+												oninput={(event) =>
+													updateSource(index, 'url', (event.currentTarget as HTMLInputElement).value)}
+											/>
+										</div>
+										<button
+											type="button"
+											class="btn btn--ghost channels-watchlist__remove"
+											aria-label="Remove source"
+											title="Remove source"
+											disabled={createBusy}
+											onclick={() => removeSource(index)}
+										>
+											<Trash2 size="14" strokeWidth={1.8} />
+										</button>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<div class="channels-watchlist__empty">No attached sources configured.</div>
+						{/if}
+					</div>
 					<div class="field">
 						<label class="field__label" for="channel-deliver">Delivery target</label>
 						<input
@@ -1002,6 +1166,15 @@
 							placeholder="database (recommended)"
 						/>
 					</div>
+					<div class="field">
+						<label class="field__label" for="mission-output-format">Output format</label>
+						<input
+							id="mission-output-format"
+							class="field__input"
+							bind:value={createOutputFormat}
+							placeholder="markdown"
+						/>
+					</div>
 					<div class="channels-create__actions">
 						<button type="submit" class="btn btn--primary" disabled={createBusy}>
 							{#if formMode === 'edit'}
@@ -1009,7 +1182,7 @@
 								{createBusy ? 'Saving' : 'Save changes'}
 							{:else}
 								<Plus size="14" strokeWidth={1.8} />
-								{createBusy ? 'Creating' : 'Create channel'}
+								{createBusy ? 'Creating' : 'Create mission'}
 							{/if}
 						</button>
 					</div>
@@ -1018,10 +1191,10 @@
 
 			<div class="channels__layout" class:channels__layout--focused={focusedChannelView}>
 			{#if !focusedChannelView}
-				<aside class="channels__rail" aria-label="Channels">
-					<div class="channels__rail-title">Channels</div>
+				<aside class="channels__rail" aria-label="Missions">
+					<div class="channels__rail-title">Missions</div>
 					{#if busy && channels.length === 0}
-						<div class="channels__empty">Loading channels…</div>
+						<div class="channels__empty">Loading missions…</div>
 					{:else}
 						{#each channels as channel (channel.slug)}
 							{@const job = jobs.find((candidate) => candidate.id === channel.jobId) ?? null}
@@ -1036,7 +1209,7 @@
 								<span class="channel-feed-row__main">
 									<span class="channel-feed-row__name"><Hash size="13" strokeWidth={1.7} />{channel.name}</span>
 									<span class="channel-feed-row__meta">
-										{channel.postCount} {channel.postCount === 1 ? 'post' : 'posts'} · {relativeDate(channel.latestRunAt)}
+										{channel.postCount} {channel.postCount === 1 ? 'report' : 'reports'} · {relativeDate(channel.latestRunAt)}
 									</span>
 								</span>
 								<span class={`channels-status channels-status--${statusTone(channel, job)}`}>
@@ -1044,7 +1217,7 @@
 								</span>
 							</button>
 						{:else}
-							<div class="channels__empty">No channel posts yet.</div>
+							<div class="channels__empty">No mission reports yet.</div>
 						{/each}
 					{/if}
 				</aside>
@@ -1053,11 +1226,11 @@
 			<section class="channels__main" aria-live="polite">
 				{#if selectedChannel}
 					<header class="channel-head">
-						<div class="channel-head__meta" aria-label="Channel status">
+						<div class="channel-head__meta" aria-label="Mission status">
 							<span class={`channels-status channels-status--${statusTone(selectedChannel, selectedJob)}`}>
 								{statusLabel(selectedChannel, selectedJob)}
 							</span>
-							<span>{selectedChannel.postCount} {selectedChannel.postCount === 1 ? 'post' : 'posts'}</span>
+							<span>{selectedChannel.postCount} {selectedChannel.postCount === 1 ? 'report' : 'reports'}</span>
 							<span>
 								{selectedRun
 									? `Running since ${relativeDate(runStartedAt(selectedRun))}`
@@ -1068,7 +1241,7 @@
 							{/if}
 						</div>
 
-							<div class="channel-head__actions" aria-label="Channel controls">
+							<div class="channel-head__actions" aria-label="Mission controls">
 								{#if selectedJob}
 									{#if selectedJob.enabled}
 										<button
@@ -1116,11 +1289,11 @@
 												: runWatch.status === 'finishing'
 													? 'Finishing'
 												: runWatch.status === 'new-post'
-													? 'New post'
+													? 'New report'
 													: runWatch.status === 'failed'
 														? 'Failed'
 														: runWatch.status === 'finished-no-post'
-															? 'Done, no post'
+															? 'Done, no report'
 															: 'Timed out'}
 								</span>
 								<span class="run-watch__message">{runWatch.message}</span>
@@ -1146,7 +1319,7 @@
 							<div class="run-watch__actions">
 								{#if runWatch.latestPostId}
 									<button type="button" class="btn btn--ghost" onclick={focusLatestRunPost}>
-										Jump to new post
+										Jump to new report
 									</button>
 								{/if}
 								<button type="button" class="btn btn--ghost" onclick={dismissRunWatch}>
@@ -1156,8 +1329,8 @@
 						</div>
 					{/if}
 
-					<details class="channel-detail" aria-label="Channel details">
-						<summary>Technical details</summary>
+					<details class="channel-detail" aria-label="Mission details">
+						<summary>Mission details</summary>
 						<div class="channel-detail__grid">
 							<div class="channel-detail__item">
 								<span>Schedule</span>
@@ -1176,18 +1349,42 @@
 								<strong>{selectedJob?.deliver ?? 'Local archive'}</strong>
 							</div>
 							<div class="channel-detail__item">
-								<span>Job id</span>
+								<span>Output</span>
+								<strong>{selectedJob?.outputFormat ?? 'markdown'}</strong>
+							</div>
+							<div class="channel-detail__item">
+								<span>Sources</span>
+								<strong>
+									{selectedSources.length}
+									{selectedSources.length === 1 ? 'source' : 'sources'}
+								</strong>
+							</div>
+							<div class="channel-detail__item">
+								<span>Mission id</span>
 								<strong>{selectedJob?.id ?? selectedChannel.jobId ?? selectedChannel.slug}</strong>
 							</div>
 						</div>
 					</details>
+					{#if selectedSources.length > 0}
+						<div class="channel-sources" aria-label="Mission sources">
+							<div class="channel-sources__title">Attached sources</div>
+							<div class="channel-sources__list">
+								{#each selectedSources as source (source.id)}
+									<a class="channel-source" href={source.url} target="_blank" rel="noreferrer">
+										<span class="channel-source__name">{source.name}</span>
+										<span class="channel-source__url">{sourceHost(source.url)}</span>
+									</a>
+								{/each}
+							</div>
+						</div>
+					{/if}
 
-					<div class="channel-feed" aria-label="Channel posts">
+					<div class="channel-feed" aria-label="Mission reports">
 						{#if busy && selectedPosts.length === 0}
-							<div class="channels__empty channels__empty--panel">Fetching posts…</div>
+							<div class="channels__empty channels__empty--panel">Fetching reports…</div>
 						{:else if selectedPosts.length === 0}
 							<div class="channels__empty channels__empty--panel">
-								No reports have landed in this channel yet.
+								No reports have landed for this mission yet.
 							</div>
 						{:else}
 							{#each groupedPosts as group (group.label)}
@@ -1205,7 +1402,7 @@
 											<span class="channel-post__body">
 												<span class="channel-post__topline">
 													<span class="channel-post__title">
-														{post.kind === 'run' ? 'Run event' : 'Scheduled report'}
+														{post.kind === 'run' ? 'Mission run' : 'Mission report'}
 													</span>
 													<span class={`channels-status channels-status--${postTone(post)}`}>
 														{postStatusLabel(post)}
@@ -1228,7 +1425,7 @@
 										{#if expanded}
 											<div class="channel-post__expanded">
 												<div class="channel-post__meta">
-													<span>Job {post.jobId}</span>
+													<span>Mission {post.jobId}</span>
 													<span>{post.schedule || selectedJob?.scheduleDisplay || 'No schedule'}</span>
 													{#if post.filePathDisplay}
 														<span class="channel-post__file">
@@ -1243,7 +1440,7 @@
 														</span>
 													{/if}
 												</div>
-												<div class="channel-post__actions" aria-label="Post actions">
+												<div class="channel-post__actions" aria-label="Report actions">
 													<button type="button" class="btn btn--ghost" onclick={() => copyPostLink(post)}>
 														{#if copiedPostId === post.id}
 															<Check size="13" strokeWidth={1.8} />
@@ -1265,7 +1462,7 @@
 						{/if}
 					</div>
 				{:else}
-					<div class="channels__empty channels__empty--panel">No channel posts yet.</div>
+					<div class="channels__empty channels__empty--panel">No mission reports yet.</div>
 				{/if}
 			</section>
 		</div>
@@ -1386,6 +1583,44 @@
 			min-height: 112px;
 			resize: vertical;
 			line-height: 1.45;
+		}
+		.channels-watchlist {
+			display: grid;
+			gap: 10px;
+			margin: 12px 0;
+		}
+		.channels-watchlist__head {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 10px;
+		}
+		.channels-watchlist__rows {
+			display: grid;
+			gap: 8px;
+		}
+		.channels-watchlist__row {
+			display: grid;
+			grid-template-columns: minmax(140px, 0.85fr) minmax(220px, 1.35fr) auto;
+			gap: 8px;
+			align-items: end;
+			border: 1px solid var(--border-soft);
+			border-radius: var(--radius-2);
+			background: color-mix(in srgb, var(--bg-surface) 78%, var(--bg-page));
+			padding: 10px;
+		}
+		.channels-watchlist__remove {
+			width: 34px;
+			height: 34px;
+			padding: 0;
+			justify-content: center;
+		}
+		.channels-watchlist__empty {
+			border: 1px dashed var(--border-soft);
+			border-radius: var(--radius-2);
+			padding: 12px;
+			font-size: 13px;
+			color: var(--fg-3);
 		}
 		.channels-create__actions {
 			display: flex;
@@ -1634,7 +1869,7 @@
 	}
 	.channel-detail__grid {
 		display: grid;
-		grid-template-columns: repeat(5, minmax(0, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 		gap: 1px;
 		border: 1px solid var(--border-soft);
 		border-radius: var(--radius-2);
@@ -1663,6 +1898,54 @@
 		white-space: nowrap;
 		font-size: 13px;
 		color: var(--fg-1);
+	}
+	.channel-sources {
+		display: grid;
+		gap: 8px;
+		margin: -6px 0 18px;
+	}
+	.channel-sources__title {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--fg-3);
+	}
+	.channel-sources__list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.channel-source {
+		min-width: 0;
+		max-width: min(100%, 320px);
+		display: inline-grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 2px;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		padding: 8px 10px;
+		text-decoration: none;
+		color: var(--fg-1);
+	}
+	.channel-source:hover {
+		border-color: var(--border-strong);
+	}
+	.channel-source__name,
+	.channel-source__url {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.channel-source__name {
+		font-size: 13px;
+		font-weight: 650;
+	}
+	.channel-source__url {
+		font-size: 12px;
+		color: var(--fg-3);
 	}
 	.channel-feed {
 		display: grid;
@@ -1803,6 +2086,12 @@
 			}
 			.channels-create__grid {
 				grid-template-columns: 1fr;
+			}
+			.channels-watchlist__row {
+				grid-template-columns: 1fr;
+			}
+			.channels-watchlist__remove {
+				width: 100%;
 			}
 			.channels__rail {
 				position: static;

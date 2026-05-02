@@ -39,7 +39,7 @@
 			page.url.pathname === '/setup' ||
 			page.url.pathname.startsWith('/account-setup')
 	);
-	const sidebarChannels = $derived((data.channels ?? []) as BoardChannel[]);
+	const sidebarMissions = $derived((data.channels ?? []) as BoardChannel[]);
 
 	let paletteOpen = $state(false);
 	let drawerOpen = $state(false);
@@ -102,9 +102,9 @@
 	let renameDraft = $state('');
 	let confirmDeleteFor = $state<string | null>(null);
 	let confirmDeleteTimer: ReturnType<typeof setTimeout> | null = null;
-	let channelMenuFor = $state<string | null>(null);
-	let channelDeleteFor = $state<string | null>(null);
-	let channelDeleteTimer: ReturnType<typeof setTimeout> | null = null;
+	let missionMenuFor = $state<string | null>(null);
+	let missionDeleteFor = $state<string | null>(null);
+	let missionDeleteTimer: ReturnType<typeof setTimeout> | null = null;
 
 	let renameInput = $state<HTMLInputElement | null>(null);
 
@@ -119,12 +119,12 @@
 	}
 
 	function closeChannelMenu() {
-		channelMenuFor = null;
-		if (channelDeleteTimer) {
-			clearTimeout(channelDeleteTimer);
-			channelDeleteTimer = null;
+		missionMenuFor = null;
+		if (missionDeleteTimer) {
+			clearTimeout(missionDeleteTimer);
+			missionDeleteTimer = null;
 		}
-		channelDeleteFor = null;
+		missionDeleteFor = null;
 	}
 
 	function openMenu(id: string, e: MouseEvent) {
@@ -162,12 +162,12 @@
 		e.preventDefault();
 		e.stopPropagation();
 		closeMenu();
-		if (channelMenuFor === jobId) {
+		if (missionMenuFor === jobId) {
 			closeChannelMenu();
 			return;
 		}
-		channelMenuFor = jobId;
-		channelDeleteFor = null;
+		missionMenuFor = jobId;
+		missionDeleteFor = null;
 	}
 
 	async function togglePin(c: SidebarConvo) {
@@ -251,19 +251,19 @@
 	}
 
 	function armChannelDelete(jobId: string) {
-		if (channelDeleteFor === jobId) return;
-		channelDeleteFor = jobId;
-		if (channelDeleteTimer) clearTimeout(channelDeleteTimer);
-		channelDeleteTimer = setTimeout(() => {
-			channelDeleteFor = null;
-			channelDeleteTimer = null;
+		if (missionDeleteFor === jobId) return;
+		missionDeleteFor = jobId;
+		if (missionDeleteTimer) clearTimeout(missionDeleteTimer);
+		missionDeleteTimer = setTimeout(() => {
+			missionDeleteFor = null;
+			missionDeleteTimer = null;
 		}, 3000);
 	}
 
-	async function openChannelEditor(channel: BoardChannel, mode: 'rename' | 'edit') {
+	async function openChannelEditor(mission: BoardChannel, mode: 'rename' | 'edit') {
 		closeChannelMenu();
-		const target = new URL('/channels', window.location.origin);
-		target.searchParams.set('channel', channel.slug);
+		const target = new URL('/missions', window.location.origin);
+		target.searchParams.set('mission', mission.slug);
 		if (mode === 'rename') {
 			target.searchParams.set('rename', '1');
 		} else {
@@ -274,8 +274,8 @@
 		onSelectThread();
 	}
 
-	async function confirmChannelDelete(channel: BoardChannel) {
-		const jobId = (channel.jobId ?? '').trim();
+	async function confirmChannelDelete(mission: BoardChannel) {
+		const jobId = (mission.jobId ?? '').trim();
 		if (!jobId) return;
 		closeChannelMenu();
 		const response = await fetch(`/api/hermes/channels/${encodeURIComponent(jobId)}`, {
@@ -283,22 +283,22 @@
 		});
 		if (!response.ok) {
 			const text = await response.text();
-			alert(text || 'Failed to delete channel.');
+			alert(text || 'Failed to delete mission.');
 			return;
 		}
-		const active = page.url.pathname === '/channels' && page.url.searchParams.get('channel') === channel.slug;
+		const active = page.url.pathname === '/missions' && page.url.searchParams.get('mission') === mission.slug;
 		if (active) {
-			await goto('/channels', { invalidateAll: true });
+			await goto('/missions', { invalidateAll: true });
 		} else {
 			await invalidateAll();
 		}
 	}
 
-	function onChannelRowAction(channel: BoardChannel) {
-		const jobId = (channel.jobId ?? '').trim();
+	function onChannelRowAction(mission: BoardChannel) {
+		const jobId = (mission.jobId ?? '').trim();
 		if (!jobId) return;
-		if (channelDeleteFor === jobId) {
-			void confirmChannelDelete(channel);
+		if (missionDeleteFor === jobId) {
+			void confirmChannelDelete(mission);
 			return;
 		}
 		armChannelDelete(jobId);
@@ -317,13 +317,13 @@
 	function onDocClick(e: MouseEvent) {
 		const t = e.target as HTMLElement | null;
 		if (menuFor && t && !t.closest('[data-row-menu]')) closeMenu();
-		if (channelMenuFor && t && !t.closest('[data-channel-row-menu]')) closeChannelMenu();
+		if (missionMenuFor && t && !t.closest('[data-mission-row-menu]')) closeChannelMenu();
 	}
 
 	function onDocKeydown(e: KeyboardEvent) {
 		if (e.key !== 'Escape') return;
 		if (menuFor) closeMenu();
-		if (channelMenuFor) closeChannelMenu();
+		if (missionMenuFor) closeChannelMenu();
 	}
 
 	onMount(() => {
@@ -552,13 +552,13 @@
 				</a>
 				<a
 					class="sidebar__primary-action sidebar__primary-action--channel"
-					href="/channels?new=1"
-					aria-label="New channel"
-					title="Create channel"
+					href="/missions?new=1"
+					aria-label="New mission"
+					title="Create mission"
 					onclick={onSelectThread}
 				>
 					<Plus size="14" strokeWidth={1.8} />
-					<span>New channel</span>
+					<span>New mission</span>
 				</a>
 			</div>
 
@@ -613,79 +613,79 @@
 				</div>
 			{:else}
 				<div class="sidebar__list">
-					<div class="sidebar__section">Channels</div>
+					<div class="sidebar__section">Missions</div>
 					<a
-						class="sidebar__row {page.url.pathname === '/channels' && !page.url.searchParams.get('channel')
+						class="sidebar__row {page.url.pathname === '/missions' && !page.url.searchParams.get('mission')
 							? 'sidebar__row--active'
 							: ''}"
-						href="/channels"
-						aria-current={page.url.pathname === '/channels' && !page.url.searchParams.get('channel')
+						href="/missions"
+						aria-current={page.url.pathname === '/missions' && !page.url.searchParams.get('mission')
 							? 'page'
 							: undefined}
 						onclick={onSelectThread}
 					>
 						<Rss class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
-						<span class="sidebar__row__name">All channels</span>
+						<span class="sidebar__row__name">All missions</span>
 					</a>
-					{#each sidebarChannels as channel (channel.slug)}
-						{@const href = `/channels?channel=${encodeURIComponent(channel.slug)}`}
-						{@const jobId = channel.jobId ?? ''}
+					{#each sidebarMissions as mission (mission.slug)}
+						{@const href = `/missions?mission=${encodeURIComponent(mission.slug)}`}
+						{@const jobId = mission.jobId ?? ''}
 						<div
-							class="sidebar__row-wrap {page.url.pathname === '/channels' &&
-							page.url.searchParams.get('channel') === channel.slug
+							class="sidebar__row-wrap {page.url.pathname === '/missions' &&
+							page.url.searchParams.get('mission') === mission.slug
 								? 'sidebar__row-wrap--active'
 								: ''}"
-							data-channel-row-menu
+							data-mission-row-menu
 						>
 							<a
-								class="sidebar__row {page.url.pathname === '/channels' &&
-								page.url.searchParams.get('channel') === channel.slug
+								class="sidebar__row {page.url.pathname === '/missions' &&
+								page.url.searchParams.get('mission') === mission.slug
 									? 'sidebar__row--active'
 									: ''}"
 								href={href}
-								aria-current={page.url.pathname === '/channels' &&
-								page.url.searchParams.get('channel') === channel.slug
+								aria-current={page.url.pathname === '/missions' &&
+								page.url.searchParams.get('mission') === mission.slug
 									? 'page'
 									: undefined}
 								onclick={onSelectThread}
 							>
 								<Rss class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
-								<span class="sidebar__row__name">{channel.name}</span>
+								<span class="sidebar__row__name">{mission.name}</span>
 							</a>
 							{#if jobId}
 								<button
 									type="button"
 									class="sidebar__row-menu-btn"
-									aria-label="Channel actions"
+									aria-label="Mission actions"
 									aria-haspopup="menu"
-									aria-expanded={channelMenuFor === jobId}
+									aria-expanded={missionMenuFor === jobId}
 									onclick={(e) => openChannelMenu(jobId, e)}
 								>
 									<MoreHorizontal size="14" strokeWidth={1.8} />
 								</button>
 							{/if}
-							{#if jobId && channelMenuFor === jobId}
+							{#if jobId && missionMenuFor === jobId}
 								<div class="sidebar__menu" role="menu">
-									<button type="button" role="menuitem" onclick={() => openChannelEditor(channel, 'rename')}>
-										Edit title
+										<button type="button" role="menuitem" onclick={() => openChannelEditor(mission, 'rename')}>
+											Edit name
 									</button>
-									<button type="button" role="menuitem" onclick={() => openChannelEditor(channel, 'edit')}>
-										Edit channel
+									<button type="button" role="menuitem" onclick={() => openChannelEditor(mission, 'edit')}>
+										Edit mission
 									</button>
 									<button
 										type="button"
 										role="menuitem"
 										class="sidebar__menu__danger"
-										onclick={() => onChannelRowAction(channel)}
+										onclick={() => onChannelRowAction(mission)}
 									>
-										{channelDeleteFor === jobId ? 'Click again to confirm' : 'Delete channel'}
+										{missionDeleteFor === jobId ? 'Click again to confirm' : 'Delete mission'}
 									</button>
 								</div>
 							{/if}
 						</div>
 					{:else}
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
-							<span class="sidebar__row__name">No channels yet</span>
+							<span class="sidebar__row__name">No missions yet</span>
 						</div>
 					{/each}
 					<div class="sidebar__section">Chats</div>

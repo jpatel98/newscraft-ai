@@ -53,6 +53,17 @@ export interface HermesSkillDetail extends HermesSkillSummary {
 	supportingFiles: string[];
 }
 
+export type ChannelSourceType = 'url';
+
+export interface ChannelSource {
+	id: string;
+	type: ChannelSourceType;
+	name: string;
+	url: string;
+	enabled: boolean;
+	sortOrder: number;
+}
+
 export interface ChatCommand {
 	slash: string;
 	kind: HermesCommandKind;
@@ -64,6 +75,7 @@ export type ReasoningEffort = 'low' | 'medium' | 'high';
 export interface HermesJob {
 	id: string;
 	name: string;
+	description?: string;
 	prompt: string | null;
 	scheduleDisplay: string;
 	state: string;
@@ -74,6 +86,8 @@ export interface HermesJob {
 	lastError: string | null;
 	lastDeliveryError: string | null;
 	deliver: string | null;
+	outputFormat?: string;
+	sources?: ChannelSource[];
 }
 
 export interface HermesRun {

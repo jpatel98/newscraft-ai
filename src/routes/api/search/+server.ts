@@ -3,6 +3,7 @@ import { sqliteClient } from '$lib/server/db';
 import { parseContent } from '$lib/server/db/conversations';
 import { contentText } from '$lib/types';
 import { dedupeByConversation, searchTokens, type SearchRow } from '$lib/utils/search-dedupe';
+import { markSearchSnippet, visibleSearchSnippet } from '$lib/utils/search-snippets';
 
 interface Body {
 	q?: string;
@@ -11,6 +12,7 @@ interface Body {
 
 type Result = SearchRow;
 type Row = SearchRow;
+type MessageSearchRow = SearchRow & { content: string };
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
@@ -32,7 +34,7 @@ SELECT
   m.conversation_id AS conversationId,
   c.title           AS conversationTitle,
   m.role            AS role,
-  snippet(messages_fts, 0, '<mark>', '</mark>', '…', 12) AS snippet,
+  m.content         AS content,
   m.created_at      AS createdAt
 FROM messages_fts
 JOIN messages m ON m.rowid = messages_fts.rowid
@@ -55,23 +57,8 @@ function textContent(stored: string): string {
 	return contentText(parseContent(stored));
 }
 
-function markSnippet(text: string, terms: string[], max = 180): string {
-	const clean = text.replace(/\s+/g, ' ').trim();
-	if (!clean) return '';
-	const lower = clean.toLocaleLowerCase();
-	const first = terms
-		.map((t) => lower.indexOf(t))
-		.filter((i) => i >= 0)
-		.sort((a, b) => a - b)[0];
-	const start = first && first > 40 ? Math.max(0, first - 40) : 0;
-	const clipped = `${start > 0 ? '…' : ''}${clean.slice(start, start + max)}${
-		start + max < clean.length ? '…' : ''
-	}`;
-	const pattern = new RegExp(
-		`(${terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
-		'gi'
-	);
-	return clipped.replace(pattern, '<mark>$1</mark>');
+function visibleMessageSnippet(stored: string, terms: string[]): string | null {
+	return visibleSearchSnippet(textContent(stored), terms);
 }
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -120,13 +107,24 @@ LIMIT ?
 		collected.push({
 			...row,
 			role: 'thread',
-			snippet: markSnippet(row.conversationTitle || 'Untitled thread', terms)
+			snippet: markSearchSnippet(row.conversationTitle || 'Untitled thread', terms)
 		});
 	}
 
 	try {
-		const rows = sqliteClient.prepare(SQL).all(match, fetchLimit) as Row[];
-		for (const row of rows) collected.push(row);
+		const rows = sqliteClient.prepare(SQL).all(match, fetchLimit) as MessageSearchRow[];
+		for (const row of rows) {
+			const snippet = visibleMessageSnippet(row.content, terms);
+			if (!snippet) continue;
+			collected.push({
+				conversationId: row.conversationId,
+				conversationTitle: row.conversationTitle,
+				messageId: row.messageId,
+				role: row.role,
+				snippet,
+				createdAt: row.createdAt
+			});
+		}
 	} catch {
 		// Fall through to the LIKE scan below. Older or partially migrated local
 		// databases can have a stale FTS table; title/content search should still work.
@@ -141,7 +139,7 @@ SELECT
   m.conversation_id  AS conversationId,
   c.title            AS conversationTitle,
   m.role             AS role,
-  m.content          AS snippet,
+  m.content          AS content,
   m.created_at       AS createdAt
 FROM messages m
 JOIN conversations c ON c.id = m.conversation_id
@@ -151,12 +149,18 @@ ORDER BY m.created_at DESC
 LIMIT ?
 `
 			)
-			.all(...likeParams, fetchLimit) as Row[];
+			.all(...likeParams, fetchLimit) as MessageSearchRow[];
 
 		for (const row of messageRows) {
+			const snippet = visibleMessageSnippet(row.content, terms);
+			if (!snippet) continue;
 			collected.push({
-				...row,
-				snippet: markSnippet(textContent(row.snippet), terms)
+				conversationId: row.conversationId,
+				conversationTitle: row.conversationTitle,
+				messageId: row.messageId,
+				role: row.role,
+				snippet,
+				createdAt: row.createdAt
 			});
 		}
 	}

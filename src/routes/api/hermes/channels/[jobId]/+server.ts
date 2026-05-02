@@ -1,5 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { deleteChannelPostsByJobId } from '$lib/server/db/channel-posts';
+import { deleteMissionReportsByMissionId } from '$lib/server/db/mission-reports';
+import { deleteMissionConfig } from '$lib/server/db/missions';
 import { hideChannelJobId } from '$lib/server/db/hidden-channels';
 import { deleteHermesJob } from '$lib/server/hermes/board';
 
@@ -18,7 +19,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 		cronDeleted = true;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		// If the upstream job already vanished, still clear local channel posts.
+		// If the upstream task already vanished, still clear local mission reports.
 		if (/\b404\b/.test(message) || /not found/i.test(message)) {
 			cronDeleteError = message;
 		} else {
@@ -26,6 +27,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 		}
 	}
 
-	deleteChannelPostsByJobId(jobId);
+	deleteMissionConfig(jobId);
+	deleteMissionReportsByMissionId(jobId);
 	return json({ ok: true, deleted: jobId, cronDeleted, cronDeleteError });
 };
