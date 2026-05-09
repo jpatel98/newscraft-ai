@@ -16,10 +16,6 @@
 	import Plus from 'lucide-svelte/icons/plus';
 	import Search from 'lucide-svelte/icons/search';
 	import Activity from 'lucide-svelte/icons/activity';
-	import DatabaseBackup from 'lucide-svelte/icons/database-backup';
-	import RadioTower from 'lucide-svelte/icons/radio-tower';
-	import Clock3 from 'lucide-svelte/icons/clock-3';
-	import ListChecks from 'lucide-svelte/icons/list-checks';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import SystemPromptEditor from '$lib/components/SystemPromptEditor.svelte';
@@ -104,15 +100,47 @@
 		};
 	});
 
-	function statusTone(ok: boolean): 'ok' | 'warn' | 'error' {
-		return ok ? 'ok' : 'error';
-	}
-
 	function formatOperatorTime(value: string | null | undefined): string {
 		if (!value) return 'Never';
 		const parsed = Date.parse(value);
 		if (!Number.isFinite(parsed)) return value;
 		return formatRelativeTime(parsed);
+	}
+
+	function operatorMood(): 'ok' | 'warn' | 'error' {
+		if (operatorStatus?.ok) return 'ok';
+		if (operatorStatusLoading && !operatorStatus) return 'warn';
+		return 'error';
+	}
+
+	function operatorHeadline(): string {
+		if (operatorStatus?.ok) return 'Systems ready';
+		if (operatorStatusLoading && !operatorStatus) return 'Checking systems';
+		if (operatorStatusError) return 'Status unavailable';
+		if (!operatorStatus?.gateway.ok || !operatorStatus?.hermes.available) return 'Needs attention';
+		if (!operatorStatus?.dbBackup.ok) return 'Backup needs attention';
+		return 'Needs attention';
+	}
+
+	function operatorMissionLine(): string {
+		const lastRun = operatorStatus?.lastSuccessfulMissionRun;
+		if (!lastRun) return 'Missions checking';
+		if (!lastRun.at) return 'No completed missions yet';
+		return `Last mission ${formatOperatorTime(lastRun.at)}`;
+	}
+
+	function operatorBackupLine(): string {
+		const backup = operatorStatus?.dbBackup;
+		if (!backup) return 'Backup checking';
+		if (backup.latestAt) return `Backup ${formatOperatorTime(backup.latestAt)}`;
+		return 'No backup yet';
+	}
+
+	function operatorJobsLine(): string {
+		const count = operatorStatus?.pendingJobs.count;
+		if (count === undefined) return 'Jobs checking';
+		if (count === 0) return 'No jobs waiting';
+		return count === 1 ? '1 job waiting' : `${count} jobs waiting`;
 	}
 
 	function operatorDetailTitle(): string {
@@ -860,69 +888,15 @@
 				<div class="operator-footer" title={operatorDetailTitle()} aria-label="Operator health status">
 					<div class="operator-footer__head">
 						<span class="operator-footer__title">
-							<Activity size="13" strokeWidth={1.7} />
-							Operator
+							<span class="operator-footer__dot operator-footer__dot--{operatorMood()}"></span>
+							{operatorHeadline()}
 						</span>
-						<span
-							class="operator-footer__pill operator-footer__pill--{operatorStatus?.ok
-								? 'ok'
-								: operatorStatusLoading && !operatorStatus
-									? 'warn'
-									: 'error'}"
-						>
-							{operatorStatus?.ok ? 'Healthy' : operatorStatusLoading && !operatorStatus ? 'Checking' : 'Attention'}
-						</span>
+						<Activity size="13" strokeWidth={1.7} />
 					</div>
-					<div class="operator-footer__grid">
-						<div class="operator-footer__item">
-							<RadioTower size="12" strokeWidth={1.7} />
-							<span>Gateway</span>
-							<strong class="operator-footer__value operator-footer__value--{statusTone(operatorStatus?.gateway.ok ?? false)}">
-								{operatorStatus?.gateway.label ?? 'Checking'}
-							</strong>
-						</div>
-						<div class="operator-footer__item">
-							<Activity size="12" strokeWidth={1.7} />
-							<span>Hermes</span>
-							<strong
-								class="operator-footer__value operator-footer__value--{statusTone(
-									operatorStatus?.hermes.available ?? false
-								)}"
-							>
-								{operatorStatus?.hermes.label ?? 'Checking'}
-							</strong>
-						</div>
-						<div class="operator-footer__item">
-							<Clock3 size="12" strokeWidth={1.7} />
-							<span>Last run</span>
-							<strong class="operator-footer__value">
-								{formatOperatorTime(operatorStatus?.lastSuccessfulMissionRun.at)}
-							</strong>
-						</div>
-						<div class="operator-footer__item">
-							<DatabaseBackup size="12" strokeWidth={1.7} />
-							<span>Backup</span>
-							<strong
-								class="operator-footer__value operator-footer__value--{statusTone(
-									operatorStatus?.dbBackup.ok ?? false
-								)}"
-							>
-								{operatorStatus?.dbBackup.latestAt
-									? formatOperatorTime(operatorStatus.dbBackup.latestAt)
-									: operatorStatus?.dbBackup.label ?? 'Checking'}
-							</strong>
-						</div>
-						<div class="operator-footer__item">
-							<ListChecks size="12" strokeWidth={1.7} />
-							<span>Pending</span>
-							<strong
-								class="operator-footer__value operator-footer__value--{operatorStatus?.pendingJobs.count
-									? 'warn'
-									: 'ok'}"
-							>
-								{operatorStatus?.pendingJobs.count ?? '—'}
-							</strong>
-						</div>
+					<div class="operator-footer__body">
+						<span>{operatorMissionLine()}</span>
+						<span>{operatorBackupLine()}</span>
+						<span>{operatorJobsLine()}</span>
 					</div>
 				</div>
 				<a
