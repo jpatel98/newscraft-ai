@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { boardPostId, parseCronMarkdown, timestampFromFilename } from '$lib/utils/board';
 import { upsertMissionReport } from '$lib/server/db/mission-reports';
+import { getMissionAccountId } from '$lib/server/db/missions';
 
 interface Body {
 	id?: unknown;
@@ -79,8 +80,11 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const input = parseInput(body);
+	const accountId = getMissionAccountId(input.jobId);
+	if (!accountId) throw error(404, 'mission account not found');
 	upsertMissionReport({
 		id: input.id,
+		accountId,
 		missionId: input.jobId,
 		missionName: input.channel,
 		runTime: input.runTime,

@@ -43,6 +43,13 @@
       "when": 1777649400000,
       "tag": "0005_missions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1778083200000,
+      "tag": "0006_account_scopes",
+      "breakpoints": true
     }
   ]
 }

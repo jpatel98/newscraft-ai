@@ -32,6 +32,7 @@ export function parseContent(stored: string): MessageContent {
 
 export interface ConversationRow {
 	id: string;
+	accountId: string;
 	title: string;
 	systemPrompt: string | null;
 	createdAt: number;
@@ -49,17 +50,22 @@ export interface MessageRow {
 	createdAt: number;
 }
 
-export function listConversations(limit = 100): ConversationRow[] {
+export function listConversations(accountId: string, limit = 100): ConversationRow[] {
 	return db
 		.select()
 		.from(conversations)
+		.where(eq(conversations.accountId, accountId))
 		.orderBy(desc(conversations.pinned), desc(conversations.updatedAt))
 		.limit(limit)
 		.all();
 }
 
-export function getConversation(id: string): ConversationRow | undefined {
-	return db.select().from(conversations).where(eq(conversations.id, id)).get();
+export function getConversation(accountId: string, id: string): ConversationRow | undefined {
+	return db
+		.select()
+		.from(conversations)
+		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
+		.get();
 }
 
 export function getMessages(conversationId: string): MessageRow[] {
@@ -71,10 +77,11 @@ export function getMessages(conversationId: string): MessageRow[] {
 		.all() as MessageRow[];
 }
 
-export function createConversation(systemPrompt?: string): ConversationRow {
+export function createConversation(accountId: string, systemPrompt?: string): ConversationRow {
 	const now = Date.now();
 	const row: ConversationRow = {
 		id: newId(),
+		accountId,
 		title: '',
 		systemPrompt: systemPrompt ?? null,
 		createdAt: now,
@@ -110,25 +117,32 @@ export function addMessage(input: {
 	return row;
 }
 
-export function setConversationTitle(id: string, title: string) {
-	db.update(conversations).set({ title }).where(eq(conversations.id, id)).run();
+export function setConversationTitle(accountId: string, id: string, title: string) {
+	db.update(conversations)
+		.set({ title })
+		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
+		.run();
 }
 
-export function renameConversation(id: string, title: string): ConversationRow | undefined {
+export function renameConversation(accountId: string, id: string, title: string): ConversationRow | undefined {
 	const now = Date.now();
 	db.update(conversations)
 		.set({ title, updatedAt: now })
-		.where(eq(conversations.id, id))
+		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
 		.run();
-	return getConversation(id);
+	return getConversation(accountId, id);
 }
 
-export function setConversationPinned(id: string, pinned: 0 | 1): ConversationRow | undefined {
-	db.update(conversations).set({ pinned }).where(eq(conversations.id, id)).run();
-	return getConversation(id);
+export function setConversationPinned(accountId: string, id: string, pinned: 0 | 1): ConversationRow | undefined {
+	db.update(conversations)
+		.set({ pinned })
+		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
+		.run();
+	return getConversation(accountId, id);
 }
 
 export function setConversationSystemPrompt(
+	accountId: string,
 	id: string,
 	prompt: string | null
 ): ConversationRow | undefined {
@@ -136,13 +150,15 @@ export function setConversationSystemPrompt(
 	const now = Date.now();
 	db.update(conversations)
 		.set({ systemPrompt: trimmed, updatedAt: now })
-		.where(eq(conversations.id, id))
+		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
 		.run();
-	return getConversation(id);
+	return getConversation(accountId, id);
 }
 
-export function deleteConversation(id: string) {
-	db.delete(conversations).where(eq(conversations.id, id)).run();
+export function deleteConversation(accountId: string, id: string) {
+	db.delete(conversations)
+		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
+		.run();
 }
 
 /**

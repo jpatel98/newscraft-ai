@@ -141,6 +141,38 @@ export interface BoardData {
 	jobsError?: string | null;
 }
 
+export interface OperatorFooterStatus {
+	ok: boolean;
+	generatedAt: string;
+	gateway: {
+		ok: boolean;
+		status: number;
+		label: string;
+		detail: string | null;
+	};
+	hermes: {
+		available: boolean;
+		label: string;
+		detail: string | null;
+	};
+	lastSuccessfulMissionRun: {
+		at: string | null;
+		label: string;
+		missionName: string | null;
+	};
+	dbBackup: {
+		ok: boolean;
+		label: string;
+		latestAt: string | null;
+		count: number;
+		detail: string | null;
+	};
+	pendingJobs: {
+		count: number;
+		label: string;
+	};
+}
+
 /** Plain-text projection of a message for callers that don't render parts (copy, recall, etc.). */
 export function contentText(c: MessageContent): string {
 	if (typeof c === 'string') return c;

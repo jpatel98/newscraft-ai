@@ -1,9 +1,10 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from './index';
 import { hermesChannelPosts, missionReports } from './schema';
 
 export interface MissionReportUpsertInput {
 	id: string;
+	accountId: string;
 	missionId: string;
 	missionName: string;
 	runTime: string | null;
@@ -19,6 +20,7 @@ export interface MissionReportUpsertInput {
 
 export interface MissionReportRow {
 	id: string;
+	accountId: string;
 	missionId: string;
 	missionName: string;
 	runTime: string | null;
@@ -42,15 +44,17 @@ function missingLegacyPostsTable(err: unknown): boolean {
 	return err instanceof Error && /no such table:\s*hermes_channel_posts/i.test(err.message);
 }
 
-function legacyReportRows(): MissionReportRow[] {
+function legacyReportRows(accountId: string): MissionReportRow[] {
 	try {
 		return db
 			.select()
 			.from(hermesChannelPosts)
+			.where(eq(hermesChannelPosts.accountId, accountId))
 			.orderBy(asc(hermesChannelPosts.updatedAt))
 			.all()
 			.map((row) => ({
 				id: row.id,
+				accountId: row.accountId,
 				missionId: row.jobId,
 				missionName: row.channel,
 				runTime: row.runTime,
@@ -78,6 +82,7 @@ export function upsertMissionReport(input: MissionReportUpsertInput): void {
 		db.insert(missionReports)
 			.values({
 				id: input.id,
+				accountId: input.accountId,
 				missionId: input.missionId,
 				missionName: input.missionName,
 				runTime: input.runTime,
@@ -96,6 +101,7 @@ export function upsertMissionReport(input: MissionReportUpsertInput): void {
 				target: missionReports.id,
 				set: {
 					missionId: input.missionId,
+					accountId: input.accountId,
 					missionName: input.missionName,
 					runTime: input.runTime,
 					schedule: input.schedule,
@@ -116,53 +122,62 @@ export function upsertMissionReport(input: MissionReportUpsertInput): void {
 	}
 }
 
-export function listMissionReports(): MissionReportRow[] {
+export function listMissionReports(accountId: string): MissionReportRow[] {
 	try {
-		const rows = db.select().from(missionReports).orderBy(asc(missionReports.updatedAt)).all();
+		const rows = db
+			.select()
+			.from(missionReports)
+			.where(eq(missionReports.accountId, accountId))
+			.orderBy(asc(missionReports.updatedAt))
+			.all();
 		if (rows.length > 0) return rows;
-		return legacyReportRows();
+		return legacyReportRows(accountId);
 	} catch (err) {
-		if (missingMissionReportsTable(err)) return legacyReportRows();
+		if (missingMissionReportsTable(err)) return legacyReportRows(accountId);
 		throw err;
 	}
 }
 
-export function clearAllMissionReports(): void {
+export function clearAllMissionReports(accountId: string): void {
 	try {
-		db.delete(missionReports).run();
+		db.delete(missionReports).where(eq(missionReports.accountId, accountId)).run();
 	} catch (err) {
 		if (!missingMissionReportsTable(err)) throw err;
 	}
 }
 
-export function deleteMissionReportsByMissionIds(missionIds: string[]): void {
+export function deleteMissionReportsByMissionIds(accountId: string, missionIds: string[]): void {
 	const ids = missionIds.map((id) => id.trim()).filter(Boolean);
 	if (ids.length === 0) return;
 	try {
-		db.delete(missionReports).where(inArray(missionReports.missionId, ids)).run();
+		db.delete(missionReports)
+			.where(and(eq(missionReports.accountId, accountId), inArray(missionReports.missionId, ids)))
+			.run();
 	} catch (err) {
 		if (!missingMissionReportsTable(err)) throw err;
 	}
 }
 
-export function deleteMissionReportsByMissionId(missionId: string): void {
+export function deleteMissionReportsByMissionId(accountId: string, missionId: string): void {
 	const id = missionId.trim();
 	if (!id) return;
 	try {
-		db.delete(missionReports).where(eq(missionReports.missionId, id)).run();
+		db.delete(missionReports)
+			.where(and(eq(missionReports.accountId, accountId), eq(missionReports.missionId, id)))
+			.run();
 	} catch (err) {
 		if (!missingMissionReportsTable(err)) throw err;
 	}
 }
 
-export function renameMissionReportsForMission(missionId: string, missionName: string): void {
+export function renameMissionReportsForMission(accountId: string, missionId: string, missionName: string): void {
 	const id = missionId.trim();
 	const name = missionName.trim();
 	if (!id || !name) return;
 	try {
 		db.update(missionReports)
 			.set({ missionName: name, updatedAt: Date.now() })
-			.where(eq(missionReports.missionId, id))
+			.where(and(eq(missionReports.accountId, accountId), eq(missionReports.missionId, id)))
 			.run();
 	} catch (err) {
 		if (!missingMissionReportsTable(err)) throw err;

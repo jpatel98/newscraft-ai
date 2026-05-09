@@ -4,7 +4,7 @@ import { getMessages, listConversations, parseContent } from '$lib/server/db/con
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 
-	const convos = listConversations(10_000);
+	const convos = listConversations(locals.user.id, 10_000);
 
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {

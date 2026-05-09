@@ -276,11 +276,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	// --- Resolve conversation + decide what to stream ---
 	const isResume = body.resume === true;
-	let convo = body.conversation_id ? getConversation(body.conversation_id) : undefined;
+	const accountId = locals.user.id;
+	let convo = body.conversation_id ? getConversation(accountId, body.conversation_id) : undefined;
 	const isNew = !convo && !isResume;
 	if (!convo) {
 		if (isResume) throw error(404, 'conversation not found');
-		convo = createConversation();
+		convo = createConversation(accountId);
 	}
 	const convoId = convo.id;
 
@@ -479,7 +480,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			// the client gets the title before the stream closes (and before its
 			// invalidateAll() picks up the conversation list).
 			try {
-				const fresh = getConversation(convoId);
+				const fresh = getConversation(accountId, convoId);
 				if (fresh && (isNew || !fresh.title) && assistantRow) {
 					const seedHistory = getMessages(convoId)
 						.filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -508,7 +509,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					const raw = result.choices?.[0]?.message?.content ?? '';
 					const title = raw.trim().replace(/^["']|["']$/g, '').replace(/[.!?]+$/, '').slice(0, 80);
 					if (title) {
-						setConversationTitle(convoId, title);
+						setConversationTitle(accountId, convoId, title);
 						controller.enqueue(
 							enc.encode(`event: hermes.title\ndata: ${JSON.stringify({ title })}\n\n`)
 						);

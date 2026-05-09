@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { count, desc, eq } from 'drizzle-orm';
+import { count, desc, eq, isNull } from 'drizzle-orm';
 import { hashPassword, verifyHash } from '$lib/server/auth/password';
 import { newId } from '$lib/utils/id';
 import { db } from './index';
-import { accounts } from './schema';
+import { accounts, conversations, hermesChannelConfigs, hermesChannelPosts, missionReports, missions } from './schema';
 
 const SETUP_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
@@ -75,6 +75,7 @@ export async function createAccountWithPassword(input: {
 	name?: string;
 	password: string;
 }): Promise<AccountRow> {
+	const firstAccount = accountCount() === 0;
 	const email = normalizeEmail(input.email);
 	const now = Date.now();
 	const row: AccountRow = {
@@ -89,10 +90,12 @@ export async function createAccountWithPassword(input: {
 		lastLoginAt: null
 	};
 	db.insert(accounts).values(row).run();
+	if (firstAccount) claimOrphanAccountData(row.id);
 	return row;
 }
 
 export async function createPasswordOnlyAccount(password: string): Promise<AccountRow> {
+	const firstAccount = accountCount() === 0;
 	const id = newId();
 	const email = generatedAccountEmail(id);
 	const now = Date.now();
@@ -108,6 +111,7 @@ export async function createPasswordOnlyAccount(password: string): Promise<Accou
 		lastLoginAt: null
 	};
 	db.insert(accounts).values(row).run();
+	if (firstAccount) claimOrphanAccountData(row.id);
 	return row;
 }
 
@@ -116,6 +120,7 @@ export function createAccountInvite(input: { email: string; name?: string }): {
 	token: string;
 	expiresAt: number;
 } {
+	const firstAccount = accountCount() === 0;
 	const email = normalizeEmail(input.email);
 	const now = Date.now();
 	const token = randomToken();
@@ -132,6 +137,7 @@ export function createAccountInvite(input: { email: string; name?: string }): {
 		lastLoginAt: null
 	};
 	db.insert(accounts).values(row).run();
+	if (firstAccount) claimOrphanAccountData(row.id);
 	return { account: row, token, expiresAt };
 }
 
@@ -140,6 +146,7 @@ export function createPasswordOnlyInvite(): {
 	token: string;
 	expiresAt: number;
 } {
+	const firstAccount = accountCount() === 0;
 	const id = newId();
 	const email = generatedAccountEmail(id);
 	const now = Date.now();
@@ -157,6 +164,7 @@ export function createPasswordOnlyInvite(): {
 		lastLoginAt: null
 	};
 	db.insert(accounts).values(row).run();
+	if (firstAccount) claimOrphanAccountData(row.id);
 	return { account: row, token, expiresAt };
 }
 
@@ -258,6 +266,22 @@ function toSummary(row: AccountRow): AccountSummary {
 
 function randomToken(): string {
 	return randomBytes(32).toString('base64url');
+}
+
+function claimOrphanAccountData(accountId: string): void {
+	db.transaction((tx) => {
+		tx.update(conversations).set({ accountId }).where(isNull(conversations.accountId)).run();
+		tx.update(missions).set({ accountId }).where(isNull(missions.accountId)).run();
+		tx.update(missionReports).set({ accountId }).where(isNull(missionReports.accountId)).run();
+		tx.update(hermesChannelConfigs)
+			.set({ accountId })
+			.where(isNull(hermesChannelConfigs.accountId))
+			.run();
+		tx.update(hermesChannelPosts)
+			.set({ accountId })
+			.where(isNull(hermesChannelPosts.accountId))
+			.run();
+	});
 }
 
 function tokenHash(token: string): string {

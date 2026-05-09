@@ -20,7 +20,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	} catch {
 		throw error(400, 'invalid json');
 	}
-	const convo = body.conversation_id ? getConversation(body.conversation_id) : undefined;
+	const convo = body.conversation_id ? getConversation(locals.user.id, body.conversation_id) : undefined;
 	if (!convo) throw error(404, 'conversation not found');
 
 	const msg = getMessageById(messageId);

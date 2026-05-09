@@ -27,7 +27,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	const id = params.id;
 	if (!id) throw error(400, 'id required');
 
-	const convo = getConversation(id);
+	const convo = getConversation(locals.user.id, id);
 	if (!convo) throw error(404, 'not found');
 
 	const format = (url.searchParams.get('format') ?? 'md').toLowerCase();

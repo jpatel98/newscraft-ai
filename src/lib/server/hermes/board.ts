@@ -21,6 +21,8 @@ import {
 import {
 	clearAllMissionConfigs,
 	deleteMissionConfig,
+	getMissionConfig,
+	listMissionConfigs,
 	overlayMissionConfigs
 } from '$lib/server/db/missions';
 import { listHiddenChannelJobIds, unhideChannelJobId } from '$lib/server/db/hidden-channels';
@@ -262,11 +264,14 @@ async function fetchHermesJobsBody(): Promise<unknown> {
 	throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-async function listHermesJobsWithRuns(): Promise<{ jobs: HermesJob[]; runs: HermesRun[] }> {
+async function listHermesJobsWithRuns(accountId: string): Promise<{ jobs: HermesJob[]; runs: HermesRun[] }> {
 	const body = await fetchHermesJobsBody();
 	const rawJobs = rawJobsFromBody(body);
+	const normalizedJobs = rawJobs.map(normalizeHermesJob).filter((job): job is HermesJob => Boolean(job));
+	const ownedConfigs = listMissionConfigs(accountId, normalizedJobs.map((job) => job.id));
 	const jobs = overlayMissionConfigs(
-		rawJobs.map(normalizeHermesJob).filter((job): job is HermesJob => Boolean(job))
+		accountId,
+		normalizedJobs.filter((job) => ownedConfigs.has(job.id))
 	);
 	const jobsById = new Map(jobs.map((job) => [job.id, job]));
 	const runs = rawJobs.flatMap((rawJob) => {
@@ -278,8 +283,8 @@ async function listHermesJobsWithRuns(): Promise<{ jobs: HermesJob[]; runs: Herm
 	return { jobs, runs: dedupeRuns(runs.map((run) => ({ ...run, jobName: run.jobName ?? jobsById.get(run.jobId)?.name ?? null }))) };
 }
 
-export async function listHermesJobs(): Promise<HermesJob[]> {
-	return (await listHermesJobsWithRuns()).jobs;
+export async function listHermesJobs(accountId: string): Promise<HermesJob[]> {
+	return (await listHermesJobsWithRuns(accountId)).jobs;
 }
 
 export async function listHermesRuns(jobs: HermesJob[] = []): Promise<HermesRun[]> {
@@ -317,7 +322,11 @@ export async function listHermesRuns(jobs: HermesJob[] = []): Promise<HermesRun[
 	return [];
 }
 
-async function syncCronOutputToDb(jobs: HermesJob[], hiddenJobIds: ReadonlySet<string>): Promise<void> {
+async function syncCronOutputToDb(
+	accountId: string,
+	jobs: HermesJob[],
+	hiddenJobIds: ReadonlySet<string>
+): Promise<void> {
 	const root = cronOutputRoot();
 	let folders;
 	try {
@@ -344,12 +353,14 @@ async function syncCronOutputToDb(jobs: HermesJob[], hiddenJobIds: ReadonlySet<s
 			const fileStat = await stat(filePath);
 			const parsed = parseCronMarkdown(markdown, folder.name);
 			const jobId = parsed.jobId || folder.name;
+			if (!jobNames.has(jobId)) continue;
 			if (hiddenJobIds.has(jobId)) continue;
 			const missionName = jobNames.get(jobId) || parsed.channel || jobId;
 			const runTime = parsed.runTime ?? timestampFromFilename(file.name);
 
 			upsertMissionReport({
 				id: boardPostId(jobId, file.name),
+				accountId,
 				missionId: jobId,
 				missionName,
 				runTime,
@@ -364,8 +375,8 @@ async function syncCronOutputToDb(jobs: HermesJob[], hiddenJobIds: ReadonlySet<s
 	}
 }
 
-function listBoardPostsFromDb(): BoardPost[] {
-	return listMissionReports().map((row) => ({
+function listBoardPostsFromDb(accountId: string): BoardPost[] {
+	return listMissionReports(accountId).map((row) => ({
 		id: row.id,
 		jobId: row.missionId,
 		channel: row.missionName,
@@ -410,6 +421,7 @@ async function listCronPostsFromFilesystem(
 			const markdown = await readFile(filePath, 'utf8');
 			const parsed = parseCronMarkdown(markdown, folder.name);
 			const jobId = parsed.jobId || folder.name;
+			if (!jobNames.has(jobId)) continue;
 			if (hiddenJobIds.has(jobId)) continue;
 			const channel = jobNames.get(jobId) || parsed.channel || jobId;
 			const runTime = parsed.runTime ?? timestampFromFilename(file.name);
@@ -432,13 +444,13 @@ async function listCronPostsFromFilesystem(
 	return posts;
 }
 
-export async function boardData(): Promise<BoardData> {
-	const hiddenJobIds = new Set(listHiddenChannelJobIds());
+export async function boardData(accountId: string): Promise<BoardData> {
+	const hiddenJobIds = new Set(listHiddenChannelJobIds(accountId));
 	let jobs: HermesJob[] = [];
 	let runs: HermesRun[] = [];
 	let jobsError: string | null = null;
 	try {
-		const live = await listHermesJobsWithRuns();
+		const live = await listHermesJobsWithRuns(accountId);
 		jobs = live.jobs.filter((job) => !hiddenJobIds.has(job.id));
 		runs = live.runs.filter((run) => !hiddenJobIds.has(run.jobId));
 	} catch (err) {
@@ -451,16 +463,17 @@ export async function boardData(): Promise<BoardData> {
 	}
 	let posts: BoardPost[] = [];
 	try {
-		await syncCronOutputToDb(jobs, hiddenJobIds);
-		posts = listBoardPostsFromDb().filter((post) => !hiddenJobIds.has(post.jobId));
+		await syncCronOutputToDb(accountId, jobs, hiddenJobIds);
+		posts = listBoardPostsFromDb(accountId).filter((post) => !hiddenJobIds.has(post.jobId));
 	} catch {
 		posts = await listCronPostsFromFilesystem(jobs, hiddenJobIds);
 	}
 	return { ...buildBoardData(posts, jobs, runs, { orphanedPostsArchived: !jobsError }), jobsError };
 }
 
-export async function runJobAction(id: string, action: 'run' | 'pause' | 'resume'): Promise<HermesJob | null> {
+export async function runJobAction(accountId: string, id: string, action: 'run' | 'pause' | 'resume'): Promise<HermesJob | null> {
 	if (!JOB_ID_RE.test(id)) throw new Error('Invalid job id');
+	if (!getMissionConfig(accountId, id)) throw new Error('Mission not found');
 	const response = await hermesFetch(`/api/jobs/${encodeURIComponent(id)}/${action}`, {
 		method: 'POST',
 		signal: AbortSignal.timeout(15000)
@@ -484,7 +497,7 @@ export interface CreateHermesJobInput {
 	deliver?: string | null;
 }
 
-export async function createHermesJob(input: CreateHermesJobInput): Promise<HermesJob | null> {
+export async function createHermesJob(accountId: string, input: CreateHermesJobInput): Promise<HermesJob | null> {
 	const payload = {
 		name: input.name,
 		title: input.name,
@@ -504,7 +517,7 @@ export async function createHermesJob(input: CreateHermesJobInput): Promise<Herm
 	if (!text.trim()) return null;
 	const body = JSON.parse(text);
 	const job = normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
-	if (job) unhideChannelJobId(job.id);
+	if (job) unhideChannelJobId(accountId, job.id);
 	return job;
 }
 
@@ -516,8 +529,9 @@ export interface UpdateHermesJobInput {
 	enabled?: boolean;
 }
 
-export async function updateHermesJob(id: string, input: UpdateHermesJobInput): Promise<HermesJob | null> {
+export async function updateHermesJob(accountId: string, id: string, input: UpdateHermesJobInput): Promise<HermesJob | null> {
 	if (!JOB_ID_RE.test(id)) throw new Error('Invalid job id');
+	if (!getMissionConfig(accountId, id)) throw new Error('Mission not found');
 	const payload: Record<string, unknown> = {};
 	if (typeof input.name === 'string') {
 		const name = input.name.trim();
@@ -551,27 +565,28 @@ export async function updateHermesJob(id: string, input: UpdateHermesJobInput): 
 	if (!text.trim()) return null;
 	const body = JSON.parse(text);
 	const job = normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
-	if (job) unhideChannelJobId(job.id);
-	if (job?.name) renameMissionReportsForMission(job.id, job.name);
+	if (job) unhideChannelJobId(accountId, job.id);
+	if (job?.name) renameMissionReportsForMission(accountId, job.id, job.name);
 	return job;
 }
 
-export async function deleteHermesJob(id: string): Promise<void> {
+export async function deleteHermesJob(accountId: string, id: string): Promise<void> {
 	if (!JOB_ID_RE.test(id)) throw new Error('Invalid job id');
+	if (!getMissionConfig(accountId, id)) throw new Error('Mission not found');
 	const response = await hermesFetch(`/api/jobs/${encodeURIComponent(id)}`, {
 		method: 'DELETE',
 		signal: AbortSignal.timeout(15000)
 	});
 	if (!response.ok) throw new Error(`Mission delete ${response.status}: ${await response.text()}`);
-	deleteMissionConfig(id);
-	deleteMissionReportsByMissionIds([id]);
+	deleteMissionConfig(accountId, id);
+	deleteMissionReportsByMissionIds(accountId, [id]);
 }
 
-export async function deleteAllHermesJobs(): Promise<{ deleted: number; failed: string[] }> {
-	const jobs = await listHermesJobs();
+export async function deleteAllHermesJobs(accountId: string): Promise<{ deleted: number; failed: string[] }> {
+	const jobs = await listHermesJobs(accountId);
 	if (jobs.length === 0) {
-		clearAllMissionConfigs();
-		clearAllMissionReports();
+		clearAllMissionConfigs(accountId);
+		clearAllMissionReports(accountId);
 		return { deleted: 0, failed: [] };
 	}
 
@@ -579,13 +594,13 @@ export async function deleteAllHermesJobs(): Promise<{ deleted: number; failed: 
 	const failed: string[] = [];
 	for (const job of jobs) {
 		try {
-			await deleteHermesJob(job.id);
+			await deleteHermesJob(accountId, job.id);
 			deleted += 1;
 		} catch (err) {
 			failed.push(`${job.id}: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	}
-	if (failed.length === 0) clearAllMissionReports();
-	if (failed.length === 0) clearAllMissionConfigs();
+	if (failed.length === 0) clearAllMissionReports(accountId);
+	if (failed.length === 0) clearAllMissionConfigs(accountId);
 	return { deleted, failed };
 }

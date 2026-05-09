@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { ChannelSource, HermesJob } from '$lib/types';
 import { newId } from '$lib/utils/id';
 import { normalizeChannelSource, overlayChannelSourceConfigs } from '$lib/utils/channel-sources';
@@ -68,7 +68,7 @@ function sourcesByMissionId(rows: Array<typeof missionSources.$inferSelect>): Ma
 	return sources;
 }
 
-function legacyConfigs(missionIds: string[]): Map<string, MissionConfig> {
+function legacyConfigs(accountId: string, missionIds: string[]): Map<string, MissionConfig> {
 	const ids = Array.from(new Set(missionIds.map((id) => id.trim()).filter(Boolean)));
 	const configs = new Map<string, MissionConfig>();
 	if (ids.length === 0) return configs;
@@ -76,7 +76,7 @@ function legacyConfigs(missionIds: string[]): Map<string, MissionConfig> {
 		const configRows = db
 			.select()
 			.from(hermesChannelConfigs)
-			.where(inArray(hermesChannelConfigs.jobId, ids))
+			.where(and(eq(hermesChannelConfigs.accountId, accountId), inArray(hermesChannelConfigs.jobId, ids)))
 			.all();
 		if (configRows.length === 0) return configs;
 		const sourceRows = db
@@ -109,12 +109,16 @@ function legacyConfigs(missionIds: string[]): Map<string, MissionConfig> {
 	}
 }
 
-export function getMissionConfig(missionId: string): MissionConfig | null {
+export function getMissionConfig(accountId: string, missionId: string): MissionConfig | null {
 	const id = missionId.trim();
 	if (!id) return null;
 	try {
-		const config = db.select().from(missions).where(eq(missions.id, id)).get();
-		if (!config) return legacyConfigs([id]).get(id) ?? null;
+		const config = db
+			.select()
+			.from(missions)
+			.where(and(eq(missions.accountId, accountId), eq(missions.id, id)))
+			.get();
+		if (!config) return legacyConfigs(accountId, [id]).get(id) ?? null;
 		const sourceRows = db
 			.select()
 			.from(missionSources)
@@ -129,17 +133,37 @@ export function getMissionConfig(missionId: string): MissionConfig | null {
 			sources: sourceRows.map(sourceFromRow).filter((source): source is ChannelSource => Boolean(source))
 		};
 	} catch (err) {
-		if (missingMissionTables(err)) return legacyConfigs([id]).get(id) ?? null;
+		if (missingMissionTables(err)) return legacyConfigs(accountId, [id]).get(id) ?? null;
 		throw err;
 	}
 }
 
-export function listMissionConfigs(missionIds: string[]): Map<string, MissionConfig> {
+export function getMissionAccountId(missionId: string): string | null {
+	const id = missionId.trim();
+	if (!id) return null;
+	try {
+		const row = db
+			.select({ accountId: missions.accountId })
+			.from(missions)
+			.where(eq(missions.id, id))
+			.get();
+		return row?.accountId ?? null;
+	} catch (err) {
+		if (missingMissionTables(err)) return null;
+		throw err;
+	}
+}
+
+export function listMissionConfigs(accountId: string, missionIds: string[]): Map<string, MissionConfig> {
 	const ids = Array.from(new Set(missionIds.map((id) => id.trim()).filter(Boolean)));
 	const configs = new Map<string, MissionConfig>();
 	if (ids.length === 0) return configs;
 	try {
-		const missionRows = db.select().from(missions).where(inArray(missions.id, ids)).all();
+		const missionRows = db
+			.select()
+			.from(missions)
+			.where(and(eq(missions.accountId, accountId), inArray(missions.id, ids)))
+			.all();
 		const sourceRows =
 			missionRows.length > 0
 				? db
@@ -159,18 +183,18 @@ export function listMissionConfigs(missionIds: string[]): Map<string, MissionCon
 				sources: sources.get(row.id) ?? []
 			});
 		}
-		for (const [id, config] of legacyConfigs(ids)) {
+		for (const [id, config] of legacyConfigs(accountId, ids)) {
 			if (!configs.has(id)) configs.set(id, config);
 		}
 		return configs;
 	} catch (err) {
-		if (missingMissionTables(err)) return legacyConfigs(ids);
+		if (missingMissionTables(err)) return legacyConfigs(accountId, ids);
 		throw err;
 	}
 }
 
-export function overlayMissionConfigs(jobs: HermesJob[]): HermesJob[] {
-	const configs = listMissionConfigs(jobs.map((job) => job.id));
+export function overlayMissionConfigs(accountId: string, jobs: HermesJob[]): HermesJob[] {
+	const configs = listMissionConfigs(accountId, jobs.map((job) => job.id));
 	return overlayChannelSourceConfigs(jobs, configs).map((job) => {
 		const config = configs.get(job.id);
 		if (!config) return job;
@@ -183,6 +207,7 @@ export function overlayMissionConfigs(jobs: HermesJob[]): HermesJob[] {
 }
 
 export function saveMissionConfig(
+	accountId: string,
 	missionId: string,
 	basePrompt: string,
 	sources: ChannelSource[],
@@ -203,6 +228,7 @@ export function saveMissionConfig(
 			tx.insert(missions)
 				.values({
 					id,
+					accountId,
 					name: options.name?.trim() || id,
 					description: options.description?.trim() || '',
 					prompt: basePrompt,
@@ -218,6 +244,7 @@ export function saveMissionConfig(
 					target: missions.id,
 					set: {
 						name: options.name?.trim() || id,
+						accountId,
 						description: options.description?.trim() || '',
 						prompt: basePrompt,
 						schedule: options.schedule?.trim() || '',
@@ -257,29 +284,29 @@ export function saveMissionConfig(
 	}
 }
 
-export function deleteMissionConfig(missionId: string): void {
+export function deleteMissionConfig(accountId: string, missionId: string): void {
 	const id = missionId.trim();
 	if (!id) return;
 	try {
-		db.delete(missions).where(eq(missions.id, id)).run();
+		db.delete(missions).where(and(eq(missions.accountId, accountId), eq(missions.id, id))).run();
 	} catch (err) {
 		if (!missingMissionTables(err)) throw err;
 	}
 }
 
-export function deleteMissionConfigsByMissionIds(missionIds: string[]): void {
+export function deleteMissionConfigsByMissionIds(accountId: string, missionIds: string[]): void {
 	const ids = missionIds.map((id) => id.trim()).filter(Boolean);
 	if (ids.length === 0) return;
 	try {
-		db.delete(missions).where(inArray(missions.id, ids)).run();
+		db.delete(missions).where(and(eq(missions.accountId, accountId), inArray(missions.id, ids))).run();
 	} catch (err) {
 		if (!missingMissionTables(err)) throw err;
 	}
 }
 
-export function clearAllMissionConfigs(): void {
+export function clearAllMissionConfigs(accountId: string): void {
 	try {
-		db.delete(missions).run();
+		db.delete(missions).where(eq(missions.accountId, accountId)).run();
 	} catch (err) {
 		if (!missingMissionTables(err)) throw err;
 	}

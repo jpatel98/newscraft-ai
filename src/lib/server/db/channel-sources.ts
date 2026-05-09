@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { ChannelSource, HermesJob } from '$lib/types';
 import { newId } from '$lib/utils/id';
 import { normalizeChannelSource, overlayChannelSourceConfigs } from '$lib/utils/channel-sources';
@@ -7,6 +7,7 @@ import { hermesChannelConfigs, hermesChannelSources } from './schema';
 
 export interface ChannelConfig {
 	jobId: string;
+	accountId: string;
 	basePrompt: string;
 	sources: ChannelSource[];
 }
@@ -49,14 +50,14 @@ function sourcesByJobId(rows: Array<typeof hermesChannelSources.$inferSelect>): 
 	return sources;
 }
 
-export function getChannelConfig(jobId: string): ChannelConfig | null {
+export function getChannelConfig(accountId: string, jobId: string): ChannelConfig | null {
 	const id = jobId.trim();
 	if (!id) return null;
 	try {
 		const config = db
 			.select()
 			.from(hermesChannelConfigs)
-			.where(eq(hermesChannelConfigs.jobId, id))
+			.where(and(eq(hermesChannelConfigs.accountId, accountId), eq(hermesChannelConfigs.jobId, id)))
 			.get();
 		if (!config) return null;
 		const sourceRows = db
@@ -67,6 +68,7 @@ export function getChannelConfig(jobId: string): ChannelConfig | null {
 			.all();
 		return {
 			jobId: id,
+			accountId,
 			basePrompt: config.basePrompt,
 			sources: sourceRows.map(sourceFromRow).filter((source): source is ChannelSource => Boolean(source))
 		};
@@ -76,7 +78,7 @@ export function getChannelConfig(jobId: string): ChannelConfig | null {
 	}
 }
 
-export function listChannelConfigs(jobIds: string[]): Map<string, ChannelConfig> {
+export function listChannelConfigs(accountId: string, jobIds: string[]): Map<string, ChannelConfig> {
 	const ids = Array.from(new Set(jobIds.map((id) => id.trim()).filter(Boolean)));
 	const configs = new Map<string, ChannelConfig>();
 	if (ids.length === 0) return configs;
@@ -84,7 +86,7 @@ export function listChannelConfigs(jobIds: string[]): Map<string, ChannelConfig>
 		const configRows = db
 			.select()
 			.from(hermesChannelConfigs)
-			.where(inArray(hermesChannelConfigs.jobId, ids))
+			.where(and(eq(hermesChannelConfigs.accountId, accountId), inArray(hermesChannelConfigs.jobId, ids)))
 			.all();
 		if (configRows.length === 0) return configs;
 		const sourceRows = db
@@ -97,6 +99,7 @@ export function listChannelConfigs(jobIds: string[]): Map<string, ChannelConfig>
 		for (const row of configRows) {
 			configs.set(row.jobId, {
 				jobId: row.jobId,
+				accountId: row.accountId,
 				basePrompt: row.basePrompt,
 				sources: sources.get(row.jobId) ?? []
 			});
@@ -108,12 +111,12 @@ export function listChannelConfigs(jobIds: string[]): Map<string, ChannelConfig>
 	}
 }
 
-export function overlayChannelConfigs(jobs: HermesJob[]): HermesJob[] {
-	const configs = listChannelConfigs(jobs.map((job) => job.id));
+export function overlayChannelConfigs(accountId: string, jobs: HermesJob[]): HermesJob[] {
+	const configs = listChannelConfigs(accountId, jobs.map((job) => job.id));
 	return overlayChannelSourceConfigs(jobs, configs);
 }
 
-export function saveChannelConfig(jobId: string, basePrompt: string, sources: ChannelSource[]): void {
+export function saveChannelConfig(accountId: string, jobId: string, basePrompt: string, sources: ChannelSource[]): void {
 	const id = jobId.trim();
 	if (!id) return;
 	const now = Date.now();
@@ -122,6 +125,7 @@ export function saveChannelConfig(jobId: string, basePrompt: string, sources: Ch
 			tx.insert(hermesChannelConfigs)
 				.values({
 					jobId: id,
+					accountId,
 					basePrompt,
 					createdAt: now,
 					updatedAt: now
@@ -129,6 +133,7 @@ export function saveChannelConfig(jobId: string, basePrompt: string, sources: Ch
 				.onConflictDoUpdate({
 					target: hermesChannelConfigs.jobId,
 					set: {
+						accountId,
 						basePrompt,
 						updatedAt: now
 					}
@@ -163,31 +168,35 @@ export function saveChannelConfig(jobId: string, basePrompt: string, sources: Ch
 	}
 }
 
-export function deleteChannelConfig(jobId: string): void {
+export function deleteChannelConfig(accountId: string, jobId: string): void {
 	const id = jobId.trim();
 	if (!id) return;
 	try {
-		db.delete(hermesChannelConfigs).where(eq(hermesChannelConfigs.jobId, id)).run();
+		db.delete(hermesChannelConfigs)
+			.where(and(eq(hermesChannelConfigs.accountId, accountId), eq(hermesChannelConfigs.jobId, id)))
+			.run();
 	} catch (err) {
 		if (missingChannelSourceTables(err)) return;
 		throw err;
 	}
 }
 
-export function deleteChannelConfigsByJobIds(jobIds: string[]): void {
+export function deleteChannelConfigsByJobIds(accountId: string, jobIds: string[]): void {
 	const ids = jobIds.map((id) => id.trim()).filter(Boolean);
 	if (ids.length === 0) return;
 	try {
-		db.delete(hermesChannelConfigs).where(inArray(hermesChannelConfigs.jobId, ids)).run();
+		db.delete(hermesChannelConfigs)
+			.where(and(eq(hermesChannelConfigs.accountId, accountId), inArray(hermesChannelConfigs.jobId, ids)))
+			.run();
 	} catch (err) {
 		if (missingChannelSourceTables(err)) return;
 		throw err;
 	}
 }
 
-export function clearAllChannelConfigs(): void {
+export function clearAllChannelConfigs(accountId: string): void {
 	try {
-		db.delete(hermesChannelConfigs).run();
+		db.delete(hermesChannelConfigs).where(eq(hermesChannelConfigs.accountId, accountId)).run();
 	} catch (err) {
 		if (missingChannelSourceTables(err)) return;
 		throw err;

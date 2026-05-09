@@ -1,9 +1,10 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from './index';
 import { hermesChannelPosts } from './schema';
 
 export interface ChannelPostUpsertInput {
 	id: string;
+	accountId: string;
 	jobId: string;
 	channel: string;
 	runTime: string | null;
@@ -17,6 +18,7 @@ export interface ChannelPostUpsertInput {
 
 export interface ChannelPostRow {
 	id: string;
+	accountId: string;
 	jobId: string;
 	channel: string;
 	runTime: string | null;
@@ -43,6 +45,7 @@ export function upsertChannelPost(input: ChannelPostUpsertInput): void {
 		db.insert(hermesChannelPosts)
 			.values({
 				id: input.id,
+				accountId: input.accountId,
 				jobId: input.jobId,
 				channel: input.channel,
 				runTime: input.runTime,
@@ -59,6 +62,7 @@ export function upsertChannelPost(input: ChannelPostUpsertInput): void {
 				target: hermesChannelPosts.id,
 				set: {
 					jobId: input.jobId,
+					accountId: input.accountId,
 					channel: input.channel,
 					runTime: input.runTime,
 					schedule: input.schedule,
@@ -77,52 +81,64 @@ export function upsertChannelPost(input: ChannelPostUpsertInput): void {
 	}
 }
 
-export function listChannelPosts(): ChannelPostRow[] {
+export function listChannelPosts(accountId: string): ChannelPostRow[] {
 	try {
-		return db.select().from(hermesChannelPosts).orderBy(asc(hermesChannelPosts.updatedAt)).all();
+		return db
+			.select()
+			.from(hermesChannelPosts)
+			.where(eq(hermesChannelPosts.accountId, accountId))
+			.orderBy(asc(hermesChannelPosts.updatedAt))
+			.all();
 	} catch (err) {
 		if (missingChannelPostsTable(err)) return [];
 		throw err;
 	}
 }
 
-export function clearAllChannelPosts(): void {
+export function clearAllChannelPosts(accountId: string): void {
 	try {
-		db.delete(hermesChannelPosts).run();
+		db.delete(hermesChannelPosts).where(eq(hermesChannelPosts.accountId, accountId)).run();
 	} catch (err) {
 		if (missingChannelPostsTable(err)) return;
 		throw err;
 	}
 }
 
-export function deleteChannelPostsByJobIds(jobIds: string[]): void {
+export function deleteChannelPostsByJobIds(accountId: string, jobIds: string[]): void {
 	const ids = jobIds.map((id) => id.trim()).filter(Boolean);
 	if (ids.length === 0) return;
 	try {
-		db.delete(hermesChannelPosts).where(inArray(hermesChannelPosts.jobId, ids)).run();
+		db.delete(hermesChannelPosts)
+			.where(and(eq(hermesChannelPosts.accountId, accountId), inArray(hermesChannelPosts.jobId, ids)))
+			.run();
 	} catch (err) {
 		if (missingChannelPostsTable(err)) return;
 		throw err;
 	}
 }
 
-export function deleteChannelPostsByJobId(jobId: string): void {
+export function deleteChannelPostsByJobId(accountId: string, jobId: string): void {
 	const id = jobId.trim();
 	if (!id) return;
 	try {
-		db.delete(hermesChannelPosts).where(eq(hermesChannelPosts.jobId, id)).run();
+		db.delete(hermesChannelPosts)
+			.where(and(eq(hermesChannelPosts.accountId, accountId), eq(hermesChannelPosts.jobId, id)))
+			.run();
 	} catch (err) {
 		if (missingChannelPostsTable(err)) return;
 		throw err;
 	}
 }
 
-export function renameChannelPostsForJob(jobId: string, channelName: string): void {
+export function renameChannelPostsForJob(accountId: string, jobId: string, channelName: string): void {
 	const id = jobId.trim();
 	const name = channelName.trim();
 	if (!id || !name) return;
 	try {
-		db.update(hermesChannelPosts).set({ channel: name, updatedAt: Date.now() }).where(eq(hermesChannelPosts.jobId, id)).run();
+		db.update(hermesChannelPosts)
+			.set({ channel: name, updatedAt: Date.now() })
+			.where(and(eq(hermesChannelPosts.accountId, accountId), eq(hermesChannelPosts.jobId, id)))
+			.run();
 	} catch (err) {
 		if (missingChannelPostsTable(err)) return;
 		throw err;

@@ -21,12 +21,17 @@ export const accounts = sqliteTable(
 
 export const conversations = sqliteTable('conversations', {
 	id: text('id').primaryKey(),
+	accountId: text('account_id')
+		.notNull()
+		.references(() => accounts.id, { onDelete: 'cascade' }),
 	title: text('title').notNull().default(''),
 	systemPrompt: text('system_prompt'),
 	createdAt: integer('created_at').notNull(),
 	updatedAt: integer('updated_at').notNull(),
 	pinned: integer('pinned').notNull().default(0)
-});
+}, (t) => ({
+	accountUpdatedIdx: index('conversations_account_updated_idx').on(t.accountId, t.updatedAt)
+}));
 
 export const messages = sqliteTable(
 	'messages',
@@ -55,6 +60,9 @@ export const hermesChannelPosts = sqliteTable(
 	'hermes_channel_posts',
 	{
 		id: text('id').primaryKey(),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
 		jobId: text('job_id').notNull(),
 		channel: text('channel').notNull(),
 		runTime: text('run_time'),
@@ -68,6 +76,7 @@ export const hermesChannelPosts = sqliteTable(
 		updatedAt: integer('updated_at').notNull()
 	},
 	(t) => ({
+		accountJobIdx: index('hermes_posts_account_job_idx').on(t.accountId, t.jobId),
 		jobRunIdx: index('hermes_posts_job_run_idx').on(t.jobId, t.runTime),
 		pathIdx: index('hermes_posts_path_idx').on(t.filePathDisplay)
 	})
@@ -75,6 +84,9 @@ export const hermesChannelPosts = sqliteTable(
 
 export const missions = sqliteTable('missions', {
 	id: text('id').primaryKey(),
+	accountId: text('account_id')
+		.notNull()
+		.references(() => accounts.id, { onDelete: 'cascade' }),
 	name: text('name').notNull(),
 	description: text('description').notNull().default(''),
 	prompt: text('prompt').notNull(),
@@ -85,7 +97,9 @@ export const missions = sqliteTable('missions', {
 	backendJobId: text('backend_job_id').notNull(),
 	createdAt: integer('created_at').notNull(),
 	updatedAt: integer('updated_at').notNull()
-});
+}, (t) => ({
+	accountIdx: index('missions_account_idx').on(t.accountId)
+}));
 
 export const missionSources = sqliteTable(
 	'mission_sources',
@@ -132,6 +146,9 @@ export const missionReports = sqliteTable(
 	'mission_reports',
 	{
 		id: text('id').primaryKey(),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
 		missionId: text('mission_id').notNull(),
 		missionName: text('mission_name').notNull(),
 		runTime: text('run_time'),
@@ -147,6 +164,7 @@ export const missionReports = sqliteTable(
 		updatedAt: integer('updated_at').notNull()
 	},
 	(t) => ({
+		accountMissionIdx: index('mission_reports_account_mission_idx').on(t.accountId, t.missionId),
 		missionRunIdx: index('mission_reports_mission_run_idx').on(t.missionId, t.runTime),
 		pathIdx: index('mission_reports_path_idx').on(t.filePathDisplay),
 		legacyIdx: index('mission_reports_legacy_post_idx').on(t.legacyChannelPostId)
@@ -155,6 +173,9 @@ export const missionReports = sqliteTable(
 
 export const hermesChannelConfigs = sqliteTable('hermes_channel_configs', {
 	jobId: text('job_id').primaryKey(),
+	accountId: text('account_id')
+		.notNull()
+		.references(() => accounts.id, { onDelete: 'cascade' }),
 	basePrompt: text('base_prompt').notNull(),
 	createdAt: integer('created_at').notNull(),
 	updatedAt: integer('updated_at').notNull()

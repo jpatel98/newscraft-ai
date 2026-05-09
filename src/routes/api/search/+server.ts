@@ -40,6 +40,7 @@ FROM messages_fts
 JOIN messages m ON m.rowid = messages_fts.rowid
 JOIN conversations c ON c.id = m.conversation_id
 WHERE messages_fts MATCH ?
+  AND c.account_id = ?
   AND m.role IN ('user', 'assistant')
 ORDER BY rank
 LIMIT ?
@@ -97,11 +98,12 @@ SELECT
   c.updated_at AS createdAt
 FROM conversations c
 WHERE ${allTermsWhere('c.title', terms)}
+  AND c.account_id = ?
 ORDER BY c.pinned DESC, c.updated_at DESC
 LIMIT ?
 `
 		)
-		.all(...likeParams, fetchLimit) as Row[];
+		.all(...likeParams, locals.user.id, fetchLimit) as Row[];
 
 	for (const row of titleRows) {
 		collected.push({
@@ -112,7 +114,7 @@ LIMIT ?
 	}
 
 	try {
-		const rows = sqliteClient.prepare(SQL).all(match, fetchLimit) as MessageSearchRow[];
+		const rows = sqliteClient.prepare(SQL).all(match, locals.user.id, fetchLimit) as MessageSearchRow[];
 		for (const row of rows) {
 			const snippet = visibleMessageSnippet(row.content, terms);
 			if (!snippet) continue;
@@ -144,12 +146,13 @@ SELECT
 FROM messages m
 JOIN conversations c ON c.id = m.conversation_id
 WHERE ${allTermsWhere('m.content', terms)}
+  AND c.account_id = ?
   AND m.role IN ('user', 'assistant')
 ORDER BY m.created_at DESC
 LIMIT ?
 `
 			)
-			.all(...likeParams, fetchLimit) as MessageSearchRow[];
+			.all(...likeParams, locals.user.id, fetchLimit) as MessageSearchRow[];
 
 		for (const row of messageRows) {
 			const snippet = visibleMessageSnippet(row.content, terms);

@@ -20,7 +20,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 	const id = params.id;
 	if (!id) throw error(400, 'id required');
 
-	const existing = getConversation(id);
+	const existing = getConversation(locals.user.id, id);
 	if (!existing) throw error(404, 'not found');
 
 	let body: PatchBody;
@@ -37,12 +37,12 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 		if (trimmed.length < 1 || trimmed.length > 200) {
 			throw error(400, 'title must be 1..200 chars');
 		}
-		row = renameConversation(id, trimmed) ?? row;
+		row = renameConversation(locals.user.id, id, trimmed) ?? row;
 	}
 
 	if (body.pinned !== undefined) {
 		const next = body.pinned ? 1 : 0;
-		row = setConversationPinned(id, next) ?? row;
+		row = setConversationPinned(locals.user.id, id, next) ?? row;
 	}
 
 	if (body.systemPrompt !== undefined) {
@@ -53,7 +53,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 		if (typeof raw === 'string' && raw.length > MAX_SYSTEM_PROMPT_CHARS) {
 			throw error(400, `systemPrompt must be ≤ ${MAX_SYSTEM_PROMPT_CHARS} chars`);
 		}
-		row = setConversationSystemPrompt(id, raw) ?? row;
+		row = setConversationSystemPrompt(locals.user.id, id, raw) ?? row;
 	}
 
 	return json({
@@ -69,8 +69,8 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	const id = params.id;
 	if (!id) throw error(400, 'id required');
-	const existing = getConversation(id);
+	const existing = getConversation(locals.user.id, id);
 	if (!existing) throw error(404, 'not found');
-	deleteConversation(id);
+	deleteConversation(locals.user.id, id);
 	return json({ ok: true });
 };

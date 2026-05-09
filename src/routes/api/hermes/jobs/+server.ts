@@ -6,7 +6,7 @@ import { compileChannelPrompt, normalizeChannelSources } from '$lib/utils/channe
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
-	return json({ jobs: await listHermesJobs() });
+	return json({ jobs: await listHermesJobs(locals.user.id) });
 };
 
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -30,7 +30,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	}
 
 	try {
-		const job = await createHermesJob({
+		const job = await createHermesJob(locals.user.id, {
 			name,
 			schedule,
 			prompt: compileChannelPrompt(prompt, sources),
@@ -38,7 +38,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			enabled: body?.enabled !== false
 		});
 		if (job) {
-			saveMissionConfig(job.id, prompt, sources, {
+			saveMissionConfig(locals.user.id, job.id, prompt, sources, {
 				name,
 				description,
 				schedule,
@@ -57,7 +57,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 export const DELETE: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	try {
-		const result = await deleteAllHermesJobs();
+		const result = await deleteAllHermesJobs(locals.user.id);
 		return json({ ok: true, ...result });
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));

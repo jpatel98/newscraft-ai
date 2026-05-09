@@ -9,7 +9,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	const conversationId = params.id;
 	if (!conversationId) throw error(400, 'conversation id required');
-	const conversation = getConversation(conversationId);
+	const conversation = getConversation(locals.user.id, conversationId);
 	if (!conversation) throw error(404, 'not found');
 
 	let body: Body;

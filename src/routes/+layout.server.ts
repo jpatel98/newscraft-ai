@@ -9,13 +9,13 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 	}
 	let channels: BoardChannel[] = [];
 	try {
-		channels = (await boardData()).channels;
+		channels = (await boardData(locals.user.id)).channels;
 	} catch {
 		channels = [];
 	}
 	return {
 		user: locals.user,
-		conversations: listConversations(50).map((c) => ({
+		conversations: listConversations(locals.user.id, 50).map((c) => ({
 			id: c.id,
 			title: c.title || '(untitled)',
 			updatedAt: c.updatedAt,

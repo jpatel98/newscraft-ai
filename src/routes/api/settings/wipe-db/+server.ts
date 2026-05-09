@@ -1,5 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { eq } from 'drizzle-orm';
+import { eq, like } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import {
 	conversations,
@@ -8,9 +8,7 @@ import {
 	hermesChannelSources,
 	messages,
 	missionReports,
-	missionRuns,
 	missions,
-	missionSources,
 	settings
 } from '$lib/server/db/schema';
 
@@ -20,6 +18,7 @@ interface Body {
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
+	const accountId = locals.user.id;
 
 	let body: Body;
 	try {
@@ -33,16 +32,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	db.transaction((tx) => {
-		tx.delete(missionReports).run();
-		tx.delete(missionRuns).run();
-		tx.delete(missionSources).run();
-		tx.delete(missions).run();
-		tx.delete(hermesChannelSources).run();
-		tx.delete(hermesChannelConfigs).run();
-		tx.delete(hermesChannelPosts).run();
-		tx.delete(messages).run();
-		tx.delete(conversations).run();
-		tx.delete(settings).where(eq(settings.key, 'hermes.hidden_channel_job_ids')).run();
+		tx.delete(missionReports).where(eq(missionReports.accountId, accountId)).run();
+		tx.delete(missions).where(eq(missions.accountId, accountId)).run();
+		tx.delete(hermesChannelConfigs).where(eq(hermesChannelConfigs.accountId, accountId)).run();
+		tx.delete(hermesChannelPosts).where(eq(hermesChannelPosts.accountId, accountId)).run();
+		tx.delete(conversations).where(eq(conversations.accountId, accountId)).run();
+		tx.delete(settings)
+			.where(like(settings.key, `hermes.hidden_channel_job_ids.${accountId}`))
+			.run();
 	});
 
 	return json({ ok: true });

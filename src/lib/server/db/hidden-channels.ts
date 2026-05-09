@@ -15,8 +15,12 @@ function normalize(ids: unknown): string[] {
 	return Array.from(out).sort();
 }
 
-export function listHiddenChannelJobIds(): string[] {
-	const raw = getSetting(KEY);
+function key(accountId: string): string {
+	return `${KEY}.${accountId}`;
+}
+
+export function listHiddenChannelJobIds(accountId: string): string[] {
+	const raw = getSetting(key(accountId)) ?? getSetting(KEY);
 	if (!raw) return [];
 	try {
 		return normalize(JSON.parse(raw));
@@ -25,22 +29,22 @@ export function listHiddenChannelJobIds(): string[] {
 	}
 }
 
-function writeHiddenChannelJobIds(ids: string[]): void {
-	setSetting(KEY, JSON.stringify(normalize(ids)));
+function writeHiddenChannelJobIds(accountId: string, ids: string[]): void {
+	setSetting(key(accountId), JSON.stringify(normalize(ids)));
 }
 
-export function hideChannelJobId(jobId: string): void {
+export function hideChannelJobId(accountId: string, jobId: string): void {
 	const id = jobId.trim();
 	if (!JOB_ID_RE.test(id)) return;
-	const ids = new Set(listHiddenChannelJobIds());
+	const ids = new Set(listHiddenChannelJobIds(accountId));
 	ids.add(id);
-	writeHiddenChannelJobIds(Array.from(ids));
+	writeHiddenChannelJobIds(accountId, Array.from(ids));
 }
 
-export function unhideChannelJobId(jobId: string): void {
+export function unhideChannelJobId(accountId: string, jobId: string): void {
 	const id = jobId.trim();
 	if (!JOB_ID_RE.test(id)) return;
-	const ids = new Set(listHiddenChannelJobIds());
+	const ids = new Set(listHiddenChannelJobIds(accountId));
 	if (!ids.delete(id)) return;
-	writeHiddenChannelJobIds(Array.from(ids));
+	writeHiddenChannelJobIds(accountId, Array.from(ids));
 }

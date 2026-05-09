@@ -4,7 +4,7 @@ import { getConversation, getMessages, parseContent } from '$lib/server/db/conve
 
 export const load: PageServerLoad = ({ params, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
-	const convo = getConversation(params.id);
+	const convo = getConversation(locals.user.id, params.id);
 	if (!convo) throw error(404, 'not found');
 	return {
 		conversation: { id: convo.id, title: convo.title, updatedAt: convo.updatedAt },
