@@ -20,6 +20,9 @@ Thumbs.db
 
 # App
 /data
+/.tmp
+/playwright-report
+/test-results
 
 # Vite
 vite.config.js.timestamp-*
