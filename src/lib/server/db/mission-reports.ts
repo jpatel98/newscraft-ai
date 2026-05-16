@@ -36,6 +36,10 @@ export interface MissionReportRow {
 	updatedAt: number;
 }
 
+export type MissionReportSummaryRow = Omit<MissionReportRow, 'responseMarkdown'> & {
+	responseMarkdown: '';
+};
+
 function missingMissionReportsTable(err: unknown): boolean {
 	return err instanceof Error && /no such table:\s*mission_reports/i.test(err.message);
 }
@@ -134,6 +138,64 @@ export function listMissionReports(accountId: string): MissionReportRow[] {
 		return legacyReportRows(accountId);
 	} catch (err) {
 		if (missingMissionReportsTable(err)) return legacyReportRows(accountId);
+		throw err;
+	}
+}
+
+export function listMissionReportSummaries(accountId: string): MissionReportSummaryRow[] {
+	try {
+		const rows = db
+			.select({
+				id: missionReports.id,
+				accountId: missionReports.accountId,
+				missionId: missionReports.missionId,
+				missionName: missionReports.missionName,
+				runTime: missionReports.runTime,
+				schedule: missionReports.schedule,
+				filename: missionReports.filename,
+				filePathDisplay: missionReports.filePathDisplay,
+				outputFormat: missionReports.outputFormat,
+				preview: missionReports.preview,
+				sourceMtimeMs: missionReports.sourceMtimeMs,
+				legacyChannelPostId: missionReports.legacyChannelPostId,
+				createdAt: missionReports.createdAt,
+				updatedAt: missionReports.updatedAt
+			})
+			.from(missionReports)
+			.where(eq(missionReports.accountId, accountId))
+			.orderBy(asc(missionReports.updatedAt))
+			.all();
+		if (rows.length > 0) {
+			return rows.map((row) => ({ ...row, responseMarkdown: '' }));
+		}
+		return legacyReportRows(accountId).map(({ responseMarkdown: _responseMarkdown, ...row }) => ({
+			...row,
+			responseMarkdown: ''
+		}));
+	} catch (err) {
+		if (missingMissionReportsTable(err)) {
+			return legacyReportRows(accountId).map(({ responseMarkdown: _responseMarkdown, ...row }) => ({
+				...row,
+				responseMarkdown: ''
+			}));
+		}
+		throw err;
+	}
+}
+
+export function getMissionReport(accountId: string, id: string): MissionReportRow | undefined {
+	try {
+		const row = db
+			.select()
+			.from(missionReports)
+			.where(and(eq(missionReports.accountId, accountId), eq(missionReports.id, id)))
+			.get();
+		if (row) return row;
+		return legacyReportRows(accountId).find((report) => report.id === id);
+	} catch (err) {
+		if (missingMissionReportsTable(err)) {
+			return legacyReportRows(accountId).find((report) => report.id === id);
+		}
 		throw err;
 	}
 }

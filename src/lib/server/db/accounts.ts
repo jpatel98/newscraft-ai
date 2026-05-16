@@ -6,6 +6,7 @@ import { db } from './index';
 import { accounts, conversations, hermesChannelConfigs, hermesChannelPosts, missionReports, missions } from './schema';
 
 const SETUP_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+let cachedAccountCount: number | null = null;
 
 export interface AccountRow {
 	id: string;
@@ -44,8 +45,10 @@ export function accountDisplayName(email: string, name: string): string {
 }
 
 export function accountCount(): number {
+	if (cachedAccountCount !== null) return cachedAccountCount;
 	const row = db.select({ value: count() }).from(accounts).get();
-	return Number(row?.value ?? 0);
+	cachedAccountCount = Number(row?.value ?? 0);
+	return cachedAccountCount;
 }
 
 export function listAccounts(): AccountSummary[] {
@@ -90,6 +93,7 @@ export async function createAccountWithPassword(input: {
 		lastLoginAt: null
 	};
 	db.insert(accounts).values(row).run();
+	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
 	if (firstAccount) claimOrphanAccountData(row.id);
 	return row;
 }
@@ -111,6 +115,7 @@ export async function createPasswordOnlyAccount(password: string): Promise<Accou
 		lastLoginAt: null
 	};
 	db.insert(accounts).values(row).run();
+	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
 	if (firstAccount) claimOrphanAccountData(row.id);
 	return row;
 }
@@ -137,6 +142,7 @@ export function createAccountInvite(input: { email: string; name?: string }): {
 		lastLoginAt: null
 	};
 	db.insert(accounts).values(row).run();
+	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
 	if (firstAccount) claimOrphanAccountData(row.id);
 	return { account: row, token, expiresAt };
 }
@@ -164,6 +170,7 @@ export function createPasswordOnlyInvite(): {
 		lastLoginAt: null
 	};
 	db.insert(accounts).values(row).run();
+	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
 	if (firstAccount) claimOrphanAccountData(row.id);
 	return { account: row, token, expiresAt };
 }
@@ -249,7 +256,11 @@ export function touchAccountLogin(accountId: string): void {
 
 export function deleteAccount(accountId: string): number {
 	const result = db.delete(accounts).where(eq(accounts.id, accountId)).run();
-	return result.changes ?? 0;
+	const changes = result.changes ?? 0;
+	if (changes > 0 && cachedAccountCount !== null) {
+		cachedAccountCount = Math.max(0, cachedAccountCount - changes);
+	}
+	return changes;
 }
 
 function toSummary(row: AccountRow): AccountSummary {

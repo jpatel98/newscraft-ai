@@ -38,10 +38,20 @@ let migrated = false;
 export function ensureMigrated() {
 	if (migrated) return;
 	migrate(db, { migrationsFolder: './drizzle' });
+	ensurePerformanceIndexes();
 	// One-time migration: copy APP_PASSWORD_HASH from env into settings so a
 	// running process can rotate the password without an SSH/restart cycle.
 	if (!getSetting('auth.password_hash') && env.APP_PASSWORD_HASH) {
 		setSetting('auth.password_hash', env.APP_PASSWORD_HASH);
 	}
 	migrated = true;
+}
+
+function ensurePerformanceIndexes() {
+	sqlite.exec(`
+		CREATE INDEX IF NOT EXISTS conversations_account_pinned_updated_idx
+			ON conversations (account_id, pinned, updated_at);
+		CREATE INDEX IF NOT EXISTS mission_reports_account_updated_idx
+			ON mission_reports (account_id, updated_at);
+	`);
 }

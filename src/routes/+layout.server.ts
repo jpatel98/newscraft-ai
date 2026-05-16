@@ -9,7 +9,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 	}
 	let channels: BoardChannel[] = [];
 	try {
-		channels = (await boardData(locals.user.id)).channels;
+		channels = (await boardData(locals.user.id, { includeResponseMarkdown: false })).channels;
 	} catch {
 		channels = [];
 	}

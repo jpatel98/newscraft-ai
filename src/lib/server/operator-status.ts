@@ -68,7 +68,7 @@ export async function getOperatorFooterStatus(accountId: string): Promise<Operat
 	const [gateway, maintenance, board] = await Promise.all([
 		gatewayHealth(),
 		getMaintenanceStatus(),
-		boardData(accountId)
+		boardData(accountId, { includeResponseMarkdown: false })
 	]);
 	const latestBackup = maintenance.backups.latest;
 	const backupOk = maintenance.backups.directory.exists && !maintenance.backups.error && Boolean(latestBackup);

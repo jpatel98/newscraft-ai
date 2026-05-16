@@ -15,6 +15,7 @@ import {
 	clearAllMissionReports,
 	deleteMissionReportsByMissionIds,
 	listMissionReports,
+	listMissionReportSummaries,
 	renameMissionReportsForMission,
 	upsertMissionReport
 } from '$lib/server/db/mission-reports';
@@ -327,6 +328,7 @@ async function syncCronOutputToDb(
 	jobs: HermesJob[],
 	hiddenJobIds: ReadonlySet<string>
 ): Promise<void> {
+	if (jobs.length === 0) return;
 	const root = cronOutputRoot();
 	let folders;
 	try {
@@ -392,10 +394,32 @@ function listBoardPostsFromDb(accountId: string): BoardPost[] {
 	}));
 }
 
+function listBoardPostSummariesFromDb(accountId: string): BoardPost[] {
+	return listMissionReportSummaries(accountId).map((row) => ({
+		id: row.id,
+		jobId: row.missionId,
+		channel: row.missionName,
+		channelSlug: '',
+		kind: 'report',
+		runTime: row.runTime,
+		schedule: row.schedule,
+		filename: row.filename,
+		filePathDisplay: row.filePathDisplay,
+		responseMarkdown: '',
+		preview: row.preview,
+		archived: false
+	}));
+}
+
+interface BoardDataOptions {
+	includeResponseMarkdown?: boolean;
+}
+
 async function listCronPostsFromFilesystem(
 	jobs: HermesJob[],
 	hiddenJobIds: ReadonlySet<string>
 ): Promise<BoardPost[]> {
+	if (jobs.length === 0) return [];
 	const root = cronOutputRoot();
 	let folders;
 	try {
@@ -444,7 +468,11 @@ async function listCronPostsFromFilesystem(
 	return posts;
 }
 
-export async function boardData(accountId: string): Promise<BoardData> {
+export async function boardData(
+	accountId: string,
+	options: BoardDataOptions = {}
+): Promise<BoardData> {
+	const includeResponseMarkdown = options.includeResponseMarkdown ?? true;
 	const hiddenJobIds = new Set(listHiddenChannelJobIds(accountId));
 	let jobs: HermesJob[] = [];
 	let runs: HermesRun[] = [];
@@ -464,9 +492,12 @@ export async function boardData(accountId: string): Promise<BoardData> {
 	let posts: BoardPost[] = [];
 	try {
 		await syncCronOutputToDb(accountId, jobs, hiddenJobIds);
-		posts = listBoardPostsFromDb(accountId).filter((post) => !hiddenJobIds.has(post.jobId));
+		posts = (includeResponseMarkdown
+			? listBoardPostsFromDb(accountId)
+			: listBoardPostSummariesFromDb(accountId)
+		).filter((post) => !hiddenJobIds.has(post.jobId));
 	} catch {
-		posts = await listCronPostsFromFilesystem(jobs, hiddenJobIds);
+		posts = includeResponseMarkdown ? await listCronPostsFromFilesystem(jobs, hiddenJobIds) : [];
 	}
 	return { ...buildBoardData(posts, jobs, runs, { orphanedPostsArchived: !jobsError }), jobsError };
 }

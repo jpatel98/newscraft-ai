@@ -79,6 +79,8 @@
 	let runWatchTicker: ReturnType<typeof setInterval> | null = null;
 	let silentRefreshTimer: ReturnType<typeof setInterval> | null = null;
 	let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+	let reportBodyLoading = $state<Record<string, boolean>>({});
+	let reportBodyError = $state<Record<string, string>>({});
 	let loadSeq = 0;
 
 	const selectedChannel = $derived(
@@ -175,6 +177,7 @@
 				applyQueryState(new URLSearchParams(window.location.search), true);
 			}
 			replaceChannelUrl();
+			void ensureReportBody(expandedPostId);
 		} catch (err) {
 			if (seq !== loadSeq) return;
 			if (!silent) error = err instanceof Error ? err.message : String(err);
@@ -188,6 +191,7 @@
 		createOpen = false;
 		selectedSlug = channel.slug;
 		expandedPostId = posts.find((post) => post.channelSlug === channel.slug)?.id ?? '';
+		void ensureReportBody(expandedPostId);
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.pathname = '/missions';
@@ -206,7 +210,35 @@
 
 	function togglePost(post: BoardPost) {
 		expandedPostId = expandedPostId === post.id ? '' : post.id;
+		if (expandedPostId) void ensureReportBody(expandedPostId);
 		replaceChannelUrl();
+	}
+
+	async function ensureReportBody(postId: string) {
+		if (!postId) return;
+		const post = posts.find((candidate) => candidate.id === postId);
+		if (!post || post.kind === 'run' || post.responseMarkdown || reportBodyLoading[postId]) return;
+		reportBodyLoading = { ...reportBodyLoading, [postId]: true };
+		reportBodyError = { ...reportBodyError, [postId]: '' };
+		try {
+			const response = await fetch(`/api/hermes/reports/${encodeURIComponent(postId)}`, {
+				headers: { accept: 'application/json' }
+			});
+			if (!response.ok) throw new Error(`Report ${response.status}`);
+			const detail = (await response.json()) as { id: string; responseMarkdown: string };
+			posts = posts.map((candidate) =>
+				candidate.id === detail.id
+					? { ...candidate, responseMarkdown: detail.responseMarkdown }
+					: candidate
+			);
+		} catch (err) {
+			reportBodyError = {
+				...reportBodyError,
+				[postId]: err instanceof Error ? err.message : 'Unable to load report'
+			};
+		} finally {
+			reportBodyLoading = { ...reportBodyLoading, [postId]: false };
+		}
 	}
 
 	function channelUrl(post: BoardPost | null): string {
@@ -653,6 +685,7 @@
 	function focusLatestRunPost() {
 		if (!runWatch?.latestPostId) return;
 		expandedPostId = runWatch.latestPostId;
+		void ensureReportBody(expandedPostId);
 		replaceChannelUrl();
 	}
 
@@ -705,6 +738,7 @@
 			if (outcome.kind === 'new-post' && latest) {
 				selectedSlug = input.channelSlug;
 				expandedPostId = latestPostId;
+				void ensureReportBody(expandedPostId);
 				if (runWatch && runWatch.jobId === input.jobId) {
 					runWatch = {
 						...runWatch,
@@ -1452,7 +1486,15 @@
 													</button>
 												</div>
 												<div class="channel-post__markdown">
-													<Markdown content={post.responseMarkdown || '_No response body captured._'} />
+													{#if reportBodyLoading[post.id]}
+														<div class="channels__empty channels__empty--panel">Loading report…</div>
+													{:else if reportBodyError[post.id]}
+														<div class="channels__empty channels__empty--panel">
+															{reportBodyError[post.id]}
+														</div>
+													{:else}
+														<Markdown content={post.responseMarkdown || '_No response body captured._'} />
+													{/if}
 												</div>
 											</div>
 										{/if}

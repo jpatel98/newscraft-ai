@@ -30,7 +30,12 @@ export const conversations = sqliteTable('conversations', {
 	updatedAt: integer('updated_at').notNull(),
 	pinned: integer('pinned').notNull().default(0)
 }, (t) => ({
-	accountUpdatedIdx: index('conversations_account_updated_idx').on(t.accountId, t.updatedAt)
+	accountUpdatedIdx: index('conversations_account_updated_idx').on(t.accountId, t.updatedAt),
+	accountPinnedUpdatedIdx: index('conversations_account_pinned_updated_idx').on(
+		t.accountId,
+		t.pinned,
+		t.updatedAt
+	)
 }));
 
 export const messages = sqliteTable(
@@ -165,6 +170,7 @@ export const missionReports = sqliteTable(
 	},
 	(t) => ({
 		accountMissionIdx: index('mission_reports_account_mission_idx').on(t.accountId, t.missionId),
+		accountUpdatedIdx: index('mission_reports_account_updated_idx').on(t.accountId, t.updatedAt),
 		missionRunIdx: index('mission_reports_mission_run_idx').on(t.missionId, t.runTime),
 		pathIdx: index('mission_reports_path_idx').on(t.filePathDisplay),
 		legacyIdx: index('mission_reports_legacy_post_idx').on(t.legacyChannelPostId)

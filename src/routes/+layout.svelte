@@ -174,8 +174,15 @@
 
 	onMount(() => {
 		void refreshOperatorStatus();
-		const interval = window.setInterval(() => void refreshOperatorStatus(), 30_000);
-		return () => window.clearInterval(interval);
+		const refreshIfVisible = () => {
+			if (document.visibilityState === 'visible') void refreshOperatorStatus();
+		};
+		const interval = window.setInterval(refreshIfVisible, 30_000);
+		document.addEventListener('visibilitychange', refreshIfVisible);
+		return () => {
+			window.clearInterval(interval);
+			document.removeEventListener('visibilitychange', refreshIfVisible);
+		};
 	});
 
 	let menuFor = $state<string | null>(null);
