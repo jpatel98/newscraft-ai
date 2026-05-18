@@ -1,0 +1,112 @@
+import Database from 'better-sqlite3';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+
+export type HarnessDb = Database.Database;
+
+export function openDatabase(dbPath: string): HarnessDb {
+	if (dbPath !== ':memory:') mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });
+	const db = new Database(dbPath);
+	db.pragma('foreign_keys = ON');
+	if (dbPath !== ':memory:') db.pragma('journal_mode = WAL');
+	ensureSchema(db);
+	return db;
+}
+
+function ensureSchema(db: HarnessDb): void {
+	db.exec(`
+CREATE TABLE IF NOT EXISTS jobs (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	prompt TEXT NOT NULL,
+	schedule TEXT NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	next_run_at TEXT,
+	last_run_at TEXT,
+	last_status TEXT,
+	last_error TEXT,
+	last_delivery_error TEXT,
+	deliver TEXT,
+	output_format TEXT NOT NULL DEFAULT 'markdown',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS runs (
+	id TEXT PRIMARY KEY,
+	job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+	status TEXT NOT NULL,
+	trigger TEXT NOT NULL,
+	queued_at TEXT,
+	started_at TEXT,
+	completed_at TEXT,
+	updated_at TEXT,
+	elapsed_ms INTEGER,
+	last_error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS run_steps (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+	step_type TEXT NOT NULL,
+	label TEXT NOT NULL,
+	status TEXT NOT NULL,
+	started_at TEXT NOT NULL,
+	completed_at TEXT,
+	detail_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS tool_calls (
+	id TEXT PRIMARY KEY,
+	run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
+	name TEXT NOT NULL,
+	args_json TEXT NOT NULL,
+	result_json TEXT,
+	status TEXT NOT NULL,
+	started_at TEXT NOT NULL,
+	completed_at TEXT,
+	error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS source_snapshots (
+	id TEXT PRIMARY KEY,
+	url TEXT NOT NULL,
+	title TEXT NOT NULL,
+	fetched_at TEXT NOT NULL,
+	content_text TEXT NOT NULL,
+	content_hash TEXT NOT NULL,
+	content_type TEXT,
+	status_code INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS sources (
+	id TEXT PRIMARY KEY,
+	run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+	job_id TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+	snapshot_id TEXT REFERENCES source_snapshots(id) ON DELETE SET NULL,
+	url TEXT NOT NULL,
+	title TEXT NOT NULL,
+	fetched_at TEXT NOT NULL,
+	snippet TEXT NOT NULL,
+	summary TEXT NOT NULL,
+	used INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+	id TEXT PRIMARY KEY,
+	run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+	job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+	title TEXT NOT NULL,
+	markdown TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	ingest_status TEXT NOT NULL DEFAULT 'not_configured',
+	ingest_error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS runs_job_idx ON runs(job_id, updated_at);
+CREATE INDEX IF NOT EXISTS jobs_next_run_idx ON jobs(enabled, next_run_at);
+CREATE INDEX IF NOT EXISTS sources_run_idx ON sources(run_id);
+CREATE INDEX IF NOT EXISTS reports_job_idx ON reports(job_id, created_at);
+`);
+}

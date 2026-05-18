@@ -43,14 +43,18 @@ export interface HermesResponsesRequest {
 const DEFAULT_MODEL = 'hermes-agent';
 
 function gatewayUrl(): string {
-	const u = env.HERMES_GATEWAY_URL?.replace(/\/$/, '') ?? 'http://127.0.0.1:8642';
+	const u = (env.AGENT_GATEWAY_URL || env.HERMES_GATEWAY_URL)?.replace(/\/$/, '') ?? 'http://127.0.0.1:8642';
 	return u;
+}
+
+function gatewayEnvHint(): string {
+	return env.AGENT_GATEWAY_URL ? 'AGENT_GATEWAY_URL' : 'HERMES_GATEWAY_URL';
 }
 
 export function describeGatewayError(err: unknown): string {
 	const message = err instanceof Error ? err.message : String(err);
 	if (message === 'fetch failed' || message === 'Failed to fetch' || message === 'Load failed') {
-		return `Hermes gateway is not reachable at ${gatewayUrl()}. Start the gateway or update HERMES_GATEWAY_URL.`;
+		return `Hermes gateway is not reachable at ${gatewayUrl()}. Start the gateway or update ${gatewayEnvHint()}.`;
 	}
 	if (
 		err instanceof DOMException &&
@@ -61,15 +65,18 @@ export function describeGatewayError(err: unknown): string {
 	return message;
 }
 
-function apiKey(): string {
-	const k = env.HERMES_API_KEY;
-	if (!k) throw new Error('HERMES_API_KEY not configured');
-	return k;
+function apiKey(): string | null {
+	const k = env.AGENT_GATEWAY_API_KEY || env.NEWSROOM_HARNESS_API_KEY || env.HERMES_API_KEY;
+	if (!k && !env.AGENT_GATEWAY_URL) {
+		throw new Error('AGENT_GATEWAY_API_KEY, NEWSROOM_HARNESS_API_KEY, or HERMES_API_KEY not configured');
+	}
+	return k ?? null;
 }
 
 export async function hermesFetch(path: string, init: RequestInit = {}): Promise<Response> {
 	const headers = new Headers(init.headers);
-	if (!headers.has('authorization')) headers.set('authorization', `Bearer ${apiKey()}`);
+	const key = apiKey();
+	if (key && !headers.has('authorization')) headers.set('authorization', `Bearer ${key}`);
 	if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
 
 	const suffix = path.startsWith('/') ? path : `/${path}`;
@@ -113,7 +120,7 @@ export async function streamChatCompletion(
 		headers: {
 			'content-type': 'application/json',
 			accept: 'text/event-stream',
-			authorization: `Bearer ${apiKey()}`,
+			...(apiKey() ? { authorization: `Bearer ${apiKey()}` } : {}),
 			'x-hermes-session-id': sessionId
 		},
 		body: JSON.stringify(payload),
@@ -128,9 +135,10 @@ export async function streamResponse(
 	const payload: HermesResponsesRequest = { model: DEFAULT_MODEL, stream: true, store: false, ...body };
 	const headers: Record<string, string> = {
 		'content-type': 'application/json',
-		accept: 'text/event-stream',
-		authorization: `Bearer ${apiKey()}`
+		accept: 'text/event-stream'
 	};
+	const key = apiKey();
+	if (key) headers.authorization = `Bearer ${key}`;
 	if (opts.sessionId) headers['x-hermes-session-id'] = opts.sessionId;
 
 	return fetch(`${gatewayUrl()}/v1/responses`, {
@@ -151,9 +159,10 @@ export async function completion(
 ): Promise<unknown> {
 	const payload: HermesChatRequest = { model: DEFAULT_MODEL, ...body, stream: false };
 	const headers: Record<string, string> = {
-		'content-type': 'application/json',
-		authorization: `Bearer ${apiKey()}`
+		'content-type': 'application/json'
 	};
+	const key = apiKey();
+	if (key) headers.authorization = `Bearer ${key}`;
 	if (opts.idempotencyKey) headers['idempotency-key'] = opts.idempotencyKey;
 
 	const r = await fetch(`${gatewayUrl()}/v1/chat/completions`, {

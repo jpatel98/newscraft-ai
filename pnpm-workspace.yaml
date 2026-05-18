@@ -1,2 +1,13 @@
+packages:
+  - .
+  - services/*
+  - packages/*
+
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+
 onlyBuiltDependencies:
+  - "@node-rs/argon2"
+  - better-sqlite3
   - esbuild

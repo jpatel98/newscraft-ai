@@ -9,6 +9,50 @@ const SCRIPT = 'scripts/hermes-bridge.py';
 const DEFAULT_PYTHON = '/home/jigar/.hermes/hermes-agent/venv/bin/python';
 const CACHE_MS = 30_000;
 
+const LOCAL_COMMANDS: HermesCommand[] = [
+	{
+		name: 'Help',
+		slash: '/help',
+		description: 'Show available web commands.',
+		category: 'Chat',
+		kind: 'builtin',
+		enabled: true
+	},
+	{
+		name: 'Commands',
+		slash: '/commands',
+		description: 'Show available web commands.',
+		category: 'Chat',
+		kind: 'builtin',
+		enabled: true
+	},
+	{
+		name: 'Reasoning',
+		slash: '/reasoning',
+		description: 'Set reasoning for this thread: low, medium, high, or default.',
+		category: 'Chat',
+		argsHint: 'low|medium|high|default',
+		kind: 'builtin',
+		enabled: true
+	},
+	{
+		name: 'Status',
+		slash: '/status',
+		description: 'Check the configured agent gateway health.',
+		category: 'Chat',
+		kind: 'builtin',
+		enabled: true
+	},
+	{
+		name: 'Profile',
+		slash: '/profile',
+		description: 'Show the active web agent profile.',
+		category: 'Chat',
+		kind: 'builtin',
+		enabled: true
+	}
+];
+
 interface CacheEntry<T> {
 	expires: number;
 	value: Promise<T>;
@@ -84,8 +128,18 @@ function normalizeSkill(raw: Partial<HermesSkillSummary>): HermesSkillSummary | 
 
 export async function listHermesCommands(): Promise<HermesCommand[]> {
 	return cached('commands', async () => {
-		const payload = await bridge<{ commands: Partial<HermesCommand>[] }>(['commands']);
-		return (payload.commands ?? []).map(normalizeCommand).filter((c): c is HermesCommand => !!c);
+		let remote: HermesCommand[] = [];
+		try {
+			const payload = await bridge<{ commands: Partial<HermesCommand>[] }>(['commands']);
+			remote = (payload.commands ?? []).map(normalizeCommand).filter((c): c is HermesCommand => !!c);
+		} catch {
+			remote = [];
+		}
+		const bySlash = new Map<string, HermesCommand>();
+		for (const command of [...LOCAL_COMMANDS, ...remote]) {
+			bySlash.set(command.slash.toLowerCase(), command);
+		}
+		return Array.from(bySlash.values());
 	});
 }
 

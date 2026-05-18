@@ -1,0 +1,166 @@
+import type {
+	GatewayChatCompletionRequest,
+	GatewayChatCompletionResponse,
+	GatewayResponsesRequest
+} from '@newscraft/shared';
+import {
+	SSE_DONE_FRAME,
+	chatCompletionDeltaFrame,
+	hermesToolProgressFrame,
+	sseFrame
+} from '@newscraft/shared';
+import type { ServerResponse } from 'node:http';
+import type { NewsroomAgentRuntime, RuntimeProgressEvent } from './agents/runtime.js';
+import { newId } from './util/ids.js';
+import { noStoreSseHeaders } from './util/http.js';
+import { promptFromResponseInput } from './util/text.js';
+
+export async function writeChatCompletion(
+	res: ServerResponse,
+	body: GatewayChatCompletionRequest,
+	runtime: NewsroomAgentRuntime,
+	signal: AbortSignal
+): Promise<void> {
+	const id = newId('chatcmpl');
+	const model = body.model || 'newsroom-harness';
+	if (body.stream) {
+		res.writeHead(200, noStoreSseHeaders());
+		res.write(
+			hermesToolProgressFrame({
+				id: 'assignment_desk',
+				name: 'assignment_desk',
+				status: 'running',
+				detail: 'Routing request'
+			})
+		);
+		for await (const delta of runtime.streamChat(body.messages || [], {
+			signal,
+			model,
+			reasoningEffort: body.reasoning_effort,
+			onProgress: (event) => writeProgress(res, event)
+		})) {
+			if (signal.aborted) break;
+			res.write(chatCompletionDeltaFrame(delta, { id, model }));
+		}
+		res.write(
+			hermesToolProgressFrame({
+				id: 'assignment_desk',
+				name: 'assignment_desk',
+				status: 'ok',
+				done: true
+			})
+		);
+		res.write(SSE_DONE_FRAME);
+		res.end();
+		return;
+	}
+
+	const text = await runtime.completeChat(body.messages || [], {
+		signal,
+		model,
+		reasoningEffort: body.reasoning_effort
+	});
+	const response: GatewayChatCompletionResponse = {
+		id,
+		object: 'chat.completion',
+		created: Math.floor(Date.now() / 1000),
+		model,
+		choices: [
+			{
+				index: 0,
+				message: { role: 'assistant', content: text },
+				finish_reason: 'stop'
+			}
+		]
+	};
+	res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+	res.end(JSON.stringify(response));
+}
+
+export async function writeResponses(
+	res: ServerResponse,
+	body: GatewayResponsesRequest,
+	runtime: NewsroomAgentRuntime,
+	signal: AbortSignal
+): Promise<void> {
+	const id = newId('resp');
+	const model = body.model || 'newsroom-harness';
+	const prompt = promptFromResponseInput(body.input || '', body.instructions);
+	const messages = [{ role: 'user' as const, content: prompt }];
+
+	if (body.stream) {
+		res.writeHead(200, noStoreSseHeaders());
+		res.write(sseFrame({ event: 'response.created', data: { response: { id, model, status: 'in_progress' } } }));
+		let output = '';
+		for await (const delta of runtime.streamChat(messages, {
+			signal,
+			model,
+			reasoningEffort: body.reasoning_effort,
+			onProgress: (event) => writeProgress(res, event)
+		})) {
+			if (signal.aborted) break;
+			output += delta;
+			res.write(sseFrame({ event: 'response.output_text.delta', data: { delta } }));
+		}
+		res.write(
+			sseFrame({
+				event: 'response.completed',
+				data: {
+					response: {
+						id,
+						model,
+						status: 'completed',
+						output: [{ type: 'message', content: [{ type: 'output_text', text: output }] }]
+					}
+				}
+			})
+		);
+		res.end();
+		return;
+	}
+
+	const text = await runtime.completeChat(messages, {
+		signal,
+		model,
+		reasoningEffort: body.reasoning_effort
+	});
+	res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+	res.end(
+		JSON.stringify({
+			id,
+			object: 'response',
+			model,
+			status: 'completed',
+			output_text: text,
+			output: [{ type: 'message', content: [{ type: 'output_text', text }] }]
+		})
+	);
+}
+
+function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {
+	if (event.type === 'tool') {
+		res.write(
+			hermesToolProgressFrame({
+				id: event.id,
+				name: event.name,
+				status: event.status,
+				detail: event.detail,
+				result: event.result,
+				done: event.status === 'ok' || event.status === 'failed'
+			})
+		);
+		return;
+	}
+	res.write(
+		sseFrame({
+			event: 'hermes.source',
+			data: {
+				id: event.source.url,
+				url: event.source.url,
+				title: event.source.title,
+				status: event.source.used ? 'used' : 'skipped',
+				detail: event.source.summary
+			}
+		})
+	);
+}

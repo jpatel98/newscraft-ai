@@ -7,6 +7,8 @@ node_modules
 .wrangler
 /.svelte-kit
 /build
+dist
+*.tsbuildinfo
 
 # OS
 .DS_Store
@@ -20,6 +22,8 @@ Thumbs.db
 
 # App
 /data
+/.data
+services/*/.data
 /.tmp
 /playwright-report
 /test-results

@@ -17,17 +17,29 @@ function expectedSessionId(system: string, firstUser: string): string {
 
 describe('Hermes transport', () => {
 	const originalGatewayUrl = process.env.HERMES_GATEWAY_URL;
+	const originalAgentGatewayUrl = process.env.AGENT_GATEWAY_URL;
 	const originalApiKey = process.env.HERMES_API_KEY;
+	const originalAgentApiKey = process.env.AGENT_GATEWAY_API_KEY;
+	const originalHarnessApiKey = process.env.NEWSROOM_HARNESS_API_KEY;
 
 	beforeEach(() => {
+		delete process.env.AGENT_GATEWAY_URL;
+		delete process.env.AGENT_GATEWAY_API_KEY;
+		delete process.env.NEWSROOM_HARNESS_API_KEY;
 		process.env.HERMES_GATEWAY_URL = 'https://gateway.test/';
 		process.env.HERMES_API_KEY = 'test-key';
 	});
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
+		if (originalAgentGatewayUrl === undefined) delete process.env.AGENT_GATEWAY_URL;
+		else process.env.AGENT_GATEWAY_URL = originalAgentGatewayUrl;
 		if (originalGatewayUrl === undefined) delete process.env.HERMES_GATEWAY_URL;
 		else process.env.HERMES_GATEWAY_URL = originalGatewayUrl;
+		if (originalAgentApiKey === undefined) delete process.env.AGENT_GATEWAY_API_KEY;
+		else process.env.AGENT_GATEWAY_API_KEY = originalAgentApiKey;
+		if (originalHarnessApiKey === undefined) delete process.env.NEWSROOM_HARNESS_API_KEY;
+		else process.env.NEWSROOM_HARNESS_API_KEY = originalHarnessApiKey;
 		if (originalApiKey === undefined) delete process.env.HERMES_API_KEY;
 		else process.env.HERMES_API_KEY = originalApiKey;
 	});
@@ -126,6 +138,31 @@ describe('Hermes transport', () => {
 		});
 	});
 
+	it('prefers the NewsCraft agent gateway URL and API key when configured', async () => {
+		process.env.AGENT_GATEWAY_URL = 'https://harness.test/';
+		process.env.AGENT_GATEWAY_API_KEY = 'harness-key';
+		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] });
+
+		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://harness.test/v1/chat/completions');
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit & { headers: Record<string, string> };
+		expect(init.headers.authorization).toBe('Bearer harness-key');
+	});
+
+	it('allows unauthenticated requests when only AGENT_GATEWAY_URL is configured', async () => {
+		process.env.AGENT_GATEWAY_URL = 'https://harness.test';
+		delete process.env.HERMES_API_KEY;
+		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] });
+
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit & { headers: Record<string, string> };
+		expect(init.headers.authorization).toBeUndefined();
+	});
+
 	it('reports gateway health from non-OK responses', async () => {
 		const fetchMock = vi.fn().mockResolvedValue(new Response('maintenance', { status: 503 }));
 		vi.stubGlobal('fetch', fetchMock);
@@ -154,6 +191,13 @@ describe('Hermes transport', () => {
 	it('explains raw fetch failures as an unreachable Hermes gateway', () => {
 		expect(describeGatewayError(new TypeError('fetch failed'))).toBe(
 			'Hermes gateway is not reachable at https://gateway.test. Start the gateway or update HERMES_GATEWAY_URL.'
+		);
+	});
+
+	it('uses AGENT_GATEWAY_URL in gateway error hints when configured', () => {
+		process.env.AGENT_GATEWAY_URL = 'https://harness.test';
+		expect(describeGatewayError(new TypeError('fetch failed'))).toBe(
+			'Hermes gateway is not reachable at https://harness.test. Start the gateway or update AGENT_GATEWAY_URL.'
 		);
 	});
 });

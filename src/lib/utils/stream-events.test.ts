@@ -530,6 +530,29 @@ describe('StreamEventState', () => {
 		).toEqual([{ delta: 'Final answer.' }, { done: true }]);
 	});
 
+	it('does not duplicate completed response text after streamed text deltas', () => {
+		const state = new StreamEventState();
+
+		expect(
+			state.apply('response.output_text.delta', JSON.stringify({ delta: 'Final answer.' }))
+		).toEqual([{ delta: 'Final answer.' }]);
+		expect(
+			state.apply(
+				'response.completed',
+				JSON.stringify({
+					response: {
+						output: [
+							{
+								type: 'message',
+								content: [{ type: 'output_text', text: 'Final answer.' }]
+							}
+						]
+					}
+				})
+			)
+		).toEqual([{ done: true }]);
+	});
+
 	it('formats SSE frames without changing event names', () => {
 		expect(sseFrame('hermes.tool.progress', '{"ok":true}')).toBe(
 			'event: hermes.tool.progress\ndata: {"ok":true}\n\n'
