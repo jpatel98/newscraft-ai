@@ -7,6 +7,10 @@ const REQUIRED_EDITOR_SECTIONS = [
 		fallback: 'No structured summary was produced. Review the source notes and run log before using this draft.'
 	},
 	{
+		title: 'Lead Candidates',
+		fallback: 'No lead candidates were ranked. A producer should review the source notes before assigning coverage.'
+	},
+	{
 		title: 'Source Notes',
 		fallback: 'No structured source notes were produced. Review stored source snapshots before using this draft.'
 	},

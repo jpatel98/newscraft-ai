@@ -134,7 +134,7 @@ describe('newsroom harness server', () => {
 			uiIngestKey: 'ingest-key'
 		});
 		const job = await createJob({
-			prompt: `Scan this deterministic local RSS fixture for the producer briefing: ${fixture.url}/local-news.rss`
+			prompt: `You are the assignment producer preparing the morning editorial meeting. Use this local newsroom RSS fixture to identify lead candidates, audience relevance, verification needs, source notes, and human review blocks before anything is published: ${fixture.url}/local-news.rss`
 		});
 
 		const runResponse = await authFetch(`/api/jobs/${job.id}/run`, { method: 'POST' });
@@ -150,9 +150,13 @@ describe('newsroom harness server', () => {
 		expect(reports).toHaveLength(1);
 		expect(reports[0].markdown).toContain('# Cron Job: Morning Watch');
 		expect(reports[0].markdown).toContain('## Summary');
+		expect(reports[0].markdown).toContain('## Lead Candidates');
 		expect(reports[0].markdown).toContain('## Source Notes');
 		expect(reports[0].markdown).toContain('## Verification Notes');
 		expect(reports[0].markdown).toContain('## Human Review');
+		expect(reports[0].markdown).toMatch(/lead candidate|producer review|assignment decision/i);
+		expect(reports[0].markdown).toMatch(/confirm|verify|primary sources|before use/i);
+		expect(reports[0].markdown).not.toMatch(/SDK|database|test account/i);
 		expect(reports[0].ingest_status).toBe('sent');
 		expect(received).toHaveLength(1);
 		expect(received[0]).toMatchObject({
@@ -165,6 +169,9 @@ describe('newsroom harness server', () => {
 			new RegExp(`^${job.id}/`)
 		);
 		expect(String((received[0] as { markdown: string }).markdown)).toContain('## Response');
+		expect(harness.repository.listSourcesForRun(run.id).map((source) => source.url)).toContain(
+			`${fixture.url}/local-news.rss`
+		);
 		await ingest.close();
 		await fixture.close();
 	});

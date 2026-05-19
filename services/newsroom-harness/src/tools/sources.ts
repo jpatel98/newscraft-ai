@@ -79,7 +79,7 @@ function extractTitle(body: string): string | null {
 
 function tagText(body: string, tag: string): string | null {
 	const match = body.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
-	return match ? decodeEntities(stripTags(match[1])).trim() : null;
+	return match ? decodeEntities(stripTags(unwrapCdata(match[1]))).trim() : null;
 }
 
 function metaContent(body: string, property: string): string | null {
@@ -101,6 +101,10 @@ function htmlToText(html: string): string {
 
 function stripTags(value: string): string {
 	return value.replace(/<[^>]+>/g, ' ');
+}
+
+function unwrapCdata(value: string): string {
+	return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
 }
 
 function decodeEntities(value: string): string {

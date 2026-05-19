@@ -24,6 +24,7 @@ Thumbs.db
 /data
 /.data
 services/*/.data
+services/*/.tmp
 /.tmp
 /playwright-report
 /test-results

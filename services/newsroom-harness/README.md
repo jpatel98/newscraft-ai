@@ -36,11 +36,18 @@ corepack pnpm producer:acceptance
 ```
 
 `producer:acceptance` starts the harness and SvelteKit UI against isolated
-SQLite DBs, serves a deterministic local RSS fixture, creates a local test
-account, creates and runs a mission, verifies UI ingest and harness report
-persistence, exercises pause/resume, and checks chat streaming. It loads the
-same `.env.local` files as local development while overriding only local
-acceptance ports, DB paths, and matching test auth keys.
+SQLite DBs, validates live public RSS feeds, creates a local test account,
+creates and runs a producer-style editorial meeting mission, verifies UI ingest
+and harness report persistence, exercises pause/resume, and checks chat
+streaming. The default source profile uses NPR News, BBC World, and The
+Guardian World, then checks that the report includes summary, lead candidates,
+source notes, verification notes, and human review in plain newsroom language. It
+loads the same `.env.local` files as local development while overriding only
+local acceptance ports, DB paths, and matching test auth keys.
+
+Set `PRODUCER_ACCEPTANCE_FEEDS` to a comma-separated list of real newsroom RSS
+feeds to test a specific producer workflow. Set
+`PRODUCER_ACCEPTANCE_SOURCE_MODE=fixture` for the deterministic local fixture.
 
 ## Environment
 

@@ -295,20 +295,27 @@ ${prompt}
 Fetched source provenance:
 ${sourceBlock}
 
-Write a concise markdown mission report for an editor. Include sections for Summary, Source Notes, Verification Notes, and Human Review. Do not publish anything.`;
+Write a concise markdown mission report for an editor in plain newsroom language. Include sections for Summary, Lead Candidates, Source Notes, Verification Notes, and Human Review. Do not mention implementation details such as harnesses, APIs, SDKs, or databases. Do not publish anything.`;
 }
 
 function localMissionMarkdown(prompt: string, role: NewsroomRole, sources: FetchedSource[]): string {
 	const sourceLines = sources.length
 		? sources.map((source) => `- [${source.title}](${source.url}) fetched ${source.fetchedAt}: ${source.summary}`)
 		: ['- No external source URLs were configured or fetched for this run.'];
+	const candidateLines = sources.length
+		? sources.map((source) => `- ${source.title}: possible lead candidate if an editor confirms the feed details and audience impact.`)
+		: ['- No lead candidates can be ranked until the producer attaches usable source feeds.'];
 	return `## Summary
 
-NewsCraft ${roleLabel(role)} completed a draft mission run for:
+NewsCraft ${roleLabel(role)} prepared an editor-facing brief for:
 
 > ${prompt.split('\n')[0]?.slice(0, 280) || 'Untitled mission'}
 
-${sources.length ? `The harness fetched ${sources.length} source${sources.length === 1 ? '' : 's'} and preserved snapshots in its run log.` : 'The harness produced a deterministic local report because no source URL was available.'}
+${sources.length ? `The brief uses ${sources.length} source feed${sources.length === 1 ? '' : 's'} as starting points for producer review.` : 'The brief needs source feeds before an editor can make an assignment decision.'}
+
+## Lead Candidates
+
+${candidateLines.join('\n')}
 
 ## Source Notes
 

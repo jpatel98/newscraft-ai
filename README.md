@@ -81,15 +81,24 @@ corepack pnpm producer:acceptance
 
 The acceptance script loads root `.env.local` and
 `services/newsroom-harness/.env.local`, starts the harness on `127.0.0.1:8650`
-and the UI on `127.0.0.1:3001`, serves a deterministic local RSS fixture,
-creates an isolated local test account, creates and runs a mission through the
-UI API, verifies the completed report in Missions, checks harness DB
-persistence plus UI ingest status, exercises pause/resume, and checks chat
-streaming for non-empty output without adjacent duplicate chunks. It uses
-isolated SQLite DBs under `.tmp/producer-acceptance` and never prints env
-secrets. By default it requires `OPENAI_API_KEY` to be configured in the
+and the UI on `127.0.0.1:3001`, validates live public RSS feeds, creates an
+isolated local test account, creates and runs a producer-style editorial
+meeting mission through the UI API, verifies the completed report in Missions,
+checks harness DB persistence plus UI ingest status, exercises pause/resume,
+and checks chat streaming for non-empty output without adjacent duplicate
+chunks. The default source profile uses NPR News, BBC World, and The Guardian
+World feeds, then checks that the report reads like a producer brief: summary,
+lead candidates, source notes, verification notes, and human review, without
+implementation language leaking into the brief.
+
+It uses isolated SQLite DBs under `.tmp/producer-acceptance` and never prints
+env secrets. By default it requires `OPENAI_API_KEY` to be configured in the
 harness env so `/api/health` proves the live model path is available. Set
-`PRODUCER_ACCEPTANCE_REQUIRE_OPENAI=0` for the deterministic local fallback.
+`PRODUCER_ACCEPTANCE_FEEDS=https://example.com/feed.xml,https://example.org/rss`
+to run the same acceptance loop against your own newsroom feeds, or set
+`PRODUCER_ACCEPTANCE_SOURCE_MODE=fixture` for the deterministic local fallback.
+Set `PRODUCER_ACCEPTANCE_REQUIRE_OPENAI=0` only when you want to test the local
+fallback path.
 
 The live OpenAI smoke test is intentionally opt-in:
 

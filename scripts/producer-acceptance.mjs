@@ -19,9 +19,37 @@ const password = 'producer acceptance password';
 const openAiRequired = process.env.PRODUCER_ACCEPTANCE_REQUIRE_OPENAI !== '0';
 const disableOpenAi = process.env.PRODUCER_ACCEPTANCE_DISABLE_OPENAI === '1';
 const keepServers = process.env.PRODUCER_ACCEPTANCE_KEEP_SERVERS === '1';
+const sourceMode = process.env.PRODUCER_ACCEPTANCE_SOURCE_MODE || 'live-rss';
 const children = [];
 let fixture;
 let stopping = false;
+
+const DEFAULT_LIVE_RSS_SOURCES = [
+	{
+		id: 'npr-news',
+		type: 'url',
+		name: 'NPR News',
+		url: 'https://feeds.npr.org/1001/rss.xml',
+		enabled: true,
+		sortOrder: 0
+	},
+	{
+		id: 'bbc-world',
+		type: 'url',
+		name: 'BBC World',
+		url: 'https://feeds.bbci.co.uk/news/world/rss.xml',
+		enabled: true,
+		sortOrder: 1
+	},
+	{
+		id: 'guardian-world',
+		type: 'url',
+		name: 'The Guardian World',
+		url: 'https://www.theguardian.com/world/rss',
+		enabled: true,
+		sortOrder: 2
+	}
+];
 
 async function main() {
 	await assertPortFree(8650);
@@ -29,7 +57,9 @@ async function main() {
 	await rm(workDir, { recursive: true, force: true });
 	await mkdir(logDir, { recursive: true });
 
-	fixture = await startNewsFixture();
+	console.log(`Preparing producer acceptance source profile: ${sourceMode}`);
+	const sourceProfile = await loadSourceProfile();
+	console.log(`Validated ${sourceProfile.sources.length} producer source feed(s).`);
 	const rootEnv = await readEnvFile(path.join(root, '.env.local'));
 	const harnessFileEnv = await readEnvFile(path.join(root, 'services', 'newsroom-harness', '.env.local'));
 	const harnessKey = harnessFileEnv.NEWSROOM_HARNESS_API_KEY || rootEnv.AGENT_GATEWAY_API_KEY || 'producer-acceptance-harness-key';
@@ -66,12 +96,14 @@ async function main() {
 			'cHJvZHVjZXItYWNjZXB0YW5jZS1zZXNzaW9uLXNlY3JldC0wMDAwMDAwMDA='
 	};
 
+	console.log(`Starting newsroom harness at ${harnessUrl}`);
 	startProcess('harness', ['corepack', ['pnpm', '--filter', '@newscraft/newsroom-harness', 'dev']], {
 		env: harnessEnv,
 		logPath: path.join(logDir, 'harness.log')
 	});
 	await waitForJson(`${harnessUrl}/health`, { timeoutMs: 45_000 });
 
+	console.log(`Starting SvelteKit UI at ${uiUrl}`);
 	startProcess('ui', ['corepack', ['pnpm', 'dev', '--host', '127.0.0.1', '--port', '3001']], {
 		env: uiEnv,
 		logPath: path.join(logDir, 'ui.log')
@@ -90,36 +122,29 @@ async function main() {
 	const session = createUiSession(uiUrl);
 	await session.setupFirstAccount(password);
 
+	console.log('Creating producer-style mission.');
 	const mission = await session.postJson('/api/hermes/jobs', {
-		name: `Producer fixture ${Date.now()}`,
-		description: 'Acceptance mission against a deterministic local RSS fixture.',
+		name: `Morning editorial meeting ${Date.now()}`,
+		description: sourceProfile.description,
 		schedule: 'every 60m',
-		prompt: 'Prepare a concise producer brief from the attached local RSS source.',
+		prompt: sourceProfile.prompt,
 		deliver: 'database',
 		outputFormat: 'markdown',
-		sources: [
-			{
-				id: 'fixture-rss',
-				type: 'url',
-				name: 'Local fixture RSS',
-				url: `${fixture.url}/local-news.rss`,
-				enabled: true,
-				sortOrder: 0
-			}
-		]
+		sources: sourceProfile.sources
 	});
 	const job = mission.job;
 	assert(job?.id, 'mission create response did not include a job id');
 
+	console.log('Running producer mission now.');
 	await session.postJson(`/api/hermes/jobs/${encodeURIComponent(job.id)}/run`, {});
 	const report = await waitForReport(session, job.id);
-	for (const section of ['Summary', 'Source Notes', 'Verification Notes', 'Human Review']) {
-		assert(report.responseMarkdown.includes(`## ${section}`), `completed report is missing ${section}`);
-	}
+	assertProducerReport(report.responseMarkdown, sourceProfile);
 
 	const dbReport = await readLatestHarnessReport();
 	assert(dbReport.job_id === job.id, 'harness DB report does not match the created mission');
 	assert(dbReport.ingest_status === 'sent', `expected UI ingest status sent, got ${dbReport.ingest_status}`);
+	const storedSources = await readHarnessSourcesForRun(dbReport.run_id);
+	assertProducerSourcesPersisted(storedSources, sourceProfile);
 
 	await session.postJson(`/api/hermes/jobs/${encodeURIComponent(job.id)}/pause`, {});
 	let board = await session.getJson('/api/hermes/board');
@@ -145,7 +170,9 @@ async function main() {
 				ok: true,
 				uiUrl,
 				harnessUrl,
-				fixtureUrl: fixture.url,
+				sourceMode: sourceProfile.mode,
+				sources: sourceProfile.sources.map(({ name, url }) => ({ name, url })),
+				feedProbe: sourceProfile.feedProbe,
 				missionId: job.id,
 				reportId: report.id,
 				harnessReportId: dbReport.id,
@@ -325,6 +352,18 @@ async function readLatestHarnessReport() {
 	}
 }
 
+async function readHarnessSourcesForRun(runId) {
+	const { default: Database } = await import('better-sqlite3');
+	const db = new Database(harnessDbPath, { readonly: true, fileMustExist: true });
+	try {
+		return db
+			.prepare('SELECT url, title, summary, used FROM sources WHERE run_id = ? ORDER BY fetched_at ASC')
+			.all(runId);
+	} finally {
+		db.close();
+	}
+}
+
 async function* readSse(body) {
 	const decoder = new TextDecoder();
 	let buffer = '';
@@ -362,6 +401,164 @@ function safeJson(value) {
 	}
 }
 
+async function loadSourceProfile() {
+	if (sourceMode === 'fixture' || sourceMode === 'local-fixture') {
+		fixture = await startNewsFixture();
+		const sources = [
+			{
+				id: 'fixture-rss',
+				type: 'url',
+				name: 'Local newsroom RSS fixture',
+				url: `${fixture.url}/local-news.rss`,
+				enabled: true,
+				sortOrder: 0
+			}
+		];
+		return {
+			mode: 'fixture',
+			description: 'Producer acceptance against a deterministic local newsroom RSS fixture.',
+			sources,
+			prompt: producerMissionPrompt(sources),
+			feedProbe: []
+		};
+	}
+
+	if (sourceMode !== 'live-rss') {
+		throw new Error(`Unsupported PRODUCER_ACCEPTANCE_SOURCE_MODE=${sourceMode}. Use live-rss or fixture.`);
+	}
+
+	const sources = customLiveSourcesFromEnv() || DEFAULT_LIVE_RSS_SOURCES;
+	assert(sources.length > 0, 'No producer RSS feeds configured');
+	const feedProbe = await assertReadableFeeds(sources);
+	return {
+		mode: 'live-rss',
+		description: 'Producer acceptance against live public RSS feeds used as real editorial inputs.',
+		sources,
+		prompt: producerMissionPrompt(sources),
+		feedProbe
+	};
+}
+
+function customLiveSourcesFromEnv() {
+	const raw = process.env.PRODUCER_ACCEPTANCE_FEEDS?.trim();
+	if (!raw) return null;
+	const sources = raw
+		.split(',')
+		.map((url, index) => {
+			const trimmed = url.trim();
+			if (!trimmed) return null;
+			const host = new URL(trimmed).hostname.replace(/^www\./, '');
+			return {
+				id: `producer-feed-${index + 1}`,
+				type: 'url',
+				name: `Producer feed ${index + 1} (${host})`,
+				url: trimmed,
+				enabled: true,
+				sortOrder: index
+			};
+		})
+		.filter(Boolean);
+	return sources.length ? sources : null;
+}
+
+function producerMissionPrompt(sources) {
+	const sourceNames = sources.map((source) => source.name).join(', ');
+	return `You are the assignment producer preparing the next NewsCraft editorial meeting brief.
+
+Use the attached RSS feeds (${sourceNames}) as live inputs. Answer the questions a producer would actually ask before assigning coverage:
+- What are the strongest lead candidates right now?
+- Why would our audience care today?
+- What facts are confirmed by the feed text, and what still needs a call, document, or second source?
+- What source notes should an editor see before approving the assignment?
+- What should remain blocked from publishing until a human reviews it?
+
+Write in plain newsroom language, not implementation language. Do not mention harnesses, APIs, SDKs, tests, fixtures, or databases. Do not invent facts beyond the feed text. Output markdown with these sections exactly:
+## Summary
+## Lead Candidates
+## Source Notes
+## Verification Notes
+## Human Review`;
+}
+
+async function assertReadableFeeds(sources) {
+	const probes = [];
+	for (const source of sources) {
+		console.log(`Checking producer RSS feed: ${source.name} (${source.url})`);
+		try {
+			const response = await fetch(source.url, {
+				headers: { 'user-agent': 'NewsCraft producer-acceptance/0.0.1 (+https://newscraft.ai)' },
+				signal: AbortSignal.timeout(20_000)
+			});
+			const body = await response.text();
+			assert(response.ok, `${source.name} feed returned ${response.status}`);
+			assert(
+				/<(rss|feed|item|entry)\b/i.test(body.slice(0, 8000)),
+				`${source.name} did not look like an RSS or Atom feed`
+			);
+			probes.push({
+				name: source.name,
+				url: source.url,
+				status: response.status,
+				contentType: response.headers.get('content-type'),
+				itemCount: (body.match(/<(item|entry)\b/gi) || []).length
+			});
+		} catch (err) {
+			throw new Error(`${source.name} feed check failed: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+	return probes;
+}
+
+function assertProducerReport(markdown, sourceProfile) {
+	for (const section of ['Summary', 'Lead Candidates', 'Source Notes', 'Verification Notes', 'Human Review']) {
+		assert(new RegExp(`^##\\s+${section}\\s*$`, 'im').test(markdown), `completed report is missing ${section}`);
+	}
+
+	const checks = [
+		[/lead candidate|lead-worthy|lead story|top story|strongest/i, 'lead candidates'],
+		[/audience|why it matters|public impact|viewers|readers/i, 'audience relevance'],
+		[/verify|confirm|corroborate|second source|primary source|before publishing/i, 'verification work'],
+		[/human review|editor|producer|approval|do not publish|blocked from publishing/i, 'human editorial approval']
+	];
+	for (const [pattern, label] of checks) {
+		assert(pattern.test(markdown), `producer report does not discuss ${label}`);
+	}
+
+	const lowerMarkdown = markdown.toLowerCase();
+	const sourceMentions = sourceProfile.sources.filter((source) => {
+		const host = new URL(source.url).hostname.replace(/^www\./, '');
+		const shortName = source.name.split(/\s+/)[0]?.toLowerCase();
+		return (
+			lowerMarkdown.includes(source.name.toLowerCase()) ||
+			(shortName && lowerMarkdown.includes(shortName)) ||
+			lowerMarkdown.includes(host.toLowerCase()) ||
+			lowerMarkdown.includes(source.url.toLowerCase())
+		);
+	});
+	assert(
+		sourceMentions.length >= Math.min(2, sourceProfile.sources.length),
+		`producer report only mentions ${sourceMentions.length} configured source(s)`
+	);
+	assert(
+		!/harness|SDK|database|fixture|test account/i.test(markdown),
+		'producer report leaked implementation language into the editor-facing brief'
+	);
+	assert(
+		!/No structured|No lead candidates were ranked|No external source URLs/i.test(markdown),
+		'producer report fell back to missing-content boilerplate'
+	);
+}
+
+function assertProducerSourcesPersisted(storedSources, sourceProfile) {
+	const expectedUrls = sourceProfile.sources.map((source) => source.url);
+	for (const url of expectedUrls) {
+		assert(
+			storedSources.some((source) => source.url === url && source.used === 1),
+			`harness DB did not persist used source ${url}`
+		);
+	}
+}
+
 async function startNewsFixture() {
 	const server = createServer((req, res) => {
 		const base = `http://${req.headers.host}`;
@@ -370,16 +567,16 @@ async function startNewsFixture() {
 			res.end(`<?xml version="1.0" encoding="UTF-8" ?>
 <rss version="2.0">
   <channel>
-    <title>NewsCraft Producer Fixture</title>
+    <title>NewsCraft Local Newsroom Fixture</title>
     <item>
-      <title>Health desk prepares clinic staffing review</title>
-      <link>${base}/health-staffing</link>
-      <description>The county health desk published a staffing review note. Producers should verify clinic hours and staffing numbers before broadcast.</description>
+      <title>City council schedules emergency budget hearing</title>
+      <link>${base}/budget-hearing</link>
+      <description>Council leaders scheduled an emergency hearing after a revised finance memo projected a transit funding gap. Producers should confirm the agenda, dollar figure, and public comment window.</description>
     </item>
     <item>
-      <title>Transit agency posts storm-delay after-action note</title>
-      <link>${base}/transit-after-action</link>
-      <description>The transit agency posted a short after-action note about storm delays and said a fuller board packet is due Friday.</description>
+      <title>Hospital network reports overnight emergency room diversion</title>
+      <link>${base}/hospital-diversion</link>
+      <description>The regional hospital network said two emergency departments diverted ambulances overnight because of staffing pressure. Producers should call the hospitals and emergency services before assigning a live update.</description>
     </item>
   </channel>
 </rss>`);
