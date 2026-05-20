@@ -17,7 +17,7 @@ import {
 export const load: PageServerLoad = async ({ locals }) => {
 	if (locals.user) throw redirect(303, '/');
 	return {
-		accessCodeConfigured: legacyPasswordConfigured()
+		accessCodeConfigured: await legacyPasswordConfigured()
 	};
 };
 
@@ -28,7 +28,7 @@ export const actions: Actions = {
 		const password = String(data.get('password') ?? '');
 		const confirm = String(data.get('confirm') ?? '');
 
-		if (!legacyPasswordConfigured()) {
+		if (!(await legacyPasswordConfigured())) {
 			return fail(503, { error: 'account creation is not configured' });
 		}
 		if (password.length < 8) {
@@ -57,7 +57,7 @@ export const actions: Actions = {
 
 		try {
 			const account = await createPasswordOnlyAccount(password);
-			touchAccountLogin(account.id);
+			await touchAccountLogin(account.id);
 			const c = mintSessionCookie(account.id);
 			cookies.set(c.name, c.value, c.opts);
 		} catch {

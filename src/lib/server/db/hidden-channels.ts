@@ -19,8 +19,8 @@ function key(accountId: string): string {
 	return `${KEY}.${accountId}`;
 }
 
-export function listHiddenChannelJobIds(accountId: string): string[] {
-	const raw = getSetting(key(accountId)) ?? getSetting(KEY);
+export async function listHiddenChannelJobIds(accountId: string): Promise<string[]> {
+	const raw = (await getSetting(key(accountId))) ?? (await getSetting(KEY));
 	if (!raw) return [];
 	try {
 		return normalize(JSON.parse(raw));
@@ -29,22 +29,22 @@ export function listHiddenChannelJobIds(accountId: string): string[] {
 	}
 }
 
-function writeHiddenChannelJobIds(accountId: string, ids: string[]): void {
-	setSetting(key(accountId), JSON.stringify(normalize(ids)));
+async function writeHiddenChannelJobIds(accountId: string, ids: string[]): Promise<void> {
+	await setSetting(key(accountId), JSON.stringify(normalize(ids)));
 }
 
-export function hideChannelJobId(accountId: string, jobId: string): void {
+export async function hideChannelJobId(accountId: string, jobId: string): Promise<void> {
 	const id = jobId.trim();
 	if (!JOB_ID_RE.test(id)) return;
-	const ids = new Set(listHiddenChannelJobIds(accountId));
+	const ids = new Set(await listHiddenChannelJobIds(accountId));
 	ids.add(id);
-	writeHiddenChannelJobIds(accountId, Array.from(ids));
+	await writeHiddenChannelJobIds(accountId, Array.from(ids));
 }
 
-export function unhideChannelJobId(accountId: string, jobId: string): void {
+export async function unhideChannelJobId(accountId: string, jobId: string): Promise<void> {
 	const id = jobId.trim();
 	if (!JOB_ID_RE.test(id)) return;
-	const ids = new Set(listHiddenChannelJobIds(accountId));
+	const ids = new Set(await listHiddenChannelJobIds(accountId));
 	if (!ids.delete(id)) return;
-	writeHiddenChannelJobIds(accountId, Array.from(ids));
+	await writeHiddenChannelJobIds(accountId, Array.from(ids));
 }

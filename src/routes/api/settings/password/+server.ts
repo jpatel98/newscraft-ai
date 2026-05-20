@@ -23,7 +23,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (next.length < 8) throw error(400, 'new password must be at least 8 characters');
 	if (next === current) throw error(400, 'new password must differ from current');
 
-	const account = getAccount(locals.user.id);
+	const account = await getAccount(locals.user.id);
 	if (!account?.passwordHash) throw error(401, 'current password is incorrect');
 	const ok = await verifyHash(account.passwordHash, current);
 	if (!ok) throw error(401, 'current password is incorrect');

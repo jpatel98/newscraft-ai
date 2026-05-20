@@ -1,6 +1,8 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { bigint, index, integer, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 
-export const accounts = sqliteTable(
+const timestampMs = (name: string) => bigint(name, { mode: 'number' });
+
+export const accounts = pgTable(
 	'accounts',
 	{
 		id: text('id').primaryKey(),
@@ -8,10 +10,10 @@ export const accounts = sqliteTable(
 		name: text('name').notNull().default(''),
 		passwordHash: text('password_hash'),
 		setupTokenHash: text('setup_token_hash'),
-		setupTokenExpiresAt: integer('setup_token_expires_at'),
-		createdAt: integer('created_at').notNull(),
-		updatedAt: integer('updated_at').notNull(),
-		lastLoginAt: integer('last_login_at')
+		setupTokenExpiresAt: timestampMs('setup_token_expires_at'),
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull(),
+		lastLoginAt: timestampMs('last_login_at')
 	},
 	(t) => ({
 		emailUnique: uniqueIndex('accounts_email_unique').on(t.email),
@@ -19,15 +21,15 @@ export const accounts = sqliteTable(
 	})
 );
 
-export const conversations = sqliteTable('conversations', {
+export const conversations = pgTable('conversations', {
 	id: text('id').primaryKey(),
 	accountId: text('account_id')
 		.notNull()
 		.references(() => accounts.id, { onDelete: 'cascade' }),
 	title: text('title').notNull().default(''),
 	systemPrompt: text('system_prompt'),
-	createdAt: integer('created_at').notNull(),
-	updatedAt: integer('updated_at').notNull(),
+	createdAt: timestampMs('created_at').notNull(),
+	updatedAt: timestampMs('updated_at').notNull(),
 	pinned: integer('pinned').notNull().default(0)
 }, (t) => ({
 	accountUpdatedIdx: index('conversations_account_updated_idx').on(t.accountId, t.updatedAt),
@@ -38,7 +40,7 @@ export const conversations = sqliteTable('conversations', {
 	)
 }));
 
-export const messages = sqliteTable(
+export const messages = pgTable(
 	'messages',
 	{
 		id: text('id').primaryKey(),
@@ -49,19 +51,19 @@ export const messages = sqliteTable(
 		content: text('content').notNull(),
 		toolCalls: text('tool_calls'),
 		partial: integer('partial').notNull().default(0),
-		createdAt: integer('created_at').notNull()
+		createdAt: timestampMs('created_at').notNull()
 	},
 	(t) => ({
 		convoIdx: index('messages_convo_created_idx').on(t.conversationId, t.createdAt)
 	})
 );
 
-export const settings = sqliteTable('settings', {
+export const settings = pgTable('settings', {
 	key: text('key').primaryKey(),
 	value: text('value').notNull()
 });
 
-export const hermesChannelPosts = sqliteTable(
+export const hermesChannelPosts = pgTable(
 	'hermes_channel_posts',
 	{
 		id: text('id').primaryKey(),
@@ -76,9 +78,9 @@ export const hermesChannelPosts = sqliteTable(
 		filePathDisplay: text('file_path_display').notNull(),
 		responseMarkdown: text('response_markdown').notNull(),
 		preview: text('preview').notNull(),
-		sourceMtimeMs: integer('source_mtime_ms').notNull().default(0),
-		createdAt: integer('created_at').notNull(),
-		updatedAt: integer('updated_at').notNull()
+		sourceMtimeMs: timestampMs('source_mtime_ms').notNull().default(0),
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
 	},
 	(t) => ({
 		accountJobIdx: index('hermes_posts_account_job_idx').on(t.accountId, t.jobId),
@@ -87,7 +89,7 @@ export const hermesChannelPosts = sqliteTable(
 	})
 );
 
-export const missions = sqliteTable('missions', {
+export const missions = pgTable('missions', {
 	id: text('id').primaryKey(),
 	accountId: text('account_id')
 		.notNull()
@@ -100,13 +102,13 @@ export const missions = sqliteTable('missions', {
 	deliveryTarget: text('delivery_target').notNull().default('database'),
 	outputFormat: text('output_format').notNull().default('markdown'),
 	backendJobId: text('backend_job_id').notNull(),
-	createdAt: integer('created_at').notNull(),
-	updatedAt: integer('updated_at').notNull()
+	createdAt: timestampMs('created_at').notNull(),
+	updatedAt: timestampMs('updated_at').notNull()
 }, (t) => ({
 	accountIdx: index('missions_account_idx').on(t.accountId)
 }));
 
-export const missionSources = sqliteTable(
+export const missionSources = pgTable(
 	'mission_sources',
 	{
 		id: text('id').primaryKey(),
@@ -118,8 +120,8 @@ export const missionSources = sqliteTable(
 		configJson: text('config_json').notNull(),
 		enabled: integer('enabled').notNull().default(1),
 		sortOrder: integer('sort_order').notNull().default(0),
-		createdAt: integer('created_at').notNull(),
-		updatedAt: integer('updated_at').notNull()
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
 	},
 	(t) => ({
 		missionIdx: index('mission_sources_mission_idx').on(t.missionId, t.sortOrder),
@@ -127,7 +129,7 @@ export const missionSources = sqliteTable(
 	})
 );
 
-export const missionRuns = sqliteTable(
+export const missionRuns = pgTable(
 	'mission_runs',
 	{
 		id: text('id').primaryKey(),
@@ -137,17 +139,17 @@ export const missionRuns = sqliteTable(
 		status: text('status').notNull(),
 		startedAt: text('started_at'),
 		completedAt: text('completed_at'),
-		elapsedMs: integer('elapsed_ms'),
+		elapsedMs: timestampMs('elapsed_ms'),
 		lastError: text('last_error'),
-		createdAt: integer('created_at').notNull(),
-		updatedAt: integer('updated_at').notNull()
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
 	},
 	(t) => ({
 		missionStartedIdx: index('mission_runs_mission_started_idx').on(t.missionId, t.startedAt)
 	})
 );
 
-export const missionReports = sqliteTable(
+export const missionReports = pgTable(
 	'mission_reports',
 	{
 		id: text('id').primaryKey(),
@@ -163,10 +165,10 @@ export const missionReports = sqliteTable(
 		outputFormat: text('output_format').notNull().default('markdown'),
 		responseMarkdown: text('response_markdown').notNull(),
 		preview: text('preview').notNull(),
-		sourceMtimeMs: integer('source_mtime_ms').notNull().default(0),
+		sourceMtimeMs: timestampMs('source_mtime_ms').notNull().default(0),
 		legacyChannelPostId: text('legacy_channel_post_id'),
-		createdAt: integer('created_at').notNull(),
-		updatedAt: integer('updated_at').notNull()
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
 	},
 	(t) => ({
 		accountMissionIdx: index('mission_reports_account_mission_idx').on(t.accountId, t.missionId),
@@ -177,17 +179,17 @@ export const missionReports = sqliteTable(
 	})
 );
 
-export const hermesChannelConfigs = sqliteTable('hermes_channel_configs', {
+export const hermesChannelConfigs = pgTable('hermes_channel_configs', {
 	jobId: text('job_id').primaryKey(),
 	accountId: text('account_id')
 		.notNull()
 		.references(() => accounts.id, { onDelete: 'cascade' }),
 	basePrompt: text('base_prompt').notNull(),
-	createdAt: integer('created_at').notNull(),
-	updatedAt: integer('updated_at').notNull()
+	createdAt: timestampMs('created_at').notNull(),
+	updatedAt: timestampMs('updated_at').notNull()
 });
 
-export const hermesChannelSources = sqliteTable(
+export const hermesChannelSources = pgTable(
 	'hermes_channel_sources',
 	{
 		id: text('id').primaryKey(),
@@ -199,8 +201,8 @@ export const hermesChannelSources = sqliteTable(
 		configJson: text('config_json').notNull(),
 		enabled: integer('enabled').notNull().default(1),
 		sortOrder: integer('sort_order').notNull().default(0),
-		createdAt: integer('created_at').notNull(),
-		updatedAt: integer('updated_at').notNull()
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
 	},
 	(t) => ({
 		jobIdx: index('hermes_sources_job_idx').on(t.jobId, t.sortOrder),

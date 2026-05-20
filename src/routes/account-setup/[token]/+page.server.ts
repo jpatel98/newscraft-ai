@@ -9,7 +9,7 @@ import {
 } from '$lib/server/db/accounts';
 
 export const load: PageServerLoad = async ({ params }) => {
-	const account = getAccountBySetupToken(params.token);
+	const account = await getAccountBySetupToken(params.token);
 	if (!account) throw error(404, 'invalid or expired account setup link');
 	return {};
 };
@@ -29,7 +29,7 @@ export const actions: Actions = {
 		const account = await claimSetupToken(params.token, password);
 		if (!account) return fail(400, { error: 'invalid or expired account setup link' });
 
-		touchAccountLogin(account.id);
+		await touchAccountLogin(account.id);
 		const c = mintSessionCookie(account.id);
 		cookies.set(c.name, c.value, c.opts);
 		throw redirect(303, '/');

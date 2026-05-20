@@ -15,7 +15,7 @@ Replacing `newscraft-ai-workspace`. Connects to Hermes gateway at `127.0.0.1:864
 - Routes: `/`, `/c/[id]`, `/settings`, `/login`.
 - NewsCraft AI design system applied: cream/ink/cobalt tokens, dark sidebar + cream main pane, sharp corners, mono metadata, Lucide icons. Light + system-default dark mode.
 - 3-dot mono "Drafting reply" pulse + streaming caret.
-- Deploy: `/home/jigar/deploy-hermes-ui.sh` (Phase A install on `:3001`, `--cutover` flips Caddy + auto-revert, `--archive` retires old workspace).
+- Legacy VPS deployment path removed.
 - Single point of change for Hermes API: `src/lib/server/hermes/transport.ts`.
 
 ---
@@ -54,7 +54,7 @@ When the foundation feels stable.
 - [x] **Conversation-level system prompt override.** Right-anchored slide-over reachable from the sidebar 3-dot menu. Empty/whitespace clears the override; non-empty injects a leading `system` message on every chat completion for that thread. Menu label gets a `•` when an override is active.
 - [x] **Thread reasoning control.** Built-in `/reasoning low|medium|high|default` command stores per-conversation reasoning effort and forwards it to Hermes chat/completions and Responses fallback requests.
 - [ ] **Model picker.** Currently locked to `hermes-agent`; surface when there's a real choice.
-- [ ] **Cutover.** `sudo bash /home/jigar/deploy-hermes-ui.sh --cutover` swaps Caddy `:3000 → :3001` and rewrites `ORIGIN`. After a week of confidence: `--archive` retires `newscraft-ai-workspace`.
+- [ ] **Hosted deployment.** Configure the selected production platform for the UI and harness deployables.
 
 ---
 

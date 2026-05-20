@@ -13,6 +13,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	} catch {
 		/* empty body is fine */
 	}
-	const convo = createConversation(locals.user.id, body.system_prompt?.trim() || undefined);
+	const convo = await createConversation(locals.user.id, body.system_prompt?.trim() || undefined);
 	return json({ id: convo.id });
 };

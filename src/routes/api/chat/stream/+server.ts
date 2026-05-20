@@ -156,8 +156,8 @@ function looksSourceBacked(text: string): boolean {
 	);
 }
 
-function localAssistantResponse(convoId: string, text: string): Response {
-	addMessage({ conversationId: convoId, role: 'assistant', content: text });
+async function localAssistantResponse(convoId: string, text: string): Promise<Response> {
+	await addMessage({ conversationId: convoId, role: 'assistant', content: text });
 	return localTextStream(convoId, text);
 }
 
@@ -194,11 +194,11 @@ function gatewayUnavailableMessage(detail: string): string {
 		.join('\n\n');
 }
 
-function localGatewayFailureResponse(convoId: string, detail: string, resumeMessageId?: string | null): Response {
+async function localGatewayFailureResponse(convoId: string, detail: string, resumeMessageId?: string | null): Promise<Response> {
 	const text = gatewayUnavailableMessage(detail);
 	if (resumeMessageId) {
-		appendMessageContent(resumeMessageId, `\n\n${text}`);
-		finalizeMessage(resumeMessageId);
+		await appendMessageContent(resumeMessageId, `\n\n${text}`);
+		await finalizeMessage(resumeMessageId);
 		resumingIds.delete(resumeMessageId);
 		return localTextStream(convoId, `\n\n${text}`);
 	}
@@ -237,13 +237,13 @@ async function builtinResponse(
 	if (command.slash === '/reasoning') {
 		const parsed = parseReasoningEffort(args);
 		if (!parsed) {
-			const current = getConversationReasoningEffort(convoId);
+			const current = await getConversationReasoningEffort(convoId);
 			return [
 				`Reasoning is currently set to ${reasoningEffortLabel(current)} for this thread.`,
 				'Use `/reasoning low`, `/reasoning medium`, `/reasoning high`, or `/reasoning default`.'
 			].join('\n\n');
 		}
-		const next = setConversationReasoningEffort(convoId, parsed);
+		const next = await setConversationReasoningEffort(convoId, parsed);
 		return `Reasoning set to ${reasoningEffortLabel(next)} for this thread.`;
 	}
 	if (command.slash === '/status') {
@@ -277,11 +277,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// --- Resolve conversation + decide what to stream ---
 	const isResume = body.resume === true;
 	const accountId = locals.user.id;
-	let convo = body.conversation_id ? getConversation(accountId, body.conversation_id) : undefined;
+	let convo = body.conversation_id ? await getConversation(accountId, body.conversation_id) : undefined;
 	const isNew = !convo && !isResume;
 	if (!convo) {
 		if (isResume) throw error(404, 'conversation not found');
-		convo = createConversation(accountId);
+		convo = await createConversation(accountId);
 	}
 	const convoId = convo.id;
 
@@ -291,7 +291,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (isResume) {
 		const messageId = body.message_id;
 		if (!messageId) throw error(400, 'message_id required for resume');
-		const target = getMessageById(messageId);
+		const target = await getMessageById(messageId);
 		if (!target || target.conversationId !== convoId) throw error(404, 'message not found');
 		if (target.role !== 'assistant') throw error(400, 'can only resume assistant messages');
 		if (target.partial !== 1) throw error(400, 'message is not partial');
@@ -299,14 +299,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		resumingIds.add(messageId);
 		resumeMessageId = messageId;
 	} else if (isRegenerate) {
-		const lastA = lastAssistantMessage(convoId);
-		if (lastA) deleteMessagesFrom(convoId, lastA.id);
+		const lastA = await lastAssistantMessage(convoId);
+		if (lastA) await deleteMessagesFrom(convoId, lastA.id);
 	} else {
 		const cleaned = sanitizeContent(body.content);
 		if (cleaned == null) throw error(400, 'content required');
 		if (typeof cleaned === 'string' && !cleaned.trim()) throw error(400, 'content required');
 		let upstreamContent = cleaned;
-		addMessage({ conversationId: convoId, role: 'user', content: cleaned });
+		await addMessage({ conversationId: convoId, role: 'user', content: cleaned });
 
 		if (typeof cleaned === 'string') {
 			const parsed = parseSlashCommand(cleaned);
@@ -347,7 +347,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 	}
 
-	const history = getMessages(convoId).map<HermesMessage>((m) => {
+	const messages = await getMessages(convoId);
+	const history = messages.map<HermesMessage>((m) => {
 		const parsed = parseContent(m.content);
 		return {
 			role: m.role === 'tool' ? 'assistant' : (m.role as 'user' | 'assistant' | 'system'),
@@ -363,7 +364,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		body.content != null
 			? contentText(body.content)
 			: (() => {
-					const lastUser = [...getMessages(convoId)].reverse().find((m) => m.role === 'user');
+					const lastUser = [...messages].reverse().find((m) => m.role === 'user');
 					return lastUser ? contentText(parseContent(lastUser.content)) : '';
 				})();
 
@@ -383,7 +384,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (request.signal.aborted) upstreamAbort.abort();
 	else request.signal.addEventListener('abort', () => upstreamAbort.abort(), { once: true });
 
-	const reasoningEffort = getConversationReasoningEffort(convoId);
+	const reasoningEffort = await getConversationReasoningEffort(convoId);
 	const sessionId = deriveSessionId(history);
 	let upstream: Response;
 	try {
@@ -403,13 +404,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			);
 		}
 	} catch (err) {
-		return localGatewayFailureResponse(convoId, err instanceof Error ? err.message : String(err), resumeMessageId);
+		return await localGatewayFailureResponse(convoId, err instanceof Error ? err.message : String(err), resumeMessageId);
 	}
 
 	if (!upstream.ok || !upstream.body) {
 		if (resumeMessageId) resumingIds.delete(resumeMessageId);
 		const text = await upstream.text().catch(() => '');
-		return localGatewayFailureResponse(
+		return await localGatewayFailureResponse(
 			convoId,
 			`Hermes ${upstream.status || 502}: ${text || upstream.statusText}`,
 			resumeMessageId
@@ -423,24 +424,24 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	let sentDone = false;
 	const streamState = new StreamEventState();
 
-	function persistAssistant() {
+	async function persistAssistant() {
 		if (persisted) return undefined;
 		persisted = true;
 		const capturedToolCalls = streamState.toolCalls();
 		const capturedSources = streamState.sourceList();
 		if (resumeMessageId) {
-			if (assistantBuf) appendMessageContent(resumeMessageId, assistantBuf);
+			if (assistantBuf) await appendMessageContent(resumeMessageId, assistantBuf);
 			if (capturedToolCalls.length || capturedSources.length) {
-				const row = getMessageById(resumeMessageId);
+				const row = await getMessageById(resumeMessageId);
 				const merged = mergeToolMetadata(row?.toolCalls ?? null, capturedToolCalls, capturedSources);
-				setMessageToolCalls(resumeMessageId, serializeToolMetadata(merged.tools, merged.sources));
+				await setMessageToolCalls(resumeMessageId, serializeToolMetadata(merged.tools, merged.sources));
 			}
-			if (done) finalizeMessage(resumeMessageId);
+			if (done) await finalizeMessage(resumeMessageId);
 			resumingIds.delete(resumeMessageId);
 			return getMessageById(resumeMessageId);
 		}
 		if (!assistantBuf && capturedToolCalls.length === 0) return undefined;
-		return addMessage({
+		return await addMessage({
 			conversationId: convoId,
 			role: 'assistant',
 			content: assistantBuf,
@@ -469,20 +470,20 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					controller.enqueue(enc.encode(sseFrame(ev.event, ev.data)));
 				}
 			} catch (e) {
-				persistAssistant();
+				await persistAssistant();
 				controller.error(e);
 				return;
 			}
 
-			const assistantRow = persistAssistant();
+			const assistantRow = await persistAssistant();
 
 			// Title auto-summarization: first turn only, fire-and-await briefly so
 			// the client gets the title before the stream closes (and before its
 			// invalidateAll() picks up the conversation list).
 			try {
-				const fresh = getConversation(accountId, convoId);
+				const fresh = await getConversation(accountId, convoId);
 				if (fresh && (isNew || !fresh.title) && assistantRow) {
-					const seedHistory = getMessages(convoId)
+					const seedHistory = (await getMessages(convoId))
 						.filter((m) => m.role === 'user' || m.role === 'assistant')
 						.slice(0, 4)
 						.map<HermesMessage>((m) => {
@@ -509,7 +510,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					const raw = result.choices?.[0]?.message?.content ?? '';
 					const title = raw.trim().replace(/^["']|["']$/g, '').replace(/[.!?]+$/, '').slice(0, 80);
 					if (title) {
-						setConversationTitle(accountId, convoId, title);
+						await setConversationTitle(accountId, convoId, title);
 						controller.enqueue(
 							enc.encode(`event: hermes.title\ndata: ${JSON.stringify({ title })}\n\n`)
 						);
@@ -524,7 +525,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		},
 		cancel() {
 			upstreamAbort.abort();
-			persistAssistant();
+			void persistAssistant();
 		}
 	});
 

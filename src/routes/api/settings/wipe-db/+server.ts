@@ -31,7 +31,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		throw error(400, 'confirmation phrase missing or incorrect');
 	}
 
-	db.transaction((tx) => {
+	db.transaction((tx: any) => {
 		tx.delete(missionReports).where(eq(missionReports.accountId, accountId)).run();
 		tx.delete(missions).where(eq(missions.accountId, accountId)).run();
 		tx.delete(hermesChannelConfigs).where(eq(hermesChannelConfigs.accountId, accountId)).run();

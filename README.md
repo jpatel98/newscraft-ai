@@ -1,7 +1,7 @@
 # NewsCraft Agent UI
 
-SvelteKit app for `agent.newscraftai.com`, backed by either the legacy Hermes
-gateway or the NewsCraft-native newsroom harness in `services/newsroom-harness`.
+SvelteKit app for NewsCraft, backed by either the legacy Hermes gateway or the
+NewsCraft-native newsroom harness in `services/newsroom-harness`.
 
 ## Local Development
 
@@ -125,46 +125,10 @@ The live OpenAI smoke test is intentionally opt-in:
 NEWSROOM_HARNESS_LIVE_OPENAI_SMOKE=1 corepack pnpm test:harness
 ```
 
-## Production Deploy
+## Deployment
 
-From this repo, run:
-
-```sh
-corepack pnpm deploy:agent
-```
-
-That command runs `/home/jigar/deploy-hermes-ui.sh --deploy`, which installs dependencies, builds the SvelteKit node server, starts/restarts `hermes-ui.service` on `127.0.0.1:3001`, checks `/api/health`, and then cuts Caddy over to `https://agent.newscraftai.com`.
-
-For normal app code updates after cutover, use the faster reload path:
-
-```sh
-corepack pnpm reload:agent
-```
-
-That builds, creates a managed SQLite backup unless `BACKUP_BEFORE_RELOAD=0`,
-restarts `hermes-ui.service`, and verifies readiness JSON on
-`127.0.0.1:3001/api/health`. The UI health check now fails if the configured
-gateway is unreachable.
-
-For harness-only updates:
-
-```sh
-corepack pnpm reload:harness
-```
-
-That builds/tests the shared package and harness, restarts
-`newsroom-harness.service`, and verifies `127.0.0.1:8650/health`.
-
-For the normal production sibling-service reload path, restart the harness first
-and then the UI:
-
-```sh
-corepack pnpm reload:stack
-```
-
-Example systemd unit templates live in `deploy/systemd/`. Install them manually
-after reviewing paths and environment handling; the repo scripts do not perform
-production cutover by themselves.
+The old VPS/systemd/Caddy deployment path has been removed. Production deploys
+should be configured through the selected hosted platform.
 
 Required `.env` values:
 
@@ -176,10 +140,10 @@ APP_SESSION_SECRET=
 When running the native harness in production, also configure:
 
 ```sh
-AGENT_GATEWAY_URL=http://127.0.0.1:8650
+AGENT_GATEWAY_URL=
 AGENT_GATEWAY_API_KEY=<matches NEWSROOM_HARNESS_API_KEY if set>
 NEWSROOM_HARNESS_API_KEY=
-NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/hermes/channel-posts
+NEWSROOM_UI_INGEST_URL=
 NEWSROOM_UI_INGEST_KEY=<matches HERMES_INGEST_KEY or HERMES_API_KEY>
 ```
 

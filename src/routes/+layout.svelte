@@ -41,6 +41,7 @@
 			page.url.pathname.startsWith('/account-setup')
 	);
 	const sidebarMissions = $derived((data.channels ?? []) as BoardChannel[]);
+	const missionsEnabled = $derived(Boolean(data.missionsEnabled));
 
 	let paletteOpen = $state(false);
 	let drawerOpen = $state(false);
@@ -639,16 +640,18 @@
 					<SquarePen size="14" strokeWidth={1.8} />
 					<span>New chat</span>
 				</a>
-				<a
-					class="sidebar__primary-action sidebar__primary-action--channel"
-					href="/missions?new=1"
-					aria-label="New mission"
-					title="Create mission"
-					onclick={onSelectThread}
-				>
-					<Plus size="14" strokeWidth={1.8} />
-					<span>New mission</span>
-				</a>
+				{#if missionsEnabled}
+					<a
+						class="sidebar__primary-action sidebar__primary-action--channel"
+						href="/missions?new=1"
+						aria-label="New mission"
+						title="Create mission"
+						onclick={onSelectThread}
+					>
+						<Plus size="14" strokeWidth={1.8} />
+						<span>New mission</span>
+					</a>
+				{/if}
 			</div>
 
 			<div class="sidebar__search">
@@ -702,21 +705,22 @@
 				</div>
 			{:else}
 				<div class="sidebar__list">
-					<div class="sidebar__section">Missions</div>
-					<a
-						class="sidebar__row {page.url.pathname === '/missions' && !page.url.searchParams.get('mission')
-							? 'sidebar__row--active'
-							: ''}"
-						href="/missions"
-						aria-current={page.url.pathname === '/missions' && !page.url.searchParams.get('mission')
-							? 'page'
-							: undefined}
-						onclick={onSelectThread}
-					>
-						<Rss class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
-						<span class="sidebar__row__name">All missions</span>
-					</a>
-					{#each sidebarMissions as mission (mission.slug)}
+					{#if missionsEnabled}
+						<div class="sidebar__section">Missions</div>
+						<a
+							class="sidebar__row {page.url.pathname === '/missions' && !page.url.searchParams.get('mission')
+								? 'sidebar__row--active'
+								: ''}"
+							href="/missions"
+							aria-current={page.url.pathname === '/missions' && !page.url.searchParams.get('mission')
+								? 'page'
+								: undefined}
+							onclick={onSelectThread}
+						>
+							<Rss class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+							<span class="sidebar__row__name">All missions</span>
+						</a>
+						{#each sidebarMissions as mission (mission.slug)}
 						{@const href = `/missions?mission=${encodeURIComponent(mission.slug)}`}
 						{@const jobId = mission.jobId ?? ''}
 						<div
@@ -776,7 +780,8 @@
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
 							<span class="sidebar__row__name">No missions yet</span>
 						</div>
-					{/each}
+						{/each}
+					{/if}
 					<div class="sidebar__section">Chats</div>
 					{#if data.conversations.length === 0}
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">

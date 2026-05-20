@@ -56,7 +56,7 @@ function legacyReportRows(accountId: string): MissionReportRow[] {
 			.where(eq(hermesChannelPosts.accountId, accountId))
 			.orderBy(asc(hermesChannelPosts.updatedAt))
 			.all()
-			.map((row) => ({
+			.map((row: typeof hermesChannelPosts.$inferSelect) => ({
 				id: row.id,
 				accountId: row.accountId,
 				missionId: row.jobId,
@@ -166,7 +166,7 @@ export function listMissionReportSummaries(accountId: string): MissionReportSumm
 			.orderBy(asc(missionReports.updatedAt))
 			.all();
 		if (rows.length > 0) {
-			return rows.map((row) => ({ ...row, responseMarkdown: '' }));
+			return rows.map((row: Omit<MissionReportSummaryRow, 'responseMarkdown'>) => ({ ...row, responseMarkdown: '' }));
 		}
 		return legacyReportRows(accountId).map(({ responseMarkdown: _responseMarkdown, ...row }) => ({
 			...row,

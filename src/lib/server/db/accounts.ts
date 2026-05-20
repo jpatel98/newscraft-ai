@@ -44,33 +44,34 @@ export function accountDisplayName(email: string, name: string): string {
 	return generatedAccountLabel(email);
 }
 
-export function accountCount(): number {
+export async function accountCount(): Promise<number> {
 	if (cachedAccountCount !== null) return cachedAccountCount;
-	const row = db.select({ value: count() }).from(accounts).get();
+	const [row] = await db.select({ value: count() }).from(accounts).limit(1);
 	cachedAccountCount = Number(row?.value ?? 0);
 	return cachedAccountCount;
 }
 
-export function listAccounts(): AccountSummary[] {
-	return db
+export async function listAccounts(): Promise<AccountSummary[]> {
+	return (await db
 		.select()
 		.from(accounts)
-		.orderBy(desc(accounts.createdAt))
-		.all()
-		.map((row) => toSummary(row as AccountRow));
+		.orderBy(desc(accounts.createdAt)))
+		.map((row: AccountRow) => toSummary(row));
 }
 
-export function getAccount(id: string): AccountRow | undefined {
-	return db.select().from(accounts).where(eq(accounts.id, id)).get() as AccountRow | undefined;
+export async function getAccount(id: string): Promise<AccountRow | undefined> {
+	const [row] = (await db.select().from(accounts).where(eq(accounts.id, id)).limit(1)) as AccountRow[];
+	return row;
 }
 
-export function findAccountByEmail(email: string): AccountRow | undefined {
+export async function findAccountByEmail(email: string): Promise<AccountRow | undefined> {
 	const normalized = normalizeEmail(email);
-	return db
+	const [row] = (await db
 		.select()
 		.from(accounts)
 		.where(eq(accounts.email, normalized))
-		.get() as AccountRow | undefined;
+		.limit(1)) as AccountRow[];
+	return row;
 }
 
 export async function createAccountWithPassword(input: {
@@ -78,7 +79,7 @@ export async function createAccountWithPassword(input: {
 	name?: string;
 	password: string;
 }): Promise<AccountRow> {
-	const firstAccount = accountCount() === 0;
+	const firstAccount = (await accountCount()) === 0;
 	const email = normalizeEmail(input.email);
 	const now = Date.now();
 	const row: AccountRow = {
@@ -92,14 +93,14 @@ export async function createAccountWithPassword(input: {
 		updatedAt: now,
 		lastLoginAt: null
 	};
-	db.insert(accounts).values(row).run();
+	await db.insert(accounts).values(row);
 	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
-	if (firstAccount) claimOrphanAccountData(row.id);
+	if (firstAccount) await claimOrphanAccountData(row.id);
 	return row;
 }
 
 export async function createPasswordOnlyAccount(password: string): Promise<AccountRow> {
-	const firstAccount = accountCount() === 0;
+	const firstAccount = (await accountCount()) === 0;
 	const id = newId();
 	const email = generatedAccountEmail(id);
 	const now = Date.now();
@@ -114,18 +115,18 @@ export async function createPasswordOnlyAccount(password: string): Promise<Accou
 		updatedAt: now,
 		lastLoginAt: null
 	};
-	db.insert(accounts).values(row).run();
+	await db.insert(accounts).values(row);
 	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
-	if (firstAccount) claimOrphanAccountData(row.id);
+	if (firstAccount) await claimOrphanAccountData(row.id);
 	return row;
 }
 
-export function createAccountInvite(input: { email: string; name?: string }): {
+export async function createAccountInvite(input: { email: string; name?: string }): Promise<{
 	account: AccountRow;
 	token: string;
 	expiresAt: number;
-} {
-	const firstAccount = accountCount() === 0;
+}> {
+	const firstAccount = (await accountCount()) === 0;
 	const email = normalizeEmail(input.email);
 	const now = Date.now();
 	const token = randomToken();
@@ -141,18 +142,18 @@ export function createAccountInvite(input: { email: string; name?: string }): {
 		updatedAt: now,
 		lastLoginAt: null
 	};
-	db.insert(accounts).values(row).run();
+	await db.insert(accounts).values(row);
 	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
-	if (firstAccount) claimOrphanAccountData(row.id);
+	if (firstAccount) await claimOrphanAccountData(row.id);
 	return { account: row, token, expiresAt };
 }
 
-export function createPasswordOnlyInvite(): {
+export async function createPasswordOnlyInvite(): Promise<{
 	account: AccountRow;
 	token: string;
 	expiresAt: number;
-} {
-	const firstAccount = accountCount() === 0;
+}> {
+	const firstAccount = (await accountCount()) === 0;
 	const id = newId();
 	const email = generatedAccountEmail(id);
 	const now = Date.now();
@@ -169,52 +170,50 @@ export function createPasswordOnlyInvite(): {
 		updatedAt: now,
 		lastLoginAt: null
 	};
-	db.insert(accounts).values(row).run();
+	await db.insert(accounts).values(row);
 	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
-	if (firstAccount) claimOrphanAccountData(row.id);
+	if (firstAccount) await claimOrphanAccountData(row.id);
 	return { account: row, token, expiresAt };
 }
 
-export function createPasswordSetupToken(accountId: string): { token: string; expiresAt: number } | null {
-	const account = getAccount(accountId);
+export async function createPasswordSetupToken(accountId: string): Promise<{ token: string; expiresAt: number } | null> {
+	const account = await getAccount(accountId);
 	if (!account) return null;
 	const token = randomToken();
 	const expiresAt = Date.now() + SETUP_TOKEN_TTL_MS;
-	db.update(accounts)
+	await db.update(accounts)
 		.set({
 			setupTokenHash: tokenHash(token),
 			setupTokenExpiresAt: expiresAt,
 			updatedAt: Date.now()
 		})
-		.where(eq(accounts.id, accountId))
-		.run();
+		.where(eq(accounts.id, accountId));
 	return { token, expiresAt };
 }
 
-export function getAccountBySetupToken(token: string): AccountRow | undefined {
+export async function getAccountBySetupToken(token: string): Promise<AccountRow | undefined> {
 	if (!token) return undefined;
-	const row = db
+	const [row] = (await db
 		.select()
 		.from(accounts)
 		.where(eq(accounts.setupTokenHash, tokenHash(token)))
-		.get() as AccountRow | undefined;
+		.limit(1)) as AccountRow[];
 	if (!row?.setupTokenExpiresAt || row.setupTokenExpiresAt <= Date.now()) return undefined;
 	return row;
 }
 
 export async function claimSetupToken(token: string, password: string): Promise<AccountRow | undefined> {
-	const account = getAccountBySetupToken(token);
+	const account = await getAccountBySetupToken(token);
 	if (!account) return undefined;
 	const now = Date.now();
-	db.update(accounts)
+	await db.update(accounts)
 		.set({
 			passwordHash: await hashPassword(password),
 			setupTokenHash: null,
 			setupTokenExpiresAt: null,
 			updatedAt: now
 		})
-		.where(eq(accounts.id, account.id))
-		.run();
+		.where(eq(accounts.id, account.id));
 	return getAccount(account.id);
 }
 
@@ -222,7 +221,7 @@ export async function verifyAccountCredentials(
 	email: string,
 	password: string
 ): Promise<AccountRow | undefined> {
-	const account = findAccountByEmail(email);
+	const account = await findAccountByEmail(email);
 	if (!account?.passwordHash) return undefined;
 	const ok = await verifyHash(account.passwordHash, password);
 	return ok ? account : undefined;
@@ -230,7 +229,7 @@ export async function verifyAccountCredentials(
 
 export async function findAccountByPassword(password: string): Promise<AccountRow | undefined> {
 	if (!password) return undefined;
-	const rows = db.select().from(accounts).all() as AccountRow[];
+	const rows = (await db.select().from(accounts)) as AccountRow[];
 	for (const account of rows) {
 		if (!account.passwordHash) continue;
 		if (await verifyHash(account.passwordHash, password)) return account;
@@ -239,28 +238,24 @@ export async function findAccountByPassword(password: string): Promise<AccountRo
 }
 
 export async function updateAccountPassword(accountId: string, password: string): Promise<void> {
-	db.update(accounts)
+	await db.update(accounts)
 		.set({
 			passwordHash: await hashPassword(password),
 			setupTokenHash: null,
 			setupTokenExpiresAt: null,
 			updatedAt: Date.now()
 		})
-		.where(eq(accounts.id, accountId))
-		.run();
+		.where(eq(accounts.id, accountId));
 }
 
-export function touchAccountLogin(accountId: string): void {
-	db.update(accounts).set({ lastLoginAt: Date.now() }).where(eq(accounts.id, accountId)).run();
+export async function touchAccountLogin(accountId: string): Promise<void> {
+	await db.update(accounts).set({ lastLoginAt: Date.now() }).where(eq(accounts.id, accountId));
 }
 
-export function deleteAccount(accountId: string): number {
-	const result = db.delete(accounts).where(eq(accounts.id, accountId)).run();
-	const changes = result.changes ?? 0;
-	if (changes > 0 && cachedAccountCount !== null) {
-		cachedAccountCount = Math.max(0, cachedAccountCount - changes);
-	}
-	return changes;
+export async function deleteAccount(accountId: string): Promise<number> {
+	await db.delete(accounts).where(eq(accounts.id, accountId));
+	cachedAccountCount = null;
+	return 1;
 }
 
 function toSummary(row: AccountRow): AccountSummary {
@@ -279,19 +274,17 @@ function randomToken(): string {
 	return randomBytes(32).toString('base64url');
 }
 
-function claimOrphanAccountData(accountId: string): void {
-	db.transaction((tx) => {
-		tx.update(conversations).set({ accountId }).where(isNull(conversations.accountId)).run();
-		tx.update(missions).set({ accountId }).where(isNull(missions.accountId)).run();
-		tx.update(missionReports).set({ accountId }).where(isNull(missionReports.accountId)).run();
-		tx.update(hermesChannelConfigs)
+async function claimOrphanAccountData(accountId: string): Promise<void> {
+	await db.transaction(async (tx: any) => {
+		await tx.update(conversations).set({ accountId }).where(isNull(conversations.accountId));
+		await tx.update(missions).set({ accountId }).where(isNull(missions.accountId));
+		await tx.update(missionReports).set({ accountId }).where(isNull(missionReports.accountId));
+		await tx.update(hermesChannelConfigs)
 			.set({ accountId })
-			.where(isNull(hermesChannelConfigs.accountId))
-			.run();
-		tx.update(hermesChannelPosts)
+			.where(isNull(hermesChannelConfigs.accountId));
+		await tx.update(hermesChannelPosts)
 			.set({ accountId })
-			.where(isNull(hermesChannelPosts.accountId))
-			.run();
+			.where(isNull(hermesChannelPosts.accountId));
 	});
 }
 

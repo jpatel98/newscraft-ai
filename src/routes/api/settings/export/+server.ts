@@ -4,13 +4,19 @@ import { getMessages, listConversations, parseContent } from '$lib/server/db/con
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 
-	const convos = listConversations(locals.user.id, 10_000);
+	const convos = await listConversations(locals.user.id, 10_000);
+	const exported = await Promise.all(
+		convos.map(async (conversation) => ({
+			conversation,
+			messages: await getMessages(conversation.id)
+		}))
+	);
 
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
 			const enc = new TextEncoder();
 			try {
-				for (const c of convos) {
+				for (const { conversation: c, messages: msgs } of exported) {
 					controller.enqueue(
 						enc.encode(
 							JSON.stringify({
@@ -22,7 +28,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 							}) + '\n'
 						)
 					);
-					const msgs = getMessages(c.id);
 					for (const m of msgs) {
 						controller.enqueue(
 							enc.encode(

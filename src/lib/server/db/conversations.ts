@@ -1,17 +1,11 @@
+import { and, asc, desc, eq, gte } from 'drizzle-orm';
 import { db } from './index';
 import { conversations, messages } from './schema';
-import { and, asc, desc, eq, gte } from 'drizzle-orm';
 import { newId } from '$lib/utils/id';
 import type { ContentPart, MessageContent } from '$lib/types';
 
 export type Role = 'user' | 'assistant' | 'system' | 'tool';
 
-/**
- * Serialize a multimodal content value for the `text` content column.
- * Plain strings stay verbatim so existing rows keep their shape; arrays are
- * JSON-stringified with a leading sentinel so the read path can tell them
- * apart cheaply (avoids JSON.parse on every plain message).
- */
 const PARTS_PREFIX = 'P:';
 
 export function serializeContent(c: MessageContent): string {
@@ -50,34 +44,33 @@ export interface MessageRow {
 	createdAt: number;
 }
 
-export function listConversations(accountId: string, limit = 100): ConversationRow[] {
-	return db
+export async function listConversations(accountId: string, limit = 100): Promise<ConversationRow[]> {
+	return (await db
 		.select()
 		.from(conversations)
 		.where(eq(conversations.accountId, accountId))
 		.orderBy(desc(conversations.pinned), desc(conversations.updatedAt))
-		.limit(limit)
-		.all();
+		.limit(limit)) as ConversationRow[];
 }
 
-export function getConversation(accountId: string, id: string): ConversationRow | undefined {
-	return db
+export async function getConversation(accountId: string, id: string): Promise<ConversationRow | undefined> {
+	const [row] = (await db
 		.select()
 		.from(conversations)
 		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
-		.get();
+		.limit(1)) as ConversationRow[];
+	return row;
 }
 
-export function getMessages(conversationId: string): MessageRow[] {
-	return db
+export async function getMessages(conversationId: string): Promise<MessageRow[]> {
+	return (await db
 		.select()
 		.from(messages)
 		.where(eq(messages.conversationId, conversationId))
-		.orderBy(asc(messages.createdAt))
-		.all() as MessageRow[];
+		.orderBy(asc(messages.createdAt))) as MessageRow[];
 }
 
-export function createConversation(accountId: string, systemPrompt?: string): ConversationRow {
+export async function createConversation(accountId: string, systemPrompt?: string): Promise<ConversationRow> {
 	const now = Date.now();
 	const row: ConversationRow = {
 		id: newId(),
@@ -88,17 +81,17 @@ export function createConversation(accountId: string, systemPrompt?: string): Co
 		updatedAt: now,
 		pinned: 0
 	};
-	db.insert(conversations).values(row).run();
+	await db.insert(conversations).values(row);
 	return row;
 }
 
-export function addMessage(input: {
+export async function addMessage(input: {
 	conversationId: string;
 	role: Role;
 	content: MessageContent;
 	partial?: boolean;
 	toolCalls?: string | null;
-}): MessageRow {
+}): Promise<MessageRow> {
 	const now = Date.now();
 	const row: MessageRow = {
 		id: newId(),
@@ -109,90 +102,78 @@ export function addMessage(input: {
 		partial: input.partial ? 1 : 0,
 		createdAt: now
 	};
-	db.insert(messages).values(row).run();
-	db.update(conversations)
-		.set({ updatedAt: now })
-		.where(eq(conversations.id, input.conversationId))
-		.run();
+	await db.insert(messages).values(row);
+	await db.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, input.conversationId));
 	return row;
 }
 
-export function setConversationTitle(accountId: string, id: string, title: string) {
-	db.update(conversations)
+export async function setConversationTitle(accountId: string, id: string, title: string): Promise<void> {
+	await db
+		.update(conversations)
 		.set({ title })
-		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
-		.run();
+		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)));
 }
 
-export function renameConversation(accountId: string, id: string, title: string): ConversationRow | undefined {
+export async function renameConversation(
+	accountId: string,
+	id: string,
+	title: string
+): Promise<ConversationRow | undefined> {
 	const now = Date.now();
-	db.update(conversations)
+	await db
+		.update(conversations)
 		.set({ title, updatedAt: now })
-		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
-		.run();
+		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)));
 	return getConversation(accountId, id);
 }
 
-export function setConversationPinned(accountId: string, id: string, pinned: 0 | 1): ConversationRow | undefined {
-	db.update(conversations)
+export async function setConversationPinned(
+	accountId: string,
+	id: string,
+	pinned: 0 | 1
+): Promise<ConversationRow | undefined> {
+	await db
+		.update(conversations)
 		.set({ pinned })
-		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
-		.run();
+		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)));
 	return getConversation(accountId, id);
 }
 
-export function setConversationSystemPrompt(
+export async function setConversationSystemPrompt(
 	accountId: string,
 	id: string,
 	prompt: string | null
-): ConversationRow | undefined {
+): Promise<ConversationRow | undefined> {
 	const trimmed = prompt == null ? null : prompt.trim() || null;
 	const now = Date.now();
-	db.update(conversations)
+	await db
+		.update(conversations)
 		.set({ systemPrompt: trimmed, updatedAt: now })
-		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
-		.run();
+		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)));
 	return getConversation(accountId, id);
 }
 
-export function deleteConversation(accountId: string, id: string) {
-	db.delete(conversations)
-		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)))
-		.run();
+export async function deleteConversation(accountId: string, id: string): Promise<void> {
+	await db.delete(conversations).where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)));
 }
 
-/**
- * Delete a message and every message created after it in the same
- * conversation. Used by edit/regenerate to truncate the transcript before
- * re-streaming.
- */
-export function deleteMessagesFrom(conversationId: string, messageId: string): number {
-	const target = db.select().from(messages).where(eq(messages.id, messageId)).get() as
-		| MessageRow
-		| undefined;
+export async function deleteMessagesFrom(conversationId: string, messageId: string): Promise<number> {
+	const [target] = (await db.select().from(messages).where(eq(messages.id, messageId)).limit(1)) as MessageRow[];
 	if (!target || target.conversationId !== conversationId) return 0;
-	const result = db
+	await db
 		.delete(messages)
-		.where(
-			and(eq(messages.conversationId, conversationId), gte(messages.createdAt, target.createdAt))
-		)
-		.run();
-	return result.changes ?? 0;
+		.where(and(eq(messages.conversationId, conversationId), gte(messages.createdAt, target.createdAt)));
+	return 1;
 }
 
-export function getMessageById(id: string): MessageRow | undefined {
-	return db.select().from(messages).where(eq(messages.id, id)).get() as MessageRow | undefined;
+export async function getMessageById(id: string): Promise<MessageRow | undefined> {
+	const [row] = (await db.select().from(messages).where(eq(messages.id, id)).limit(1)) as MessageRow[];
+	return row;
 }
 
-/**
- * Append a text chunk to a message's stored content. Resume-after-disconnect
- * accumulates streamed deltas onto the existing partial assistant row instead
- * of inserting a new one. Plain-string content is concatenated directly;
- * arrays (multimodal) get the chunk pushed onto a trailing text part.
- */
-export function appendMessageContent(id: string, chunk: string): void {
+export async function appendMessageContent(id: string, chunk: string): Promise<void> {
 	if (!chunk) return;
-	const row = getMessageById(id);
+	const row = await getMessageById(id);
 	if (!row) return;
 	const parsed = parseContent(row.content);
 	let next: MessageContent;
@@ -209,42 +190,39 @@ export function appendMessageContent(id: string, chunk: string): void {
 		next = parts;
 	}
 	const now = Date.now();
-	db.update(messages).set({ content: serializeContent(next) }).where(eq(messages.id, id)).run();
-	db.update(conversations)
-		.set({ updatedAt: now })
-		.where(eq(conversations.id, row.conversationId))
-		.run();
+	await db.update(messages).set({ content: serializeContent(next) }).where(eq(messages.id, id));
+	await db.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, row.conversationId));
 }
 
-export function finalizeMessage(id: string): void {
-	db.update(messages).set({ partial: 0 }).where(eq(messages.id, id)).run();
+export async function finalizeMessage(id: string): Promise<void> {
+	await db.update(messages).set({ partial: 0 }).where(eq(messages.id, id));
 }
 
-export function setMessageToolCalls(id: string, toolCalls: string | null): void {
-	db.update(messages).set({ toolCalls }).where(eq(messages.id, id)).run();
+export async function setMessageToolCalls(id: string, toolCalls: string | null): Promise<void> {
+	await db.update(messages).set({ toolCalls }).where(eq(messages.id, id));
 }
 
-export function clearMessagePartial(id: string): MessageRow | undefined {
-	db.update(messages).set({ partial: 0 }).where(eq(messages.id, id)).run();
+export async function clearMessagePartial(id: string): Promise<MessageRow | undefined> {
+	await db.update(messages).set({ partial: 0 }).where(eq(messages.id, id));
 	return getMessageById(id);
 }
 
-export function lastUserMessage(conversationId: string): MessageRow | undefined {
-	return db
+export async function lastUserMessage(conversationId: string): Promise<MessageRow | undefined> {
+	const [row] = (await db
 		.select()
 		.from(messages)
 		.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
 		.orderBy(desc(messages.createdAt))
-		.limit(1)
-		.get() as MessageRow | undefined;
+		.limit(1)) as MessageRow[];
+	return row;
 }
 
-export function lastAssistantMessage(conversationId: string): MessageRow | undefined {
-	return db
+export async function lastAssistantMessage(conversationId: string): Promise<MessageRow | undefined> {
+	const [row] = (await db
 		.select()
 		.from(messages)
 		.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'assistant')))
 		.orderBy(desc(messages.createdAt))
-		.limit(1)
-		.get() as MessageRow | undefined;
+		.limit(1)) as MessageRow[];
+	return row;
 }

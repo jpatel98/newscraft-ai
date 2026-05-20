@@ -33,7 +33,6 @@ From the repo root:
 corepack pnpm dev:harness
 corepack pnpm build:harness
 corepack pnpm test:harness
-corepack pnpm reload:harness
 corepack pnpm producer:acceptance
 corepack pnpm smoke:producer:fixture
 ```
@@ -78,23 +77,9 @@ Set `NEWSROOM_UI_INGEST_KEY` to the SvelteKit UI's `HERMES_INGEST_KEY` or
 
 ## Production Service
 
-The harness is intended to run as a long-lived sibling service. Review and
-install `deploy/systemd/newsroom-harness.service.example`, then use:
-
-```sh
-corepack pnpm reload:harness
-corepack pnpm health:harness
-```
-
-For full-stack reloads, prefer:
-
-```sh
-corepack pnpm reload:stack
-```
-
-That restarts the harness first, verifies `/health`, then restarts the UI and
-verifies `/api/health` can reach the harness. The scripts do not install units
-or cut traffic over.
+The harness is intended to run as its own deployable service. The old
+VPS/systemd deployment path has been removed, so production hosting should wire
+the harness build/start commands and environment variables directly.
 
 ## Endpoints
 

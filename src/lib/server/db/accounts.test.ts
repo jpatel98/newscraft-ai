@@ -69,21 +69,21 @@ describe('account queries', () => {
 	it('keeps the cached account count correct across create and delete', async () => {
 		const accounts = await loadIsolatedAccounts();
 
-		expect(accounts.accountCount()).toBe(0);
+		await expect(accounts.accountCount()).resolves.toBe(0);
 		const first = await accounts.createAccountWithPassword({
 			email: 'first@example.com',
 			password: 'first-password'
 		});
-		expect(accounts.accountCount()).toBe(1);
+		await expect(accounts.accountCount()).resolves.toBe(1);
 
-		const second = accounts.createAccountInvite({ email: 'second@example.com' }).account;
-		expect(accounts.accountCount()).toBe(2);
+		const second = (await accounts.createAccountInvite({ email: 'second@example.com' })).account;
+		await expect(accounts.accountCount()).resolves.toBe(2);
 
-		expect(accounts.deleteAccount(first.id)).toBe(1);
-		expect(accounts.accountCount()).toBe(1);
-		expect(accounts.deleteAccount(first.id)).toBe(0);
-		expect(accounts.accountCount()).toBe(1);
-		expect(accounts.deleteAccount(second.id)).toBe(1);
-		expect(accounts.accountCount()).toBe(0);
+		await expect(accounts.deleteAccount(first.id)).resolves.toBe(1);
+		await expect(accounts.accountCount()).resolves.toBe(1);
+		await expect(accounts.deleteAccount(first.id)).resolves.toBe(1);
+		await expect(accounts.accountCount()).resolves.toBe(1);
+		await expect(accounts.deleteAccount(second.id)).resolves.toBe(1);
+		await expect(accounts.accountCount()).resolves.toBe(0);
 	});
 });

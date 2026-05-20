@@ -4,22 +4,21 @@ import { verifySessionCookie, SESSION_COOKIE_NAME } from '$lib/server/auth/cooki
 import { ensureMigrated } from '$lib/server/db';
 import { accountCount, getAccount } from '$lib/server/db/accounts';
 
-ensureMigrated();
-
 const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
 const PUBLIC_PREFIXES = ['/api/health', '/api/hermes/channel-posts', '/account-setup'];
 
 export const handle: Handle = async ({ event, resolve }) => {
+	await ensureMigrated();
 	const cookie = event.cookies.get(SESSION_COOKIE_NAME);
 	const session = verifySessionCookie(cookie);
-	const account = session ? getAccount(session.accountId) : undefined;
+	const account = session ? await getAccount(session.accountId) : undefined;
 	event.locals.user = account
 		? { id: account.id, email: account.email, name: account.name }
 		: null;
 
 	const path = event.url.pathname;
 	const isPublic = PUBLIC_PATHS.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
-	const hasAccounts = accountCount() > 0;
+	const hasAccounts = (await accountCount()) > 0;
 
 	if (
 		!hasAccounts &&

@@ -27,13 +27,13 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	const id = params.id;
 	if (!id) throw error(400, 'id required');
 
-	const convo = getConversation(locals.user.id, id);
+	const convo = await getConversation(locals.user.id, id);
 	if (!convo) throw error(404, 'not found');
 
 	const format = (url.searchParams.get('format') ?? 'md').toLowerCase();
 	if (format !== 'md' && format !== 'jsonl') throw error(400, 'format must be md or jsonl');
 
-	const messages = getMessages(id);
+	const messages = await getMessages(id);
 	const slug = safeFilename(convo.title, convo.id);
 
 	if (format === 'md') {

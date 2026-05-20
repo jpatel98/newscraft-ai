@@ -130,7 +130,7 @@ export function getMissionConfig(accountId: string, missionId: string): MissionC
 			basePrompt: config.prompt,
 			description: config.description,
 			outputFormat: config.outputFormat,
-			sources: sourceRows.map(sourceFromRow).filter((source): source is ChannelSource => Boolean(source))
+			sources: sourceRows.map(sourceFromRow).filter((source: ChannelSource | null): source is ChannelSource => Boolean(source))
 		};
 	} catch (err) {
 		if (missingMissionTables(err)) return legacyConfigs(accountId, [id]).get(id) ?? null;
@@ -224,7 +224,7 @@ export function saveMissionConfig(
 	if (!id) return;
 	const now = Date.now();
 	try {
-		db.transaction((tx) => {
+		db.transaction((tx: any) => {
 			tx.insert(missions)
 				.values({
 					id,

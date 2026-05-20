@@ -5,7 +5,7 @@ export const POST: RequestHandler = async ({ locals, url }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 
 	try {
-		const invite = createPasswordOnlyInvite();
+		const invite = await createPasswordOnlyInvite();
 		const setupUrl = new URL(`/account-setup/${invite.token}`, url.origin).toString();
 		return json({
 			account: {

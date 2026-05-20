@@ -2,13 +2,14 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getConversation, getMessages, parseContent } from '$lib/server/db/conversations';
 
-export const load: PageServerLoad = ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
-	const convo = getConversation(locals.user.id, params.id);
+	const convo = await getConversation(locals.user.id, params.id);
 	if (!convo) throw error(404, 'not found');
+	const messages = await getMessages(convo.id);
 	return {
 		conversation: { id: convo.id, title: convo.title, updatedAt: convo.updatedAt },
-		messages: getMessages(convo.id).map((m) => ({
+		messages: messages.map((m) => ({
 			id: m.id,
 			role: m.role,
 			content: parseContent(m.content),

@@ -12,12 +12,12 @@ const PARAMS = {
 
 const HASH_KEY = 'auth.password_hash';
 
-function legacyStoredHash(): string | undefined {
-	return getSetting(HASH_KEY) ?? env.APP_PASSWORD_HASH;
+async function legacyStoredHash(): Promise<string | undefined> {
+	return (await getSetting(HASH_KEY)) ?? env.APP_PASSWORD_HASH;
 }
 
-export function legacyPasswordConfigured(): boolean {
-	return Boolean(legacyStoredHash());
+export async function legacyPasswordConfigured(): Promise<boolean> {
+	return Boolean(await legacyStoredHash());
 }
 
 export async function verifyHash(stored: string, plain: string): Promise<boolean> {
@@ -31,7 +31,7 @@ export async function verifyHash(stored: string, plain: string): Promise<boolean
 }
 
 export async function verifyLegacyPassword(plain: string): Promise<boolean> {
-	const stored = legacyStoredHash();
+	const stored = await legacyStoredHash();
 	if (!stored) return false;
 	return verifyHash(stored, plain);
 }

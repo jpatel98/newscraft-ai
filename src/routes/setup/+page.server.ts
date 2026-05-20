@@ -15,15 +15,15 @@ import {
 } from '$lib/server/db/accounts';
 
 export const load: PageServerLoad = async () => {
-	if (accountCount() > 0) throw redirect(303, '/login');
+	if ((await accountCount()) > 0) throw redirect(303, '/login');
 	return {
-		requiresBootstrapPassword: legacyPasswordConfigured()
+		requiresBootstrapPassword: await legacyPasswordConfigured()
 	};
 };
 
 export const actions: Actions = {
 	default: async ({ request, cookies, getClientAddress }) => {
-		if (accountCount() > 0) throw redirect(303, '/login');
+		if ((await accountCount()) > 0) throw redirect(303, '/login');
 
 		const data = await request.formData();
 		const password = String(data.get('password') ?? '');
@@ -35,7 +35,7 @@ export const actions: Actions = {
 		}
 		if (password !== confirm) return fail(400, { error: 'passwords do not match' });
 
-		if (legacyPasswordConfigured()) {
+		if (await legacyPasswordConfigured()) {
 			const key = `setup:${getClientAddress()}`;
 			const lock = lockedOut(key);
 			if (lock > 0) {
@@ -53,7 +53,7 @@ export const actions: Actions = {
 
 		try {
 			const account = await createPasswordOnlyAccount(password);
-			touchAccountLogin(account.id);
+			await touchAccountLogin(account.id);
 			const c = mintSessionCookie(account.id);
 			cookies.set(c.name, c.value, c.opts);
 		} catch {

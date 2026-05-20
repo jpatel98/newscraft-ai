@@ -70,7 +70,7 @@ export function getChannelConfig(accountId: string, jobId: string): ChannelConfi
 			jobId: id,
 			accountId,
 			basePrompt: config.basePrompt,
-			sources: sourceRows.map(sourceFromRow).filter((source): source is ChannelSource => Boolean(source))
+			sources: sourceRows.map(sourceFromRow).filter((source: ChannelSource | null): source is ChannelSource => Boolean(source))
 		};
 	} catch (err) {
 		if (missingChannelSourceTables(err)) return null;
@@ -121,7 +121,7 @@ export function saveChannelConfig(accountId: string, jobId: string, basePrompt: 
 	if (!id) return;
 	const now = Date.now();
 	try {
-		db.transaction((tx) => {
+		db.transaction((tx: any) => {
 			tx.insert(hermesChannelConfigs)
 				.values({
 					jobId: id,

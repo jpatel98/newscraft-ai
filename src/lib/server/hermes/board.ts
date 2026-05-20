@@ -473,7 +473,7 @@ export async function boardData(
 	options: BoardDataOptions = {}
 ): Promise<BoardData> {
 	const includeResponseMarkdown = options.includeResponseMarkdown ?? true;
-	const hiddenJobIds = new Set(listHiddenChannelJobIds(accountId));
+	const hiddenJobIds = new Set(await listHiddenChannelJobIds(accountId));
 	let jobs: HermesJob[] = [];
 	let runs: HermesRun[] = [];
 	let jobsError: string | null = null;
@@ -548,7 +548,7 @@ export async function createHermesJob(accountId: string, input: CreateHermesJobI
 	if (!text.trim()) return null;
 	const body = JSON.parse(text);
 	const job = normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
-	if (job) unhideChannelJobId(accountId, job.id);
+	if (job) await unhideChannelJobId(accountId, job.id);
 	return job;
 }
 
@@ -596,7 +596,7 @@ export async function updateHermesJob(accountId: string, id: string, input: Upda
 	if (!text.trim()) return null;
 	const body = JSON.parse(text);
 	const job = normalizeHermesJob(body?.job ?? body?.data ?? body) ?? null;
-	if (job) unhideChannelJobId(accountId, job.id);
+	if (job) await unhideChannelJobId(accountId, job.id);
 	if (job?.name) renameMissionReportsForMission(accountId, job.id, job.name);
 	return job;
 }

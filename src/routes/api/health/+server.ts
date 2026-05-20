@@ -1,23 +1,22 @@
 import { json } from '@sveltejs/kit';
-import { appDbPath, sqliteClient } from '$lib/server/db';
+import { sql } from '$lib/server/db';
 import { gatewayHealth } from '$lib/server/hermes/transport';
 
 function publicError(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
 }
 
-function appHealth() {
+async function appHealth() {
 	try {
-		const quickCheck = sqliteClient.prepare('PRAGMA quick_check').pluck().get() as string | undefined;
+		await sql`SELECT 1`;
 		return {
-			ok: quickCheck === 'ok',
-			dbPath: appDbPath,
-			quickCheck: quickCheck ?? 'missing'
+			ok: true,
+			database: 'postgres'
 		};
 	} catch (err) {
 		return {
 			ok: false,
-			dbPath: appDbPath,
+			database: 'postgres',
 			error: publicError(err)
 		};
 	}

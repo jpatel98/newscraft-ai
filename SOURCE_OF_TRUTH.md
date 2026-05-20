@@ -104,11 +104,10 @@ The current app supports:
 - Per-thread export as Markdown or JSONL.
 - Account-scoped database wipe with explicit confirmation.
 - Production build and node-server start through SvelteKit adapter-node.
-- Production reload/deploy scripts for the agent UI.
-- Production reload scripts and systemd templates for the newsroom harness.
+- Hosted-platform deployment is now expected to own production deploys.
 - JSON readiness checks that fail when the UI cannot reach the configured
   gateway.
-- Pre-restart SQLite backup support for UI reloads.
+- Manual SQLite backup support.
 - A producer acceptance loop that can run the UI and harness against isolated
   local databases.
 - A deterministic producer smoke path using a local fixture feed.
@@ -236,17 +235,10 @@ Important scripts include:
 
 - `scripts/hash-password.mjs` for creating an Argon2 password hash.
 - `scripts/hermes-bridge.py` for legacy Hermes command/skill metadata.
-- `scripts/preflight-agent.sh` for preflight checks.
-- `scripts/preflight-harness.sh` for harness build/test preflight checks.
 - `scripts/check-health.mjs` for JSON readiness validation.
-- `scripts/backup-app-db.mjs` for operator-side SQLite backups before reloads.
-- `scripts/reload-agent.sh` for production UI reload.
-- `scripts/reload-harness.sh` for production harness reload.
-- `scripts/reload-stack.sh` for harness-first full-stack reload.
+- `scripts/backup-app-db.mjs` for manual SQLite backups.
 - `scripts/producer-acceptance.mjs` for end-to-end producer acceptance against
   isolated UI and harness databases.
-- `deploy/systemd/*.service.example` for manually reviewed production service
-  units.
 
 ## Runtime architecture
 
@@ -793,7 +785,7 @@ HOST_HEADER=x-forwarded-host
 ```
 
 `ORIGIN` is intentionally optional. The app can derive URL information from
-reverse proxy headers when deployed behind Caddy or a similar proxy.
+hosted platform or reverse proxy headers.
 
 ### Gateway integration
 
@@ -943,32 +935,16 @@ The producer acceptance loop:
 By default it requires live OpenAI configuration. Use
 `PRODUCER_ACCEPTANCE_REQUIRE_OPENAI=0` only for fallback-path testing.
 
-### Production deploy/reload
+### Production deploy
 
 ```sh
-corepack pnpm deploy:agent
-corepack pnpm reload:agent
-corepack pnpm reload:harness
-corepack pnpm reload:stack
 corepack pnpm health:harness
 corepack pnpm health:agent
 ```
 
-`deploy:agent` runs `/home/jigar/deploy-hermes-ui.sh --deploy`.
-
-`reload:agent` runs `scripts/reload-agent.sh`, builds/tests, creates a managed
-SQLite backup unless `BACKUP_BEFORE_RELOAD=0`, restarts `hermes-ui.service`, and
-validates JSON readiness at `/api/health`.
-
-`reload:harness` runs `scripts/reload-harness.sh`, builds/tests the harness,
-restarts `newsroom-harness.service`, and validates `/health`.
-
-`reload:stack` restarts the harness first, then the UI. This is the preferred
-operator command when changing shared contracts, harness code, or gateway env.
-
-`deploy/systemd/hermes-ui.service.example` and
-`deploy/systemd/newsroom-harness.service.example` are templates only. Operators
-must review paths and install them manually.
+The old VPS/systemd/Caddy deployment commands have been removed. Production
+deploys should be owned by the selected hosted platform, with the UI and
+harness configured as explicit deployable services.
 
 ## Frontend details
 
@@ -1195,14 +1171,10 @@ Notable tested utility areas visible in the repo:
 
 ### Deployment
 
-- The repo now includes harness reload/preflight scripts, JSON readiness
-  validation, and systemd templates for the UI and harness sibling services.
-- The external `deploy:agent` command still delegates to
-  `/home/jigar/deploy-hermes-ui.sh --deploy`, so production cutover remains
-  operator-controlled outside this repo.
-- The service templates are examples, not installed units. Operators must review
-  paths, environment files, user/group policy, and reverse-proxy behavior before
-  installing them.
+- The old VPS/systemd/Caddy deployment path has been removed.
+- Production deploys should be owned by the selected hosted platform.
+- The UI and harness are separate deployable services even though they live in
+  one repo.
 
 ### Budgeting and guardrails
 
@@ -1225,22 +1197,17 @@ Typical local setup:
 
 ### Production path
 
-The current production README path assumes:
+The current production path is platform-owned:
 
-- UI service on `127.0.0.1:3001`.
-- Harness service on `127.0.0.1:8650` when `AGENT_GATEWAY_URL` is enabled.
-- Caddy or a similar reverse proxy in front.
-- `HERMES_API_KEY` and `APP_SESSION_SECRET` configured.
+- UI deployable: the SvelteKit app at the repo root.
+- Harness deployable: `services/newsroom-harness`.
+- Shared package: `packages/shared`, built before the harness.
+- `HERMES_API_KEY` and `APP_SESSION_SECRET` must be configured for the UI.
 - `NEWSROOM_HARNESS_API_KEY`, `AGENT_GATEWAY_API_KEY`, `HERMES_INGEST_KEY`,
-  and `NEWSROOM_UI_INGEST_KEY` are aligned when bearer auth and report ingest
-  are enabled.
-- `deploy:agent` handles the legacy UI deployment/cutover path.
-- `reload:stack` handles the repository-owned harness-first reload path for
-  normal code updates after services are installed.
+  and `NEWSROOM_UI_INGEST_KEY` must be aligned when bearer auth and report
+  ingest are enabled.
 
-The repo does not perform production cutover by itself. Operators should review
-and install the systemd templates under `deploy/systemd/`, then use the reload
-and health scripts.
+The repo no longer carries VPS cutover, systemd, or reverse-proxy scripts.
 
 ### Backups
 
@@ -1253,8 +1220,7 @@ Backup behavior:
 - Uses managed backup names with a `hermes-ui-` prefix.
 - Rotates to keep the latest 7 by default.
 - `scripts/backup-app-db.mjs` provides the same managed backup style from the
-  operator shell and is run by `reload:agent` before service restart unless
-  `BACKUP_BEFORE_RELOAD=0`.
+  operator shell when manual backups are needed.
 - `APP_BACKUP_KEEP` can change the script rotation count.
 
 The older plan mentioned daily automated backups, but this document only treats

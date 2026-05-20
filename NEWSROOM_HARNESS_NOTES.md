@@ -143,7 +143,7 @@ Longer term, the harness should own durable tables for:
 
 - The Python Hermes bridge is tightly coupled to local Hermes internals. Replace this with harness-native HTTP APIs or shared TypeScript packages.
 - Current naming is Hermes-specific throughout the server adapter layer. Keep it during compatibility work, then rename to `agent-gateway` once stable.
-- The deploy scripts currently build and restart only the SvelteKit UI service. The harness will need its own dev command, build command, health check, and systemd service.
+- The old VPS deploy scripts have been removed. The harness needs hosting-specific production wiring.
 - The repo currently has uncommitted mission-related changes. Avoid a big app directory move until that work settles.
 - Always-running agents need strict budget limits, tool permissions, retries, cancellation, audit logs, and human approval paths.
 
@@ -163,4 +163,3 @@ Longer term, the harness should own durable tables for:
 ## Product Principle
 
 Keep humans in control. The harness can recommend, summarize, compare, draft, alert, and prepare. Publishing and sensitive editorial judgment should remain explicitly human-approved.
-

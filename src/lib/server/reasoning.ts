@@ -15,21 +15,21 @@ export function parseReasoningEffort(value: string): ReasoningEffort | 'default'
 	return VALUES.has(normalized as ReasoningEffort) ? (normalized as ReasoningEffort) : null;
 }
 
-export function getConversationReasoningEffort(conversationId: string): ReasoningEffort | undefined {
-	const value = getSetting(key(conversationId));
+export async function getConversationReasoningEffort(conversationId: string): Promise<ReasoningEffort | undefined> {
+	const value = await getSetting(key(conversationId));
 	if (!value) return undefined;
 	return VALUES.has(value as ReasoningEffort) ? (value as ReasoningEffort) : undefined;
 }
 
-export function setConversationReasoningEffort(
+export async function setConversationReasoningEffort(
 	conversationId: string,
 	effort: ReasoningEffort | 'default'
-): ReasoningEffort | undefined {
+): Promise<ReasoningEffort | undefined> {
 	if (effort === 'default') {
-		setSetting(key(conversationId), '');
+		await setSetting(key(conversationId), '');
 		return undefined;
 	}
-	setSetting(key(conversationId), effort);
+	await setSetting(key(conversationId), effort);
 	return effort;
 }
 

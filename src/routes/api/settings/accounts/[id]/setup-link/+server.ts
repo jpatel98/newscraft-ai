@@ -7,10 +7,10 @@ export const POST: RequestHandler = async ({ params, locals, url }) => {
 	const accountId = params.id;
 	if (!accountId) throw error(400, 'account id is required');
 
-	const account = getAccount(accountId);
+	const account = await getAccount(accountId);
 	if (!account) throw error(404, 'account not found');
 
-	const token = createPasswordSetupToken(account.id);
+	const token = await createPasswordSetupToken(account.id);
 	if (!token) throw error(404, 'account not found');
 
 	return json({

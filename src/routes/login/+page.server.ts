@@ -23,7 +23,7 @@ export const actions: Actions = {
 		}
 
 		recordSuccess(key);
-		touchAccountLogin(account.id);
+		await touchAccountLogin(account.id);
 		const c = mintSessionCookie(account.id);
 		cookies.set(c.name, c.value, c.opts);
 
