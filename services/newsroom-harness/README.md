@@ -24,6 +24,7 @@ corepack pnpm install
 corepack pnpm --filter @newscraft/newsroom-harness dev
 corepack pnpm --filter @newscraft/newsroom-harness build
 corepack pnpm --filter @newscraft/newsroom-harness test
+node scripts/check-health.mjs --url http://127.0.0.1:8650/health --expect harness
 ```
 
 From the repo root:
@@ -32,7 +33,9 @@ From the repo root:
 corepack pnpm dev:harness
 corepack pnpm build:harness
 corepack pnpm test:harness
+corepack pnpm reload:harness
 corepack pnpm producer:acceptance
+corepack pnpm smoke:producer:fixture
 ```
 
 `producer:acceptance` starts the harness and SvelteKit UI against isolated
@@ -62,12 +65,36 @@ NEWSROOM_HARNESS_API_KEY=
 OPENAI_API_KEY=
 NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/hermes/channel-posts
 NEWSROOM_UI_INGEST_KEY=
+NEWSROOM_HARNESS_RUN_TIMEOUT_MS=90000
+NEWSROOM_HARNESS_MAX_TOOL_CALLS=8
+NEWSROOM_HARNESS_RETRY_LIMIT=1
+NEWSROOM_HARNESS_SCHEDULER_INTERVAL_MS=30000
 ```
 
 If `NEWSROOM_HARNESS_API_KEY` is set, all endpoints except `GET /health`
 require `Authorization: Bearer <key>`.
 Set `NEWSROOM_UI_INGEST_KEY` to the SvelteKit UI's `HERMES_INGEST_KEY` or
 `HERMES_API_KEY` when you want completed reports to appear in Missions.
+
+## Production Service
+
+The harness is intended to run as a long-lived sibling service. Review and
+install `deploy/systemd/newsroom-harness.service.example`, then use:
+
+```sh
+corepack pnpm reload:harness
+corepack pnpm health:harness
+```
+
+For full-stack reloads, prefer:
+
+```sh
+corepack pnpm reload:stack
+```
+
+That restarts the harness first, verifies `/health`, then restarts the UI and
+verifies `/api/health` can reach the harness. The scripts do not install units
+or cut traffic over.
 
 ## Endpoints
 

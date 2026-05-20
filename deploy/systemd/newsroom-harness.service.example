@@ -1,0 +1,20 @@
+[Unit]
+Description=NewsCraft AI newsroom harness
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jigar/hermes-ui
+EnvironmentFile=/home/jigar/hermes-ui/.env
+Environment=NODE_ENV=production
+Environment=NEWSROOM_HARNESS_HOST=127.0.0.1
+Environment=NEWSROOM_HARNESS_PORT=8650
+ExecStart=/usr/bin/env node services/newsroom-harness/dist/index.js
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

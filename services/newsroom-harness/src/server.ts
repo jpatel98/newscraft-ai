@@ -1,6 +1,12 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { CreateJobInput, GatewayChatCompletionRequest, GatewayResponsesRequest, UpdateJobInput } from '@newscraft/shared';
+import type {
+	CreateJobInput,
+	GatewayChatCompletionRequest,
+	GatewayHealthResponse,
+	GatewayResponsesRequest,
+	UpdateJobInput
+} from '@newscraft/shared';
 import { writeChatCompletion, writeResponses } from './chat.js';
 import { loadConfig, type HarnessConfig } from './config.js';
 import { openDatabase } from './db/database.js';
@@ -39,7 +45,7 @@ export function createHarnessServer(options: {
 	const runner = new JobRunner(repository, runtime, config);
 	const scheduler = new JobScheduler(repository, runner, config);
 	const server = createServer((req, res) => {
-		void route(req, res, { config, repository, runtime, runner }).catch((err) => handleError(res, err));
+		void route(req, res, { config, repository, runtime, runner, scheduler }).catch((err) => handleError(res, err));
 	});
 	server.on('close', () => scheduler.stop());
 	if (options.startScheduler !== false) scheduler.start();
@@ -75,18 +81,13 @@ async function route(
 		repository: HarnessRepository;
 		runtime: NewsroomAgentRuntime;
 		runner: JobRunner;
+		scheduler: JobScheduler;
 	}
 ): Promise<void> {
 	const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
 	if (req.method === 'GET' && url.pathname === '/health') {
-		writeJson(res, 200, {
-			ok: true,
-			service: 'newsroom-harness',
-			version: ctx.config.version,
-			time: new Date().toISOString(),
-			db: { ok: ctx.repository.healthcheck(), path: ctx.config.dbPath },
-			openai: { configured: Boolean(ctx.config.openAiApiKey) }
-		});
+		const body = harnessHealth(ctx);
+		writeJson(res, body.ok ? 200 : 503, body);
 		return;
 	}
 
@@ -160,6 +161,54 @@ async function route(
 	}
 
 	throw new HttpError(404, 'not found');
+}
+
+function publicError(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
+}
+
+function harnessHealth(ctx: {
+	config: HarnessConfig;
+	repository: HarnessRepository;
+	scheduler: JobScheduler;
+}): GatewayHealthResponse {
+	let dbOk = false;
+	let dbError: string | undefined;
+	let dueJobs: number | null = null;
+	let activeRuns: number | null = null;
+	try {
+		dbOk = ctx.repository.healthcheck();
+		dueJobs = ctx.repository.dueJobs().length;
+		activeRuns = ctx.repository.listRuns({ includeCompleted: false }).length;
+	} catch (err) {
+		dbError = publicError(err);
+	}
+
+	return {
+		ok: dbOk,
+		service: 'newsroom-harness',
+		version: ctx.config.version,
+		time: new Date().toISOString(),
+		uptimeSeconds: Math.round(process.uptime()),
+		db: { ok: dbOk, path: ctx.config.dbPath, error: dbError },
+		openai: { configured: Boolean(ctx.config.openAiApiKey) },
+		scheduler: {
+			running: ctx.scheduler.isRunning(),
+			intervalMs: ctx.config.schedulerIntervalMs,
+			dueJobs,
+			activeRuns
+		},
+		ingest: {
+			configured: Boolean(ctx.config.uiIngestUrl && ctx.config.uiIngestKey),
+			urlConfigured: Boolean(ctx.config.uiIngestUrl),
+			keyConfigured: Boolean(ctx.config.uiIngestKey)
+		},
+		limits: {
+			runTimeoutMs: ctx.config.runTimeoutMs,
+			maxToolCalls: ctx.config.maxToolCalls,
+			retryLimit: ctx.config.retryLimit
+		}
+	};
 }
 
 function requestAbortSignal(req: IncomingMessage, res?: ServerResponse): AbortController {

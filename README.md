@@ -10,6 +10,10 @@ corepack pnpm install
 corepack pnpm dev
 ```
 
+If `corepack` is not available on a host that already has `pnpm`, use `pnpm`
+directly. The package scripts call `pnpm` internally so they work in either
+launch style.
+
 Run the harness in a second terminal. The harness loads
 `services/newsroom-harness/.env.local` first, then
 `services/newsroom-harness/.env`.
@@ -56,6 +60,10 @@ NEWSROOM_HARNESS_API_KEY=
 OPENAI_API_KEY=
 NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/hermes/channel-posts
 NEWSROOM_UI_INGEST_KEY=
+NEWSROOM_HARNESS_RUN_TIMEOUT_MS=90000
+NEWSROOM_HARNESS_MAX_TOOL_CALLS=8
+NEWSROOM_HARNESS_RETRY_LIMIT=1
+NEWSROOM_HARNESS_SCHEDULER_INTERVAL_MS=30000
 ```
 
 When `OPENAI_API_KEY` is present, chat and mission synthesis use the OpenAI
@@ -71,12 +79,23 @@ Harness commands:
 ```sh
 corepack pnpm build:harness
 corepack pnpm test:harness
+corepack pnpm health:harness
 ```
+
+`GET /health` returns readiness JSON with database, scheduler, ingest, OpenAI,
+and runtime-limit status. It returns a non-2xx response if the harness database
+is not ready.
 
 Producer acceptance loop:
 
 ```sh
 corepack pnpm producer:acceptance
+```
+
+Deterministic local smoke path, without requiring live feeds or OpenAI:
+
+```sh
+corepack pnpm smoke:producer:fixture
 ```
 
 The acceptance script loads root `.env.local` and
@@ -122,13 +141,46 @@ For normal app code updates after cutover, use the faster reload path:
 corepack pnpm reload:agent
 ```
 
-That builds, restarts `hermes-ui.service`, and verifies `/api/health` on `127.0.0.1:3001`.
+That builds, creates a managed SQLite backup unless `BACKUP_BEFORE_RELOAD=0`,
+restarts `hermes-ui.service`, and verifies readiness JSON on
+`127.0.0.1:3001/api/health`. The UI health check now fails if the configured
+gateway is unreachable.
+
+For harness-only updates:
+
+```sh
+corepack pnpm reload:harness
+```
+
+That builds/tests the shared package and harness, restarts
+`newsroom-harness.service`, and verifies `127.0.0.1:8650/health`.
+
+For the normal production sibling-service reload path, restart the harness first
+and then the UI:
+
+```sh
+corepack pnpm reload:stack
+```
+
+Example systemd unit templates live in `deploy/systemd/`. Install them manually
+after reviewing paths and environment handling; the repo scripts do not perform
+production cutover by themselves.
 
 Required `.env` values:
 
 ```sh
 HERMES_API_KEY=
 APP_SESSION_SECRET=
+```
+
+When running the native harness in production, also configure:
+
+```sh
+AGENT_GATEWAY_URL=http://127.0.0.1:8650
+AGENT_GATEWAY_API_KEY=<matches NEWSROOM_HARNESS_API_KEY if set>
+NEWSROOM_HARNESS_API_KEY=
+NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/hermes/channel-posts
+NEWSROOM_UI_INGEST_KEY=<matches HERMES_INGEST_KEY or HERMES_API_KEY>
 ```
 
 `APP_PASSWORD_HASH` is now optional. When present and no accounts exist yet, the

@@ -1,8 +1,8 @@
 import { config as loadEnv } from 'dotenv';
 import { createHarnessServer } from './server.js';
 
-loadEnv({ path: '.env.local', override: false });
-loadEnv({ path: '.env', override: false });
+loadEnv({ path: '.env.local', override: false, quiet: true });
+loadEnv({ path: '.env', override: false, quiet: true });
 
 const harness = createHarnessServer();
 

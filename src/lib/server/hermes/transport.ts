@@ -40,6 +40,15 @@ export interface HermesResponsesRequest {
 	previous_response_id?: string;
 }
 
+export interface GatewayHealth {
+	ok: boolean;
+	status: number;
+	body: string;
+	url: string;
+	json: unknown | null;
+	service: string | null;
+}
+
 const DEFAULT_MODEL = 'hermes-agent';
 
 function gatewayUrl(): string {
@@ -63,6 +72,21 @@ export function describeGatewayError(err: unknown): string {
 		return `Hermes gateway did not respond in time at ${gatewayUrl()}.`;
 	}
 	return message;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === 'object' && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function parseJson(value: string): unknown | null {
+	if (!value.trim()) return null;
+	try {
+		return JSON.parse(value);
+	} catch {
+		return null;
+	}
 }
 
 function apiKey(): string | null {
@@ -175,11 +199,17 @@ export async function completion(
 	return r.json();
 }
 
-export async function gatewayHealth(): Promise<{ ok: boolean; status: number; body: string }> {
+export async function gatewayHealth(): Promise<GatewayHealth> {
+	const url = gatewayUrl();
 	try {
-		const r = await fetch(`${gatewayUrl()}/health`, { signal: AbortSignal.timeout(2000) });
-		return { ok: r.ok, status: r.status, body: await r.text() };
+		const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2000) });
+		const body = await r.text();
+		const parsed = parseJson(body);
+		const parsedObject = objectValue(parsed);
+		const reportedOk = typeof parsedObject?.ok === 'boolean' ? parsedObject.ok : true;
+		const service = typeof parsedObject?.service === 'string' ? parsedObject.service : null;
+		return { ok: r.ok && reportedOk, status: r.status, body, json: parsed, service, url };
 	} catch (e) {
-		return { ok: false, status: 0, body: describeGatewayError(e) };
+		return { ok: false, status: 0, body: describeGatewayError(e), json: null, service: null, url };
 	}
 }

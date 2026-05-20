@@ -97,14 +97,14 @@ async function main() {
 	};
 
 	console.log(`Starting newsroom harness at ${harnessUrl}`);
-	startProcess('harness', ['corepack', ['pnpm', '--filter', '@newscraft/newsroom-harness', 'dev']], {
+	startProcess('harness', ['pnpm', ['--filter', '@newscraft/newsroom-harness', 'dev']], {
 		env: harnessEnv,
 		logPath: path.join(logDir, 'harness.log')
 	});
 	await waitForJson(`${harnessUrl}/health`, { timeoutMs: 45_000 });
 
 	console.log(`Starting SvelteKit UI at ${uiUrl}`);
-	startProcess('ui', ['corepack', ['pnpm', 'dev', '--host', '127.0.0.1', '--port', '3001']], {
+	startProcess('ui', ['pnpm', ['dev', '--host', '127.0.0.1', '--port', '3001']], {
 		env: uiEnv,
 		logPath: path.join(logDir, 'ui.log')
 	});
@@ -406,9 +406,9 @@ async function loadSourceProfile() {
 		fixture = await startNewsFixture();
 		const sources = [
 			{
-				id: 'fixture-rss',
+				id: 'local-wire-rss',
 				type: 'url',
-				name: 'Local newsroom RSS fixture',
+				name: 'Local newsroom wire',
 				url: `${fixture.url}/local-news.rss`,
 				enabled: true,
 				sortOrder: 0
@@ -416,7 +416,7 @@ async function loadSourceProfile() {
 		];
 		return {
 			mode: 'fixture',
-			description: 'Producer acceptance against a deterministic local newsroom RSS fixture.',
+			description: 'Producer acceptance against a deterministic local newsroom RSS feed.',
 			sources,
 			prompt: producerMissionPrompt(sources),
 			feedProbe: []
@@ -567,7 +567,7 @@ async function startNewsFixture() {
 			res.end(`<?xml version="1.0" encoding="UTF-8" ?>
 <rss version="2.0">
   <channel>
-    <title>NewsCraft Local Newsroom Fixture</title>
+    <title>NewsCraft Local Newsroom Wire</title>
     <item>
       <title>City council schedules emergency budget hearing</title>
       <link>${base}/budget-hearing</link>
@@ -583,7 +583,7 @@ async function startNewsFixture() {
 			return;
 		}
 		res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-		res.end('<title>NewsCraft Producer Fixture</title><article>Deterministic local producer fixture article.</article>');
+		res.end('<title>NewsCraft Producer Wire</title><article>Deterministic local producer source article.</article>');
 	});
 	await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 	const address = server.address();

@@ -170,7 +170,10 @@ describe('Hermes transport', () => {
 		await expect(gatewayHealth()).resolves.toEqual({
 			ok: false,
 			status: 503,
-			body: 'maintenance'
+			body: 'maintenance',
+			json: null,
+			service: null,
+			url: 'https://gateway.test'
 		});
 		expect(fetchMock).toHaveBeenCalledWith(
 			'https://gateway.test/health',
@@ -184,7 +187,27 @@ describe('Hermes transport', () => {
 		await expect(gatewayHealth()).resolves.toEqual({
 			ok: false,
 			status: 0,
-			body: 'network down'
+			body: 'network down',
+			json: null,
+			service: null,
+			url: 'https://gateway.test'
+		});
+	});
+
+	it('treats health JSON ok:false as unavailable even with HTTP 200', async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(
+				new Response(JSON.stringify({ ok: false, service: 'newsroom-harness' }), { status: 200 })
+			);
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(gatewayHealth()).resolves.toMatchObject({
+			ok: false,
+			status: 200,
+			json: { ok: false, service: 'newsroom-harness' },
+			service: 'newsroom-harness',
+			url: 'https://gateway.test'
 		});
 	});
 

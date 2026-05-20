@@ -26,6 +26,7 @@
 
 	onMount(() => {
 		void loadSkills();
+		void loadBackups();
 	});
 
 	async function loadSkills() {
@@ -164,6 +165,67 @@
 
 	function accountLabel(id: string) {
 		return `Account ${id.slice(-6).toUpperCase()}`;
+	}
+
+	// --- Backups ---
+	type BackupInfo = {
+		name: string;
+		path: string;
+		sizeBytes: number;
+		createdAt: string;
+		modifiedAt: string;
+	};
+	let backupBusy = $state(false);
+	let backupLatest = $state<BackupInfo | null>(null);
+	let backupCount = $state(0);
+	let backupMsg = $state<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+	async function loadBackups() {
+		try {
+			const r = await fetch('/api/settings/backup', { headers: { accept: 'application/json' } });
+			if (!r.ok) throw new Error(`backup ${r.status}`);
+			const j = (await r.json()) as { latest?: BackupInfo | null; count?: number };
+			backupLatest = j.latest ?? null;
+			backupCount = j.count ?? 0;
+		} catch (err) {
+			backupMsg = { kind: 'err', text: err instanceof Error ? err.message : String(err) };
+		}
+	}
+
+	async function createBackup() {
+		backupBusy = true;
+		backupMsg = null;
+		try {
+			const r = await fetch('/api/settings/backup', {
+				method: 'POST',
+				headers: { accept: 'application/json' }
+			});
+			if (!r.ok) {
+				const t = await r.text();
+				backupMsg = { kind: 'err', text: t || `backup ${r.status}` };
+				return;
+			}
+			const j = (await r.json()) as { backup?: BackupInfo; latest?: BackupInfo | null; count?: number };
+			backupLatest = j.backup ?? j.latest ?? null;
+			backupCount = j.count ?? backupCount;
+			backupMsg = { kind: 'ok', text: 'backup created' };
+		} catch (err) {
+			backupMsg = { kind: 'err', text: err instanceof Error ? err.message : String(err) };
+		} finally {
+			backupBusy = false;
+		}
+	}
+
+	function formatBytes(value: number) {
+		if (!Number.isFinite(value) || value <= 0) return '0 B';
+		const units = ['B', 'KB', 'MB', 'GB'];
+		let size = value;
+		let unit = 0;
+		while (size >= 1024 && unit < units.length - 1) {
+			size /= 1024;
+			unit += 1;
+		}
+		return `${size >= 10 || unit === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unit]}`;
 	}
 
 	// --- Change password ---
@@ -531,6 +593,31 @@
 				<p class="settings__group__copy">Download or remove conversation records.</p>
 			</div>
 			<div class="settings__section-body">
+				<div class="settings__section-title">Database backup</div>
+				<p class="settings__section-copy">
+					Create a managed SQLite backup before upgrades or maintenance work.
+				</p>
+				<div class="backup-panel">
+					<div class="backup-panel__meta">
+						{#if backupLatest}
+							<span>Latest: {formatDate(Date.parse(backupLatest.modifiedAt))}</span>
+							<span>{formatBytes(backupLatest.sizeBytes)}</span>
+							<span>{backupCount} stored</span>
+						{:else}
+							<span>No backup yet</span>
+						{/if}
+					</div>
+					<button type="button" class="btn btn--ghost" onclick={createBackup} disabled={backupBusy}>
+						{backupBusy ? 'Creating…' : 'Create backup'}
+					</button>
+				</div>
+				{#if backupMsg}
+					<div class={backupMsg.kind === 'ok' ? 'settings__ok' : 'field__error'}>
+						{backupMsg.text}
+					</div>
+				{/if}
+			</div>
+			<div class="settings__section-body">
 				<div class="settings__section-title">Export conversations</div>
 				<p class="settings__section-copy">
 					Download every conversation as JSONL, newest conversations first.
@@ -684,6 +771,25 @@
 		grid-template-columns: minmax(0, 1fr) auto;
 		gap: 8px;
 		align-items: center;
+	}
+	.backup-panel {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		flex-wrap: wrap;
+		padding: 12px 0;
+		border-bottom: 1px solid var(--border-soft);
+	}
+	.backup-panel__meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--fg-3);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
 	}
 	.accounts-list {
 		border-top: 1px solid var(--border-soft);

@@ -51,7 +51,11 @@ describe('newsroom harness server', () => {
 		expect(body).toMatchObject({
 			ok: true,
 			service: 'newsroom-harness',
-			openai: { configured: false }
+			openai: { configured: false },
+			db: { ok: true },
+			scheduler: { running: false, intervalMs: 100 },
+			ingest: { configured: false },
+			limits: { runTimeoutMs: 5000 }
 		});
 	});
 

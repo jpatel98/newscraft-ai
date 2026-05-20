@@ -23,6 +23,10 @@ export class JobScheduler {
 		this.timer = null;
 	}
 
+	isRunning(): boolean {
+		return Boolean(this.timer);
+	}
+
 	tick(): void {
 		for (const job of this.repository.dueJobs()) {
 			if (!this.repository.hasActiveRun(job.id)) this.runner.start(job.id, 'schedule');
