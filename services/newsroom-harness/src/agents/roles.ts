@@ -1,4 +1,11 @@
+import { readFileSync } from 'node:fs';
+
 export type NewsroomRole = 'assignment_desk' | 'research' | 'verification' | 'production' | 'monitoring' | 'assistant';
+
+export const NEWSROOM_REPORT_INSTRUCTIONS = readFileSync(
+	new URL('../../prompts/newsroom-report.md', import.meta.url),
+	'utf8'
+).trim();
 
 export const ROLE_INSTRUCTIONS: Record<NewsroomRole, string> = {
 	assignment_desk:
@@ -27,4 +34,10 @@ export function chooseRole(prompt: string): NewsroomRole {
 
 export function roleLabel(role: NewsroomRole): string {
 	return role.replace(/_/g, ' ');
+}
+
+export function roleInstructionsFor(role: NewsroomRole): string {
+	return `${ROLE_INSTRUCTIONS[role]}
+
+${NEWSROOM_REPORT_INSTRUCTIONS}`;
 }

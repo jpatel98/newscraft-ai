@@ -1,17 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { onMount, untrack } from 'svelte';
+	import { goto, invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
-	import Markdown from '$lib/components/Markdown.svelte';
 	import type { BoardChannel, BoardData, BoardPost, ChannelSource, HermesJob, HermesRun } from '$lib/types';
 	import { detectRunRequestOutcome } from '$lib/utils/run-poll';
 	import { effectiveRunError } from '$lib/utils/cron-delivery';
 	import { formatRelativeTime } from '$lib/utils/time';
-	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
-	import Check from 'lucide-svelte/icons/check';
-	import ChevronDown from 'lucide-svelte/icons/chevron-down';
-	import Copy from 'lucide-svelte/icons/copy';
-	import FileText from 'lucide-svelte/icons/file-text';
 	import Hash from 'lucide-svelte/icons/hash';
 	import Pause from 'lucide-svelte/icons/pause';
 	import Pencil from 'lucide-svelte/icons/pencil';
@@ -27,9 +21,9 @@
 		| 'queued'
 		| 'running'
 		| 'finishing'
-		| 'new-post'
+		| 'output-saved'
 		| 'failed'
-		| 'finished-no-post'
+		| 'finished-no-output'
 		| 'timeout';
 
 	interface RunWatchState {
@@ -49,13 +43,11 @@
 	let runs = $state<HermesRun[]>([]);
 	let jobsError = $state<string | null>(null);
 	let selectedSlug = $state('');
-	let expandedPostId = $state('');
 	let busy = $state(true);
 	let error = $state<string | null>(null);
 	let notice = $state<string | null>(null);
 	let noticeChannelSlug = $state<string | null>(null);
 	let actionBusy = $state<string | null>(null);
-	let copiedPostId = $state<string | null>(null);
 	let createOpen = $state(false);
 	let formMode = $state<'create' | 'edit'>('create');
 	let editJobId = $state('');
@@ -73,14 +65,15 @@
 	let renameBusy = $state(false);
 	let runWatch = $state<RunWatchState | null>(null);
 	let runWatchNow = $state(Date.now());
+	let expandedOutputPostId = $state<string | null>(null);
+	let outputMarkdownById = $state<Record<string, string>>({});
+	let outputLoadingId = $state<string | null>(null);
+	let outputLoadError = $state<string | null>(null);
 	let hasInitialLoad = $state(false);
 	let lastRouteRefreshKey = $state('');
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 	let runWatchTicker: ReturnType<typeof setInterval> | null = null;
 	let silentRefreshTimer: ReturnType<typeof setInterval> | null = null;
-	let copiedTimer: ReturnType<typeof setTimeout> | null = null;
-	let reportBodyLoading = $state<Record<string, boolean>>({});
-	let reportBodyError = $state<Record<string, string>>({});
 	let loadSeq = 0;
 
 	const selectedChannel = $derived(
@@ -99,7 +92,16 @@
 	);
 	const selectedRun = $derived(currentRunForJob(selectedChannel, selectedJob));
 	const selectedJobRunning = $derived(Boolean(selectedRun));
-	const groupedPosts = $derived(groupPostsByDay(selectedPosts));
+	const selectedRunHistory = $derived(
+		selectedJob ? runs.filter((run) => run.jobId === selectedJob.id) : []
+	);
+	const selectedProgressRun = $derived(selectedRun ?? selectedRunHistory[0] ?? selectedChannel?.recentRun ?? null);
+	const selectedProgressItems = $derived(progressItems(selectedProgressRun));
+	const latestPost = $derived(selectedPosts[0] ?? null);
+	const latestOutputMarkdown = $derived(
+		latestPost ? latestPost.responseMarkdown || outputMarkdownById[latestPost.id] || '' : ''
+	);
+	const latestOutputExpanded = $derived(Boolean(latestPost && expandedOutputPostId === latestPost.id));
 	const runWatchVisible = $derived(
 		Boolean(runWatch && selectedChannel && runWatch.channelSlug === selectedChannel.slug)
 	);
@@ -126,13 +128,12 @@
 			clearRunPoll();
 			stopRunWatchTicker();
 			if (silentRefreshTimer) clearInterval(silentRefreshTimer);
-			clearCopiedTimer();
 		};
 	});
 
 	$effect(() => {
 		const params = new URLSearchParams(page.url.search);
-		applyQueryState(params, true);
+		untrack(() => applyQueryState(params, true));
 		const nextKey = routeRefreshKey(params);
 		if (!hasInitialLoad) {
 			lastRouteRefreshKey = nextKey;
@@ -167,17 +168,10 @@
 			if (!preserveSelection || !channels.some((channel) => channel.slug === selectedSlug)) {
 				selectedSlug = channels[0]?.slug ?? '';
 			}
-			const channelPosts = posts.filter((post) => post.channelSlug === selectedSlug);
-			if (!preserveSelection) {
-				expandedPostId = channelPosts[0]?.id ?? '';
-			} else if (expandedPostId && !channelPosts.some((post) => post.id === expandedPostId)) {
-				expandedPostId = channelPosts[0]?.id ?? '';
-			}
 			if (typeof window !== 'undefined') {
 				applyQueryState(new URLSearchParams(window.location.search), true);
 			}
-			replaceChannelUrl();
-			void ensureReportBody(expandedPostId);
+			if (!createOpen && !renameOpen) replaceChannelUrl();
 		} catch (err) {
 			if (seq !== loadSeq) return;
 			if (!silent) error = err instanceof Error ? err.message : String(err);
@@ -186,88 +180,67 @@
 		}
 	}
 
+	async function handleLatestOutputToggle(event: Event, post: BoardPost) {
+		const open = (event.currentTarget as HTMLDetailsElement).open;
+		if (!open) {
+			if (expandedOutputPostId === post.id) expandedOutputPostId = null;
+			return;
+		}
+
+		expandedOutputPostId = post.id;
+		outputLoadError = null;
+		if (post.responseMarkdown || outputMarkdownById[post.id] || outputLoadingId === post.id) return;
+
+		outputLoadingId = post.id;
+		try {
+			const response = await fetch(`/api/hermes/reports/${encodeURIComponent(post.id)}`, {
+				cache: 'no-store'
+			});
+			if (!response.ok) throw new Error(`Report ${response.status}`);
+			const data = (await response.json()) as { responseMarkdown?: unknown };
+			const markdown = typeof data.responseMarkdown === 'string' ? data.responseMarkdown : '';
+			outputMarkdownById = { ...outputMarkdownById, [post.id]: markdown };
+		} catch (err) {
+			if (expandedOutputPostId === post.id) {
+				outputLoadError = err instanceof Error ? err.message : String(err);
+			}
+		} finally {
+			if (outputLoadingId === post.id) outputLoadingId = null;
+		}
+	}
+
 	function selectChannel(channel: BoardChannel) {
 		focusedChannelView = true;
 		createOpen = false;
 		selectedSlug = channel.slug;
-		expandedPostId = posts.find((post) => post.channelSlug === channel.slug)?.id ?? '';
-		void ensureReportBody(expandedPostId);
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.pathname = '/missions';
 		url.searchParams.set('mission', channel.slug);
-		if (expandedPostId) {
-			url.searchParams.set('report', expandedPostId);
-		} else {
-			url.searchParams.delete('report');
-			url.searchParams.delete('post');
-		}
+		url.searchParams.delete('report');
+		url.searchParams.delete('post');
 		url.searchParams.delete('new');
 		url.searchParams.delete('edit');
 		url.searchParams.delete('rename');
 		void goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });
 	}
 
-	function togglePost(post: BoardPost) {
-		expandedPostId = expandedPostId === post.id ? '' : post.id;
-		if (expandedPostId) void ensureReportBody(expandedPostId);
-		replaceChannelUrl();
-	}
-
-	async function ensureReportBody(postId: string) {
-		if (!postId) return;
-		const post = posts.find((candidate) => candidate.id === postId);
-		if (!post || post.kind === 'run' || post.responseMarkdown || reportBodyLoading[postId]) return;
-		reportBodyLoading = { ...reportBodyLoading, [postId]: true };
-		reportBodyError = { ...reportBodyError, [postId]: '' };
-		try {
-			const response = await fetch(`/api/hermes/reports/${encodeURIComponent(postId)}`, {
-				headers: { accept: 'application/json' }
-			});
-			if (!response.ok) throw new Error(`Report ${response.status}`);
-			const detail = (await response.json()) as { id: string; responseMarkdown: string };
-			posts = posts.map((candidate) =>
-				candidate.id === detail.id
-					? { ...candidate, responseMarkdown: detail.responseMarkdown }
-					: candidate
-			);
-		} catch (err) {
-			reportBodyError = {
-				...reportBodyError,
-				[postId]: err instanceof Error ? err.message : 'Unable to load report'
-			};
-		} finally {
-			reportBodyLoading = { ...reportBodyLoading, [postId]: false };
-		}
-	}
-
-	function channelUrl(post: BoardPost | null): string {
-		if (typeof window === 'undefined') return '';
+	function replaceChannelUrl() {
+		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.pathname = '/missions';
-		if (post) {
-			url.searchParams.set('mission', post.channelSlug);
-			url.searchParams.set('report', post.id);
-		} else if (selectedChannel) {
-			if (focusedChannelView) {
-				url.searchParams.set('mission', selectedChannel.slug);
-			} else {
-				url.searchParams.delete('mission');
-				url.searchParams.delete('channel');
-			}
-			url.searchParams.delete('report');
-			url.searchParams.delete('post');
+		if (selectedChannel && focusedChannelView) {
+			url.searchParams.set('mission', selectedChannel.slug);
+		} else {
+			url.searchParams.delete('mission');
+			url.searchParams.delete('channel');
 		}
+		url.searchParams.delete('report');
+		url.searchParams.delete('post');
 		url.searchParams.delete('new');
 		url.searchParams.delete('edit');
 		url.searchParams.delete('rename');
-		return url.toString();
-	}
-
-	function replaceChannelUrl() {
-		if (typeof window === 'undefined') return;
-		const post = selectedPosts.find((candidate) => candidate.id === expandedPostId) ?? null;
-		window.history.replaceState(null, '', channelUrl(post));
+		replaceState(url.toString(), page.state);
 	}
 
 	function openCreate() {
@@ -290,7 +263,37 @@
 		url.searchParams.delete('rename');
 		url.searchParams.delete('report');
 		url.searchParams.delete('post');
-		window.history.replaceState(null, '', url.toString());
+		replaceState(url.toString(), page.state);
+	}
+
+	function hydrateEditForm(job: HermesJob, channel: BoardChannel | null, targetPosts: BoardPost[]) {
+		formMode = 'edit';
+		editJobId = job.id;
+		createName = job.name || channel?.name || '';
+		createDescription = job.description ?? '';
+		createSchedule = job.scheduleDisplay || targetPosts[0]?.schedule || '';
+		createPrompt = job.prompt ?? '';
+		createDeliver = job.deliver || 'database';
+		createOutputFormat = job.outputFormat || 'markdown';
+		createSources = cloneSources(job.sources);
+	}
+
+	function openEdit() {
+		if (!selectedJob) return;
+		hydrateEditForm(selectedJob, selectedChannel, selectedPosts);
+		createOpen = true;
+		focusedChannelView = false;
+		renameOpen = false;
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		url.pathname = '/missions';
+		if (selectedChannel) url.searchParams.set('mission', selectedChannel.slug);
+		url.searchParams.set('edit', '1');
+		url.searchParams.delete('new');
+		url.searchParams.delete('rename');
+		url.searchParams.delete('report');
+		url.searchParams.delete('post');
+		replaceState(url.toString(), page.state);
 	}
 
 	function sourceDraftId(): string {
@@ -353,7 +356,7 @@
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.searchParams.delete('rename');
-		window.history.replaceState(null, '', url.toString());
+		replaceState(url.toString(), page.state);
 	}
 
 	function onRenameSubmit(event: SubmitEvent) {
@@ -370,7 +373,7 @@
 		url.searchParams.delete('new');
 		url.searchParams.delete('edit');
 		url.searchParams.delete('rename');
-		window.history.replaceState(null, '', url.toString());
+		replaceState(url.toString(), page.state);
 	}
 
 	async function createChannel() {
@@ -442,21 +445,6 @@
 		return `${base}-${jobId.slice(0, 8)}`;
 	}
 
-	async function copyPostLink(post: BoardPost) {
-		try {
-			await navigator.clipboard.writeText(channelUrl(post));
-			copiedPostId = post.id;
-			clearCopiedTimer();
-			copiedTimer = setTimeout(() => {
-				copiedPostId = null;
-				copiedTimer = null;
-			}, 1600);
-		} catch {
-			notice = channelUrl(post);
-			noticeChannelSlug = selectedChannel?.slug ?? null;
-		}
-	}
-
 	async function jobAction(action: 'run' | 'pause' | 'resume') {
 		if (!selectedJob) return;
 		const jobName = selectedJob.name;
@@ -481,12 +469,12 @@
 					requestedAt,
 					status: 'requested',
 					lastCheckedAt: null,
-				message: `Run request sent for ${jobName}. Waiting for the mission runner...`,
+					message: `Run request sent for ${jobName}. Waiting for the mission runner...`,
 					detail: null,
 					latestPostId: null
 				};
 				startRunWatchTicker();
-				notice = `${jobName} run requested. Waiting for the next report...`;
+				notice = `${jobName} run requested.`;
 				noticeChannelSlug = channelSlug || null;
 				startRunPoll({
 					jobId: selectedJob.id,
@@ -545,6 +533,39 @@
 		}
 	}
 
+	async function deleteSelectedMission() {
+		if (!selectedJob) return;
+		const name = selectedJob.name || selectedChannel?.name || 'this mission';
+		if (typeof window !== 'undefined' && !window.confirm(`Delete "${name}" and its saved outputs?`)) return;
+		actionBusy = 'delete';
+		error = null;
+		notice = null;
+		noticeChannelSlug = null;
+		try {
+			const response = await fetch(`/api/hermes/channels/${encodeURIComponent(selectedJob.id)}`, {
+				method: 'DELETE'
+			});
+			if (!response.ok) throw new Error(await response.text());
+			await loadChannels(false, true);
+			await invalidateAll();
+			focusedChannelView = false;
+			createOpen = false;
+			renameOpen = false;
+			notice = 'Mission deleted.';
+			noticeChannelSlug = null;
+			if (typeof window !== 'undefined') {
+				const url = new URL(window.location.href);
+				url.pathname = '/missions';
+				url.search = '';
+				replaceState(url.toString(), page.state);
+			}
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			actionBusy = null;
+		}
+	}
+
 	async function saveChannelTitle() {
 		if (!selectedJob) return;
 		const next = renameDraft.trim();
@@ -573,7 +594,7 @@
 			if (typeof window !== 'undefined') {
 				const url = new URL(window.location.href);
 				url.searchParams.delete('rename');
-				window.history.replaceState(null, '', url.toString());
+				replaceState(url.toString(), page.state);
 			}
 			notice = 'Mission name updated.';
 			noticeChannelSlug = selectedChannel?.slug ?? null;
@@ -586,7 +607,6 @@
 
 	function applyQueryState(params: URLSearchParams, preserveSelection = false) {
 		const channel = params.get('mission') ?? params.get('channel') ?? '';
-		const post = params.get('report') ?? params.get('post') ?? '';
 		const newOpen = params.get('new') === '1';
 		const editOpen = params.get('edit') === '1';
 		const formOpen = newOpen || editOpen;
@@ -610,15 +630,7 @@
 			(!editOpen && previousMode !== 'create');
 		if (formOpen && !createBusy && shouldHydrateForm) {
 			if (editOpen && targetJob) {
-				formMode = 'edit';
-				editJobId = targetJob.id;
-				createName = targetJob.name || targetChannel?.name || '';
-				createDescription = targetJob.description ?? '';
-				createSchedule = targetJob.scheduleDisplay || targetPosts[0]?.schedule || '';
-				createPrompt = targetJob.prompt ?? '';
-				createDeliver = targetJob.deliver || 'database';
-				createOutputFormat = targetJob.outputFormat || 'markdown';
-				createSources = cloneSources(targetJob.sources);
+				hydrateEditForm(targetJob, targetChannel, targetPosts);
 			} else if (editOpen) {
 				formMode = 'edit';
 				editJobId = '';
@@ -654,8 +666,6 @@
 		}
 		focusedChannelView = (params.has('mission') || params.has('channel')) && !formOpen;
 		if (channel) selectedSlug = channel;
-		if (post) expandedPostId = post;
-		if (!preserveSelection && !post) expandedPostId = '';
 	}
 
 	function clearRunPoll() {
@@ -680,18 +690,6 @@
 	function dismissRunWatch() {
 		runWatch = null;
 		if (!pollTimer) stopRunWatchTicker();
-	}
-
-	function focusLatestRunPost() {
-		if (!runWatch?.latestPostId) return;
-		expandedPostId = runWatch.latestPostId;
-		void ensureReportBody(expandedPostId);
-		replaceChannelUrl();
-	}
-
-	function clearCopiedTimer() {
-		if (copiedTimer) clearTimeout(copiedTimer);
-		copiedTimer = null;
 	}
 
 	function startRunPoll(input: {
@@ -737,19 +735,17 @@
 
 			if (outcome.kind === 'new-post' && latest) {
 				selectedSlug = input.channelSlug;
-				expandedPostId = latestPostId;
-				void ensureReportBody(expandedPostId);
 				if (runWatch && runWatch.jobId === input.jobId) {
 					runWatch = {
 						...runWatch,
-						status: 'new-post',
+						status: 'output-saved',
 						lastCheckedAt: Date.now(),
-						message: 'New report received for this run.',
+						message: 'Run completed and output was saved.',
 						detail: null,
 						latestPostId
 					};
 				}
-				notice = 'New mission report received.';
+				notice = 'Mission run completed.';
 				noticeChannelSlug = input.channelSlug;
 				replaceChannelUrl();
 				clearRunPoll();
@@ -781,7 +777,7 @@
 						...runWatch,
 						status: 'finishing',
 						lastCheckedAt: Date.now(),
-						message: 'Run finished. Waiting for the report file to sync...',
+						message: 'Run finished. Waiting for the saved output to sync...',
 						detail: null,
 						latestPostId: null
 					};
@@ -791,14 +787,14 @@
 					if (runWatch && runWatch.jobId === input.jobId) {
 						runWatch = {
 							...runWatch,
-							status: 'finished-no-post',
+							status: 'finished-no-output',
 							lastCheckedAt: Date.now(),
-							message: 'Run finished, but no new report was saved.',
+							message: 'Run finished, but no new output was saved.',
 							detail: null,
 							latestPostId: null
 						};
 					}
-					notice = 'Run finished, but no new mission report was saved yet.';
+					notice = 'Run finished, but no new mission output was saved yet.';
 					noticeChannelSlug = input.channelSlug;
 					clearRunPoll();
 					stopRunWatchTicker();
@@ -844,13 +840,6 @@
 		}).format(date);
 	}
 
-	function formatTime(value: string | null | undefined): string {
-		if (!value) return '—';
-		const date = new Date(value);
-		if (!Number.isFinite(date.getTime())) return value;
-		return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(date);
-	}
-
 	function sourceHost(url: string): string {
 		try {
 			const parsed = new URL(url);
@@ -861,7 +850,7 @@
 	}
 
 	function relativeDate(value: string | null | undefined): string {
-	if (!value) return 'No reports yet';
+		if (!value) return 'No runs yet';
 		const date = new Date(value);
 		if (!Number.isFinite(date.getTime())) return value;
 		return formatRelativeTime(date.getTime());
@@ -879,34 +868,65 @@
 		return `${hours}h ${remainingMinutes}m`;
 	}
 
-	function groupPostsByDay(items: BoardPost[]): { label: string; posts: BoardPost[] }[] {
-		const groups = new Map<string, BoardPost[]>();
-		for (const post of items) {
-			const date = post.runTime ? new Date(post.runTime) : null;
-			const key = date && Number.isFinite(date.getTime()) ? date.toDateString() : 'Undated';
-			const rows = groups.get(key) ?? [];
-			rows.push(post);
-			groups.set(key, rows);
-		}
-		return Array.from(groups.entries()).map(([key, group]) => ({
-			label: dayLabel(key),
-			posts: group
-		}));
+	function progressItems(run: HermesRun | null) {
+		if (!run) return [];
+		const steps =
+			run.steps?.map((step) => ({
+				id: `step:${step.id}`,
+				label: step.label,
+				status: step.status,
+				time: step.completedAt ?? step.startedAt ?? run.latestActivityAt ?? run.updatedAt ?? null,
+				tone: progressTone(step.status),
+				detail: null
+			})) ?? [];
+		const tools =
+			run.toolCalls?.map((call) => ({
+				id: `tool:${call.id}`,
+				label: toolLabel(call.name),
+				status: call.status,
+				time: call.completedAt ?? call.startedAt ?? run.latestActivityAt ?? run.updatedAt ?? null,
+				tone: progressTone(call.status),
+				detail: call.error
+			})) ?? [];
+		return [...steps, ...tools]
+			.sort((left, right) => timeValue(left.time) - timeValue(right.time))
+			.slice(-10);
 	}
 
-	function dayLabel(key: string): string {
-		if (key === 'Undated') return key;
-		const date = new Date(key);
-		const today = new Date();
-		const yesterday = new Date();
-		yesterday.setDate(today.getDate() - 1);
-		if (date.toDateString() === today.toDateString()) return 'Today';
-		if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
-		return new Intl.DateTimeFormat(undefined, {
-			weekday: 'long',
-			month: 'short',
-			day: 'numeric'
-		}).format(date);
+	function timeValue(value: string | null | undefined): number {
+		const parsed = value ? Date.parse(value) : Number.NaN;
+		return Number.isFinite(parsed) ? parsed : 0;
+	}
+
+	function progressTone(status: string): Tone {
+		const normalized = status.toLowerCase();
+		if (['running', 'started', 'in_progress'].includes(normalized)) return 'running';
+		if (['queued', 'pending'].includes(normalized)) return 'warn';
+		if (['failed', 'error', 'blocked', 'unavailable', 'cancelled', 'canceled'].includes(normalized)) return 'error';
+		return 'ok';
+	}
+
+	function toolLabel(name: string): string {
+		return name
+			.replace(/_/g, ' ')
+			.replace(/\b\w/g, (char) => char.toUpperCase())
+			.trim();
+	}
+
+	function progressStatusLabel(status: string): string {
+		return runStatusLabel({ status });
+	}
+
+	function latestRunActivity(run: HermesRun | null): string | null {
+		return run?.latestActivityAt ?? run?.updatedAt ?? run?.completedAt ?? run?.startedAt ?? run?.queuedAt ?? null;
+	}
+
+	function missionActivityAt(
+		channel: BoardChannel | null,
+		job: HermesJob | null,
+		run: HermesRun | null
+	): string | null {
+		return latestRunActivity(run) ?? channel?.latestRunAt ?? job?.lastRunAt ?? null;
 	}
 
 	function statusLabel(channel: BoardChannel, job: HermesJob | null): string {
@@ -916,7 +936,7 @@
 		if (!job) return channel.state === 'saved' ? 'Saved' : channel.state || 'Unavailable';
 		if (!job?.enabled || channel.state === 'paused') return 'Paused';
 		if (channel.recentRun?.status) return runStatusLabel(channel.recentRun);
-		if (job?.lastStatus && job.lastStatus !== 'ok') return 'Error';
+		if (isErrorStatus(job?.lastStatus)) return 'Error';
 		if (isQueued(job)) return 'Queued';
 		return channel.state || 'Active';
 	}
@@ -928,24 +948,13 @@
 		if (!job) return 'warn';
 		if (!job?.enabled || channel.state === 'paused') return 'warn';
 		if (channel.recentRun?.status) return runStatusTone(channel.recentRun);
-		if (job?.lastStatus && job.lastStatus !== 'ok') return 'error';
+		if (isErrorStatus(job?.lastStatus)) return 'error';
 		if (isQueued(job)) return 'warn';
 		return 'ok';
 	}
 
-	function postTone(post: BoardPost): Tone {
-		const status = String(post.runStatus ?? '').toLowerCase();
-		if (['running', 'started', 'in_progress'].includes(status)) return 'running';
-		if (['queued', 'pending'].includes(status)) return 'warn';
-		if (['failed', 'error', 'cancelled', 'canceled'].includes(status) || post.lastError) return 'error';
-		if (post.archived) return 'archived';
-		return 'ok';
-	}
-
-	function postStatusLabel(post: BoardPost): string {
-		if (post.runStatus) return runStatusLabel({ status: post.runStatus });
-		if (post.archived) return 'Archived';
-		return post.kind === 'run' ? 'Mission run' : 'Completed';
+	function isErrorStatus(status: string | null | undefined): boolean {
+		return ['failed', 'error', 'errored', 'cancelled', 'canceled'].includes(String(status ?? '').toLowerCase());
 	}
 
 	function isQueued(job: HermesJob | null): boolean {
@@ -998,8 +1007,8 @@
 
 	function runWatchTone(status: RunWatchStatus): Tone {
 		if (status === 'failed') return 'error';
-		if (status === 'timeout' || status === 'finished-no-post') return 'warn';
-		if (status === 'new-post') return 'ok';
+		if (status === 'timeout' || status === 'finished-no-output') return 'warn';
+		if (status === 'output-saved') return 'ok';
 		if (status === 'queued') return 'warn';
 		return 'running';
 	}
@@ -1051,9 +1060,9 @@
 						{#if !selectedJob?.description}
 						<p class="channels__intro">
 						{#if focusedChannelView && selectedChannel}
-							Reports, schedule, and run controls for this mission.
+							Run progress, schedule, and controls for this mission.
 						{:else}
-							Recurring newsroom intelligence tasks land here as durable mission reports.
+							Recurring newsroom intelligence tasks live here.
 						{/if}
 					</p>
 						{/if}
@@ -1078,7 +1087,7 @@
 		{/if}
 			{#if jobsError}
 				<div class="channels__notice">
-					Saved reports loaded. Live mission controls are unavailable: {jobsError}
+					Saved mission data loaded. Live mission controls are unavailable: {jobsError}
 				</div>
 			{/if}
 
@@ -1243,7 +1252,7 @@
 								<span class="channel-feed-row__main">
 									<span class="channel-feed-row__name"><Hash size="13" strokeWidth={1.7} />{channel.name}</span>
 									<span class="channel-feed-row__meta">
-										{channel.postCount} {channel.postCount === 1 ? 'report' : 'reports'} · {relativeDate(channel.latestRunAt)}
+										{relativeDate(channel.latestRunAt)}
 									</span>
 								</span>
 								<span class={`channels-status channels-status--${statusTone(channel, job)}`}>
@@ -1251,7 +1260,7 @@
 								</span>
 							</button>
 						{:else}
-							<div class="channels__empty">No mission reports yet.</div>
+							<div class="channels__empty">No missions yet.</div>
 						{/each}
 					{/if}
 				</aside>
@@ -1264,11 +1273,12 @@
 							<span class={`channels-status channels-status--${statusTone(selectedChannel, selectedJob)}`}>
 								{statusLabel(selectedChannel, selectedJob)}
 							</span>
-							<span>{selectedChannel.postCount} {selectedChannel.postCount === 1 ? 'report' : 'reports'}</span>
 							<span>
 								{selectedRun
 									? `Running since ${relativeDate(runStartedAt(selectedRun))}`
-									: `Last update ${relativeDate(selectedJob?.lastRunAt ?? selectedChannel.latestRunAt)}`}
+									: `Last update ${relativeDate(
+											missionActivityAt(selectedChannel, selectedJob, selectedProgressRun)
+										)}`}
 							</span>
 							{#if !selectedChannel.active}
 								<span>Archived output</span>
@@ -1277,6 +1287,15 @@
 
 							<div class="channel-head__actions" aria-label="Mission controls">
 								{#if selectedJob}
+									<button
+										type="button"
+										class="btn btn--ghost"
+										disabled={Boolean(actionBusy)}
+										onclick={openEdit}
+									>
+										<Pencil size="13" strokeWidth={1.8} />
+										Edit mission
+									</button>
 									{#if selectedJob.enabled}
 										<button
 											type="button"
@@ -1307,6 +1326,15 @@
 											{actionBusy === 'resume' ? 'Resuming' : 'Resume'}
 										</button>
 									{/if}
+									<button
+										type="button"
+										class="btn btn--ghost channels__btn-danger"
+										disabled={Boolean(actionBusy)}
+										onclick={deleteSelectedMission}
+									>
+										<Trash2 size="13" strokeWidth={1.8} />
+										{actionBusy === 'delete' ? 'Deleting' : 'Delete'}
+									</button>
 								{/if}
 							</div>
 						</header>
@@ -1322,12 +1350,12 @@
 												? 'Running'
 												: runWatch.status === 'finishing'
 													? 'Finishing'
-												: runWatch.status === 'new-post'
-													? 'New report'
+												: runWatch.status === 'output-saved'
+													? 'Completed'
 													: runWatch.status === 'failed'
 														? 'Failed'
-														: runWatch.status === 'finished-no-post'
-															? 'Done, no report'
+														: runWatch.status === 'finished-no-output'
+															? 'Done'
 															: 'Timed out'}
 								</span>
 								<span class="run-watch__message">{runWatch.message}</span>
@@ -1351,11 +1379,6 @@
 								{/if}
 							</div>
 							<div class="run-watch__actions">
-								{#if runWatch.latestPostId}
-									<button type="button" class="btn btn--ghost" onclick={focusLatestRunPost}>
-										Jump to new report
-									</button>
-								{/if}
 								<button type="button" class="btn btn--ghost" onclick={dismissRunWatch}>
 									Dismiss
 								</button>
@@ -1413,98 +1436,103 @@
 						</div>
 					{/if}
 
-					<div class="channel-feed" aria-label="Mission reports">
-						{#if busy && selectedPosts.length === 0}
-							<div class="channels__empty channels__empty--panel">Fetching reports…</div>
-						{:else if selectedPosts.length === 0}
-							<div class="channels__empty channels__empty--panel">
-								No reports have landed for this mission yet.
+					<section class="mission-progress" aria-label="Mission progress">
+						<div class="mission-progress__head">
+							<div>
+								<div class="channels__eyebrow">Run progress</div>
+								<h2 class="mission-progress__title">
+									{selectedProgressRun ? 'Latest run activity' : 'No runs yet'}
+								</h2>
 							</div>
-						{:else}
-							{#each groupedPosts as group (group.label)}
-								<div class="channel-feed__day">{group.label}</div>
-								{#each group.posts as post (post.id)}
-									{@const expanded = expandedPostId === post.id}
-									<article class="channel-post" class:channel-post--expanded={expanded}>
-										<button
-											type="button"
-											class="channel-post__summary"
-											aria-expanded={expanded}
-											onclick={() => togglePost(post)}
-										>
-											<span class="channel-post__time">{formatTime(post.runTime)}</span>
-											<span class="channel-post__body">
-												<span class="channel-post__topline">
-													<span class="channel-post__title">
-														{post.kind === 'run' ? 'Mission run' : 'Mission report'}
-													</span>
-													<span class={`channels-status channels-status--${postTone(post)}`}>
-														{postStatusLabel(post)}
-													</span>
-													{#if formatElapsed(post.elapsedMs)}
-														<span class="channel-post__elapsed">{formatElapsed(post.elapsedMs)}</span>
+							{#if selectedProgressRun}
+								<span class={`channels-status channels-status--${runStatusTone(selectedProgressRun)}`}>
+									{runStatusLabel(selectedProgressRun)}
+								</span>
+							{/if}
+						</div>
+						{#if selectedProgressRun}
+							<div class="mission-progress__stats">
+								<div>
+									<span>Started</span>
+									<strong>{formatDate(runStartedAt(selectedProgressRun))}</strong>
+								</div>
+								<div>
+									<span>Updated</span>
+									<strong>{relativeDate(latestRunActivity(selectedProgressRun))}</strong>
+								</div>
+								<div>
+									<span>Elapsed</span>
+									<strong>{formatElapsed(selectedProgressRun.elapsedMs) ?? '—'}</strong>
+								</div>
+								<div>
+									<span>Sources</span>
+									<strong>{selectedProgressRun.sourceCount ?? 0}</strong>
+								</div>
+							</div>
+							{#if selectedProgressRun.lastError}
+								<div class="mission-progress__error">{selectedProgressRun.lastError}</div>
+							{/if}
+							{#if selectedProgressItems.length > 0}
+								<div class="mission-progress__timeline">
+									{#each selectedProgressItems as item (item.id)}
+										<div class="mission-progress__item">
+											<span class={`mission-progress__dot mission-progress__dot--${item.tone}`}></span>
+											<div>
+												<strong>{item.label}</strong>
+												<span>
+													{progressStatusLabel(item.status)}
+													{#if item.time}
+														· {relativeDate(item.time)}
 													{/if}
 												</span>
-												<span class="channel-post__preview">
-													{post.preview || 'No response body captured.'}
-												</span>
-											</span>
-											<ChevronDown
-												class="channel-post__chev {expanded ? 'channel-post__chev--open' : ''}"
-												size="14"
-												strokeWidth={1.8}
-											/>
-										</button>
-
-										{#if expanded}
-											<div class="channel-post__expanded">
-												<div class="channel-post__meta">
-													<span>Mission {post.jobId}</span>
-													<span>{post.schedule || selectedJob?.scheduleDisplay || 'No schedule'}</span>
-													{#if post.filePathDisplay}
-														<span class="channel-post__file">
-															<FileText size="12" strokeWidth={1.7} />
-															Backed by {post.filePathDisplay}
-														</span>
-													{/if}
-													{#if post.lastError}
-														<span class="channel-post__error">
-															<AlertTriangle size="12" strokeWidth={1.7} />
-															{post.lastError}
-														</span>
-													{/if}
-												</div>
-												<div class="channel-post__actions" aria-label="Report actions">
-													<button type="button" class="btn btn--ghost" onclick={() => copyPostLink(post)}>
-														{#if copiedPostId === post.id}
-															<Check size="13" strokeWidth={1.8} />
-															Copied link
-														{:else}
-															<Copy size="13" strokeWidth={1.8} />
-															Copy link
-														{/if}
-													</button>
-												</div>
-												<div class="channel-post__markdown">
-													{#if reportBodyLoading[post.id]}
-														<div class="channels__empty channels__empty--panel">Loading report…</div>
-													{:else if reportBodyError[post.id]}
-														<div class="channels__empty channels__empty--panel">
-															{reportBodyError[post.id]}
-														</div>
-													{:else}
-														<Markdown content={post.responseMarkdown || '_No response body captured._'} />
-													{/if}
-												</div>
+												{#if item.detail}
+													<span class="mission-progress__detail">{item.detail}</span>
+												{/if}
 											</div>
-										{/if}
-									</article>
-								{/each}
-							{/each}
+										</div>
+									{/each}
+								</div>
+							{:else}
+								<div class="channels__empty channels__empty--panel">
+									{runStatusLabel(selectedProgressRun)}. Progress details will appear as the runner records steps and tools.
+								</div>
+							{/if}
+						{:else}
+							<div class="channels__empty channels__empty--panel">
+								Run this mission to see queued, running, source, and completion progress here.
+							</div>
 						{/if}
-					</div>
+					</section>
+
+					{#if latestPost}
+						<section class="latest-output" aria-label="Latest saved output">
+							<div class="latest-output__head">
+								<span>Latest saved output</span>
+								<strong>{formatDate(latestPost.runTime)}</strong>
+							</div>
+							<p>{latestPost.preview || 'Output saved for this mission.'}</p>
+							<details
+								class="latest-output__details"
+								open={latestOutputExpanded}
+								ontoggle={(event) => handleLatestOutputToggle(event, latestPost)}
+							>
+								<summary>View full output</summary>
+								{#if outputLoadingId === latestPost.id}
+									<div class="latest-output__status">Loading saved output...</div>
+								{:else if outputLoadError}
+									<div class="latest-output__status latest-output__status--error">
+										Could not load saved output: {outputLoadError}
+									</div>
+								{:else if latestOutputMarkdown}
+									<pre>{latestOutputMarkdown}</pre>
+								{:else}
+									<div class="latest-output__status">No full output was saved for this report.</div>
+								{/if}
+							</details>
+						</section>
+					{/if}
 				{:else}
-					<div class="channels__empty channels__empty--panel">No mission reports yet.</div>
+					<div class="channels__empty channels__empty--panel">No missions yet.</div>
 				{/if}
 			</section>
 		</div>
@@ -1710,8 +1738,7 @@
 		color: var(--fg-2);
 		background: color-mix(in srgb, var(--bg-raised) 50%, transparent);
 	}
-	.channel-feed-row:focus-visible,
-	.channel-post__summary:focus-visible {
+	.channel-feed-row:focus-visible {
 		outline: none;
 		box-shadow: var(--shadow-focus);
 	}
@@ -1814,9 +1841,7 @@
 		gap: 7px;
 		color: var(--fg-3);
 	}
-	.channel-head__meta span:not(.channels-status),
-	.channel-post__meta span,
-	.channel-post__elapsed {
+	.channel-head__meta span:not(.channels-status) {
 		font-family: var(--font-mono);
 		font-size: 10.5px;
 		text-transform: uppercase;
@@ -1989,118 +2014,185 @@
 		font-size: 12px;
 		color: var(--fg-3);
 	}
-	.channel-feed {
+	.mission-progress,
+	.latest-output {
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		padding: 14px;
+		margin-bottom: 14px;
+	}
+	.mission-progress__head,
+	.latest-output__head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 12px;
+	}
+	.mission-progress__title {
+		margin: 3px 0 0;
+		font-family: var(--font-display);
+		font-size: 18px;
+		line-height: 1.15;
+		letter-spacing: 0;
+		color: var(--fg-1);
+	}
+	.mission-progress__stats {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 1px;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--border-soft);
+		overflow: hidden;
+		margin-bottom: 12px;
+	}
+	.mission-progress__stats div {
+		min-width: 0;
 		display: grid;
 		gap: 4px;
+		background: var(--bg-surface);
+		padding: 10px;
 	}
-	.channel-feed__day {
-		position: sticky;
-		top: 0;
-		z-index: 1;
-		margin: 12px 0 6px;
-		padding: 5px 0;
-		background: var(--bg-page);
-		border-bottom: 1px solid var(--border-soft);
+	.mission-progress__stats span,
+	.latest-output__head span {
 		font-family: var(--font-mono);
-		font-size: 10.5px;
-		color: var(--fg-3);
+		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
-	}
-	.channel-post {
-		border: 1px solid transparent;
-		border-radius: var(--radius-2);
-		background: transparent;
-		overflow: hidden;
-	}
-	.channel-post:hover,
-	.channel-post--expanded {
-		border-color: var(--border-soft);
-		background: var(--bg-surface);
-	}
-	.channel-post__summary {
-		width: 100%;
-		display: grid;
-		grid-template-columns: 58px minmax(0, 1fr) 20px;
-		gap: 12px;
-		align-items: start;
-		padding: 10px 12px;
-		border: 0;
-		background: transparent;
-		color: var(--fg-1);
-		text-align: left;
-		cursor: pointer;
-	}
-	.channel-post__time {
-		font-family: var(--font-mono);
-		font-size: 11px;
 		color: var(--fg-3);
-		padding-top: 2px;
 	}
-	.channel-post__body {
-		display: grid;
-		gap: 4px;
+	.mission-progress__stats strong,
+	.latest-output__head strong {
 		min-width: 0;
-	}
-	.channel-post__topline {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 7px;
-	}
-	.channel-post__title {
-		font-family: var(--font-display);
-		font-size: 14.5px;
-		font-weight: 700;
-		letter-spacing: -0.012em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 13px;
 		color: var(--fg-1);
 	}
-	.channel-post__preview {
+	.mission-progress__error {
+		margin-bottom: 12px;
+		border: 1px solid color-mix(in srgb, var(--status-breaking) 24%, var(--border-soft));
+		border-radius: var(--radius-2);
+		background: var(--status-breaking-bg);
+		color: var(--status-breaking-fg);
+		padding: 10px 12px;
 		font-size: 13px;
 		line-height: 1.4;
+	}
+	.mission-progress__timeline {
+		display: grid;
+		gap: 9px;
+	}
+	.mission-progress__item {
+		display: grid;
+		grid-template-columns: 9px minmax(0, 1fr);
+		gap: 10px;
+		align-items: start;
+	}
+	.mission-progress__item strong,
+	.mission-progress__item span {
+		display: block;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.mission-progress__item strong {
+		font-size: 13px;
+		color: var(--fg-1);
+	}
+	.mission-progress__item span {
+		font-size: 12px;
+		color: var(--fg-3);
+		line-height: 1.35;
+	}
+	.mission-progress__detail {
+		margin-top: 2px;
+		color: var(--status-breaking-fg) !important;
+	}
+	.mission-progress__dot {
+		width: 8px;
+		height: 8px;
+		margin-top: 5px;
+		border-radius: 999px;
+		background: var(--fg-4);
+	}
+	.mission-progress__dot--ok {
+		background: var(--status-verified);
+	}
+	.mission-progress__dot--warn {
+		background: var(--status-review);
+	}
+	.mission-progress__dot--error {
+		background: var(--status-breaking);
+	}
+	.mission-progress__dot--running {
+		background: var(--accent);
+	}
+	.latest-output {
+		background: color-mix(in srgb, var(--bg-surface) 78%, var(--bg-page));
+	}
+	.latest-output__head {
+		align-items: center;
+		margin-bottom: 6px;
+	}
+	.latest-output p {
+		margin: 0;
+		font-size: 13px;
+		line-height: 1.45;
 		color: var(--fg-2);
 		display: -webkit-box;
-		line-clamp: 2;
-		-webkit-line-clamp: 2;
+		line-clamp: 3;
+		-webkit-line-clamp: 3;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
 	}
-	.channel-post__chev {
-		color: var(--fg-3);
-		margin-top: 2px;
-		transition: transform var(--dur-fast) var(--ease-std);
+	.latest-output__details {
+		margin-top: 10px;
+		border-top: 1px solid var(--border-soft);
+		padding-top: 10px;
 	}
-	.channel-post__chev--open {
-		transform: rotate(180deg);
-	}
-	.channel-post__expanded {
-		padding: 0 12px 14px 82px;
-	}
-	.channel-post__meta {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 8px;
-		color: var(--fg-3);
-		margin-bottom: 10px;
-	}
-	.channel-post__file,
-	.channel-post__error {
+	.latest-output__details summary {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		cursor: pointer;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--fg-3);
 	}
-	.channel-post__error {
-		color: var(--status-breaking-fg);
+	.latest-output__details summary:hover {
+		color: var(--fg-1);
 	}
-	.channel-post__actions {
-		display: flex;
-		justify-content: flex-end;
-		margin-bottom: 10px;
+	.latest-output__details pre {
+		margin: 10px 0 0;
+		max-height: min(58vh, 680px);
+		overflow: auto;
+		white-space: pre-wrap;
+		word-break: break-word;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		padding: 12px;
+		font-family: var(--font-body);
+		font-size: 13px;
+		line-height: 1.5;
+		color: var(--fg-1);
 	}
-	.channel-post__markdown {
-		border-top: 1px solid var(--border-soft);
-		padding-top: 14px;
+	.latest-output__status {
+		margin-top: 10px;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		padding: 10px 12px;
+		font-size: 13px;
+		color: var(--fg-3);
+	}
+	.latest-output__status--error {
+		border-color: color-mix(in srgb, var(--status-breaking) 36%, var(--border-soft));
+		color: var(--status-breaking);
 	}
 	.channels__empty {
 		padding: 12px 10px;
@@ -2135,6 +2227,9 @@
 			.channels-watchlist__remove {
 				width: 100%;
 			}
+			.mission-progress__stats {
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+			}
 			.channels__rail {
 				position: static;
 			}
@@ -2154,15 +2249,10 @@
 		.channel-head__actions :global(.btn) {
 			width: 100%;
 		}
-		.channel-post__summary {
-			grid-template-columns: 48px minmax(0, 1fr) 18px;
-			gap: 9px;
-			padding: 10px;
-		}
-			.channel-post__expanded {
-				padding: 0 10px 12px 67px;
-			}
 			.channel-detail__grid {
+				grid-template-columns: 1fr;
+			}
+			.mission-progress__stats {
 				grid-template-columns: 1fr;
 			}
 			.channels__title {

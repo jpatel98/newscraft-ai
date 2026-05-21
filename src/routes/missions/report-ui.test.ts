@@ -1,0 +1,48 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+
+describe('mission report expanded metadata', () => {
+	it('keeps raw report markdown out of the default mission view', () => {
+		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+		expect(source).not.toContain('Mission {post.jobId}');
+		expect(source).not.toContain('Backed by {post.filePathDisplay}');
+		expect(source).not.toContain('<Markdown');
+		expect(source).not.toContain('ensureReportBody');
+		expect(source).toContain('Run progress');
+		expect(source).toContain('Latest saved output');
+	});
+
+	it('lets producers expand the full saved output from the preview card', () => {
+		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+		expect(source).toContain('View full output');
+		expect(source).toContain('handleLatestOutputToggle');
+		expect(source).toContain('/api/hermes/reports/${encodeURIComponent(post.id)}');
+		expect(source).toContain('<pre>{latestOutputMarkdown}</pre>');
+		expect(source).toContain('class="latest-output__details"');
+	});
+
+	it('exposes mission CRUD through the selected mission controls', () => {
+		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+		expect(source).toContain('function openEdit()');
+		expect(source).toContain('onclick={openEdit}');
+		expect(source).toContain('Edit mission');
+		expect(source).toContain('function deleteSelectedMission()');
+		expect(source).toContain('onclick={deleteSelectedMission}');
+		expect(source).toContain("method: 'DELETE'");
+		expect(source).toContain("url.searchParams.set('edit', '1')");
+		expect(source).toContain('untrack(() => applyQueryState(params, true));');
+		expect(source).toContain('if (!createOpen && !renameOpen) replaceChannelUrl();');
+		expect(source).toContain("method: 'PATCH'");
+		expect(source).toContain("{createBusy ? 'Saving' : 'Save changes'}");
+	});
+
+	it('uses the latest run activity for mission status freshness', () => {
+		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+		expect(source).toContain('function missionActivityAt(');
+		expect(source).toContain('missionActivityAt(selectedChannel, selectedJob, selectedProgressRun)');
+	});
+});

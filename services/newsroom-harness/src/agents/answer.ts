@@ -1,5 +1,5 @@
 import type { ToolBudgetSnapshot } from './budget.js';
-import type { EvidenceObject } from './evidence.js';
+import { assessEvidenceQuality, isUsableEvidence, type EvidenceObject } from './evidence.js';
 import type { RouteDecision } from './router.js';
 
 export interface AnswerGenerationInput {
@@ -12,7 +12,9 @@ export interface AnswerGenerationInput {
 }
 
 export function generateFinalAnswer(input: AnswerGenerationInput): string {
-	const evidence = [...input.evidence].sort(compareEvidencePriority);
+	const sortedEvidence = [...input.evidence].sort(compareEvidencePriority);
+	const evidence = sortedEvidence.filter(isUsableEvidence);
+	const unusableEvidence = sortedEvidence.filter((item) => !isUsableEvidence(item));
 	if (input.decision.selected_mode === 'clarification_needed') {
 		return 'I need a specific source, story, document, or mission output to check before I can answer cleanly.';
 	}
@@ -20,49 +22,45 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		return answerFromMemory(input.prompt);
 	}
 	if (!evidence.length && input.toolAnswers?.length) {
-		return withLimitations(input.toolAnswers.join('\n\n'), input.limitations, input.budget);
+		return input.toolAnswers.join('\n\n').trim();
 	}
 	if (!evidence.length) {
-		return withLimitations(
-			[
-				'I do not have enough sourced evidence to answer the request.',
-				'No facts have been inferred beyond the available tool results.'
-			].join('\n\n'),
-			input.limitations.length ? input.limitations : ['No evidence objects were produced by the selected tools.'],
-			input.budget
-		);
+		return noPublishableLeadReport(unusableEvidence);
 	}
 
 	const lead = leadParagraph(input.prompt, evidence);
-	const leadCandidates = evidence.slice(0, 5).map((item) => `- ${sourceLabel(item)}: ${item.summary || item.title}`);
-	const sourceNotes = evidence.map((item) => {
-		const timestamp = [item.published_at ? `published ${item.published_at}` : null, `accessed ${item.accessed_at}`]
-			.filter(Boolean)
-			.join('; ');
-		return `- ${formatSourceLink(item)} - ${kindLabel(item)}; ${timestamp}. ${item.summary || item.title}`;
-	});
-	const verificationNotes = verificationNotesFor(input.prompt, evidence, input.limitations);
+	const leadCandidates = evidence.slice(0, 5).map((item) => `- ${sourceLabel(item)}: ${summaryFor(item)}`);
+	const listedSources = evidence.slice(0, 12);
+	const sourceNotes = [
+		...listedSources.map((item) => {
+			const timestamp = [item.published_at ? `published ${item.published_at}` : null, `accessed ${item.accessed_at}`]
+				.filter(Boolean)
+				.join('; ');
+			return `- ${formatSourceLink(item)} - ${kindLabel(item)}; ${timestamp}. ${summaryFor(item)}`;
+		}),
+		...(evidence.length > listedSources.length
+			? [`- ${evidence.length - listedSources.length} additional usable sources were recorded and omitted from this compact brief.`]
+			: []),
+		...sourceIssueNotes(unusableEvidence)
+	];
+	const verificationNotes = verificationNotesFor(input.prompt, evidence, unusableEvidence);
 
-	return withLimitations(
-		[
-			'## Summary',
-			lead,
-			'',
-			'## Lead Candidates',
-			leadCandidates.join('\n'),
-			'',
-			'## Source Notes',
-			sourceNotes.join('\n'),
-			'',
-			'## Verification Notes',
-			verificationNotes.join('\n'),
-			'',
-			'## Human Review',
-			'A producer or editor should confirm story angle, public-interest value, legal/privacy sensitivity, and any publishable wording before use.'
-		].join('\n'),
-		input.limitations,
-		input.budget
-	);
+	return [
+		'## Summary',
+		lead,
+		'',
+		'## Lead Candidates',
+		leadCandidates.join('\n'),
+		'',
+		'## Source Notes',
+		sourceNotes.join('\n'),
+		'',
+		'## Verification Notes',
+		verificationNotes.join('\n'),
+		'',
+		'## Human Review',
+		'A producer or editor should confirm story angle, public-interest value, legal/privacy sensitivity, and any publishable wording before use.'
+	].join('\n');
 }
 
 function answerFromMemory(prompt: string): string {
@@ -80,7 +78,7 @@ function leadParagraph(prompt: string, evidence: EvidenceObject[]): string {
 	const official = evidence.filter((item) => item.source_kind === 'official' || item.source_kind === 'primary');
 	const media = evidence.filter((item) => item.source_kind === 'media_report');
 	const newest = evidence[0];
-	const base = `${newest.summary || newest.title}`;
+	const base = summaryFor(newest, 420);
 	const sourceFraming =
 		official.length && media.length
 			? `The gathered evidence includes ${official.length} official or primary source${official.length === 1 ? '' : 's'} and ${media.length} media report${media.length === 1 ? '' : 's'}.`
@@ -90,20 +88,17 @@ function leadParagraph(prompt: string, evidence: EvidenceObject[]): string {
 					? `The gathered evidence is based on media reports and still needs primary-source confirmation.`
 					: `The gathered evidence should be treated as preliminary.`;
 	const changed = /\b(latest|new|changed|update|today|recent)\b/i.test(prompt)
-		? ` What is new: ${evidence
-				.slice(0, 3)
-				.map((item) => item.title)
-				.join('; ')}.`
+		? ` Latest candidate sources are listed below.`
 		: '';
 	return `${base}\n\n${sourceFraming}${changed}`;
 }
 
-function verificationNotesFor(prompt: string, evidence: EvidenceObject[], limitations: string[]): string[] {
+function verificationNotesFor(prompt: string, evidence: EvidenceObject[], unusableEvidence: EvidenceObject[]): string[] {
 	const notes: string[] = [];
 	const officialCount = evidence.filter((item) => item.source_kind === 'official' || item.source_kind === 'primary').length;
 	const mediaCount = evidence.filter((item) => item.source_kind === 'media_report').length;
-	if (officialCount) notes.push(`- Official/primary source evidence found: ${officialCount}.`);
-	if (mediaCount) notes.push(`- Media-report evidence found: ${mediaCount}; attribute outlet reporting separately from official statements.`);
+	if (officialCount) notes.push(`- Official or primary source material is available for editor review: ${officialCount}.`);
+	if (mediaCount) notes.push(`- Secondary or media source material is available: ${mediaCount}; attribute outlet reporting separately from official statements.`);
 	if (detectPoliceLegalTask(prompt)) {
 		notes.push(
 			'- Police/legal caution: distinguish allegations, arrests, charges, and convictions. Do not imply guilt unless a conviction is documented.'
@@ -113,10 +108,9 @@ function verificationNotesFor(prompt: string, evidence: EvidenceObject[], limita
 	notes.push(
 		conflicts.length
 			? `- Potential conflicts to resolve: ${conflicts.join('; ')}.`
-			: '- No conflicting claims were detected in the gathered evidence objects.'
+			: '- No conflicting claims were apparent in the usable source notes.'
 	);
-	for (const limitation of limitations) notes.push(`- Limitation: ${limitation}`);
-	for (const item of evidence.flatMap((candidate) => candidate.limitations)) notes.push(`- Source limitation: ${item}`);
+	if (unusableEvidence.length) notes.push('- Some configured sources could not be read and were not used as evidence.');
 	return notes.length ? notes : ['- No additional verification notes were generated.'];
 }
 
@@ -134,13 +128,6 @@ function detectConflicts(evidence: EvidenceObject[]): string[] {
 	return conflicts;
 }
 
-function withLimitations(answer: string, limitations: string[], budget: ToolBudgetSnapshot): string {
-	const uniqueLimitations = [...new Set(limitations.filter(Boolean))];
-	const budgetLine = `Tool budget used: ${budget.usage.total_tool_calls}/${budget.limits.max_total_tool_calls} calls.`;
-	if (!uniqueLimitations.length) return `${answer}\n\n${budgetLine}`;
-	return `${answer}\n\nLimitations:\n${uniqueLimitations.map((limitation) => `- ${limitation}`).join('\n')}\n\n${budgetLine}`;
-}
-
 function compareEvidencePriority(left: EvidenceObject, right: EvidenceObject): number {
 	const priority = { official: 0, primary: 1, internal: 2, media_report: 3, unknown: 4 };
 	const leftPriority = priority[left.source_kind || 'unknown'];
@@ -150,7 +137,7 @@ function compareEvidencePriority(left: EvidenceObject, right: EvidenceObject): n
 }
 
 function sourceLabel(item: EvidenceObject): string {
-	return `${item.title} (${kindLabel(item)})`;
+	return `${compactText(item.title, 90)} (${kindLabel(item)})`;
 }
 
 function kindLabel(item: EvidenceObject): string {
@@ -162,9 +149,73 @@ function kindLabel(item: EvidenceObject): string {
 }
 
 function formatSourceLink(item: EvidenceObject): string {
-	const label = item.title.replace(/\]/g, ')');
+	const label = compactText(item.title, 90).replace(/\]/g, ')');
 	if (item.source_url.startsWith('newsroom://') || item.source_url === 'about:blank') {
 		return `${label} (${item.source_url})`;
 	}
 	return `[${label}](${item.source_url})`;
+}
+
+function summaryFor(item: EvidenceObject, maxLength = 260): string {
+	return compactText(item.summary || item.extracted_text || item.title, maxLength);
+}
+
+function compactText(value: string, maxLength: number): string {
+	const cleaned = value
+		.replace(/```[\s\S]*?```/g, ' ')
+		.replace(/^#{1,6}\s+/gm, '')
+		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+		.replace(/[*_~>`#-]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+	if (cleaned.length <= maxLength) return cleaned;
+	return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+}
+
+function noPublishableLeadReport(unusableEvidence: EvidenceObject[]): string {
+	const sourceNotes = sourceIssueNotes(unusableEvidence);
+	return [
+		'## Summary',
+		'No publishable lead was found in this run because no usable source material was available.',
+		'',
+		'## Lead Candidates',
+		'- No lead candidates. Do not assign or publish from this run without a readable source.',
+		'',
+		'## Source Notes',
+		sourceNotes.length ? sourceNotes.join('\n') : '- No readable source material was available from this run.',
+		'',
+		'## Verification Notes',
+		'- Re-run after the source is readable, attach a source feed, or verify the story against a readable primary or reliable secondary source.',
+		'',
+		'## Human Review',
+		'A producer or editor should review the source setup before using this mission for coverage decisions.'
+	].join('\n');
+}
+
+function sourceIssueNotes(evidence: EvidenceObject[]): string[] {
+	const seen = new Set<string>();
+	const notes: string[] = [];
+	for (const item of evidence) {
+		const quality = assessEvidenceQuality(item);
+		if (quality.usable) continue;
+		const label = publicIssueLabel(item);
+		const note = quality.publicNote || 'Source did not return usable story text during this run.';
+		const key = `${label}\n${note}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		notes.push(`- ${label}: ${note} It was not used as evidence.`);
+	}
+	return notes;
+}
+
+function publicIssueLabel(item: EvidenceObject): string {
+	if (item.source_name && item.source_name !== item.title) return item.source_name;
+	if (item.source_url && item.source_url !== 'about:blank') {
+		try {
+			return new URL(item.source_url).hostname.replace(/^www\./, '');
+		} catch {
+			return item.source_url;
+		}
+	}
+	return 'Configured source';
 }

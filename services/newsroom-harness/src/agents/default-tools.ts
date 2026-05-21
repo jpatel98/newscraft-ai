@@ -1,9 +1,10 @@
 import { generateFinalAnswer } from './answer.js';
-import { normalizeEvidence, normalizeToolEvidence, type EvidenceObject } from './evidence.js';
+import { isUsableEvidence, normalizeEvidence, normalizeToolEvidence, type EvidenceObject } from './evidence.js';
 import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { evidenceOutputSchema, ToolRegistry, type NewsroomTool, type ToolRunContext, type ToolRunOutput } from './tools.js';
 import { fetchSourceUrl, sourceFromText } from '../tools/sources.js';
 import { extractUrls, firstUrl } from '../util/text.js';
+import { assessSourceQuality } from '../util/source-quality.js';
 
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
@@ -97,6 +98,7 @@ function missionResultReaderTool(): NewsroomTool<{ latest?: boolean }> {
 			}
 			const report = context.repository.listReports()[0];
 			if (!report) return { status: 'unavailable', limitations: ['No saved mission outputs were found.'] };
+			const reportPreview = compactSavedReport(report.markdown);
 			return {
 				status: 'ok',
 				evidence: [
@@ -107,10 +109,10 @@ function missionResultReaderTool(): NewsroomTool<{ latest?: boolean }> {
 						tool_used: NEWSROOM_TOOL_NAMES.missionResultReader,
 						title: report.title,
 						published_at: report.created_at,
-						extracted_text: report.markdown,
-						summary: report.markdown,
+						extracted_text: reportPreview,
+						summary: compactToolText(reportPreview, 260),
 						confidence: 0.85,
-						limitations: [],
+						limitations: ['Saved mission output was summarized before reuse to avoid recursive report expansion.'],
 						source_kind: 'internal'
 					})
 				]
@@ -311,8 +313,8 @@ async function fetchEvidenceUrls(
 	const evidence: EvidenceObject[] = [];
 	for (const url of urls) {
 		try {
-			const source = await fetchSourceUrl(url, context.signal);
-			evidence.push(fetchedSourceToEvidence(source, toolUsed, source.used ? [] : [`Source returned HTTP ${source.statusCode}`]));
+			const source = await fetchSourceUrl(url, sourceFetchSignal(context.signal));
+			evidence.push(fetchedSourceToEvidence(source, toolUsed));
 		} catch (err) {
 			evidence.push(
 				normalizeEvidence({
@@ -325,12 +327,18 @@ async function fetchEvidenceUrls(
 					extracted_text: '',
 					summary: '',
 					confidence: 0,
-					limitations: [`Source unavailable: ${err instanceof Error ? err.message : String(err)}`]
+					limitations: ['Source could not be read during this run.']
 				})
 			);
 		}
 	}
 	return evidence;
+}
+
+function sourceFetchSignal(signal: AbortSignal | undefined): AbortSignal {
+	const timeout = AbortSignal.timeout(20_000);
+	if (signal && typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
+	return timeout;
 }
 
 function fetchedSourceToEvidence(
@@ -346,7 +354,18 @@ function fetchedSourceToEvidence(
 	toolUsed: string,
 	limitations: string[] = []
 ): EvidenceObject {
-	return normalizeEvidence({
+	const quality = assessSourceQuality({
+		title: source.title,
+		text: source.contentText,
+		summary: source.summary || source.snippet,
+		statusCode: source.statusCode,
+		limitations
+	});
+	const sourceLimitations = [
+		...limitations,
+		...(quality.usable || !quality.publicNote ? [] : [quality.publicNote])
+	];
+	const evidence = normalizeEvidence({
 		source_name: sourceNameFromUrl(source.url),
 		source_url: source.url,
 		accessed_at: source.fetchedAt,
@@ -355,13 +374,15 @@ function fetchedSourceToEvidence(
 		published_at: null,
 		extracted_text: source.contentText,
 		summary: source.summary || source.snippet,
-		confidence: source.statusCode && source.statusCode >= 400 ? 0.2 : 0.75,
-		limitations
+		confidence: quality.usable ? 0.75 : 0,
+		limitations: [...new Set(sourceLimitations)]
 	});
+	if (!quality.usable) return { ...evidence, extracted_text: '', summary: '', confidence: 0 };
+	return evidence;
 }
 
 function withStatusFromEvidence(evidence: EvidenceObject[], requestedCount: number): ToolRunOutput {
-	const useful = evidence.filter((item) => item.extracted_text || item.summary);
+	const useful = evidence.filter(isUsableEvidence);
 	const limitations = evidence.flatMap((item) => item.limitations);
 	if (useful.length) return { status: 'ok', evidence, limitations };
 	return {
@@ -430,15 +451,43 @@ function extractOpenAiWebSources(raw: unknown, outputText: string) {
 }
 
 function webSource(url: string, title: string, outputText: string) {
+	const summary = compactToolText(outputText, 280);
 	return {
 		source_name: sourceNameFromUrl(url),
 		source_url: url,
 		title,
-		extracted_text: outputText,
-		summary: outputText,
+		extracted_text: compactToolText(outputText, 900),
+		summary: summary || 'Web search cited this source; verify the source page directly before publication.',
 		limitations: ['OpenAI web_search result; cite and verify source page before publication.'],
 		confidence: 0.6
 	};
+}
+
+function compactToolText(value: string, maxLength: number): string {
+	const cleaned = value
+		.replace(/```[\s\S]*?```/g, ' ')
+		.replace(/^#{1,6}\s+/gm, '')
+		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+		.replace(/[*_~>`#-]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+	if (cleaned.length <= maxLength) return cleaned;
+	return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+}
+
+function compactSavedReport(markdown: string): string {
+	const lines = markdown.split(/\r?\n/);
+	const summaryIndex = lines.findIndex((line) => /^##\s+Summary\s*$/i.test(line.trim()));
+	let source = markdown;
+	if (summaryIndex >= 0) {
+		const collected: string[] = [];
+		for (const line of lines.slice(summaryIndex + 1)) {
+			if (/^##\s+/.test(line.trim())) break;
+			collected.push(line);
+		}
+		source = collected.join('\n').trim() || markdown;
+	}
+	return compactToolText(source, 700);
 }
 
 function sourceNameFromUrl(value: string): string {

@@ -1,3 +1,5 @@
+import { assessSourceQuality, type SourceQualityAssessment } from '../util/source-quality.js';
+
 type EvidenceSourceKind = 'official' | 'media_report' | 'internal' | 'primary' | 'unknown';
 
 export interface EvidenceObject {
@@ -99,6 +101,21 @@ export function dedupeEvidence(evidence: EvidenceObject[]): EvidenceObject[] {
 	return deduped;
 }
 
+export function assessEvidenceQuality(evidence: EvidenceObject): SourceQualityAssessment {
+	return assessSourceQuality({
+		title: evidence.title,
+		text: evidence.extracted_text,
+		summary: evidence.summary,
+		limitations: evidence.limitations,
+		confidence: evidence.confidence
+	});
+}
+
+export function isUsableEvidence(evidence: EvidenceObject): boolean {
+	const quality = assessEvidenceQuality(evidence);
+	return quality.usable && Boolean(evidence.extracted_text.trim() || evidence.summary.trim());
+}
+
 function summarizeEvidenceText(text: string, maxLength = 320): string {
 	const cleaned = text.replace(/\s+/g, ' ').trim();
 	if (!cleaned) return '';
@@ -124,6 +141,7 @@ function classifyEvidenceSource(sourceName: string, sourceUrl: string): Evidence
 
 export function evidenceHasBlockingLimitation(evidence: EvidenceObject[]): boolean {
 	return evidence.some((item) =>
+		!assessEvidenceQuality(item).usable ||
 		item.limitations.some((limitation) => /login|captcha|paywall|blocked|unavailable/i.test(limitation))
 	);
 }

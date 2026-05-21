@@ -858,6 +858,21 @@ package scripts call `pnpm` internally for workspace commands.
 corepack pnpm dev
 ```
 
+Run the web app and newsroom harness together:
+
+```sh
+corepack pnpm dev:all
+```
+
+The local web app dev server uses `127.0.0.1:3001`; the harness uses
+`127.0.0.1:8650`.
+
+If an old NewsCraft dev run is occupying either port, stop it with:
+
+```sh
+corepack pnpm dev:stop
+```
+
 ### Harness development
 
 ```sh

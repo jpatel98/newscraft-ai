@@ -89,7 +89,7 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		return decision(
 			'hybrid_research',
 			'The request needs both primary/source evidence and broader coverage context.',
-			[NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.sourceFeedFetcher, NEWSROOM_TOOL_NAMES.webSearch],
+			[NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.webSearch],
 			budget,
 			'stop after primary/source evidence and broader coverage evidence exist, or a budget/availability limit is hit',
 			'a producer-ready answer separating official or primary sources from media reports'
@@ -100,10 +100,10 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		return decision(
 			'source_monitor',
 			'The request targets configured sources, feeds, releases, or source monitors.',
-			[NEWSROOM_TOOL_NAMES.sourceMonitor],
+			[NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.webSearch],
 			budget,
-			'stop when configured-source evidence is sufficient or the source is unavailable',
-			'a concise monitored-source brief with provenance'
+			'stop when configured-source evidence is sufficient, or use web search if configured sources are unavailable',
+			'a concise monitored-source brief with provenance or a clean no-lead result'
 		);
 	}
 

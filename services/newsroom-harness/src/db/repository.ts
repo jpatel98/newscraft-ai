@@ -3,7 +3,9 @@ import type {
 	NewsroomJobDto,
 	NewsroomReportDto,
 	NewsroomRunDto,
+	NewsroomRunStepDto,
 	NewsroomSourceDto,
+	NewsroomToolCallDto,
 	RunStatus,
 	UpdateJobInput
 } from '@newscraft/shared';
@@ -41,6 +43,26 @@ interface RunRow {
 	elapsed_ms: number | null;
 	last_error: string | null;
 	job_name?: string | null;
+}
+
+interface RunStepRow {
+	id: number;
+	run_id: string;
+	step_type: string;
+	label: string;
+	status: string;
+	started_at: string;
+	completed_at: string | null;
+}
+
+interface ToolCallRow {
+	id: string;
+	run_id: string | null;
+	name: string;
+	status: string;
+	started_at: string;
+	completed_at: string | null;
+	error: string | null;
 }
 
 interface SourceRow {
@@ -283,7 +305,58 @@ export class HarnessRepository {
 					   ORDER BY COALESCE(runs.updated_at, runs.queued_at) DESC LIMIT ?`
 			)
 			.all(options.includeRecent ? 50 : 200) as RunRow[];
-		return rows.map(runDto);
+		return rows.map((row) => this.runDtoWithProgress(row));
+	}
+
+	private runDtoWithProgress(row: RunRow): NewsroomRunDto {
+		const run = runDto(row);
+		const steps = this.db
+			.prepare(
+				`SELECT id, run_id, step_type, label, status, started_at, completed_at
+				 FROM run_steps
+				 WHERE run_id = ?
+				 ORDER BY COALESCE(completed_at, started_at) DESC, id DESC
+				 LIMIT 12`
+			)
+			.all(row.id) as RunStepRow[];
+		const toolCalls = this.db
+			.prepare(
+				`SELECT id, run_id, name, status, started_at, completed_at, error
+				 FROM tool_calls
+				 WHERE run_id = ?
+				 ORDER BY COALESCE(completed_at, started_at) DESC, started_at DESC
+				 LIMIT 8`
+			)
+			.all(row.id) as ToolCallRow[];
+		const sourceStats = this.db
+			.prepare('SELECT COUNT(*) AS count, MAX(fetched_at) AS latest FROM sources WHERE run_id = ?')
+			.get(row.id) as { count: number; latest: string | null } | undefined;
+		const usableSourceStats = this.db
+			.prepare(
+				`SELECT
+					COUNT(CASE WHEN used = 1 THEN 1 END) AS count,
+					MAX(fetched_at) AS latest
+				 FROM sources
+				 WHERE run_id = ?`
+			)
+			.get(row.id) as { count: number; latest: string | null } | undefined;
+		const latestActivityAt = latestIso([
+			run.updated_at,
+			run.completed_at,
+			run.started_at,
+			run.queued_at,
+			usableSourceStats?.latest ?? sourceStats?.latest,
+			...steps.flatMap((step) => [step.completed_at, step.started_at]),
+			...toolCalls.flatMap((call) => [call.completed_at, call.started_at])
+		]);
+
+		return {
+			...run,
+			steps: steps.map(runStepDto).reverse(),
+			tool_calls: toolCalls.map(toolCallDto).reverse(),
+			source_count: usableSourceStats?.count ?? 0,
+			latest_activity_at: latestActivityAt
+		};
 	}
 
 	dueJobs(now = nowIso()): NewsroomJobDto[] {
@@ -490,6 +563,43 @@ function runDto(row: RunRow): NewsroomRunDto {
 		elapsed_ms: row.elapsed_ms,
 		last_error: row.last_error
 	};
+}
+
+function runStepDto(row: RunStepRow): NewsroomRunStepDto {
+	return {
+		id: row.id,
+		run_id: row.run_id,
+		step_type: row.step_type,
+		label: row.label,
+		status: row.status,
+		started_at: row.started_at,
+		completed_at: row.completed_at
+	};
+}
+
+function toolCallDto(row: ToolCallRow): NewsroomToolCallDto {
+	return {
+		id: row.id,
+		run_id: row.run_id,
+		name: row.name,
+		status: row.status,
+		started_at: row.started_at,
+		completed_at: row.completed_at,
+		error: row.error
+	};
+}
+
+function latestIso(values: Array<string | null | undefined>): string | null {
+	let latest = 0;
+	let latestValue: string | null = null;
+	for (const value of values) {
+		if (!value) continue;
+		const time = Date.parse(value);
+		if (!Number.isFinite(time) || time < latest) continue;
+		latest = time;
+		latestValue = value;
+	}
+	return latestValue;
 }
 
 function sourceDto(row: SourceRow): NewsroomSourceDto {

@@ -90,6 +90,24 @@ export interface HermesJob {
 	sources?: ChannelSource[];
 }
 
+export interface HermesRunStep {
+	id: string;
+	type: string;
+	label: string;
+	status: string;
+	startedAt?: string | null;
+	completedAt?: string | null;
+}
+
+export interface HermesToolCall {
+	id: string;
+	name: string;
+	status: string;
+	startedAt?: string | null;
+	completedAt?: string | null;
+	error?: string | null;
+}
+
 export interface HermesRun {
 	id: string;
 	jobId: string;
@@ -101,6 +119,10 @@ export interface HermesRun {
 	updatedAt?: string | null;
 	elapsedMs?: number | null;
 	lastError?: string | null;
+	steps?: HermesRunStep[];
+	toolCalls?: HermesToolCall[];
+	sourceCount?: number;
+	latestActivityAt?: string | null;
 }
 
 export interface BoardPost {

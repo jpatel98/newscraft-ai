@@ -5,6 +5,7 @@ import { normalizeEvidence } from '../src/agents/evidence.js';
 import { DisciplinedNewsroomAgent } from '../src/agents/newsroom-agent.js';
 import { routeNewsroomRequest } from '../src/agents/router.js';
 import { ToolRegistry, type NewsroomTool, type ToolCategory } from '../src/agents/tools.js';
+import { assessSourceQuality } from '../src/util/source-quality.js';
 
 describe('disciplined newsroom agent harness', () => {
 	it('routes sample prompts to expected modes with at least 80% accuracy', () => {
@@ -27,6 +28,11 @@ describe('disciplined newsroom agent harness', () => {
 		const matches = samples.filter(([prompt, expected]) => routeNewsroomRequest(prompt).selected_mode === expected);
 		expect(matches.length / samples.length).toBeGreaterThanOrEqual(0.8);
 		expect(matches).toHaveLength(samples.length);
+		expect(
+			routeNewsroomRequest(
+				'Verify this police release against official sources and what other outlets are reporting: https://example.com/story'
+			).tools_to_use
+		).toEqual(['configured_source_monitor', 'openai_web_search']);
 	});
 
 	it('enforces hard budget counters before tool calls', () => {
@@ -96,6 +102,37 @@ describe('disciplined newsroom agent harness', () => {
 		expect(evidence.summary).toContain('Police said');
 	});
 
+	it('classifies blocked, boilerplate, and nav-only source text as unusable', () => {
+		expect(
+			assessSourceQuality({
+				title: 'Just a moment...',
+				text: 'Enable JavaScript and cookies to continue',
+				statusCode: 403
+			})
+		).toMatchObject({ usable: false, state: 'blocked_unusable' });
+
+		expect(
+			assessSourceQuality({
+				title: 'Just a moment...',
+				text: 'Just a moment... Checking your browser before accessing the site. Cloudflare'
+			})
+		).toMatchObject({ usable: false, state: 'boilerplate_unusable' });
+
+		expect(
+			assessSourceQuality({
+				title: 'News Releases & Other Resources',
+				text: 'News Releases & Other Resources - City of Toronto Skip to content I want to... Search Menu'
+			})
+		).toMatchObject({ usable: false, state: 'nav_unusable' });
+
+		expect(
+			assessSourceQuality({
+				title: 'NewsCraft Local Fixture',
+				text: 'City desk confirms river inspection. Officials scheduled a levee inspection after overnight rain. Editors should verify timing with the public works office.'
+			})
+		).toMatchObject({ usable: true, state: 'usable' });
+	});
+
 	it('generates final answers from evidence with attribution, uncertainty, and police/legal caution', () => {
 		const decision = routeNewsroomRequest('Check the latest Toronto Police releases');
 		const evidence = [
@@ -138,7 +175,70 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).toContain('published 2026-05-20T10:00:00.000Z');
 		expect(answer).toContain('Police/legal caution');
 		expect(answer).toContain('media report');
-		expect(answer).toContain('Tool budget used');
+		expect(answer).not.toContain('Tool budget used');
+	});
+
+	it('keeps evidence-heavy reports compact instead of repeating every source body', () => {
+		const decision = routeNewsroomRequest('What are the latest Canada stories today?');
+		const repeated = 'Slug: Canada-clean-electricity-strategy Date: May 14, 2026 Description: '.repeat(25);
+		const evidence = Array.from({ length: 20 }, (_, index) =>
+			normalizeEvidence({
+				source_name: `Outlet ${index}`,
+				source_url: `https://example.com/story-${index}`,
+				accessed_at: '2026-05-21T12:00:00.000Z',
+				tool_used: 'openai_web_search',
+				title: `Story ${index}`,
+				published_at: null,
+				extracted_text: repeated,
+				summary: repeated,
+				confidence: 0.65,
+				limitations: [],
+				source_kind: 'media_report'
+			})
+		);
+
+		const answer = generateFinalAnswer({
+			prompt: 'What are the latest Canada stories today?',
+			decision,
+			evidence,
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot()
+		});
+
+		expect(answer).toContain('additional usable sources were recorded');
+		expect(answer.length).toBeLessThan(9000);
+		expect(answer.match(/Canada-clean-electricity-strategy/g)?.length ?? 0).toBeLessThan(20);
+	});
+
+	it('does not turn blocked source evidence into a lead candidate', () => {
+		const decision = routeNewsroomRequest('Check the latest City of Toronto releases');
+		const answer = generateFinalAnswer({
+			prompt: 'Check the latest City of Toronto releases',
+			decision,
+			evidence: [
+				normalizeEvidence({
+					source_name: 'City of Toronto',
+					source_url: 'https://www.toronto.ca/news/',
+					accessed_at: '2026-05-21T14:08:22.000Z',
+					tool_used: 'configured_source_monitor',
+					title: 'Just a moment...',
+					published_at: null,
+					extracted_text: 'Enable JavaScript and cookies to continue',
+					summary: 'Enable JavaScript and cookies to continue',
+					confidence: 0,
+					limitations: ['Source could not be read during this run.'],
+					source_kind: 'official'
+				})
+			],
+			limitations: ['Source returned HTTP 403'],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot()
+		});
+
+		expect(answer).toContain('No publishable lead was found');
+		expect(answer).toContain('No lead candidates');
+		expect(answer).not.toContain('Enable JavaScript');
+		expect(answer).not.toContain('HTTP 403');
+		expect(answer).not.toContain('Tool budget used');
 	});
 
 	it('does not exceed the configured tool budget during a hybrid run', async () => {
@@ -179,8 +279,106 @@ describe('disciplined newsroom agent harness', () => {
 		const result = await agent.run('Check the latest Toronto Police releases');
 
 		expect(result.tool_calls).toHaveLength(1);
-		expect(result.final_answer).toContain('not have enough sourced evidence');
+		expect(result.final_answer).toContain('No publishable lead was found');
 		expect(result.limitations).toContain('Fixture source unavailable');
+	});
+
+	it('returns a clean no-lead report when configured sources fail and search is unavailable', async () => {
+		const registry = new ToolRegistry();
+		registry.register(unavailableTool('configured_source_monitor', 'source_monitor'));
+		registry.register(unavailableTool('openai_web_search', 'web_search_provider'));
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['configured_source_monitor', 'openai_web_search']
+			}
+		});
+
+		const result = await agent.run('Check the latest City of Toronto releases');
+
+		expect(result.tool_calls.map((call) => call.name)).toEqual(['configured_source_monitor', 'openai_web_search']);
+		expect(result.final_answer).toContain('No publishable lead was found');
+		expect(result.final_answer).not.toMatch(/Tool budget used|job_|SDK|API|database|harness|HTTP/i);
+	});
+
+	it('uses web-search fallback evidence when configured sources fail', async () => {
+		const registry = new ToolRegistry();
+		registry.register(unavailableTool('configured_source_monitor', 'source_monitor'));
+		registry.register(stubTool('openai_web_search', 'web_search_provider', 'Other outlet reports that council will revisit the item next week.'));
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['configured_source_monitor', 'openai_web_search']
+			}
+		});
+
+		const result = await agent.run('Check the latest City of Toronto releases');
+
+		expect(result.tool_calls.map((call) => call.name)).toEqual(['configured_source_monitor', 'openai_web_search']);
+		expect(result.final_answer).toContain('## Lead Candidates');
+		expect(result.final_answer).toContain('media report');
+		expect(result.final_answer).toContain('Secondary or media source material is available');
+		expect(result.final_answer).not.toContain('No publishable lead was found');
+	});
+
+	it('uses web-search fallback evidence when a configured source tool errors', async () => {
+		const registry = new ToolRegistry();
+		registry.register(errorTool('configured_source_monitor', 'source_monitor'));
+		registry.register(
+			stubTool('openai_web_search', 'web_search_provider', 'CTV and CBC are both leading with federal energy policy reaction.')
+		);
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['configured_source_monitor', 'openai_web_search']
+			}
+		});
+
+		const result = await agent.run('Check the latest City of Toronto releases');
+
+		expect(result.tool_calls.map((call) => call.name)).toEqual(['configured_source_monitor', 'openai_web_search']);
+		expect(result.final_answer).toContain('## Lead Candidates');
+		expect(result.final_answer).toContain('CTV and CBC');
+		expect(result.final_answer).not.toContain('No publishable lead was found');
+	});
+
+	it('summarizes saved mission output before reusing it as evidence', async () => {
+		const hugeMarkdown = [
+			'## Summary',
+			'This is the reusable part.',
+			'## Source Notes',
+			'Unique tail marker should not survive compacting. '.repeat(200)
+		].join('\n');
+		const agent = new DisciplinedNewsroomAgent({
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['mission_result_reader']
+			}
+		});
+
+		const result = await agent.run('Summarize the latest mission output', {
+			repository: {
+				listReports: () => [
+					{
+						id: 'report-1',
+						run_id: 'run-1',
+						job_id: 'job-1',
+						title: 'Saved report',
+						markdown: hugeMarkdown,
+						created_at: '2026-05-21T12:00:00.000Z',
+						ingest_status: 'sent',
+						ingest_error: null
+					}
+				]
+			} as any
+		});
+
+		expect(result.evidence[0]?.extracted_text.length).toBeLessThanOrEqual(901);
+		expect(result.final_answer).toContain('Saved report');
+		expect(result.final_answer).not.toContain('Unique tail marker should not survive compacting');
 	});
 
 	it('finishes finite runs even when tools return no useful evidence', async () => {
@@ -239,6 +437,15 @@ function unavailableTool(name: string, category: ToolCategory): NewsroomTool {
 		...stubTool(name, category, ''),
 		async run() {
 			return { status: 'unavailable', limitations: ['Fixture source unavailable'] };
+		}
+	};
+}
+
+function errorTool(name: string, category: ToolCategory): NewsroomTool {
+	return {
+		...stubTool(name, category, ''),
+		async run() {
+			return { status: 'error', limitations: ['Fixture source error'] };
 		}
 	};
 }

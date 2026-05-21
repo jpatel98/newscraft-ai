@@ -1,7 +1,7 @@
 import type { GatewayChatMessage, ReasoningEffort } from '@newscraft/shared';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { chooseRole, roleLabel, ROLE_INSTRUCTIONS, type NewsroomRole } from './roles.js';
+import { chooseRole, roleInstructionsFor, roleLabel, type NewsroomRole } from './roles.js';
 import { DisciplinedNewsroomAgent } from './newsroom-agent.js';
 import type { EvidenceObject } from './evidence.js';
 import type { NewsroomAgentConfig } from './harness-config.js';
@@ -218,32 +218,32 @@ export class NewsroomAgentRuntime {
 		const agents = {
 			assignment_desk: new sdk.Agent({
 				name: 'Assignment Desk',
-				instructions: ROLE_INSTRUCTIONS.assignment_desk,
+				instructions: roleInstructionsFor('assignment_desk'),
 				tools: [fetchTool, snapshotTool]
 			}),
 			research: new sdk.Agent({
 				name: 'Research Desk',
-				instructions: ROLE_INSTRUCTIONS.research,
+				instructions: roleInstructionsFor('research'),
 				tools: [fetchTool, snapshotTool]
 			}),
 			verification: new sdk.Agent({
 				name: 'Verification Desk',
-				instructions: ROLE_INSTRUCTIONS.verification,
+				instructions: roleInstructionsFor('verification'),
 				tools: [fetchTool, snapshotTool]
 			}),
 			production: new sdk.Agent({
 				name: 'Production Desk',
-				instructions: ROLE_INSTRUCTIONS.production,
+				instructions: roleInstructionsFor('production'),
 				tools: [fetchTool, snapshotTool]
 			}),
 			monitoring: new sdk.Agent({
 				name: 'Monitoring Desk',
-				instructions: ROLE_INSTRUCTIONS.monitoring,
+				instructions: roleInstructionsFor('monitoring'),
 				tools: [fetchTool, snapshotTool]
 			}),
 			assistant: new sdk.Agent({
 				name: 'Newsroom Assistant',
-				instructions: ROLE_INSTRUCTIONS.assistant,
+				instructions: roleInstructionsFor('assistant'),
 				tools: [fetchTool, snapshotTool]
 			})
 		};
@@ -307,7 +307,7 @@ function missionPrompt(prompt: string, role: NewsroomRole, sources: FetchedSourc
 				.map((source, index) => `${index + 1}. ${source.title}\n${source.url}\n${source.summary}`)
 				.join('\n\n')
 		: 'No sources were fetched before synthesis.';
-	return `${ROLE_INSTRUCTIONS[role]}
+	return `${roleInstructionsFor(role)}
 
 Task:
 ${prompt}

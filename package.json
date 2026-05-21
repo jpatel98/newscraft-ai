@@ -4,7 +4,9 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "vite dev --host 127.0.0.1 --port 3001 --strictPort",
+		"dev:all": "node scripts/dev-all.mjs",
+		"dev:stop": "node scripts/dev-all.mjs --stop",
 		"dev:harness": "pnpm --filter @newscraft/newsroom-harness dev",
 		"build": "vite build",
 		"build:harness": "pnpm --filter @newscraft/shared build && pnpm --filter @newscraft/newsroom-harness build",

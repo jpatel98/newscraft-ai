@@ -35,6 +35,30 @@ export interface NewsroomRunDto {
 	elapsed_ms: number | null;
 	last_error: string | null;
 	trigger: 'manual' | 'schedule' | 'test' | string;
+	steps?: NewsroomRunStepDto[];
+	tool_calls?: NewsroomToolCallDto[];
+	source_count?: number;
+	latest_activity_at?: string | null;
+}
+
+export interface NewsroomRunStepDto {
+	id: number | string;
+	run_id: string;
+	step_type: string;
+	label: string;
+	status: string;
+	started_at: string;
+	completed_at: string | null;
+}
+
+export interface NewsroomToolCallDto {
+	id: string;
+	run_id: string | null;
+	name: string;
+	status: string;
+	started_at: string;
+	completed_at: string | null;
+	error: string | null;
 }
 
 export interface NewsroomSourceDto {

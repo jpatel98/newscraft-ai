@@ -10,6 +10,23 @@ corepack pnpm install
 corepack pnpm dev
 ```
 
+To run the UI and newsroom harness together in one terminal:
+
+```sh
+corepack pnpm dev:all
+```
+
+That serves the UI on `http://127.0.0.1:3001` and the harness on
+`http://127.0.0.1:8650`.
+
+If those ports are already occupied by a previous NewsCraft dev run, `dev:all`
+prints the existing URLs instead of starting duplicate servers. To stop stale
+local dev processes:
+
+```sh
+corepack pnpm dev:stop
+```
+
 If `corepack` is not available on a host that already has `pnpm`, use `pnpm`
 directly. The package scripts call `pnpm` internally so they work in either
 launch style.

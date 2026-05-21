@@ -7,12 +7,12 @@ import {
 	type ToolBudgetSnapshot
 } from './budget.js';
 import { createDefaultToolRegistry } from './default-tools.js';
-import { dedupeEvidence, evidenceHasBlockingLimitation, type EvidenceObject } from './evidence.js';
+import { dedupeEvidence, evidenceHasBlockingLimitation, isUsableEvidence, type EvidenceObject } from './evidence.js';
 import {
 	createNewsroomAgentConfig,
 	type NewsroomAgentConfig
 } from './harness-config.js';
-import { routeNewsroomRequest, type RouteDecision } from './router.js';
+import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest, type RouteDecision } from './router.js';
 import type { NewsroomTool, ToolRegistry, ToolRunContext, ToolRunOutput } from './tools.js';
 
 export interface NewsroomAgentRunContext {
@@ -149,7 +149,7 @@ export class DisciplinedNewsroomAgent {
 				evidence: output.evidence || []
 			});
 
-			if (shouldStopAfterTool(decision, tool.name, evidence, toolCalls, output)) {
+			if (shouldStopAfterTool(decision, tool.name, evidence, toolCalls, output, this.config.enabled_tools)) {
 				stoppedReason = stopReasonAfterTool(decision, output, evidence);
 				break;
 			}
@@ -220,13 +220,34 @@ function shouldStopAfterTool(
 	toolName: string,
 	evidence: EvidenceObject[],
 	toolCalls: AgentToolCallRecord[],
-	output: ToolRunOutput
+	output: ToolRunOutput,
+	enabledTools: string[]
 ): boolean {
+	if (
+		(output.status === 'blocked' || output.status === 'unavailable' || output.status === 'error') &&
+		shouldTryWebSearchFallback(decision, toolName, evidence, toolCalls, enabledTools)
+	) {
+		return false;
+	}
 	if (output.status === 'blocked') return true;
+	if (
+		output.status === 'error' &&
+		decision.selected_mode !== 'hybrid_research' &&
+		!evidence.some(isUsableEvidence)
+	) {
+		return true;
+	}
 	if (
 		output.status === 'unavailable' &&
 		decision.selected_mode !== 'hybrid_research' &&
-		!evidence.some((item) => item.extracted_text || item.summary)
+		!evidence.some(isUsableEvidence)
+	) {
+		return true;
+	}
+	if (
+		decision.selected_mode === 'source_monitor' &&
+		!evidence.some(isUsableEvidence) &&
+		!enabledTools.includes(NEWSROOM_TOOL_NAMES.webSearch)
 	) {
 		return true;
 	}
@@ -253,10 +274,24 @@ function stopReasonAfterTool(
 }
 
 function hasEnoughEvidence(evidence: EvidenceObject[], mode: RouteDecision['selected_mode']): boolean {
-	const useful = evidence.filter((item) => item.extracted_text || item.summary);
+	const useful = evidence.filter(isUsableEvidence);
 	if (mode === 'web_search') return useful.length >= 1;
 	if (mode === 'hybrid_research') return useful.length >= 2;
 	return useful.length >= 1;
+}
+
+function shouldTryWebSearchFallback(
+	decision: RouteDecision,
+	toolName: string,
+	evidence: EvidenceObject[],
+	toolCalls: AgentToolCallRecord[],
+	enabledTools: string[]
+): boolean {
+	if (toolName === NEWSROOM_TOOL_NAMES.webSearch) return false;
+	if (!decision.tools_to_use.includes(NEWSROOM_TOOL_NAMES.webSearch)) return false;
+	if (!enabledTools.includes(NEWSROOM_TOOL_NAMES.webSearch)) return false;
+	if (toolCalls.some((call) => call.name === NEWSROOM_TOOL_NAMES.webSearch)) return false;
+	return !evidence.some(isUsableEvidence);
 }
 
 function combinedSignal(signal: AbortSignal | undefined, maxRuntimeSeconds: number): AbortSignal {

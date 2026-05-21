@@ -179,6 +179,51 @@ function normalizeRunStatus(status: string): HermesRun['status'] {
 	return status;
 }
 
+function rawRunSteps(raw: Record<string, unknown>): unknown[] {
+	if (Array.isArray(raw.steps)) return raw.steps;
+	if (Array.isArray(raw.run_steps)) return raw.run_steps;
+	if (Array.isArray(raw.runSteps)) return raw.runSteps;
+	return [];
+}
+
+function rawToolCalls(raw: Record<string, unknown>): unknown[] {
+	if (Array.isArray(raw.tool_calls)) return raw.tool_calls;
+	if (Array.isArray(raw.toolCalls)) return raw.toolCalls;
+	if (Array.isArray(raw.tools)) return raw.tools;
+	return [];
+}
+
+function normalizeRunStep(value: unknown, index: number) {
+	const raw = objectValue(value);
+	if (!raw) return null;
+	const type = stringValue(raw.step_type ?? raw.stepType ?? raw.type) || 'step';
+	const label = stringValue(raw.label ?? raw.name ?? raw.title) || type;
+	const id = stringValue(raw.id) || `${type}:${index}`;
+	return {
+		id,
+		type,
+		label,
+		status: stringValue(raw.status ?? raw.state) || 'completed',
+		startedAt: normalizeDate(raw.started_at ?? raw.startedAt),
+		completedAt: normalizeDate(raw.completed_at ?? raw.completedAt)
+	};
+}
+
+function normalizeToolCall(value: unknown, index: number) {
+	const raw = objectValue(value);
+	if (!raw) return null;
+	const name = stringValue(raw.name ?? raw.tool ?? raw.type) || 'tool';
+	const id = stringValue(raw.id) || `${name}:${index}`;
+	return {
+		id,
+		name,
+		status: stringValue(raw.status ?? raw.state) || 'completed',
+		startedAt: normalizeDate(raw.started_at ?? raw.startedAt),
+		completedAt: normalizeDate(raw.completed_at ?? raw.completedAt),
+		error: stringValue(raw.error ?? raw.last_error ?? raw.lastError)
+	};
+}
+
 function normalizeHermesRun(value: unknown, fallbackJob?: HermesJob): HermesRun | null {
 	const raw = objectValue(value);
 	if (!raw) return null;
@@ -211,7 +256,15 @@ function normalizeHermesRun(value: unknown, fallbackJob?: HermesJob): HermesRun 
 		completedAt,
 		updatedAt,
 		elapsedMs: normalizeElapsedMs(raw, startedAt, completedAt),
-		lastError: stringValue(raw.last_error ?? raw.lastError ?? raw.error ?? raw.error_message ?? raw.errorMessage)
+		lastError: stringValue(raw.last_error ?? raw.lastError ?? raw.error ?? raw.error_message ?? raw.errorMessage),
+		steps: rawRunSteps(raw)
+			.map(normalizeRunStep)
+			.filter((step): step is NonNullable<ReturnType<typeof normalizeRunStep>> => Boolean(step)),
+		toolCalls: rawToolCalls(raw)
+			.map(normalizeToolCall)
+			.filter((call): call is NonNullable<ReturnType<typeof normalizeToolCall>> => Boolean(call)),
+		sourceCount: numberValue(raw.source_count ?? raw.sourceCount) ?? undefined,
+		latestActivityAt: normalizeDate(raw.latest_activity_at ?? raw.latestActivityAt)
 	};
 }
 
