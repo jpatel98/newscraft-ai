@@ -8,9 +8,9 @@ Replacing `newscraft-ai-workspace`. Connects to Hermes gateway at `127.0.0.1:864
 
 ## Done
 
-- SvelteKit 2 + Svelte 5 (runes) + adapter-node, TypeScript clean (`pnpm check`).
+- SvelteKit 2 + Svelte 5 (runes) + adapter-vercel, TypeScript clean (`pnpm check`).
 - Argon2id password → signed httpOnly session cookie. Auth gate via `src/hooks.server.ts`.
-- SQLite + Drizzle schema (`conversations`, `messages`, `settings`).
+- Postgres + Drizzle schema (`conversations`, `messages`, `settings`).
 - SSE proxy `/api/chat/stream` → Hermes `/v1/chat/completions` with `X-Hermes-Session-Id`. Server-side persistence of user + assistant messages, partial flag on abort.
 - Routes: `/`, `/c/[id]`, `/settings`, `/login`.
 - NewsCraft AI design system applied: cream/ink/cobalt tokens, dark sidebar + cream main pane, sharp corners, mono metadata, Lucide icons. Light + system-default dark mode.
@@ -63,7 +63,7 @@ When the foundation feels stable.
 - **Performance budget** (from original plan): initial JS < 90 kB gzip < 32 kB; TTI < 350 ms; 0 CLS during streaming; 60 fps token rendering via rAF-batched DOM writes. Wire `bundlesize` + Lighthouse CI before cutover.
 - **Tests.** `pnpm check` is clean; nothing else exists yet. Add a smoke test (login → send → receive → persist) before any non-trivial refactor.
 - **Accessibility.** `aria-live="polite"` on streaming messages already in place. Add focus-visible rings audit, axe in CI, skip-to-composer link, reduced-motion (caret + pulse already respect it).
-- **Backups.** Daily `sqlite3 .backup` to `data/backups/app-YYYYMMDD.db`, keep last 7. Not yet wired.
+- **Backups.** Hosted Postgres backups are owned outside the app runtime.
 
 ---
 

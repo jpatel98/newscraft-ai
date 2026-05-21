@@ -19,9 +19,9 @@ changes.
 
 NewsCraft AI is a SvelteKit application for an authenticated newsroom agent UI.
 It supports conversational chat, source-aware agent activity, mission scheduling,
-mission reports, account management, local persistence, backup/export tools, and
-a migration path from a legacy Hermes gateway to a NewsCraft-native newsroom
-harness.
+mission reports, account management, Postgres-backed persistence, export/status
+tools, and a migration path from a legacy Hermes gateway to a NewsCraft-native
+newsroom harness.
 
 The repo is now a small pnpm monorepo:
 
@@ -55,7 +55,7 @@ endpoint.
 - `/missions` is the mission control surface for scheduled editorial work,
   mission runs, source lists, and generated reports.
 - `/settings` is the operator/admin surface for accounts, password changes,
-  export, backups, status, and destructive maintenance actions.
+  export, status, and destructive maintenance actions.
 - `/login`, `/signup`, `/setup`, and `/account-setup/[token]` handle access and
   account setup.
 - `/board`, `/channels`, and `/mission-control` are compatibility redirects to
@@ -68,7 +68,7 @@ The current app supports:
 - Password-protected access with signed, httpOnly session cookies.
 - First-account setup, signup through a legacy/bootstrap access code, and
   password-only invite links for additional accounts.
-- Multi-account storage in one local SQLite database.
+- Multi-account storage in the configured Postgres database.
 - Chat threads with persisted messages.
 - New chat creation from `/` or the sidebar.
 - Thread list navigation with pinned threads and date grouping.
@@ -88,7 +88,7 @@ The current app supports:
 - Built-in slash commands for help, commands, reasoning, status, and profile.
 - Per-thread reasoning effort via `/reasoning low|medium|high|default`.
 - Command palette via `Cmd+K`.
-- Sidebar search backed by SQLite FTS5.
+- Sidebar search backed by persisted conversation/message records.
 - Keyboard shortcuts for common chat navigation.
 - Live tool activity display while the gateway is working.
 - Persisted tool/source recap after a streamed response finishes.
@@ -98,18 +98,16 @@ The current app supports:
 - Mission source configuration with URL watchlists.
 - Mission report ingestion and display.
 - Mission run polling and active/failed run cards.
-- SQLite database status checks.
-- Manual SQLite backups with rotation.
+- Postgres database status checks.
 - Full account-scoped data export as JSONL.
 - Per-thread export as Markdown or JSONL.
 - Account-scoped database wipe with explicit confirmation.
-- Production build and node-server start through SvelteKit adapter-node.
+- Production build through SvelteKit adapter-vercel.
 - Hosted-platform deployment is now expected to own production deploys.
 - JSON readiness checks that fail when the UI cannot reach the configured
   gateway.
-- Manual SQLite backup support.
-- A producer acceptance loop that can run the UI and harness against isolated
-  local databases.
+- A producer acceptance loop that can run the UI against a configured Postgres
+  database and the harness against an isolated local database.
 - A deterministic producer smoke path using a local fixture feed.
 
 ## Architecture at a glance
@@ -124,7 +122,7 @@ SvelteKit app on 127.0.0.1:3001
   | Auth, routing, local UI persistence, exports, settings,
   | chat stream proxy, mission board adapter
   |
-  +--> App SQLite DB via Drizzle
+  +--> App Postgres DB via Drizzle
   |
   +--> Agent gateway adapter
         |
@@ -138,7 +136,9 @@ SvelteKit app on 127.0.0.1:3001
         |
         +--> Harness SQLite DB
         |
-        +--> Optional OpenAI Agents SDK runtime
+        +--> Disciplined agent router, tool budgets, evidence model
+        |
+        +--> Optional OpenAI Agents SDK chat and web_search provider
         |
         +--> Optional report ingest back to SvelteKit
 ```
@@ -157,11 +157,11 @@ names so the UI can swap gateway implementations without a large rewrite.
 - `package.json` defines root scripts for the SvelteKit app, harness commands,
   test entrypoints, database migrations, deploy/reload, and acceptance testing.
 - `pnpm-workspace.yaml` includes the root app, `services/*`, and `packages/*`.
-- `svelte.config.js` configures SvelteKit with adapter-node and `$lib`.
+- `svelte.config.js` configures SvelteKit with adapter-vercel and `$lib`.
 - `vite.config.ts` configures SvelteKit/Vite and root Vitest tests.
 - `drizzle.config.ts` points Drizzle at `src/lib/server/db/schema.ts`.
 - `.env.example` documents root web-app and harness integration variables.
-- `playwright.config.ts` defines the e2e dev server and isolated test database.
+- `playwright.config.ts` defines the e2e dev server and database env wiring.
 - `SOURCE_OF_TRUTH.md` is this canonical architecture/current-state document.
 
 ### `src/`
@@ -236,23 +236,20 @@ Important scripts include:
 - `scripts/hash-password.mjs` for creating an Argon2 password hash.
 - `scripts/hermes-bridge.py` for legacy Hermes command/skill metadata.
 - `scripts/check-health.mjs` for JSON readiness validation.
-- `scripts/backup-app-db.mjs` for manual SQLite backups.
 - `scripts/producer-acceptance.mjs` for end-to-end producer acceptance against
-  isolated UI and harness databases.
+  a configured app database and isolated harness database.
 
 ## Runtime architecture
 
 ### SvelteKit app runtime
 
-The web app is a SvelteKit 2 / Svelte 5 app built with adapter-node.
+The web app is a SvelteKit 2 / Svelte 5 app built with adapter-vercel.
 
 Key runtime properties:
 
-- Node server output is produced under `build/`.
-- Production starts with `node build/index.js`.
+- Hosted production output is produced by the Vercel adapter.
 - The expected local/prod UI port in this repo is `3001`.
-- The app stores local state in SQLite through `better-sqlite3` and Drizzle.
-- WAL mode, `synchronous=NORMAL`, foreign keys, and a busy timeout are enabled.
+- The app stores local state in Postgres through Drizzle.
 - Migrations are applied on server startup from `src/hooks.server.ts`.
 - The UI server talks to an agent gateway through server-only fetch calls.
 - `/api/health` is a readiness endpoint. It returns JSON and uses a non-2xx
@@ -301,8 +298,7 @@ empty if the harness does not require one.
 
 ### SvelteKit app database
 
-The app database is configured by `APP_DB_PATH`, defaulting locally to
-`./data/app.db` if no env value is present.
+The app database is configured by `DATABASE_URL`.
 
 Current logical tables:
 
@@ -715,8 +711,9 @@ The harness chat endpoint supports streaming and non-streaming chat-completion
 style responses. It emits Hermes-compatible tool progress frames around runtime
 execution so the existing UI can display assignment/routing activity.
 
-When `OPENAI_API_KEY` is present, the runtime uses the OpenAI Agents SDK. Without
-it, deterministic local fallbacks keep development and tests runnable.
+When `OPENAI_API_KEY` is present, chat can use the OpenAI Agents SDK and the
+disciplined agent can use OpenAI `web_search` for broad discovery. Without it,
+deterministic local fallbacks keep development and tests runnable.
 
 ### Responses behavior
 
@@ -814,9 +811,7 @@ stored hash exists.
 ### App persistence
 
 ```sh
-APP_DB_PATH=/home/jigar/hermes-ui/data/app.db
-APP_BACKUP_DIR=/home/jigar/hermes-ui/data/backups
-APP_BACKUP_KEEP=7
+DATABASE_URL=postgres://user:password@host:5432/newscraft
 ```
 
 ### Harness
@@ -830,13 +825,21 @@ OPENAI_API_KEY=
 NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/hermes/channel-posts
 NEWSROOM_UI_INGEST_KEY=
 NEWSROOM_HARNESS_RUN_TIMEOUT_MS=90000
-NEWSROOM_HARNESS_MAX_TOOL_CALLS=8
+NEWSROOM_HARNESS_MAX_TOOL_CALLS=6
+NEWSROOM_HARNESS_MAX_CUSTOM_TOOL_CALLS=4
+NEWSROOM_HARNESS_MAX_WEB_SEARCHES=3
+NEWSROOM_HARNESS_MAX_BROWSER_TASKS=2
 NEWSROOM_HARNESS_RETRY_LIMIT=1
 NEWSROOM_HARNESS_SCHEDULER_INTERVAL_MS=30000
+NEWSROOM_AGENT_ENABLED_TOOLS=
+NEWSROOM_AGENT_SOURCE_PRIORITY=official,primary,source_monitor,internal,media_report,unknown
+NEWSROOM_AGENT_SOURCE_MONITORS_JSON=
+NEWSROOM_WEB_SEARCH_MODEL=gpt-5
 ```
 
 All of these are represented in the example env files. The timeout, tool-call,
-retry, and scheduler interval values are supported by `services/newsroom-harness/src/config.ts`.
+retry, scheduler interval, source priority, and agent tool values are supported
+by `services/newsroom-harness/src/config.ts`.
 
 ## Commands
 
@@ -923,7 +926,9 @@ The producer acceptance loop:
 - Loads `services/newsroom-harness/.env.local`.
 - Starts the harness on `127.0.0.1:8650`.
 - Starts the UI on `127.0.0.1:3001`.
-- Uses isolated SQLite databases under `.tmp/producer-acceptance`.
+- Uses an isolated harness SQLite database under `.tmp/producer-acceptance` and
+  the app Postgres database from `PRODUCER_ACCEPTANCE_DATABASE_URL` or
+  `DATABASE_URL`.
 - Validates public RSS feeds or deterministic fixtures.
 - Creates a local test account.
 - Creates and runs a producer-style mission.
@@ -1056,8 +1061,6 @@ Supported shortcuts include:
 ### Settings/maintenance routes
 
 - `GET /api/settings/status`
-- `GET /api/settings/backup`
-- `POST /api/settings/backup`
 - `GET /api/settings/export`
 - `POST /api/settings/wipe-db`
 - `POST /api/settings/accounts`
@@ -1211,20 +1214,9 @@ The repo no longer carries VPS cutover, systemd, or reverse-proxy scripts.
 
 ### Backups
 
-Manual backup creation exists through the settings API and UI.
-
-Backup behavior:
-
-- Uses `sqliteClient.backup`.
-- Writes to `APP_BACKUP_DIR` or `./data/backups`.
-- Uses managed backup names with a `hermes-ui-` prefix.
-- Rotates to keep the latest 7 by default.
-- `scripts/backup-app-db.mjs` provides the same managed backup style from the
-  operator shell when manual backups are needed.
-- `APP_BACKUP_KEEP` can change the script rotation count.
-
-The older plan mentioned daily automated backups, but this document only treats
-manual backup support as current unless automation is added elsewhere.
+The SvelteKit app no longer creates local SQLite backups. App database backups
+are owned by the configured Postgres host or deployment platform. The app keeps
+conversation and account export endpoints for operator-controlled data export.
 
 ## Implementation hotspots
 

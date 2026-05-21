@@ -8,7 +8,7 @@ export type Role = 'user' | 'assistant' | 'system' | 'tool';
 
 const PARTS_PREFIX = 'P:';
 
-export function serializeContent(c: MessageContent): string {
+function serializeContent(c: MessageContent): string {
 	if (typeof c === 'string') return c;
 	return PARTS_PREFIX + JSON.stringify(c);
 }
@@ -205,16 +205,6 @@ export async function setMessageToolCalls(id: string, toolCalls: string | null):
 export async function clearMessagePartial(id: string): Promise<MessageRow | undefined> {
 	await db.update(messages).set({ partial: 0 }).where(eq(messages.id, id));
 	return getMessageById(id);
-}
-
-export async function lastUserMessage(conversationId: string): Promise<MessageRow | undefined> {
-	const [row] = (await db
-		.select()
-		.from(messages)
-		.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
-		.orderBy(desc(messages.createdAt))
-		.limit(1)) as MessageRow[];
-	return row;
 }
 
 export async function lastAssistantMessage(conversationId: string): Promise<MessageRow | undefined> {

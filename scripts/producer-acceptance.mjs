@@ -11,7 +11,6 @@ import { parse as parseDotenv } from 'dotenv';
 const root = process.cwd();
 const workDir = path.join(root, '.tmp', 'producer-acceptance');
 const logDir = path.join(workDir, 'logs');
-const uiDbPath = path.join(workDir, 'ui.db');
 const harnessDbPath = path.join(workDir, 'harness.db');
 const uiUrl = 'http://127.0.0.1:3001';
 const harnessUrl = 'http://127.0.0.1:8650';
@@ -64,9 +63,13 @@ async function main() {
 	const harnessFileEnv = await readEnvFile(path.join(root, 'services', 'newsroom-harness', '.env.local'));
 	const harnessKey = harnessFileEnv.NEWSROOM_HARNESS_API_KEY || rootEnv.AGENT_GATEWAY_API_KEY || 'producer-acceptance-harness-key';
 	const ingestKey = rootEnv.HERMES_INGEST_KEY || rootEnv.HERMES_API_KEY || harnessFileEnv.NEWSROOM_UI_INGEST_KEY || 'producer-acceptance-ingest-key';
+	const uiDatabaseUrl = process.env.PRODUCER_ACCEPTANCE_DATABASE_URL || rootEnv.PRODUCER_ACCEPTANCE_DATABASE_URL || process.env.DATABASE_URL || rootEnv.DATABASE_URL || '';
 	const openAiApiKey = disableOpenAi ? '' : harnessFileEnv.OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
 	if (openAiRequired && !openAiApiKey) {
 		throw new Error('OPENAI_API_KEY is required for producer acceptance. Set PRODUCER_ACCEPTANCE_REQUIRE_OPENAI=0 to run the local fallback path.');
+	}
+	if (!uiDatabaseUrl) {
+		throw new Error('DATABASE_URL or PRODUCER_ACCEPTANCE_DATABASE_URL is required for the SvelteKit app.');
 	}
 
 	const harnessEnv = {
@@ -88,7 +91,7 @@ async function main() {
 		AGENT_GATEWAY_URL: harnessUrl,
 		AGENT_GATEWAY_API_KEY: harnessKey,
 		HERMES_INGEST_KEY: ingestKey,
-		APP_DB_PATH: uiDbPath,
+		DATABASE_URL: uiDatabaseUrl,
 		APP_PASSWORD_HASH: '',
 		APP_SESSION_SECRET:
 			rootEnv.APP_SESSION_SECRET ||

@@ -4,7 +4,7 @@
 // Also holds the ephemeral tool-progress strip + the "edit-last" handoff used
 // by the ↑ keyboard shortcut to recall the previous user message.
 
-export interface ToolProgress {
+interface ToolProgress {
 	id: string;
 	name: string;
 	emoji?: string;
@@ -19,7 +19,7 @@ export interface ToolProgress {
 	transcript?: string;
 }
 
-export interface ToolHistoryEntry {
+interface ToolHistoryEntry {
 	id: string;
 	name: string;
 	startedAt: number;
@@ -37,7 +37,7 @@ export interface ToolHistoryEntry {
 
 type ToolUpdate = Omit<ToolProgress, 'startedAt'> & { startedAt?: number; durationMs?: number };
 
-export interface SourceProgress {
+interface SourceProgress {
 	id: string;
 	url: string;
 	title: string;

@@ -10,7 +10,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	const jobId = (params.jobId ?? '').trim();
 	if (!JOB_ID_RE.test(jobId)) throw error(400, 'invalid job id');
-	hideChannelJobId(locals.user.id, jobId);
+	await hideChannelJobId(locals.user.id, jobId);
 
 	let cronDeleted = false;
 	let cronDeleteError: string | null = null;
@@ -27,7 +27,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 		}
 	}
 
-	deleteMissionConfig(locals.user.id, jobId);
-	deleteMissionReportsByMissionId(locals.user.id, jobId);
+	await deleteMissionConfig(locals.user.id, jobId);
+	await deleteMissionReportsByMissionId(locals.user.id, jobId);
 	return json({ ok: true, deleted: jobId, cronDeleted, cronDeleteError });
 };

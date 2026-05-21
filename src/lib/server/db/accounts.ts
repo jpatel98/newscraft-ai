@@ -30,20 +30,6 @@ export interface AccountSummary {
 	status: 'active' | 'pending';
 }
 
-export function normalizeEmail(email: string): string {
-	return email.trim().toLowerCase();
-}
-
-export function validEmail(email: string): boolean {
-	return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
-export function accountDisplayName(email: string, name: string): string {
-	const trimmed = name.trim();
-	if (trimmed) return trimmed.slice(0, 80);
-	return generatedAccountLabel(email);
-}
-
 export async function accountCount(): Promise<number> {
 	if (cachedAccountCount !== null) return cachedAccountCount;
 	const [row] = await db.select({ value: count() }).from(accounts).limit(1);
@@ -61,41 +47,6 @@ export async function listAccounts(): Promise<AccountSummary[]> {
 
 export async function getAccount(id: string): Promise<AccountRow | undefined> {
 	const [row] = (await db.select().from(accounts).where(eq(accounts.id, id)).limit(1)) as AccountRow[];
-	return row;
-}
-
-export async function findAccountByEmail(email: string): Promise<AccountRow | undefined> {
-	const normalized = normalizeEmail(email);
-	const [row] = (await db
-		.select()
-		.from(accounts)
-		.where(eq(accounts.email, normalized))
-		.limit(1)) as AccountRow[];
-	return row;
-}
-
-export async function createAccountWithPassword(input: {
-	email: string;
-	name?: string;
-	password: string;
-}): Promise<AccountRow> {
-	const firstAccount = (await accountCount()) === 0;
-	const email = normalizeEmail(input.email);
-	const now = Date.now();
-	const row: AccountRow = {
-		id: newId(),
-		email,
-		name: accountDisplayName(email, input.name ?? ''),
-		passwordHash: await hashPassword(input.password),
-		setupTokenHash: null,
-		setupTokenExpiresAt: null,
-		createdAt: now,
-		updatedAt: now,
-		lastLoginAt: null
-	};
-	await db.insert(accounts).values(row);
-	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
-	if (firstAccount) await claimOrphanAccountData(row.id);
 	return row;
 }
 
@@ -119,33 +70,6 @@ export async function createPasswordOnlyAccount(password: string): Promise<Accou
 	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
 	if (firstAccount) await claimOrphanAccountData(row.id);
 	return row;
-}
-
-export async function createAccountInvite(input: { email: string; name?: string }): Promise<{
-	account: AccountRow;
-	token: string;
-	expiresAt: number;
-}> {
-	const firstAccount = (await accountCount()) === 0;
-	const email = normalizeEmail(input.email);
-	const now = Date.now();
-	const token = randomToken();
-	const expiresAt = now + SETUP_TOKEN_TTL_MS;
-	const row: AccountRow = {
-		id: newId(),
-		email,
-		name: accountDisplayName(email, input.name ?? ''),
-		passwordHash: null,
-		setupTokenHash: tokenHash(token),
-		setupTokenExpiresAt: expiresAt,
-		createdAt: now,
-		updatedAt: now,
-		lastLoginAt: null
-	};
-	await db.insert(accounts).values(row);
-	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
-	if (firstAccount) await claimOrphanAccountData(row.id);
-	return { account: row, token, expiresAt };
 }
 
 export async function createPasswordOnlyInvite(): Promise<{
@@ -215,16 +139,6 @@ export async function claimSetupToken(token: string, password: string): Promise<
 		})
 		.where(eq(accounts.id, account.id));
 	return getAccount(account.id);
-}
-
-export async function verifyAccountCredentials(
-	email: string,
-	password: string
-): Promise<AccountRow | undefined> {
-	const account = await findAccountByEmail(email);
-	if (!account?.passwordHash) return undefined;
-	const ok = await verifyHash(account.passwordHash, password);
-	return ok ? account : undefined;
 }
 
 export async function findAccountByPassword(password: string): Promise<AccountRow | undefined> {

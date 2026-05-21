@@ -1,6 +1,6 @@
 import type { ChannelSource } from '$lib/types';
 
-export const WATCHLIST_HEADING = '## Configured Watchlist';
+const WATCHLIST_HEADING = '## Configured Watchlist';
 
 export type ChannelSourceInput = Partial<ChannelSource> & {
 	url?: unknown;

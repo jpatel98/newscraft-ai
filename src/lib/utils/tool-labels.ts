@@ -2,7 +2,7 @@
 // can fall through several heuristics (substring match), so the final label
 // is "Working on it" only when nothing else fits.
 
-export interface ToolLabel {
+interface ToolLabel {
 	live: string;
 	done: string;
 }

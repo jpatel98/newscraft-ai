@@ -24,7 +24,7 @@ const REQUIRED_EDITOR_SECTIONS = [
 	}
 ] as const;
 
-export function ensureProducerReportSections(markdown: string): string {
+function ensureProducerReportSections(markdown: string): string {
 	let report = markdown.trim();
 	for (const section of REQUIRED_EDITOR_SECTIONS) {
 		const heading = new RegExp(`^#{2,3}\\s+${escapeRegExp(section.title)}\\s*$`, 'im');

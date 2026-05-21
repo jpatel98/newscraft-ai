@@ -14,11 +14,11 @@ export interface MissionConfig {
 }
 
 function missingMissionTables(err: unknown): boolean {
-	return err instanceof Error && /no such table:\s*mission(s|_sources)?/i.test(err.message);
+	return err instanceof Error && /(no such table:\s*mission(s|_sources)?|relation "mission(s|_sources)?" does not exist)/i.test(err.message);
 }
 
 function missingLegacyTables(err: unknown): boolean {
-	return err instanceof Error && /no such table:\s*hermes_channel_(configs|sources)/i.test(err.message);
+	return err instanceof Error && /(no such table:\s*hermes_channel_(configs|sources)|relation "hermes_channel_(configs|sources)" does not exist)/i.test(err.message);
 }
 
 function sourceFromRow(row: typeof missionSources.$inferSelect): ChannelSource | null {
@@ -68,23 +68,21 @@ function sourcesByMissionId(rows: Array<typeof missionSources.$inferSelect>): Ma
 	return sources;
 }
 
-function legacyConfigs(accountId: string, missionIds: string[]): Map<string, MissionConfig> {
+async function legacyConfigs(accountId: string, missionIds: string[]): Promise<Map<string, MissionConfig>> {
 	const ids = Array.from(new Set(missionIds.map((id) => id.trim()).filter(Boolean)));
 	const configs = new Map<string, MissionConfig>();
 	if (ids.length === 0) return configs;
 	try {
-		const configRows = db
+		const configRows = await db
 			.select()
 			.from(hermesChannelConfigs)
-			.where(and(eq(hermesChannelConfigs.accountId, accountId), inArray(hermesChannelConfigs.jobId, ids)))
-			.all();
+			.where(and(eq(hermesChannelConfigs.accountId, accountId), inArray(hermesChannelConfigs.jobId, ids)));
 		if (configRows.length === 0) return configs;
-		const sourceRows = db
+		const sourceRows = await db
 			.select()
 			.from(hermesChannelSources)
 			.where(inArray(hermesChannelSources.jobId, ids))
-			.orderBy(asc(hermesChannelSources.sortOrder), asc(hermesChannelSources.name))
-			.all();
+			.orderBy(asc(hermesChannelSources.sortOrder), asc(hermesChannelSources.name));
 		const sources = new Map<string, ChannelSource[]>();
 		for (const row of sourceRows) {
 			const source = legacySourceFromRow(row);
@@ -109,22 +107,21 @@ function legacyConfigs(accountId: string, missionIds: string[]): Map<string, Mis
 	}
 }
 
-export function getMissionConfig(accountId: string, missionId: string): MissionConfig | null {
+export async function getMissionConfig(accountId: string, missionId: string): Promise<MissionConfig | null> {
 	const id = missionId.trim();
 	if (!id) return null;
 	try {
-		const config = db
+		const [config] = await db
 			.select()
 			.from(missions)
 			.where(and(eq(missions.accountId, accountId), eq(missions.id, id)))
-			.get();
-		if (!config) return legacyConfigs(accountId, [id]).get(id) ?? null;
-		const sourceRows = db
+			.limit(1);
+		if (!config) return (await legacyConfigs(accountId, [id])).get(id) ?? null;
+		const sourceRows = await db
 			.select()
 			.from(missionSources)
 			.where(eq(missionSources.missionId, id))
-			.orderBy(asc(missionSources.sortOrder), asc(missionSources.name))
-			.all();
+			.orderBy(asc(missionSources.sortOrder), asc(missionSources.name));
 		return {
 			missionId: id,
 			basePrompt: config.prompt,
@@ -133,20 +130,20 @@ export function getMissionConfig(accountId: string, missionId: string): MissionC
 			sources: sourceRows.map(sourceFromRow).filter((source: ChannelSource | null): source is ChannelSource => Boolean(source))
 		};
 	} catch (err) {
-		if (missingMissionTables(err)) return legacyConfigs(accountId, [id]).get(id) ?? null;
+		if (missingMissionTables(err)) return (await legacyConfigs(accountId, [id])).get(id) ?? null;
 		throw err;
 	}
 }
 
-export function getMissionAccountId(missionId: string): string | null {
+export async function getMissionAccountId(missionId: string): Promise<string | null> {
 	const id = missionId.trim();
 	if (!id) return null;
 	try {
-		const row = db
+		const [row] = await db
 			.select({ accountId: missions.accountId })
 			.from(missions)
 			.where(eq(missions.id, id))
-			.get();
+			.limit(1);
 		return row?.accountId ?? null;
 	} catch (err) {
 		if (missingMissionTables(err)) return null;
@@ -154,24 +151,22 @@ export function getMissionAccountId(missionId: string): string | null {
 	}
 }
 
-export function listMissionConfigs(accountId: string, missionIds: string[]): Map<string, MissionConfig> {
+export async function listMissionConfigs(accountId: string, missionIds: string[]): Promise<Map<string, MissionConfig>> {
 	const ids = Array.from(new Set(missionIds.map((id) => id.trim()).filter(Boolean)));
 	const configs = new Map<string, MissionConfig>();
 	if (ids.length === 0) return configs;
 	try {
-		const missionRows = db
+		const missionRows = await db
 			.select()
 			.from(missions)
-			.where(and(eq(missions.accountId, accountId), inArray(missions.id, ids)))
-			.all();
+			.where(and(eq(missions.accountId, accountId), inArray(missions.id, ids)));
 		const sourceRows =
 			missionRows.length > 0
-				? db
+				? await db
 						.select()
 						.from(missionSources)
 						.where(inArray(missionSources.missionId, ids))
 						.orderBy(asc(missionSources.sortOrder), asc(missionSources.name))
-						.all()
 				: [];
 		const sources = sourcesByMissionId(sourceRows);
 		for (const row of missionRows) {
@@ -183,18 +178,18 @@ export function listMissionConfigs(accountId: string, missionIds: string[]): Map
 				sources: sources.get(row.id) ?? []
 			});
 		}
-		for (const [id, config] of legacyConfigs(accountId, ids)) {
+		for (const [id, config] of await legacyConfigs(accountId, ids)) {
 			if (!configs.has(id)) configs.set(id, config);
 		}
 		return configs;
 	} catch (err) {
-		if (missingMissionTables(err)) return legacyConfigs(accountId, ids);
+		if (missingMissionTables(err)) return await legacyConfigs(accountId, ids);
 		throw err;
 	}
 }
 
-export function overlayMissionConfigs(accountId: string, jobs: HermesJob[]): HermesJob[] {
-	const configs = listMissionConfigs(accountId, jobs.map((job) => job.id));
+export async function overlayMissionConfigs(accountId: string, jobs: HermesJob[]): Promise<HermesJob[]> {
+	const configs = await listMissionConfigs(accountId, jobs.map((job) => job.id));
 	return overlayChannelSourceConfigs(jobs, configs).map((job) => {
 		const config = configs.get(job.id);
 		if (!config) return job;
@@ -206,7 +201,7 @@ export function overlayMissionConfigs(accountId: string, jobs: HermesJob[]): Her
 	});
 }
 
-export function saveMissionConfig(
+export async function saveMissionConfig(
 	accountId: string,
 	missionId: string,
 	basePrompt: string,
@@ -219,13 +214,13 @@ export function saveMissionConfig(
 		deliveryTarget?: string | null;
 		outputFormat?: string;
 	} = {}
-): void {
+): Promise<void> {
 	const id = missionId.trim();
 	if (!id) return;
 	const now = Date.now();
 	try {
-		db.transaction((tx: any) => {
-			tx.insert(missions)
+		await db.transaction(async (tx: any) => {
+			await tx.insert(missions)
 				.values({
 					id,
 					accountId,
@@ -253,17 +248,16 @@ export function saveMissionConfig(
 						outputFormat: options.outputFormat?.trim() || 'markdown',
 						updatedAt: now
 					}
-				})
-				.run();
+				});
 
-			tx.delete(missionSources).where(eq(missionSources.missionId, id)).run();
+			await tx.delete(missionSources).where(eq(missionSources.missionId, id));
 
 			const sourceIds = new Set<string>();
 			for (const [index, source] of sources.entries()) {
 				const requestedId = source.id.trim();
 				const sourceId = requestedId && !sourceIds.has(requestedId) ? requestedId : newId();
 				sourceIds.add(sourceId);
-				tx.insert(missionSources)
+				await tx.insert(missionSources)
 					.values({
 						id: sourceId,
 						missionId: id,
@@ -274,8 +268,7 @@ export function saveMissionConfig(
 						sortOrder: index,
 						createdAt: now,
 						updatedAt: now
-					})
-					.run();
+					});
 			}
 		});
 	} catch (err) {
@@ -284,29 +277,19 @@ export function saveMissionConfig(
 	}
 }
 
-export function deleteMissionConfig(accountId: string, missionId: string): void {
+export async function deleteMissionConfig(accountId: string, missionId: string): Promise<void> {
 	const id = missionId.trim();
 	if (!id) return;
 	try {
-		db.delete(missions).where(and(eq(missions.accountId, accountId), eq(missions.id, id))).run();
+		await db.delete(missions).where(and(eq(missions.accountId, accountId), eq(missions.id, id)));
 	} catch (err) {
 		if (!missingMissionTables(err)) throw err;
 	}
 }
 
-export function deleteMissionConfigsByMissionIds(accountId: string, missionIds: string[]): void {
-	const ids = missionIds.map((id) => id.trim()).filter(Boolean);
-	if (ids.length === 0) return;
+export async function clearAllMissionConfigs(accountId: string): Promise<void> {
 	try {
-		db.delete(missions).where(and(eq(missions.accountId, accountId), inArray(missions.id, ids))).run();
-	} catch (err) {
-		if (!missingMissionTables(err)) throw err;
-	}
-}
-
-export function clearAllMissionConfigs(accountId: string): void {
-	try {
-		db.delete(missions).where(eq(missions.accountId, accountId)).run();
+		await db.delete(missions).where(eq(missions.accountId, accountId));
 	} catch (err) {
 		if (!missingMissionTables(err)) throw err;
 	}

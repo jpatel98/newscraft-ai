@@ -1,8 +1,12 @@
 import type { GatewayChatMessage, ReasoningEffort } from '@newscraft/shared';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { chooseRole, roleLabel, ROLE_INSTRUCTIONS, type NewsroomRole } from './roles.js';
+import { DisciplinedNewsroomAgent } from './newsroom-agent.js';
+import type { EvidenceObject } from './evidence.js';
+import type { NewsroomAgentConfig } from './harness-config.js';
 import { fetchSourceUrl, sourceFromText, type FetchedSource } from '../tools/sources.js';
-import { extractUrls, firstUrl, promptFromChatMessages, splitForStreaming } from '../util/text.js';
+import { firstUrl, promptFromChatMessages, splitForStreaming } from '../util/text.js';
 import type { HarnessRepository } from '../db/repository.js';
 
 export interface RuntimeControls {
@@ -10,6 +14,7 @@ export interface RuntimeControls {
 	runTimeoutMs: number;
 	retryLimit: number;
 	openAiApiKey: string;
+	agentConfig?: Partial<NewsroomAgentConfig>;
 }
 
 export interface RuntimeContext {
@@ -30,9 +35,10 @@ export interface MissionRuntimeResult {
 	role: NewsroomRole;
 	markdown: string;
 	sources: FetchedSource[];
+	evidence: EvidenceObject[];
 }
 
-export function httpUrlToolParameter(description: string) {
+function httpUrlToolParameter(description: string) {
 	return z.string().min(1).describe(description);
 }
 
@@ -68,49 +74,47 @@ export class NewsroomAgentRuntime {
 
 	async runMission(prompt: string, context: RuntimeContext): Promise<MissionRuntimeResult> {
 		const role = chooseRole(prompt);
-		const sources: FetchedSource[] = [];
-		const urls = extractUrls(prompt).slice(0, Math.max(1, this.controls.maxToolCalls));
-		let toolCalls = 0;
-
-		for (const url of urls) {
-			if (toolCalls >= this.controls.maxToolCalls) break;
-			toolCalls += 1;
-			const toolId = `${context.runId || 'run'}_fetch_${toolCalls}`;
-			context.onProgress?.({ type: 'tool', id: toolId, name: 'url_fetch_read', status: 'running', detail: url });
-			try {
-				const source = await this.withToolTimeout((signal) => fetchSourceUrl(url, signal), context.signal);
-				sources.push(source);
-				context.onProgress?.({ type: 'source', source });
-				context.onProgress?.({
-					type: 'tool',
-					id: toolId,
-					name: 'url_fetch_read',
-					status: 'ok',
-					detail: source.title,
-					result: { url: source.url, title: source.title }
-				});
-			} catch (err) {
-				context.onProgress?.({
-					type: 'tool',
-					id: toolId,
-					name: 'url_fetch_read',
-					status: 'failed',
-					detail: err instanceof Error ? err.message : String(err)
-				});
+		const agent = new DisciplinedNewsroomAgent({
+			config: {
+				...this.controls.agentConfig,
+				default_tool_budget: {
+					max_total_tool_calls: this.controls.maxToolCalls,
+					max_custom_tool_calls: Math.min(4, this.controls.maxToolCalls),
+					max_web_searches: 3,
+					max_browser_tasks: 2,
+					max_runtime_seconds: Math.ceil(this.controls.runTimeoutMs / 1000)
+				}
+			},
+			repository: context.repository,
+			openAiApiKey: this.controls.openAiApiKey
+		});
+		const result = await agent.run(prompt, {
+			repository: context.repository,
+			openAiApiKey: this.controls.openAiApiKey,
+			signal: context.signal,
+			onToolEvent: (event) => {
+				const id = `${context.runId || 'run'}_${event.tool}`;
+				if (event.type === 'tool_started') {
+					context.onProgress?.({ type: 'tool', id, name: event.tool, status: 'running', detail: event.detail });
+				}
+				if (event.type === 'tool_completed') {
+					for (const item of event.evidence || []) context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item) });
+					context.onProgress?.({
+						type: 'tool',
+						id,
+						name: event.tool,
+						status: event.status === 'ok' ? 'ok' : 'failed',
+						detail: event.detail,
+						result: { evidenceCount: event.evidence?.length || 0 }
+					});
+				}
+				if (event.type === 'tool_skipped') {
+					context.onProgress?.({ type: 'tool', id, name: event.tool, status: 'failed', detail: event.detail });
+				}
 			}
-		}
-
-		let body: string;
-		if (this.controls.openAiApiKey) {
-			body = await this.withTimeout(
-				() => this.sdkComplete(missionPrompt(prompt, role, sources), context),
-				context.signal
-			);
-		} else {
-			body = localMissionMarkdown(prompt, role, sources);
-		}
-
-		return { role, markdown: body, sources };
+		});
+		const sources = result.evidence.map(evidenceToFetchedSource);
+		return { role, markdown: result.final_answer, sources, evidence: result.evidence };
 	}
 
 	private localChat(prompt: string): string {
@@ -279,6 +283,22 @@ function assertHttpUrl(value: string): void {
 	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
 		throw new Error(`unsupported URL protocol: ${parsed.protocol}`);
 	}
+}
+
+function evidenceToFetchedSource(evidence: EvidenceObject): FetchedSource {
+	const contentText = evidence.extracted_text || evidence.summary || evidence.title;
+	return {
+		url: evidence.source_url,
+		title: evidence.title,
+		fetchedAt: evidence.accessed_at,
+		snippet: contentText.slice(0, 600),
+		summary: evidence.summary,
+		contentText,
+		contentHash: createHash('sha256').update(`${evidence.source_url}\n${contentText}`).digest('hex'),
+		contentType: evidence.source_url.startsWith('newsroom://') ? 'text/markdown' : null,
+		statusCode: evidence.confidence > 0 ? 200 : null,
+		used: evidence.confidence > 0
+	};
 }
 
 function missionPrompt(prompt: string, role: NewsroomRole, sources: FetchedSource[]): string {

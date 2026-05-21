@@ -3,7 +3,7 @@
 // conversation; the sidebar shows a single best row per thread to avoid
 // the noisy stack of duplicates the user reported.
 
-export type SearchRole = 'user' | 'assistant' | 'system' | 'tool' | 'thread';
+type SearchRole = 'user' | 'assistant' | 'system' | 'tool' | 'thread';
 
 export interface SearchRow {
 	conversationId: string;
