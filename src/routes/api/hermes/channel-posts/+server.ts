@@ -80,9 +80,9 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const input = parseInput(body);
-	const accountId = getMissionAccountId(input.jobId);
+	const accountId = await getMissionAccountId(input.jobId);
 	if (!accountId) throw error(404, 'mission account not found');
-	upsertMissionReport({
+	await upsertMissionReport({
 		id: input.id,
 		accountId,
 		missionId: input.jobId,

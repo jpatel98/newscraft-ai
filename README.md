@@ -61,18 +61,28 @@ OPENAI_API_KEY=
 NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/hermes/channel-posts
 NEWSROOM_UI_INGEST_KEY=
 NEWSROOM_HARNESS_RUN_TIMEOUT_MS=90000
-NEWSROOM_HARNESS_MAX_TOOL_CALLS=8
+NEWSROOM_HARNESS_MAX_TOOL_CALLS=6
+NEWSROOM_HARNESS_MAX_CUSTOM_TOOL_CALLS=4
+NEWSROOM_HARNESS_MAX_WEB_SEARCHES=3
+NEWSROOM_HARNESS_MAX_BROWSER_TASKS=2
 NEWSROOM_HARNESS_RETRY_LIMIT=1
 NEWSROOM_HARNESS_SCHEDULER_INTERVAL_MS=30000
+NEWSROOM_AGENT_ENABLED_TOOLS=
+NEWSROOM_AGENT_SOURCE_PRIORITY=official,primary,source_monitor,internal,media_report,unknown
+NEWSROOM_AGENT_SOURCE_MONITORS_JSON=
+NEWSROOM_WEB_SEARCH_MODEL=gpt-5
 ```
 
-When `OPENAI_API_KEY` is present, chat and mission synthesis use the OpenAI
-Agents SDK. Without it, the harness runs deterministic local fallbacks so local
-tests and UI wiring still work. Completed mission runs are saved in the harness
-DB; if `NEWSROOM_UI_INGEST_URL` and `NEWSROOM_UI_INGEST_KEY` are set, the
-markdown report is posted to the existing UI ingest endpoint so Missions can
-display it. `NEWSROOM_UI_INGEST_KEY` must match the UI's `HERMES_INGEST_KEY`
-or `HERMES_API_KEY`.
+Mission runs use the disciplined NewsCraft agent harness: requests are routed
+once, tool budgets are enforced before every call, tool output is normalized
+into evidence objects, and final answers are generated from that evidence.
+`OPENAI_API_KEY` enables the OpenAI `web_search` provider for broad coverage;
+custom/internal tools, configured source monitors, feeds, saved mission output,
+and document extraction are preferred when they fit the request. Completed
+mission runs are saved in the harness DB; if `NEWSROOM_UI_INGEST_URL` and
+`NEWSROOM_UI_INGEST_KEY` are set, the markdown report is posted to the existing
+UI ingest endpoint so Missions can display it. `NEWSROOM_UI_INGEST_KEY` must
+match the UI's `HERMES_INGEST_KEY` or `HERMES_API_KEY`.
 
 Harness commands:
 
@@ -80,6 +90,9 @@ Harness commands:
 corepack pnpm build:harness
 corepack pnpm test:harness
 corepack pnpm health:harness
+npm run agent:ask -- "Check the latest Toronto Police releases and summarize anything newsworthy"
+npm run agent:ask -- "What are other outlets reporting about this story?"
+npm run agent:ask -- "Summarize the latest mission output"
 ```
 
 `GET /health` returns readiness JSON with database, scheduler, ingest, OpenAI,
@@ -110,8 +123,9 @@ World feeds, then checks that the report reads like a producer brief: summary,
 lead candidates, source notes, verification notes, and human review, without
 implementation language leaking into the brief.
 
-It uses isolated SQLite DBs under `.tmp/producer-acceptance` and never prints
-env secrets. By default it requires `OPENAI_API_KEY` to be configured in the
+It uses an isolated harness SQLite DB under `.tmp/producer-acceptance` and the
+app database configured by `PRODUCER_ACCEPTANCE_DATABASE_URL` or `DATABASE_URL`;
+it never prints env secrets. By default it requires `OPENAI_API_KEY` to be configured in the
 harness env so `/api/health` proves the live model path is available. Set
 `PRODUCER_ACCEPTANCE_FEEDS=https://example.com/feed.xml,https://example.org/rss`
 to run the same acceptance loop against your own newsroom feeds, or set
@@ -133,8 +147,9 @@ should be configured through the selected hosted platform.
 Required `.env` values:
 
 ```sh
-HERMES_API_KEY=
 APP_SESSION_SECRET=
+DATABASE_URL=
+HERMES_API_KEY=
 ```
 
 When running the native harness in production, also configure:
@@ -149,13 +164,12 @@ NEWSROOM_UI_INGEST_KEY=<matches HERMES_INGEST_KEY or HERMES_API_KEY>
 
 `APP_PASSWORD_HASH` is now optional. When present and no accounts exist yet, the
 first-account setup page requires that legacy password before creating the first
-email/password account.
+account.
 
-For a production build without cutover:
+For a hosted production build:
 
 ```sh
 corepack pnpm build
-corepack pnpm start
 ```
 
 ## Current Limitations

@@ -70,12 +70,11 @@ export async function getOperatorFooterStatus(accountId: string): Promise<Operat
 		getMaintenanceStatus(),
 		boardData(accountId, { includeResponseMarkdown: false })
 	]);
-	const latestBackup = maintenance.backups.latest;
-	const backupOk = maintenance.backups.directory.exists && !maintenance.backups.error && Boolean(latestBackup);
+	const databaseOk = maintenance.db.checks.quickCheck.ok;
 	const hermesAvailable = gateway.ok && !board.jobsError;
 
 	return {
-		ok: gateway.ok && hermesAvailable && backupOk,
+		ok: gateway.ok && hermesAvailable && databaseOk,
 		generatedAt: new Date().toISOString(),
 		gateway: {
 			ok: gateway.ok,
@@ -89,12 +88,10 @@ export async function getOperatorFooterStatus(accountId: string): Promise<Operat
 			detail: board.jobsError ?? (!gateway.ok ? gateway.body : null)
 		},
 		lastSuccessfulMissionRun: latestSuccessfulMissionRun(board),
-		dbBackup: {
-			ok: backupOk,
-			label: latestBackup ? 'Backed up' : maintenance.backups.error ? 'Backup error' : 'No backup',
-			latestAt: latestBackup?.modifiedAt ?? null,
-			count: maintenance.backups.count,
-			detail: maintenance.backups.error ?? null
+		database: {
+			ok: databaseOk,
+			label: databaseOk ? 'Postgres reachable' : 'Database unavailable',
+			detail: maintenance.db.checks.quickCheck.error ?? null
 		},
 		pendingJobs: pendingJobs(board)
 	};

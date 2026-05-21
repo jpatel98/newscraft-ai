@@ -11,8 +11,12 @@ rewrite.
 - The existing UI continues using `/api/hermes/*` routes and points at the
   harness with `AGENT_GATEWAY_URL`.
 - Shared DTOs and SSE helpers live in `packages/shared`.
-- The OpenAI Agents SDK is used when `OPENAI_API_KEY` is configured. Local
-  deterministic fallbacks keep tests and offline development runnable.
+- The disciplined agent harness routes each request, enforces hard tool budgets,
+  normalizes tool output into evidence objects, and generates final answers from
+  that evidence.
+- OpenAI `web_search` is used only for broad discovery or related coverage when
+  `OPENAI_API_KEY` is configured. Browser automation is an optional provider for
+  direct page interaction, not the center of the harness.
 
 The harness can scan, fetch, summarize, draft, verify, monitor, and alert.
 Publishing and sensitive editorial decisions remain human-approved.
@@ -24,6 +28,9 @@ corepack pnpm install
 corepack pnpm --filter @newscraft/newsroom-harness dev
 corepack pnpm --filter @newscraft/newsroom-harness build
 corepack pnpm --filter @newscraft/newsroom-harness test
+npm run agent:ask -- "Check the latest Toronto Police releases and summarize anything newsworthy"
+npm run agent:ask -- "What are other outlets reporting about this story?"
+npm run agent:ask -- "Summarize the latest mission output"
 node scripts/check-health.mjs --url http://127.0.0.1:8650/health --expect harness
 ```
 
@@ -65,15 +72,103 @@ OPENAI_API_KEY=
 NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/hermes/channel-posts
 NEWSROOM_UI_INGEST_KEY=
 NEWSROOM_HARNESS_RUN_TIMEOUT_MS=90000
-NEWSROOM_HARNESS_MAX_TOOL_CALLS=8
+NEWSROOM_HARNESS_MAX_TOOL_CALLS=6
+NEWSROOM_HARNESS_MAX_CUSTOM_TOOL_CALLS=4
+NEWSROOM_HARNESS_MAX_WEB_SEARCHES=3
+NEWSROOM_HARNESS_MAX_BROWSER_TASKS=2
 NEWSROOM_HARNESS_RETRY_LIMIT=1
 NEWSROOM_HARNESS_SCHEDULER_INTERVAL_MS=30000
+NEWSROOM_AGENT_ENABLED_TOOLS=
+NEWSROOM_AGENT_SOURCE_PRIORITY=official,primary,source_monitor,internal,media_report,unknown
+NEWSROOM_AGENT_SOURCE_MONITORS_JSON=
+NEWSROOM_WEB_SEARCH_MODEL=gpt-5
 ```
 
 If `NEWSROOM_HARNESS_API_KEY` is set, all endpoints except `GET /health`
 require `Authorization: Bearer <key>`.
 Set `NEWSROOM_UI_INGEST_KEY` to the SvelteKit UI's `HERMES_INGEST_KEY` or
 `HERMES_API_KEY` when you want completed reports to appear in Missions.
+
+## Agent Routing
+
+The router returns `selected_mode`, `reason`, `tools_to_use`, `tool_budget`,
+`stop_condition`, and `expected_output`. Modes are:
+
+- `answer_from_memory` for stable newsroom guidance that does not require live
+  facts.
+- `custom_tool` for internal tools such as saved mission output, direct source
+  URLs, PDFs/documents, and producer briefs.
+- `source_monitor` for configured monitors, RSS/feed checks, official releases,
+  and known source scans.
+- `web_search` for broad discovery, related coverage, and what other outlets
+  are reporting.
+- `browser_automation` only for direct page interaction, dynamic pages, niche
+  inspection, clicking, screenshots, or browser-only source inspection.
+- `hybrid_research` when source/primary evidence and broader coverage are both
+  needed.
+- `clarification_needed` when the source, story, document, or mission target is
+  missing.
+
+Default hard budgets are:
+
+```text
+max_total_tool_calls: 6
+max_custom_tool_calls: 4
+max_web_searches: 3
+max_browser_tasks: 2
+max_runtime_seconds: 90
+```
+
+Runs stop when enough evidence exists, the budget is exhausted, a source is
+blocked or unavailable, login/CAPTCHA/paywall access is required, or more
+research is unlikely to materially improve the answer. The runner walks a
+finite tool list; it does not free-roam.
+
+## Evidence and Answers
+
+Every tool result is normalized before synthesis:
+
+```ts
+{
+  source_name,
+  source_url,
+  accessed_at,
+  tool_used,
+  title,
+  published_at,
+  extracted_text,
+  summary,
+  confidence,
+  limitations
+}
+```
+
+Final answers use evidence objects rather than raw tool output. They cite or
+list sources, preserve timestamps, separate official/primary sources from media
+reports, identify uncertainty and conflicts, and add police/legal cautions when
+the task involves public safety, allegations, arrests, charges, or convictions.
+
+## Adding Tools
+
+Register tools through `ToolRegistry` using the common interface:
+
+```ts
+registry.register({
+  name: 'court_filing_lookup',
+  description: 'Fetch court filing metadata from the newsroom integration.',
+  when_to_use: 'Use for court filing checks before broader web search.',
+  category: 'custom',
+  input_schema: { type: 'object' },
+  output_schema: evidenceOutputSchema,
+  async run(input, context) {
+    return { status: 'ok', evidence: [/* normalized evidence objects */] };
+  }
+});
+```
+
+Prefer custom/internal tools and configured source monitors before broad web
+search. Add the tool name to `NEWSROOM_AGENT_ENABLED_TOOLS` if you want an env
+allow-list; leave it blank to use the default built-in tools.
 
 ## Production Service
 

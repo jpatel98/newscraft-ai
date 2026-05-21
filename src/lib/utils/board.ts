@@ -16,7 +16,7 @@ function readMetadata(markdown: string, label: string): string | null {
 	return match?.[1]?.trim() || null;
 }
 
-export function normalizeTimestamp(value: string | null | undefined): string | null {
+function normalizeTimestamp(value: string | null | undefined): string | null {
 	const raw = value?.trim();
 	if (!raw) return null;
 	const candidate = raw.includes('T') ? raw : `${raw.replace(' ', 'T')}Z`;
@@ -31,7 +31,7 @@ export function timestampFromFilename(filename: string): string | null {
 	return normalizeTimestamp(`${year}-${month}-${day} ${hour}:${minute}:${second}`);
 }
 
-export function previewMarkdown(markdown: string, limit = 220): string {
+function previewMarkdown(markdown: string, limit = 220): string {
 	const text = markdown
 		.replace(/```[\s\S]*?```/g, ' ')
 		.replace(/`([^`]+)`/g, '$1')
@@ -67,7 +67,7 @@ export function parseCronMarkdown(markdown: string, fallbackJobId = 'unknown'): 
 	};
 }
 
-export function channelSlug(name: string, jobId: string): string {
+function channelSlug(name: string, jobId: string): string {
 	const base =
 		name
 			.toLowerCase()

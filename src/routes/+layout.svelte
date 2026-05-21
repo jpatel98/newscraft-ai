@@ -119,7 +119,7 @@
 		if (operatorStatusLoading && !operatorStatus) return 'Checking systems';
 		if (operatorStatusError) return 'Status unavailable';
 		if (!operatorStatus?.gateway.ok || !operatorStatus?.hermes.available) return 'Needs attention';
-		if (!operatorStatus?.dbBackup.ok) return 'Backup needs attention';
+		if (!operatorStatus?.database.ok) return 'Database needs attention';
 		return 'Needs attention';
 	}
 
@@ -130,11 +130,10 @@
 		return `Last mission ${formatOperatorTime(lastRun.at)}`;
 	}
 
-	function operatorBackupLine(): string {
-		const backup = operatorStatus?.dbBackup;
-		if (!backup) return 'Backup checking';
-		if (backup.latestAt) return `Backup ${formatOperatorTime(backup.latestAt)}`;
-		return 'No backup yet';
+	function operatorDatabaseLine(): string {
+		const database = operatorStatus?.database;
+		if (!database) return 'Database checking';
+		return database.label;
 	}
 
 	function operatorJobsLine(): string {
@@ -150,7 +149,7 @@
 		return [
 			operatorStatus.gateway.detail,
 			operatorStatus.hermes.detail,
-			operatorStatus.dbBackup.detail
+			operatorStatus.database.detail
 		]
 			.filter(Boolean)
 			.join('\n');
@@ -907,7 +906,7 @@
 					</div>
 					<div class="operator-footer__body">
 						<span>{operatorMissionLine()}</span>
-						<span>{operatorBackupLine()}</span>
+						<span>{operatorDatabaseLine()}</span>
 						<span>{operatorJobsLine()}</span>
 					</div>
 				</div>

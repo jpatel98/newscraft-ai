@@ -5,8 +5,6 @@ import {
 	conversations,
 	hermesChannelConfigs,
 	hermesChannelPosts,
-	hermesChannelSources,
-	messages,
 	missionReports,
 	missions,
 	settings
@@ -31,15 +29,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		throw error(400, 'confirmation phrase missing or incorrect');
 	}
 
-	db.transaction((tx: any) => {
-		tx.delete(missionReports).where(eq(missionReports.accountId, accountId)).run();
-		tx.delete(missions).where(eq(missions.accountId, accountId)).run();
-		tx.delete(hermesChannelConfigs).where(eq(hermesChannelConfigs.accountId, accountId)).run();
-		tx.delete(hermesChannelPosts).where(eq(hermesChannelPosts.accountId, accountId)).run();
-		tx.delete(conversations).where(eq(conversations.accountId, accountId)).run();
-		tx.delete(settings)
-			.where(like(settings.key, `hermes.hidden_channel_job_ids.${accountId}`))
-			.run();
+	await db.transaction(async (tx: any) => {
+		await tx.delete(missionReports).where(eq(missionReports.accountId, accountId));
+		await tx.delete(missions).where(eq(missions.accountId, accountId));
+		await tx.delete(hermesChannelConfigs).where(eq(hermesChannelConfigs.accountId, accountId));
+		await tx.delete(hermesChannelPosts).where(eq(hermesChannelPosts.accountId, accountId));
+		await tx.delete(conversations).where(eq(conversations.accountId, accountId));
+		await tx.delete(settings)
+			.where(like(settings.key, `hermes.hidden_channel_job_ids.${accountId}`));
 	});
 
 	return json({ ok: true });

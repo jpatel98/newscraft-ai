@@ -12,10 +12,6 @@ export const sql = postgres(databaseUrl, {
 	prepare: false
 });
 export const db = drizzle(sql, { schema }) as any;
-export const sqliteClient = {
-	close: () => undefined,
-	exec: (_sql: string) => undefined
-};
 
 export async function getSetting(key: string): Promise<string | undefined> {
 	const [row] = await db.select().from(settings).where(eq(settings.key, key)).limit(1);

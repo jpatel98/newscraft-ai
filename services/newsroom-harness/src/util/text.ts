@@ -4,7 +4,7 @@ import type {
 	GatewayResponseInputMessage
 } from '@newscraft/shared';
 
-export function contentText(content: GatewayContent | string | undefined): string {
+function contentText(content: GatewayContent | string | undefined): string {
 	if (!content) return '';
 	if (typeof content === 'string') return content;
 	return content

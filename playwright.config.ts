@@ -1,8 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const e2eDb = '.tmp/e2e/app.db';
 const e2eEnv = {
-	APP_DB_PATH: e2eDb,
+	DATABASE_URL: process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? '',
 	APP_SESSION_SECRET: 'aGVybWVzLXVpLWUyZS1zZXNzaW9uLXNlY3JldC0wMDAwMDAwMDAwMDAwMDAw',
 	HERMES_GATEWAY_URL: 'http://127.0.0.1:9',
 	HERMES_API_KEY: 'e2e-key'

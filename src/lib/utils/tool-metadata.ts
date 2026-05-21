@@ -1,6 +1,6 @@
 import type { PersistedSource, StreamToolCall } from './stream-events';
 
-export interface ToolMetadataEnvelope {
+interface ToolMetadataEnvelope {
 	version: 1;
 	tools: StreamToolCall[];
 	sources: PersistedSource[];

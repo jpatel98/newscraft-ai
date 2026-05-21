@@ -40,7 +40,8 @@ export function createHarnessServer(options: {
 			maxToolCalls: config.maxToolCalls,
 			runTimeoutMs: config.runTimeoutMs,
 			retryLimit: config.retryLimit,
-			openAiApiKey: config.openAiApiKey
+			openAiApiKey: config.openAiApiKey,
+			agentConfig: config.agent
 		});
 	const runner = new JobRunner(repository, runtime, config);
 	const scheduler = new JobScheduler(repository, runner, config);

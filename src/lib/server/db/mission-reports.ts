@@ -41,22 +41,21 @@ export type MissionReportSummaryRow = Omit<MissionReportRow, 'responseMarkdown'>
 };
 
 function missingMissionReportsTable(err: unknown): boolean {
-	return err instanceof Error && /no such table:\s*mission_reports/i.test(err.message);
+	return err instanceof Error && /(no such table:\s*mission_reports|relation "mission_reports" does not exist)/i.test(err.message);
 }
 
 function missingLegacyPostsTable(err: unknown): boolean {
-	return err instanceof Error && /no such table:\s*hermes_channel_posts/i.test(err.message);
+	return err instanceof Error && /(no such table:\s*hermes_channel_posts|relation "hermes_channel_posts" does not exist)/i.test(err.message);
 }
 
-function legacyReportRows(accountId: string): MissionReportRow[] {
+async function legacyReportRows(accountId: string): Promise<MissionReportRow[]> {
 	try {
-		return db
+		const rows = await db
 			.select()
 			.from(hermesChannelPosts)
 			.where(eq(hermesChannelPosts.accountId, accountId))
-			.orderBy(asc(hermesChannelPosts.updatedAt))
-			.all()
-			.map((row: typeof hermesChannelPosts.$inferSelect) => ({
+			.orderBy(asc(hermesChannelPosts.updatedAt));
+		return rows.map((row: typeof hermesChannelPosts.$inferSelect) => ({
 				id: row.id,
 				accountId: row.accountId,
 				missionId: row.jobId,
@@ -79,11 +78,11 @@ function legacyReportRows(accountId: string): MissionReportRow[] {
 	}
 }
 
-export function upsertMissionReport(input: MissionReportUpsertInput): void {
+export async function upsertMissionReport(input: MissionReportUpsertInput): Promise<void> {
 	const now = Date.now();
 	const sourceMtimeMs = Math.max(0, Math.round(input.sourceMtimeMs));
 	try {
-		db.insert(missionReports)
+		await db.insert(missionReports)
 			.values({
 				id: input.id,
 				accountId: input.accountId,
@@ -118,33 +117,31 @@ export function upsertMissionReport(input: MissionReportUpsertInput): void {
 					legacyChannelPostId: input.legacyChannelPostId ?? null,
 					updatedAt: now
 				}
-			})
-			.run();
+			});
 	} catch (err) {
 		if (missingMissionReportsTable(err)) return;
 		throw err;
 	}
 }
 
-export function listMissionReports(accountId: string): MissionReportRow[] {
+export async function listMissionReports(accountId: string): Promise<MissionReportRow[]> {
 	try {
-		const rows = db
+		const rows = await db
 			.select()
 			.from(missionReports)
 			.where(eq(missionReports.accountId, accountId))
-			.orderBy(asc(missionReports.updatedAt))
-			.all();
+			.orderBy(asc(missionReports.updatedAt));
 		if (rows.length > 0) return rows;
-		return legacyReportRows(accountId);
+		return await legacyReportRows(accountId);
 	} catch (err) {
-		if (missingMissionReportsTable(err)) return legacyReportRows(accountId);
+		if (missingMissionReportsTable(err)) return await legacyReportRows(accountId);
 		throw err;
 	}
 }
 
-export function listMissionReportSummaries(accountId: string): MissionReportSummaryRow[] {
+export async function listMissionReportSummaries(accountId: string): Promise<MissionReportSummaryRow[]> {
 	try {
-		const rows = db
+		const rows = await db
 			.select({
 				id: missionReports.id,
 				accountId: missionReports.accountId,
@@ -163,18 +160,17 @@ export function listMissionReportSummaries(accountId: string): MissionReportSumm
 			})
 			.from(missionReports)
 			.where(eq(missionReports.accountId, accountId))
-			.orderBy(asc(missionReports.updatedAt))
-			.all();
+			.orderBy(asc(missionReports.updatedAt));
 		if (rows.length > 0) {
 			return rows.map((row: Omit<MissionReportSummaryRow, 'responseMarkdown'>) => ({ ...row, responseMarkdown: '' }));
 		}
-		return legacyReportRows(accountId).map(({ responseMarkdown: _responseMarkdown, ...row }) => ({
+		return (await legacyReportRows(accountId)).map(({ responseMarkdown: _responseMarkdown, ...row }) => ({
 			...row,
 			responseMarkdown: ''
 		}));
 	} catch (err) {
 		if (missingMissionReportsTable(err)) {
-			return legacyReportRows(accountId).map(({ responseMarkdown: _responseMarkdown, ...row }) => ({
+			return (await legacyReportRows(accountId)).map(({ responseMarkdown: _responseMarkdown, ...row }) => ({
 				...row,
 				responseMarkdown: ''
 			}));
@@ -183,64 +179,61 @@ export function listMissionReportSummaries(accountId: string): MissionReportSumm
 	}
 }
 
-export function getMissionReport(accountId: string, id: string): MissionReportRow | undefined {
+export async function getMissionReport(accountId: string, id: string): Promise<MissionReportRow | undefined> {
 	try {
-		const row = db
+		const [row] = await db
 			.select()
 			.from(missionReports)
 			.where(and(eq(missionReports.accountId, accountId), eq(missionReports.id, id)))
-			.get();
+			.limit(1);
 		if (row) return row;
-		return legacyReportRows(accountId).find((report) => report.id === id);
+		return (await legacyReportRows(accountId)).find((report) => report.id === id);
 	} catch (err) {
 		if (missingMissionReportsTable(err)) {
-			return legacyReportRows(accountId).find((report) => report.id === id);
+			return (await legacyReportRows(accountId)).find((report) => report.id === id);
 		}
 		throw err;
 	}
 }
 
-export function clearAllMissionReports(accountId: string): void {
+export async function clearAllMissionReports(accountId: string): Promise<void> {
 	try {
-		db.delete(missionReports).where(eq(missionReports.accountId, accountId)).run();
+		await db.delete(missionReports).where(eq(missionReports.accountId, accountId));
 	} catch (err) {
 		if (!missingMissionReportsTable(err)) throw err;
 	}
 }
 
-export function deleteMissionReportsByMissionIds(accountId: string, missionIds: string[]): void {
+export async function deleteMissionReportsByMissionIds(accountId: string, missionIds: string[]): Promise<void> {
 	const ids = missionIds.map((id) => id.trim()).filter(Boolean);
 	if (ids.length === 0) return;
 	try {
-		db.delete(missionReports)
-			.where(and(eq(missionReports.accountId, accountId), inArray(missionReports.missionId, ids)))
-			.run();
+		await db.delete(missionReports)
+			.where(and(eq(missionReports.accountId, accountId), inArray(missionReports.missionId, ids)));
 	} catch (err) {
 		if (!missingMissionReportsTable(err)) throw err;
 	}
 }
 
-export function deleteMissionReportsByMissionId(accountId: string, missionId: string): void {
+export async function deleteMissionReportsByMissionId(accountId: string, missionId: string): Promise<void> {
 	const id = missionId.trim();
 	if (!id) return;
 	try {
-		db.delete(missionReports)
-			.where(and(eq(missionReports.accountId, accountId), eq(missionReports.missionId, id)))
-			.run();
+		await db.delete(missionReports)
+			.where(and(eq(missionReports.accountId, accountId), eq(missionReports.missionId, id)));
 	} catch (err) {
 		if (!missingMissionReportsTable(err)) throw err;
 	}
 }
 
-export function renameMissionReportsForMission(accountId: string, missionId: string, missionName: string): void {
+export async function renameMissionReportsForMission(accountId: string, missionId: string, missionName: string): Promise<void> {
 	const id = missionId.trim();
 	const name = missionName.trim();
 	if (!id || !name) return;
 	try {
-		db.update(missionReports)
+		await db.update(missionReports)
 			.set({ missionName: name, updatedAt: Date.now() })
-			.where(and(eq(missionReports.accountId, accountId), eq(missionReports.missionId, id)))
-			.run();
+			.where(and(eq(missionReports.accountId, accountId), eq(missionReports.missionId, id)));
 	} catch (err) {
 		if (!missingMissionReportsTable(err)) throw err;
 	}

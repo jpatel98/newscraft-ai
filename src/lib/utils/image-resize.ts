@@ -5,7 +5,7 @@
 // Per-image cap is set well under Hermes's 1 MB body cap so 1–2 images plus
 // the text + history JSON envelope still slot under the gateway limit.
 
-export const MAX_IMAGE_BYTES = 800 * 1024;
+const MAX_IMAGE_BYTES = 800 * 1024;
 export const MAX_TOTAL_BYTES = 950 * 1024;
 
 const SIZE_STEPS = [1600, 1200, 1024, 768];

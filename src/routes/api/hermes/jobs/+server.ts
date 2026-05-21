@@ -38,7 +38,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			enabled: body?.enabled !== false
 		});
 		if (job) {
-			saveMissionConfig(locals.user.id, job.id, prompt, sources, {
+			await saveMissionConfig(locals.user.id, job.id, prompt, sources, {
 				name,
 				description,
 				schedule,

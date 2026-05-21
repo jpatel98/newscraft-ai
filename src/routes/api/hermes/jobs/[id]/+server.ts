@@ -23,7 +23,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	const hasSources = Boolean(body && Object.prototype.hasOwnProperty.call(body, 'sources'));
 	let sources: ChannelSource[] | undefined;
 	let configToSave: { basePrompt: string; sources: ChannelSource[] } | null = null;
-	let existingConfig = getMissionConfig(locals.user.id, id);
+	let existingConfig = await getMissionConfig(locals.user.id, id);
 
 	if (name !== undefined && !name) throw error(400, 'Mission name is required');
 	if (schedule !== undefined && !schedule) throw error(400, 'Schedule is required');
@@ -65,7 +65,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 			enabled
 		});
 		if (job && configToSave) {
-			saveMissionConfig(locals.user.id, job.id, configToSave.basePrompt, configToSave.sources, {
+			await saveMissionConfig(locals.user.id, job.id, configToSave.basePrompt, configToSave.sources, {
 				name: name ?? job.name,
 				description: description ?? existingConfig?.description ?? job.description ?? '',
 				schedule: schedule ?? job.scheduleDisplay,
@@ -93,10 +93,10 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 export const DELETE: RequestHandler = async ({ locals, params }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	const id = (params.id ?? '').trim();
-	hideChannelJobId(locals.user.id, id);
+	await hideChannelJobId(locals.user.id, id);
 	try {
 		await deleteHermesJob(locals.user.id, id);
-		deleteMissionConfig(locals.user.id, id);
+		await deleteMissionConfig(locals.user.id, id);
 		return json({ ok: true });
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));

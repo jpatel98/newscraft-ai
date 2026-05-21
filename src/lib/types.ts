@@ -1,10 +1,10 @@
-export type Role = 'user' | 'assistant' | 'system' | 'tool';
+type Role = 'user' | 'assistant' | 'system' | 'tool';
 
-export interface TextPart {
+interface TextPart {
 	type: 'text';
 	text: string;
 }
-export interface ImageUrlPart {
+interface ImageUrlPart {
 	type: 'image_url';
 	image_url: { url: string };
 }
@@ -25,7 +25,7 @@ export interface ChatMessage {
 	streaming?: boolean;
 }
 
-export type HermesCommandKind = 'builtin' | 'skill';
+type HermesCommandKind = 'builtin' | 'skill';
 
 export interface HermesCommand {
 	name: string;
@@ -53,7 +53,7 @@ export interface HermesSkillDetail extends HermesSkillSummary {
 	supportingFiles: string[];
 }
 
-export type ChannelSourceType = 'url';
+type ChannelSourceType = 'url';
 
 export interface ChannelSource {
 	id: string;
@@ -70,7 +70,7 @@ export interface ChatCommand {
 	raw: string;
 }
 
-export type ReasoningEffort = 'low' | 'medium' | 'high';
+type ReasoningEffort = 'low' | 'medium' | 'high';
 
 export interface HermesJob {
 	id: string;
@@ -160,11 +160,9 @@ export interface OperatorFooterStatus {
 		label: string;
 		missionName: string | null;
 	};
-	dbBackup: {
+	database: {
 		ok: boolean;
 		label: string;
-		latestAt: string | null;
-		count: number;
 		detail: string | null;
 	};
 	pendingJobs: {
@@ -181,9 +179,4 @@ export function contentText(c: MessageContent): string {
 		.map((p) => p.text)
 		.join('\n')
 		.trim();
-}
-
-/** Tally non-text parts so call sites can branch on "has images". */
-export function hasImageParts(c: MessageContent): boolean {
-	return Array.isArray(c) && c.some((p) => p.type === 'image_url');
 }

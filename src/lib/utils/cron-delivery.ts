@@ -4,13 +4,13 @@ export interface JobRunErrorFields {
 	deliver?: string | null;
 }
 
-export function normalizeDeliverTarget(value: string | null | undefined): string {
+function normalizeDeliverTarget(value: string | null | undefined): string {
 	return String(value ?? '')
 		.trim()
 		.toLowerCase();
 }
 
-export function isDashboardOnlyDeliverTarget(value: string | null | undefined): boolean {
+function isDashboardOnlyDeliverTarget(value: string | null | undefined): boolean {
 	const normalized = normalizeDeliverTarget(value);
 	return !normalized || normalized === 'local' || normalized === 'database' || normalized === 'dashboard';
 }
@@ -25,7 +25,7 @@ export function toUiDeliverTarget(value: string | null | undefined): string {
 	return isDashboardOnlyDeliverTarget(value) ? 'database' : String(value ?? '').trim();
 }
 
-export function isMissingDashboardDeliveryTargetError(value: string | null | undefined): boolean {
+function isMissingDashboardDeliveryTargetError(value: string | null | undefined): boolean {
 	return /^no delivery target resolved for deliver=(database|local|dashboard)$/i.test(
 		String(value ?? '').trim()
 	);

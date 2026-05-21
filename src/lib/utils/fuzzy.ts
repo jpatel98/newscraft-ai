@@ -6,7 +6,7 @@ export interface FuzzyHit<T> {
 	score: number;
 }
 
-export function fuzzyScore(query: string, candidate: string): number {
+function fuzzyScore(query: string, candidate: string): number {
 	if (!query) return 0;
 	const q = query.toLowerCase();
 	const c = candidate.toLowerCase();

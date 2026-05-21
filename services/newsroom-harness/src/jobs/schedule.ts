@@ -11,7 +11,7 @@ export function computeNextRunAt(schedule: string, fromIso = new Date().toISOStr
 	return cron?.toISOString() ?? new Date(base.getTime() + HOUR).toISOString();
 }
 
-export function parseIntervalMs(schedule: string): number | null {
+function parseIntervalMs(schedule: string): number | null {
 	const raw = schedule.trim().toLowerCase();
 	if (!raw) return null;
 	if (raw === 'hourly') return HOUR;
