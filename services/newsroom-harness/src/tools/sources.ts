@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { nowIso } from '../util/ids.js';
 import { assessSourceQuality } from '../util/source-quality.js';
 
+const MAX_SOURCE_TEXT_CHARS = 8_000;
+const MAX_SOURCE_SUMMARY_CHARS = 420;
+const MAX_SOURCE_LINE_CHARS = 650;
+
 export interface FetchedSource {
 	url: string;
 	title: string;
@@ -26,7 +30,7 @@ export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise
 	const body = await response.text();
 	const text = extractSourceText(body, contentType, url);
 	const title = extractTitle(body) || new URL(url).hostname;
-	const cleaned = normalizeWhitespace(text).slice(0, 20_000);
+	const cleaned = capText(cleanSourceText(text), MAX_SOURCE_TEXT_CHARS);
 	const summary = summarizeText(cleaned);
 	const quality = assessSourceQuality({ title, text: cleaned, summary, statusCode: response.status });
 	const usableText = quality.usable ? cleaned : '';
@@ -46,12 +50,12 @@ export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise
 }
 
 export function extractSourceText(body: string, contentType: string | null, url: string): string {
-	if (contentType?.includes('xml') || looksLikeFeed(body)) return summarizeFeed(body);
-	return summarizeHeadlineLinks(body, url) || htmlToText(body);
+	if (contentType?.includes('xml') || looksLikeFeed(body)) return cleanSourceText(summarizeFeed(body));
+	return cleanSourceText(summarizeHeadlineLinks(body, url) || htmlToText(body));
 }
 
 export function sourceFromText(url: string, text: string, title = 'Provided source'): FetchedSource {
-	const cleaned = normalizeWhitespace(text).slice(0, 20_000);
+	const cleaned = capText(cleanSourceText(text), MAX_SOURCE_TEXT_CHARS);
 	return {
 		url,
 		title,
@@ -168,14 +172,71 @@ function metaContent(body: string, property: string): string | null {
 }
 
 function htmlToText(html: string): string {
+	const articleHtml = bestStoryContainer(pruneHtmlNoise(html));
 	return decodeEntities(
 		stripTags(
-			html
+			articleHtml
 				.replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
 				.replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
-				.replace(/<\/(p|div|li|h[1-6]|article|section)>/gi, '\n')
+				.replace(/<br\s*\/?>/gi, '\n')
+				.replace(/<\/(p|div|li|h[1-6]|article|section|main|blockquote)>/gi, '\n')
 		)
 	);
+}
+
+function pruneHtmlNoise(html: string): string {
+	let pruned = html
+		.replace(/<!--[\s\S]*?-->/g, ' ')
+		.replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+		.replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+		.replace(/<noscript\b[\s\S]*?<\/noscript>/gi, ' ')
+		.replace(/<svg\b[\s\S]*?<\/svg>/gi, ' ')
+		.replace(/<iframe\b[\s\S]*?<\/iframe>/gi, ' ');
+
+	for (const tag of ['header', 'nav', 'footer', 'aside', 'form']) {
+		pruned = removeTagBlocks(pruned, tag);
+	}
+
+	pruned = removeAttributeNoiseBlocks(pruned);
+	return pruned;
+}
+
+function removeTagBlocks(html: string, tag: string): string {
+	return html.replace(new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}>`, 'gi'), ' ');
+}
+
+function removeAttributeNoiseBlocks(html: string): string {
+	const noiseAttrs =
+		'(?:nav|navigation|menu|header|footer|masthead|skip-link|subscribe|signin|sign-in|login|newsletter|share|social|promo|advert|ad-|comments|related|trending|recommended|site-theme|theme-toggle|weather-widget)';
+	return html.replace(
+		new RegExp(
+			`<([a-z][\\w:-]*)\\b[^>]*(?:(?:class|id|role|aria-label)=["'][^"']*${noiseAttrs}[^"']*["'])[^>]*>[\\s\\S]*?<\\/\\1>`,
+			'gi'
+		),
+		' '
+	);
+}
+
+function bestStoryContainer(html: string): string {
+	const candidates = [
+		...elementMatches(html, 'article'),
+		...elementMatches(html, 'main'),
+		...roleMainMatches(html)
+	].sort((left, right) => textLength(right) - textLength(left));
+	const best = candidates[0];
+	return best && textLength(best) >= 500 ? best : html;
+}
+
+function elementMatches(html: string, tag: string): string[] {
+	return [...html.matchAll(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi'))].map((match) => match[0]);
+}
+
+function roleMainMatches(html: string): string[] {
+	return [...html.matchAll(/<([a-z][\w:-]*)\b[^>]*role=["']main["'][^>]*>[\s\S]*?<\/\1>/gi)].map((match) => match[0]);
+}
+
+function textLength(html: string): number {
+	return normalizeWhitespace(stripTags(html)).length;
 }
 
 function stripTags(value: string): string {
@@ -207,7 +268,84 @@ function summarizeText(value: string): string {
 		.split(/\n+/)
 		.map((line) => line.trim())
 		.filter(Boolean);
-	if (lines.length >= 2) return lines.slice(0, 3).join(' ');
+	if (lines.length >= 2) return capText(lines.slice(0, 3).join(' '), MAX_SOURCE_SUMMARY_CHARS);
 	const first = value.split(/(?<=[.!?])\s+/).find((sentence) => sentence.length > 40);
-	return (first || value).slice(0, 280).trim();
+	return capText(first || value, MAX_SOURCE_SUMMARY_CHARS);
+}
+
+function cleanSourceText(value: string): string {
+	const seen = new Set<string>();
+	const lines = value
+		.replace(/\r/g, '\n')
+		.split(/\n+/)
+		.map((line) => normalizeWhitespace(line))
+		.filter(Boolean)
+		.filter((line) => !isNoiseLine(line))
+		.map((line) => capText(line, MAX_SOURCE_LINE_CHARS))
+		.filter((line) => {
+			const key = canonicalLine(line);
+			if (!key || seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		});
+
+	return lines.join('\n').trim();
+}
+
+function isNoiseLine(line: string): boolean {
+	const normalized = line.toLowerCase();
+	if (line.length <= 2) return true;
+	if (/^(?:skip to|skip directly to|jump to)\b/.test(normalized)) return true;
+	if (/^(?:menu|open menu|close menu|search|subscribe|sign in|log in|login|create account|my account)$/.test(normalized)) {
+		return true;
+	}
+	if (/^(?:share|share this story|copy link|print|email|facebook|x|twitter|reddit|linkedin|whatsapp)$/.test(normalized)) {
+		return true;
+	}
+	if (/^(?:listen to this article|read more|more from|advertisement|advertising|sponsored content)$/.test(normalized)) {
+		return true;
+	}
+	if (/\b(?:copyright|all rights reserved|privacy policy|terms of use|terms and conditions|cookie policy)\b/.test(normalized)) {
+		return true;
+	}
+	if (/\b(?:newsletter|sign up for|get breaking news alerts|download our app|download the app)\b/.test(normalized)) {
+		return true;
+	}
+	if (/\b(?:site theme|theme toggle|light mode|dark mode|system mode)\b/.test(normalized)) return true;
+	if (line.length < 180 && navTokenCount(normalized) >= 5) return true;
+	if (line.length < 220 && /^(?:cbc|ctv|global news)\b/.test(normalized) && navTokenCount(normalized) >= 4) return true;
+	return false;
+}
+
+function navTokenCount(normalized: string): number {
+	const tokens = [
+		'home',
+		'news',
+		'canada',
+		'world',
+		'politics',
+		'business',
+		'health',
+		'entertainment',
+		'sports',
+		'weather',
+		'video',
+		'radio',
+		'live',
+		'local',
+		'menu',
+		'search',
+		'subscribe'
+	];
+	return tokens.filter((token) => new RegExp(`\\b${token}\\b`, 'i').test(normalized)).length;
+}
+
+function canonicalLine(line: string): string {
+	return line.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function capText(value: string, maxLength: number): string {
+	const normalized = value.trim();
+	if (normalized.length <= maxLength) return normalized;
+	return normalized.slice(0, maxLength).trim();
 }

@@ -1296,16 +1296,16 @@
 										<Pencil size="13" strokeWidth={1.8} />
 										Edit mission
 									</button>
+									<button
+										type="button"
+										class="btn btn--ghost"
+										disabled={Boolean(actionBusy) || selectedJobRunning}
+										onclick={() => jobAction('run')}
+									>
+										<Play size="13" strokeWidth={1.8} />
+										{selectedJobRunning ? 'Running' : actionBusy === 'run' ? 'Starting' : 'Run now'}
+									</button>
 									{#if selectedJob.enabled}
-										<button
-											type="button"
-											class="btn btn--ghost"
-											disabled={Boolean(actionBusy) || selectedJobRunning}
-											onclick={() => jobAction('run')}
-										>
-											<Play size="13" strokeWidth={1.8} />
-											{selectedJobRunning ? 'Running' : actionBusy === 'run' ? 'Starting' : 'Run now'}
-										</button>
 										<button
 											type="button"
 											class="btn btn--ghost"

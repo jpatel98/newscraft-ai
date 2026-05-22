@@ -39,6 +39,17 @@ describe('mission report expanded metadata', () => {
 		expect(source).toContain("{createBusy ? 'Saving' : 'Save changes'}");
 	});
 
+	it('keeps Run now available as a manual action independent of the schedule state', () => {
+		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+		const runNowIndex = source.indexOf("onclick={() => jobAction('run')}");
+		const scheduleToggleIndex = source.indexOf('{#if selectedJob.enabled}');
+
+		expect(runNowIndex).toBeGreaterThan(0);
+		expect(scheduleToggleIndex).toBeGreaterThan(0);
+		expect(runNowIndex).toBeLessThan(scheduleToggleIndex);
+		expect(source).toContain("{selectedJobRunning ? 'Running' : actionBusy === 'run' ? 'Starting' : 'Run now'}");
+	});
+
 	it('uses the latest run activity for mission status freshness', () => {
 		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
 

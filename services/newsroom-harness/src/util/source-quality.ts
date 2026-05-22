@@ -3,7 +3,9 @@ export type SourceQualityState =
 	| 'blocked_unusable'
 	| 'boilerplate_unusable'
 	| 'empty_unusable'
-	| 'nav_unusable';
+	| 'nav_unusable'
+	| 'recycled_report_unusable'
+	| 'repeated_boilerplate_unusable';
 
 export interface SourceQualityAssessment {
 	state: SourceQualityState;
@@ -37,6 +39,8 @@ const BOILERPLATE_PATTERNS = [
 export function assessSourceQuality(input: SourceQualityInput): SourceQualityAssessment {
 	const statusCode = input.statusCode ?? null;
 	const limitations = input.limitations ?? [];
+	const rawText = stringValue(input.text);
+	const rawSummary = stringValue(input.summary);
 	const text = normalize(input.text);
 	const summary = normalize(input.summary);
 	const title = normalize(input.title);
@@ -56,6 +60,22 @@ export function assessSourceQuality(input: SourceQualityInput): SourceQualityAss
 			'boilerplate_unusable',
 			'Source returned access or browser-check text instead of usable story material.',
 			'blocked-page boilerplate'
+		);
+	}
+
+	if (looksLikeRecycledMissionOutput(rawText, rawSummary)) {
+		return unusable(
+			'recycled_report_unusable',
+			'Source looked like recycled mission output instead of a story page.',
+			'recycled mission report text'
+		);
+	}
+
+	if (looksLikeRepeatedBoilerplate(rawText || rawSummary)) {
+		return unusable(
+			'repeated_boilerplate_unusable',
+			'Source returned repeated boilerplate instead of usable story material.',
+			'repeated boilerplate text'
 		);
 	}
 
@@ -102,6 +122,48 @@ function looksLikeNavigationOnly(value: string): boolean {
 	return false;
 }
 
+function looksLikeRecycledMissionOutput(text: string, summary: string): boolean {
+	const value = `${summary}\n${text}`;
+	if (!value.trim()) return false;
+	const reportMarkers = [
+		/^#{1,3}\s+summary\b/im,
+		/^#{1,3}\s+lead candidates\b/im,
+		/^#{1,3}\s+source notes\b/im,
+		/^#{1,3}\s+limitations\b/im,
+		/\bno publishable lead was found\b/i,
+		/\badditional usable sources were recorded\b/i,
+		/\btool budget used\b/i,
+		/\bbacked by\b.+\bmission\b/i,
+		/\bnewsroom:\/\/mission-output\//i
+	];
+	const matches = reportMarkers.filter((pattern) => pattern.test(value)).length;
+	return matches >= 2 || (/^#{1,3}\s+source notes\b/im.test(value) && value.length > 1200);
+}
+
+function looksLikeRepeatedBoilerplate(value: string): boolean {
+	const lines = value
+		.split(/\r?\n+/)
+		.map((line) => normalize(line).toLowerCase())
+		.filter((line) => line.length >= 12);
+	if (lines.length < 8) return false;
+
+	const counts = new Map<string, number>();
+	for (const line of lines) {
+		const key = line.replace(/[^a-z0-9]+/g, ' ').trim();
+		if (!key) continue;
+		counts.set(key, (counts.get(key) ?? 0) + 1);
+	}
+
+	const repeatedLines = [...counts.values()].filter((count) => count >= 3);
+	const topCount = Math.max(0, ...counts.values());
+	const uniqueRatio = counts.size / lines.length;
+	return topCount >= 5 || (repeatedLines.length >= 2 && uniqueRatio <= 0.65);
+}
+
 function normalize(value: string | null | undefined): string {
 	return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+}
+
+function stringValue(value: string | null | undefined): string {
+	return typeof value === 'string' ? value : '';
 }

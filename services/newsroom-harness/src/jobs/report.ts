@@ -1,5 +1,6 @@
 import type { NewsroomJobDto } from '@newscraft/shared';
 import { filenameTimestamp } from '../util/ids.js';
+import { assessReportQuality, fallbackProducerReport } from '../util/report-quality.js';
 
 const REQUIRED_EDITOR_SECTIONS = [
 	{
@@ -37,7 +38,8 @@ function ensureProducerReportSections(markdown: string): string {
 
 export function wrapMissionReport(job: NewsroomJobDto, markdown: string, runTime: string): { filename: string; markdown: string } {
 	const filename = `${filenameTimestamp(new Date(runTime))}.md`;
-	const report = ensureProducerReportSections(markdown);
+	const quality = assessReportQuality(markdown);
+	const report = ensureProducerReportSections(quality.ok ? markdown : fallbackProducerReport());
 	return {
 		filename,
 		markdown: `# Cron Job: ${job.name}

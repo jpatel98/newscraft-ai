@@ -127,6 +127,27 @@ describe('disciplined newsroom agent harness', () => {
 
 		expect(
 			assessSourceQuality({
+				title: 'Mission report copied into source',
+				text: [
+					'## Summary',
+					'No publishable lead was found in this run.',
+					'## Lead Candidates',
+					'No lead candidates met the source threshold.',
+					'## Source Notes',
+					'Tool budget used: configured_source_monitor.'
+				].join('\n')
+			})
+		).toMatchObject({ usable: false, state: 'recycled_report_unusable' });
+
+		expect(
+			assessSourceQuality({
+				title: 'Repeated outlet boilerplate',
+				text: Array.from({ length: 10 }, () => 'Subscribe now Sign in Search Menu Newsletter alerts').join('\n')
+			})
+		).toMatchObject({ usable: false, state: 'repeated_boilerplate_unusable' });
+
+		expect(
+			assessSourceQuality({
 				title: 'NewsCraft Local Fixture',
 				text: 'City desk confirms river inspection. Officials scheduled a levee inspection after overnight rain. Editors should verify timing with the public works office.'
 			})

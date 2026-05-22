@@ -14,7 +14,7 @@ const logDir = path.join(workDir, 'logs');
 const harnessDbPath = path.join(workDir, 'harness.db');
 const uiUrl = 'http://127.0.0.1:3001';
 const harnessUrl = 'http://127.0.0.1:8650';
-const password = 'producer acceptance password';
+const password = process.env.PRODUCER_ACCEPTANCE_PASSWORD || 'HelloWorld@123';
 const openAiRequired = process.env.PRODUCER_ACCEPTANCE_REQUIRE_OPENAI !== '0';
 const disableOpenAi = process.env.PRODUCER_ACCEPTANCE_DISABLE_OPENAI === '1';
 const keepServers = process.env.PRODUCER_ACCEPTANCE_KEEP_SERVERS === '1';
@@ -47,6 +47,69 @@ const DEFAULT_LIVE_RSS_SOURCES = [
 		url: 'https://www.theguardian.com/world/rss',
 		enabled: true,
 		sortOrder: 2
+	}
+];
+
+const COMPETITOR_FIXTURE_OUTLETS = [
+	{
+		slug: 'cbc-politics',
+		sourceName: 'CBC Politics',
+		sourceId: 'fixture-cbc-politics',
+		title: 'CBC Politics - Federal byelection finance pledge leads morning politics coverage',
+		items: [
+			{
+				id: 'federal-byelection-finance-pledge',
+				title: 'CBC leads with federal byelection finance pledge and voter-cost framing',
+				description:
+					'CBC Politics leads the competitor coverage with the federal finance minister promising a targeted affordability credit during the Ottawa Centre byelection. Compared with CTV and Global, CBC emphasizes voter cost-of-living stakes, the minister quote, and the opposition demand for a fiscal table before air.'
+			},
+			{
+				id: 'ethics-committee-follow',
+				title: 'CBC follows committee ethics hearing with document gap noted',
+				description:
+					'CBC Politics says the ethics committee hearing is a secondary angle and flags that producers still need the full witness list and the official committee notice.'
+			}
+		]
+	},
+	{
+		slug: 'ctv-politics',
+		sourceName: 'CTV Politics',
+		sourceId: 'fixture-ctv-politics',
+		title: 'CTV Politics - Campaign strategy and reaction shape rival coverage',
+		items: [
+			{
+				id: 'campaign-strategy-reaction',
+				title: 'CTV frames the finance pledge as campaign strategy with party reaction',
+				description:
+					'CTV Politics covers the same federal finance pledge but frames it through campaign strategy, party reaction, and the question of whether the promise changes the byelection map. While CBC leads with household costs, CTV foregrounds Conservative and NDP reaction and asks for confirmation from Elections Canada.'
+			},
+			{
+				id: 'leaders-scrum',
+				title: 'CTV notes leaders scrum could move the story after question period',
+				description:
+					'CTV Politics says producers should watch the afternoon leaders scrum because the story may shift if the prime minister or opposition leader commits to a new fiscal document.'
+			}
+		]
+	},
+	{
+		slug: 'global-politics',
+		sourceName: 'Global Politics',
+		sourceId: 'fixture-global-politics',
+		title: 'Global Politics - Regional impact and verification needs drive coverage',
+		items: [
+			{
+				id: 'regional-impact-verification',
+				title: 'Global spotlights regional impact and verification gaps in federal pledge',
+				description:
+					'Global Politics also reports on the federal finance pledge, but its coverage angle is regional impact outside Ottawa and what provincial officials say about delivery. Unlike CBC and CTV, Global stresses that producers should verify eligibility numbers, implementation timing, and whether provinces have been briefed.'
+			},
+			{
+				id: 'provincial-ministers-response',
+				title: 'Global tracks provincial ministers response to federal affordability promise',
+				description:
+					'Global Politics says the comparative coverage gap is whether provincial ministers confirm consultation before the federal pledge becomes a publishable assignment.'
+			}
+		]
 	}
 ];
 
@@ -141,6 +204,7 @@ async function main() {
 	console.log('Running producer mission now.');
 	await session.postJson(`/api/hermes/jobs/${encodeURIComponent(job.id)}/run`, {});
 	const report = await waitForReport(session, job.id);
+	assertProducerProgress(report.producerProgress, sourceProfile);
 	assertProducerReport(report.responseMarkdown, sourceProfile);
 
 	const dbReport = await readLatestHarnessReport();
@@ -270,6 +334,23 @@ function createUiSession(baseUrl) {
 			if (pair) cookie = cookie ? `${cookie}; ${pair}` : pair;
 		}
 	}
+	async function loginWithPassword(nextPassword) {
+		const response = await uiFetch('/login', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ password: nextPassword }),
+			redirect: 'manual'
+		});
+		if (![303, 302].includes(response.status)) {
+			const text = await response.text();
+			const redirectEnvelope = safeJson(text);
+			assert(
+				response.status === 200 &&
+					(redirectEnvelope?.type === 'redirect' || redirectEnvelope?.location === '/'),
+				`login fallback failed: ${response.status} ${text}`
+			);
+		}
+	}
 	return {
 		async setupFirstAccount(nextPassword) {
 			const body = new URLSearchParams({ password: nextPassword, confirm: nextPassword });
@@ -288,6 +369,7 @@ function createUiSession(baseUrl) {
 					`first account setup failed: ${response.status} ${text}`
 				);
 			}
+			if (!cookie.includes('hermes_sess=')) await loginWithPassword(nextPassword);
 			assert(cookie.includes('hermes_sess='), 'first account setup did not return a session cookie');
 		},
 		async getJson(pathname) {
@@ -331,16 +413,55 @@ function createUiSession(baseUrl) {
 
 async function waitForReport(session, jobId) {
 	const started = Date.now();
+	const progress = {
+		boardPolls: 0,
+		reportSeen: false,
+		runStatuses: new Set(),
+		sourceCounts: [],
+		stepLabels: new Set(),
+		toolNames: new Set(),
+		latestRun: null
+	};
 	while (Date.now() - started < 90_000) {
 		const board = await session.getJson('/api/hermes/board');
+		recordBoardProgress(progress, board, jobId);
 		const post = board.posts?.find((candidate) => candidate.jobId === jobId && candidate.kind === 'report');
 		if (post?.id) {
+			progress.reportSeen = true;
 			const detail = await session.getJson(`/api/hermes/reports/${encodeURIComponent(post.id)}`);
-			return { ...post, ...detail };
+			return { ...post, ...detail, producerProgress: progress };
 		}
 		await delay(750);
 	}
 	throw new Error(`Timed out waiting for report for ${jobId}`);
+}
+
+function recordBoardProgress(progress, board, jobId) {
+	progress.boardPolls += 1;
+	const runs = (board.runs || []).filter((run) => run.jobId === jobId);
+	for (const run of runs) {
+		if (run.status) progress.runStatuses.add(run.status);
+		if (typeof run.sourceCount === 'number') progress.sourceCounts.push(run.sourceCount);
+		for (const step of run.steps || []) {
+			if (step.label) progress.stepLabels.add(step.label);
+		}
+		for (const tool of run.toolCalls || []) {
+			if (tool.name) progress.toolNames.add(tool.name);
+		}
+		progress.latestRun = run;
+	}
+	const channel = board.channels?.find((candidate) => candidate.jobId === jobId);
+	for (const run of [channel?.activeRun, channel?.recentRun].filter(Boolean)) {
+		if (run.status) progress.runStatuses.add(run.status);
+		if (typeof run.sourceCount === 'number') progress.sourceCounts.push(run.sourceCount);
+		for (const step of run.steps || []) {
+			if (step.label) progress.stepLabels.add(step.label);
+		}
+		for (const tool of run.toolCalls || []) {
+			if (tool.name) progress.toolNames.add(tool.name);
+		}
+		progress.latestRun = run;
+	}
 }
 
 async function readLatestHarnessReport() {
@@ -406,23 +527,23 @@ function safeJson(value) {
 
 async function loadSourceProfile() {
 	if (sourceMode === 'fixture' || sourceMode === 'local-fixture') {
-		fixture = await startNewsFixture();
-		const sources = [
-			{
-				id: 'local-wire-rss',
-				type: 'url',
-				name: 'Local newsroom wire',
-				url: `${fixture.url}/local-news.rss`,
-				enabled: true,
-				sortOrder: 0
-			}
-		];
+		fixture = await startCompetitorCoverageFixture();
+		const sources = COMPETITOR_FIXTURE_OUTLETS.map((outlet, index) => ({
+			id: outlet.sourceId,
+			type: 'url',
+			name: outlet.sourceName,
+			url: `${fixture.url}/${outlet.slug}.rss`,
+			enabled: true,
+			sortOrder: index
+		}));
 		return {
 			mode: 'fixture',
-			description: 'Producer acceptance against a deterministic local newsroom RSS feed.',
+			description:
+				'Producer acceptance against deterministic local CBC/CTV/Global-like competitor politics feeds.',
 			sources,
 			prompt: producerMissionPrompt(sources),
-			feedProbe: []
+			feedProbe: [],
+			expectCoverageComparison: true
 		};
 	}
 
@@ -438,7 +559,8 @@ async function loadSourceProfile() {
 		description: 'Producer acceptance against live public RSS feeds used as real editorial inputs.',
 		sources,
 		prompt: producerMissionPrompt(sources),
-		feedProbe
+		feedProbe,
+		expectCoverageComparison: false
 	};
 }
 
@@ -470,12 +592,14 @@ function producerMissionPrompt(sources) {
 
 Use the attached RSS feeds (${sourceNames}) as live inputs. Answer the questions a producer would actually ask before assigning coverage:
 - What are the strongest lead candidates right now?
+- Where does coverage converge or differ across the attached outlets?
+- Which outlet is leading the coverage, which outlet is following or adding reaction, and which outlet adds verification gaps?
 - Why would our audience care today?
 - What facts are confirmed by the feed text, and what still needs a call, document, or second source?
 - What source notes should an editor see before approving the assignment?
 - What should remain blocked from publishing until a human reviews it?
 
-Write in plain newsroom language, not implementation language. Do not mention harnesses, APIs, SDKs, tests, fixtures, or databases. Do not invent facts beyond the feed text. Output markdown with these sections exactly:
+Write a compact, non-duplicative brief in plain newsroom language, not implementation language. Do not mention harnesses, APIs, SDKs, tests, fixtures, or databases. Do not copy navigation text, subscription prompts, or site chrome. Do not invent facts beyond the feed text. Output markdown with these sections exactly:
 ## Summary
 ## Lead Candidates
 ## Source Notes
@@ -513,13 +637,21 @@ async function assertReadableFeeds(sources) {
 }
 
 function assertProducerReport(markdown, sourceProfile) {
+	assert(markdown.length <= 9000, `producer report is too large for acceptance (${markdown.length} chars)`);
+	const wordCount = markdown.split(/\s+/).filter(Boolean).length;
+	assert(wordCount <= 1400, `producer report is too wordy for acceptance (${wordCount} words)`);
+
 	for (const section of ['Summary', 'Lead Candidates', 'Source Notes', 'Verification Notes', 'Human Review']) {
-		assert(new RegExp(`^##\\s+${section}\\s*$`, 'im').test(markdown), `completed report is missing ${section}`);
+		const matches = markdown.match(new RegExp(`^##\\s+${section}\\s*$`, 'gim')) || [];
+		assert(matches.length >= 1, `completed report is missing ${section}`);
+		assert(matches.length === 1, `completed report repeats the ${section} section`);
 	}
+	assertNoRepeatedReportLoops(markdown);
+	assertNoSiteChrome(markdown);
 
 	const checks = [
 		[/lead candidate|lead-worthy|lead story|top story|strongest/i, 'lead candidates'],
-		[/audience|why it matters|public impact|viewers|readers/i, 'audience relevance'],
+		[/audience|why it matters|public impact|viewers|readers|voters?|cost-of-living|public-interest|stakes/i, 'audience relevance'],
 		[/verify|confirm|corroborate|second source|primary source|before publishing/i, 'verification work'],
 		[/human review|editor|producer|approval|do not publish|blocked from publishing/i, 'human editorial approval']
 	];
@@ -550,6 +682,96 @@ function assertProducerReport(markdown, sourceProfile) {
 		!/No structured|No lead candidates were ranked|No external source URLs/i.test(markdown),
 		'producer report fell back to missing-content boilerplate'
 	);
+
+	if (sourceProfile.expectCoverageComparison) {
+		assertCoverageComparison(markdown, sourceProfile);
+	}
+}
+
+function assertProducerProgress(progress, sourceProfile) {
+	assert(progress?.boardPolls > 0, 'producer acceptance did not poll the board for run progress');
+	assert(progress.reportSeen === true, 'producer acceptance did not observe the saved report through the board');
+	assert(progress.runStatuses.size > 0, 'board did not expose a run status for the producer mission');
+	assert(
+		[...progress.runStatuses].some((status) => /queued|running|completed/i.test(status)),
+		`board exposed only unexpected run statuses: ${[...progress.runStatuses].join(', ')}`
+	);
+	const latestRun = progress.latestRun;
+	assert(latestRun?.id, 'board did not expose a concrete run id for the producer mission');
+	assert(
+		latestRun.startedAt || latestRun.completedAt || latestRun.latestActivityAt || latestRun.updatedAt || latestRun.queuedAt,
+		'board run did not expose any run timing/progress timestamp'
+	);
+	const bestSourceCount = Math.max(0, ...progress.sourceCounts);
+	assert(
+		bestSourceCount >= Math.min(1, sourceProfile.sources.length),
+		`board run progress did not expose usable source activity (sourceCount=${bestSourceCount})`
+	);
+	assert(
+		progress.stepLabels.size > 0 || progress.toolNames.size > 0,
+		'board run progress did not expose steps or tool activity for producer confidence'
+	);
+}
+
+function assertNoRepeatedReportLoops(markdown) {
+	const headings = markdown
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => /^##\s+/.test(line));
+	const headingSignature = headings.join(' > ').toLowerCase();
+	assert(
+		!/(summary > lead candidates > source notes > verification notes > human review).*\1/i.test(headingSignature),
+		'producer report appears to repeat the full section loop'
+	);
+
+	const repeatedLines = new Map();
+	for (const line of markdown.split(/\r?\n/)) {
+		const normalized = line.replace(/\s+/g, ' ').trim().toLowerCase();
+		if (normalized.length < 36 || /^##\s+/.test(normalized)) continue;
+		repeatedLines.set(normalized, (repeatedLines.get(normalized) || 0) + 1);
+	}
+	const offenders = [...repeatedLines.entries()].filter(([, count]) => count > 2);
+	assert(offenders.length === 0, `producer report repeats long lines: ${offenders[0]?.[0]}`);
+}
+
+function assertNoSiteChrome(markdown) {
+	const siteChromeChecks = [
+		[/skip\s+to\s+main\s+content/i, 'skip-to-main-content navigation'],
+		[/\bsubscribe\b/i, 'subscription prompt'],
+		[/theme\s+toggle|toggle\s+theme|dark\s+mode|light\s+mode/i, 'theme toggle chrome'],
+		[/sign\s+in\s+to\s+save|create\s+an\s+account/i, 'account chrome'],
+		[/advertisement|privacy\s+policy|terms\s+of\s+use/i, 'site footer/navigation chrome']
+	];
+	for (const [pattern, label] of siteChromeChecks) {
+		assert(!pattern.test(markdown), `producer report includes ${label}`);
+	}
+}
+
+function assertCoverageComparison(markdown, sourceProfile) {
+	const lowerMarkdown = markdown.toLowerCase();
+	for (const outlet of sourceProfile.sources) {
+		const shortName = outlet.name.split(/\s+/)[0]?.toLowerCase();
+		assert(shortName && lowerMarkdown.includes(shortName), `coverage comparison is missing ${outlet.name}`);
+	}
+	assert(
+		/\b(compare|compared|comparison|converge|diverge|differ|different|while|whereas|unlike|across outlets|coverage gap|same federal|also reports)\b/i.test(
+			markdown
+		),
+		'producer report does not include coverage-comparison language across outlets'
+	);
+	const paragraphs = markdown.split(/\n{2,}/);
+	assert(
+		paragraphs.some((paragraph) => outletMentionCount(paragraph, sourceProfile.sources) >= 2),
+		'producer report does not compare at least two outlets in the same report passage'
+	);
+}
+
+function outletMentionCount(text, sources) {
+	const lowerText = text.toLowerCase();
+	return sources.filter((source) => {
+		const shortName = source.name.split(/\s+/)[0]?.toLowerCase();
+		return shortName && lowerText.includes(shortName);
+	}).length;
 }
 
 function assertProducerSourcesPersisted(storedSources, sourceProfile) {
@@ -562,31 +784,26 @@ function assertProducerSourcesPersisted(storedSources, sourceProfile) {
 	}
 }
 
-async function startNewsFixture() {
+async function startCompetitorCoverageFixture() {
 	const server = createServer((req, res) => {
 		const base = `http://${req.headers.host}`;
-		if (req.url === '/local-news.rss') {
+		const pathname = new URL(req.url || '/', base).pathname;
+		const outlet = COMPETITOR_FIXTURE_OUTLETS.find((candidate) => `/${candidate.slug}.rss` === pathname);
+		if (outlet) {
 			res.writeHead(200, { 'content-type': 'application/rss+xml; charset=utf-8' });
-			res.end(`<?xml version="1.0" encoding="UTF-8" ?>
-<rss version="2.0">
-  <channel>
-    <title>NewsCraft Local Newsroom Wire</title>
-    <item>
-      <title>City council schedules emergency budget hearing</title>
-      <link>${base}/budget-hearing</link>
-      <description>Council leaders scheduled an emergency hearing after a revised finance memo projected a transit funding gap. Producers should confirm the agenda, dollar figure, and public comment window.</description>
-    </item>
-    <item>
-      <title>Hospital network reports overnight emergency room diversion</title>
-      <link>${base}/hospital-diversion</link>
-      <description>The regional hospital network said two emergency departments diverted ambulances overnight because of staffing pressure. Producers should call the hospitals and emergency services before assigning a live update.</description>
-    </item>
-  </channel>
-</rss>`);
+			res.end(renderOutletFeed(base, outlet));
 			return;
 		}
-		res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-		res.end('<title>NewsCraft Producer Wire</title><article>Deterministic local producer source article.</article>');
+		const page = COMPETITOR_FIXTURE_OUTLETS.flatMap((candidate) =>
+			candidate.items.map((item) => ({ ...item, outlet: candidate }))
+		).find((candidate) => `/${candidate.outlet.slug}/${candidate.id}` === pathname);
+		if (page) {
+			res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+			res.end(renderOutletPage(page.outlet, page));
+			return;
+		}
+		res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+		res.end('not found');
 	});
 	await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 	const address = server.address();
@@ -594,6 +811,52 @@ async function startNewsFixture() {
 		url: `http://127.0.0.1:${address.port}`,
 		close: () => new Promise((resolve) => server.close(resolve))
 	};
+}
+
+function renderOutletFeed(base, outlet) {
+	return `<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+  <channel>
+    <title>${escapeXml(outlet.title)}</title>
+${outlet.items
+	.map(
+		(item) => `    <item>
+      <title>${escapeXml(item.title)}</title>
+      <link>${base}/${outlet.slug}/${item.id}</link>
+      <description>${escapeXml(item.description)}</description>
+    </item>`
+	)
+	.join('\n')}
+  </channel>
+</rss>`;
+}
+
+function renderOutletPage(outlet, item) {
+	return `<!doctype html>
+<html lang="en">
+	<head>
+		<title>${escapeXml(item.title)}</title>
+		<meta property="og:title" content="${escapeXml(item.title)}" />
+	</head>
+	<body>
+		<main>
+			<article>
+				<h1>${escapeXml(item.title)}</h1>
+				<p>${escapeXml(item.description)}</p>
+				<p>${escapeXml(outlet.sourceName)} says an editor should compare this angle with the other attached politics outlets before assigning a package.</p>
+			</article>
+		</main>
+	</body>
+</html>`;
+}
+
+function escapeXml(value) {
+	return String(value)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
 }
 
 function assert(condition, message) {
