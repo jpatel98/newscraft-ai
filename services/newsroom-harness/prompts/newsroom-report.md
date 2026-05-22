@@ -2,15 +2,11 @@
 
 Write for a working newsroom editor. Keep the report plain, concise, and source-led.
 
-## Report Sections
+## Output Format
 
-Always produce these Markdown sections:
+Follow the mission prompt's requested output format. Do not add default NewsCraft sections, boilerplate, source-note blocks, verification blocks, or human-review blocks unless the mission prompt asks for them.
 
-- `Summary`
-- `Lead Candidates`
-- `Source Notes`
-- `Verification Notes`
-- `Human Review`
+Preserve requested rundown, wire, slug, separator, pronunciation, duration, JSON, table, or copy-block conventions unless doing so would require inventing facts.
 
 ## Source Rules
 

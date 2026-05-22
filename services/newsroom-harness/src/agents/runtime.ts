@@ -2,7 +2,7 @@ import type { GatewayChatMessage, ReasoningEffort } from '@newscraft/shared';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { chooseRole, roleInstructionsFor, roleLabel, type NewsroomRole } from './roles.js';
-import { DisciplinedNewsroomAgent } from './newsroom-agent.js';
+import { DisciplinedNewsroomAgent, type NewsroomAgentRunResult } from './newsroom-agent.js';
 import type { EvidenceObject } from './evidence.js';
 import type { NewsroomAgentConfig } from './harness-config.js';
 import { fetchSourceUrl, sourceFromText, type FetchedSource } from '../tools/sources.js';
@@ -114,7 +114,8 @@ export class NewsroomAgentRuntime {
 			}
 		});
 		const sources = result.evidence.map(evidenceToFetchedSource);
-		return { role, markdown: result.final_answer, sources, evidence: result.evidence };
+		const markdown = await this.synthesizeMissionOutput(prompt, result, context);
+		return { role, markdown, sources, evidence: result.evidence };
 	}
 
 	private localChat(prompt: string): string {
@@ -160,6 +161,36 @@ export class NewsroomAgentRuntime {
 			if (context.signal?.aborted) break;
 		}
 		await (stream as { completed?: Promise<void> }).completed?.catch(() => undefined);
+	}
+
+	private async synthesizeMissionOutput(
+		prompt: string,
+		result: NewsroomAgentRunResult,
+		context: RuntimeContext
+	): Promise<string> {
+		if (!this.controls.openAiApiKey) return result.final_answer;
+		try {
+			const sdk = await import('@openai/agents');
+			sdk.setTracingDisabled(true);
+			const agent = new sdk.Agent({
+				name: 'Cron Mission Output Writer',
+				instructions: [
+					'You write the final output for a scheduled newsroom cron mission.',
+					'The mission prompt is the output contract. Follow it exactly.',
+					'Do not add default NewsCraft sections, source notes, verification notes, human-review notes, or boilerplate unless the mission prompt asks for them.',
+					'Use only the provided evidence. If the evidence is insufficient, say so in the requested format or as plainly as possible.',
+					'Return only the mission output.'
+				].join('\n')
+			});
+			const response = await (sdk.run as any)(agent, missionSynthesisInput(prompt, result), {
+				maxTurns: 1,
+				model: context.model,
+				signal: context.signal
+			});
+			return String(response.finalOutput || '').trim() || result.final_answer;
+		} catch {
+			return result.final_answer;
+		}
 	}
 
 	private createSdkAgent(sdk: typeof import('@openai/agents'), role: NewsroomRole, context: RuntimeContext) {
@@ -301,55 +332,40 @@ function evidenceToFetchedSource(evidence: EvidenceObject): FetchedSource {
 	};
 }
 
-function missionPrompt(prompt: string, role: NewsroomRole, sources: FetchedSource[]): string {
-	const sourceBlock = sources.length
-		? sources
-				.map((source, index) => `${index + 1}. ${source.title}\n${source.url}\n${source.summary}`)
+function missionSynthesisInput(prompt: string, result: NewsroomAgentRunResult): string {
+	const evidence = result.evidence.length
+		? result.evidence
+				.slice(0, 20)
+				.map((item, index) =>
+					[
+						`Source ${index + 1}: ${item.title}`,
+						`URL: ${item.source_url}`,
+						item.published_at ? `Published: ${item.published_at}` : null,
+						`Accessed: ${item.accessed_at}`,
+						`Text: ${truncateEvidence(item.extracted_text || item.summary || item.title)}`
+					]
+						.filter(Boolean)
+						.join('\n')
+				)
 				.join('\n\n')
-		: 'No sources were fetched before synthesis.';
-	return `${roleInstructionsFor(role)}
-
-Task:
+		: 'No usable evidence was gathered.';
+	const limitations = result.limitations.length ? result.limitations.join('\n') : 'None recorded.';
+	return `Mission prompt:
 ${prompt}
 
-Fetched source provenance:
-${sourceBlock}
+Evidence gathered for this run:
+${evidence}
 
-Write a concise markdown mission report for an editor in plain newsroom language. Include sections for Summary, Lead Candidates, Source Notes, Verification Notes, and Human Review. Do not mention implementation details such as harnesses, APIs, SDKs, or databases. Do not publish anything.`;
+Limitations:
+${limitations}
+
+Write the mission output now. Follow the mission prompt's requested output format exactly.`;
 }
 
-function localMissionMarkdown(prompt: string, role: NewsroomRole, sources: FetchedSource[]): string {
-	const sourceLines = sources.length
-		? sources.map((source) => `- [${source.title}](${source.url}) fetched ${source.fetchedAt}: ${source.summary}`)
-		: ['- No external source URLs were configured or fetched for this run.'];
-	const candidateLines = sources.length
-		? sources.map((source) => `- ${source.title}: possible lead candidate if an editor confirms the feed details and audience impact.`)
-		: ['- No lead candidates can be ranked until the producer attaches usable source feeds.'];
-	return `## Summary
-
-NewsCraft ${roleLabel(role)} prepared an editor-facing brief for:
-
-> ${prompt.split('\n')[0]?.slice(0, 280) || 'Untitled mission'}
-
-${sources.length ? `The brief uses ${sources.length} source feed${sources.length === 1 ? '' : 's'} as starting points for producer review.` : 'The brief needs source feeds before an editor can make an assignment decision.'}
-
-## Lead Candidates
-
-${candidateLines.join('\n')}
-
-## Source Notes
-
-${sourceLines.join('\n')}
-
-## Verification Notes
-
-- Treat this as an editor-facing draft, not a publishable final.
-- Confirm any factual claims against primary sources before use.
-- No CMS, social, or publishing action was taken.
-
-## Human Review
-
-An editor must approve story angle, sourcing, legal/privacy sensitivity, and publication decisions.`;
+function truncateEvidence(value: string, maxLength = 1800): string {
+	const cleaned = value.replace(/\s+/g, ' ').trim();
+	if (cleaned.length <= maxLength) return cleaned;
+	return `${cleaned.slice(0, maxLength - 1).trim()}…`;
 }
 
 export function textDeltaFromSdkEvent(event: unknown): string {

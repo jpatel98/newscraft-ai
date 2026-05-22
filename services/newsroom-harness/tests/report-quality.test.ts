@@ -74,29 +74,38 @@ City desk confirms river inspection. Officials scheduled a levee inspection afte
 		expect(wrapped.markdown).not.toContain('too_long');
 	});
 
-	it('keeps concise producer reports and fills any missing required section', () => {
-		const goodMarkdown = `## Summary
+	it('keeps valid mission output exactly as generated', () => {
+		const goodMarkdown = `CP News Outlook
 
+(City-River-Inspection)
 City officials scheduled a river inspection after overnight rain.
+The public works office says the inspection is expected this afternoon.
+(7)
+---`;
 
-## Lead Candidates
-
-- River inspection follow-up for the city desk.
-
-## Source Notes
-
-- Local fixture feed reported the inspection timing.
-
-## Verification Notes
-
-Confirm the inspection schedule with the public works office.`;
-
-		const quality = assessReportQuality(goodMarkdown);
 		const wrapped = wrapMissionReport(job, goodMarkdown, '2026-05-22T12:00:00.000Z');
 
-		expect(quality.ok).toBe(true);
+		expect(assessReportQuality(goodMarkdown).ok).toBe(true);
 		expect(wrapped.markdown).toContain('City officials scheduled a river inspection');
-		expect(wrapped.markdown).toContain('## Human Review');
+		expect(wrapped.markdown).toContain('(City-River-Inspection)');
+		expect(wrapped.markdown).not.toContain('## Human Review');
+		expect(wrapped.markdown).not.toContain('## Lead Candidates');
+		expect(wrapped.markdown).not.toContain('failed quality checks');
+	});
+
+	it('does not require a recognized format to avoid default section injection', () => {
+		const customMarkdown = `ASSIGNMENT DESK QUEUE
+
+1. River inspection follow-up
+2. Call public works
+3. Hold for editor review`;
+
+		const wrapped = wrapMissionReport(job, customMarkdown, '2026-05-22T12:00:00.000Z');
+
+		expect(wrapped.markdown).toContain('ASSIGNMENT DESK QUEUE');
+		expect(wrapped.markdown).not.toContain('## Lead Candidates');
+		expect(wrapped.markdown).not.toContain('## Source Notes');
+		expect(wrapped.markdown).not.toContain('## Human Review');
 		expect(wrapped.markdown).not.toContain('failed quality checks');
 	});
 });

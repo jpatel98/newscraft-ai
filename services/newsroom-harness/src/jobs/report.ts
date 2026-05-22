@@ -2,44 +2,10 @@ import type { NewsroomJobDto } from '@newscraft/shared';
 import { filenameTimestamp } from '../util/ids.js';
 import { assessReportQuality, fallbackProducerReport } from '../util/report-quality.js';
 
-const REQUIRED_EDITOR_SECTIONS = [
-	{
-		title: 'Summary',
-		fallback: 'No structured summary was produced. Review the source notes and run log before using this draft.'
-	},
-	{
-		title: 'Lead Candidates',
-		fallback: 'No lead candidates were ranked. A producer should review the source notes before assigning coverage.'
-	},
-	{
-		title: 'Source Notes',
-		fallback: 'No structured source notes were produced. Review stored source snapshots before using this draft.'
-	},
-	{
-		title: 'Verification Notes',
-		fallback: 'Confirm factual claims against primary sources and resolve unclear sourcing before use.'
-	},
-	{
-		title: 'Human Review',
-		fallback: 'A human editor must approve story angle, sourcing, legal/privacy sensitivity, and publication decisions.'
-	}
-] as const;
-
-function ensureProducerReportSections(markdown: string): string {
-	let report = markdown.trim();
-	for (const section of REQUIRED_EDITOR_SECTIONS) {
-		const heading = new RegExp(`^#{2,3}\\s+${escapeRegExp(section.title)}\\s*$`, 'im');
-		if (!heading.test(report)) {
-			report += `\n\n## ${section.title}\n\n${section.fallback}`;
-		}
-	}
-	return report;
-}
-
 export function wrapMissionReport(job: NewsroomJobDto, markdown: string, runTime: string): { filename: string; markdown: string } {
 	const filename = `${filenameTimestamp(new Date(runTime))}.md`;
 	const quality = assessReportQuality(markdown);
-	const report = ensureProducerReportSections(quality.ok ? markdown : fallbackProducerReport());
+	const report = quality.ok ? markdown.trim() : fallbackProducerReport();
 	return {
 		filename,
 		markdown: `# Cron Job: ${job.name}
@@ -85,8 +51,4 @@ export async function postReportToUi(input: {
 		signal: input.signal
 	});
 	if (!response.ok) throw new Error(`UI ingest ${response.status}: ${await response.text()}`);
-}
-
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

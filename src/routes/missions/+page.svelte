@@ -21,7 +21,6 @@
 		| 'queued'
 		| 'running'
 		| 'finishing'
-		| 'output-saved'
 		| 'failed'
 		| 'finished-no-output'
 		| 'timeout';
@@ -98,10 +97,6 @@
 	const selectedProgressRun = $derived(selectedRun ?? selectedRunHistory[0] ?? selectedChannel?.recentRun ?? null);
 	const selectedProgressItems = $derived(progressItems(selectedProgressRun));
 	const latestPost = $derived(selectedPosts[0] ?? null);
-	const latestOutputMarkdown = $derived(
-		latestPost ? latestPost.responseMarkdown || outputMarkdownById[latestPost.id] || '' : ''
-	);
-	const latestOutputExpanded = $derived(Boolean(latestPost && expandedOutputPostId === latestPost.id));
 	const runWatchVisible = $derived(
 		Boolean(runWatch && selectedChannel && runWatch.channelSlug === selectedChannel.slug)
 	);
@@ -207,6 +202,10 @@
 		} finally {
 			if (outputLoadingId === post.id) outputLoadingId = null;
 		}
+	}
+
+	function savedOutputMarkdown(post: BoardPost): string {
+		return post.responseMarkdown || outputMarkdownById[post.id] || '';
 	}
 
 	function selectChannel(channel: BoardChannel) {
@@ -736,17 +735,10 @@
 			if (outcome.kind === 'new-post' && latest) {
 				selectedSlug = input.channelSlug;
 				if (runWatch && runWatch.jobId === input.jobId) {
-					runWatch = {
-						...runWatch,
-						status: 'output-saved',
-						lastCheckedAt: Date.now(),
-						message: 'Run completed and output was saved.',
-						detail: null,
-						latestPostId
-					};
+					runWatch = null;
 				}
-				notice = 'Mission run completed.';
-				noticeChannelSlug = input.channelSlug;
+				notice = null;
+				noticeChannelSlug = null;
 				replaceChannelUrl();
 				clearRunPoll();
 				stopRunWatchTicker();
@@ -1008,7 +1000,6 @@
 	function runWatchTone(status: RunWatchStatus): Tone {
 		if (status === 'failed') return 'error';
 		if (status === 'timeout' || status === 'finished-no-output') return 'warn';
-		if (status === 'output-saved') return 'ok';
 		if (status === 'queued') return 'warn';
 		return 'running';
 	}
@@ -1350,13 +1341,11 @@
 												? 'Running'
 												: runWatch.status === 'finishing'
 													? 'Finishing'
-												: runWatch.status === 'output-saved'
-													? 'Completed'
-													: runWatch.status === 'failed'
-														? 'Failed'
-														: runWatch.status === 'finished-no-output'
-															? 'Done'
-															: 'Timed out'}
+												: runWatch.status === 'failed'
+													? 'Failed'
+													: runWatch.status === 'finished-no-output'
+														? 'Done'
+														: 'Timed out'}
 								</span>
 								<span class="run-watch__message">{runWatch.message}</span>
 								{#if runWatchElapsed || runWatch.lastCheckedAt || runWatch.detail}
@@ -1504,31 +1493,44 @@
 						{/if}
 					</section>
 
-					{#if latestPost}
-						<section class="latest-output" aria-label="Latest saved output">
-							<div class="latest-output__head">
-								<span>Latest saved output</span>
-								<strong>{formatDate(latestPost.runTime)}</strong>
+					{#if selectedPosts.length}
+						<section class="saved-outputs" aria-label="Saved outputs">
+							<div class="saved-outputs__head">
+								<div>
+									<div class="channels__eyebrow">Saved outputs</div>
+									<h2 class="saved-outputs__title">Mission reports</h2>
+								</div>
+								<strong>{selectedPosts.length}</strong>
 							</div>
-							<p>{latestPost.preview || 'Output saved for this mission.'}</p>
-							<details
-								class="latest-output__details"
-								open={latestOutputExpanded}
-								ontoggle={(event) => handleLatestOutputToggle(event, latestPost)}
-							>
-								<summary>View full output</summary>
-								{#if outputLoadingId === latestPost.id}
-									<div class="latest-output__status">Loading saved output...</div>
-								{:else if outputLoadError}
-									<div class="latest-output__status latest-output__status--error">
-										Could not load saved output: {outputLoadError}
-									</div>
-								{:else if latestOutputMarkdown}
-									<pre>{latestOutputMarkdown}</pre>
-								{:else}
-									<div class="latest-output__status">No full output was saved for this report.</div>
-								{/if}
-							</details>
+							<div class="saved-outputs__list">
+								{#each selectedPosts as post, index (post.id)}
+									<article class="latest-output" aria-label={index === 0 ? 'Latest saved output' : 'Saved output'}>
+										<div class="latest-output__head">
+											<span>{index === 0 ? 'Latest saved output' : 'Saved output'}</span>
+											<strong>{formatDate(post.runTime)}</strong>
+										</div>
+										<p>{post.preview || 'Output saved for this mission.'}</p>
+										<details
+											class="latest-output__details"
+											open={expandedOutputPostId === post.id}
+											ontoggle={(event) => handleLatestOutputToggle(event, post)}
+										>
+											<summary>View full output</summary>
+											{#if outputLoadingId === post.id}
+												<div class="latest-output__status">Loading saved output...</div>
+											{:else if outputLoadError && expandedOutputPostId === post.id}
+												<div class="latest-output__status latest-output__status--error">
+													Could not load saved output: {outputLoadError}
+												</div>
+											{:else if savedOutputMarkdown(post)}
+												<pre>{savedOutputMarkdown(post)}</pre>
+											{:else}
+												<div class="latest-output__status">No full output was saved for this report.</div>
+											{/if}
+										</details>
+									</article>
+								{/each}
+							</div>
 						</section>
 					{/if}
 				{:else}
@@ -2023,6 +2025,7 @@
 		margin-bottom: 14px;
 	}
 	.mission-progress__head,
+	.saved-outputs__head,
 	.latest-output__head {
 		display: flex;
 		align-items: flex-start;
@@ -2030,7 +2033,27 @@
 		gap: 12px;
 		margin-bottom: 12px;
 	}
+	.saved-outputs {
+		margin-bottom: 14px;
+	}
+	.saved-outputs__head {
+		align-items: center;
+		margin-bottom: 10px;
+	}
+	.saved-outputs__head strong {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--fg-3);
+	}
 	.mission-progress__title {
+		margin: 3px 0 0;
+		font-family: var(--font-display);
+		font-size: 18px;
+		line-height: 1.15;
+		letter-spacing: 0;
+		color: var(--fg-1);
+	}
+	.saved-outputs__title {
 		margin: 3px 0 0;
 		font-family: var(--font-display);
 		font-size: 18px;

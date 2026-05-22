@@ -19,8 +19,19 @@ describe('mission report expanded metadata', () => {
 		expect(source).toContain('View full output');
 		expect(source).toContain('handleLatestOutputToggle');
 		expect(source).toContain('/api/hermes/reports/${encodeURIComponent(post.id)}');
-		expect(source).toContain('<pre>{latestOutputMarkdown}</pre>');
+		expect(source).toContain('{#each selectedPosts as post, index (post.id)}');
+		expect(source).toContain('<pre>{savedOutputMarkdown(post)}</pre>');
 		expect(source).toContain('class="latest-output__details"');
+	});
+
+	it('shows all saved outputs for a mission instead of only the latest one', () => {
+		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+		expect(source).toContain('Saved outputs');
+		expect(source).toContain('Mission reports');
+		expect(source).toContain('{selectedPosts.length}');
+		expect(source).toContain('{#each selectedPosts as post, index (post.id)}');
+		expect(source).not.toContain('const latestOutputMarkdown');
 	});
 
 	it('exposes mission CRUD through the selected mission controls', () => {
@@ -48,6 +59,16 @@ describe('mission report expanded metadata', () => {
 		expect(scheduleToggleIndex).toBeGreaterThan(0);
 		expect(runNowIndex).toBeLessThan(scheduleToggleIndex);
 		expect(source).toContain("{selectedJobRunning ? 'Running' : actionBusy === 'run' ? 'Starting' : 'Run now'}");
+	});
+
+	it('keeps completed manual runs from adding redundant success noise', () => {
+		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+		expect(source).not.toContain('output-saved');
+		expect(source).not.toContain('Run completed and output was saved.');
+		expect(source).not.toContain('Mission run completed.');
+		expect(source).toContain('Run progress');
+		expect(source).toContain('Latest saved output');
 	});
 
 	it('uses the latest run activity for mission status freshness', () => {
