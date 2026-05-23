@@ -25,7 +25,7 @@ function authToken(request: Request): string {
 }
 
 function expectedToken(): string {
-	return (env.HERMES_INGEST_KEY || env.HERMES_API_KEY || '').trim();
+	return (env.NEWSROOM_UI_INGEST_KEY || '').trim();
 }
 
 function tokenMatches(actual: string, expected: string): boolean {
@@ -43,8 +43,9 @@ function parseInput(body: Body) {
 	const markdown = text(body.responseMarkdown) || text(body.markdown);
 	if (!markdown) throw error(400, 'markdown is required');
 
-	const parsed = parseCronMarkdown(markdown, text(body.jobId) || 'unknown');
-	const jobId = text(body.jobId) || parsed.jobId || 'unknown';
+	const parsed = parseCronMarkdown(markdown, text(body.jobId));
+	const jobId = text(body.jobId) || parsed.jobId;
+	if (!jobId) throw error(400, 'jobId is required');
 	const filename = text(body.filename) || `${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
 	const filePathDisplay = text(body.filePathDisplay) || `${jobId}/${filename}`;
 	const runTime = text(body.runTime) || parsed.runTime || timestampFromFilename(filename);
@@ -69,7 +70,7 @@ function parseInput(body: Body) {
 
 export const POST: RequestHandler = async ({ request }) => {
 	const expected = expectedToken();
-	if (!expected) throw error(503, 'HERMES_INGEST_KEY or HERMES_API_KEY must be configured');
+	if (!expected) throw error(503, 'NEWSROOM_UI_INGEST_KEY must be configured');
 	if (!tokenMatches(authToken(request), expected)) throw error(401, 'unauthorized');
 
 	let body: Body;

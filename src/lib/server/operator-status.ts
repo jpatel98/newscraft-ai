@@ -1,7 +1,7 @@
-import { boardData } from '$lib/server/hermes/board';
-import { gatewayHealth } from '$lib/server/hermes/transport';
+import { boardData } from '$lib/server/agent/board';
+import { gatewayHealth } from '$lib/server/agent/transport';
 import { getMaintenanceStatus } from '$lib/server/db/maintenance';
-import type { BoardData, BoardPost, HermesRun, OperatorFooterStatus } from '$lib/types';
+import type { BoardData, BoardPost, AgentRun, OperatorFooterStatus } from '$lib/types';
 
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'pending', 'scheduled', 'started', 'in_progress', 'active']);
 const SUCCESS_RUN_STATUSES = new Set(['completed', 'complete', 'ok', 'success']);
@@ -12,7 +12,7 @@ function parsedTime(value: string | null | undefined): number {
 	return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function latestRunTime(run: HermesRun): number {
+function latestRunTime(run: AgentRun): number {
 	return Math.max(parsedTime(run.completedAt), parsedTime(run.startedAt), parsedTime(run.updatedAt), parsedTime(run.queuedAt));
 }
 
@@ -71,10 +71,10 @@ export async function getOperatorFooterStatus(accountId: string): Promise<Operat
 		boardData(accountId, { includeResponseMarkdown: false })
 	]);
 	const databaseOk = maintenance.db.checks.quickCheck.ok;
-	const hermesAvailable = gateway.ok && !board.jobsError;
+	const agentAvailable = gateway.ok && !board.jobsError;
 
 	return {
-		ok: gateway.ok && hermesAvailable && databaseOk,
+		ok: gateway.ok && agentAvailable && databaseOk,
 		generatedAt: new Date().toISOString(),
 		gateway: {
 			ok: gateway.ok,
@@ -82,9 +82,9 @@ export async function getOperatorFooterStatus(accountId: string): Promise<Operat
 			label: gateway.ok ? `HTTP ${gateway.status}` : 'Offline',
 			detail: gateway.ok ? null : gateway.body || null
 		},
-		hermes: {
-			available: hermesAvailable,
-			label: hermesAvailable ? 'Available' : 'Unavailable',
+		agent: {
+			available: agentAvailable,
+			label: agentAvailable ? 'Available' : 'Unavailable',
 			detail: board.jobsError ?? (!gateway.ok ? gateway.body : null)
 		},
 		lastSuccessfulMissionRun: latestSuccessfulMissionRun(board),

@@ -1,4 +1,4 @@
-CREATE TABLE `hermes_channel_posts` (
+CREATE TABLE `agent_channel_posts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`job_id` text NOT NULL,
 	`channel` text NOT NULL,
@@ -13,5 +13,5 @@ CREATE TABLE `hermes_channel_posts` (
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `hermes_posts_job_run_idx` ON `hermes_channel_posts` (`job_id`,`run_time`);--> statement-breakpoint
-CREATE INDEX `hermes_posts_path_idx` ON `hermes_channel_posts` (`file_path_display`);
+CREATE INDEX `agent_posts_job_run_idx` ON `agent_channel_posts` (`job_id`,`run_time`);--> statement-breakpoint
+CREATE INDEX `agent_posts_path_idx` ON `agent_channel_posts` (`file_path_display`);

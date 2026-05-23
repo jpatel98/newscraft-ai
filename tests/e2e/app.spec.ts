@@ -93,7 +93,7 @@ test.describe.serial('NewsCraft app shell', () => {
 
 		await expect(page).toHaveURL(/\/c\/[^/]+$/);
 		await expect(page.getByText(message)).toBeVisible();
-		await expect(page.getByText(/couldn't reach the Hermes gateway/i)).toBeVisible();
+		await expect(page.getByText(/couldn't reach the agent gateway/i)).toBeVisible();
 
 		await page.getByRole('button', { name: 'Toggle sidebar' }).click();
 		await expect(page.getByRole('complementary', { name: 'Sidebar' })).toBeVisible();

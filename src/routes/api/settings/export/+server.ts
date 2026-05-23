@@ -54,7 +54,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 	return new Response(stream, {
 		headers: {
 			'Content-Type': 'application/x-ndjson',
-			'Content-Disposition': `attachment; filename="hermes-export-${today}.jsonl"`,
+			'Content-Disposition': `attachment; filename="agent-export-${today}.jsonl"`,
 			'Cache-Control': 'no-store'
 		}
 	});

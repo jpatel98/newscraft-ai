@@ -5,7 +5,7 @@ import { ensureMigrated } from '$lib/server/db';
 import { accountCount, getAccount } from '$lib/server/db/accounts';
 
 const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
-const PUBLIC_PREFIXES = ['/api/health', '/api/hermes/channel-posts', '/account-setup'];
+const PUBLIC_PREFIXES = ['/api/health', '/api/agent/channel-posts', '/account-setup'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	await ensureMigrated();

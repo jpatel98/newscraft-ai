@@ -63,8 +63,8 @@ export const settings = pgTable('settings', {
 	value: text('value').notNull()
 });
 
-export const hermesChannelPosts = pgTable(
-	'hermes_channel_posts',
+export const agentChannelPosts = pgTable(
+	'agent_channel_posts',
 	{
 		id: text('id').primaryKey(),
 		accountId: text('account_id')
@@ -83,9 +83,9 @@ export const hermesChannelPosts = pgTable(
 		updatedAt: timestampMs('updated_at').notNull()
 	},
 	(t) => ({
-		accountJobIdx: index('hermes_posts_account_job_idx').on(t.accountId, t.jobId),
-		jobRunIdx: index('hermes_posts_job_run_idx').on(t.jobId, t.runTime),
-		pathIdx: index('hermes_posts_path_idx').on(t.filePathDisplay)
+		accountJobIdx: index('agent_posts_account_job_idx').on(t.accountId, t.jobId),
+		jobRunIdx: index('agent_posts_job_run_idx').on(t.jobId, t.runTime),
+		pathIdx: index('agent_posts_path_idx').on(t.filePathDisplay)
 	})
 );
 
@@ -179,7 +179,7 @@ export const missionReports = pgTable(
 	})
 );
 
-export const hermesChannelConfigs = pgTable('hermes_channel_configs', {
+export const agentChannelConfigs = pgTable('agent_channel_configs', {
 	jobId: text('job_id').primaryKey(),
 	accountId: text('account_id')
 		.notNull()
@@ -189,13 +189,13 @@ export const hermesChannelConfigs = pgTable('hermes_channel_configs', {
 	updatedAt: timestampMs('updated_at').notNull()
 });
 
-export const hermesChannelSources = pgTable(
-	'hermes_channel_sources',
+export const agentChannelSources = pgTable(
+	'agent_channel_sources',
 	{
 		id: text('id').primaryKey(),
 		jobId: text('job_id')
 			.notNull()
-			.references(() => hermesChannelConfigs.jobId, { onDelete: 'cascade' }),
+			.references(() => agentChannelConfigs.jobId, { onDelete: 'cascade' }),
 		type: text('type', { enum: ['url'] }).notNull().default('url'),
 		name: text('name').notNull(),
 		configJson: text('config_json').notNull(),
@@ -205,7 +205,7 @@ export const hermesChannelSources = pgTable(
 		updatedAt: timestampMs('updated_at').notNull()
 	},
 	(t) => ({
-		jobIdx: index('hermes_sources_job_idx').on(t.jobId, t.sortOrder),
-		typeIdx: index('hermes_sources_type_idx').on(t.type)
+		jobIdx: index('agent_sources_job_idx').on(t.jobId, t.sortOrder),
+		typeIdx: index('agent_sources_type_idx').on(t.type)
 	})
 );

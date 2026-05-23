@@ -47,10 +47,10 @@ export function chatCompletionDeltaFrame(
 	return sseFrame({ data: chatCompletionDelta(content, options) });
 }
 
-export function hermesToolProgressFrame(data: unknown): string {
-	return sseFrame({ event: 'hermes.tool.progress', data });
+export function agentToolProgressFrame(data: unknown): string {
+	return sseFrame({ event: 'agent.tool.progress', data });
 }
 
-export function hermesSourceFrame(data: unknown): string {
-	return sseFrame({ event: 'hermes.source', data });
+export function agentSourceFrame(data: unknown): string {
+	return sseFrame({ event: 'agent.source', data });
 }

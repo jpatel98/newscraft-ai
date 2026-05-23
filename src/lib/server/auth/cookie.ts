@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 
-const COOKIE = 'hermes_sess';
+const COOKIE = 'agent_sess';
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 interface Payload {

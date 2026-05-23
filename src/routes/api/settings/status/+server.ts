@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { getMaintenanceStatus } from '$lib/server/db/maintenance';
-import { gatewayHealth } from '$lib/server/hermes/transport';
+import { gatewayHealth } from '$lib/server/agent/transport';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');

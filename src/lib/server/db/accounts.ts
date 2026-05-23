@@ -3,7 +3,7 @@ import { count, desc, eq, isNull } from 'drizzle-orm';
 import { hashPassword, verifyHash } from '$lib/server/auth/password';
 import { newId } from '$lib/utils/id';
 import { db } from './index';
-import { accounts, conversations, hermesChannelConfigs, hermesChannelPosts, missionReports, missions } from './schema';
+import { accounts, conversations, agentChannelConfigs, agentChannelPosts, missionReports, missions } from './schema';
 
 const SETUP_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 let cachedAccountCount: number | null = null;
@@ -193,12 +193,12 @@ async function claimOrphanAccountData(accountId: string): Promise<void> {
 		await tx.update(conversations).set({ accountId }).where(isNull(conversations.accountId));
 		await tx.update(missions).set({ accountId }).where(isNull(missions.accountId));
 		await tx.update(missionReports).set({ accountId }).where(isNull(missionReports.accountId));
-		await tx.update(hermesChannelConfigs)
+		await tx.update(agentChannelConfigs)
 			.set({ accountId })
-			.where(isNull(hermesChannelConfigs.accountId));
-		await tx.update(hermesChannelPosts)
+			.where(isNull(agentChannelConfigs.accountId));
+		await tx.update(agentChannelPosts)
 			.set({ accountId })
-			.where(isNull(hermesChannelPosts.accountId));
+			.where(isNull(agentChannelPosts.accountId));
 	});
 }
 

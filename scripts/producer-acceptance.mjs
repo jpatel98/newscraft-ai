@@ -125,7 +125,8 @@ async function main() {
 	const rootEnv = await readEnvFile(path.join(root, '.env.local'));
 	const harnessFileEnv = await readEnvFile(path.join(root, 'services', 'newsroom-harness', '.env.local'));
 	const harnessKey = harnessFileEnv.NEWSROOM_HARNESS_API_KEY || rootEnv.AGENT_GATEWAY_API_KEY || 'producer-acceptance-harness-key';
-	const ingestKey = rootEnv.HERMES_INGEST_KEY || rootEnv.HERMES_API_KEY || harnessFileEnv.NEWSROOM_UI_INGEST_KEY || 'producer-acceptance-ingest-key';
+	const ingestKey =
+		rootEnv.NEWSROOM_UI_INGEST_KEY || harnessFileEnv.NEWSROOM_UI_INGEST_KEY || 'producer-acceptance-ingest-key';
 	const uiDatabaseUrl = process.env.PRODUCER_ACCEPTANCE_DATABASE_URL || rootEnv.PRODUCER_ACCEPTANCE_DATABASE_URL || process.env.DATABASE_URL || rootEnv.DATABASE_URL || '';
 	const openAiApiKey = disableOpenAi ? '' : harnessFileEnv.OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
 	if (openAiRequired && !openAiApiKey) {
@@ -142,7 +143,7 @@ async function main() {
 		NEWSROOM_HARNESS_PORT: '8650',
 		NEWSROOM_HARNESS_DB_PATH: harnessDbPath,
 		NEWSROOM_HARNESS_API_KEY: harnessKey,
-		NEWSROOM_UI_INGEST_URL: `${uiUrl}/api/hermes/channel-posts`,
+		NEWSROOM_UI_INGEST_URL: `${uiUrl}/api/agent/channel-posts`,
 		NEWSROOM_UI_INGEST_KEY: ingestKey,
 		OPENAI_API_KEY: openAiApiKey
 	};
@@ -153,7 +154,7 @@ async function main() {
 		HOST: '127.0.0.1',
 		AGENT_GATEWAY_URL: harnessUrl,
 		AGENT_GATEWAY_API_KEY: harnessKey,
-		HERMES_INGEST_KEY: ingestKey,
+		NEWSROOM_UI_INGEST_KEY: ingestKey,
 		DATABASE_URL: uiDatabaseUrl,
 		APP_PASSWORD_HASH: '',
 		APP_SESSION_SECRET:
@@ -189,7 +190,7 @@ async function main() {
 	await session.setupFirstAccount(password);
 
 	console.log('Creating producer-style mission.');
-	const mission = await session.postJson('/api/hermes/jobs', {
+	const mission = await session.postJson('/api/agent/jobs', {
 		name: `Morning editorial meeting ${Date.now()}`,
 		description: sourceProfile.description,
 		schedule: 'every 60m',
@@ -202,7 +203,7 @@ async function main() {
 	assert(job?.id, 'mission create response did not include a job id');
 
 	console.log('Running producer mission now.');
-	await session.postJson(`/api/hermes/jobs/${encodeURIComponent(job.id)}/run`, {});
+	await session.postJson(`/api/agent/jobs/${encodeURIComponent(job.id)}/run`, {});
 	const report = await waitForReport(session, job.id);
 	assertProducerProgress(report.producerProgress, sourceProfile);
 	assertProducerReport(report.responseMarkdown, sourceProfile);
@@ -213,14 +214,14 @@ async function main() {
 	const storedSources = await readHarnessSourcesForRun(dbReport.run_id);
 	assertProducerSourcesPersisted(storedSources, sourceProfile);
 
-	await session.postJson(`/api/hermes/jobs/${encodeURIComponent(job.id)}/pause`, {});
-	let board = await session.getJson('/api/hermes/board');
+	await session.postJson(`/api/agent/jobs/${encodeURIComponent(job.id)}/pause`, {});
+	let board = await session.getJson('/api/agent/board');
 	assert(
 		board.jobs?.some((candidate) => candidate.id === job.id && candidate.enabled === false),
 		'mission did not enter paused state'
 	);
-	await session.postJson(`/api/hermes/jobs/${encodeURIComponent(job.id)}/resume`, {});
-	board = await session.getJson('/api/hermes/board');
+	await session.postJson(`/api/agent/jobs/${encodeURIComponent(job.id)}/resume`, {});
+	board = await session.getJson('/api/agent/board');
 	assert(
 		board.jobs?.some((candidate) => candidate.id === job.id && candidate.enabled === true),
 		'mission did not resume'
@@ -369,8 +370,8 @@ function createUiSession(baseUrl) {
 					`first account setup failed: ${response.status} ${text}`
 				);
 			}
-			if (!cookie.includes('hermes_sess=')) await loginWithPassword(nextPassword);
-			assert(cookie.includes('hermes_sess='), 'first account setup did not return a session cookie');
+			if (!cookie.includes('agent_sess=')) await loginWithPassword(nextPassword);
+			assert(cookie.includes('agent_sess='), 'first account setup did not return a session cookie');
 		},
 		async getJson(pathname) {
 			const response = await uiFetch(pathname, { headers: { accept: 'application/json' } });
@@ -423,12 +424,12 @@ async function waitForReport(session, jobId) {
 		latestRun: null
 	};
 	while (Date.now() - started < 90_000) {
-		const board = await session.getJson('/api/hermes/board');
+		const board = await session.getJson('/api/agent/board');
 		recordBoardProgress(progress, board, jobId);
 		const post = board.posts?.find((candidate) => candidate.jobId === jobId && candidate.kind === 'report');
 		if (post?.id) {
 			progress.reportSeen = true;
-			const detail = await session.getJson(`/api/hermes/reports/${encodeURIComponent(post.id)}`);
+			const detail = await session.getJson(`/api/agent/reports/${encodeURIComponent(post.id)}`);
 			return { ...post, ...detail, producerProgress: progress };
 		}
 		await delay(750);

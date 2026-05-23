@@ -1,4 +1,4 @@
-import type { HermesCommand } from '$lib/types';
+import type { AgentCommand } from '$lib/types';
 
 export interface SlashParseResult {
 	raw: string;
@@ -23,7 +23,7 @@ export function parseSlashCommand(input: string): SlashParseResult | null {
 	};
 }
 
-export function filterSlashCommands(commands: HermesCommand[], query: string): HermesCommand[] {
+export function filterSlashCommands(commands: AgentCommand[], query: string): AgentCommand[] {
 	const q = query.trim().toLowerCase().replaceAll('_', '-').replace(/^\//, '');
 	const ranked = commands
 		.map((cmd) => {

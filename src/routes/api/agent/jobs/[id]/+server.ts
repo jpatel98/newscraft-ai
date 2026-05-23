@@ -6,13 +6,14 @@ import {
 	getMissionConfig,
 	saveMissionConfig
 } from '$lib/server/db/missions';
-import { deleteHermesJob, listHermesJobs, updateHermesJob } from '$lib/server/hermes/board';
+import { deleteAgentJob, listAgentJobs, updateAgentJob } from '$lib/server/agent/board';
 import { compileChannelPrompt, normalizeChannelSources } from '$lib/utils/channel-sources';
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-	const id = params.id ?? '';
+	const id = params.id?.trim();
+	if (!id) throw error(400, 'job id is required');
 	const name = typeof body?.name === 'string' ? body.name.trim() : undefined;
 	const description = typeof body?.description === 'string' ? body.description.trim() : undefined;
 	const schedule = typeof body?.schedule === 'string' ? body.schedule.trim() : undefined;
@@ -37,7 +38,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	}
 
 	try {
-		let promptForHermes = prompt;
+		let promptForAgent = prompt;
 		if (
 			prompt !== undefined ||
 			sources !== undefined ||
@@ -48,19 +49,19 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 			deliver !== undefined ||
 			enabled !== undefined
 		) {
-			const existingJob = prompt === undefined ? (await listHermesJobs(locals.user.id)).find((job) => job.id === id) : null;
+			const existingJob = prompt === undefined ? (await listAgentJobs(locals.user.id)).find((job) => job.id === id) : null;
 			const basePrompt = prompt ?? existingConfig?.basePrompt ?? existingJob?.prompt ?? '';
 			const nextSources = sources ?? existingConfig?.sources ?? [];
 			if (prompt !== undefined || sources !== undefined) {
-				promptForHermes = compileChannelPrompt(basePrompt, nextSources);
+				promptForAgent = compileChannelPrompt(basePrompt, nextSources);
 			}
 			configToSave = { basePrompt, sources: nextSources };
 		}
 
-		const job = await updateHermesJob(locals.user.id, id, {
+		const job = await updateAgentJob(locals.user.id, id, {
 			name,
 			schedule,
-			prompt: promptForHermes,
+			prompt: promptForAgent,
 			deliver,
 			enabled
 		});
@@ -92,10 +93,11 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 
 export const DELETE: RequestHandler = async ({ locals, params }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
-	const id = (params.id ?? '').trim();
+	const id = params.id?.trim();
+	if (!id) throw error(400, 'job id is required');
 	await hideChannelJobId(locals.user.id, id);
 	try {
-		await deleteHermesJob(locals.user.id, id);
+		await deleteAgentJob(locals.user.id, id);
 		await deleteMissionConfig(locals.user.id, id);
 		return json({ ok: true });
 	} catch (err) {

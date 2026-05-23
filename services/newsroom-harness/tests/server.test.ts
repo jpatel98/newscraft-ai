@@ -134,7 +134,7 @@ describe('newsroom harness server', () => {
 		const ingest = await startIngestServer(received);
 		const fixture = await startNewsFixtureServer();
 		await startHarness({
-			uiIngestUrl: `${ingest.url}/api/hermes/channel-posts`,
+			uiIngestUrl: `${ingest.url}/api/agent/channel-posts`,
 			uiIngestKey: 'ingest-key'
 		});
 		const job = await createJob({

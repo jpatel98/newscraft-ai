@@ -20,7 +20,7 @@ changes.
 NewsCraft AI is a SvelteKit application for an authenticated newsroom agent UI.
 It supports conversational chat, source-aware agent activity, mission scheduling,
 mission reports, account management, Postgres-backed persistence, export/status
-tools, and a migration path from a legacy Hermes gateway to a NewsCraft-native
+tools, and a migration path from a older agent gateway to a NewsCraft-native
 newsroom harness.
 
 The repo is now a small pnpm monorepo:
@@ -35,10 +35,9 @@ newscraft-ai/
   tests/e2e/                   Playwright app smoke/e2e tests
 ```
 
-The web app still exposes UI route names under `/api/hermes/*` for compatibility,
-but it can point either to the legacy Hermes gateway or the new newsroom harness.
-The preferred gateway during migration is `AGENT_GATEWAY_URL`; the fallback is
-`HERMES_GATEWAY_URL`.
+The web app still exposes UI route names under `/api/agent/*` for compatibility,
+but it can point to the newsroom harness.
+The preferred gateway is `AGENT_GATEWAY_URL`.
 
 The newsroom harness is a separate Node service that listens by default on
 `127.0.0.1:8650`, implements the gateway endpoints the UI needs, owns its own
@@ -124,10 +123,9 @@ SvelteKit app on 127.0.0.1:3001
   |
   +--> App Postgres DB via Drizzle
   |
-  +--> Agent gateway adapter
+  +--> agent gateway adapter
         |
         | Preferred: AGENT_GATEWAY_URL
-        | Fallback:  HERMES_GATEWAY_URL
         v
       Newsroom harness on 127.0.0.1:8650
         |
@@ -147,8 +145,7 @@ The web app owns the user interface, account/session state, local chat
 transcripts, local mission configuration overlays, and mission report display.
 
 The gateway or harness owns model execution and remote job/run execution. During
-the transition, the SvelteKit server keeps Hermes-compatible route and type
-names so the UI can swap gateway implementations without a large rewrite.
+the transition, the SvelteKit server keeps existing route and type names so the UI can swap gateway implementations without a large rewrite.
 
 ## Repository layout
 
@@ -221,7 +218,7 @@ It contains:
 - Job, run, source, and report DTOs.
 - SSE framing helpers.
 - Chat-completion delta helpers.
-- Hermes-compatible tool/source event frame helpers.
+- agent tool/source event frame helpers.
 
 ### `drizzle/`
 
@@ -234,7 +231,7 @@ root `db:generate` and `db:migrate` scripts.
 Important scripts include:
 
 - `scripts/hash-password.mjs` for creating an Argon2 password hash.
-- `scripts/hermes-bridge.py` for legacy Hermes command/skill metadata.
+- `local command registry` for older agent command/skill metadata.
 - `scripts/check-health.mjs` for JSON readiness validation.
 - `scripts/producer-acceptance.mjs` for end-to-end producer acceptance against
   a configured app database and isolated harness database.
@@ -276,23 +273,21 @@ Key runtime properties:
 
 ### Gateway selection
 
-The web app chooses the agent gateway in `src/lib/server/hermes/transport.ts`.
+The web app chooses the agent gateway in `src/lib/server/agent/transport.ts`.
 
 Selection order:
 
 1. `AGENT_GATEWAY_URL`
-2. `HERMES_GATEWAY_URL`
-3. `http://127.0.0.1:8642`
+2. `http://127.0.0.1:8650`
 
 Gateway API key selection:
 
 1. `AGENT_GATEWAY_API_KEY`
 2. `NEWSROOM_HARNESS_API_KEY`
-3. `HERMES_API_KEY`
+3. _none (URL-only auth is allowed)_
 
-If no key is configured while using the legacy Hermes fallback path, the app
-throws a configuration error. When using `AGENT_GATEWAY_URL`, the key can be
-empty if the harness does not require one.
+When using `AGENT_GATEWAY_URL`, the key can be empty if the harness does not
+require one.
 
 ## Data model
 
@@ -306,9 +301,9 @@ Current logical tables:
 - `conversations`
 - `messages`
 - `settings`
-- `hermes_channel_posts`
-- `hermes_channel_configs`
-- `hermes_channel_sources`
+- `agent_channel_posts`
+- `agent_channel_configs`
+- `agent_channel_sources`
 - `missions`
 - `mission_sources`
 - `mission_runs`
@@ -362,7 +357,7 @@ Stores key/value operational settings. Currently used for values such as:
 
 #### Mission/report tables
 
-Mission-related tables support the migration from legacy Hermes channel naming
+Mission-related tables support the migration from older agent channel naming
 to NewsCraft-native missions.
 
 - `missions` stores account-scoped mission config overlays.
@@ -370,11 +365,11 @@ to NewsCraft-native missions.
 - `mission_runs` exists in the app schema for local run state.
 - `mission_reports` stores generated markdown report summaries and full report
   bodies.
-- `hermes_channel_configs`, `hermes_channel_sources`, and
-  `hermes_channel_posts` are legacy compatibility tables.
+- `agent_channel_configs`, `agent_channel_sources`, and
+  `agent_channel_posts` are legacy compatibility tables.
 
 The read paths intentionally fall back from the newer mission tables to legacy
-Hermes channel tables when needed.
+Agent channel tables when needed.
 
 ### Harness database
 
@@ -445,7 +440,7 @@ Stores generated mission reports:
 
 ### Session cookies
 
-The app uses a signed `hermes_sess` cookie.
+The app uses a signed `agent_sess` cookie.
 
 Cookie properties:
 
@@ -484,7 +479,7 @@ The server hook allows these public paths:
 - `/signup`
 - `/setup`
 - `/api/health`
-- `/api/hermes/channel-posts`
+- `/api/agent/channel-posts`
 - `/account-setup/*`
 
 All other app routes require a valid session.
@@ -556,9 +551,9 @@ The app supports several event shapes:
 
 - OpenAI-compatible `chat.completion.chunk` deltas.
 - Responses-style output events.
-- Hermes-compatible `hermes.tool.progress` events.
-- Hermes-compatible source events.
-- App-local `hermes.meta` events.
+- agent `agent.tool.progress` events.
+- agent source events.
+- App-local `agent.meta` events.
 - App-local title update events.
 
 `src/lib/utils/stream-events.ts` normalizes this into:
@@ -613,24 +608,24 @@ The UI currently uses `/missions` as the canonical route. Older `/board`,
 
 ### Web app mission API
 
-The SvelteKit API routes under `/api/hermes/*` provide the UI contract:
+The SvelteKit API routes under `/api/agent/*` provide the UI contract:
 
-- `GET /api/hermes/board`
-- `GET /api/hermes/jobs`
-- `POST /api/hermes/jobs`
-- `PATCH /api/hermes/jobs/[id]`
-- `DELETE /api/hermes/jobs/[id]`
-- `POST /api/hermes/jobs/[id]` actions such as run/pause/resume depending on
+- `GET /api/agent/board`
+- `GET /api/agent/jobs`
+- `POST /api/agent/jobs`
+- `PATCH /api/agent/jobs/[id]`
+- `DELETE /api/agent/jobs/[id]`
+- `POST /api/agent/jobs/[id]` actions such as run/pause/resume depending on
   request shape.
-- `GET /api/hermes/reports/[id]`
-- `POST /api/hermes/channel-posts`
-- `DELETE /api/hermes/channels/[jobId]`
-- `GET /api/hermes/commands`
-- `GET /api/hermes/skills`
-- `GET /api/hermes/skills/[slug]`
+- `GET /api/agent/reports/[id]`
+- `POST /api/agent/channel-posts`
+- `DELETE /api/agent/channels/[jobId]`
+- `GET /api/agent/commands`
+- `GET /api/agent/skills`
+- `GET /api/agent/skills/[slug]`
 
 The server adapter normalizes many possible upstream job/run shapes into the UI
-types `HermesJob`, `HermesRun`, `BoardChannel`, and `BoardPost`.
+types `AgentJob`, `AgentRun`, `BoardChannel`, and `BoardPost`.
 
 ### Mission config overlays
 
@@ -708,7 +703,7 @@ These endpoints are shaped to satisfy the existing SvelteKit adapter and UI.
 ### Chat behavior
 
 The harness chat endpoint supports streaming and non-streaming chat-completion
-style responses. It emits Hermes-compatible tool progress frames around runtime
+style responses. It emits agent tool progress frames around runtime
 execution so the existing UI can display assignment/routing activity.
 
 When `OPENAI_API_KEY` is present, chat can use the OpenAI Agents SDK and the
@@ -764,11 +759,11 @@ If these harness env values are configured:
 then completed mission reports are posted back to the SvelteKit UI endpoint:
 
 ```text
-POST /api/hermes/channel-posts
+POST /api/agent/channel-posts
 Authorization: Bearer <NEWSROOM_UI_INGEST_KEY>
 ```
 
-The ingest key must match the UI's `HERMES_INGEST_KEY` or `HERMES_API_KEY`.
+The ingest key must match the UI's `NEWSROOM_UI_INGEST_KEY`.
 
 ## Important environment variables
 
@@ -789,13 +784,10 @@ hosted platform or reverse proxy headers.
 ```sh
 AGENT_GATEWAY_URL=http://127.0.0.1:8650
 AGENT_GATEWAY_API_KEY=
-HERMES_GATEWAY_URL=http://127.0.0.1:8642
-HERMES_API_KEY=
-HERMES_INGEST_KEY=
+NEWSROOM_UI_INGEST_KEY=
 ```
 
-`AGENT_GATEWAY_URL` is preferred for the NewsCraft-native harness migration.
-`HERMES_GATEWAY_URL` remains the legacy fallback.
+`AGENT_GATEWAY_URL` points to the NewsCraft-native harness.
 
 ### App auth
 
@@ -822,7 +814,7 @@ NEWSROOM_HARNESS_PORT=8650
 NEWSROOM_HARNESS_DB_PATH=.data/newsroom-harness.db
 NEWSROOM_HARNESS_API_KEY=
 OPENAI_API_KEY=
-NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/hermes/channel-posts
+NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/agent/channel-posts
 NEWSROOM_UI_INGEST_KEY=
 NEWSROOM_HARNESS_RUN_TIMEOUT_MS=90000
 NEWSROOM_HARNESS_MAX_TOOL_CALLS=6
@@ -1086,17 +1078,17 @@ Supported shortcuts include:
 
 - `GET /api/health`
 - `GET /api/operator/status`
-- `GET /api/hermes/board`
-- `GET /api/hermes/jobs`
-- `POST /api/hermes/jobs`
-- `PATCH /api/hermes/jobs/[id]`
-- `DELETE /api/hermes/jobs/[id]`
-- `GET /api/hermes/reports/[id]`
-- `POST /api/hermes/channel-posts`
-- `DELETE /api/hermes/channels/[jobId]`
-- `GET /api/hermes/commands`
-- `GET /api/hermes/skills`
-- `GET /api/hermes/skills/[slug]`
+- `GET /api/agent/board`
+- `GET /api/agent/jobs`
+- `POST /api/agent/jobs`
+- `PATCH /api/agent/jobs/[id]`
+- `DELETE /api/agent/jobs/[id]`
+- `GET /api/agent/reports/[id]`
+- `POST /api/agent/channel-posts`
+- `DELETE /api/agent/channels/[jobId]`
+- `GET /api/agent/commands`
+- `GET /api/agent/skills`
+- `GET /api/agent/skills/[slug]`
 
 ## Testing and verification assets
 
@@ -1112,7 +1104,7 @@ Notable tested utility areas visible in the repo:
 
 - Account database behavior.
 - Mission report database behavior.
-- Hermes bridge and transport behavior.
+- Agent bridge and transport behavior.
 - Reasoning command behavior.
 - Board data shaping.
 - Channel source normalization.
@@ -1129,7 +1121,7 @@ Notable tested utility areas visible in the repo:
 
 ### Naming and compatibility
 
-- Many route, file, and type names still say `Hermes` even when the target is
+- Many route, file, and type names still say `Agent` even when the target is
   the NewsCraft-native harness.
 - This is intentional during the compatibility phase.
 - A later cleanup can rename the adapter layer to `agent-gateway` once the
@@ -1220,10 +1212,9 @@ The current production path is platform-owned:
 - UI deployable: the SvelteKit app at the repo root.
 - Harness deployable: `services/newsroom-harness`.
 - Shared package: `packages/shared`, built before the harness.
-- `HERMES_API_KEY` and `APP_SESSION_SECRET` must be configured for the UI.
-- `NEWSROOM_HARNESS_API_KEY`, `AGENT_GATEWAY_API_KEY`, `HERMES_INGEST_KEY`,
-  and `NEWSROOM_UI_INGEST_KEY` must be aligned when bearer auth and report
-  ingest are enabled.
+- `APP_SESSION_SECRET` must be configured for the UI.
+- `NEWSROOM_HARNESS_API_KEY`, `AGENT_GATEWAY_API_KEY`, and `NEWSROOM_UI_INGEST_KEY`
+  should be aligned when bearer auth and report ingest are enabled.
 
 The repo no longer carries VPS cutover, systemd, or reverse-proxy scripts.
 
@@ -1240,7 +1231,7 @@ When making changes, these are the usual files to know first.
 ### Chat
 
 - `src/routes/api/chat/stream/+server.ts`
-- `src/lib/server/hermes/transport.ts`
+- `src/lib/server/agent/transport.ts`
 - `src/lib/client/stream.ts`
 - `src/lib/utils/stream-events.ts`
 - `src/lib/stores/chat.svelte.ts`
@@ -1270,14 +1261,14 @@ When making changes, these are the usual files to know first.
 ### Missions
 
 - `src/routes/missions/+page.svelte`
-- `src/lib/server/hermes/board.ts`
+- `src/lib/server/agent/board.ts`
 - `src/lib/server/db/missions.ts`
 - `src/lib/server/db/mission-reports.ts`
 - `src/lib/utils/board.ts`
 - `src/lib/utils/channel-sources.ts`
 - `src/lib/utils/cron-delivery.ts`
 - `src/lib/utils/run-poll.ts`
-- `src/routes/api/hermes/*`
+- `src/routes/api/agent/*`
 
 ### Harness
 

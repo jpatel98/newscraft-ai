@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
 	SSE_DONE_FRAME,
 	chatCompletionDeltaFrame,
-	hermesToolProgressFrame,
+	agentToolProgressFrame,
 	sseFrame
 } from './sse.js';
 
 describe('SSE helpers', () => {
 	it('formats named events with JSON data', () => {
-		expect(sseFrame({ event: 'hermes.source', data: { ok: true } })).toBe(
-			'event: hermes.source\ndata: {"ok":true}\n\n'
+		expect(sseFrame({ event: 'agent.source', data: { ok: true } })).toBe(
+			'event: agent.source\ndata: {"ok":true}\n\n'
 		);
 	});
 
@@ -28,9 +28,9 @@ describe('SSE helpers', () => {
 		expect(frame.endsWith('\n\n')).toBe(true);
 	});
 
-	it('keeps Hermes progress events in their existing event name', () => {
-		expect(hermesToolProgressFrame({ id: 'tool_1', status: 'running' })).toBe(
-			'event: hermes.tool.progress\ndata: {"id":"tool_1","status":"running"}\n\n'
+	it('keeps Agent progress events in their existing event name', () => {
+		expect(agentToolProgressFrame({ id: 'tool_1', status: 'running' })).toBe(
+			'event: agent.tool.progress\ndata: {"id":"tool_1","status":"running"}\n\n'
 		);
 	});
 

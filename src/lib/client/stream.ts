@@ -48,7 +48,7 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 
 	const streamState = new StreamEventState();
 	for await (const ev of readSSE(r.body)) {
-		if (ev.event === 'hermes.meta') {
+		if (ev.event === 'agent.meta') {
 			try {
 				cb.onMeta?.(JSON.parse(ev.data) as { conversation_id: string });
 			} catch {

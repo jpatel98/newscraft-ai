@@ -1,18 +1,18 @@
 import { env } from '$env/dynamic/private';
 import { createHash } from 'node:crypto';
 
-export type HermesContentPart =
+export type AgentContentPart =
 	| { type: 'text'; text: string }
 	| { type: 'image_url'; image_url: { url: string } };
 
-export type HermesContent = string | HermesContentPart[];
+export type AgentContent = string | AgentContentPart[];
 
-export type HermesMessage =
-	| { role: 'system' | 'user' | 'assistant'; content: HermesContent }
+export type AgentMessage =
+	| { role: 'system' | 'user' | 'assistant'; content: AgentContent }
 	| { role: 'tool'; content: string; tool_call_id?: string };
 
-export interface HermesChatRequest {
-	messages: HermesMessage[];
+export interface AgentChatRequest {
+	messages: AgentMessage[];
 	model?: string;
 	stream?: boolean;
 	temperature?: number;
@@ -20,17 +20,17 @@ export interface HermesChatRequest {
 	reasoning_effort?: 'low' | 'medium' | 'high';
 }
 
-export type HermesResponseContentPart =
+export type AgentResponseContentPart =
 	| { type: 'input_text'; text: string }
 	| { type: 'input_image'; image_url: string };
 
-export interface HermesResponseInputMessage {
+export interface AgentResponseInputMessage {
 	role: 'user' | 'assistant' | 'system';
-	content: string | HermesResponseContentPart[];
+	content: string | AgentResponseContentPart[];
 }
 
-export interface HermesResponsesRequest {
-	input: string | HermesResponseInputMessage[];
+export interface AgentResponsesRequest {
+	input: string | AgentResponseInputMessage[];
 	model?: string;
 	instructions?: string;
 	reasoning_effort?: 'low' | 'medium' | 'high';
@@ -49,27 +49,27 @@ export interface GatewayHealth {
 	service: string | null;
 }
 
-const DEFAULT_MODEL = 'hermes-agent';
+const DEFAULT_MODEL = 'newsroom-agent';
 
 function gatewayUrl(): string {
-	const u = (env.AGENT_GATEWAY_URL || env.HERMES_GATEWAY_URL)?.replace(/\/$/, '') ?? 'http://127.0.0.1:8642';
-	return u;
+	const u = (env.AGENT_GATEWAY_URL || '').replace(/\/$/, '');
+	return u || 'http://127.0.0.1:8650';
 }
 
 function gatewayEnvHint(): string {
-	return env.AGENT_GATEWAY_URL ? 'AGENT_GATEWAY_URL' : 'HERMES_GATEWAY_URL';
+	return 'AGENT_GATEWAY_URL';
 }
 
 export function describeGatewayError(err: unknown): string {
 	const message = err instanceof Error ? err.message : String(err);
 	if (message === 'fetch failed' || message === 'Failed to fetch' || message === 'Load failed') {
-		return `Hermes gateway is not reachable at ${gatewayUrl()}. Start the gateway or update ${gatewayEnvHint()}.`;
+		return `Agent gateway is not reachable at ${gatewayUrl()}. Start the gateway or update ${gatewayEnvHint()}.`;
 	}
 	if (
 		err instanceof DOMException &&
 		(err.name === 'TimeoutError' || err.name === 'AbortError')
 	) {
-		return `Hermes gateway did not respond in time at ${gatewayUrl()}.`;
+		return `Agent gateway did not respond in time at ${gatewayUrl()}.`;
 	}
 	return message;
 }
@@ -90,14 +90,14 @@ function parseJson(value: string): unknown | null {
 }
 
 function apiKey(): string | null {
-	const k = env.AGENT_GATEWAY_API_KEY || env.NEWSROOM_HARNESS_API_KEY || env.HERMES_API_KEY;
+	const k = env.AGENT_GATEWAY_API_KEY || env.NEWSROOM_HARNESS_API_KEY;
 	if (!k && !env.AGENT_GATEWAY_URL) {
-		throw new Error('AGENT_GATEWAY_API_KEY, NEWSROOM_HARNESS_API_KEY, or HERMES_API_KEY not configured');
+		throw new Error('AGENT_GATEWAY_API_KEY or NEWSROOM_HARNESS_API_KEY not configured');
 	}
 	return k ?? null;
 }
 
-export async function hermesFetch(path: string, init: RequestInit = {}): Promise<Response> {
+export async function agentFetch(path: string, init: RequestInit = {}): Promise<Response> {
 	const headers = new Headers(init.headers);
 	const key = apiKey();
 	if (key && !headers.has('authorization')) headers.set('authorization', `Bearer ${key}`);
@@ -109,16 +109,16 @@ export async function hermesFetch(path: string, init: RequestInit = {}): Promise
 
 /**
  * Deterministic session id from (system prompt, first user message).
- * Lets Hermes pin the agent across turns without exposing the key choice
+ * Lets Agent pin the agent across turns without exposing the key choice
  * to the browser. Capped at 32 hex chars.
  */
-export function deriveSessionId(messages: HermesMessage[]): string {
+export function deriveSessionId(messages: AgentMessage[]): string {
 	const system = flattenContent(messages.find((m) => m.role === 'system')?.content);
 	const firstUser = flattenContent(messages.find((m) => m.role === 'user')?.content);
 	return createHash('sha256').update(system).update('\0').update(firstUser).digest('hex').slice(0, 32);
 }
 
-function flattenContent(c: HermesContent | undefined): string {
+function flattenContent(c: AgentContent | undefined): string {
 	if (!c) return '';
 	if (typeof c === 'string') return c;
 	return c
@@ -128,16 +128,16 @@ function flattenContent(c: HermesContent | undefined): string {
 }
 
 /**
- * POST /v1/chat/completions on the Hermes gateway with SSE streaming.
+ * POST /v1/chat/completions on the Agent gateway with SSE streaming.
  * Returns the raw fetch Response — the caller pipes body through to the
- * client. AbortSignal propagation triggers Hermes's interrupt-on-disconnect.
+ * client. AbortSignal propagation triggers Agent's interrupt-on-disconnect.
  */
 export async function streamChatCompletion(
-	body: HermesChatRequest,
+	body: AgentChatRequest,
 	opts: { signal?: AbortSignal; sessionId?: string } = {}
 ): Promise<Response> {
 	const sessionId = opts.sessionId ?? deriveSessionId(body.messages);
-	const payload: HermesChatRequest = { model: DEFAULT_MODEL, stream: true, ...body };
+	const payload: AgentChatRequest = { model: DEFAULT_MODEL, stream: true, ...body };
 
 	return fetch(`${gatewayUrl()}/v1/chat/completions`, {
 		method: 'POST',
@@ -145,7 +145,7 @@ export async function streamChatCompletion(
 			'content-type': 'application/json',
 			accept: 'text/event-stream',
 			...(apiKey() ? { authorization: `Bearer ${apiKey()}` } : {}),
-			'x-hermes-session-id': sessionId
+			'x-agent-session-id': sessionId
 		},
 		body: JSON.stringify(payload),
 		signal: opts.signal
@@ -153,17 +153,17 @@ export async function streamChatCompletion(
 }
 
 export async function streamResponse(
-	body: HermesResponsesRequest,
+	body: AgentResponsesRequest,
 	opts: { signal?: AbortSignal; sessionId?: string } = {}
 ): Promise<Response> {
-	const payload: HermesResponsesRequest = { model: DEFAULT_MODEL, stream: true, store: false, ...body };
+	const payload: AgentResponsesRequest = { model: DEFAULT_MODEL, stream: true, store: false, ...body };
 	const headers: Record<string, string> = {
 		'content-type': 'application/json',
 		accept: 'text/event-stream'
 	};
 	const key = apiKey();
 	if (key) headers.authorization = `Bearer ${key}`;
-	if (opts.sessionId) headers['x-hermes-session-id'] = opts.sessionId;
+	if (opts.sessionId) headers['x-agent-session-id'] = opts.sessionId;
 
 	return fetch(`${gatewayUrl()}/v1/responses`, {
 		method: 'POST',
@@ -175,13 +175,13 @@ export async function streamResponse(
 
 /**
  * Non-streaming completion. Used for short side calls (title summarization).
- * Idempotency-Key keeps Hermes from charging twice on retries.
+ * Idempotency-Key keeps Agent from charging twice on retries.
  */
 export async function completion(
-	body: HermesChatRequest,
+	body: AgentChatRequest,
 	opts: { signal?: AbortSignal; idempotencyKey?: string } = {}
 ): Promise<unknown> {
-	const payload: HermesChatRequest = { model: DEFAULT_MODEL, ...body, stream: false };
+	const payload: AgentChatRequest = { model: DEFAULT_MODEL, ...body, stream: false };
 	const headers: Record<string, string> = {
 		'content-type': 'application/json'
 	};
@@ -195,7 +195,7 @@ export async function completion(
 		body: JSON.stringify(payload),
 		signal: opts.signal
 	});
-	if (!r.ok) throw new Error(`Hermes ${r.status}: ${await r.text()}`);
+	if (!r.ok) throw new Error(`Agent ${r.status}: ${await r.text()}`);
 	return r.json();
 }
 

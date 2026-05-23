@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { BoardChannel, BoardData, BoardPost, HermesJob, HermesRun } from '$lib/types';
+import type { BoardChannel, BoardData, BoardPost, AgentJob, AgentRun } from '$lib/types';
 
 export interface ParsedCronMarkdown {
 	jobId: string;
@@ -101,7 +101,7 @@ function channelTime(channel: BoardChannel): number {
 	return Number.isFinite(time) ? time : 0;
 }
 
-function runTime(run: HermesRun): number {
+function runTime(run: AgentRun): number {
 	const candidates = [run.completedAt, run.updatedAt, run.startedAt, run.queuedAt];
 	for (const candidate of candidates) {
 		const time = candidate ? Date.parse(candidate) : Number.NaN;
@@ -110,11 +110,11 @@ function runTime(run: HermesRun): number {
 	return 0;
 }
 
-function runTimestamp(run: HermesRun): string | null {
+function runTimestamp(run: AgentRun): string | null {
 	return run.completedAt ?? run.updatedAt ?? run.startedAt ?? run.queuedAt ?? null;
 }
 
-export function isActiveRun(run: HermesRun): boolean {
+export function isActiveRun(run: AgentRun): boolean {
 	const status = run.status.toLowerCase();
 	return status === 'queued' || status === 'running';
 }
@@ -123,22 +123,22 @@ interface BuildBoardDataOptions {
 	orphanedPostsArchived?: boolean;
 }
 
-function channelState(job: HermesJob): string {
+function channelState(job: AgentJob): string {
 	if (!job.enabled) return 'paused';
 	return job.state || 'scheduled';
 }
 
 export function buildBoardData(
 	rawPosts: BoardPost[],
-	jobs: HermesJob[],
-	runs: HermesRun[] = [],
+	jobs: AgentJob[],
+	runs: AgentRun[] = [],
 	options: BuildBoardDataOptions = {}
 ): BoardData {
 	const orphanedPostsArchived = options.orphanedPostsArchived ?? true;
 	const jobById = new Map(jobs.map((job) => [job.id, job]));
 	const channels = new Map<string, BoardChannel>();
 	const sortedRuns = [...runs].sort((a, b) => runTime(b) - runTime(a) || a.id.localeCompare(b.id));
-	const runsByJobId = new Map<string, HermesRun[]>();
+	const runsByJobId = new Map<string, AgentRun[]>();
 
 	for (const run of sortedRuns) {
 		const jobRuns = runsByJobId.get(run.jobId) ?? [];

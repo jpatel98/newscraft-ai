@@ -147,8 +147,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "hermes_channel_posts": {
-      "name": "hermes_channel_posts",
+    "agent_channel_posts": {
+      "name": "agent_channel_posts",
       "columns": {
         "id": {
           "name": "id",
@@ -237,16 +237,16 @@
         }
       },
       "indexes": {
-        "hermes_posts_job_run_idx": {
-          "name": "hermes_posts_job_run_idx",
+        "agent_posts_job_run_idx": {
+          "name": "agent_posts_job_run_idx",
           "columns": [
             "job_id",
             "run_time"
           ],
           "isUnique": false
         },
-        "hermes_posts_path_idx": {
-          "name": "hermes_posts_path_idx",
+        "agent_posts_path_idx": {
+          "name": "agent_posts_path_idx",
           "columns": [
             "file_path_display"
           ],

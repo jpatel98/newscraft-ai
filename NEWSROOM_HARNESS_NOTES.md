@@ -4,11 +4,11 @@ Date: 2026-05-02
 
 ## Core Idea
 
-We can build a NewsCraft-native, always-running AI harness instead of depending entirely on a generic Hermes agent. The harness should be a long-running backend service that owns scheduling, tool access, newsroom workflow, provenance, audit logs, and human review, while the existing SvelteKit app remains the UI and control surface.
+We can build a NewsCraft-native, always-running AI harness instead of depending entirely on a generic Agent agent. The harness should be a long-running backend service that owns scheduling, tool access, newsroom workflow, provenance, audit logs, and human review, while the existing SvelteKit app remains the UI and control surface.
 
 The goal is not one giant autonomous agent. The stronger design is an agent harness that coordinates specialized agents and tools for newsroom tasks.
 
-## Why Build This Instead Of Just Using Hermes
+## Why Build This Instead Of Just Using Agent
 
 - News-native workflow: missions, beats, sources, alerts, verification, editor review, CMS packaging, embargoes, and desks can become first-class concepts.
 - Purpose-built tools: RSS, wires, court records, SEC filings, public records, archives, transcript search, CMS drafts, Slack alerts, source ledgers, and fact-check queues.
@@ -19,24 +19,24 @@ The goal is not one giant autonomous agent. The stronger design is an agent harn
 - Custom memory: beat memory, source history, prior coverage, corrections history, style preferences, and entity timelines.
 - Product differentiation: the custom harness can become NewsCraft's defensible newsroom intelligence layer, not just a generic agent wrapper.
 
-Hermes is still useful as a prototype bridge. The practical path is to keep the UI contract stable and gradually replace the generic backend with a NewsCraft-native harness.
+Agent is still useful as a prototype bridge. The practical path is to keep the UI contract stable and gradually replace the generic backend with a NewsCraft-native harness.
 
 ## Current Repo Findings
 
-The current repo is a SvelteKit app backed by a local Hermes gateway.
+The current repo is a SvelteKit app backed by a local agent gateway.
 
 Important files:
 
 - `package.json`: single SvelteKit app today, with scripts for dev, build, test, deploy, reload, and DB migrations.
 - `pnpm-workspace.yaml`: workspace-shaped, but not currently declaring packages.
-- `src/lib/server/hermes/transport.ts`: centralizes Hermes gateway URL, auth, chat streaming, responses streaming, completions, and health.
-- `src/lib/server/hermes/board.ts`: centralizes mission/job/run calls to the gateway and normalizes backend responses.
-- `src/lib/server/hermes/bridge.ts`: shells out to `scripts/hermes-bridge.py` for Hermes skills and commands.
-- `src/routes/api/chat/stream/+server.ts`: UI chat streaming route. It forwards to Hermes and pipes SSE/tool events back to the browser.
-- `src/routes/api/hermes/jobs/+server.ts`: UI-facing mission API that delegates to the Hermes adapter layer.
+- `src/lib/server/agent/transport.ts`: centralizes agent gateway URL, auth, chat streaming, responses streaming, completions, and health.
+- `src/lib/server/agent/board.ts`: centralizes mission/job/run calls to the gateway and normalizes backend responses.
+- `src/lib/server/agent/bridge.ts`: provides local slash commands.
+- `src/routes/api/chat/stream/+server.ts`: UI chat streaming route. It forwards to Agent and pipes SSE/tool events back to the browser.
+- `src/routes/api/agent/jobs/+server.ts`: UI-facing mission API that delegates to the Agent adapter layer.
 - `src/lib/server/db/schema.ts`: app SQLite schema for accounts, conversations, messages, missions, mission sources, mission runs, and mission reports.
 
-The frontend is in a good position for a gradual harness swap because most Hermes-specific behavior is behind `src/lib/server/hermes/*`.
+The frontend is in a good position for a gradual harness swap because most Agent-specific behavior is behind `src/lib/server/agent/*`.
 
 ## Monorepo Recommendation
 
@@ -45,7 +45,7 @@ Yes, this repo can become a monorepo, but the harness should not be embedded ins
 Low-risk first structure:
 
 ```text
-hermes-ui/
+newscraft-ai/
   services/
     newsroom-harness/
       src/
@@ -77,7 +77,7 @@ Recommended approach:
 
 - Use the TypeScript Agents SDK because the repo is already TypeScript/SvelteKit/pnpm.
 - Build the harness as a local HTTP/SSE service on a separate port, for example `127.0.0.1:8650`.
-- Implement the current Hermes-like gateway contract first so the UI can keep working.
+- Implement the current Agent-like gateway contract first so the UI can keep working.
 - Use specialized agents rather than one general persona.
 
 Potential specialized agents:
@@ -90,7 +90,7 @@ Potential specialized agents:
 
 ## Compatibility API To Implement First
 
-To swap the UI gradually, the harness should initially imitate the existing local Hermes gateway shape:
+To swap the UI gradually, the harness should initially imitate the existing local agent gateway shape:
 
 - `GET /health`
 - `POST /v1/chat/completions`
@@ -103,19 +103,11 @@ To swap the UI gradually, the harness should initially imitate the existing loca
 - `POST /api/jobs/:id/resume`
 - `DELETE /api/jobs/:id`
 
-The current UI can then point from:
-
-```env
-HERMES_GATEWAY_URL=http://127.0.0.1:8642
-```
-
-to something like:
+The current UI should point to:
 
 ```env
 AGENT_GATEWAY_URL=http://127.0.0.1:8650
 ```
-
-During migration, we can keep the old env name or support both.
 
 ## Data And Persistence Notes
 
@@ -141,8 +133,8 @@ Longer term, the harness should own durable tables for:
 
 ## Main Risks
 
-- The Python Hermes bridge is tightly coupled to local Hermes internals. Replace this with harness-native HTTP APIs or shared TypeScript packages.
-- Current naming is Hermes-specific throughout the server adapter layer. Keep it during compatibility work, then rename to `agent-gateway` once stable.
+- The Python Agent bridge is tightly coupled to local Agent internals. Replace this with harness-native HTTP APIs or shared TypeScript packages.
+- Current naming is Agent-specific throughout the server adapter layer. Keep it during compatibility work, then rename to `agent-gateway` once stable.
 - The old VPS deploy scripts have been removed. The harness needs hosting-specific production wiring.
 - The repo currently has uncommitted mission-related changes. Avoid a big app directory move until that work settles.
 - Always-running agents need strict budget limits, tool permissions, retries, cancellation, audit logs, and human approval paths.

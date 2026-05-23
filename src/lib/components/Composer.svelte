@@ -13,7 +13,7 @@
 		UnsupportedImageError,
 		type ResizedImage
 	} from '$lib/utils/image-resize';
-	import type { ChatCommand, ContentPart, HermesCommand, MessageContent } from '$lib/types';
+	import type { ChatCommand, ContentPart, AgentCommand, MessageContent } from '$lib/types';
 
 	interface Props {
 		onSend?: (content: MessageContent, command?: ChatCommand) => Promise<void> | void;
@@ -37,7 +37,7 @@
 	let attachments = $state<Attachment[]>([]);
 	let dropActive = $state(false);
 	let attachError = $state<string | null>(null);
-	let commands = $state<HermesCommand[]>([]);
+	let commands = $state<AgentCommand[]>([]);
 	let commandsLoaded = $state(false);
 	let slashIndex = $state(0);
 	let slashMenu: HTMLDivElement | undefined = $state();
@@ -65,9 +65,9 @@
 
 	onMount(() => {
 		autosize();
-		fetch('/api/hermes/commands')
+		fetch('/api/agent/commands')
 			.then((r) => (r.ok ? r.json() : { commands: [] }))
-			.then((j: { commands?: HermesCommand[] }) => {
+			.then((j: { commands?: AgentCommand[] }) => {
 				commands = j.commands ?? [];
 				commandsLoaded = true;
 			})
@@ -247,7 +247,7 @@
 				// Stash multimodal content for the destination page to pick up; the
 				// hash-fragment handoff only carries strings.
 				try {
-					sessionStorage.setItem('hermes:pending:' + id, JSON.stringify(content));
+					sessionStorage.setItem('agent:pending:' + id, JSON.stringify(content));
 				} catch {
 					/* sessionStorage full or disabled — fall back to text only */
 				}
@@ -288,7 +288,7 @@
 		}
 	}
 
-	function selectSlash(cmd: HermesCommand) {
+	function selectSlash(cmd: AgentCommand) {
 		value = `${cmd.slash} `;
 		queueMicrotask(() => {
 			textarea?.focus();

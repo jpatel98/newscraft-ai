@@ -1,7 +1,7 @@
 # NewsCraft Agent UI
 
-SvelteKit app for NewsCraft, backed by either the legacy Hermes gateway or the
-NewsCraft-native newsroom harness in `services/newsroom-harness`.
+SvelteKit app for NewsCraft, backed by the NewsCraft-native newsroom harness in
+`services/newsroom-harness`.
 
 ## Local Development
 
@@ -47,8 +47,7 @@ AGENT_GATEWAY_URL=http://127.0.0.1:8650
 AGENT_GATEWAY_API_KEY=
 ```
 
-`HERMES_GATEWAY_URL` and `HERMES_API_KEY` remain supported as the fallback path.
-The UI route names stay `/api/hermes/*` during this compatibility phase.
+The UI route names stay `/api/agent/*` during this compatibility phase.
 
 ## Newsroom Harness
 
@@ -75,7 +74,7 @@ NEWSROOM_HARNESS_PORT=8650
 NEWSROOM_HARNESS_DB_PATH=.data/newsroom-harness.db
 NEWSROOM_HARNESS_API_KEY=
 OPENAI_API_KEY=
-NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/hermes/channel-posts
+NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/agent/channel-posts
 NEWSROOM_UI_INGEST_KEY=
 NEWSROOM_HARNESS_RUN_TIMEOUT_MS=90000
 NEWSROOM_HARNESS_MAX_TOOL_CALLS=6
@@ -99,7 +98,7 @@ and document extraction are preferred when they fit the request. Completed
 mission runs are saved in the harness DB; if `NEWSROOM_UI_INGEST_URL` and
 `NEWSROOM_UI_INGEST_KEY` are set, the markdown report is posted to the existing
 UI ingest endpoint so Missions can display it. `NEWSROOM_UI_INGEST_KEY` must
-match the UI's `HERMES_INGEST_KEY` or `HERMES_API_KEY`.
+match the UI's `NEWSROOM_UI_INGEST_KEY`.
 
 Harness commands:
 
@@ -166,7 +165,6 @@ Required `.env` values:
 ```sh
 APP_SESSION_SECRET=
 DATABASE_URL=
-HERMES_API_KEY=
 ```
 
 When running the native harness in production, also configure:
@@ -175,8 +173,8 @@ When running the native harness in production, also configure:
 AGENT_GATEWAY_URL=
 AGENT_GATEWAY_API_KEY=<matches NEWSROOM_HARNESS_API_KEY if set>
 NEWSROOM_HARNESS_API_KEY=
+NEWSROOM_UI_INGEST_KEY=<optional, required only when report ingest is enabled>
 NEWSROOM_UI_INGEST_URL=
-NEWSROOM_UI_INGEST_KEY=<matches HERMES_INGEST_KEY or HERMES_API_KEY>
 ```
 
 `APP_PASSWORD_HASH` is now optional. When present and no accounts exist yet, the
@@ -189,9 +187,9 @@ For a hosted production build:
 corepack pnpm build
 ```
 
-## Current Limitations
+## Current Limits
 
-- Hermes route/type names are intentionally preserved for compatibility.
+- `/api/agent/*` route/type names are intentionally preserved for compatibility.
 - The harness does not publish or write to a CMS; it only drafts reports and
   posts them to the existing UI ingest endpoint when configured.
 - The v1 scheduler runs only while the harness process is running.

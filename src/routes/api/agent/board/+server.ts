@@ -1,5 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { boardData } from '$lib/server/hermes/board';
+import { boardData } from '$lib/server/agent/board';
 
 export const GET: RequestHandler = async ({ locals, setHeaders }) => {
 	if (!locals.user) throw error(401, 'unauthorized');

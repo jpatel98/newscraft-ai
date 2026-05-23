@@ -118,7 +118,7 @@
 		if (operatorStatus?.ok) return 'Systems ready';
 		if (operatorStatusLoading && !operatorStatus) return 'Checking systems';
 		if (operatorStatusError) return 'Status unavailable';
-		if (!operatorStatus?.gateway.ok || !operatorStatus?.hermes.available) return 'Needs attention';
+		if (!operatorStatus?.gateway.ok || !operatorStatus?.agent.available) return 'Needs attention';
 		if (!operatorStatus?.database.ok) return 'Database needs attention';
 		return 'Needs attention';
 	}
@@ -148,7 +148,7 @@
 		if (!operatorStatus) return 'Collecting operator status';
 		return [
 			operatorStatus.gateway.detail,
-			operatorStatus.hermes.detail,
+			operatorStatus.agent.detail,
 			operatorStatus.database.detail
 		]
 			.filter(Boolean)
@@ -367,7 +367,7 @@
 		const jobId = (mission.jobId ?? '').trim();
 		if (!jobId) return;
 		closeChannelMenu();
-		const response = await fetch(`/api/hermes/channels/${encodeURIComponent(jobId)}`, {
+		const response = await fetch(`/api/agent/channels/${encodeURIComponent(jobId)}`, {
 			method: 'DELETE'
 		});
 		if (!response.ok) {

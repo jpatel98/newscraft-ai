@@ -205,7 +205,7 @@
 		if (typeof location === 'undefined') return;
 		const m = location.hash.match(/^#p=(.*)$/);
 		if (!m) return;
-		const stashKey = 'hermes:pending:' + data.conversation.id;
+		const stashKey = 'agent:pending:' + data.conversation.id;
 		let stashed: MessageContent | null = null;
 		try {
 			const raw = sessionStorage.getItem(stashKey);

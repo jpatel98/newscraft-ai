@@ -92,7 +92,7 @@ SELECT
 	`id`,
 	`created_at`,
 	`updated_at`
-FROM `hermes_channel_posts`;
+FROM `agent_channel_posts`;
 --> statement-breakpoint
 INSERT OR IGNORE INTO `missions` (
 	`id`,
@@ -119,7 +119,7 @@ SELECT
 	`job_id`,
 	`created_at`,
 	`updated_at`
-FROM `hermes_channel_configs`;
+FROM `agent_channel_configs`;
 --> statement-breakpoint
 INSERT OR IGNORE INTO `mission_sources` (
 	`id`,
@@ -142,4 +142,4 @@ SELECT
 	`sort_order`,
 	`created_at`,
 	`updated_at`
-FROM `hermes_channel_sources`;
+FROM `agent_channel_sources`;

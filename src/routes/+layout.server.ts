@@ -1,7 +1,7 @@
 import type { LayoutServerLoad } from './$types';
 import { env } from '$env/dynamic/private';
 import { listConversations } from '$lib/server/db/conversations';
-import { boardData } from '$lib/server/hermes/board';
+import { boardData } from '$lib/server/agent/board';
 import type { BoardChannel } from '$lib/types';
 
 export const load: LayoutServerLoad = async ({ locals }) => {

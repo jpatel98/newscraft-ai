@@ -5,13 +5,13 @@ import {
 	completion,
 	deriveSessionId,
 	gatewayHealth,
-	type HermesMessage,
-	type HermesContent,
-	type HermesContentPart,
-	type HermesResponseContentPart,
-	type HermesResponseInputMessage
-} from '$lib/server/hermes/transport';
-import { expandHermesSkill, listHermesCommands } from '$lib/server/hermes/bridge';
+	type AgentMessage,
+	type AgentContent,
+	type AgentContentPart,
+	type AgentResponseContentPart,
+	type AgentResponseInputMessage
+} from '$lib/server/agent/transport';
+import { expandAgentSkill, listAgentCommands } from '$lib/server/agent/bridge';
 import {
 	addMessage,
 	appendMessageContent,
@@ -26,7 +26,7 @@ import {
 	setMessageToolCalls,
 	setConversationTitle
 } from '$lib/server/db/conversations';
-import { contentText, type ChatCommand, type ContentPart, type HermesCommand, type MessageContent } from '$lib/types';
+import { contentText, type ChatCommand, type ContentPart, type AgentCommand, type MessageContent } from '$lib/types';
 import { readSSE } from '$lib/utils/sse-client';
 import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
 import { StreamEventState, sseFrame } from '$lib/utils/stream-events';
@@ -51,7 +51,7 @@ interface Body {
 // Cleared on stream completion or cancellation.
 const resumingIds = new Set<string>();
 
-// Hermes caps the request body around 1 MB; keep some headroom for the
+// Agent caps the request body around 1 MB; keep some headroom for the
 // surrounding JSON envelope, system prompt, and prior turns.
 const MAX_REQUEST_BYTES = 950 * 1024;
 
@@ -71,7 +71,7 @@ function sanitizeContent(c: MessageContent | undefined): MessageContent | null {
 		) {
 			parts.push({ type: 'image_url', image_url: { url: p.image_url.url } });
 		}
-		// anything else (notably `type:'file'`) is dropped — Hermes rejects it.
+		// anything else (notably `type:'file'`) is dropped — Agent rejects it.
 	}
 	if (parts.length === 0) return null;
 	const onlyText = parts.every((p) => p.type === 'text');
@@ -79,29 +79,29 @@ function sanitizeContent(c: MessageContent | undefined): MessageContent | null {
 	return parts;
 }
 
-function toHermesContent(c: MessageContent): HermesContent {
+function toAgentContent(c: MessageContent): AgentContent {
 	if (typeof c === 'string') return c;
-	return c.map<HermesContentPart>((p) =>
+	return c.map<AgentContentPart>((p) =>
 		p.type === 'text'
 			? { type: 'text', text: p.text }
 			: { type: 'image_url', image_url: { url: p.image_url.url } }
 	);
 }
 
-function toResponsesContent(c: HermesContent): string | HermesResponseContentPart[] {
+function toResponsesContent(c: AgentContent): string | AgentResponseContentPart[] {
 	if (typeof c === 'string') return c;
-	return c.map<HermesResponseContentPart>((p) =>
+	return c.map<AgentResponseContentPart>((p) =>
 		p.type === 'text'
 			? { type: 'input_text', text: p.text }
 			: { type: 'input_image', image_url: p.image_url.url }
 	);
 }
 
-type ResponseHistoryMessage = { role: 'user' | 'assistant'; content: HermesContent };
+type ResponseHistoryMessage = { role: 'user' | 'assistant'; content: AgentContent };
 
-function responseInputFromHistory(history: HermesMessage[]): {
+function responseInputFromHistory(history: AgentMessage[]): {
 	instructions?: string;
-	input: HermesResponseInputMessage[];
+	input: AgentResponseInputMessage[];
 } {
 	const instructions = history
 		.filter((m) => m.role === 'system')
@@ -110,7 +110,7 @@ function responseInputFromHistory(history: HermesMessage[]): {
 		.trim();
 	const input = history
 		.filter((m): m is ResponseHistoryMessage => m.role === 'user' || m.role === 'assistant')
-		.map<HermesResponseInputMessage>((m) => ({
+		.map<AgentResponseInputMessage>((m) => ({
 			role: m.role,
 			content: toResponsesContent(m.content)
 		}));
@@ -137,7 +137,7 @@ function textFrame(text: string): string {
 	return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
 }
 
-function appendSystemInstruction(history: HermesMessage[], instruction: string): void {
+function appendSystemInstruction(history: AgentMessage[], instruction: string): void {
 	const idx = history.findIndex((m) => m.role === 'system');
 	if (idx >= 0) {
 		const existing = history[idx].content;
@@ -165,7 +165,7 @@ function localTextStream(convoId: string, text: string): Response {
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
 			controller.enqueue(
-				enc.encode(`event: hermes.meta\ndata: ${JSON.stringify({ conversation_id: convoId })}\n\n`)
+				enc.encode(`event: agent.meta\ndata: ${JSON.stringify({ conversation_id: convoId })}\n\n`)
 			);
 			controller.enqueue(enc.encode(textFrame(text)));
 			controller.enqueue(enc.encode('data: [DONE]\n\n'));
@@ -186,7 +186,7 @@ function localTextStream(convoId: string, text: string): Response {
 function gatewayUnavailableMessage(detail: string): string {
 	const cleaned = detail.replace(/\s+/g, ' ').trim().slice(0, 240);
 	return [
-		"I couldn't reach the Hermes gateway, so I couldn't draft a reply.",
+		"I couldn't reach the agent gateway, so I couldn't draft a reply.",
 		'Your message was saved. Try regenerate or send again once the gateway is healthy.',
 		cleaned ? `Gateway detail: ${cleaned}` : ''
 	]
@@ -205,11 +205,11 @@ async function localGatewayFailureResponse(convoId: string, detail: string, resu
 	return localAssistantResponse(convoId, text);
 }
 
-function findCommand(commands: HermesCommand[], parsed: SlashParseResult): HermesCommand | undefined {
+function findCommand(commands: AgentCommand[], parsed: SlashParseResult): AgentCommand | undefined {
 	return commands.find((cmd) => cmd.slash.toLowerCase() === parsed.slash);
 }
 
-function commandsHelp(commands: HermesCommand[]): string {
+function commandsHelp(commands: AgentCommand[]): string {
 	const safeBuiltins = commands.filter((cmd) => cmd.kind === 'builtin' && cmd.enabled);
 	const skills = commands.filter((cmd) => cmd.kind === 'skill' && cmd.enabled).slice(0, 32);
 	const lines = ['Available web commands:', ''];
@@ -227,8 +227,8 @@ function commandsHelp(commands: HermesCommand[]): string {
 }
 
 async function builtinResponse(
-	command: HermesCommand,
-	commands: HermesCommand[],
+	command: AgentCommand,
+	commands: AgentCommand[],
 	args: string,
 	convoId: string
 ): Promise<string> {
@@ -249,12 +249,12 @@ async function builtinResponse(
 	if (command.slash === '/status') {
 		const health = await gatewayHealth();
 		return health.ok
-			? `Hermes gateway is reachable. Status ${health.status}.`
-			: `Hermes gateway is not reachable right now. ${health.body}`;
+			? `Agent gateway is reachable. Status ${health.status}.`
+			: `Agent gateway is not reachable right now. ${health.body}`;
 	}
 	if (command.slash === '/profile') {
 		const skillCount = commands.filter((cmd) => cmd.kind === 'skill' && cmd.enabled).length;
-		return `Profile: hermes-agent\nInstalled skills: ${skillCount}`;
+		return `Profile: agent-gateway\nInstalled skills: ${skillCount}`;
 	}
 	return 'This command is not available from the web UI yet.';
 }
@@ -311,7 +311,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		if (typeof cleaned === 'string') {
 			const parsed = parseSlashCommand(cleaned);
 			if (parsed) {
-				const commands = await listHermesCommands();
+				const commands = await listAgentCommands();
 				const command = findCommand(commands, parsed);
 				if (!command) {
 					return localAssistantResponse(
@@ -331,7 +331,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						command.blockedReason || 'This command is not available from the web UI yet.'
 					);
 				}
-				const expanded = await expandHermesSkill(command.slash, parsed.args, convoId);
+				const expanded = await expandAgentSkill(command.slash, parsed.args, convoId);
 				if (!expanded.trim()) {
 					return localAssistantResponse(
 						convoId,
@@ -348,16 +348,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	const messages = await getMessages(convoId);
-	const history = messages.map<HermesMessage>((m) => {
+	const history = messages.map<AgentMessage>((m) => {
 		const parsed = parseContent(m.content);
 		return {
 			role: m.role === 'tool' ? 'assistant' : (m.role as 'user' | 'assistant' | 'system'),
-			content: toHermesContent(parsed)
+			content: toAgentContent(parsed)
 		};
 	});
 	if (!isResume && !isRegenerate && body.content) {
 		const lastUser = [...history].reverse().find((m) => m.role === 'user');
-		if (lastUser) lastUser.content = toHermesContent(body.content);
+		if (lastUser) lastUser.content = toAgentContent(body.content);
 	}
 
 	const latestUserText =
@@ -371,7 +371,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const override = convo.systemPrompt?.trim();
 	if (override) {
 		const idx = history.findIndex((m) => m.role === 'system');
-		const sys: HermesMessage = { role: 'system', content: override };
+		const sys: AgentMessage = { role: 'system', content: override };
 		if (idx >= 0) history[idx] = sys;
 		else history.unshift(sys);
 	}
@@ -388,8 +388,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const sessionId = deriveSessionId(history);
 	let upstream: Response;
 	try {
-		// Prefer chat completions for the live app: Hermes emits rich
-		// hermes.tool.progress/source events there, which power the visible
+		// Prefer chat completions for the live app: Agent emits rich
+		// agent.tool.progress/source events there, which power the visible
 		// browser/search/tool activity strip. Keep Responses as a fallback for
 		// gateways that only expose the newer endpoint shape.
 		upstream = await streamChatCompletion(
@@ -412,7 +412,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		const text = await upstream.text().catch(() => '');
 		return await localGatewayFailureResponse(
 			convoId,
-			`Hermes ${upstream.status || 502}: ${text || upstream.statusText}`,
+			`Agent ${upstream.status || 502}: ${text || upstream.statusText}`,
 			resumeMessageId
 		);
 	}
@@ -453,7 +453,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const stream = new ReadableStream<Uint8Array>({
 		async start(controller) {
 			controller.enqueue(
-				enc.encode(`event: hermes.meta\ndata: ${JSON.stringify({ conversation_id: convoId })}\n\n`)
+				enc.encode(`event: agent.meta\ndata: ${JSON.stringify({ conversation_id: convoId })}\n\n`)
 			);
 
 			try {
@@ -486,7 +486,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					const seedHistory = (await getMessages(convoId))
 						.filter((m) => m.role === 'user' || m.role === 'assistant')
 						.slice(0, 4)
-						.map<HermesMessage>((m) => {
+						.map<AgentMessage>((m) => {
 							const parsed = parseContent(m.content);
 							const text =
 								typeof parsed === 'string'
@@ -497,7 +497,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 											.join('\n');
 							return { role: m.role as 'user' | 'assistant', content: text };
 						});
-					const titleMessages: HermesMessage[] = [
+					const titleMessages: AgentMessage[] = [
 						{ role: 'system', content: TITLE_SYSTEM },
 						...seedHistory,
 						{ role: 'user', content: 'Title for this conversation:' }
@@ -512,7 +512,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					if (title) {
 						await setConversationTitle(accountId, convoId, title);
 						controller.enqueue(
-							enc.encode(`event: hermes.title\ndata: ${JSON.stringify({ title })}\n\n`)
+							enc.encode(`event: agent.title\ndata: ${JSON.stringify({ title })}\n\n`)
 						);
 					}
 				}

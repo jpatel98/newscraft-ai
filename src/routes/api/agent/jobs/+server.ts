@@ -1,12 +1,12 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import type { ChannelSource } from '$lib/types';
-import { createHermesJob, deleteAllHermesJobs, listHermesJobs } from '$lib/server/hermes/board';
+import { createAgentJob, deleteAllAgentJobs, listAgentJobs } from '$lib/server/agent/board';
 import { saveMissionConfig } from '$lib/server/db/missions';
 import { compileChannelPrompt, normalizeChannelSources } from '$lib/utils/channel-sources';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
-	return json({ jobs: await listHermesJobs(locals.user.id) });
+	return json({ jobs: await listAgentJobs(locals.user.id) });
 };
 
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -30,7 +30,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	}
 
 	try {
-		const job = await createHermesJob(locals.user.id, {
+		const job = await createAgentJob(locals.user.id, {
 			name,
 			schedule,
 			prompt: compileChannelPrompt(prompt, sources),
@@ -57,7 +57,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 export const DELETE: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	try {
-		const result = await deleteAllHermesJobs(locals.user.id);
+		const result = await deleteAllAgentJobs(locals.user.id);
 		return json({ ok: true, ...result });
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));

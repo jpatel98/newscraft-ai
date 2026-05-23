@@ -2,7 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { deleteMissionReportsByMissionId } from '$lib/server/db/mission-reports';
 import { deleteMissionConfig } from '$lib/server/db/missions';
 import { hideChannelJobId } from '$lib/server/db/hidden-channels';
-import { deleteHermesJob } from '$lib/server/hermes/board';
+import { deleteAgentJob } from '$lib/server/agent/board';
 
 const JOB_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 
@@ -15,7 +15,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 	let cronDeleted = false;
 	let cronDeleteError: string | null = null;
 	try {
-		await deleteHermesJob(locals.user.id, jobId);
+		await deleteAgentJob(locals.user.id, jobId);
 		cronDeleted = true;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

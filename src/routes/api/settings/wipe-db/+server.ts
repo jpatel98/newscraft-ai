@@ -3,8 +3,8 @@ import { eq, like } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import {
 	conversations,
-	hermesChannelConfigs,
-	hermesChannelPosts,
+	agentChannelConfigs,
+	agentChannelPosts,
 	missionReports,
 	missions,
 	settings
@@ -32,11 +32,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	await db.transaction(async (tx: any) => {
 		await tx.delete(missionReports).where(eq(missionReports.accountId, accountId));
 		await tx.delete(missions).where(eq(missions.accountId, accountId));
-		await tx.delete(hermesChannelConfigs).where(eq(hermesChannelConfigs.accountId, accountId));
-		await tx.delete(hermesChannelPosts).where(eq(hermesChannelPosts.accountId, accountId));
+		await tx.delete(agentChannelConfigs).where(eq(agentChannelConfigs.accountId, accountId));
+		await tx.delete(agentChannelPosts).where(eq(agentChannelPosts.accountId, accountId));
 		await tx.delete(conversations).where(eq(conversations.accountId, accountId));
 		await tx.delete(settings)
-			.where(like(settings.key, `hermes.hidden_channel_job_ids.${accountId}`));
+			.where(like(settings.key, `agent.hidden_channel_job_ids.${accountId}`));
 	});
 
 	return json({ ok: true });

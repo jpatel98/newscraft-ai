@@ -1,14 +1,14 @@
 # Newsroom Harness
 
 NewsCraft-native agent harness v1. This is a separate service in the same repo,
-designed to replace the Hermes gateway contract without a large SvelteKit UI
+designed to replace the agent gateway contract without a large SvelteKit UI
 rewrite.
 
 ## Architecture
 
 - HTTP service defaults to `127.0.0.1:8650`.
 - SQLite persistence is owned by the harness at `NEWSROOM_HARNESS_DB_PATH`.
-- The existing UI continues using `/api/hermes/*` routes and points at the
+- The existing UI continues using `/api/agent/*` routes and points at the
   harness with `AGENT_GATEWAY_URL`.
 - Shared DTOs and SSE helpers live in `packages/shared`.
 - The disciplined agent harness routes each request, enforces hard tool budgets,
@@ -69,7 +69,7 @@ NEWSROOM_HARNESS_PORT=8650
 NEWSROOM_HARNESS_DB_PATH=.data/newsroom-harness.db
 NEWSROOM_HARNESS_API_KEY=
 OPENAI_API_KEY=
-NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/hermes/channel-posts
+NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/agent/channel-posts
 NEWSROOM_UI_INGEST_KEY=
 NEWSROOM_HARNESS_RUN_TIMEOUT_MS=90000
 NEWSROOM_HARNESS_MAX_TOOL_CALLS=6
@@ -86,8 +86,8 @@ NEWSROOM_WEB_SEARCH_MODEL=gpt-5
 
 If `NEWSROOM_HARNESS_API_KEY` is set, all endpoints except `GET /health`
 require `Authorization: Bearer <key>`.
-Set `NEWSROOM_UI_INGEST_KEY` to the SvelteKit UI's `HERMES_INGEST_KEY` or
-`HERMES_API_KEY` when you want completed reports to appear in Missions.
+Set `NEWSROOM_UI_INGEST_KEY` to the SvelteKit UI's `NEWSROOM_UI_INGEST_KEY`
+when you want completed reports to appear in Missions.
 
 ## Agent Routing
 

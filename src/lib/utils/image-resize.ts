@@ -2,7 +2,7 @@
 // re-encodes a source image until it fits the per-image cap, returning a base64
 // data URI ready to ship as an OpenAI multimodal `image_url` part.
 //
-// Per-image cap is set well under Hermes's 1 MB body cap so 1–2 images plus
+// Per-image cap is set well under Agent's 1 MB body cap so 1–2 images plus
 // the text + history JSON envelope still slot under the gateway limit.
 
 const MAX_IMAGE_BYTES = 800 * 1024;
@@ -75,6 +75,7 @@ function drawScaled(
 	srcH: number,
 	maxLong: number
 ): HTMLCanvasElement {
+	if (srcW === 0 || srcH === 0) throw new Error('Invalid image dimensions');
 	const long = Math.max(srcW, srcH);
 	const scale = long > maxLong ? maxLong / long : 1;
 	const w = Math.max(1, Math.round(srcW * scale));

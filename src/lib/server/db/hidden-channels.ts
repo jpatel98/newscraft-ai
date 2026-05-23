@@ -1,6 +1,6 @@
 import { getSetting, setSetting } from './index';
 
-const KEY = 'hermes.hidden_channel_job_ids';
+const KEY = 'agent.hidden_channel_job_ids';
 const JOB_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 
 function normalize(ids: unknown): string[] {

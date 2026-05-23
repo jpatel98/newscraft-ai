@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { StreamEventState, sseFrame } from './stream-events';
 
 describe('StreamEventState', () => {
-	it('extracts Chat Completions deltas and Hermes tool progress', () => {
+	it('extracts Chat Completions deltas and Agent tool progress', () => {
 		const state = new StreamEventState();
 
 		expect(
@@ -10,7 +10,7 @@ describe('StreamEventState', () => {
 		).toEqual([{ delta: 'Hello' }]);
 
 		const started = state.apply(
-			'hermes.tool.progress',
+			'agent.tool.progress',
 			JSON.stringify({
 				id: 'search-1',
 				name: 'web_search',
@@ -43,7 +43,7 @@ describe('StreamEventState', () => {
 		]);
 
 		const finished = state.apply(
-			'hermes.tool.progress',
+			'agent.tool.progress',
 			JSON.stringify({ id: 'search-1', name: 'web_search', status: 'done', result: { count: 2 } }),
 			1500
 		);
@@ -74,7 +74,7 @@ describe('StreamEventState', () => {
 		const state = new StreamEventState();
 
 		state.apply(
-			'hermes.source',
+			'agent.source',
 			JSON.stringify({
 				id: 'result-1',
 				url: 'https://example.com/story',
@@ -84,7 +84,7 @@ describe('StreamEventState', () => {
 			1000
 		);
 		const opened = state.apply(
-			'hermes.tool.progress',
+			'agent.tool.progress',
 			JSON.stringify({
 				tool: 'browser_navigate',
 				url: 'https://example.com/story',
@@ -118,7 +118,7 @@ describe('StreamEventState', () => {
 		const state = new StreamEventState();
 
 		const discovered = state.apply(
-			'hermes.source',
+			'agent.source',
 			JSON.stringify({
 				url: 'https://example.com/search-result',
 				title: 'Search result',
@@ -143,11 +143,11 @@ describe('StreamEventState', () => {
 		]);
 	});
 
-	it('preserves Hermes progress labels and previews across tool updates', () => {
+	it('preserves Agent progress labels and previews across tool updates', () => {
 		const state = new StreamEventState();
 
 		const started = state.apply(
-			'hermes.tool.progress',
+			'agent.tool.progress',
 			JSON.stringify({
 				tool: 'delegate_task',
 				label: 'Compare current coverage',
@@ -173,7 +173,7 @@ describe('StreamEventState', () => {
 
 		expect(
 			state.apply(
-				'hermes.tool.progress',
+				'agent.tool.progress',
 				JSON.stringify({ tool: 'delegate_task', status: 'progress' }),
 				1200
 			)
@@ -193,7 +193,7 @@ describe('StreamEventState', () => {
 
 		expect(
 			state.apply(
-				'hermes.tool.progress',
+				'agent.tool.progress',
 				JSON.stringify({ tool: 'delegate_task', status: 'done', result: { ok: true } }),
 				1500
 			)
@@ -226,11 +226,11 @@ describe('StreamEventState', () => {
 		expect(state.toolCalls()).toHaveLength(1);
 	});
 
-	it('creates separate anonymous Hermes tool steps when the target changes', () => {
+	it('creates separate anonymous Agent tool steps when the target changes', () => {
 		const state = new StreamEventState();
 
 		const first = state.apply(
-			'hermes.tool.progress',
+			'agent.tool.progress',
 			JSON.stringify({
 				tool: 'browser_navigate',
 				label: 'https://example.com/first',
@@ -251,7 +251,7 @@ describe('StreamEventState', () => {
 		]);
 
 		const second = state.apply(
-			'hermes.tool.progress',
+			'agent.tool.progress',
 			JSON.stringify({
 				tool: 'browser_navigate',
 				label: 'https://example.com/second',
@@ -282,7 +282,7 @@ describe('StreamEventState', () => {
 
 		expect(
 			state.apply(
-				'hermes.tool.progress',
+				'agent.tool.progress',
 				JSON.stringify({ tool: 'browser_navigate', status: 'done' }),
 				2500
 			)
@@ -554,8 +554,8 @@ describe('StreamEventState', () => {
 	});
 
 	it('formats SSE frames without changing event names', () => {
-		expect(sseFrame('hermes.tool.progress', '{"ok":true}')).toBe(
-			'event: hermes.tool.progress\ndata: {"ok":true}\n\n'
+		expect(sseFrame('agent.tool.progress', '{"ok":true}')).toBe(
+			'event: agent.tool.progress\ndata: {"ok":true}\n\n'
 		);
 	});
 });

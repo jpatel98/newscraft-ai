@@ -6,7 +6,7 @@ import type {
 import {
 	SSE_DONE_FRAME,
 	chatCompletionDeltaFrame,
-	hermesToolProgressFrame,
+	agentToolProgressFrame,
 	sseFrame
 } from '@newscraft/shared';
 import type { ServerResponse } from 'node:http';
@@ -26,7 +26,7 @@ export async function writeChatCompletion(
 	if (body.stream) {
 		res.writeHead(200, noStoreSseHeaders());
 		res.write(
-			hermesToolProgressFrame({
+			agentToolProgressFrame({
 				id: 'assignment_desk',
 				name: 'assignment_desk',
 				status: 'running',
@@ -43,7 +43,7 @@ export async function writeChatCompletion(
 			res.write(chatCompletionDeltaFrame(delta, { id, model }));
 		}
 		res.write(
-			hermesToolProgressFrame({
+			agentToolProgressFrame({
 				id: 'assignment_desk',
 				name: 'assignment_desk',
 				status: 'ok',
@@ -140,7 +140,7 @@ export async function writeResponses(
 function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {
 	if (event.type === 'tool') {
 		res.write(
-			hermesToolProgressFrame({
+			agentToolProgressFrame({
 				id: event.id,
 				name: event.name,
 				status: event.status,
@@ -153,7 +153,7 @@ function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {
 	}
 	res.write(
 		sseFrame({
-			event: 'hermes.source',
+			event: 'agent.source',
 			data: {
 				id: event.source.url,
 				url: event.source.url,

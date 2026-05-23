@@ -2,16 +2,16 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import Markdown from '$lib/components/Markdown.svelte';
-	import type { HermesSkillDetail, HermesSkillSummary } from '$lib/types';
+	import type { AgentSkillDetail, AgentSkillSummary } from '$lib/types';
 
 	let { data } = $props();
 
-	let skills = $state<HermesSkillSummary[]>([]);
+	let skills = $state<AgentSkillSummary[]>([]);
 	let skillsQuery = $state('');
 	let skillsBusy = $state(false);
 	let skillsError = $state<string | null>(null);
-	let selectedSkill = $state<HermesSkillSummary | null>(null);
-	let skillDetail = $state<HermesSkillDetail | null>(null);
+	let selectedSkill = $state<AgentSkillSummary | null>(null);
+	let skillDetail = $state<AgentSkillDetail | null>(null);
 	let skillDetailBusy = $state(false);
 
 	const filteredSkills = $derived.by(() => {
@@ -32,9 +32,9 @@
 		skillsBusy = true;
 		skillsError = null;
 		try {
-			const r = await fetch('/api/hermes/skills');
+			const r = await fetch('/api/agent/skills');
 			if (!r.ok) throw new Error(`skills ${r.status}`);
-			const j = (await r.json()) as { skills?: HermesSkillSummary[] };
+			const j = (await r.json()) as { skills?: AgentSkillSummary[] };
 			skills = j.skills ?? [];
 			selectedSkill = skills[0] ?? null;
 			if (selectedSkill) await selectSkill(selectedSkill);
@@ -45,15 +45,15 @@
 		}
 	}
 
-	async function selectSkill(skill: HermesSkillSummary) {
+	async function selectSkill(skill: AgentSkillSummary) {
 		selectedSkill = skill;
 		skillDetail = null;
 		skillDetailBusy = true;
 		try {
 			const slug = skill.slash.replace(/^\//, '');
-			const r = await fetch(`/api/hermes/skills/${encodeURIComponent(slug)}`);
+			const r = await fetch(`/api/agent/skills/${encodeURIComponent(slug)}`);
 			if (!r.ok) throw new Error(`skill ${r.status}`);
-			const j = (await r.json()) as { skill?: HermesSkillDetail };
+			const j = (await r.json()) as { skill?: AgentSkillDetail };
 			skillDetail = j.skill ?? null;
 		} catch {
 			skillDetail = null;
@@ -62,7 +62,7 @@
 		}
 	}
 
-	function useSkill(skill: HermesSkillSummary) {
+	function useSkill(skill: AgentSkillSummary) {
 		goto(`/?draft=${encodeURIComponent(skill.slash + ' ')}`);
 	}
 
@@ -287,7 +287,7 @@
 			<div class="settings__meta-row">
 				<span>Agent</span>
 				<strong>NewsCraft</strong>
-				<code>hermes-agent</code>
+				<code>newsroom-agent</code>
 			</div>
 		</section>
 
@@ -384,7 +384,7 @@
 		<section class="settings__group" aria-labelledby="settings-skills">
 			<div class="settings__group__head">
 				<h2 id="settings-skills" class="settings__group__title">Skills</h2>
-				<p class="settings__group__copy">Browse installed Hermes skills and start with a slash command.</p>
+				<p class="settings__group__copy">Browse installed Agent skills and start with a slash command.</p>
 			</div>
 			<div class="settings__section-body">
 				<div class="skills-panel">
@@ -409,7 +409,7 @@
 						{#if skillsError}
 							<div class="field__error">{skillsError}</div>
 						{/if}
-						<div class="skills-list" role="listbox" aria-label="Installed Hermes skills">
+						<div class="skills-list" role="listbox" aria-label="Installed Agent skills">
 							{#each filteredSkills as skill (skill.slash)}
 								<button
 									type="button"

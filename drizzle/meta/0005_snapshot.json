@@ -147,8 +147,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "hermes_channel_configs": {
-      "name": "hermes_channel_configs",
+    "agent_channel_configs": {
+      "name": "agent_channel_configs",
       "columns": {
         "job_id": {
           "name": "job_id",
@@ -185,8 +185,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "hermes_channel_posts": {
-      "name": "hermes_channel_posts",
+    "agent_channel_posts": {
+      "name": "agent_channel_posts",
       "columns": {
         "id": {
           "name": "id",
@@ -275,16 +275,16 @@
         }
       },
       "indexes": {
-        "hermes_posts_job_run_idx": {
-          "name": "hermes_posts_job_run_idx",
+        "agent_posts_job_run_idx": {
+          "name": "agent_posts_job_run_idx",
           "columns": [
             "job_id",
             "run_time"
           ],
           "isUnique": false
         },
-        "hermes_posts_path_idx": {
-          "name": "hermes_posts_path_idx",
+        "agent_posts_path_idx": {
+          "name": "agent_posts_path_idx",
           "columns": [
             "file_path_display"
           ],
@@ -296,8 +296,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "hermes_channel_sources": {
-      "name": "hermes_channel_sources",
+    "agent_channel_sources": {
+      "name": "agent_channel_sources",
       "columns": {
         "id": {
           "name": "id",
@@ -367,16 +367,16 @@
         }
       },
       "indexes": {
-        "hermes_sources_job_idx": {
-          "name": "hermes_sources_job_idx",
+        "agent_sources_job_idx": {
+          "name": "agent_sources_job_idx",
           "columns": [
             "job_id",
             "sort_order"
           ],
           "isUnique": false
         },
-        "hermes_sources_type_idx": {
-          "name": "hermes_sources_type_idx",
+        "agent_sources_type_idx": {
+          "name": "agent_sources_type_idx",
           "columns": [
             "type"
           ],
@@ -384,10 +384,10 @@
         }
       },
       "foreignKeys": {
-        "hermes_channel_sources_job_id_hermes_channel_configs_job_id_fk": {
-          "name": "hermes_channel_sources_job_id_hermes_channel_configs_job_id_fk",
-          "tableFrom": "hermes_channel_sources",
-          "tableTo": "hermes_channel_configs",
+        "agent_channel_sources_job_id_agent_channel_configs_job_id_fk": {
+          "name": "agent_channel_sources_job_id_agent_channel_configs_job_id_fk",
+          "tableFrom": "agent_channel_sources",
+          "tableTo": "agent_channel_configs",
           "columnsFrom": [
             "job_id"
           ],

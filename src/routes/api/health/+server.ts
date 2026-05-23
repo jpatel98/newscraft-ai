@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { sql } from '$lib/server/db';
-import { gatewayHealth } from '$lib/server/hermes/transport';
+import { gatewayHealth } from '$lib/server/agent/transport';
 
 function publicError(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);

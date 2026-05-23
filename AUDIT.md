@@ -32,8 +32,8 @@ Findings are grouped by severity (P0 → P3). Estimated effort per item shown as
 **Issue:** API accepts a 4001-char whitespace-only string under `MAX_SYSTEM_PROMPT_CHARS`, writer trims then stores `null`. Not exploitable but causes silent confusion: client thinks prompt was set, server stored nothing.
 **Fix:** Trim before length-checking in the route handler. Mirror the writer's semantics at the boundary.
 
-### 4. `/api/hermes/channel-posts` accepts `'unknown'` as jobId — **S**
-**File:** `src/routes/api/hermes/channel-posts/+server.ts:46-47`
+### 4. `/api/agent/channel-posts` accepts `'unknown'` as jobId — **S**
+**File:** `src/routes/api/agent/channel-posts/+server.ts:46-47`
 **Issue:** When `jobId` is missing, fallback string `'unknown'` is used. `getMissionAccountId('unknown')` returns `null` and 404s — so not exploitable today — but a future code path that touches this string as if it were a real ID will silently misroute reports.
 **Fix:** Reject the request when both `body.jobId` and the markdown-parsed `jobId` are empty: `throw error(400, 'jobId is required')`. Remove the `|| 'unknown'` fallbacks entirely.
 
@@ -41,12 +41,12 @@ Findings are grouped by severity (P0 → P3). Estimated effort per item shown as
 
 ## P1 — Logic holes that corrupt data or surprise users
 
-### 5. Empty-string job IDs threaded through Hermes job endpoints — **S**
+### 5. Empty-string job IDs threaded through Agent job endpoints — **S**
 **Files:**
-- `src/routes/api/hermes/jobs/[id]/+server.ts:15` — `const id = params.id ?? '';`
-- `src/routes/api/hermes/jobs/[id]/pause/+server.ts:7`, `…/resume/+server.ts`, `…/run/+server.ts` — same pattern
+- `src/routes/api/agent/jobs/[id]/+server.ts:15` — `const id = params.id ?? '';`
+- `src/routes/api/agent/jobs/[id]/pause/+server.ts:7`, `…/resume/+server.ts`, `…/run/+server.ts` — same pattern
 **Issue:** SvelteKit always populates `params.id` for `[id]` routes, so `?? ''` is dead defense — but if it ever fires, the downstream `JOB_ID_RE.test('')` throws a generic "Invalid job id" 500. Better to validate explicitly.
-**Note:** `runJobAction` in `src/lib/server/hermes/board.ts:507` does scope by `getMissionConfig(accountId, id)`, so cross-account access is not actually possible here — only an ugly error path.
+**Note:** `runJobAction` in `src/lib/server/agent/board.ts:507` does scope by `getMissionConfig(accountId, id)`, so cross-account access is not actually possible here — only an ugly error path.
 **Fix:** Replace `params.id ?? ''` with `if (!params.id) throw error(400, 'job id is required');` and use `params.id` directly.
 
 ### 6. Title generation failures are silently swallowed — **S**
@@ -61,7 +61,7 @@ Findings are grouped by severity (P0 → P3). Estimated effort per item shown as
 
 ### 8. Double-submit unguarded on mission Run-now — **M**
 **File:** `src/routes/missions/+page.svelte:472-508` (`jobAction()`)
-**Issue:** `actionBusy = action` is set before the fetch, but the button's disabled state depends only on `actionBusy`. Clicking "Run now" twice rapidly across keystrokes can fire two requests if `actionBusy` toggles between them; also, `finally { actionBusy = null }` re-enables the button immediately, before Hermes has confirmed the job actually started.
+**Issue:** `actionBusy = action` is set before the fetch, but the button's disabled state depends only on `actionBusy`. Clicking "Run now" twice rapidly across keystrokes can fire two requests if `actionBusy` toggles between them; also, `finally { actionBusy = null }` re-enables the button immediately, before Agent has confirmed the job actually started.
 **Fix:** Disable the button while `actionBusy` is set *and* keep it disabled until next `boardData` refresh shows the run started. Add `aria-busy` for assistive tech.
 
 ### 9. `formatRelativeTime` masks client clock skew — **S**
@@ -81,12 +81,12 @@ Findings are grouped by severity (P0 → P3). Estimated effort per item shown as
 > Audience decision: non-technical newsroom users. Internal terms like "channel", "job", "operator", "harness" should leave producer-facing surfaces. Settings/operator dashboard can keep technical terms.
 
 ### 11. Three names for the same concept: Mission / Channel / Job — **M**
-**Files:** Throughout `src/routes/+layout.svelte`, `src/routes/missions/+page.svelte`, `src/lib/server/hermes/board.ts`, all `/api/hermes/jobs/*` endpoints, type names (`HermesJob`, `BoardChannel`, `Mission*`).
-**Issue:** UI says "Mission". Code says `job`, `channel`, `jobId`. Error toasts surface raw backend strings like `Mission run requested` mixed with `Job failed` from Hermes — non-technical users will be confused.
+**Files:** Throughout `src/routes/+layout.svelte`, `src/routes/missions/+page.svelte`, `src/lib/server/agent/board.ts`, all `/api/agent/jobs/*` endpoints, type names (`AgentJob`, `BoardChannel`, `Mission*`).
+**Issue:** UI says "Mission". Code says `job`, `channel`, `jobId`. Error toasts surface raw backend strings like `Mission run requested` mixed with `Job failed` from Agent — non-technical users will be confused.
 **Fix:**
 - **User-facing copy:** standardize on **"Mission"** in every visible string, including aria-labels, toasts, and error envelopes.
-- **Internal code:** keep `job`/`hermes` names where they reflect the upstream Hermes API contract, but rename `BoardChannel` → `BoardMission` and `channelSlug` → `missionSlug` since "channel" leaks nowhere meaningful.
-- **Error passthroughs:** in `src/routes/api/hermes/jobs/+server.ts:52` and friends, wrap Hermes errors before re-throwing: `throw error(502, 'Mission service is unavailable')` and log the raw message server-side.
+- **Internal code:** keep `job`/`agent` names where they reflect the upstream Agent API contract, but rename `BoardChannel` → `BoardMission` and `channelSlug` → `missionSlug` since "channel" leaks nowhere meaningful.
+- **Error passthroughs:** in `src/routes/api/agent/jobs/+server.ts:52` and friends, wrap Agent errors before re-throwing: `throw error(502, 'Mission service is unavailable')` and log the raw message server-side.
 
 ### 12. "Click again to confirm" is an invisible state — **S**
 **Files:** `src/routes/+layout.svelte:770` (delete mission), `:883` (delete chat)
@@ -125,7 +125,7 @@ Findings are grouped by severity (P0 → P3). Estimated effort per item shown as
 
 ### 19. `jobsError` raw string surfaced in notice bar — **S**
 **File:** `src/routes/missions/+page.svelte:1081`
-**Issue:** `"Saved reports loaded. Live mission controls are unavailable: {jobsError}"` will render raw Hermes error text including HTTP codes.
+**Issue:** `"Saved reports loaded. Live mission controls are unavailable: {jobsError}"` will render raw Agent error text including HTTP codes.
 **Fix:** Strip details: `"Live mission controls are unavailable — saved reports are still readable."` Log `jobsError` to console for debugging.
 
 ### 20. `Fetching reports…` vs `Loading reports…` inconsistency — **S**
@@ -151,7 +151,7 @@ Findings are grouped by severity (P0 → P3). Estimated effort per item shown as
 ### 24. Run-now button text doesn't convey it's locked — **S**
 **File:** `src/routes/missions/+page.svelte:1288`
 **Issue:** Label cycles `Run now` → `Starting` → `Running`. While "Running", the button looks tappable but is disabled. No affordance to cancel.
-**Fix:** While running, swap to a secondary "Cancel run" button (if cancel is supported by Hermes), or visually convert to a status pill: a non-button `<span class="pill pill--live">Running…</span>`. Don't keep a button that looks clickable but isn't.
+**Fix:** While running, swap to a secondary "Cancel run" button (if cancel is supported by Agent), or visually convert to a status pill: a non-button `<span class="pill pill--live">Running…</span>`. Don't keep a button that looks clickable but isn't.
 
 ---
 
@@ -165,8 +165,8 @@ Findings are grouped by severity (P0 → P3). Estimated effort per item shown as
 ### 26. Inconsistent error envelopes across `/api/*` — **M**
 **Issue:** Some routes `throw error(…)` (SvelteKit Response), some return `{error: '…'}`, some return `json({ok: false})`. Client code in `+page.svelte` has to handle three shapes.
 **Fix:** Pick one — recommend `throw error(status, message)` everywhere — and update callers. Audit candidates:
-- `src/routes/api/hermes/jobs/+server.ts:52` ✓ uses throw
-- `src/routes/api/hermes/board/+server.ts` — returns `{error}` on partial failures
+- `src/routes/api/agent/jobs/+server.ts:52` ✓ uses throw
+- `src/routes/api/agent/board/+server.ts` — returns `{error}` on partial failures
 - `src/routes/api/settings/wipe-db/+server.ts` — returns `{ok}`
 Standardize and document in `README.md` under "API conventions".
 
@@ -194,8 +194,8 @@ Standardize and document in `README.md` under "API conventions".
 - `drizzle/` (new migration for `role` column)
 
 **Logic holes (P1):**
-- `src/routes/api/hermes/channel-posts/+server.ts`
-- `src/routes/api/hermes/jobs/[id]/+server.ts` and `/run|pause|resume/+server.ts`
+- `src/routes/api/agent/channel-posts/+server.ts`
+- `src/routes/api/agent/jobs/[id]/+server.ts` and `/run|pause|resume/+server.ts`
 - `src/routes/api/chat/stream/+server.ts`
 - `src/routes/api/conversations/[id]/+server.ts`
 - `src/lib/server/db/conversations.ts`
@@ -224,7 +224,7 @@ Where a fix needs new logic, reuse what's already there before adding:
 - **Role/admin gate:** when adding the role column, model after `findAccountByPassword` pattern in `src/lib/server/db/accounts.ts`. Session loading is in `src/hooks.server.ts`.
 - **Confirm dialog:** the wipe-DB modal at `src/routes/settings/+page.svelte:579` is the template for replacing "Click again to confirm".
 - **Cron syntax help:** `parseCronMarkdown` in `src/lib/utils/board.ts` already does some normalization — extend it to accept `every Nh` / `every Nm` shortcuts instead of building a new parser.
-- **Error wrapping:** `describeGatewayError` in `src/lib/server/hermes/transport.ts` already exists for upstream error normalization — use it consistently in `/api/hermes/*`.
+- **Error wrapping:** `describeGatewayError` in `src/lib/server/agent/transport.ts` already exists for upstream error normalization — use it consistently in `/api/agent/*`.
 
 ---
 
@@ -240,7 +240,7 @@ To validate findings *before* implementing:
 
 2. **Reproduce double-submit (P1 #8):**
    - Throttle network in DevTools to "Slow 3G".
-   - Click Run-now twice within 200ms. Watch `/api/hermes/jobs/{id}/run` fire twice in the Network tab.
+   - Click Run-now twice within 200ms. Watch `/api/agent/jobs/{id}/run` fire twice in the Network tab.
    - After fix: only one request.
 
 3. **Sanity-check copy changes (P2):**

@@ -2,7 +2,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { goto, invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { BoardChannel, BoardData, BoardPost, ChannelSource, HermesJob, HermesRun } from '$lib/types';
+	import type { BoardChannel, BoardData, BoardPost, ChannelSource, AgentJob, AgentRun } from '$lib/types';
 	import { detectRunRequestOutcome } from '$lib/utils/run-poll';
 	import { effectiveRunError } from '$lib/utils/cron-delivery';
 	import { formatRelativeTime } from '$lib/utils/time';
@@ -15,7 +15,7 @@
 	import Trash2 from 'lucide-svelte/icons/trash-2';
 
 	type Tone = 'ok' | 'warn' | 'error' | 'archived' | 'running';
-	type HermesJobWithRun = HermesJob & { currentRun?: HermesRun | null };
+	type AgentJobWithRun = AgentJob & { currentRun?: AgentRun | null };
 	type RunWatchStatus =
 		| 'requested'
 		| 'queued'
@@ -38,8 +38,8 @@
 
 	let channels = $state<BoardChannel[]>([]);
 	let posts = $state<BoardPost[]>([]);
-	let jobs = $state<HermesJob[]>([]);
-	let runs = $state<HermesRun[]>([]);
+	let jobs = $state<AgentJob[]>([]);
+	let runs = $state<AgentRun[]>([]);
 	let jobsError = $state<string | null>(null);
 	let selectedSlug = $state('');
 	let busy = $state(true);
@@ -150,7 +150,7 @@
 		}
 		const seq = ++loadSeq;
 		try {
-			const response = await fetch('/api/hermes/board', { cache: 'no-store' });
+			const response = await fetch('/api/agent/board', { cache: 'no-store' });
 			if (!response.ok) throw new Error(`Missions ${response.status}`);
 			const data = (await response.json()) as BoardData;
 			if (seq !== loadSeq) return;
@@ -188,7 +188,7 @@
 
 		outputLoadingId = post.id;
 		try {
-			const response = await fetch(`/api/hermes/reports/${encodeURIComponent(post.id)}`, {
+			const response = await fetch(`/api/agent/reports/${encodeURIComponent(post.id)}`, {
 				cache: 'no-store'
 			});
 			if (!response.ok) throw new Error(`Report ${response.status}`);
@@ -265,7 +265,7 @@
 		replaceState(url.toString(), page.state);
 	}
 
-	function hydrateEditForm(job: HermesJob, channel: BoardChannel | null, targetPosts: BoardPost[]) {
+	function hydrateEditForm(job: AgentJob, channel: BoardChannel | null, targetPosts: BoardPost[]) {
 		formMode = 'edit';
 		editJobId = job.id;
 		createName = job.name || channel?.name || '';
@@ -381,7 +381,7 @@
 		notice = null;
 		noticeChannelSlug = null;
 		try {
-			const response = await fetch('/api/hermes/jobs', {
+			const response = await fetch('/api/agent/jobs', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -395,7 +395,7 @@
 				})
 			});
 			if (!response.ok) throw new Error(await response.text());
-			const data = (await response.json()) as { job?: HermesJob | null };
+			const data = (await response.json()) as { job?: AgentJob | null };
 			await loadChannels(true, true);
 			await invalidateAll();
 			const job = data.job;
@@ -457,7 +457,7 @@
 		noticeChannelSlug = null;
 		try {
 			const response = await fetch(
-				`/api/hermes/jobs/${encodeURIComponent(selectedJob.id)}/${action}`,
+				`/api/agent/jobs/${encodeURIComponent(selectedJob.id)}/${action}`,
 				{ method: 'POST' }
 			);
 			if (!response.ok) throw new Error(await response.text());
@@ -502,7 +502,7 @@
 		notice = null;
 		noticeChannelSlug = null;
 		try {
-			const response = await fetch(`/api/hermes/jobs/${encodeURIComponent(editJobId)}`, {
+			const response = await fetch(`/api/agent/jobs/${encodeURIComponent(editJobId)}`, {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -516,7 +516,7 @@
 				})
 			});
 			if (!response.ok) throw new Error(await response.text());
-			const data = (await response.json()) as { job?: HermesJob | null };
+			const data = (await response.json()) as { job?: AgentJob | null };
 			await loadChannels(true, true);
 			await invalidateAll();
 			const updated = data.job ? channels.find((channel) => channel.jobId === data.job?.id) ?? null : null;
@@ -541,7 +541,7 @@
 		notice = null;
 		noticeChannelSlug = null;
 		try {
-			const response = await fetch(`/api/hermes/channels/${encodeURIComponent(selectedJob.id)}`, {
+			const response = await fetch(`/api/agent/channels/${encodeURIComponent(selectedJob.id)}`, {
 				method: 'DELETE'
 			});
 			if (!response.ok) throw new Error(await response.text());
@@ -577,13 +577,13 @@
 		notice = null;
 		noticeChannelSlug = null;
 		try {
-			const response = await fetch(`/api/hermes/jobs/${encodeURIComponent(selectedJob.id)}`, {
+			const response = await fetch(`/api/agent/jobs/${encodeURIComponent(selectedJob.id)}`, {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ name: next })
 			});
 			if (!response.ok) throw new Error(await response.text());
-			const data = (await response.json()) as { job?: HermesJob | null };
+			const data = (await response.json()) as { job?: AgentJob | null };
 			await loadChannels(true, true);
 			await invalidateAll();
 			const updated = data.job ? channels.find((channel) => channel.jobId === data.job?.id) ?? null : null;
@@ -860,7 +860,7 @@
 		return `${hours}h ${remainingMinutes}m`;
 	}
 
-	function progressItems(run: HermesRun | null) {
+	function progressItems(run: AgentRun | null) {
 		if (!run) return [];
 		const steps =
 			run.steps?.map((step) => ({
@@ -909,19 +909,19 @@
 		return runStatusLabel({ status });
 	}
 
-	function latestRunActivity(run: HermesRun | null): string | null {
+	function latestRunActivity(run: AgentRun | null): string | null {
 		return run?.latestActivityAt ?? run?.updatedAt ?? run?.completedAt ?? run?.startedAt ?? run?.queuedAt ?? null;
 	}
 
 	function missionActivityAt(
 		channel: BoardChannel | null,
-		job: HermesJob | null,
-		run: HermesRun | null
+		job: AgentJob | null,
+		run: AgentRun | null
 	): string | null {
 		return latestRunActivity(run) ?? channel?.latestRunAt ?? job?.lastRunAt ?? null;
 	}
 
-	function statusLabel(channel: BoardChannel, job: HermesJob | null): string {
+	function statusLabel(channel: BoardChannel, job: AgentJob | null): string {
 		if (!channel.active) return 'Archived';
 		const activeRun = currentRunForJob(channel, job);
 		if (activeRun) return runStatusLabel(activeRun);
@@ -933,7 +933,7 @@
 		return channel.state || 'Active';
 	}
 
-	function statusTone(channel: BoardChannel, job: HermesJob | null): Tone {
+	function statusTone(channel: BoardChannel, job: AgentJob | null): Tone {
 		if (!channel.active) return 'archived';
 		const activeRun = currentRunForJob(channel, job);
 		if (activeRun) return runStatusTone(activeRun);
@@ -949,7 +949,7 @@
 		return ['failed', 'error', 'errored', 'cancelled', 'canceled'].includes(String(status ?? '').toLowerCase());
 	}
 
-	function isQueued(job: HermesJob | null): boolean {
+	function isQueued(job: AgentJob | null): boolean {
 		if (!job?.enabled || !job.nextRunAt) return false;
 		const next = Date.parse(job.nextRunAt);
 		if (!Number.isFinite(next)) return false;
@@ -957,15 +957,15 @@
 		return next <= Date.now() + 60_000 && (!Number.isFinite(last) || last < next);
 	}
 
-	function currentRunForJob(channel: BoardChannel | null, job: HermesJob | null): HermesRun | null {
+	function currentRunForJob(channel: BoardChannel | null, job: AgentJob | null): AgentRun | null {
 		if (!job) return null;
 		if (isActiveRun(channel?.activeRun)) return channel.activeRun;
-		const inline = (job as HermesJobWithRun).currentRun;
+		const inline = (job as AgentJobWithRun).currentRun;
 		if (isActiveRun(inline)) return inline;
 		return runs.find((run) => run.jobId === job.id && isActiveRun(run)) ?? null;
 	}
 
-	function isActiveRun(run: HermesRun | null | undefined): run is HermesRun {
+	function isActiveRun(run: AgentRun | null | undefined): run is AgentRun {
 		if (!run) return false;
 		const status = String(run.status ?? '').toLowerCase();
 		if (['running', 'queued', 'pending', 'started', 'in_progress'].includes(status)) return true;
@@ -975,11 +975,11 @@
 		return Boolean(run.startedAt || run.queuedAt) && !run.completedAt;
 	}
 
-	function runStartedAt(run: HermesRun | null): string | null {
+	function runStartedAt(run: AgentRun | null): string | null {
 		return run?.startedAt ?? run?.queuedAt ?? run?.updatedAt ?? null;
 	}
 
-	function runStatusLabel(run: Pick<HermesRun, 'status'>): string {
+	function runStatusLabel(run: Pick<AgentRun, 'status'>): string {
 		const status = String(run.status ?? '').toLowerCase();
 		if (['queued', 'pending'].includes(status)) return 'Queued';
 		if (['running', 'started', 'in_progress'].includes(status)) return 'Running';
@@ -989,7 +989,7 @@
 		return run.status || 'Active';
 	}
 
-	function runStatusTone(run: HermesRun): Tone {
+	function runStatusTone(run: AgentRun): Tone {
 		const status = String(run.status ?? '').toLowerCase();
 		if (['running', 'started', 'in_progress'].includes(status)) return 'running';
 		if (['queued', 'pending'].includes(status)) return 'warn';

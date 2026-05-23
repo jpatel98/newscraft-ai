@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildBoardData, isActiveRun, isSafeChildPath, parseCronMarkdown } from './board';
-import type { BoardPost, HermesJob, HermesRun } from '$lib/types';
+import type { BoardPost, AgentJob, AgentRun } from '$lib/types';
 
 const SAMPLE = `# Cron Job: NEWSWATCH
 
@@ -20,7 +20,7 @@ This metadata should stay out of the board body.
 - Second item
 `;
 
-function job(overrides: Partial<HermesJob> = {}): HermesJob {
+function job(overrides: Partial<AgentJob> = {}): AgentJob {
 	return {
 		id: '4c84f5c519d7',
 		name: 'NEWSWATCH',
@@ -54,7 +54,7 @@ function post(overrides: Partial<BoardPost> = {}): BoardPost {
 	};
 }
 
-function run(overrides: Partial<HermesRun> = {}): HermesRun {
+function run(overrides: Partial<AgentRun> = {}): AgentRun {
 	return {
 		id: 'run-1',
 		jobId: '4c84f5c519d7',
@@ -200,12 +200,12 @@ describe('board utilities', () => {
 	});
 
 	it('rejects traversal outside the cron output root', () => {
-		expect(isSafeChildPath('/home/me/.hermes/cron/output', '/home/me/.hermes/cron/output/job/a.md')).toBe(
+		expect(isSafeChildPath('/home/me/.agent/cron/output', '/home/me/.agent/cron/output/job/a.md')).toBe(
 			true
 		);
-		expect(isSafeChildPath('/home/me/.hermes/cron/output', '/home/me/.hermes/cron/output/../jobs.json')).toBe(
+		expect(isSafeChildPath('/home/me/.agent/cron/output', '/home/me/.agent/cron/output/../jobs.json')).toBe(
 			false
 		);
-		expect(isSafeChildPath('/home/me/.hermes/cron/output', '/home/me/.hermes/secret.md')).toBe(false);
+		expect(isSafeChildPath('/home/me/.agent/cron/output', '/home/me/.agent/secret.md')).toBe(false);
 	});
 });

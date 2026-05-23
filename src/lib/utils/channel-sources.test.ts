@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ChannelSource, HermesJob } from '$lib/types';
+import type { ChannelSource, AgentJob } from '$lib/types';
 import {
 	compileChannelPrompt,
 	normalizeChannelSources,
@@ -19,11 +19,11 @@ function source(overrides: Partial<ChannelSource> = {}): ChannelSource {
 	};
 }
 
-function job(overrides: Partial<HermesJob> = {}): HermesJob {
+function job(overrides: Partial<AgentJob> = {}): AgentJob {
 	return {
 		id: 'job-1',
 		name: 'Morning policy monitor',
-		prompt: 'Compiled prompt from Hermes',
+		prompt: 'Compiled prompt from Agent',
 		scheduleDisplay: 'every 1d',
 		state: 'scheduled',
 		enabled: true,
@@ -87,7 +87,7 @@ describe('channel source utilities', () => {
 		expect(prompt).not.toContain('Hidden source');
 	});
 
-	it('overlays local source config onto Hermes jobs', () => {
+	it('overlays local source config onto Agent jobs', () => {
 		const jobs = [job(), job({ id: 'old-job', prompt: 'Legacy prompt' })];
 		const sources = [source()];
 		const overlaid = overlayChannelSourceConfigs(

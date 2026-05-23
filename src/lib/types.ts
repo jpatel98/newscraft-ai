@@ -25,20 +25,20 @@ export interface ChatMessage {
 	streaming?: boolean;
 }
 
-type HermesCommandKind = 'builtin' | 'skill';
+type AgentCommandKind = 'builtin' | 'skill';
 
-export interface HermesCommand {
+export interface AgentCommand {
 	name: string;
 	slash: string;
 	description: string;
 	category: string;
 	argsHint?: string;
-	kind: HermesCommandKind;
+	kind: AgentCommandKind;
 	enabled: boolean;
 	blockedReason?: string | null;
 }
 
-export interface HermesSkillSummary {
+export interface AgentSkillSummary {
 	name: string;
 	slash: string;
 	description: string;
@@ -47,7 +47,7 @@ export interface HermesSkillSummary {
 	enabled: boolean;
 }
 
-export interface HermesSkillDetail extends HermesSkillSummary {
+export interface AgentSkillDetail extends AgentSkillSummary {
 	frontmatter: Record<string, unknown>;
 	content: string;
 	supportingFiles: string[];
@@ -66,13 +66,13 @@ export interface ChannelSource {
 
 export interface ChatCommand {
 	slash: string;
-	kind: HermesCommandKind;
+	kind: AgentCommandKind;
 	raw: string;
 }
 
 type ReasoningEffort = 'low' | 'medium' | 'high';
 
-export interface HermesJob {
+export interface AgentJob {
 	id: string;
 	name: string;
 	description?: string;
@@ -90,7 +90,7 @@ export interface HermesJob {
 	sources?: ChannelSource[];
 }
 
-export interface HermesRunStep {
+export interface AgentRunStep {
 	id: string;
 	type: string;
 	label: string;
@@ -99,7 +99,7 @@ export interface HermesRunStep {
 	completedAt?: string | null;
 }
 
-export interface HermesToolCall {
+export interface AgentToolCall {
 	id: string;
 	name: string;
 	status: string;
@@ -108,7 +108,7 @@ export interface HermesToolCall {
 	error?: string | null;
 }
 
-export interface HermesRun {
+export interface AgentRun {
 	id: string;
 	jobId: string;
 	jobName?: string | null;
@@ -119,8 +119,8 @@ export interface HermesRun {
 	updatedAt?: string | null;
 	elapsedMs?: number | null;
 	lastError?: string | null;
-	steps?: HermesRunStep[];
-	toolCalls?: HermesToolCall[];
+	steps?: AgentRunStep[];
+	toolCalls?: AgentToolCall[];
 	sourceCount?: number;
 	latestActivityAt?: string | null;
 }
@@ -150,16 +150,16 @@ export interface BoardChannel {
 	active: boolean;
 	state?: string | null;
 	latestRunAt?: string | null;
-	activeRun?: HermesRun | null;
-	recentRun?: HermesRun | null;
+	activeRun?: AgentRun | null;
+	recentRun?: AgentRun | null;
 	postCount: number;
 }
 
 export interface BoardData {
 	channels: BoardChannel[];
 	posts: BoardPost[];
-	jobs: HermesJob[];
-	runs?: HermesRun[];
+	jobs: AgentJob[];
+	runs?: AgentRun[];
 	jobsError?: string | null;
 }
 
@@ -172,7 +172,7 @@ export interface OperatorFooterStatus {
 		label: string;
 		detail: string | null;
 	};
-	hermes: {
+	agent: {
 		available: boolean;
 		label: string;
 		detail: string | null;

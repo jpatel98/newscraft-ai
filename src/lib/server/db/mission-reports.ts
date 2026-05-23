@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from './index';
-import { hermesChannelPosts, missionReports } from './schema';
+import { agentChannelPosts, missionReports } from './schema';
 
 export interface MissionReportUpsertInput {
 	id: string;
@@ -45,17 +45,17 @@ function missingMissionReportsTable(err: unknown): boolean {
 }
 
 function missingLegacyPostsTable(err: unknown): boolean {
-	return err instanceof Error && /(no such table:\s*hermes_channel_posts|relation "hermes_channel_posts" does not exist)/i.test(err.message);
+	return err instanceof Error && /(no such table:\s*agent_channel_posts|relation "agent_channel_posts" does not exist)/i.test(err.message);
 }
 
 async function legacyReportRows(accountId: string): Promise<MissionReportRow[]> {
 	try {
 		const rows = await db
 			.select()
-			.from(hermesChannelPosts)
-			.where(eq(hermesChannelPosts.accountId, accountId))
-			.orderBy(asc(hermesChannelPosts.updatedAt));
-		return rows.map((row: typeof hermesChannelPosts.$inferSelect) => ({
+			.from(agentChannelPosts)
+			.where(eq(agentChannelPosts.accountId, accountId))
+			.orderBy(asc(agentChannelPosts.updatedAt));
+		return rows.map((row: typeof agentChannelPosts.$inferSelect) => ({
 				id: row.id,
 				accountId: row.accountId,
 				missionId: row.jobId,

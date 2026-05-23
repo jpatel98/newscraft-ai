@@ -257,7 +257,7 @@ export class StreamEventState {
 		if (data === '[DONE]') return [{ done: true }];
 
 		const payload = parseJsonObject(data);
-		if (event === 'hermes.title' && payload) {
+		if (event === 'agent.title' && payload) {
 			const title = stringValue(payload.title);
 			return title ? [{ title }] : [];
 		}
@@ -274,9 +274,9 @@ export class StreamEventState {
 			return updates;
 		}
 
-		if (event === 'hermes.tool.progress') return this.applyHermesTool(payload, now);
+		if (event === 'agent.tool.progress') return this.applyAgentTool(payload, now);
 
-		if (event.startsWith('hermes.source') || event.startsWith('hermes.progress')) {
+		if (event.startsWith('agent.source') || event.startsWith('agent.progress')) {
 			const source = sourceFromPayload(payload);
 			if (source) {
 				const persisted = this.upsertSource(source, now, sourcePayloadLooksUsed(payload, source, false));
@@ -302,7 +302,7 @@ export class StreamEventState {
 			.sort((a, b) => a.firstSeenAt - b.firstSeenAt);
 	}
 
-	private applyHermesTool(payload: JsonObject, now: number): StreamEventUpdate[] {
+	private applyAgentTool(payload: JsonObject, now: number): StreamEventUpdate[] {
 		const updates: StreamEventUpdate[] = [];
 		const source = sourceFromPayload(payload);
 		if (source) {

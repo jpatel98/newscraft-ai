@@ -8,17 +8,15 @@ import {
 	deriveSessionId,
 	gatewayHealth,
 	streamChatCompletion,
-	type HermesMessage
+	type AgentMessage
 } from './transport';
 
 function expectedSessionId(system: string, firstUser: string): string {
 	return createHash('sha256').update(system).update('\0').update(firstUser).digest('hex').slice(0, 32);
 }
 
-describe('Hermes transport', () => {
-	const originalGatewayUrl = process.env.HERMES_GATEWAY_URL;
-	const originalAgentGatewayUrl = process.env.AGENT_GATEWAY_URL;
-	const originalApiKey = process.env.HERMES_API_KEY;
+describe('Agent transport', () => {
+	const originalGatewayUrl = process.env.AGENT_GATEWAY_URL;
 	const originalAgentApiKey = process.env.AGENT_GATEWAY_API_KEY;
 	const originalHarnessApiKey = process.env.NEWSROOM_HARNESS_API_KEY;
 
@@ -26,30 +24,26 @@ describe('Hermes transport', () => {
 		delete process.env.AGENT_GATEWAY_URL;
 		delete process.env.AGENT_GATEWAY_API_KEY;
 		delete process.env.NEWSROOM_HARNESS_API_KEY;
-		process.env.HERMES_GATEWAY_URL = 'https://gateway.test/';
-		process.env.HERMES_API_KEY = 'test-key';
+		process.env.AGENT_GATEWAY_URL = 'https://gateway.test/';
+		process.env.AGENT_GATEWAY_API_KEY = 'test-key';
 	});
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
-		if (originalAgentGatewayUrl === undefined) delete process.env.AGENT_GATEWAY_URL;
-		else process.env.AGENT_GATEWAY_URL = originalAgentGatewayUrl;
-		if (originalGatewayUrl === undefined) delete process.env.HERMES_GATEWAY_URL;
-		else process.env.HERMES_GATEWAY_URL = originalGatewayUrl;
+		if (originalGatewayUrl === undefined) delete process.env.AGENT_GATEWAY_URL;
+		else process.env.AGENT_GATEWAY_URL = originalGatewayUrl;
 		if (originalAgentApiKey === undefined) delete process.env.AGENT_GATEWAY_API_KEY;
 		else process.env.AGENT_GATEWAY_API_KEY = originalAgentApiKey;
 		if (originalHarnessApiKey === undefined) delete process.env.NEWSROOM_HARNESS_API_KEY;
 		else process.env.NEWSROOM_HARNESS_API_KEY = originalHarnessApiKey;
-		if (originalApiKey === undefined) delete process.env.HERMES_API_KEY;
-		else process.env.HERMES_API_KEY = originalApiKey;
 	});
 
 	it('derives deterministic session ids from the system prompt and first user text only', () => {
-		const messages: HermesMessage[] = [
+		const messages: AgentMessage[] = [
 			{
 				role: 'system',
 				content: [
-					{ type: 'text', text: 'Follow Hermes policy.' },
+					{ type: 'text', text: 'Follow Agent policy.' },
 					{ type: 'image_url', image_url: { url: 'https://example.com/system.png' } },
 					{ type: 'text', text: 'Prefer concise answers.' }
 				]
@@ -67,7 +61,7 @@ describe('Hermes transport', () => {
 		];
 
 		const expected = expectedSessionId(
-			'Follow Hermes policy.\nPrefer concise answers.',
+			'Follow Agent policy.\nPrefer concise answers.',
 			'Summarize this.\nKeep the source names.'
 		);
 
@@ -92,7 +86,7 @@ describe('Hermes transport', () => {
 	it('sends a derived session id unless the caller provides one', async () => {
 		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
 		vi.stubGlobal('fetch', fetchMock);
-		const messages: HermesMessage[] = [
+		const messages: AgentMessage[] = [
 			{ role: 'system', content: 'system' },
 			{ role: 'user', content: 'hello' }
 		];
@@ -112,26 +106,26 @@ describe('Hermes transport', () => {
 			accept: 'text/event-stream',
 			authorization: 'Bearer test-key',
 			'content-type': 'application/json',
-			'x-hermes-session-id': expectedSessionId('system', 'hello')
+			'x-agent-session-id': expectedSessionId('system', 'hello')
 		});
 		expect(JSON.parse(firstInit.body as string)).toMatchObject({
-			model: 'hermes-agent',
+			model: 'newsroom-agent',
 			stream: true,
 			messages
 		});
-		expect(secondInit.headers['x-hermes-session-id']).toBe('manual-session');
+		expect(secondInit.headers['x-agent-session-id']).toBe('manual-session');
 	});
 
-	it('passes reasoning effort through to Hermes chat completions', async () => {
+	it('passes reasoning effort through to Agent chat completions', async () => {
 		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
 		vi.stubGlobal('fetch', fetchMock);
-		const messages: HermesMessage[] = [{ role: 'user', content: 'think harder' }];
+		const messages: AgentMessage[] = [{ role: 'user', content: 'think harder' }];
 
 		await streamChatCompletion({ messages, reasoning_effort: 'high' });
 
 		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
 		expect(JSON.parse(init.body as string)).toMatchObject({
-			model: 'hermes-agent',
+			model: 'newsroom-agent',
 			stream: true,
 			messages,
 			reasoning_effort: 'high'
@@ -153,7 +147,7 @@ describe('Hermes transport', () => {
 
 	it('allows unauthenticated requests when only AGENT_GATEWAY_URL is configured', async () => {
 		process.env.AGENT_GATEWAY_URL = 'https://harness.test';
-		delete process.env.HERMES_API_KEY;
+		delete process.env.AGENT_GATEWAY_API_KEY;
 		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
 		vi.stubGlobal('fetch', fetchMock);
 
@@ -211,16 +205,16 @@ describe('Hermes transport', () => {
 		});
 	});
 
-	it('explains raw fetch failures as an unreachable Hermes gateway', () => {
+	it('explains raw fetch failures as an unreachable agent gateway', () => {
 		expect(describeGatewayError(new TypeError('fetch failed'))).toBe(
-			'Hermes gateway is not reachable at https://gateway.test. Start the gateway or update HERMES_GATEWAY_URL.'
+			'Agent gateway is not reachable at https://gateway.test. Start the gateway or update AGENT_GATEWAY_URL.'
 		);
 	});
 
 	it('uses AGENT_GATEWAY_URL in gateway error hints when configured', () => {
 		process.env.AGENT_GATEWAY_URL = 'https://harness.test';
 		expect(describeGatewayError(new TypeError('fetch failed'))).toBe(
-			'Hermes gateway is not reachable at https://harness.test. Start the gateway or update AGENT_GATEWAY_URL.'
+			'Agent gateway is not reachable at https://harness.test. Start the gateway or update AGENT_GATEWAY_URL.'
 		);
 	});
 });

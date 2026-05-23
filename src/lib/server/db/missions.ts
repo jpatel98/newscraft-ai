@@ -1,9 +1,9 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import type { ChannelSource, HermesJob } from '$lib/types';
+import type { ChannelSource, AgentJob } from '$lib/types';
 import { newId } from '$lib/utils/id';
 import { normalizeChannelSource, overlayChannelSourceConfigs } from '$lib/utils/channel-sources';
 import { db } from './index';
-import { hermesChannelConfigs, hermesChannelSources, missions, missionSources } from './schema';
+import { agentChannelConfigs, agentChannelSources, missions, missionSources } from './schema';
 
 export interface MissionConfig {
 	missionId: string;
@@ -18,7 +18,7 @@ function missingMissionTables(err: unknown): boolean {
 }
 
 function missingLegacyTables(err: unknown): boolean {
-	return err instanceof Error && /(no such table:\s*hermes_channel_(configs|sources)|relation "hermes_channel_(configs|sources)" does not exist)/i.test(err.message);
+	return err instanceof Error && /(no such table:\s*agent_channel_(configs|sources)|relation "agent_channel_(configs|sources)" does not exist)/i.test(err.message);
 }
 
 function sourceFromRow(row: typeof missionSources.$inferSelect): ChannelSource | null {
@@ -37,7 +37,7 @@ function sourceFromRow(row: typeof missionSources.$inferSelect): ChannelSource |
 	}
 }
 
-function legacySourceFromRow(row: typeof hermesChannelSources.$inferSelect): ChannelSource | null {
+function legacySourceFromRow(row: typeof agentChannelSources.$inferSelect): ChannelSource | null {
 	try {
 		const config = JSON.parse(row.configJson) as { url?: unknown };
 		return normalizeChannelSource({
@@ -75,14 +75,14 @@ async function legacyConfigs(accountId: string, missionIds: string[]): Promise<M
 	try {
 		const configRows = await db
 			.select()
-			.from(hermesChannelConfigs)
-			.where(and(eq(hermesChannelConfigs.accountId, accountId), inArray(hermesChannelConfigs.jobId, ids)));
+			.from(agentChannelConfigs)
+			.where(and(eq(agentChannelConfigs.accountId, accountId), inArray(agentChannelConfigs.jobId, ids)));
 		if (configRows.length === 0) return configs;
 		const sourceRows = await db
 			.select()
-			.from(hermesChannelSources)
-			.where(inArray(hermesChannelSources.jobId, ids))
-			.orderBy(asc(hermesChannelSources.sortOrder), asc(hermesChannelSources.name));
+			.from(agentChannelSources)
+			.where(inArray(agentChannelSources.jobId, ids))
+			.orderBy(asc(agentChannelSources.sortOrder), asc(agentChannelSources.name));
 		const sources = new Map<string, ChannelSource[]>();
 		for (const row of sourceRows) {
 			const source = legacySourceFromRow(row);
@@ -188,7 +188,7 @@ export async function listMissionConfigs(accountId: string, missionIds: string[]
 	}
 }
 
-export async function overlayMissionConfigs(accountId: string, jobs: HermesJob[]): Promise<HermesJob[]> {
+export async function overlayMissionConfigs(accountId: string, jobs: AgentJob[]): Promise<AgentJob[]> {
 	const configs = await listMissionConfigs(accountId, jobs.map((job) => job.id));
 	return overlayChannelSourceConfigs(jobs, configs).map((job) => {
 		const config = configs.get(job.id);

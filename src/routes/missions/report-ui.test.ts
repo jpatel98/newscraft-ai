@@ -18,7 +18,7 @@ describe('mission report expanded metadata', () => {
 
 		expect(source).toContain('View full output');
 		expect(source).toContain('handleLatestOutputToggle');
-		expect(source).toContain('/api/hermes/reports/${encodeURIComponent(post.id)}');
+		expect(source).toContain('/api/agent/reports/${encodeURIComponent(post.id)}');
 		expect(source).toContain('{#each selectedPosts as post, index (post.id)}');
 		expect(source).toContain('<pre>{savedOutputMarkdown(post)}</pre>');
 		expect(source).toContain('class="latest-output__details"');

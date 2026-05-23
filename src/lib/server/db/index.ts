@@ -93,7 +93,7 @@ async function ensureSchema(): Promise<void> {
 	`;
 
 	await sql`
-		CREATE TABLE IF NOT EXISTS hermes_channel_posts (
+		CREATE TABLE IF NOT EXISTS agent_channel_posts (
 			id text PRIMARY KEY,
 			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
 			job_id text NOT NULL,
@@ -109,12 +109,12 @@ async function ensureSchema(): Promise<void> {
 			updated_at bigint NOT NULL
 		)
 	`;
-	await sql`CREATE INDEX IF NOT EXISTS hermes_posts_account_job_idx ON hermes_channel_posts (account_id, job_id)`;
-	await sql`CREATE INDEX IF NOT EXISTS hermes_posts_job_run_idx ON hermes_channel_posts (job_id, run_time)`;
-	await sql`CREATE INDEX IF NOT EXISTS hermes_posts_path_idx ON hermes_channel_posts (file_path_display)`;
+	await sql`CREATE INDEX IF NOT EXISTS agent_posts_account_job_idx ON agent_channel_posts (account_id, job_id)`;
+	await sql`CREATE INDEX IF NOT EXISTS agent_posts_job_run_idx ON agent_channel_posts (job_id, run_time)`;
+	await sql`CREATE INDEX IF NOT EXISTS agent_posts_path_idx ON agent_channel_posts (file_path_display)`;
 
 	await sql`
-		CREATE TABLE IF NOT EXISTS hermes_channel_configs (
+		CREATE TABLE IF NOT EXISTS agent_channel_configs (
 			job_id text PRIMARY KEY,
 			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
 			base_prompt text NOT NULL,
@@ -124,9 +124,9 @@ async function ensureSchema(): Promise<void> {
 	`;
 
 	await sql`
-		CREATE TABLE IF NOT EXISTS hermes_channel_sources (
+		CREATE TABLE IF NOT EXISTS agent_channel_sources (
 			id text PRIMARY KEY,
-			job_id text NOT NULL REFERENCES hermes_channel_configs(job_id) ON DELETE CASCADE,
+			job_id text NOT NULL REFERENCES agent_channel_configs(job_id) ON DELETE CASCADE,
 			type text NOT NULL DEFAULT 'url',
 			name text NOT NULL,
 			config_json text NOT NULL,
@@ -136,8 +136,8 @@ async function ensureSchema(): Promise<void> {
 			updated_at bigint NOT NULL
 		)
 	`;
-	await sql`CREATE INDEX IF NOT EXISTS hermes_sources_job_idx ON hermes_channel_sources (job_id, sort_order)`;
-	await sql`CREATE INDEX IF NOT EXISTS hermes_sources_type_idx ON hermes_channel_sources (type)`;
+	await sql`CREATE INDEX IF NOT EXISTS agent_sources_job_idx ON agent_channel_sources (job_id, sort_order)`;
+	await sql`CREATE INDEX IF NOT EXISTS agent_sources_type_idx ON agent_channel_sources (type)`;
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS missions (
