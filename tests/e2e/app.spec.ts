@@ -59,7 +59,8 @@ test.describe.serial('NewsCraft app shell', () => {
 		await page.getByLabel('Confirm password').fill(password);
 		await page.getByRole('button', { name: 'Create account' }).click();
 		await expect(page).toHaveURL(/\/$/);
-		await expect(page.getByRole('heading', { name: 'Start with a question or task.' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Newsroom overview' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'What looks worth chasing' })).toBeVisible();
 
 		await page.request.post('/logout');
 		await page.goto('/settings');
@@ -75,7 +76,7 @@ test.describe.serial('NewsCraft app shell', () => {
 		await page.getByLabel('Password', { exact: true }).fill(password);
 		await page.getByRole('button', { name: 'Sign in' }).click();
 		await expect(page).toHaveURL(/\/$/);
-		await expect(page.getByRole('heading', { name: 'Start with a question or task.' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Newsroom overview' })).toBeVisible();
 		expect(problems).toEqual([]);
 	});
 
@@ -106,7 +107,8 @@ test.describe.serial('NewsCraft app shell', () => {
 
 		await page.setViewportSize({ width: 390, height: 844 });
 		await signIn(page);
-		await expect(page.getByRole('heading', { name: 'Start with a question or task.' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Newsroom overview' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'What looks worth chasing' })).toBeVisible();
 		await expect(page.getByLabel('Message NewsCraft')).toBeVisible();
 
 		await page.getByRole('button', { name: 'Toggle sidebar' }).click();

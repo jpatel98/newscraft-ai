@@ -18,16 +18,16 @@
 
 	const starters = [
 		{
-			label: 'Ask the monitor for pitches',
-			prompt: 'Review my standing briefs and surface the strongest pitch gates for today.'
+			label: 'Find story leads',
+			prompt: 'Review my beats and show me the strongest story leads for today.'
 		},
 		{
-			label: 'Read a source now',
-			prompt: 'Read this source and add any pitch-worthy updates: '
+			label: 'Read this source',
+			prompt: 'Read this source and flag anything worth following up: '
 		},
 		{
-			label: 'Draft from a pitch',
-			prompt: 'Draft a 300-word web story from the accepted pitch using only sourced facts.'
+			label: 'Draft a story',
+			prompt: 'Draft a 300-word web story from this lead using only sourced facts.'
 		}
 	];
 
@@ -182,10 +182,10 @@
 		const sourceLines = pitch.sources.length
 			? pitch.sources.map((source, index) => `${index + 1}. ${source.name}: ${source.url}`).join('\n')
 			: 'No configured source list was attached; ask the monitor to fetch supporting sources first.';
-		composer?.setValue(`Spawn a story workspace for this accepted pitch.
+		composer?.setValue(`Start a story draft from this lead.
 
 Beat: ${pitch.beat}
-Pitch: ${pitch.title}
+Lead: ${pitch.title}
 Why now: ${pitch.whyNow}
 Suggested angle: ${pitch.angle}
 
@@ -231,40 +231,39 @@ ${sourceLines}`);
 <div class="newsroom">
 	<section class="newsroom-hero" aria-labelledby="newsroom-title">
 		<div>
-			<div class="newsroom-hero__eyebrow">Agentic newsroom</div>
-			<h1 id="newsroom-title">Resolve the next editorial gate.</h1>
+			<div class="newsroom-hero__eyebrow">Today</div>
+			<h1 id="newsroom-title">Newsroom overview</h1>
 			<p>
-				Beat monitors watch configured Standing Briefs, surface pitch gates, and keep the Wire moving.
-				The editor accepts, holds, or spikes before drafting starts.
+				Check for new leads, review active runs, and start a sourced draft from anything worth following.
 			</p>
 		</div>
 		<div class="newsroom-hero__meta" aria-label="Newsroom status">
 			<div>
 				<strong>{pitches.length}</strong>
-				<span>pitch gates</span>
+				<span>new leads</span>
 			</div>
 			<div>
 				<strong>{standingBriefs.length}</strong>
-				<span>active briefs</span>
+				<span>beats watched</span>
 			</div>
 			<div>
 				<strong>{activeWorkspaces.length}</strong>
-				<span>live runs</span>
+				<span>runs active</span>
 			</div>
 		</div>
 	</section>
 
 	<section class="command-panel" aria-label="Editor command bar">
 		<div class="command-panel__copy">
-			<div class="panel-eyebrow">Command bar</div>
-			<p>Route a command to the Monitor or Drafting desk, or paste a source URL for an ad-hoc read.</p>
+			<div class="panel-eyebrow">Ask NewsCraft</div>
+			<p>Ask for leads, paste a source, or turn an accepted lead into a short web draft.</p>
 		</div>
 		<div class="command-panel__prompts" aria-label="Starter commands">
 			{#each starters as starter}
 				<button type="button" onclick={() => composer?.setValue(starter.prompt)}>{starter.label}</button>
 			{/each}
 		</div>
-		<Composer bind:this={composer} placeholder="Ask the monitor, accept a pitch, or read this: https://..." />
+		<Composer bind:this={composer} placeholder="Ask for leads, paste a source URL, or draft from a lead..." />
 	</section>
 
 	{#if !data.missionsEnabled}
@@ -283,10 +282,10 @@ ${sourceLines}`);
 		<section class="pitch-queue" aria-labelledby="pitch-queue-title">
 			<div class="section-head">
 				<div>
-					<div class="panel-eyebrow">Pitch Queue</div>
-					<h2 id="pitch-queue-title">Monitor proposals</h2>
+					<div class="panel-eyebrow">Story leads</div>
+					<h2 id="pitch-queue-title">What looks worth chasing</h2>
 				</div>
-				<a href="/missions?new=1">Configure Standing Briefs</a>
+				<a href="/missions?new=1">Manage beats</a>
 			</div>
 
 			{#if pitches.length}
@@ -314,16 +313,16 @@ ${sourceLines}`);
 								</div>
 							{/if}
 							<div class="pitch-card__actions">
-								<button type="button" onclick={() => spawnWorkspace(pitch)}>Spawn Workspace</button>
-								<a href={`/missions?mission=${encodeURIComponent(pitch.beat)}`}>Open brief</a>
+								<button type="button" onclick={() => spawnWorkspace(pitch)}>Start draft</button>
+								<a href={`/missions?mission=${encodeURIComponent(pitch.beat)}`}>Open beat</a>
 							</div>
 						</article>
 					{/each}
 				</div>
 			{:else}
 				<div class="empty-panel">
-					<strong>No pitch gates yet.</strong>
-					<span>Create a Standing Brief or run an existing monitor; saved outputs will appear here as pitch gates.</span>
+					<strong>No story leads yet.</strong>
+					<span>Add a beat or run a source check; useful findings will show up here.</span>
 				</div>
 			{/if}
 		</section>
@@ -436,9 +435,9 @@ ${sourceLines}`);
 
 	.newsroom-hero {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-columns: minmax(18rem, 0.8fr) minmax(22rem, 1fr);
 		gap: 1.5rem;
-		align-items: end;
+		align-items: center;
 		padding: clamp(1.25rem, 3vw, 2rem);
 		overflow: hidden;
 		position: relative;
@@ -473,14 +472,14 @@ ${sourceLines}`);
 
 	.newsroom-hero h1 {
 		margin-top: 0.35rem;
-		font-size: clamp(2.35rem, 6vw, 5rem);
-		line-height: 0.92;
-		max-width: 12ch;
+		font-size: clamp(2rem, 4vw, 3.4rem);
+		line-height: 0.98;
+		max-width: 16ch;
 	}
 
 	.newsroom-hero p {
 		max-width: 42rem;
-		margin: 1rem 0 0;
+		margin: 0.75rem 0 0;
 		color: rgba(33, 24, 15, 0.68);
 		font-size: 1rem;
 		line-height: 1.65;

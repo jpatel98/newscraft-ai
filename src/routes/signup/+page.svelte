@@ -1,11 +1,11 @@
 <script lang="ts">
 	let { data, form } = $props<{
-		data: { accessCodeConfigured: boolean };
+		data: Record<string, never>;
 		form?: { error?: string };
 	}>();
-	let accessInput: HTMLInputElement | undefined;
+	let pwInput: HTMLInputElement | undefined;
 	$effect(() => {
-		accessInput?.focus();
+		pwInput?.focus();
 	});
 </script>
 
@@ -18,24 +18,6 @@
 		<div class="card__eyebrow">NewsCraft · Create account</div>
 		<h1 class="card__title">Set up your access.</h1>
 
-		{#if !data.accessCodeConfigured}
-			<div class="field__error">Account creation is not configured.</div>
-		{/if}
-
-		<div class="field">
-			<label class="field__label" for="access-code">Access code</label>
-			<input
-				id="access-code"
-				class="field__input"
-				type="password"
-				name="accessCode"
-				autocomplete="one-time-code"
-				bind:this={accessInput}
-				disabled={!data.accessCodeConfigured}
-				required
-			/>
-		</div>
-
 		<div class="field">
 			<label class="field__label" for="pw">Password</label>
 			<input
@@ -45,7 +27,7 @@
 				name="password"
 				autocomplete="new-password"
 				minlength={8}
-				disabled={!data.accessCodeConfigured}
+				bind:this={pwInput}
 				required
 			/>
 		</div>
@@ -59,17 +41,11 @@
 				name="confirm"
 				autocomplete="new-password"
 				minlength={8}
-				disabled={!data.accessCodeConfigured}
 				required
 			/>
 		</div>
 
-		<button
-			type="submit"
-			class="btn btn--primary"
-			style="width:100%;padding:10px 16px"
-			disabled={!data.accessCodeConfigured}
-		>
+		<button type="submit" class="btn btn--primary" style="width:100%;padding:10px 16px">
 			Create account
 		</button>
 
