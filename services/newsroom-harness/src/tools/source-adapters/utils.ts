@@ -104,6 +104,15 @@ export function sourceTitleFromUrl(url: string): string {
 	}
 }
 
+export function hostMatches(url: string, hosts: string[]): boolean {
+	try {
+		const hostname = new URL(url).hostname.toLowerCase();
+		return hosts.some((host) => hostname === host || hostname.endsWith(`.${host}`));
+	} catch {
+		return false;
+	}
+}
+
 function sourceProvenance(kind: SourceAdapterKind, input: SourceAdapterExtractInput): SourceProvenance {
 	return {
 		adapter: kind,

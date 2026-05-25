@@ -8,10 +8,14 @@ export { politeFetch, NEWSCRAFT_USER_AGENT } from './polite-fetch.js';
 export {
 	SOURCE_ADAPTERS,
 	atomAdapter,
+	blueskyAdapter,
 	htmlArticleAdapter,
+	pdfAdapter,
+	prWireAdapter,
 	rssAdapter,
 	selectSourceAdapter,
-	sitemapAdapter
+	sitemapAdapter,
+	webSearchAdapter
 } from './source-adapters/index.js';
 export type {
 	SourceAdapter,
@@ -89,7 +93,7 @@ function sourceTextFromAdapter(
 ): string {
 	if (!items.length) return extractSourceText(body, contentType, url);
 	if (kind === 'sitemap') return items.map((item) => `${item.title}. ${item.url}`).join('\n');
-	if (kind === 'rss' || kind === 'atom') {
+	if (kind === 'rss' || kind === 'atom' || kind === 'web_search' || kind === 'api_bluesky') {
 		return items
 			.slice(0, 8)
 			.map((item) => `${item.title}. ${item.summary || item.contentText}`)

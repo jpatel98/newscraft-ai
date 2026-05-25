@@ -1,6 +1,14 @@
 import type { PoliteFetchCacheMetadata, PoliteFetchOptions, PoliteFetchResult } from '../polite-fetch.js';
 
-export type SourceAdapterKind = 'rss' | 'atom' | 'sitemap' | 'html_article';
+export type SourceAdapterKind =
+	| 'rss'
+	| 'atom'
+	| 'sitemap'
+	| 'web_search'
+	| 'pr_wire'
+	| 'pdf'
+	| 'api_bluesky'
+	| 'html_article';
 
 export interface SourceProvenance {
 	adapter: SourceAdapterKind;
