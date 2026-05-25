@@ -105,6 +105,25 @@ interface EventRow {
 	created_at: string;
 }
 
+type MemoryTier = 'house' | 'beat' | 'story';
+
+interface HouseMemoryRow {
+	key: string;
+	value_json: string;
+	updated_at: string;
+}
+
+interface MemoryEntryRow {
+	id: string;
+	tier: MemoryTier;
+	scope_id: string;
+	key: string;
+	kind: string;
+	value_json: string;
+	actor: string;
+	created_at: string;
+}
+
 export interface StoreSourceInput {
 	runId: string;
 	jobId: string | null;
@@ -145,6 +164,62 @@ export interface ListEventsOptions {
 	afterId?: string | null;
 	limit?: number;
 }
+
+export interface MemoryEntryDto {
+	id: string;
+	tier: MemoryTier;
+	scope_id: string;
+	key: string;
+	kind: string;
+	value: NewsroomEventJson;
+	actor: string;
+	created_at: string;
+}
+
+export interface HouseMemoryInspectDto {
+	tier: 'house';
+	scope_id: 'global';
+	current: Record<string, NewsroomEventJson>;
+	required_keys: string[];
+	updated_at: string | null;
+	entries: MemoryEntryDto[];
+}
+
+export interface ScopedMemoryInspectDto {
+	tier: 'beat' | 'story';
+	scope_id: string;
+	current: Record<string, NewsroomEventJson[]>;
+	required_keys: string[];
+	entries: MemoryEntryDto[];
+	agent_event_log?: NewsroomEventDto[];
+}
+
+export interface AppendMemoryInput {
+	key: string;
+	value: unknown;
+	kind?: string;
+	actor?: string;
+	createdAt?: string;
+}
+
+const HOUSE_MEMORY_KEYS = [
+	'style_guide',
+	'banned_phrases',
+	'libel_patterns',
+	'gazetteer',
+	'model_preferences',
+	'beats'
+] as const;
+
+const BEAT_MEMORY_KEYS = [
+	'source_quality',
+	'prior_coverage',
+	'peer_coverage',
+	'editor_accept_patterns',
+	'editor_spike_patterns'
+] as const;
+
+const STORY_MEMORY_KEYS = ['fact_ledger', 'draft_history', 'agent_event_log', 'editor_decisions'] as const;
 
 export class HarnessRepository {
 	constructor(private db: HarnessDb) {}
@@ -226,6 +301,148 @@ export class HarnessRepository {
 			)
 			.all(...params) as EventRow[];
 		return rows.map(eventDto);
+	}
+
+	inspectHouseMemory(): HouseMemoryInspectDto {
+		const rows = this.db.prepare('SELECT * FROM house_memory ORDER BY key ASC').all() as HouseMemoryRow[];
+		const current = houseMemoryDefaults();
+		let updatedAt: string | null = null;
+		for (const row of rows) {
+			current[row.key] = parseEventJson(row.value_json, null);
+			updatedAt = latestIso([updatedAt, row.updated_at]);
+		}
+		return {
+			tier: 'house',
+			scope_id: 'global',
+			current,
+			required_keys: [...HOUSE_MEMORY_KEYS],
+			updated_at: updatedAt,
+			entries: this.listMemoryEntries('house', 'global')
+		};
+	}
+
+	updateHouseMemory(values: Record<string, unknown>, actor = 'editor'): HouseMemoryInspectDto {
+		const now = nowIso();
+		const entries = Object.entries(values).filter(([key]) => HOUSE_MEMORY_KEYS.includes(key as any));
+		if (entries.length === 0) throw new Error('No supported house memory keys provided');
+		const tx = this.db.transaction(() => {
+			for (const [key, value] of entries) {
+				this.db
+					.prepare(
+						`INSERT INTO house_memory (key, value_json, updated_at)
+						 VALUES (?, ?, ?)
+						 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`
+					)
+					.run(key, stringifyJson(value), now);
+				this.insertMemoryEntry('house', 'global', key, 'house.updated', value, actor, now);
+			}
+		});
+		tx();
+		return this.inspectHouseMemory();
+	}
+
+	inspectBeatMemory(beatId: string): ScopedMemoryInspectDto {
+		const scopeId = requiredText(beatId, 'beat_id');
+		return {
+			tier: 'beat',
+			scope_id: scopeId,
+			current: scopedMemoryCurrent(this.listMemoryEntries('beat', scopeId), BEAT_MEMORY_KEYS),
+			required_keys: [...BEAT_MEMORY_KEYS],
+			entries: this.listMemoryEntries('beat', scopeId)
+		};
+	}
+
+	appendBeatMemory(beatId: string, input: AppendMemoryInput): MemoryEntryDto {
+		const scopeId = requiredText(beatId, 'beat_id');
+		const key = requiredMemoryKey(input.key, BEAT_MEMORY_KEYS, 'beat memory key');
+		return this.insertMemoryEntry(
+			'beat',
+			scopeId,
+			key,
+			input.kind || `beat.${key}.recorded`,
+			input.value,
+			input.actor || 'agent',
+			input.createdAt || nowIso()
+		);
+	}
+
+	inspectStoryMemory(storyId: string, workspaceId = DEFAULT_WORKSPACE_ID): ScopedMemoryInspectDto {
+		const scopeId = requiredText(storyId, 'story_id');
+		const entries = this.listMemoryEntries('story', scopeId);
+		const eventLog = this.listEvents({ workspaceId, storyId: scopeId, limit: 500 });
+		return {
+			tier: 'story',
+			scope_id: scopeId,
+			current: {
+				...scopedMemoryCurrent(entries, STORY_MEMORY_KEYS),
+				agent_event_log: eventLog as unknown as NewsroomEventJson[]
+			},
+			required_keys: [...STORY_MEMORY_KEYS],
+			entries,
+			agent_event_log: eventLog
+		};
+	}
+
+	appendStoryMemory(storyId: string, input: AppendMemoryInput): MemoryEntryDto {
+		const scopeId = requiredText(storyId, 'story_id');
+		const key = requiredMemoryKey(input.key, STORY_MEMORY_KEYS, 'story memory key');
+		return this.insertMemoryEntry(
+			'story',
+			scopeId,
+			key,
+			input.kind || `story.${key}.recorded`,
+			input.value,
+			input.actor || 'agent',
+			input.createdAt || nowIso()
+		);
+	}
+
+	listMemoryEntries(tier: MemoryTier, scopeId: string, key?: string): MemoryEntryDto[] {
+		const scope = requiredText(scopeId, 'scope_id');
+		const rows = key
+			? (this.db
+					.prepare(
+						`SELECT * FROM memory_entries
+						 WHERE tier = ? AND scope_id = ? AND key = ?
+						 ORDER BY created_at ASC, rowid ASC`
+					)
+					.all(tier, scope, key) as MemoryEntryRow[])
+			: (this.db
+					.prepare(
+						`SELECT * FROM memory_entries
+						 WHERE tier = ? AND scope_id = ?
+						 ORDER BY created_at ASC, rowid ASC`
+					)
+					.all(tier, scope) as MemoryEntryRow[]);
+		return rows.map(memoryEntryDto);
+	}
+
+	private insertMemoryEntry(
+		tier: MemoryTier,
+		scopeId: string,
+		key: string,
+		kind: string,
+		value: unknown,
+		actor: string,
+		createdAt: string
+	): MemoryEntryDto {
+		const id = newId('mem');
+		this.db
+			.prepare(
+				`INSERT INTO memory_entries (id, tier, scope_id, key, kind, value_json, actor, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+			)
+			.run(
+				id,
+				tier,
+				requiredText(scopeId, 'scope_id'),
+				requiredText(key, 'key'),
+				requiredText(kind, 'kind'),
+				stringifyJson(value),
+				requiredText(actor, 'actor'),
+				createdAt
+			);
+		return this.listMemoryEntries(tier, scopeId, key).find((entry) => entry.id === id) as MemoryEntryDto;
 	}
 
 	private jobIdForRun(runId: string): string | null {
@@ -815,6 +1032,12 @@ function optionalText(value: string | null | undefined): string | null {
 	return trimmed ? trimmed : null;
 }
 
+function requiredMemoryKey<T extends readonly string[]>(value: string, allowed: T, label: string): T[number] {
+	const key = requiredText(value, label);
+	if (!allowed.includes(key)) throw new Error(`Unsupported ${label}: ${key}`);
+	return key;
+}
+
 function addNullableFilter(
 	conditions: string[],
 	params: unknown[],
@@ -852,6 +1075,42 @@ function parseEventJson(value: string | null, fallback: NewsroomEventJson): News
 function parseEventSources(value: string | null): NewsroomEventJson[] {
 	const parsed = parseEventJson(value, []);
 	return Array.isArray(parsed) ? parsed : [];
+}
+
+function houseMemoryDefaults(): Record<string, NewsroomEventJson> {
+	return {
+		style_guide: '',
+		banned_phrases: [],
+		libel_patterns: [],
+		gazetteer: {},
+		model_preferences: {},
+		beats: []
+	};
+}
+
+function scopedMemoryCurrent(
+	entries: MemoryEntryDto[],
+	requiredKeys: readonly string[]
+): Record<string, NewsroomEventJson[]> {
+	const current = Object.fromEntries(requiredKeys.map((key) => [key, []])) as Record<string, NewsroomEventJson[]>;
+	for (const entry of entries) {
+		if (!current[entry.key]) current[entry.key] = [];
+		current[entry.key].push(entry.value);
+	}
+	return current;
+}
+
+function memoryEntryDto(row: MemoryEntryRow): MemoryEntryDto {
+	return {
+		id: row.id,
+		tier: row.tier,
+		scope_id: row.scope_id,
+		key: row.key,
+		kind: row.kind,
+		value: parseEventJson(row.value_json, null),
+		actor: row.actor,
+		created_at: row.created_at
+	};
 }
 
 function eventDto(row: EventRow): NewsroomEventDto {

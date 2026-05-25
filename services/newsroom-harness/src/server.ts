@@ -146,6 +146,58 @@ async function route(
 		return;
 	}
 
+	if (req.method === 'GET' && (url.pathname === '/api/memory/house' || url.pathname === '/api/memory/house/inspect')) {
+		writeJson(res, 200, { memory: ctx.repository.inspectHouseMemory() });
+		return;
+	}
+
+	if (req.method === 'PATCH' && url.pathname === '/api/memory/house') {
+		const input = await readJson<{ values?: Record<string, unknown>; actor?: string } & Record<string, unknown>>(req);
+		const { values, actor, ...directValues } = input;
+		writeJson(res, 200, {
+			ok: true,
+			memory: ctx.repository.updateHouseMemory(values || directValues, actor || 'editor')
+		});
+		return;
+	}
+
+	const beatMemory = url.pathname.match(/^\/api\/memory\/beats\/([^/]+)(?:\/inspect)?$/);
+	if (beatMemory) {
+		const beatId = decodeURIComponent(beatMemory[1]);
+		if (req.method === 'GET') {
+			writeJson(res, 200, { memory: ctx.repository.inspectBeatMemory(beatId) });
+			return;
+		}
+		if (req.method === 'POST') {
+			const input = await readJson<{ key: string; value: unknown; kind?: string; actor?: string }>(req);
+			writeJson(res, 201, {
+				ok: true,
+				entry: ctx.repository.appendBeatMemory(beatId, input),
+				memory: ctx.repository.inspectBeatMemory(beatId)
+			});
+			return;
+		}
+	}
+
+	const storyMemory = url.pathname.match(/^\/api\/memory\/stories\/([^/]+)(?:\/inspect)?$/);
+	if (storyMemory) {
+		const storyId = decodeURIComponent(storyMemory[1]);
+		const workspaceId = queryText(url, 'workspace_id');
+		if (req.method === 'GET') {
+			writeJson(res, 200, { memory: ctx.repository.inspectStoryMemory(storyId, workspaceId) });
+			return;
+		}
+		if (req.method === 'POST') {
+			const input = await readJson<{ key: string; value: unknown; kind?: string; actor?: string }>(req);
+			writeJson(res, 201, {
+				ok: true,
+				entry: ctx.repository.appendStoryMemory(storyId, input),
+				memory: ctx.repository.inspectStoryMemory(storyId, workspaceId)
+			});
+			return;
+		}
+	}
+
 	const jobAction = url.pathname.match(/^\/api\/jobs\/([^/]+)(?:\/(run|pause|resume))?$/);
 	if (jobAction) {
 		const id = decodeURIComponent(jobAction[1]);

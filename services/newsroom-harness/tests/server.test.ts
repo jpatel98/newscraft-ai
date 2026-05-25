@@ -95,6 +95,65 @@ describe('newsroom harness server', () => {
 		});
 	});
 
+	it('serves authenticated memory inspect and write endpoints', async () => {
+		await startHarness();
+
+		const houseUpdate = await authFetch('/api/memory/house', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				values: {
+					style_guide: 'Use precise sourcing.',
+					banned_phrases: ['sources say without context'],
+					beats: ['city hall']
+				},
+				actor: 'editor'
+			})
+		});
+		const beatAppend = await authFetch('/api/memory/beats/city%20hall', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				key: 'source_quality',
+				value: { source: 'Council agenda', reliability: 'primary' },
+				actor: 'beat_monitor'
+			})
+		});
+		harness.repository.appendEvent({
+			workspaceId: 'workspace-api',
+			storyId: 'story-api',
+			agent: 'research',
+			kind: 'claim.proposed',
+			payload: { claim: 'Council meets Monday' }
+		});
+		const storyAppend = await authFetch('/api/memory/stories/story-api?workspace_id=workspace-api', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				key: 'editor_decisions',
+				value: { decision: 'request_more_reporting' },
+				actor: 'editor'
+			})
+		});
+		const houseInspect = await authFetch('/api/memory/house/inspect');
+		const beatInspect = await authFetch('/api/memory/beats/city%20hall/inspect');
+		const storyInspect = await authFetch('/api/memory/stories/story-api/inspect?workspace_id=workspace-api');
+
+		expect(houseUpdate.status).toBe(200);
+		expect(beatAppend.status).toBe(201);
+		expect(storyAppend.status).toBe(201);
+		expect((await houseInspect.json()).memory.current).toMatchObject({
+			style_guide: 'Use precise sourcing.',
+			beats: ['city hall']
+		});
+		expect((await beatInspect.json()).memory.current.source_quality).toEqual([
+			{ source: 'Council agenda', reliability: 'primary' }
+		]);
+		const story = (await storyInspect.json()).memory;
+		expect(story.current.editor_decisions).toEqual([{ decision: 'request_more_reporting' }]);
+		expect(story.agent_event_log.map((event: { kind: string }) => event.kind)).toEqual(['claim.proposed']);
+	});
+
 	it('streams Chat Completions-compatible SSE frames', async () => {
 		await startHarness();
 		const response = await authFetch('/v1/chat/completions', {

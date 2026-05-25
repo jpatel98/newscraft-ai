@@ -119,6 +119,23 @@ CREATE TABLE IF NOT EXISTS events (
 	created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS house_memory (
+	key TEXT PRIMARY KEY,
+	value_json TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS memory_entries (
+	id TEXT PRIMARY KEY,
+	tier TEXT NOT NULL CHECK (tier IN ('house', 'beat', 'story')),
+	scope_id TEXT NOT NULL,
+	key TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	value_json TEXT NOT NULL,
+	actor TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
+
 CREATE TRIGGER IF NOT EXISTS events_no_update
 BEFORE UPDATE ON events
 BEGIN
@@ -131,6 +148,18 @@ BEGIN
 	SELECT RAISE(ABORT, 'events are append-only');
 END;
 
+CREATE TRIGGER IF NOT EXISTS memory_entries_no_update
+BEFORE UPDATE ON memory_entries
+BEGIN
+	SELECT RAISE(ABORT, 'memory entries are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS memory_entries_no_delete
+BEFORE DELETE ON memory_entries
+BEGIN
+	SELECT RAISE(ABORT, 'memory entries are append-only');
+END;
+
 CREATE INDEX IF NOT EXISTS runs_job_idx ON runs(job_id, updated_at);
 CREATE INDEX IF NOT EXISTS jobs_next_run_idx ON jobs(enabled, next_run_at);
 CREATE INDEX IF NOT EXISTS sources_run_idx ON sources(run_id);
@@ -139,5 +168,7 @@ CREATE INDEX IF NOT EXISTS events_workspace_created_idx ON events(workspace_id, 
 CREATE INDEX IF NOT EXISTS events_story_idx ON events(story_id, created_at, id);
 CREATE INDEX IF NOT EXISTS events_job_idx ON events(job_id, created_at, id);
 CREATE INDEX IF NOT EXISTS events_run_idx ON events(run_id, created_at, id);
+CREATE INDEX IF NOT EXISTS memory_entries_scope_idx ON memory_entries(tier, scope_id, created_at, id);
+CREATE INDEX IF NOT EXISTS memory_entries_key_idx ON memory_entries(tier, scope_id, key, created_at, id);
 `);
 }
