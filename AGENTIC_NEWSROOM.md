@@ -36,6 +36,15 @@ There is no "missions tab." Missions become **Standing Briefs** that configure t
 
 ## Architecture
 
+### Current persistence baseline
+
+The SvelteKit UI persists account, conversation, settings, mission, and report
+state in Supabase Postgres through the server-only `DATABASE_URL`. Local
+development should not assume a local Homebrew/Docker Postgres process. The
+newsroom harness still owns a separate SQLite database via
+`NEWSROOM_HARNESS_DB_PATH`; migrating harness state to Supabase would be a
+separate architectural task.
+
 ### Sources & scraping (the bloodstream)
 
 Beats are not defined by what RSS feeds exist. They are defined by **what the editor wants to watch**, and the system figures out how to watch it. Three layered modes:
@@ -202,7 +211,7 @@ Each phase ends in a shippable, demoable state. No phase requires the next to be
 
 Goal: have the substrate the agentic layer needs.
 
-- [ ] Close AUDIT.md P0 (auth / `accounts.role`). Required because gates and roles assume real identity.
+- [x] Close AUDIT.md P0 (auth / `accounts.role`). Required because gates and roles assume real identity.
 - [ ] Per-story append-only event log in the harness DB. Schema, write API, subscribe API.
 - [ ] Three memory stores (`house`, `beat`, `story`) with read/write helpers and inspect endpoints.
 - [ ] Gate primitive: table, queue API, resolve API, UI primitive for "Open Gate" cards.

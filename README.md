@@ -19,6 +19,11 @@ corepack pnpm dev:all
 That serves the UI on `http://127.0.0.1:3001` and the harness on
 `http://127.0.0.1:8650`.
 
+The UI database is Supabase Postgres through `DATABASE_URL`. Local development
+does not require a local Homebrew/Docker Postgres process. Use the Supabase
+session-pooler connection string when IPv4 is required; use the direct
+connection only from networks that can route to the Supabase direct host.
+
 If those ports are already occupied by a previous NewsCraft dev run, `dev:all`
 prints the existing URLs instead of starting duplicate servers. To stop stale
 local dev processes:
@@ -140,7 +145,8 @@ lead candidates, source notes, verification notes, and human review, without
 implementation language leaking into the brief.
 
 It uses an isolated harness SQLite DB under `.tmp/producer-acceptance` and the
-app database configured by `PRODUCER_ACCEPTANCE_DATABASE_URL` or `DATABASE_URL`;
+app database configured by `PRODUCER_ACCEPTANCE_DATABASE_URL` or `DATABASE_URL`
+(normally the Supabase Postgres URL for this project);
 it never prints env secrets. By default it requires `OPENAI_API_KEY` to be configured in the
 harness env so `/api/health` proves the live model path is available. Set
 `PRODUCER_ACCEPTANCE_FEEDS=https://example.com/feed.xml,https://example.org/rss`
@@ -164,8 +170,12 @@ Required `.env` values:
 
 ```sh
 APP_SESSION_SECRET=
-DATABASE_URL=
+DATABASE_URL=<Supabase Postgres connection string>
 ```
+
+`DATABASE_URL` should be a server-only Supabase Postgres URI. Do not commit the
+actual direct or pooler URL; keep it in `.env.local` or the deployment platform
+secret store.
 
 When running the native harness in production, also configure:
 

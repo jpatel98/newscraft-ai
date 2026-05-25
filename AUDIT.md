@@ -15,6 +15,12 @@ Findings are grouped by severity (P0 → P3). Estimated effort per item shown as
 
 ## P0 — Security & Authorization (ship before any multi-user usage)
 
+**Status, 2026-05-25:** Closed by the P0 auth/security pass. The current code
+loads `accounts.role` into `locals.user`, gates account-management routes with
+`requireAdmin`, rejects missing channel-post `jobId`, and trims
+`systemPrompt` at the route boundary before validation/storage. Regression
+coverage now locks those paths.
+
 ### 1. Account takeover via setup-link endpoint — **S**
 **File:** `src/routes/api/settings/accounts/[id]/setup-link/+server.ts:4-19`
 **Issue:** Any authenticated user can POST `/api/settings/accounts/{anyone-elses-id}/setup-link`, receive a valid setup token URL, then claim that account's password via `/account-setup/[token]`. There is no admin/role check and no ownership check.
@@ -255,7 +261,7 @@ To validate findings *before* implementing:
 
 ## Suggested shipping order
 
-1. **PR 1 — security:** items #1, #2, #3, #4 (P0). Half day with the migration.
+1. **PR 1 — security:** items #1, #2, #3, #4 (P0). Completed 2026-05-25.
 2. **PR 2 — logic safety nets:** items #5–#10 (P1). 1–2 hours, all small.
 3. **PR 3 — copy refresh:** items #11–#24 (P2). Half day; #11 is the bulk of it.
 4. **PR 4 — cleanup:** items #25–#28 (P3). 1 hour.

@@ -50,10 +50,11 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 		if (raw !== null && typeof raw !== 'string') {
 			throw error(400, 'systemPrompt must be string or null');
 		}
-		if (typeof raw === 'string' && raw.length > MAX_SYSTEM_PROMPT_CHARS) {
+		const nextPrompt = typeof raw === 'string' ? raw.trim() || null : raw;
+		if (typeof nextPrompt === 'string' && nextPrompt.length > MAX_SYSTEM_PROMPT_CHARS) {
 			throw error(400, `systemPrompt must be ≤ ${MAX_SYSTEM_PROMPT_CHARS} chars`);
 		}
-		row = (await setConversationSystemPrompt(locals.user.id, id, raw)) ?? row;
+		row = (await setConversationSystemPrompt(locals.user.id, id, nextPrompt)) ?? row;
 	}
 
 	return json({

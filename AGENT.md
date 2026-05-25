@@ -7,7 +7,7 @@ This repo is the NewsCraft agent UI plus the same-repo newsroom harness. Future 
 - Root app: SvelteKit 2 / Svelte 5 UI for the editor-facing NewsCraft experience.
 - Harness service: `services/newsroom-harness`, a TypeScript HTTP/SSE service on `127.0.0.1:8650`.
 - Shared contracts: `packages/shared`, especially gateway, health, jobs, and SSE DTOs.
-- UI persistence: Postgres via `DATABASE_URL`.
+- UI persistence: Supabase Postgres via server-only `DATABASE_URL`.
 - Harness persistence: SQLite via `NEWSROOM_HARNESS_DB_PATH`.
 - Local UI port: `127.0.0.1:3001`.
 - Local harness port: `127.0.0.1:8650`.
@@ -98,7 +98,7 @@ The app loads root `.env.local`; the harness loads `services/newsroom-harness/.e
 Important local env:
 
 ```sh
-DATABASE_URL=postgres://...
+DATABASE_URL=<Supabase Postgres connection string>
 APP_SESSION_SECRET=...
 AGENT_GATEWAY_URL=http://127.0.0.1:8650
 AGENT_GATEWAY_API_KEY=
@@ -110,7 +110,10 @@ NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/agent/channel-posts
 NEWSROOM_UI_INGEST_KEY=
 ```
 
-If `/api/health` fails with `DATABASE_URL is required`, the UI is missing Postgres config. Older SQLite-only assumptions are stale for the main UI path.
+Use the Supabase session-pooler URI when IPv4 is required. The app does not
+need local Homebrew Postgres on this machine. If `/api/health` fails with
+`DATABASE_URL is required`, the UI is missing Supabase Postgres config. Older
+SQLite-only assumptions are stale for the main UI path.
 
 ## Validation
 

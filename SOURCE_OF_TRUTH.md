@@ -1,6 +1,6 @@
 # NewsCraft AI Source of Truth
 
-Last updated: 2026-05-19
+Last updated: 2026-05-25
 
 This document is the canonical project reference for the current state of the
 `newscraft-ai` repository. It is meant to answer four questions in one place:
@@ -19,9 +19,9 @@ changes.
 
 NewsCraft AI is a SvelteKit application for an authenticated newsroom agent UI.
 It supports conversational chat, source-aware agent activity, mission scheduling,
-mission reports, account management, Postgres-backed persistence, export/status
-tools, and a migration path from a older agent gateway to a NewsCraft-native
-newsroom harness.
+mission reports, account management, Supabase Postgres-backed persistence,
+export/status tools, and a migration path from a older agent gateway to a
+NewsCraft-native newsroom harness.
 
 The repo is now a small pnpm monorepo:
 
@@ -67,7 +67,7 @@ The current app supports:
 - Password-protected access with signed, httpOnly session cookies.
 - First-account setup, signup through a legacy/bootstrap access code, and
   password-only invite links for additional accounts.
-- Multi-account storage in the configured Postgres database.
+- Multi-account storage in the configured Supabase Postgres database.
 - Chat threads with persisted messages.
 - New chat creation from `/` or the sidebar.
 - Thread list navigation with pinned threads and date grouping.
@@ -97,7 +97,7 @@ The current app supports:
 - Mission source configuration with URL watchlists.
 - Mission report ingestion and display.
 - Mission run polling and active/failed run cards.
-- Postgres database status checks.
+- Supabase Postgres database status checks.
 - Full account-scoped data export as JSONL.
 - Per-thread export as Markdown or JSONL.
 - Account-scoped database wipe with explicit confirmation.
@@ -121,7 +121,7 @@ SvelteKit app on 127.0.0.1:3001
   | Auth, routing, local UI persistence, exports, settings,
   | chat stream proxy, mission board adapter
   |
-  +--> App Postgres DB via Drizzle
+  +--> Supabase Postgres app DB via Drizzle
   |
   +--> agent gateway adapter
         |
@@ -246,7 +246,9 @@ Key runtime properties:
 
 - Hosted production output is produced by the Vercel adapter.
 - The expected local/prod UI port in this repo is `3001`.
-- The app stores local state in Postgres through Drizzle.
+- The app stores UI/account/conversation state in Supabase Postgres through
+  Drizzle.
+- Local development does not require a local Homebrew/Docker Postgres process.
 - Migrations are applied on server startup from `src/hooks.server.ts`.
 - The UI server talks to an agent gateway through server-only fetch calls.
 - `/api/health` is a readiness endpoint. It returns JSON and uses a non-2xx
@@ -293,7 +295,10 @@ require one.
 
 ### SvelteKit app database
 
-The app database is configured by `DATABASE_URL`.
+The app database is configured by `DATABASE_URL`. In current NewsCraft
+development this is a server-only Supabase Postgres connection string. Prefer
+the Supabase session pooler when IPv4 is required; use the direct connection
+only from networks that can route to the direct Supabase host.
 
 Current logical tables:
 
@@ -803,8 +808,11 @@ stored hash exists.
 ### App persistence
 
 ```sh
-DATABASE_URL=postgres://user:password@host:5432/newscraft
+DATABASE_URL=<Supabase Postgres connection string>
 ```
+
+Keep the real direct or pooler URL out of docs and commits. Store it in
+`.env.local` for local development or in the hosted platform's secret store.
 
 ### Harness
 
@@ -934,7 +942,7 @@ The producer acceptance loop:
 - Starts the harness on `127.0.0.1:8650`.
 - Starts the UI on `127.0.0.1:3001`.
 - Uses an isolated harness SQLite database under `.tmp/producer-acceptance` and
-  the app Postgres database from `PRODUCER_ACCEPTANCE_DATABASE_URL` or
+  the app Supabase Postgres database from `PRODUCER_ACCEPTANCE_DATABASE_URL` or
   `DATABASE_URL`.
 - Validates public RSS feeds or deterministic fixtures.
 - Creates a local test account.
@@ -1221,7 +1229,7 @@ The repo no longer carries VPS cutover, systemd, or reverse-proxy scripts.
 ### Backups
 
 The SvelteKit app no longer creates local SQLite backups. App database backups
-are owned by the configured Postgres host or deployment platform. The app keeps
+are owned by Supabase or the configured deployment platform. The app keeps
 conversation and account export endpoints for operator-controlled data export.
 
 ## Implementation hotspots
