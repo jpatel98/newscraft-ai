@@ -49,17 +49,23 @@
 	let operatorStatus = $state<OperatorFooterStatus | null>(null);
 	let operatorStatusLoading = $state(false);
 	let operatorStatusError = $state<string | null>(null);
+	let drawerToggleButton = $state<HTMLButtonElement | null>(null);
 
 	// `now` snapshot for date-bucketing; refreshed on conversation list change so
 	// labels don't drift mid-session without forcing a tight re-eval each tick.
 	const groups = $derived(groupByDate(data.conversations as SidebarConvo[], Date.now()));
 
 	function toggleDrawer() {
-		drawerOpen = !drawerOpen;
+		if (drawerOpen) {
+			closeDrawer();
+			return;
+		}
+		drawerOpen = true;
 	}
 
 	function closeDrawer() {
 		drawerOpen = false;
+		void tick().then(() => drawerToggleButton?.focus());
 	}
 
 	async function newChat() {
@@ -567,6 +573,7 @@
 		     Hides when the drawer is open (drawer's own header has the toggle). -->
 		<div class="cmdbar" role="toolbar" aria-label="App actions" data-hidden={drawerOpen}>
 			<button
+				bind:this={drawerToggleButton}
 				type="button"
 				class="cmdbar__btn"
 				aria-label="Toggle sidebar"
@@ -616,7 +623,7 @@
 					type="button"
 					class="drawer__head__btn"
 					aria-label="Close sidebar"
-					onclick={toggleDrawer}
+					onclick={closeDrawer}
 				>
 					<PanelLeft size="15" strokeWidth={1.7} />
 				</button>

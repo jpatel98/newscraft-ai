@@ -1891,7 +1891,7 @@
 			font-family: var(--font-display);
 			font-size: 34px;
 		line-height: 1.02;
-		letter-spacing: -0.028em;
+		letter-spacing: 0;
 		color: var(--fg-1);
 			margin: 4px 0 0;
 		}
@@ -2092,7 +2092,7 @@
 		font-family: var(--font-display);
 		font-size: 14px;
 		font-weight: 700;
-		letter-spacing: -0.012em;
+		letter-spacing: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -2694,38 +2694,32 @@
 		border-radius: var(--radius-2);
 		padding: 24px;
 	}
-	@media (prefers-color-scheme: dark) {
-		.channels__notice--error {
-			background: color-mix(in srgb, var(--flag-700) 14%, var(--bg-surface));
-			color: var(--flag-300);
+	@media (max-width: 960px) {
+		.channels__layout {
+			grid-template-columns: 1fr;
 		}
-	}
-		@media (max-width: 960px) {
-			.channels__layout {
-				grid-template-columns: 1fr;
-			}
-			.channel-detail__grid {
-				grid-template-columns: repeat(2, minmax(0, 1fr));
-			}
-			.channels-create__grid {
-				grid-template-columns: 1fr;
-			}
-			.channels-watchlist__row {
-				grid-template-columns: 1fr;
-			}
-			.channels-watchlist__remove {
-				width: 100%;
-			}
-			.crawl-plan-form,
-			.crawl-plan-edit__grid {
-				grid-template-columns: 1fr;
-			}
-			.mission-progress__stats {
-				grid-template-columns: repeat(2, minmax(0, 1fr));
-			}
-			.channels__rail {
-				position: static;
-			}
+		.channel-detail__grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+		.channels-create__grid {
+			grid-template-columns: 1fr;
+		}
+		.channels-watchlist__row {
+			grid-template-columns: 1fr;
+		}
+		.channels-watchlist__remove {
+			width: 100%;
+		}
+		.crawl-plan-form,
+		.crawl-plan-edit__grid {
+			grid-template-columns: 1fr;
+		}
+		.mission-progress__stats {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+		.channels__rail {
+			position: static;
+		}
 	}
 	@media (max-width: 620px) {
 		.channels {
@@ -2742,14 +2736,14 @@
 		.channel-head__actions :global(.btn) {
 			width: 100%;
 		}
-			.channel-detail__grid {
-				grid-template-columns: 1fr;
-			}
-			.mission-progress__stats {
-				grid-template-columns: 1fr;
-			}
-			.channels__title {
-				font-size: 30px;
-			}
+		.channel-detail__grid {
+			grid-template-columns: 1fr;
+		}
+		.mission-progress__stats {
+			grid-template-columns: 1fr;
+		}
+		.channels__title {
+			font-size: 30px;
+		}
 	}
 </style>

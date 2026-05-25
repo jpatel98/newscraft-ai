@@ -2,6 +2,14 @@
 	import { replaceState } from '$app/navigation';
 	import Composer from '$lib/components/Composer.svelte';
 	import type { AgentJob, AgentRun, BoardData, BoardPost, ChannelSource } from '$lib/types';
+	import {
+		createGateEvent,
+		createStoryWorkspace,
+		type PitchGateResolution,
+		type StoryWorkspace,
+		type WorkspaceEvent,
+		type WorkspacePitch
+	} from '$lib/utils/story-workspace';
 	import { onMount } from 'svelte';
 
 	let {
@@ -15,6 +23,10 @@
 	} = $props();
 
 	let composer: Composer | undefined = $state();
+	let gateResolutions = $state<Record<string, PitchGateResolution>>({});
+	let gateEvents = $state<WorkspaceEvent[]>([]);
+	let workspaces = $state<StoryWorkspace[]>([]);
+	let selectedWorkspaceId = $state<string | null>(null);
 
 	const starters = [
 		{
@@ -40,15 +52,24 @@
 			.slice(0, 6)
 			.map((post) => pitchFromPost(post, jobsById.get(post.jobId)))
 	);
+	const visiblePitches = $derived(pitches.filter((pitch) => gateResolutions[pitch.id] !== 'spiked'));
 	const standingBriefs = $derived((board?.jobs ?? []).filter((job) => job.enabled).slice(0, 4));
 	const pausedBriefs = $derived((board?.jobs ?? []).filter((job) => !job.enabled).length);
-	const activeWorkspaces = $derived(
-		(board?.runs ?? [])
-			.filter((run) => ['queued', 'running'].includes(run.status))
-			.sort((a, b) => timestampMs(b.latestActivityAt ?? b.startedAt ?? b.queuedAt) - timestampMs(a.latestActivityAt ?? a.startedAt ?? a.queuedAt))
-			.slice(0, 3)
+	const selectedWorkspace = $derived(
+		(selectedWorkspaceId ? workspaces.find((workspace) => workspace.id === selectedWorkspaceId) : workspaces[0]) ?? null
 	);
-	const wireItems = $derived(wireFromBoard(board));
+	const selectedWorkspacePitch = $derived(
+		selectedWorkspace ? (pitches.find((pitch) => pitch.id === selectedWorkspace.pitchId) ?? null) : null
+	);
+	const selectedWorkspaceRuns = $derived(
+		selectedWorkspace ? runsForWorkspace(selectedWorkspace, selectedWorkspacePitch) : []
+	);
+	const selectedWorkspaceWire = $derived(workspaceWire(selectedWorkspace, selectedWorkspaceRuns));
+	const wireItems = $derived(
+		[...gateEvents.map(wireFromWorkspaceEvent), ...wireFromBoard(board)]
+			.sort((a, b) => timestampMs(b.at) - timestampMs(a.at))
+			.slice(0, 10)
+	);
 
 	onMount(() => {
 		const draft = new URL(location.href).searchParams.get('draft');
@@ -57,8 +78,9 @@
 		replaceState('/', {});
 	});
 
-	interface Pitch {
+	interface Pitch extends WorkspacePitch {
 		id: string;
+		jobId: string;
 		beat: string;
 		title: string;
 		angle: string;
@@ -86,6 +108,7 @@
 		const confidence = confidenceFor(post, job, sources);
 		return {
 			id: post.id,
+			jobId: post.jobId,
 			beat: post.channel || job?.name || 'Newsroom beat',
 			title: extractTitle(report, post.preview, post.channel || job?.name || 'Newsroom pitch'),
 			angle,
@@ -178,21 +201,80 @@
 		}
 	}
 
-	function spawnWorkspace(pitch: Pitch) {
-		const sourceLines = pitch.sources.length
-			? pitch.sources.map((source, index) => `${index + 1}. ${source.name}: ${source.url}`).join('\n')
-			: 'No configured source list was attached; ask the monitor to fetch supporting sources first.';
-		composer?.setValue(`Start a story draft from this lead.
+	function resolveGate(pitch: Pitch, resolution: PitchGateResolution) {
+		const now = new Date().toISOString();
+		gateResolutions = { ...gateResolutions, [pitch.id]: resolution };
+		gateEvents = [createGateEvent(pitch, resolution, now), ...gateEvents].slice(0, 12);
+		if (resolution !== 'accepted') return;
 
-Beat: ${pitch.beat}
-Lead: ${pitch.title}
-Why now: ${pitch.whyNow}
-Suggested angle: ${pitch.angle}
+		const existing = workspaces.find((workspace) => workspace.pitchId === pitch.id);
+		if (existing) {
+			selectedWorkspaceId = existing.id;
+			return;
+		}
 
-Use a 300-word web story format. Build a fact ledger first, cite every draft sentence, and use only the source-backed facts from this pitch.
+		const workspace = createStoryWorkspace(pitch, now);
+		workspaces = [workspace, ...workspaces];
+		selectedWorkspaceId = workspace.id;
+	}
 
-Sources:
-${sourceLines}`);
+	function resolutionLabel(resolution: PitchGateResolution | undefined): string | null {
+		if (resolution === 'accepted') return 'Accepted';
+		if (resolution === 'held') return 'Held';
+		if (resolution === 'spiked') return 'Spiked';
+		return null;
+	}
+
+	function selectWorkspace(workspace: StoryWorkspace) {
+		selectedWorkspaceId = workspace.id;
+	}
+
+	function runsForWorkspace(workspace: StoryWorkspace, pitch: Pitch | null): AgentRun[] {
+		const runs = board?.runs ?? [];
+		return runs
+			.filter((run) => {
+				if (pitch?.jobId && run.jobId === pitch.jobId) return true;
+				return (run.jobName || '').toLowerCase() === workspace.beat.toLowerCase();
+			})
+			.sort((a, b) => timestampMs(b.latestActivityAt ?? b.updatedAt ?? b.startedAt ?? b.queuedAt) - timestampMs(a.latestActivityAt ?? a.updatedAt ?? a.startedAt ?? a.queuedAt))
+			.slice(0, 4);
+	}
+
+	function workspaceWire(workspace: StoryWorkspace | null, runs: AgentRun[]): WireItem[] {
+		if (!workspace) return [];
+		const events: WireItem[] = [...workspace.eventLog, ...workspace.activity].map((event) => ({
+			id: event.id,
+			kind: event.kind,
+			label: event.label,
+			detail: event.detail,
+			at: event.at,
+			tone: event.tone
+		}));
+		const runItems: WireItem[] = runs.map((run) => ({
+			id: `workspace-run:${workspace.id}:${run.id}`,
+			kind: run.status === 'running' ? 'agent.live' : run.status === 'failed' ? 'agent.blocked' : 'agent.run',
+			label: run.jobName || workspace.beat,
+			detail:
+				run.status === 'failed'
+					? run.lastError || 'Agent team needs attention before this workspace can advance.'
+					: run.status === 'running'
+						? 'Live agent team activity is feeding this story workspace.'
+						: `${run.sourceCount ?? 0} sources checked for this story.`,
+			at: run.latestActivityAt ?? run.completedAt ?? run.updatedAt ?? run.startedAt ?? run.queuedAt ?? null,
+			tone: run.status === 'failed' ? 'warning' : run.status === 'running' ? 'active' : 'neutral'
+		}));
+		return [...events, ...runItems].sort((a, b) => timestampMs(b.at) - timestampMs(a.at));
+	}
+
+	function wireFromWorkspaceEvent(event: WorkspaceEvent): WireItem {
+		return {
+			id: `gate:${event.id}`,
+			kind: event.kind,
+			label: event.label,
+			detail: event.detail,
+			at: event.at,
+			tone: event.tone
+		};
 	}
 
 	function wireFromBoard(value: BoardData | null): WireItem[] {
@@ -239,7 +321,7 @@ ${sourceLines}`);
 		</div>
 		<div class="newsroom-hero__meta" aria-label="Newsroom status">
 			<div>
-				<strong>{pitches.length}</strong>
+				<strong>{visiblePitches.length}</strong>
 				<span>new leads</span>
 			</div>
 			<div>
@@ -247,8 +329,8 @@ ${sourceLines}`);
 				<span>beats watched</span>
 			</div>
 			<div>
-				<strong>{activeWorkspaces.length}</strong>
-				<span>runs active</span>
+				<strong>{workspaces.length}</strong>
+				<span>workspaces</span>
 			</div>
 		</div>
 	</section>
@@ -288,13 +370,17 @@ ${sourceLines}`);
 				<a href="/missions?new=1">Manage beats</a>
 			</div>
 
-			{#if pitches.length}
+			{#if visiblePitches.length}
 				<div class="pitch-list">
-					{#each pitches as pitch (pitch.id)}
-						<article class="pitch-card">
+					{#each visiblePitches as pitch (pitch.id)}
+						{@const resolution = gateResolutions[pitch.id]}
+						{@const workspace = workspaces.find((candidate) => candidate.pitchId === pitch.id)}
+						<article class="pitch-card pitch-card--{resolution ?? 'open'}">
 							<div class="pitch-card__topline">
 								<span>{pitch.beat}</span>
-								<span class="confidence">{pitch.confidenceLabel} · {pitch.confidence}%</span>
+								<span class="confidence">
+									{resolutionLabel(resolution) ?? pitch.confidenceLabel} · {pitch.confidence}%
+								</span>
 							</div>
 							<h3>{pitch.title}</h3>
 							<p>{pitch.angle}</p>
@@ -313,7 +399,13 @@ ${sourceLines}`);
 								</div>
 							{/if}
 							<div class="pitch-card__actions">
-								<button type="button" onclick={() => spawnWorkspace(pitch)}>Start draft</button>
+								{#if workspace}
+									<button type="button" onclick={() => selectWorkspace(workspace)}>Open workspace</button>
+								{:else}
+									<button type="button" onclick={() => resolveGate(pitch, 'accepted')}>Accept</button>
+								{/if}
+								<button type="button" class="button-secondary" onclick={() => resolveGate(pitch, 'held')}>Hold</button>
+								<button type="button" class="button-secondary" onclick={() => resolveGate(pitch, 'spiked')}>Spike</button>
 								<a href={`/missions?mission=${encodeURIComponent(pitch.beat)}`}>Open beat</a>
 							</div>
 						</article>
@@ -335,13 +427,18 @@ ${sourceLines}`);
 						<h2>In progress</h2>
 					</div>
 				</div>
-				{#if activeWorkspaces.length}
+				{#if workspaces.length}
 					<div class="workspace-list">
-						{#each activeWorkspaces as run (run.id)}
-							<div class="workspace-card">
-								<strong>{run.jobName || 'Beat monitor'}</strong>
-								<span>{run.status} · {relativeTime(run.latestActivityAt ?? run.startedAt ?? run.queuedAt)}</span>
-							</div>
+						{#each workspaces as workspace (workspace.id)}
+							<button
+								type="button"
+								class="workspace-card"
+								class:workspace-card--selected={selectedWorkspace?.id === workspace.id}
+								onclick={() => selectWorkspace(workspace)}
+							>
+								<strong>{workspace.title}</strong>
+								<span>{workspace.beat} · opened {relativeTime(workspace.createdAt)}</span>
+							</button>
 						{/each}
 					</div>
 				{:else}
@@ -384,6 +481,98 @@ ${sourceLines}`);
 		</aside>
 	</div>
 
+	{#if selectedWorkspace}
+		<section class="story-workspace" aria-labelledby="story-workspace-title">
+			<div class="section-head">
+				<div>
+					<div class="panel-eyebrow">Story Workspace</div>
+					<h2 id="story-workspace-title">{selectedWorkspace.title}</h2>
+				</div>
+				<div class="workspace-status">
+					<span>{selectedWorkspace.beat}</span>
+					<span>{selectedWorkspace.confidenceLabel}</span>
+					<span>{selectedWorkspace.sources.length} sources</span>
+				</div>
+			</div>
+
+			<div class="story-workspace__split">
+				<section class="workspace-pane" aria-labelledby="fact-ledger-title">
+					<div class="workspace-pane__head">
+						<h3 id="fact-ledger-title">Fact ledger</h3>
+						<span>{selectedWorkspace.factLedger.length} facts</span>
+					</div>
+					{#if selectedWorkspace.factLedger.length}
+						<div class="fact-ledger">
+							{#each selectedWorkspace.factLedger as fact (fact.id)}
+								<div class="fact-row">
+									<strong>{fact.label}</strong>
+									<span>{fact.detail}</span>
+									{#if fact.sourceUrl}
+										<a href={fact.sourceUrl} target="_blank" rel="noreferrer">
+											{fact.sourceName || sourceHost(fact.sourceUrl)}
+										</a>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<div class="empty-panel empty-panel--small">
+							<strong>Ledger is ready.</strong>
+							<span>Research notes from the accepted pitch will land here.</span>
+						</div>
+					{/if}
+					{#if selectedWorkspace.sources.length}
+						<div class="source-strip source-strip--workspace" aria-label="Workspace sources">
+							{#each selectedWorkspace.sources as source (source.id)}
+								<a href={source.url} target="_blank" rel="noreferrer">
+									<span>{source.name}</span>
+									<small>{sourceHost(source.url)}</small>
+								</a>
+							{/each}
+						</div>
+					{/if}
+				</section>
+
+				<section class="workspace-pane workspace-pane--draft" aria-labelledby="draft-canvas-title">
+					<div class="workspace-pane__head">
+						<h3 id="draft-canvas-title">Draft canvas</h3>
+						<span>Active</span>
+					</div>
+					<div class="draft-canvas">
+						<strong>{selectedWorkspace.title}</strong>
+						<p>{selectedWorkspace.draft}</p>
+						<p>{selectedWorkspace.angle}</p>
+						<div>{selectedWorkspace.whyNow}</div>
+					</div>
+				</section>
+			</div>
+
+			<section class="workspace-wire" aria-labelledby="workspace-wire-title">
+				<div class="workspace-pane__head">
+					<h3 id="workspace-wire-title">Event Wire</h3>
+					<span>{selectedWorkspaceRuns.length ? 'Live agent activity' : 'Awaiting agent activity'}</span>
+				</div>
+				{#if selectedWorkspaceWire.length}
+					<div class="wire-list wire-list--workspace">
+						{#each selectedWorkspaceWire as item (item.id)}
+							<div class="wire-item wire-item--{item.tone}">
+								<span class="wire-item__kind">{item.kind}</span>
+								<strong>{item.label}</strong>
+								<span>{item.detail}</span>
+								<time>{relativeTime(item.at)}</time>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="empty-panel empty-panel--small">
+						<strong>No workspace events yet.</strong>
+						<span>Accepted pitch activity will appear here.</span>
+					</div>
+				{/if}
+			</section>
+		</section>
+	{/if}
+
 	<section class="wire" aria-labelledby="wire-title">
 		<div class="section-head">
 			<div>
@@ -414,204 +603,218 @@ ${sourceLines}`);
 <style>
 	.newsroom {
 		display: grid;
-		gap: 1rem;
-		padding: clamp(1rem, 2vw, 1.75rem);
-		color: var(--color-text, #17130f);
-	}
-
-	.newsroom-hero,
-	.command-panel,
-	.pitch-queue,
-	.side-panel,
-	.wire,
-	.newsroom-alert {
-		border: 1px solid rgba(31, 27, 22, 0.12);
-		background:
-			linear-gradient(135deg, rgba(255, 252, 244, 0.96), rgba(247, 239, 222, 0.78)),
-			var(--color-surface, #fffaf0);
-		border-radius: 28px;
-		box-shadow: 0 18px 60px rgba(58, 45, 23, 0.08);
+		gap: var(--space-6);
+		padding: var(--space-6);
+		color: var(--fg-1);
 	}
 
 	.newsroom-hero {
 		display: grid;
 		grid-template-columns: minmax(18rem, 0.8fr) minmax(22rem, 1fr);
-		gap: 1.5rem;
-		align-items: center;
-		padding: clamp(1.25rem, 3vw, 2rem);
-		overflow: hidden;
-		position: relative;
-	}
-
-	.newsroom-hero::after {
-		content: '';
-		position: absolute;
-		inset: auto -8rem -8rem auto;
-		width: 18rem;
-		height: 18rem;
-		border-radius: 999px;
-		background: radial-gradient(circle, rgba(219, 98, 42, 0.22), transparent 68%);
-		pointer-events: none;
+		gap: var(--space-8);
+		align-items: end;
+		padding: var(--space-6) 0 var(--space-5);
+		border-top: 2px solid var(--ink-900);
+		border-bottom: 1px solid var(--border-soft);
 	}
 
 	.newsroom-hero__eyebrow,
 	.panel-eyebrow {
-		color: #8a4b22;
-		font-size: 0.72rem;
-		font-weight: 800;
-		letter-spacing: 0.12em;
+		font-family: var(--font-mono);
+		color: var(--fg-3);
+		font-size: var(--fs-meta);
+		font-weight: var(--fw-medium);
+		letter-spacing: var(--tr-meta);
 		text-transform: uppercase;
 	}
 
 	.newsroom-hero h1,
 	.section-head h2 {
 		margin: 0;
-		color: #21180f;
-		letter-spacing: -0.04em;
+		color: var(--fg-1);
+		font-family: var(--font-display);
+		letter-spacing: 0;
 	}
 
 	.newsroom-hero h1 {
-		margin-top: 0.35rem;
-		font-size: clamp(2rem, 4vw, 3.4rem);
-		line-height: 0.98;
-		max-width: 16ch;
+		margin-top: var(--space-2);
+		font-size: var(--fs-h1);
+		line-height: var(--lh-h1);
+		max-width: 18ch;
 	}
 
 	.newsroom-hero p {
 		max-width: 42rem;
-		margin: 0.75rem 0 0;
-		color: rgba(33, 24, 15, 0.68);
-		font-size: 1rem;
-		line-height: 1.65;
+		margin: var(--space-3) 0 0;
+		color: var(--fg-2);
+		font-size: var(--fs-body-lg);
+		line-height: var(--lh-body-lg);
 	}
 
 	.newsroom-hero__meta {
 		display: grid;
 		grid-template-columns: repeat(3, minmax(6.5rem, 1fr));
-		gap: 0.6rem;
-		position: relative;
-		z-index: 1;
+		gap: var(--space-2);
 	}
 
 	.newsroom-hero__meta div {
-		padding: 0.9rem;
-		border: 1px solid rgba(33, 24, 15, 0.1);
-		border-radius: 20px;
-		background: rgba(255, 255, 255, 0.54);
+		padding: var(--space-4);
+		border: 1px solid var(--border-soft);
+		background: var(--bg-surface);
 	}
 
 	.newsroom-hero__meta strong {
 		display: block;
-		font-size: 1.65rem;
+		font-family: var(--font-display);
+		font-size: var(--fs-h3);
 		line-height: 1;
 	}
 
 	.newsroom-hero__meta span {
 		display: block;
-		margin-top: 0.35rem;
-		color: rgba(33, 24, 15, 0.58);
-		font-size: 0.76rem;
-		font-weight: 700;
+		margin-top: var(--space-2);
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		letter-spacing: var(--tr-meta);
 		text-transform: uppercase;
+	}
+
+	.command-panel,
+	.pitch-queue,
+	.side-panel,
+	.story-workspace,
+	.wire {
+		border: 1px solid var(--border-default);
+		background: var(--bg-surface);
+		box-shadow: var(--shadow-1);
 	}
 
 	.command-panel {
 		display: grid;
-		gap: 0.9rem;
-		padding: 1rem;
+		gap: var(--space-4);
+		padding: var(--space-5);
 	}
 
 	.command-panel__copy p {
-		margin: 0.2rem 0 0;
-		color: rgba(33, 24, 15, 0.64);
+		margin: var(--space-1) 0 0;
+		color: var(--fg-2);
 	}
 
 	.command-panel__prompts {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem;
+		gap: var(--space-2);
 	}
 
 	.command-panel__prompts button,
 	.pitch-card__actions button,
 	.pitch-card__actions a,
 	.section-head a {
-		border: 1px solid rgba(33, 24, 15, 0.14);
-		border-radius: 999px;
-		background: #21180f;
-		color: #fff9ef;
-		font: inherit;
-		font-size: 0.82rem;
-		font-weight: 800;
-		padding: 0.55rem 0.85rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		color: var(--fg-1);
+		font-family: var(--font-body);
+		font-size: var(--fs-body-sm);
+		font-weight: var(--fw-semibold);
+		padding: 7px 10px;
 		text-decoration: none;
 		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease-std),
+			border-color var(--dur-fast) var(--ease-std),
+			color var(--dur-fast) var(--ease-std);
 	}
 
-	.command-panel__prompts button {
-		background: rgba(255, 255, 255, 0.62);
-		color: #3a2a19;
+	.command-panel__prompts button:hover,
+	.pitch-card__actions .button-secondary:hover,
+	.pitch-card__actions a:hover,
+	.section-head a:hover {
+		background: var(--bg-raised);
+		border-color: var(--border-strong);
+	}
+
+	.pitch-card__actions button:not(.button-secondary) {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: var(--fg-on-accent);
+	}
+
+	.pitch-card__actions button:not(.button-secondary):hover {
+		background: var(--accent-hover);
+		border-color: var(--accent-hover);
 	}
 
 	.newsroom-alert {
 		display: flex;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		align-items: center;
-		padding: 0.9rem 1rem;
-		color: #4b321d;
+		padding: var(--space-3) var(--space-4);
+		border: 1px solid var(--border-default);
+		border-left: 3px solid var(--accent);
+		background: var(--accent-soft);
+		color: var(--accent-fg);
 	}
 
 	.newsroom-alert span {
-		color: rgba(75, 50, 29, 0.7);
+		color: var(--fg-2);
 	}
 
 	.newsroom-alert--warning {
-		background: #fff3df;
-		border-color: rgba(185, 89, 32, 0.24);
+		background: var(--status-review-bg);
+		border-color: var(--caution-500);
+		color: var(--status-review-fg);
 	}
 
 	.newsroom-grid {
 		display: grid;
 		grid-template-columns: minmax(0, 1.6fr) minmax(18rem, 0.7fr);
-		gap: 1rem;
+		gap: var(--space-4);
 		align-items: start;
 	}
 
 	.pitch-queue,
 	.side-panel,
+	.story-workspace,
 	.wire {
-		padding: 1rem;
+		padding: var(--space-5);
+	}
+
+	.story-workspace {
+		display: grid;
+		gap: var(--space-5);
 	}
 
 	.newsroom-side {
 		display: grid;
-		gap: 1rem;
+		gap: var(--space-4);
 	}
 
 	.section-head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem;
-		margin-bottom: 1rem;
+		gap: var(--space-4);
+		margin-bottom: var(--space-4);
 	}
 
 	.section-head h2 {
-		margin-top: 0.15rem;
-		font-size: clamp(1.45rem, 2vw, 2rem);
+		margin-top: var(--space-1);
+		font-size: var(--fs-h2);
+		line-height: var(--lh-h2);
 	}
 
 	.section-head--compact {
-		margin-bottom: 0.75rem;
+		margin-bottom: var(--space-3);
 	}
 
 	.section-head--compact h2 {
-		font-size: 1.1rem;
+		font-size: var(--fs-h4);
+		line-height: var(--lh-h4);
 	}
 
 	.section-head a {
-		background: rgba(255, 255, 255, 0.66);
-		color: #3a2a19;
 		white-space: nowrap;
 	}
 
@@ -620,52 +823,63 @@ ${sourceLines}`);
 	.brief-list,
 	.wire-list {
 		display: grid;
-		gap: 0.75rem;
+		gap: var(--space-3);
 	}
 
 	.pitch-card {
 		display: grid;
-		gap: 0.75rem;
-		padding: 1rem;
-		border: 1px solid rgba(33, 24, 15, 0.1);
-		border-radius: 22px;
-		background: rgba(255, 255, 255, 0.58);
+		gap: var(--space-3);
+		padding: var(--space-4);
+		border: 1px solid var(--border-default);
+		border-top: 2px solid var(--ink-900);
+		background: var(--bg-surface);
+	}
+
+	.pitch-card--accepted {
+		border-top-color: var(--status-verified);
+		background: color-mix(in srgb, var(--status-verified-bg) 40%, var(--bg-surface));
+	}
+
+	.pitch-card--held {
+		border-top-color: var(--status-review);
+		background: color-mix(in srgb, var(--status-review-bg) 44%, var(--bg-surface));
 	}
 
 	.pitch-card__topline,
 	.pitch-card__why {
 		display: flex;
 		justify-content: space-between;
-		gap: 1rem;
-		color: rgba(33, 24, 15, 0.58);
-		font-size: 0.78rem;
-		font-weight: 800;
-		letter-spacing: 0.04em;
+		gap: var(--space-4);
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		letter-spacing: var(--tr-meta);
 		text-transform: uppercase;
 	}
 
 	.confidence {
-		color: #a14e1d;
+		color: var(--accent-fg);
 	}
 
 	.pitch-card h3 {
 		margin: 0;
-		color: #21180f;
-		font-size: clamp(1.25rem, 2vw, 1.8rem);
-		line-height: 1.08;
-		letter-spacing: -0.03em;
+		color: var(--fg-1);
+		font-family: var(--font-display);
+		font-size: var(--fs-h4);
+		line-height: var(--lh-h4);
+		letter-spacing: 0;
 	}
 
 	.pitch-card p {
 		margin: 0;
-		color: rgba(33, 24, 15, 0.68);
-		line-height: 1.55;
+		color: var(--fg-2);
+		line-height: var(--lh-body);
 	}
 
 	.source-strip {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem;
+		gap: var(--space-2);
 	}
 
 	.source-strip a,
@@ -673,16 +887,16 @@ ${sourceLines}`);
 	.brief-row,
 	.workspace-card,
 	.wire-item {
-		border: 1px solid rgba(33, 24, 15, 0.1);
-		border-radius: 16px;
-		background: rgba(255, 255, 255, 0.58);
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
 	}
 
 	.source-strip a {
 		display: grid;
 		min-width: min(100%, 11rem);
-		padding: 0.6rem 0.7rem;
-		color: #281c11;
+		padding: var(--space-2) var(--space-3);
+		color: var(--fg-1);
 		text-decoration: none;
 	}
 
@@ -699,100 +913,232 @@ ${sourceLines}`);
 	.source-strip small,
 	.brief-row small,
 	.workspace-card span {
-		color: rgba(33, 24, 15, 0.54);
-		font-size: 0.76rem;
+		color: var(--fg-3);
+		font-size: var(--fs-body-sm);
 	}
 
 	.source-strip__more {
 		display: grid;
 		place-items: center;
-		padding: 0 0.75rem;
-		color: rgba(33, 24, 15, 0.58);
-		font-weight: 800;
+		padding: 0 var(--space-3);
+		color: var(--fg-3);
+		font-weight: var(--fw-semibold);
 	}
 
 	.pitch-card__actions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem;
+		gap: var(--space-2);
 	}
 
 	.pitch-card__actions a {
 		background: transparent;
-		color: #3a2a19;
+		color: var(--fg-1);
 	}
 
 	.empty-panel {
 		display: grid;
-		gap: 0.35rem;
-		padding: 1.2rem;
-		border: 1px dashed rgba(33, 24, 15, 0.22);
-		border-radius: 22px;
-		color: #3a2a19;
+		gap: var(--space-1);
+		padding: var(--space-5);
+		border: 1px dashed var(--border-strong);
+		color: var(--fg-1);
 	}
 
 	.empty-panel span {
-		color: rgba(33, 24, 15, 0.62);
+		color: var(--fg-2);
 	}
 
 	.empty-panel--small {
-		padding: 0.9rem;
+		padding: var(--space-3);
 	}
 
 	.workspace-card,
 	.brief-row {
 		display: grid;
-		gap: 0.25rem;
-		padding: 0.75rem;
-		color: #281c11;
+		gap: var(--space-1);
+		padding: var(--space-3);
+		color: var(--fg-1);
 		text-decoration: none;
 	}
 
+	button.workspace-card {
+		width: 100%;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.workspace-card--selected {
+		border-color: var(--accent);
+		background: var(--accent-soft);
+	}
+
+	.workspace-status {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: var(--space-2);
+	}
+
+	.workspace-status span,
+	.workspace-pane__head span {
+		border: 1px solid var(--border-soft);
+		border-radius: 999px;
+		background: var(--bg-raised);
+		color: var(--fg-2);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		letter-spacing: var(--tr-meta);
+		padding: 3px 7px;
+		text-transform: uppercase;
+	}
+
+	.story-workspace__split {
+		display: grid;
+		grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+		gap: var(--space-4);
+	}
+
+	.workspace-pane,
+	.workspace-wire {
+		display: grid;
+		gap: var(--space-3);
+		min-width: 0;
+		padding: var(--space-4);
+		border: 1px solid var(--border-soft);
+		background: var(--bg-surface);
+	}
+
+	.workspace-pane__head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+	}
+
+	.workspace-pane__head h3 {
+		margin: 0;
+		color: var(--fg-1);
+		font-family: var(--font-display);
+		font-size: var(--fs-h4);
+		letter-spacing: 0;
+	}
+
+	.fact-ledger {
+		display: grid;
+		gap: var(--space-2);
+	}
+
+	.fact-row {
+		display: grid;
+		gap: var(--space-1);
+		padding: var(--space-3);
+		border: 1px solid var(--border-soft);
+		background: var(--bg-surface);
+	}
+
+	.fact-row strong {
+		color: var(--fg-1);
+	}
+
+	.fact-row span {
+		color: var(--fg-2);
+		line-height: var(--lh-body);
+	}
+
+	.fact-row a {
+		color: var(--accent-fg);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		font-weight: var(--fw-medium);
+		text-decoration: none;
+		text-transform: uppercase;
+	}
+
+	.source-strip--workspace {
+		padding-top: var(--space-1);
+	}
+
+	.draft-canvas {
+		display: grid;
+		gap: var(--space-3);
+		align-content: start;
+		min-height: 16rem;
+		padding: var(--space-4);
+		border: 1px solid var(--border-soft);
+		background: var(--bg-raised);
+		color: var(--fg-2);
+		line-height: var(--lh-body);
+	}
+
+	.draft-canvas strong {
+		color: var(--fg-1);
+		font-family: var(--font-display);
+		font-size: var(--fs-h4);
+		line-height: var(--lh-h4);
+	}
+
+	.draft-canvas p {
+		margin: 0;
+	}
+
+	.draft-canvas div {
+		padding-top: var(--space-3);
+		border-top: 1px solid var(--border-soft);
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-body-sm);
+		font-weight: var(--fw-medium);
+	}
+
 	.brief-row--muted {
-		color: rgba(33, 24, 15, 0.56);
+		color: var(--fg-3);
 	}
 
 	.wire-item {
 		display: grid;
 		grid-template-columns: 8rem minmax(8rem, 0.45fr) minmax(0, 1fr) auto;
-		gap: 0.75rem;
+		gap: var(--space-3);
 		align-items: center;
-		padding: 0.75rem;
-		color: rgba(33, 24, 15, 0.7);
+		padding: var(--space-3);
+		color: var(--fg-2);
 	}
 
 	.wire-item--active {
-		border-color: rgba(62, 112, 72, 0.24);
-		background: rgba(235, 249, 232, 0.58);
+		border-color: var(--status-verified);
+		background: color-mix(in srgb, var(--status-verified-bg) 42%, var(--bg-surface));
 	}
 
 	.wire-item--warning {
-		border-color: rgba(185, 89, 32, 0.24);
-		background: rgba(255, 243, 223, 0.68);
+		border-color: var(--status-review);
+		background: color-mix(in srgb, var(--status-review-bg) 48%, var(--bg-surface));
 	}
 
 	.wire-item__kind {
-		color: #8a4b22;
-		font-size: 0.74rem;
-		font-weight: 900;
-		letter-spacing: 0.08em;
+		color: var(--accent-fg);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		font-weight: var(--fw-medium);
+		letter-spacing: var(--tr-meta);
 		text-transform: uppercase;
 	}
 
 	.wire-item strong {
-		color: #21180f;
+		color: var(--fg-1);
 	}
 
 	.wire-item time {
-		color: rgba(33, 24, 15, 0.48);
-		font-size: 0.78rem;
-		font-weight: 800;
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		font-weight: var(--fw-medium);
 		white-space: nowrap;
 	}
 
 	@media (max-width: 980px) {
 		.newsroom-hero,
-		.newsroom-grid {
+		.newsroom-grid,
+		.story-workspace__split {
 			grid-template-columns: 1fr;
 		}
 
@@ -802,13 +1148,22 @@ ${sourceLines}`);
 
 		.wire-item {
 			grid-template-columns: 1fr;
-			gap: 0.35rem;
+			gap: var(--space-1);
 		}
 	}
 
 	@media (max-width: 640px) {
 		.newsroom {
-			padding: 0.75rem;
+			padding: var(--space-3);
+			gap: var(--space-4);
+		}
+
+		.newsroom-hero {
+			padding-top: var(--space-4);
+		}
+
+		.newsroom-hero h1 {
+			font-size: 36px;
 		}
 
 		.newsroom-hero__meta {

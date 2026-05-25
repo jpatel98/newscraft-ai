@@ -96,7 +96,6 @@
 		const blocks = Array.from(container.querySelectorAll<HTMLPreElement>('pre > code'));
 		if (blocks.length === 0) return;
 
-		const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 		void Promise.all(
 			blocks.map(async (codeEl) => {
 				const pre = codeEl.parentElement as HTMLPreElement;
@@ -108,7 +107,7 @@
 				const text = codeEl.textContent ?? '';
 
 				try {
-					const highlighted = await highlight(text, lang, isDark ? 'dark' : 'light');
+					const highlighted = await highlight(text, lang, 'light');
 					const wrapper = document.createElement('div');
 					wrapper.innerHTML = highlighted;
 					const newPre = wrapper.firstElementChild as HTMLPreElement | null;

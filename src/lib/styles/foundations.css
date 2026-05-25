@@ -9,6 +9,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
+  color-scheme: light;
+
   /* ============================================================
      COLOR — RAW SCALES
      Newsprint neutrals + cobalt accent + functional semantics.
@@ -106,12 +108,12 @@
   --font-body:    'Inter', system-ui, sans-serif;
   --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
-  /* Sizes (rem-based, 16px root). Tight type uses negative tracking. */
-  --fs-display: 64px;   --lh-display: 0.96;  --tr-display: -0.035em;
-  --fs-h1:      44px;   --lh-h1:      1.04;  --tr-h1:      -0.028em;
-  --fs-h2:      32px;   --lh-h2:      1.10;  --tr-h2:      -0.022em;
-  --fs-h3:      24px;   --lh-h3:      1.20;  --tr-h3:      -0.015em;
-  --fs-h4:      18px;   --lh-h4:      1.30;  --tr-h4:      -0.010em;
+  /* Sizes (rem-based, 16px root). */
+  --fs-display: 64px;   --lh-display: 0.96;  --tr-display: 0;
+  --fs-h1:      44px;   --lh-h1:      1.04;  --tr-h1:      0;
+  --fs-h2:      32px;   --lh-h2:      1.10;  --tr-h2:      0;
+  --fs-h3:      24px;   --lh-h3:      1.20;  --tr-h3:      0;
+  --fs-h4:      18px;   --lh-h4:      1.30;  --tr-h4:      0;
   --fs-body-lg: 17px;   --lh-body-lg: 1.55;
   --fs-body:    15px;   --lh-body:    1.55;
   --fs-body-sm: 13px;   --lh-body-sm: 1.50;
@@ -187,6 +189,7 @@ html, body { margin: 0; padding: 0; }
 body {
   background: var(--bg-page);
   color: var(--fg-1);
+  color-scheme: light;
   font-family: var(--font-body);
   font-size: var(--fs-body);
   line-height: var(--lh-body);

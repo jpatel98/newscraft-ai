@@ -735,11 +735,6 @@
 		justify-content: flex-end;
 		gap: 8px;
 	}
-	@media (prefers-color-scheme: dark) {
-		.settings__ok {
-			color: var(--signal-300);
-		}
-	}
 	.skills-panel {
 		display: grid;
 		grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
@@ -792,7 +787,7 @@
 		font-size: 13.5px;
 		font-weight: 700;
 		color: var(--fg-1);
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 	}
 	.skills-list__desc {
 		font-size: 12px;
@@ -825,7 +820,7 @@
 		font-family: var(--font-display);
 		font-size: 20px;
 		font-weight: 700;
-		letter-spacing: -0.016em;
+		letter-spacing: 0;
 		color: var(--fg-1);
 	}
 	.skill-detail__meta {
@@ -874,24 +869,13 @@
 		max-width: 520px;
 		background: color-mix(in srgb, var(--flag-50) 34%, var(--bg-surface));
 	}
-	@media (prefers-color-scheme: dark) {
-		.settings__danger {
-			border-color: var(--flag-300);
-			background: color-mix(in srgb, var(--flag-700) 16%, var(--bg-surface));
-		}
-	}
 	.settings__danger__title {
 		font-family: var(--font-display);
 		font-size: 14px;
 		font-weight: 700;
-		letter-spacing: -0.012em;
+		letter-spacing: 0;
 		color: var(--flag-700);
 		margin-bottom: 4px;
-	}
-	@media (prefers-color-scheme: dark) {
-		.settings__danger__title {
-			color: var(--flag-300);
-		}
 	}
 	.settings__danger__copy {
 		font-size: 13px;
