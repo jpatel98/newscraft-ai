@@ -149,6 +149,49 @@ describe('newsroom event log', () => {
 			ingest_status: 'not_configured'
 		});
 	});
+
+	it('surfaces source-health gates as source monitor events', () => {
+		const repo = createRepository();
+		const job = repo.createJob({
+			name: 'Source Health',
+			prompt: 'Check source reliability.',
+			schedule: 'every 60m'
+		});
+		const run = repo.createRun(job.id, 'test');
+
+		repo.storeSource({
+			runId: run.id,
+			jobId: job.id,
+			url: 'https://example.com/flaky',
+			title: 'Flaky source',
+			fetchedAt: '2026-05-24T10:00:03.000Z',
+			snippet: '',
+			summary: '',
+			used: false,
+			contentText: '',
+			contentHash: 'hash',
+			contentType: 'text/plain',
+			statusCode: 503,
+			healthGate: {
+				type: 'source_health',
+				url: 'https://example.com/flaky',
+				host: 'example.com',
+				statusCode: 503,
+				reason: 'HTTP 503',
+				failureCount: 3,
+				failureBudget: 3
+			}
+		});
+
+		const events = repo.listEvents({ workspaceId: DEFAULT_WORKSPACE_ID, runId: run.id });
+
+		expect(events.map((event) => event.kind)).toContain('source.health.gate');
+		expect(events.find((event) => event.kind === 'source.health.gate')?.payload).toMatchObject({
+			type: 'source_health',
+			host: 'example.com',
+			reason: 'HTTP 503'
+		});
+	});
 });
 
 function createRepository(): HarnessRepository {

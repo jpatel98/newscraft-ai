@@ -1,10 +1,17 @@
 import { createHash } from 'node:crypto';
 import { nowIso } from '../util/ids.js';
 import { assessSourceQuality } from '../util/source-quality.js';
-import { politeFetch } from './polite-fetch.js';
+import {
+	createFilePoliteFetchCache,
+	politeFetch,
+	type PoliteFetchArchiveResult,
+	type PoliteFetchCacheStatus,
+	type PoliteFetchRobotsResult,
+	type PoliteFetchSourceHealthGate
+} from './polite-fetch.js';
 import { selectSourceAdapter, type SourceAdapterKind, type SourceItem } from './source-adapters/index.js';
 
-export { politeFetch, NEWSCRAFT_USER_AGENT } from './polite-fetch.js';
+export { createFilePoliteFetchCache, politeFetch, NEWSCRAFT_USER_AGENT } from './polite-fetch.js';
 export {
 	SOURCE_ADAPTERS,
 	atomAdapter,
@@ -30,6 +37,10 @@ export type {
 const MAX_SOURCE_TEXT_CHARS = 8_000;
 const MAX_SOURCE_SUMMARY_CHARS = 420;
 const MAX_SOURCE_LINE_CHARS = 650;
+const DEFAULT_SOURCE_CACHE = process.env.VITEST === 'true'
+	? undefined
+	: createFilePoliteFetchCache(process.env.NEWSROOM_SOURCE_CACHE_DIR);
+const DEFAULT_ARCHIVE_ENABLED = process.env.NEWSROOM_ARCHIVE_SNAPSHOT !== '0' && process.env.VITEST !== 'true';
 
 export interface FetchedSource {
 	url: string;
@@ -42,10 +53,19 @@ export interface FetchedSource {
 	contentType: string | null;
 	statusCode: number | null;
 	used: boolean;
+	cacheStatus?: PoliteFetchCacheStatus;
+	archiveSnapshot?: PoliteFetchArchiveResult;
+	robots?: PoliteFetchRobotsResult;
+	healthGate?: PoliteFetchSourceHealthGate | null;
 }
 
 export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise<FetchedSource> {
-	const fetched = await politeFetch(url, { signal });
+	const fetched = await politeFetch(url, {
+		signal,
+		cache: DEFAULT_SOURCE_CACHE ? { store: DEFAULT_SOURCE_CACHE } : undefined,
+		archive: { webArchive: DEFAULT_ARCHIVE_ENABLED },
+		sourceHealth: { failureBudget: 3 }
+	});
 	const contentType = fetched.contentType;
 	const body = fetched.body;
 	const adapter = selectSourceAdapter({ url, contentType, body });
@@ -75,7 +95,11 @@ export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise
 		contentHash: fetched.cache.contentHash,
 		contentType,
 		statusCode: fetched.statusCode,
-		used: fetched.ok && quality.usable
+		used: fetched.ok && quality.usable,
+		cacheStatus: fetched.cacheStatus,
+		archiveSnapshot: fetched.archiveSnapshot,
+		robots: fetched.robots,
+		healthGate: fetched.sourceHealthGate
 	};
 }
 

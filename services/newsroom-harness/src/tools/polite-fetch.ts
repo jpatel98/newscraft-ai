@@ -1,17 +1,26 @@
 import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { nowIso } from '../util/ids.js';
 
 export const NEWSCRAFT_USER_AGENT = 'NewsCraft newsroom-harness/0.0.1 (+https://newscraft.ai)';
 
 const DEFAULT_HOST_DELAY_MS = 250;
 const MAX_BACKOFF_MS = 30_000;
+const DEFAULT_SOURCE_FAILURE_BUDGET = 3;
 
 interface HostState {
 	nextAllowedAt: number;
 	failureCount: number;
 }
 
+interface SourceHealthState {
+	failureCount: number;
+}
+
 const hostStates = new Map<string, HostState>();
+const sourceHealthStates = new Map<string, SourceHealthState>();
+const archivedUrls = new Set<string>();
 
 export interface PoliteFetchCacheMetadata {
 	contentHash: string;
@@ -22,6 +31,23 @@ export interface PoliteFetchCacheMetadata {
 	contentLength: string | null;
 }
 
+export interface PoliteFetchCachedEntry {
+	url: string;
+	fetchedAt: string;
+	statusCode: number;
+	contentType: string | null;
+	body: string;
+	cache: PoliteFetchCacheMetadata;
+	archiveSnapshot?: PoliteFetchArchiveResult | null;
+}
+
+export interface PoliteFetchCacheStore {
+	read(url: string): Promise<PoliteFetchCachedEntry | null>;
+	write(entry: PoliteFetchCachedEntry): Promise<void>;
+}
+
+export type PoliteFetchCacheStatus = 'bypass' | 'miss' | 'stored' | 'revalidated';
+
 export interface PoliteFetchBackoffEvent {
 	url: string;
 	host: string;
@@ -30,11 +56,22 @@ export interface PoliteFetchBackoffEvent {
 	retryAfter: string | null;
 }
 
+export interface PoliteFetchRateLimitOptions {
+	hostDelayMs?: number;
+	retryAfterMs?: number;
+	wait?: (ms: number) => Promise<void>;
+	minDelayMs?: number;
+	now?: () => number;
+	sleep?: (ms: number, signal: AbortSignal | undefined) => Promise<void>;
+	onBackoff?: (event: PoliteFetchBackoffEvent) => void;
+}
+
 export interface PoliteFetchArchiveSnapshot {
 	url: string;
 	fetchedAt: string;
 	statusCode: number;
 	contentType: string | null;
+	contentHash: string;
 	body: string;
 	cache: PoliteFetchCacheMetadata;
 }
@@ -42,14 +79,29 @@ export interface PoliteFetchArchiveSnapshot {
 export interface PoliteFetchArchiveResult {
 	attempted: boolean;
 	ok: boolean;
+	snapshotUrl: string | null;
 	error?: string;
 }
 
-export interface PoliteFetchRateLimitOptions {
-	minDelayMs?: number;
-	now?: () => number;
-	sleep?: (ms: number, signal: AbortSignal | undefined) => Promise<void>;
-	onBackoff?: (event: PoliteFetchBackoffEvent) => void;
+export interface PoliteFetchRobotsResult {
+	checked: boolean;
+	allowed: boolean;
+	override: boolean;
+	robotsUrl: string | null;
+	matchedRule: string | null;
+	error?: string;
+}
+
+export interface PoliteFetchSourceHealthGate {
+	type: 'source_health';
+	url: string;
+	host: string;
+	statusCode: number | null;
+	reason: string;
+	failureCount: number;
+	failureBudget: number;
+	createdAt: string;
+	actions: Array<'pause' | 'retry' | 'drop' | 'override'>;
 }
 
 export interface PoliteFetchOptions {
@@ -59,8 +111,25 @@ export interface PoliteFetchOptions {
 	etag?: string | null;
 	lastModified?: string | null;
 	rateLimit?: PoliteFetchRateLimitOptions;
+	robots?: {
+		respect?: boolean;
+		override?: boolean;
+		userAgent?: string;
+		fetchImpl?: typeof fetch;
+	};
+	cache?: {
+		store?: PoliteFetchCacheStore;
+		read?: boolean;
+		write?: boolean;
+	};
 	archive?: {
 		snapshot?: (snapshot: PoliteFetchArchiveSnapshot) => Promise<void> | void;
+		webArchive?: boolean;
+		fetchImpl?: typeof fetch;
+	};
+	sourceHealth?: {
+		failureBudget?: number;
+		onGate?: (gate: PoliteFetchSourceHealthGate) => Promise<void> | void;
 	};
 }
 
@@ -73,21 +142,147 @@ export interface PoliteFetchResult {
 	statusCode: number;
 	ok: boolean;
 	cache: PoliteFetchCacheMetadata;
+	cacheStatus: PoliteFetchCacheStatus;
 	archiveSnapshot: PoliteFetchArchiveResult;
+	robots: PoliteFetchRobotsResult;
+	sourceHealthGate: PoliteFetchSourceHealthGate | null;
+}
+
+export function createFilePoliteFetchCache(rootDir = path.join(process.cwd(), '.data', 'source-cache')): PoliteFetchCacheStore {
+	return {
+		async read(url) {
+			const paths = cachePaths(rootDir, url);
+
+			try {
+				const rawMetadata = await readFile(paths.metadata, 'utf8');
+				const record = JSON.parse(rawMetadata) as Omit<PoliteFetchCachedEntry, 'body'>;
+				const body = await readFile(contentPath(rootDir, record.cache.contentHash), 'utf8');
+
+				return {
+					...record,
+					body,
+				};
+			} catch (error) {
+				if (isNotFoundError(error)) {
+					return null;
+				}
+
+				throw error;
+			}
+		},
+		async write(entry) {
+			const paths = cachePaths(rootDir, entry.url);
+			const content = contentPath(rootDir, entry.cache.contentHash);
+			const { body: _body, ...metadata } = entry;
+
+			await mkdir(path.dirname(paths.metadata), { recursive: true });
+			await mkdir(path.dirname(content), { recursive: true });
+			await writeFile(content, entry.body, 'utf8');
+			await writeFile(paths.metadata, `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+		},
+	};
+}
+
+export function resetPoliteFetchStateForTests(): void {
+	hostStates.clear();
+	sourceHealthStates.clear();
+	archivedUrls.clear();
 }
 
 export async function politeFetch(url: string, options: PoliteFetchOptions = {}): Promise<PoliteFetchResult> {
-	const parsedUrl = new URL(url);
-	await waitForHost(parsedUrl, options);
+	const parsed = new URL(url);
+	const fetchImpl = options.fetchImpl ?? fetch;
+	const cacheStore = options.cache?.store;
+	const cachedEntry = options.cache?.read === false || !cacheStore ? null : await cacheStore.read(url);
+	const robots = await checkRobots(url, options);
 
-	const response = await (options.fetchImpl ?? fetch)(url, {
-		headers: requestHeaders(options),
-		signal: options.signal
-	});
-	const body = await response.text();
+	if (!robots.allowed) {
+		const fetchedAt = nowIso();
+		const body = '';
+		const response = new Response(body, {
+			status: 451,
+			statusText: 'Blocked by robots.txt',
+			headers: {
+				'content-type': 'text/plain; charset=utf-8',
+			},
+		});
+		const cache = cacheMetadata(response, body);
+		const sourceHealthGate = await recordSourceFailure(
+			url,
+			451,
+			'robots.txt disallowed fetch',
+			options,
+		);
+
+		return {
+			url,
+			fetchedAt,
+			response,
+			body,
+			contentType: response.headers.get('content-type'),
+			statusCode: response.status,
+			ok: false,
+			cache,
+			cacheStatus: 'bypass',
+			archiveSnapshot: noArchiveSnapshot(),
+			robots,
+			sourceHealthGate,
+		};
+	}
+
+	const requestHeaders = buildRequestHeaders(options, cachedEntry);
+	await waitForHost(parsed, options);
+
+	let response: Response;
+	try {
+		response = await fetchImpl(url, {
+			headers: requestHeaders,
+			signal: options.signal,
+		});
+	} catch (error) {
+		await recordSourceFailure(
+			url,
+			null,
+			error instanceof Error ? error.message : 'fetch failed',
+			options,
+		);
+		throw error;
+	}
+
+	updateHostState(parsed, response, options);
+
+	if (response.status === 304 && cachedEntry) {
+		await recordSourceSuccess(url);
+
+		return {
+			url,
+			fetchedAt: nowIso(),
+			response: new Response(cachedEntry.body, {
+				status: 200,
+				headers: {
+					'content-type': cachedEntry.contentType ?? 'text/plain; charset=utf-8',
+				},
+			}),
+			body: cachedEntry.body,
+			contentType: cachedEntry.contentType,
+			statusCode: 200,
+			ok: true,
+			cache: cachedEntry.cache,
+			cacheStatus: 'revalidated',
+			archiveSnapshot: cachedEntry.archiveSnapshot ?? noArchiveSnapshot(),
+			robots,
+			sourceHealthGate: null,
+		};
+	}
+
 	const fetchedAt = nowIso();
-	const cache = cacheMetadata(response.headers, body);
+	const body = await response.text();
+	const cache = cacheMetadata(response, body);
 	const contentType = response.headers.get('content-type');
+	const archiveSnapshot = await archiveFetchedDocument(url, fetchedAt, response.status, contentType, cache, body, options, cachedEntry);
+	const sourceHealthGate = response.ok
+		? await recordSourceSuccess(url)
+		: await recordSourceFailure(url, response.status, `HTTP ${response.status}`, options);
 	const result: PoliteFetchResult = {
 		url,
 		fetchedAt,
@@ -97,111 +292,420 @@ export async function politeFetch(url: string, options: PoliteFetchOptions = {})
 		statusCode: response.status,
 		ok: response.ok,
 		cache,
-		archiveSnapshot: { attempted: false, ok: false }
+		cacheStatus: cacheStore ? (response.ok ? 'stored' : 'miss') : 'bypass',
+		archiveSnapshot,
+		robots,
+		sourceHealthGate,
 	};
 
-	updateHostState(parsedUrl, response, options);
-	result.archiveSnapshot = await snapshotArchiveBestEffort(result, options);
+	if (cacheStore && options.cache?.write !== false && response.ok) {
+		await cacheStore.write({
+			url,
+			fetchedAt,
+			statusCode: response.status,
+			contentType: result.contentType,
+			body,
+			cache,
+			archiveSnapshot,
+		});
+	}
+
 	return result;
 }
 
-export function resetPoliteFetchStateForTests(): void {
-	hostStates.clear();
-}
-
-function requestHeaders(options: PoliteFetchOptions): Headers {
+function buildRequestHeaders(options: PoliteFetchOptions, cachedEntry: PoliteFetchCachedEntry | null): Headers {
 	const headers = new Headers(options.headers);
-	if (!headers.has('user-agent')) headers.set('user-agent', NEWSCRAFT_USER_AGENT);
-	if (options.etag) headers.set('if-none-match', options.etag);
-	if (options.lastModified) headers.set('if-modified-since', options.lastModified);
+	headers.set('user-agent', headers.get('user-agent') ?? NEWSCRAFT_USER_AGENT);
+	headers.set('accept', headers.get('accept') ?? 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5');
+
+	const etag = options.etag ?? cachedEntry?.cache.etag;
+	const lastModified = options.lastModified ?? cachedEntry?.cache.lastModified;
+
+	if (etag) {
+		headers.set('if-none-match', etag);
+	}
+
+	if (lastModified) {
+		headers.set('if-modified-since', lastModified);
+	}
+
 	return headers;
 }
 
-async function waitForHost(url: URL, options: PoliteFetchOptions): Promise<void> {
-	const minDelayMs = options.rateLimit?.minDelayMs ?? DEFAULT_HOST_DELAY_MS;
-	if (minDelayMs <= 0) return;
-	const now = options.rateLimit?.now?.() ?? Date.now();
-	const state = hostStates.get(hostKey(url));
-	if (!state || state.nextAllowedAt <= now) return;
-	await (options.rateLimit?.sleep ?? sleep)(state.nextAllowedAt - now, options.signal);
+async function waitForHost(parsed: URL, options: PoliteFetchOptions): Promise<void> {
+	const rateLimit = options.rateLimit;
+	const host = hostKey(parsed);
+	const state = hostStates.get(host) ?? { nextAllowedAt: 0, failureCount: 0 };
+	const now = rateLimit?.now?.() ?? Date.now();
+	const waitMs = Math.max(0, state.nextAllowedAt - now);
+
+	if (waitMs > 0) {
+		if (rateLimit?.wait) {
+			await rateLimit.wait(waitMs);
+		} else {
+			await (rateLimit?.sleep ?? sleep)(waitMs, options.signal);
+		}
+	}
 }
 
-function updateHostState(url: URL, response: Response, options: PoliteFetchOptions): void {
-	const minDelayMs = options.rateLimit?.minDelayMs ?? DEFAULT_HOST_DELAY_MS;
-	const now = options.rateLimit?.now?.() ?? Date.now();
-	const key = hostKey(url);
-	const previous = hostStates.get(key) ?? { nextAllowedAt: now, failureCount: 0 };
-	const retryAfter = response.headers.get('retry-after');
-	const backoffMs = backoffDelayMs(response.status, previous.failureCount, retryAfter);
-	const nextDelayMs = Math.max(minDelayMs, backoffMs);
-	const failureCount = backoffMs > 0 ? previous.failureCount + 1 : 0;
+function updateHostState(parsed: URL, response: Response, options: PoliteFetchOptions): void {
+	const rateLimit = options.rateLimit;
+	const host = hostKey(parsed);
+	const state = hostStates.get(host) ?? { nextAllowedAt: 0, failureCount: 0 };
+	const retryAfterHeader = response.headers.get('retry-after');
+	const retryAfter = parseRetryAfter(retryAfterHeader);
+	const retryAfterMs = rateLimit?.retryAfterMs ?? retryAfter;
+	const hostDelayMs = rateLimit?.hostDelayMs ?? rateLimit?.minDelayMs ?? DEFAULT_HOST_DELAY_MS;
 
-	hostStates.set(key, {
-		nextAllowedAt: now + nextDelayMs,
-		failureCount
-	});
+	if (response.status === 429 || response.status >= 500) {
+		state.failureCount += 1;
+	} else if (response.ok) {
+		state.failureCount = 0;
+	}
 
-	if (backoffMs > 0) {
-		options.rateLimit?.onBackoff?.({
-			url: url.toString(),
-			host: key,
+	const backoffMs = state.failureCount > 0
+		? Math.min(MAX_BACKOFF_MS, hostDelayMs * 2 ** state.failureCount)
+		: hostDelayMs;
+	const nextDelayMs = Math.max(retryAfterMs ?? 0, backoffMs);
+
+	state.nextAllowedAt = (rateLimit?.now?.() ?? Date.now()) + nextDelayMs;
+	hostStates.set(host, state);
+
+	if (state.failureCount > 0) {
+		rateLimit?.onBackoff?.({
+			url: parsed.toString(),
+			host,
 			statusCode: response.status,
-			backoffMs,
-			retryAfter
+			backoffMs: nextDelayMs,
+			retryAfter: retryAfterHeader,
 		});
 	}
 }
 
-function backoffDelayMs(statusCode: number, failureCount: number, retryAfter: string | null): number {
-	if (statusCode !== 429 && statusCode !== 503) return 0;
-	const retryAfterMs = retryAfterDelayMs(retryAfter);
-	if (retryAfterMs !== null) return retryAfterMs;
-	return Math.min(MAX_BACKOFF_MS, 1000 * 2 ** failureCount);
-}
-
-function retryAfterDelayMs(value: string | null): number | null {
-	if (!value) return null;
-	const seconds = Number(value);
-	if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-	const date = Date.parse(value);
-	if (!Number.isFinite(date)) return null;
-	return Math.max(0, date - Date.now());
-}
-
-function cacheMetadata(headers: Headers, body: string): PoliteFetchCacheMetadata {
+function cacheMetadata(response: Response, body: string): PoliteFetchCacheMetadata {
 	return {
 		contentHash: createHash('sha256').update(body).digest('hex'),
-		etag: headers.get('etag'),
-		lastModified: headers.get('last-modified'),
-		cacheControl: headers.get('cache-control'),
-		expires: headers.get('expires'),
-		contentLength: headers.get('content-length')
+		etag: response.headers.get('etag'),
+		lastModified: response.headers.get('last-modified'),
+		cacheControl: response.headers.get('cache-control'),
+		expires: response.headers.get('expires'),
+		contentLength: response.headers.get('content-length'),
 	};
 }
 
-async function snapshotArchiveBestEffort(
-	result: PoliteFetchResult,
-	options: PoliteFetchOptions
+async function archiveFetchedDocument(
+	url: string,
+	fetchedAt: string,
+	statusCode: number,
+	contentType: string | null,
+	cache: PoliteFetchCacheMetadata,
+	body: string,
+	options: PoliteFetchOptions,
+	cachedEntry: PoliteFetchCachedEntry | null,
 ): Promise<PoliteFetchArchiveResult> {
-	const snapshot = options.archive?.snapshot;
-	if (!snapshot) return { attempted: false, ok: false };
+	if (cachedEntry?.archiveSnapshot?.ok) {
+		return cachedEntry.archiveSnapshot;
+	}
+
+	if (options.archive?.snapshot) {
+		try {
+			await options.archive.snapshot({
+				url,
+				fetchedAt,
+				statusCode,
+				contentType,
+				contentHash: cache.contentHash,
+				body,
+				cache,
+			});
+
+			return {
+				attempted: true,
+				ok: true,
+				snapshotUrl: null,
+			};
+		} catch (error) {
+			return {
+				attempted: true,
+				ok: false,
+				snapshotUrl: null,
+				error: error instanceof Error ? error.message : 'archive snapshot failed',
+			};
+		}
+	}
+
+	if (options.archive?.webArchive !== true || archivedUrls.has(url)) {
+		return noArchiveSnapshot();
+	}
+
+	archivedUrls.add(url);
+
 	try {
-		await snapshot({
-			url: result.url,
-			fetchedAt: result.fetchedAt,
-			statusCode: result.statusCode,
-			contentType: result.contentType,
-			body: result.body,
-			cache: result.cache
+		const archiveUrl = `https://web.archive.org/save/${encodeURIComponent(url)}`;
+		const archiveFetch = options.archive.fetchImpl ?? fetch;
+		const response = await archiveFetch(archiveUrl, {
+			method: 'GET',
+			headers: {
+				'user-agent': NEWSCRAFT_USER_AGENT,
+			},
+			signal: options.signal,
 		});
-		return { attempted: true, ok: true };
-	} catch (err) {
+		const snapshotUrl = response.headers.get('content-location') ?? response.headers.get('location');
+
+		return {
+			attempted: true,
+			ok: response.ok,
+			snapshotUrl: snapshotUrl ? new URL(snapshotUrl, 'https://web.archive.org').toString() : archiveUrl,
+			error: response.ok ? undefined : `web.archive.org returned ${response.status}`,
+		};
+	} catch (error) {
 		return {
 			attempted: true,
 			ok: false,
-			error: err instanceof Error ? err.message : String(err)
+			snapshotUrl: null,
+			error: error instanceof Error ? error.message : 'web.archive.org snapshot failed',
 		};
 	}
+}
+
+function noArchiveSnapshot(): PoliteFetchArchiveResult {
+	return {
+		attempted: false,
+		ok: false,
+		snapshotUrl: null,
+	};
+}
+
+async function checkRobots(url: string, options: PoliteFetchOptions): Promise<PoliteFetchRobotsResult> {
+	const parsed = new URL(url);
+	const robotsUrl = new URL('/robots.txt', parsed.origin).toString();
+	const respectRobots = options.robots?.respect !== false;
+	const override = options.robots?.override === true;
+
+	if (!respectRobots || override) {
+		return {
+			checked: respectRobots,
+			allowed: true,
+			override,
+			robotsUrl: respectRobots ? robotsUrl : null,
+			matchedRule: null,
+		};
+	}
+
+	try {
+		const robotsFetch = options.robots?.fetchImpl ?? options.fetchImpl ?? fetch;
+		const response = await robotsFetch(robotsUrl, {
+			headers: {
+				'user-agent': options.robots?.userAgent ?? NEWSCRAFT_USER_AGENT,
+				accept: 'text/plain,*/*;q=0.5',
+			},
+			signal: options.signal,
+		});
+
+		if (response.status === 404 || response.status === 410 || !response.ok) {
+			return {
+				checked: true,
+				allowed: true,
+				override,
+				robotsUrl,
+				matchedRule: null,
+			};
+		}
+
+		const body = await response.text();
+		const decision = robotsAllows(body, parsed.pathname + parsed.search, options.robots?.userAgent ?? NEWSCRAFT_USER_AGENT);
+
+		return {
+			checked: true,
+			allowed: decision.allowed,
+			override,
+			robotsUrl,
+			matchedRule: decision.rule,
+		};
+	} catch (error) {
+		return {
+			checked: true,
+			allowed: true,
+			override,
+			robotsUrl,
+			matchedRule: null,
+			error: error instanceof Error ? error.message : 'robots.txt fetch failed',
+		};
+	}
+}
+
+interface RobotsRule {
+	type: 'allow' | 'disallow';
+	path: string;
+}
+
+interface RobotsGroup {
+	agents: string[];
+	rules: RobotsRule[];
+}
+
+function robotsAllows(body: string, requestPath: string, userAgent: string): { allowed: boolean; rule: string | null } {
+	const groups = parseRobots(body);
+	const matchingGroups = groups
+		.map((group) => ({
+			group,
+			matchLength: Math.max(0, ...group.agents.map((agent) => robotAgentMatchLength(agent, userAgent)))
+		}))
+		.filter((entry) => entry.matchLength > 0);
+	const maxMatchLength = Math.max(0, ...matchingGroups.map((entry) => entry.matchLength));
+	const matchingRules = matchingGroups
+		.filter((entry) => entry.matchLength === maxMatchLength)
+		.map((entry) => entry.group)
+		.flatMap((group) => group.rules)
+		.filter((rule) => rule.path === '' || pathMatchesRobotsRule(rule.path, requestPath))
+		.sort((a, b) => b.path.length - a.path.length || (a.type === 'allow' ? -1 : 1));
+
+	const rule = matchingRules[0];
+
+	if (!rule || rule.path === '') {
+		return {
+			allowed: true,
+			rule: null,
+		};
+	}
+
+	return {
+		allowed: rule.type === 'allow',
+		rule: `${rule.type}: ${rule.path}`,
+	};
+}
+
+function parseRobots(body: string): RobotsGroup[] {
+	const groups: RobotsGroup[] = [];
+	let current: RobotsGroup | null = null;
+	let currentHasRules = false;
+
+	for (const rawLine of body.split(/\r?\n/)) {
+		const line = rawLine.split('#')[0]?.trim();
+		if (!line) {
+			current = null;
+			currentHasRules = false;
+			continue;
+		}
+
+		const separator = line.indexOf(':');
+		if (separator === -1) {
+			continue;
+		}
+
+		const field = line.slice(0, separator).trim().toLowerCase();
+		const value = line.slice(separator + 1).trim();
+
+		if (field === 'user-agent') {
+			if (!current || currentHasRules) {
+				current = { agents: [], rules: [] };
+				groups.push(current);
+				currentHasRules = false;
+			}
+
+			current.agents.push(value.toLowerCase());
+			continue;
+		}
+
+		if ((field === 'allow' || field === 'disallow') && current) {
+			current.rules.push({ type: field, path: value });
+			currentHasRules = true;
+		}
+	}
+
+	return groups;
+}
+
+function robotAgentMatchLength(agent: string, userAgent: string): number {
+	if (agent === '*') {
+		return 1;
+	}
+
+	return userAgent.toLowerCase().includes(agent) ? agent.length : 0;
+}
+
+function pathMatchesRobotsRule(rulePath: string, requestPath: string): boolean {
+	if (rulePath === '') {
+		return true;
+	}
+
+	const escaped = rulePath
+		.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+		.replace(/\*/g, '.*')
+		.replace(/\\\$$/, '$');
+	const source = escaped.endsWith('$') ? `^${escaped}` : `^${escaped}`;
+
+	return new RegExp(source).test(requestPath);
+}
+
+async function recordSourceSuccess(url: string): Promise<null> {
+	sourceHealthStates.set(url, { failureCount: 0 });
+	return null;
+}
+
+async function recordSourceFailure(
+	url: string,
+	statusCode: number | null,
+	reason: string,
+	options: PoliteFetchOptions,
+): Promise<PoliteFetchSourceHealthGate | null> {
+	const failureBudget = options.sourceHealth?.failureBudget ?? DEFAULT_SOURCE_FAILURE_BUDGET;
+	const state = sourceHealthStates.get(url) ?? { failureCount: 0 };
+	state.failureCount += 1;
+	sourceHealthStates.set(url, state);
+
+	if (state.failureCount < failureBudget) {
+		return null;
+	}
+
+	const parsed = new URL(url);
+	const gate: PoliteFetchSourceHealthGate = {
+		type: 'source_health',
+		url,
+		host: parsed.host,
+		statusCode,
+		reason,
+		failureCount: state.failureCount,
+		failureBudget,
+		createdAt: nowIso(),
+		actions: ['pause', 'retry', 'drop', 'override'],
+	};
+
+	await options.sourceHealth?.onGate?.(gate);
+
+	return gate;
+}
+
+function cachePaths(rootDir: string, url: string): { metadata: string } {
+	const parsed = new URL(url);
+	const safeHost = parsed.host.replace(/[^a-zA-Z0-9.-]/g, '_');
+	const urlHash = createHash('sha256').update(url).digest('hex');
+
+	return {
+		metadata: path.join(rootDir, 'hosts', safeHost, `${urlHash}.json`),
+	};
+}
+
+function contentPath(rootDir: string, contentHash: string): string {
+	return path.join(rootDir, 'content', `${contentHash}.txt`);
+}
+
+function isNotFoundError(error: unknown): boolean {
+	return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+}
+
+function parseRetryAfter(value: string | null): number | null {
+	if (!value) {
+		return null;
+	}
+
+	const seconds = Number(value);
+	if (Number.isFinite(seconds)) {
+		return seconds * 1000;
+	}
+
+	const dateMs = Date.parse(value);
+	return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
 }
 
 function hostKey(url: URL): string {
@@ -218,7 +722,7 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
 				clearTimeout(timer);
 				reject(signal.reason);
 			},
-			{ once: true }
+			{ once: true },
 		);
 	});
 }

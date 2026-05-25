@@ -127,7 +127,8 @@ export class JobRunner {
 			contentText: source.contentText,
 			contentHash: source.contentHash,
 			contentType: source.contentType,
-			statusCode: source.statusCode
+			statusCode: source.statusCode,
+			healthGate: source.healthGate ?? null
 		});
 	}
 }

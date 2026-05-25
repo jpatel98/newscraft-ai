@@ -118,6 +118,7 @@ export interface StoreSourceInput {
 	contentHash: string;
 	contentType?: string | null;
 	statusCode?: number | null;
+	healthGate?: unknown | null;
 }
 
 export const DEFAULT_WORKSPACE_ID = 'default';
@@ -694,6 +695,26 @@ export class HarnessRepository {
 			],
 			createdAt: nowIso()
 		});
+		if (input.healthGate) {
+			this.appendEvent({
+				workspaceId: DEFAULT_WORKSPACE_ID,
+				jobId: input.jobId,
+				runId: input.runId,
+				agent: 'source_monitor',
+				kind: 'source.health.gate',
+				payload: input.healthGate,
+				sources: [
+					{
+						id: sourceId,
+						url: input.url,
+						title: input.title,
+						fetched_at: input.fetchedAt,
+						used: input.used
+					}
+				],
+				createdAt: nowIso()
+			});
+		}
 		return this.listSourcesForRun(input.runId).find((source) => source.id === sourceId) as NewsroomSourceDto;
 	}
 

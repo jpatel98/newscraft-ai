@@ -215,7 +215,8 @@ export class NewsroomAgentRuntime {
 						contentText: source.contentText,
 						contentHash: source.contentHash,
 						contentType: source.contentType,
-						statusCode: source.statusCode
+						statusCode: source.statusCode,
+						healthGate: source.healthGate ?? null
 					});
 				}
 				return {
@@ -328,7 +329,8 @@ function evidenceToFetchedSource(evidence: EvidenceObject): FetchedSource {
 		contentHash: createHash('sha256').update(`${evidence.source_url}\n${contentText}`).digest('hex'),
 		contentType: evidence.source_url.startsWith('newsroom://') ? 'text/markdown' : null,
 		statusCode: evidence.confidence > 0 ? 200 : null,
-		used: evidence.confidence > 0
+		used: evidence.confidence > 0,
+		healthGate: null
 	};
 }
 

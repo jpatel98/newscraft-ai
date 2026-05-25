@@ -1,11 +1,22 @@
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NEWSCRAFT_USER_AGENT, politeFetch, resetPoliteFetchStateForTests } from '../src/tools/polite-fetch.js';
+import {
+	NEWSCRAFT_USER_AGENT,
+	createFilePoliteFetchCache,
+	politeFetch,
+	resetPoliteFetchStateForTests
+} from '../src/tools/polite-fetch.js';
 
 describe('politeFetch', () => {
-	afterEach(() => {
+	const tempDirs: string[] = [];
+
+	afterEach(async () => {
 		resetPoliteFetchStateForTests();
 		vi.restoreAllMocks();
+		await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 	});
 
 	it('adds polite request headers and returns cache metadata without failing on archive errors', async () => {
@@ -28,7 +39,8 @@ describe('politeFetch', () => {
 			fetchImpl: fetchMock as typeof fetch,
 			etag: '"previous"',
 			lastModified: 'Sat, 23 May 2026 12:00:00 GMT',
-			rateLimit: { minDelayMs: 0 },
+			rateLimit: { hostDelayMs: 0 },
+			robots: { respect: false },
 			archive: { snapshot: archiveSnapshot }
 		});
 
@@ -50,38 +62,160 @@ describe('politeFetch', () => {
 		expect(archiveSnapshot).toHaveBeenCalledTimes(1);
 	});
 
-	it('applies per-host delay and reports response backoff hints', async () => {
+	it('respects robots.txt by default and supports explicit override', async () => {
+		let articleFetches = 0;
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const requestUrl = String(input);
+			if (requestUrl.endsWith('/robots.txt')) {
+				return new Response('User-agent: *\nDisallow: /blocked\n', { status: 200 });
+			}
+
+			articleFetches += 1;
+			return new Response('blocked story', { status: 200 });
+		});
+
+		const blocked = await politeFetch('https://example.test/blocked/story', {
+			fetchImpl: fetchMock as typeof fetch,
+			rateLimit: { hostDelayMs: 0 }
+		});
+		expect(blocked.statusCode).toBe(451);
+		expect(blocked.ok).toBe(false);
+		expect(blocked.robots).toMatchObject({
+			checked: true,
+			allowed: false,
+			matchedRule: 'disallow: /blocked'
+		});
+		expect(articleFetches).toBe(0);
+
+		const override = await politeFetch('https://example.test/blocked/story', {
+			fetchImpl: fetchMock as typeof fetch,
+			rateLimit: { hostDelayMs: 0 },
+			robots: { override: true }
+		});
+		expect(override.statusCode).toBe(200);
+		expect(override.robots).toMatchObject({ checked: true, allowed: true, override: true });
+		expect(articleFetches).toBe(1);
+	});
+
+	it('persists a content-addressed cache and revalidates with stored validators', async () => {
+		const cacheDir = await mkdtemp(path.join(tmpdir(), 'polite-fetch-cache-'));
+		tempDirs.push(cacheDir);
+		const cache = createFilePoliteFetchCache(cacheDir);
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response('cached newsroom body', {
+					status: 200,
+					headers: {
+						'content-type': 'text/plain',
+						etag: '"cache-v1"',
+						'last-modified': 'Sun, 24 May 2026 12:00:00 GMT'
+					}
+				})
+			)
+			.mockResolvedValueOnce(new Response(null, { status: 304 }));
+
+		const first = await politeFetch('https://example.test/cache-me', {
+			fetchImpl: fetchMock as typeof fetch,
+			rateLimit: { hostDelayMs: 0 },
+			robots: { respect: false },
+			cache: { store: cache }
+		});
+		const second = await politeFetch('https://example.test/cache-me', {
+			fetchImpl: fetchMock as typeof fetch,
+			rateLimit: { hostDelayMs: 0 },
+			robots: { respect: false },
+			cache: { store: cache }
+		});
+		const secondHeaders = new Headers(fetchMock.mock.calls[1]?.[1]?.headers);
+
+		expect(first.cacheStatus).toBe('stored');
+		expect(second.cacheStatus).toBe('revalidated');
+		expect(second.body).toBe('cached newsroom body');
+		expect(second.statusCode).toBe(200);
+		expect(secondHeaders.get('if-none-match')).toBe('"cache-v1"');
+		expect(secondHeaders.get('if-modified-since')).toBe('Sun, 24 May 2026 12:00:00 GMT');
+	});
+
+	it('can request a web.archive.org snapshot for fetched documents', async () => {
+		const fetchMock = vi.fn(async () => new Response('archive me', { status: 200 }));
+		const archiveFetch = vi.fn(async () => {
+			return new Response('', {
+				status: 200,
+				headers: { location: '/web/20260524120000/https://example.test/story' }
+			});
+		});
+
+		const result = await politeFetch('https://example.test/story', {
+			fetchImpl: fetchMock as typeof fetch,
+			rateLimit: { hostDelayMs: 0 },
+			robots: { respect: false },
+			archive: { webArchive: true, fetchImpl: archiveFetch as typeof fetch }
+		});
+
+		expect(archiveFetch).toHaveBeenCalledTimes(1);
+		expect(String(archiveFetch.mock.calls[0]?.[0])).toContain('https://web.archive.org/save/');
+		expect(result.archiveSnapshot).toMatchObject({
+			attempted: true,
+			ok: true,
+			snapshotUrl: 'https://web.archive.org/web/20260524120000/https://example.test/story'
+		});
+	});
+
+	it('surfaces source-health gates when a source exceeds its failure budget', async () => {
+		const gateSpy = vi.fn();
+		const fetchMock = vi.fn(async () => new Response('busy', { status: 503 }));
+
+		await politeFetch('https://example.test/flaky', {
+			fetchImpl: fetchMock as typeof fetch,
+			rateLimit: { hostDelayMs: 0 },
+			robots: { respect: false },
+			sourceHealth: { failureBudget: 2, onGate: gateSpy }
+		});
+		const second = await politeFetch('https://example.test/flaky', {
+			fetchImpl: fetchMock as typeof fetch,
+			rateLimit: { hostDelayMs: 0 },
+			robots: { respect: false },
+			sourceHealth: { failureBudget: 2, onGate: gateSpy }
+		});
+
+		expect(second.sourceHealthGate).toMatchObject({
+			type: 'source_health',
+			host: 'example.test',
+			statusCode: 503,
+			reason: 'HTTP 503',
+			failureCount: 2,
+			failureBudget: 2
+		});
+		expect(gateSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('applies per-host delay and response backoff hints', async () => {
 		let now = 1_000;
-		const sleep = vi.fn(async (ms: number) => {
+		const wait = vi.fn(async (ms: number) => {
 			now += ms;
 		});
-		const onBackoff = vi.fn();
+		vi.spyOn(Date, 'now').mockImplementation(() => now);
 		const fetchMock = vi
 			.fn()
 			.mockResolvedValueOnce(new Response('first', { status: 200 }))
-			.mockResolvedValueOnce(new Response('busy', { status: 429, headers: { 'retry-after': '2' } }));
+			.mockResolvedValueOnce(new Response('busy', { status: 429, headers: { 'retry-after': '2' } }))
+			.mockResolvedValueOnce(new Response('third', { status: 200 }));
 
 		const options = {
 			fetchImpl: fetchMock as typeof fetch,
 			rateLimit: {
-				minDelayMs: 100,
-				now: () => now,
-				sleep,
-				onBackoff
-			}
+				hostDelayMs: 100,
+				wait
+			},
+			robots: { respect: false }
 		};
 
 		await politeFetch('https://example.test/one', options);
 		await politeFetch('https://example.test/two', options);
+		await politeFetch('https://example.test/three', options);
 
-		expect(sleep).toHaveBeenCalledWith(100, undefined);
-		expect(onBackoff).toHaveBeenCalledWith(
-			expect.objectContaining({
-				host: 'example.test',
-				statusCode: 429,
-				backoffMs: 2000,
-				retryAfter: '2'
-			})
-		);
+		expect(wait).toHaveBeenNthCalledWith(1, 100);
+		expect(wait).toHaveBeenNthCalledWith(2, 2000);
 	});
 });

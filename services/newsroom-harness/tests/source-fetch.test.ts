@@ -132,7 +132,11 @@ describe('source extraction', () => {
 	});
 
 	it('preserves fetched source shape through the polite fetch path', async () => {
-		const fetchMock = vi.fn(async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			if (String(input).endsWith('/robots.txt')) {
+				return new Response('', { status: 404 });
+			}
+
 			return new Response(
 				`
 					<html>
@@ -154,7 +158,8 @@ describe('source extraction', () => {
 		vi.stubGlobal('fetch', fetchMock);
 
 		const source = await fetchSourceUrl('https://example.test/water-repairs');
-		const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+		const storyCall = fetchMock.mock.calls.find((call) => String(call[0]) === 'https://example.test/water-repairs');
+		const headers = new Headers(storyCall?.[1]?.headers);
 
 		expect(headers.get('user-agent')).toBe(NEWSCRAFT_USER_AGENT);
 		expect(source).toMatchObject({
@@ -164,6 +169,7 @@ describe('source extraction', () => {
 			statusCode: 200,
 			used: true
 		});
+		expect(source.robots).toMatchObject({ checked: true, allowed: true });
 		expect(source.contentText).toContain('Council approved urgent water system repairs');
 		expect(source.snippet.length).toBeLessThanOrEqual(600);
 		expect(source.contentHash).toMatch(/^[a-f0-9]{64}$/);
