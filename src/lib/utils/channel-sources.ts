@@ -1,4 +1,5 @@
 import type { ChannelSource } from '$lib/types';
+import type { CrawlPlanProposal } from '$lib/types';
 
 const WATCHLIST_HEADING = '## Configured Watchlist';
 
@@ -68,24 +69,57 @@ function escapeWatchlistLine(value: string): string {
 	return value.replace(/\s+/g, ' ').trim();
 }
 
-export function compileChannelPrompt(basePrompt: string, sources: ChannelSource[] = []): string {
+function crawlPlanPromptBlock(plans: CrawlPlanProposal[]): string {
+	const approved = plans.filter((plan) => plan.status === 'approved');
+	if (approved.length === 0) return '';
+
+	const sections = approved.map((plan) => {
+		const links = plan.candidateLinks
+			.slice(0, 8)
+			.map((link) => `  - ${escapeWatchlistLine(link.title)}: ${link.url}`)
+			.join('\n');
+		return [
+			`### ${escapeWatchlistLine(plan.siteName)}`,
+			`- Seed URL: ${plan.seedUrl}`,
+			`- Link-follow rule: ${escapeWatchlistLine(plan.linkFollowRule)}`,
+			`- Article body strategy: ${plan.articleBodyStrategy}`,
+			`- Polling cadence: ${escapeWatchlistLine(plan.pollingCadence)}`,
+			`- Change detection: ${plan.changeDetection}`,
+			links ? `- Candidate links approved for this run:\n${links}` : '- Candidate links approved for this run: none yet'
+		].join('\n');
+	});
+
+	return `## Approved Crawl Plans
+Before proposing a pitch from this beat, inspect these approved crawl plans. Fetch the seed URL, follow matching candidate links, and only surface leads backed by fetched source text.
+
+${sections.join('\n\n')}`;
+}
+
+export function compileChannelPrompt(
+	basePrompt: string,
+	sources: ChannelSource[] = [],
+	crawlPlans: CrawlPlanProposal[] = []
+): string {
 	const prompt = basePrompt.trim();
 	const enabledSources = sources
 		.filter((source) => source.enabled !== false)
 		.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+	const crawlPlanBlock = crawlPlanPromptBlock(crawlPlans);
 
-	if (enabledSources.length === 0) return prompt;
+	if (enabledSources.length === 0 && !crawlPlanBlock) return prompt;
 
 	const lines = enabledSources.map(
 		(source) => `- ${escapeWatchlistLine(source.name)}: ${source.url}`
 	);
 
-	return `${prompt}
-
-${WATCHLIST_HEADING}
+	const watchlistBlock = enabledSources.length
+		? `${WATCHLIST_HEADING}
 Use these configured sources as starting points for this scheduled run. They are not the whole task; follow the task prompt above.
 
-${lines.join('\n')}`;
+${lines.join('\n')}`
+		: '';
+
+	return [prompt, watchlistBlock, crawlPlanBlock].filter(Boolean).join('\n\n');
 }
 
 export interface ChannelConfigOverlay {

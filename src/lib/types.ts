@@ -64,6 +64,32 @@ export interface ChannelSource {
 	sortOrder: number;
 }
 
+export type CrawlPlanStatus = 'pending' | 'approved' | 'rejected';
+
+export interface CrawlPlanCandidateLink {
+	title: string;
+	url: string;
+	reason: string;
+	score: number;
+}
+
+export interface CrawlPlanProposal {
+	id: string;
+	missionId: string;
+	seedUrl: string;
+	siteName: string;
+	status: CrawlPlanStatus;
+	linkFollowRule: string;
+	articleBodyStrategy: 'auto' | 'selector' | 'agent-extract';
+	pollingCadence: string;
+	changeDetection: 'hash' | 'structured_diff' | 'semantic_similarity';
+	candidateLinks: CrawlPlanCandidateLink[];
+	createdAt: number;
+	updatedAt: number;
+	approvedAt: number | null;
+	rejectedAt: number | null;
+}
+
 export interface ChatCommand {
 	slash: string;
 	kind: AgentCommandKind;

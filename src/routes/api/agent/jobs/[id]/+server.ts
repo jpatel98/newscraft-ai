@@ -6,6 +6,7 @@ import {
 	getMissionConfig,
 	saveMissionConfig
 } from '$lib/server/db/missions';
+import { listApprovedCrawlPlans } from '$lib/server/db/crawl-plans';
 import { deleteAgentJob, listAgentJobs, updateAgentJob } from '$lib/server/agent/board';
 import { compileChannelPrompt, normalizeChannelSources } from '$lib/utils/channel-sources';
 
@@ -53,7 +54,8 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 			const basePrompt = prompt ?? existingConfig?.basePrompt ?? existingJob?.prompt ?? '';
 			const nextSources = sources ?? existingConfig?.sources ?? [];
 			if (prompt !== undefined || sources !== undefined) {
-				promptForAgent = compileChannelPrompt(basePrompt, nextSources);
+				const crawlPlans = await listApprovedCrawlPlans(locals.user.id, id);
+				promptForAgent = compileChannelPrompt(basePrompt, nextSources, crawlPlans);
 			}
 			configToSave = { basePrompt, sources: nextSources };
 		}

@@ -2,7 +2,15 @@
 	import { onMount, untrack } from 'svelte';
 	import { goto, invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { BoardChannel, BoardData, BoardPost, ChannelSource, AgentJob, AgentRun } from '$lib/types';
+	import type {
+		BoardChannel,
+		BoardData,
+		BoardPost,
+		ChannelSource,
+		AgentJob,
+		AgentRun,
+		CrawlPlanProposal
+	} from '$lib/types';
 	import { detectRunRequestOutcome } from '$lib/utils/run-poll';
 	import { effectiveRunError } from '$lib/utils/cron-delivery';
 	import { formatRelativeTime } from '$lib/utils/time';
@@ -63,6 +71,15 @@
 	let renameDraft = $state('');
 	let renameBusy = $state(false);
 	let runWatch = $state<RunWatchState | null>(null);
+	let crawlPlans = $state<CrawlPlanProposal[]>([]);
+	let crawlPlanJobId = $state('');
+	let crawlPlanSeedUrl = $state('');
+	let crawlPlanBusy = $state<string | null>(null);
+	let crawlPlanError = $state<string | null>(null);
+	let crawlPlanEditId = $state('');
+	let crawlPlanEditRule = $state('');
+	let crawlPlanEditCadence = $state('');
+	let crawlPlanEditChangeDetection = $state<CrawlPlanProposal['changeDetection']>('hash');
 	let runWatchNow = $state(Date.now());
 	let expandedOutputPostId = $state<string | null>(null);
 	let outputMarkdownById = $state<Record<string, string>>({});
@@ -106,6 +123,18 @@
 	const visibleNotice = $derived(
 		notice && (!noticeChannelSlug || noticeChannelSlug === selectedChannel?.slug) ? notice : null
 	);
+
+	$effect(() => {
+		const jobId = selectedJob?.id ?? '';
+		if (!jobId || createOpen) {
+			crawlPlans = [];
+			crawlPlanJobId = '';
+			return;
+		}
+		if (jobId !== crawlPlanJobId && !crawlPlanBusy) {
+			void loadCrawlPlans(jobId, true);
+		}
+	});
 
 	onMount(() => {
 		const params = new URLSearchParams(window.location.search);
@@ -347,6 +376,120 @@
 		createSources = createSources
 			.filter((_, sourceIndex) => sourceIndex !== index)
 			.map((source, sortOrder) => ({ ...source, sortOrder }));
+	}
+
+	async function loadCrawlPlans(jobId = selectedJob?.id ?? '', silent = false) {
+		if (!jobId) {
+			crawlPlans = [];
+			crawlPlanJobId = '';
+			return;
+		}
+		if (!silent) crawlPlanBusy = 'load';
+		crawlPlanError = null;
+		crawlPlanJobId = jobId;
+		try {
+			const response = await fetch(`/api/agent/jobs/${encodeURIComponent(jobId)}/crawl-plans`, {
+				cache: 'no-store'
+			});
+			if (!response.ok) throw new Error(await response.text());
+			const data = (await response.json()) as { crawlPlans?: CrawlPlanProposal[] };
+			crawlPlans = data.crawlPlans ?? [];
+		} catch (err) {
+			crawlPlanError = err instanceof Error ? err.message : String(err);
+		} finally {
+			if (crawlPlanBusy === 'load') crawlPlanBusy = null;
+		}
+	}
+
+	async function proposeCrawlPlan() {
+		if (!selectedJob) return;
+		const seedUrl = crawlPlanSeedUrl.trim();
+		if (!seedUrl) {
+			crawlPlanError = 'Enter a site URL for the monitor to inspect.';
+			return;
+		}
+		crawlPlanBusy = 'propose';
+		crawlPlanError = null;
+		try {
+			const response = await fetch(`/api/agent/jobs/${encodeURIComponent(selectedJob.id)}/crawl-plans`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					seedUrl,
+					missionSchedule: selectedJob.scheduleDisplay
+				})
+			});
+			if (!response.ok) throw new Error(await response.text());
+			const data = (await response.json()) as { crawlPlan?: CrawlPlanProposal };
+			if (data.crawlPlan) crawlPlans = [data.crawlPlan, ...crawlPlans];
+			crawlPlanSeedUrl = '';
+			notice = 'Crawl plan gate drafted for review.';
+			noticeChannelSlug = selectedChannel?.slug ?? null;
+		} catch (err) {
+			crawlPlanError = err instanceof Error ? err.message : String(err);
+		} finally {
+			crawlPlanBusy = null;
+		}
+	}
+
+	function beginCrawlPlanEdit(plan: CrawlPlanProposal) {
+		crawlPlanEditId = plan.id;
+		crawlPlanEditRule = plan.linkFollowRule;
+		crawlPlanEditCadence = plan.pollingCadence;
+		crawlPlanEditChangeDetection = plan.changeDetection;
+	}
+
+	function cancelCrawlPlanEdit() {
+		crawlPlanEditId = '';
+		crawlPlanEditRule = '';
+		crawlPlanEditCadence = '';
+		crawlPlanEditChangeDetection = 'hash';
+	}
+
+	async function saveCrawlPlanEdit(plan: CrawlPlanProposal) {
+		await updateCrawlPlan(plan, {
+			linkFollowRule: crawlPlanEditRule,
+			pollingCadence: crawlPlanEditCadence,
+			changeDetection: crawlPlanEditChangeDetection
+		});
+		cancelCrawlPlanEdit();
+	}
+
+	async function updateCrawlPlan(
+		plan: CrawlPlanProposal,
+		payload: Partial<Pick<CrawlPlanProposal, 'status' | 'linkFollowRule' | 'pollingCadence' | 'changeDetection'>>
+	) {
+		if (!selectedJob) return;
+		crawlPlanBusy = plan.id;
+		crawlPlanError = null;
+		try {
+			const response = await fetch(
+				`/api/agent/jobs/${encodeURIComponent(selectedJob.id)}/crawl-plans/${encodeURIComponent(plan.id)}`,
+				{
+					method: 'PATCH',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload)
+				}
+			);
+			if (!response.ok) throw new Error(await response.text());
+			const data = (await response.json()) as {
+				crawlPlan?: CrawlPlanProposal;
+				syncWarning?: string | null;
+			};
+			if (data.crawlPlan) {
+				crawlPlans = crawlPlans.map((item) => (item.id === data.crawlPlan?.id ? data.crawlPlan : item));
+				if (payload.status === 'approved') notice = 'Crawl plan approved for this beat.';
+				if (payload.status === 'rejected') notice = 'Crawl plan rejected.';
+				noticeChannelSlug = selectedChannel?.slug ?? null;
+				if (data.syncWarning) {
+					crawlPlanError = 'Crawl plan saved, but the beat update needs a retry.';
+				}
+			}
+		} catch (err) {
+			crawlPlanError = err instanceof Error ? err.message : String(err);
+		} finally {
+			crawlPlanBusy = null;
+		}
 	}
 
 	function cancelRenameTitle() {
@@ -1425,6 +1568,180 @@
 						</div>
 					{/if}
 
+					{#if selectedJob}
+						<section class="crawl-plans" aria-label="Crawl plan gates">
+							<div class="crawl-plans__head">
+								<div>
+									<div class="channels__eyebrow">Crawl plan gates</div>
+									<h2 class="crawl-plans__title">Review candidate links before the beat runs</h2>
+								</div>
+								<button
+									type="button"
+									class="btn btn--ghost"
+									disabled={crawlPlanBusy === 'load'}
+									onclick={() => loadCrawlPlans(selectedJob.id)}
+								>
+									<RefreshCw size="13" strokeWidth={1.8} />
+									{crawlPlanBusy === 'load' ? 'Refreshing' : 'Refresh'}
+								</button>
+							</div>
+							<form
+								class="crawl-plan-form"
+								onsubmit={(event) => {
+									event.preventDefault();
+									void proposeCrawlPlan();
+								}}
+							>
+								<div class="field">
+									<label class="field__label" for="crawl-plan-seed">Site URL</label>
+									<input
+										id="crawl-plan-seed"
+										class="field__input"
+										bind:value={crawlPlanSeedUrl}
+										placeholder="https://example.com/news"
+										disabled={Boolean(crawlPlanBusy)}
+									/>
+								</div>
+								<button type="submit" class="btn btn--primary" disabled={Boolean(crawlPlanBusy)}>
+									{crawlPlanBusy === 'propose' ? 'Inspecting' : 'Draft crawl plan'}
+								</button>
+							</form>
+							{#if crawlPlanError}
+								<div class="crawl-plans__error">{crawlPlanError}</div>
+							{/if}
+							{#if crawlPlans.length > 0}
+								<div class="crawl-plan-list">
+									{#each crawlPlans as plan (plan.id)}
+										<article class="crawl-plan-card">
+											<div class="crawl-plan-card__topline">
+												<span class={`channels-status channels-status--${plan.status === 'approved' ? 'ok' : plan.status === 'rejected' ? 'archived' : 'warn'}`}>
+													{plan.status === 'approved' ? 'Approved' : plan.status === 'rejected' ? 'Rejected' : 'Needs review'}
+												</span>
+												<span>{sourceHost(plan.seedUrl)}</span>
+											</div>
+											<h3>{plan.siteName}</h3>
+											<a class="crawl-plan-card__seed" href={plan.seedUrl} target="_blank" rel="noreferrer">
+												{plan.seedUrl}
+											</a>
+
+											{#if crawlPlanEditId === plan.id}
+												<div class="crawl-plan-edit">
+													<div class="field">
+														<label class="field__label" for={`crawl-rule-${plan.id}`}>Link-follow rule</label>
+														<textarea
+															id={`crawl-rule-${plan.id}`}
+															class="field__input crawl-plan-edit__rule"
+															bind:value={crawlPlanEditRule}
+															disabled={crawlPlanBusy === plan.id}
+														></textarea>
+													</div>
+													<div class="crawl-plan-edit__grid">
+														<div class="field">
+															<label class="field__label" for={`crawl-cadence-${plan.id}`}>Cadence</label>
+															<input
+																id={`crawl-cadence-${plan.id}`}
+																class="field__input"
+																bind:value={crawlPlanEditCadence}
+																disabled={crawlPlanBusy === plan.id}
+															/>
+														</div>
+														<div class="field">
+															<label class="field__label" for={`crawl-change-${plan.id}`}>Change detection</label>
+															<select
+																id={`crawl-change-${plan.id}`}
+																class="field__input"
+																bind:value={crawlPlanEditChangeDetection}
+																disabled={crawlPlanBusy === plan.id}
+															>
+																<option value="hash">Hash</option>
+																<option value="structured_diff">Structured diff</option>
+																<option value="semantic_similarity">Semantic similarity</option>
+															</select>
+														</div>
+													</div>
+													<div class="crawl-plan-card__actions">
+														<button
+															type="button"
+															class="btn btn--primary"
+															disabled={crawlPlanBusy === plan.id}
+															onclick={() => saveCrawlPlanEdit(plan)}
+														>
+															{crawlPlanBusy === plan.id ? 'Saving' : 'Save edit'}
+														</button>
+														<button
+															type="button"
+															class="btn btn--ghost"
+															disabled={crawlPlanBusy === plan.id}
+															onclick={cancelCrawlPlanEdit}
+														>
+															Cancel
+														</button>
+													</div>
+												</div>
+											{:else}
+												<div class="crawl-plan-card__rule">{plan.linkFollowRule}</div>
+												<div class="crawl-plan-card__meta">
+													<span>{plan.articleBodyStrategy}</span>
+													<span>{plan.pollingCadence}</span>
+													<span>{plan.changeDetection}</span>
+												</div>
+											{/if}
+
+											{#if plan.candidateLinks.length > 0}
+												<div class="crawl-candidates">
+													<div class="crawl-candidates__title">Candidate links preview</div>
+													{#each plan.candidateLinks.slice(0, 6) as candidate (candidate.url)}
+														<a href={candidate.url} target="_blank" rel="noreferrer">
+															<span>{candidate.title}</span>
+															<small>{candidate.reason}</small>
+														</a>
+													{/each}
+												</div>
+											{:else}
+												<div class="channels__empty channels__empty--panel">
+													No article-like links were found on this pass.
+												</div>
+											{/if}
+
+											{#if crawlPlanEditId !== plan.id}
+												<div class="crawl-plan-card__actions">
+													<button
+														type="button"
+														class="btn btn--ghost"
+														disabled={crawlPlanBusy === plan.id || plan.status === 'approved'}
+														onclick={() => beginCrawlPlanEdit(plan)}
+													>
+														Edit
+													</button>
+													<button
+														type="button"
+														class="btn btn--primary"
+														disabled={crawlPlanBusy === plan.id || plan.status === 'approved'}
+														onclick={() => updateCrawlPlan(plan, { status: 'approved' })}
+													>
+														{crawlPlanBusy === plan.id ? 'Saving' : 'Approve'}
+													</button>
+													<button
+														type="button"
+														class="btn btn--ghost channels__btn-danger"
+														disabled={crawlPlanBusy === plan.id || plan.status === 'rejected'}
+														onclick={() => updateCrawlPlan(plan, { status: 'rejected' })}
+													>
+														Reject
+													</button>
+												</div>
+											{/if}
+										</article>
+									{/each}
+								</div>
+							{:else}
+								<div class="channels__empty channels__empty--panel">
+									Name a site and the monitor will draft a repeatable crawl plan with preview links.
+								</div>
+							{/if}
+						</section>
+					{/if}
+
 					<section class="mission-progress" aria-label="Mission progress">
 						<div class="mission-progress__head">
 							<div>
@@ -2016,6 +2333,155 @@
 		font-size: 12px;
 		color: var(--fg-3);
 	}
+	.crawl-plans {
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		padding: 14px;
+		margin-bottom: 14px;
+		display: grid;
+		gap: 12px;
+	}
+	.crawl-plans__head,
+	.crawl-plan-card__topline,
+	.crawl-plan-card__actions {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 10px;
+	}
+	.crawl-plans__title {
+		margin: 3px 0 0;
+		font-family: var(--font-display);
+		font-size: 18px;
+		line-height: 1.15;
+		letter-spacing: 0;
+		color: var(--fg-1);
+	}
+	.crawl-plan-form {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 10px;
+		align-items: end;
+	}
+	.crawl-plans__error {
+		border: 1px solid color-mix(in srgb, var(--flag-700) 24%, var(--border-soft));
+		border-radius: var(--radius-2);
+		background: color-mix(in srgb, var(--flag-50) 36%, var(--bg-surface));
+		color: var(--flag-700);
+		padding: 10px 12px;
+		font-size: 13px;
+		line-height: 1.4;
+	}
+	.crawl-plan-list {
+		display: grid;
+		gap: 10px;
+	}
+	.crawl-plan-card {
+		display: grid;
+		gap: 10px;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: color-mix(in srgb, var(--bg-surface) 82%, var(--bg-page));
+		padding: 12px;
+	}
+	.crawl-plan-card__topline {
+		align-items: center;
+		font-size: 12px;
+		color: var(--fg-3);
+	}
+	.crawl-plan-card h3 {
+		margin: 0;
+		font-family: var(--font-display);
+		font-size: 17px;
+		line-height: 1.15;
+		letter-spacing: 0;
+		color: var(--fg-1);
+	}
+	.crawl-plan-card__seed {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 12px;
+		color: var(--fg-3);
+	}
+	.crawl-plan-card__rule {
+		border-left: 3px solid color-mix(in srgb, var(--accent) 45%, var(--border-soft));
+		padding-left: 10px;
+		font-size: 13px;
+		line-height: 1.45;
+		color: var(--fg-2);
+	}
+	.crawl-plan-card__meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+	.crawl-plan-card__meta span {
+		border: 1px solid var(--border-soft);
+		border-radius: 999px;
+		background: var(--bg-surface);
+		padding: 4px 8px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		color: var(--fg-3);
+	}
+	.crawl-plan-edit {
+		display: grid;
+		gap: 10px;
+	}
+	.crawl-plan-edit__rule {
+		min-height: 76px;
+		resize: vertical;
+		line-height: 1.4;
+	}
+	.crawl-plan-edit__grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 10px;
+	}
+	.crawl-candidates {
+		display: grid;
+		gap: 6px;
+	}
+	.crawl-candidates__title {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--fg-3);
+	}
+	.crawl-candidates a {
+		display: grid;
+		gap: 2px;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		padding: 8px 10px;
+		text-decoration: none;
+		color: var(--fg-1);
+	}
+	.crawl-candidates a:hover {
+		border-color: var(--border-strong);
+	}
+	.crawl-candidates span,
+	.crawl-candidates small {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.crawl-candidates span {
+		font-size: 13px;
+		font-weight: 650;
+	}
+	.crawl-candidates small {
+		font-size: 12px;
+		color: var(--fg-3);
+	}
 	.mission-progress,
 	.latest-output {
 		border: 1px solid var(--border-soft);
@@ -2249,6 +2715,10 @@
 			}
 			.channels-watchlist__remove {
 				width: 100%;
+			}
+			.crawl-plan-form,
+			.crawl-plan-edit__grid {
+				grid-template-columns: 1fr;
 			}
 			.mission-progress__stats {
 				grid-template-columns: repeat(2, minmax(0, 1fr));
