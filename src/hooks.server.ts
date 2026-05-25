@@ -13,7 +13,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const session = verifySessionCookie(cookie);
 	const account = session ? await getAccount(session.accountId) : undefined;
 	event.locals.user = account
-		? { id: account.id, email: account.email, name: account.name }
+		? { id: account.id, email: account.email, name: account.name, role: account.role }
 		: null;
 
 	const path = event.url.pathname;

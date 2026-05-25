@@ -69,6 +69,32 @@ describe('newsroom harness server', () => {
 		await expect(authorized.json()).resolves.toMatchObject({ jobs: [] });
 	});
 
+	it('serves the authenticated event feed', async () => {
+		await startHarness();
+		const event = harness.repository.appendEvent({
+			workspaceId: 'workspace-api',
+			storyId: 'story-api',
+			agent: 'assignment_desk',
+			kind: 'story.note',
+			payload: { note: 'ready' },
+			createdAt: '2026-05-24T10:00:00.000Z'
+		});
+
+		const response = await authFetch('/api/events?workspace_id=workspace-api&story_id=story-api');
+		const body = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(body.events).toHaveLength(1);
+		expect(body.events[0]).toMatchObject({
+			id: event.id,
+			workspace_id: 'workspace-api',
+			story_id: 'story-api',
+			agent: 'assignment_desk',
+			kind: 'story.note',
+			payload: { note: 'ready' }
+		});
+	});
+
 	it('streams Chat Completions-compatible SSE frames', async () => {
 		await startHarness();
 		const response = await authFetch('/v1/chat/completions', {

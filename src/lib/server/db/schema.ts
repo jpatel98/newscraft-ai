@@ -8,6 +8,7 @@ export const accounts = pgTable(
 		id: text('id').primaryKey(),
 		email: text('email').notNull(),
 		name: text('name').notNull().default(''),
+		role: text('role', { enum: ['admin', 'member'] }).notNull().default('member'),
 		passwordHash: text('password_hash'),
 		setupTokenHash: text('setup_token_hash'),
 		setupTokenExpiresAt: timestampMs('setup_token_expires_at'),

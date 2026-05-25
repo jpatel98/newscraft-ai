@@ -48,6 +48,7 @@ async function ensureSchema(): Promise<void> {
 			id text PRIMARY KEY,
 			email text NOT NULL,
 			name text NOT NULL DEFAULT '',
+			role text NOT NULL DEFAULT 'member',
 			password_hash text,
 			setup_token_hash text,
 			setup_token_expires_at bigint,
@@ -55,6 +56,14 @@ async function ensureSchema(): Promise<void> {
 			updated_at bigint NOT NULL,
 			last_login_at bigint
 		)
+	`;
+	await sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'member'`;
+	await sql`UPDATE accounts SET role = 'member' WHERE role NOT IN ('admin', 'member')`;
+	await sql`
+		UPDATE accounts
+		SET role = 'admin'
+		WHERE id = (SELECT id FROM accounts ORDER BY created_at ASC LIMIT 1)
+			AND NOT EXISTS (SELECT 1 FROM accounts WHERE role = 'admin')
 	`;
 	await sql`CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_unique ON accounts (email)`;
 	await sql`CREATE INDEX IF NOT EXISTS accounts_setup_token_idx ON accounts (setup_token_hash)`;

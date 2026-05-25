@@ -1,5 +1,7 @@
 import type {
 	CreateJobInput,
+	NewsroomEventDto,
+	NewsroomEventJson,
 	NewsroomJobDto,
 	NewsroomReportDto,
 	NewsroomRunDto,
@@ -88,6 +90,21 @@ interface ReportRow {
 	ingest_error: string | null;
 }
 
+interface EventRow {
+	id: string;
+	workspace_id: string;
+	story_id: string | null;
+	job_id: string | null;
+	run_id: string | null;
+	agent: string;
+	kind: string;
+	payload_json: string;
+	sources_json: string;
+	parent_event_id: string | null;
+	cost_metadata_json: string | null;
+	created_at: string;
+}
+
 export interface StoreSourceInput {
 	runId: string;
 	jobId: string | null;
@@ -103,6 +120,31 @@ export interface StoreSourceInput {
 	statusCode?: number | null;
 }
 
+export const DEFAULT_WORKSPACE_ID = 'default';
+
+export interface AppendEventInput {
+	workspaceId?: string;
+	storyId?: string | null;
+	jobId?: string | null;
+	runId?: string | null;
+	agent: string;
+	kind: string;
+	payload?: unknown;
+	sources?: unknown[];
+	parentEventId?: string | null;
+	costMetadata?: unknown | null;
+	createdAt?: string;
+}
+
+export interface ListEventsOptions {
+	workspaceId?: string;
+	storyId?: string | null;
+	jobId?: string | null;
+	runId?: string | null;
+	afterId?: string | null;
+	limit?: number;
+}
+
 export class HarnessRepository {
 	constructor(private db: HarnessDb) {}
 
@@ -113,6 +155,83 @@ export class HarnessRepository {
 
 	close(): void {
 		this.db.close();
+	}
+
+	appendEvent(input: AppendEventInput): NewsroomEventDto {
+		const id = newId('event');
+		const workspaceId = requiredText(input.workspaceId || DEFAULT_WORKSPACE_ID, 'workspace_id');
+		const agent = requiredText(input.agent, 'agent');
+		const kind = requiredText(input.kind, 'kind');
+		const createdAt = input.createdAt || nowIso();
+		this.db
+			.prepare(
+				`INSERT INTO events (
+					id, workspace_id, story_id, job_id, run_id, agent, kind, payload_json,
+					sources_json, parent_event_id, cost_metadata_json, created_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			)
+			.run(
+				id,
+				workspaceId,
+				optionalText(input.storyId),
+				optionalText(input.jobId),
+				optionalText(input.runId),
+				agent,
+				kind,
+				stringifyJson(input.payload ?? {}),
+				stringifyJson(input.sources ?? []),
+				optionalText(input.parentEventId),
+				input.costMetadata === undefined || input.costMetadata === null
+					? null
+					: stringifyJson(input.costMetadata),
+				createdAt
+			);
+		return this.requireEvent(id);
+	}
+
+	getEvent(id: string): NewsroomEventDto | null {
+		const row = this.db.prepare('SELECT * FROM events WHERE id = ?').get(id) as EventRow | undefined;
+		return row ? eventDto(row) : null;
+	}
+
+	requireEvent(id: string): NewsroomEventDto {
+		const event = this.getEvent(id);
+		if (!event) throw new Error('Event not found');
+		return event;
+	}
+
+	listEvents(options: ListEventsOptions = {}): NewsroomEventDto[] {
+		const conditions: string[] = ['workspace_id = ?'];
+		const params: unknown[] = [requiredText(options.workspaceId || DEFAULT_WORKSPACE_ID, 'workspace_id')];
+		addNullableFilter(conditions, params, 'story_id', options.storyId);
+		addNullableFilter(conditions, params, 'job_id', options.jobId);
+		addNullableFilter(conditions, params, 'run_id', options.runId);
+		if (options.afterId) {
+			const after = this.db
+				.prepare('SELECT rowid AS row_id, created_at FROM events WHERE id = ?')
+				.get(options.afterId) as { row_id: number; created_at: string } | undefined;
+			if (after) {
+				conditions.push('(created_at > ? OR (created_at = ? AND rowid > ?))');
+				params.push(after.created_at, after.created_at, after.row_id);
+			}
+		}
+		params.push(clampEventLimit(options.limit));
+		const rows = this.db
+			.prepare(
+				`SELECT * FROM events
+				 WHERE ${conditions.join(' AND ')}
+				 ORDER BY created_at ASC, rowid ASC
+				 LIMIT ?`
+			)
+			.all(...params) as EventRow[];
+		return rows.map(eventDto);
+	}
+
+	private jobIdForRun(runId: string): string | null {
+		const row = this.db.prepare('SELECT job_id FROM runs WHERE id = ?').get(runId) as
+			| { job_id: string }
+			| undefined;
+		return row?.job_id ?? null;
 	}
 
 	createJob(input: CreateJobInput): NewsroomJobDto {
@@ -240,6 +359,15 @@ export class HarnessRepository {
 				`UPDATE jobs SET last_status = 'queued', last_error = NULL, updated_at = ? WHERE id = ?`
 			)
 			.run(now, job.id);
+		this.appendEvent({
+			workspaceId: DEFAULT_WORKSPACE_ID,
+			jobId: job.id,
+			runId: id,
+			agent: 'runner',
+			kind: 'run.created',
+			payload: { trigger, status: 'queued' },
+			createdAt: now
+		});
 		return this.requireRun(id);
 	}
 
@@ -270,6 +398,21 @@ export class HarnessRepository {
 				`UPDATE jobs SET last_status = ?, last_error = ?, last_run_at = COALESCE(?, last_run_at), updated_at = ? WHERE id = ?`
 			)
 			.run(updated.status, updated.last_error, updated.started_at, now, updated.job_id);
+		this.appendEvent({
+			workspaceId: DEFAULT_WORKSPACE_ID,
+			jobId: updated.job_id,
+			runId: updated.id,
+			agent: 'runner',
+			kind: 'run.updated',
+			payload: {
+				status: updated.status,
+				started_at: updated.started_at,
+				completed_at: updated.completed_at,
+				elapsed_ms: updated.elapsed_ms,
+				last_error: updated.last_error
+			},
+			createdAt: now
+		});
 		return updated;
 	}
 
@@ -378,12 +521,28 @@ export class HarnessRepository {
 	}
 
 	addRunStep(runId: string, stepType: string, label: string, status = 'completed', detail?: unknown): void {
-		this.db
+		const now = nowIso();
+		const result = this.db
 			.prepare(
 				`INSERT INTO run_steps (run_id, step_type, label, status, started_at, completed_at, detail_json)
 				 VALUES (?, ?, ?, ?, ?, ?, ?)`
 			)
-			.run(runId, stepType, label, status, nowIso(), nowIso(), detail ? JSON.stringify(detail) : null);
+			.run(runId, stepType, label, status, now, now, detail ? JSON.stringify(detail) : null);
+		this.appendEvent({
+			workspaceId: DEFAULT_WORKSPACE_ID,
+			jobId: this.jobIdForRun(runId),
+			runId,
+			agent: stepType,
+			kind: 'run.step',
+			payload: {
+				step_id: Number(result.lastInsertRowid),
+				step_type: stepType,
+				label,
+				status,
+				detail: detail ?? null
+			},
+			createdAt: now
+		});
 	}
 
 	recordToolCall(input: {
@@ -398,6 +557,8 @@ export class HarnessRepository {
 		completedAt?: string | null;
 	}): string {
 		const id = input.id || newId('tool');
+		const startedAt = input.startedAt || nowIso();
+		const completedAt = input.completedAt ?? (input.status === 'running' ? null : nowIso());
 		this.db
 			.prepare(
 				`INSERT INTO tool_calls
@@ -411,14 +572,34 @@ export class HarnessRepository {
 				JSON.stringify(input.args ?? {}),
 				input.result === undefined ? null : JSON.stringify(input.result),
 				input.status,
-				input.startedAt || nowIso(),
-				input.completedAt ?? (input.status === 'running' ? null : nowIso()),
+				startedAt,
+				completedAt,
 				input.error || null
 			);
+		this.appendEvent({
+			workspaceId: DEFAULT_WORKSPACE_ID,
+			jobId: input.runId ? this.jobIdForRun(input.runId) : null,
+			runId: input.runId || null,
+			agent: input.name,
+			kind: input.status === 'running' ? 'tool.call.started' : 'tool.call.recorded',
+			payload: {
+				tool_call_id: id,
+				name: input.name,
+				status: input.status,
+				args: input.args ?? {},
+				result: input.result ?? null,
+				error: input.error || null
+			},
+			createdAt: startedAt
+		});
 		return id;
 	}
 
 	updateToolCall(id: string, input: { result?: unknown; status: string; error?: string | null }): void {
+		const existing = this.db
+			.prepare('SELECT id, run_id, name FROM tool_calls WHERE id = ?')
+			.get(id) as Pick<ToolCallRow, 'id' | 'run_id' | 'name'> | undefined;
+		const completedAt = nowIso();
 		this.db
 			.prepare(
 				`UPDATE tool_calls SET result_json = ?, status = ?, completed_at = ?, error = ? WHERE id = ?`
@@ -426,10 +607,27 @@ export class HarnessRepository {
 			.run(
 				input.result === undefined ? null : JSON.stringify(input.result),
 				input.status,
-				nowIso(),
+				completedAt,
 				input.error || null,
 				id
 			);
+		if (existing) {
+			this.appendEvent({
+				workspaceId: DEFAULT_WORKSPACE_ID,
+				jobId: existing.run_id ? this.jobIdForRun(existing.run_id) : null,
+				runId: existing.run_id,
+				agent: existing.name,
+				kind: input.status === 'failed' ? 'tool.call.failed' : 'tool.call.completed',
+				payload: {
+					tool_call_id: id,
+					name: existing.name,
+					status: input.status,
+					result: input.result ?? null,
+					error: input.error || null
+				},
+				createdAt: completedAt
+			});
+		}
 	}
 
 	storeSource(input: StoreSourceInput): NewsroomSourceDto {
@@ -469,6 +667,33 @@ export class HarnessRepository {
 				input.summary,
 				input.used ? 1 : 0
 			);
+		this.appendEvent({
+			workspaceId: DEFAULT_WORKSPACE_ID,
+			jobId: input.jobId,
+			runId: input.runId,
+			agent: 'source_monitor',
+			kind: 'source.stored',
+			payload: {
+				source_id: sourceId,
+				snapshot_id: snapshotId,
+				url: input.url,
+				title: input.title,
+				fetched_at: input.fetchedAt,
+				used: input.used,
+				content_type: input.contentType || null,
+				status_code: input.statusCode || null
+			},
+			sources: [
+				{
+					id: sourceId,
+					url: input.url,
+					title: input.title,
+					fetched_at: input.fetchedAt,
+					used: input.used
+				}
+			],
+			createdAt: nowIso()
+		});
 		return this.listSourcesForRun(input.runId).find((source) => source.id === sourceId) as NewsroomSourceDto;
 	}
 
@@ -488,6 +713,9 @@ export class HarnessRepository {
 		ingestError?: string | null;
 	}): NewsroomReportDto {
 		const id = newId('report');
+		const createdAt = nowIso();
+		const ingestStatus = input.ingestStatus || 'not_configured';
+		const ingestError = input.ingestError || null;
 		this.db
 			.prepare(
 				`INSERT INTO reports
@@ -500,15 +728,46 @@ export class HarnessRepository {
 				input.jobId,
 				input.title,
 				input.markdown,
-				nowIso(),
-				input.ingestStatus || 'not_configured',
-				input.ingestError || null
+				createdAt,
+				ingestStatus,
+				ingestError
 			);
+		this.appendEvent({
+			workspaceId: DEFAULT_WORKSPACE_ID,
+			jobId: input.jobId,
+			runId: input.runId,
+			agent: 'reporter',
+			kind: 'report.created',
+			payload: {
+				report_id: id,
+				title: input.title,
+				ingest_status: ingestStatus,
+				ingest_error: ingestError
+			},
+			createdAt
+		});
 		return this.requireReport(id);
 	}
 
 	updateReportIngest(id: string, status: NewsroomReportDto['ingest_status'], error: string | null): void {
+		const existing = this.db
+			.prepare('SELECT id, run_id, job_id FROM reports WHERE id = ?')
+			.get(id) as Pick<ReportRow, 'id' | 'run_id' | 'job_id'> | undefined;
 		this.db.prepare('UPDATE reports SET ingest_status = ?, ingest_error = ? WHERE id = ?').run(status, error, id);
+		if (existing) {
+			this.appendEvent({
+				workspaceId: DEFAULT_WORKSPACE_ID,
+				jobId: existing.job_id,
+				runId: existing.run_id,
+				agent: 'reporter',
+				kind: 'report.ingest.updated',
+				payload: {
+					report_id: id,
+					ingest_status: status,
+					ingest_error: error
+				}
+			});
+		}
 	}
 
 	requireReport(id: string): NewsroomReportDto {
@@ -522,6 +781,73 @@ export class HarnessRepository {
 			reportDto
 		);
 	}
+}
+
+function requiredText(value: string, field: string): string {
+	const trimmed = value.trim();
+	if (!trimmed) throw new Error(`${field} is required`);
+	return trimmed;
+}
+
+function optionalText(value: string | null | undefined): string | null {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : null;
+}
+
+function addNullableFilter(
+	conditions: string[],
+	params: unknown[],
+	column: 'story_id' | 'job_id' | 'run_id',
+	value: string | null | undefined
+): void {
+	if (value === undefined) return;
+	if (value === null) {
+		conditions.push(`${column} IS NULL`);
+		return;
+	}
+	conditions.push(`${column} = ?`);
+	params.push(requiredText(value, column));
+}
+
+function clampEventLimit(value: number | undefined): number {
+	if (!Number.isFinite(value)) return 100;
+	return Math.max(1, Math.min(500, Math.trunc(value as number)));
+}
+
+function stringifyJson(value: unknown): string {
+	const encoded = JSON.stringify(value);
+	return encoded === undefined ? 'null' : encoded;
+}
+
+function parseEventJson(value: string | null, fallback: NewsroomEventJson): NewsroomEventJson {
+	if (!value) return fallback;
+	try {
+		return JSON.parse(value) as NewsroomEventJson;
+	} catch {
+		return fallback;
+	}
+}
+
+function parseEventSources(value: string | null): NewsroomEventJson[] {
+	const parsed = parseEventJson(value, []);
+	return Array.isArray(parsed) ? parsed : [];
+}
+
+function eventDto(row: EventRow): NewsroomEventDto {
+	return {
+		id: row.id,
+		workspace_id: row.workspace_id,
+		story_id: row.story_id,
+		job_id: row.job_id,
+		run_id: row.run_id,
+		agent: row.agent,
+		kind: row.kind,
+		payload: parseEventJson(row.payload_json, {}),
+		sources: parseEventSources(row.sources_json),
+		parent_event_id: row.parent_event_id,
+		cost_metadata: parseEventJson(row.cost_metadata_json, null),
+		created_at: row.created_at
+	};
 }
 
 function jobDto(row: JobRow): NewsroomJobDto {

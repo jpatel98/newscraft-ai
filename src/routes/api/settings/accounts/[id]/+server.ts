@@ -1,8 +1,9 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
+import { requireAdmin } from '$lib/server/auth/authorization';
 import { accountCount, deleteAccount, getAccount } from '$lib/server/db/accounts';
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {
-	if (!locals.user) throw error(401, 'unauthorized');
+	requireAdmin(locals.user);
 	const accountId = params.id;
 	if (!accountId) throw error(400, 'account id is required');
 	if (accountId === locals.user.id) throw error(400, 'you cannot remove your current account');

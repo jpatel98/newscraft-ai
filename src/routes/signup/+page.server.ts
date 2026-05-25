@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { mintSessionCookie } from '$lib/server/auth/cookie';
 import {
+	accountCount,
 	createPasswordOnlyAccount,
 	findAccountByPassword,
 	touchAccountLogin,
@@ -9,11 +10,14 @@ import {
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (locals.user) throw redirect(303, '/');
+	if ((await accountCount()) > 0) throw redirect(303, '/login');
 	return {};
 };
 
 export const actions: Actions = {
 	default: async ({ request, cookies }) => {
+		if ((await accountCount()) > 0) throw redirect(303, '/login');
+
 		const data = await request.formData();
 		const password = String(data.get('password') ?? '');
 		const confirm = String(data.get('confirm') ?? '');

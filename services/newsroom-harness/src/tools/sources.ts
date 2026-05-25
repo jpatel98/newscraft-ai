@@ -1,6 +1,27 @@
 import { createHash } from 'node:crypto';
 import { nowIso } from '../util/ids.js';
 import { assessSourceQuality } from '../util/source-quality.js';
+import { politeFetch } from './polite-fetch.js';
+import { selectSourceAdapter, type SourceAdapterKind, type SourceItem } from './source-adapters/index.js';
+
+export { politeFetch, NEWSCRAFT_USER_AGENT } from './polite-fetch.js';
+export {
+	SOURCE_ADAPTERS,
+	atomAdapter,
+	htmlArticleAdapter,
+	rssAdapter,
+	selectSourceAdapter,
+	sitemapAdapter
+} from './source-adapters/index.js';
+export type {
+	SourceAdapter,
+	SourceAdapterDiff,
+	SourceAdapterExtractInput,
+	SourceAdapterInput,
+	SourceAdapterKind,
+	SourceItem,
+	SourceProvenance
+} from './source-adapters/index.js';
 
 const MAX_SOURCE_TEXT_CHARS = 8_000;
 const MAX_SOURCE_SUMMARY_CHARS = 420;
@@ -20,38 +41,61 @@ export interface FetchedSource {
 }
 
 export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise<FetchedSource> {
-	const response = await fetch(url, {
-		headers: {
-			'user-agent': 'NewsCraft newsroom-harness/0.0.1 (+https://newscraft.ai)'
-		},
-		signal
+	const fetched = await politeFetch(url, { signal });
+	const contentType = fetched.contentType;
+	const body = fetched.body;
+	const adapter = selectSourceAdapter({ url, contentType, body });
+	const adapterItems = await adapter.extract({
+		url,
+		body,
+		contentType,
+		fetchedAt: fetched.fetchedAt,
+		statusCode: fetched.statusCode,
+		contentHash: fetched.cache.contentHash,
+		cache: fetched.cache
 	});
-	const contentType = response.headers.get('content-type');
-	const body = await response.text();
-	const text = extractSourceText(body, contentType, url);
+	const text = sourceTextFromAdapter(adapter.kind, adapterItems, body, contentType, url);
 	const title = extractTitle(body) || new URL(url).hostname;
 	const cleaned = capText(cleanSourceText(text), MAX_SOURCE_TEXT_CHARS);
 	const summary = summarizeText(cleaned);
-	const quality = assessSourceQuality({ title, text: cleaned, summary, statusCode: response.status });
+	const quality = assessSourceQuality({ title, text: cleaned, summary, statusCode: fetched.statusCode });
 	const usableText = quality.usable ? cleaned : '';
 	const snippet = usableText.slice(0, 600);
 	return {
 		url,
 		title,
-		fetchedAt: nowIso(),
+		fetchedAt: fetched.fetchedAt,
 		snippet,
 		summary: quality.usable ? summary : '',
 		contentText: usableText,
-		contentHash: createHash('sha256').update(body).digest('hex'),
+		contentHash: fetched.cache.contentHash,
 		contentType,
-		statusCode: response.status,
-		used: response.ok && quality.usable
+		statusCode: fetched.statusCode,
+		used: fetched.ok && quality.usable
 	};
 }
 
 export function extractSourceText(body: string, contentType: string | null, url: string): string {
 	if (contentType?.includes('xml') || looksLikeFeed(body)) return cleanSourceText(summarizeFeed(body));
 	return cleanSourceText(summarizeHeadlineLinks(body, url) || htmlToText(body));
+}
+
+function sourceTextFromAdapter(
+	kind: SourceAdapterKind,
+	items: SourceItem[],
+	body: string,
+	contentType: string | null,
+	url: string
+): string {
+	if (!items.length) return extractSourceText(body, contentType, url);
+	if (kind === 'sitemap') return items.map((item) => `${item.title}. ${item.url}`).join('\n');
+	if (kind === 'rss' || kind === 'atom') {
+		return items
+			.slice(0, 8)
+			.map((item) => `${item.title}. ${item.summary || item.contentText}`)
+			.join('\n\n');
+	}
+	return items[0]?.contentText || extractSourceText(body, contentType, url);
 }
 
 export function sourceFromText(url: string, text: string, title = 'Provided source'): FetchedSource {
@@ -156,7 +200,7 @@ function headlineScore(title: string, url: string): number {
 	return score;
 }
 
-function extractTitle(body: string): string | null {
+export function extractTitle(body: string): string | null {
 	return tagText(body, 'title') || metaContent(body, 'og:title') || metaContent(body, 'twitter:title');
 }
 

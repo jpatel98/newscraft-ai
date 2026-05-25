@@ -84,6 +84,29 @@ export interface NewsroomReportDto {
 	ingest_error: string | null;
 }
 
+export type NewsroomEventJson =
+	| null
+	| boolean
+	| number
+	| string
+	| NewsroomEventJson[]
+	| { [key: string]: NewsroomEventJson };
+
+export interface NewsroomEventDto {
+	id: string;
+	workspace_id: string;
+	story_id: string | null;
+	job_id: string | null;
+	run_id: string | null;
+	agent: string;
+	kind: string;
+	payload: NewsroomEventJson;
+	sources: NewsroomEventJson[];
+	parent_event_id: string | null;
+	cost_metadata: NewsroomEventJson | null;
+	created_at: string;
+}
+
 export interface CreateJobInput {
 	name?: string;
 	title?: string;

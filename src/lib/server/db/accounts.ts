@@ -8,10 +8,13 @@ import { accounts, conversations, agentChannelConfigs, agentChannelPosts, missio
 const SETUP_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 let cachedAccountCount: number | null = null;
 
+export type AccountRole = 'admin' | 'member';
+
 export interface AccountRow {
 	id: string;
 	email: string;
 	name: string;
+	role: AccountRole;
 	passwordHash: string | null;
 	setupTokenHash: string | null;
 	setupTokenExpiresAt: number | null;
@@ -24,6 +27,7 @@ export interface AccountSummary {
 	id: string;
 	email: string;
 	name: string;
+	role: AccountRole;
 	createdAt: number;
 	updatedAt: number;
 	lastLoginAt: number | null;
@@ -59,6 +63,7 @@ export async function createPasswordOnlyAccount(password: string): Promise<Accou
 		id,
 		email,
 		name: generatedAccountLabel(email),
+		role: firstAccount ? 'admin' : 'member',
 		passwordHash: await hashPassword(password),
 		setupTokenHash: null,
 		setupTokenExpiresAt: null,
@@ -87,6 +92,7 @@ export async function createPasswordOnlyInvite(): Promise<{
 		id,
 		email,
 		name: generatedAccountLabel(email),
+		role: firstAccount ? 'admin' : 'member',
 		passwordHash: null,
 		setupTokenHash: tokenHash(token),
 		setupTokenExpiresAt: expiresAt,
@@ -177,6 +183,7 @@ function toSummary(row: AccountRow): AccountSummary {
 		id: row.id,
 		email: row.email,
 		name: row.name,
+		role: row.role,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 		lastLoginAt: row.lastLoginAt,

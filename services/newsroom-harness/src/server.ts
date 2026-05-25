@@ -132,6 +132,20 @@ async function route(
 		return;
 	}
 
+	if (req.method === 'GET' && url.pathname === '/api/events') {
+		writeJson(res, 200, {
+			events: ctx.repository.listEvents({
+				workspaceId: queryText(url, 'workspace_id'),
+				storyId: queryText(url, 'story_id'),
+				jobId: queryText(url, 'job_id'),
+				runId: queryText(url, 'run_id'),
+				afterId: queryText(url, 'after_id'),
+				limit: queryLimit(url)
+			})
+		});
+		return;
+	}
+
 	const jobAction = url.pathname.match(/^\/api\/jobs\/([^/]+)(?:\/(run|pause|resume))?$/);
 	if (jobAction) {
 		const id = decodeURIComponent(jobAction[1]);
@@ -166,6 +180,16 @@ async function route(
 
 function publicError(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
+}
+
+function queryText(url: URL, key: string): string | undefined {
+	const value = url.searchParams.get(key)?.trim();
+	return value || undefined;
+}
+
+function queryLimit(url: URL): number | undefined {
+	const value = Number.parseInt(url.searchParams.get('limit') || '', 10);
+	return Number.isFinite(value) ? value : undefined;
 }
 
 function harnessHealth(ctx: {

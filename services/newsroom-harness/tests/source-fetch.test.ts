@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { extractSourceText, sourceFromText } from '../src/tools/sources.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fetchSourceUrl, extractSourceText, sourceFromText } from '../src/tools/sources.js';
+import { NEWSCRAFT_USER_AGENT, resetPoliteFetchStateForTests } from '../src/tools/polite-fetch.js';
+
+afterEach(() => {
+	resetPoliteFetchStateForTests();
+	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
+});
 
 describe('source extraction', () => {
 	it('summarizes section pages as headline lists instead of navigation text', () => {
@@ -122,5 +129,43 @@ describe('source extraction', () => {
 		expect(source.contentText.length).toBeLessThanOrEqual(8000);
 		expect(source.summary.length).toBeLessThanOrEqual(420);
 		expect(source.snippet.length).toBeLessThanOrEqual(600);
+	});
+
+	it('preserves fetched source shape through the polite fetch path', async () => {
+		const fetchMock = vi.fn(async () => {
+			return new Response(
+				`
+					<html>
+						<head><title>Water system repairs approved</title></head>
+						<body>
+							<article>
+								<p>Council approved urgent water system repairs after engineers found several valves were near failure.</p>
+								<p>The project will begin next month and remain within the existing capital budget.</p>
+							</article>
+						</body>
+					</html>
+				`,
+				{
+					status: 200,
+					headers: { 'content-type': 'text/html', etag: '"story"' }
+				}
+			);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const source = await fetchSourceUrl('https://example.test/water-repairs');
+		const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+
+		expect(headers.get('user-agent')).toBe(NEWSCRAFT_USER_AGENT);
+		expect(source).toMatchObject({
+			url: 'https://example.test/water-repairs',
+			title: 'Water system repairs approved',
+			contentType: 'text/html',
+			statusCode: 200,
+			used: true
+		});
+		expect(source.contentText).toContain('Council approved urgent water system repairs');
+		expect(source.snippet.length).toBeLessThanOrEqual(600);
+		expect(source.contentHash).toMatch(/^[a-f0-9]{64}$/);
 	});
 });
