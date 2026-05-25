@@ -55,6 +55,7 @@
 	let notice = $state<string | null>(null);
 	let noticeChannelSlug = $state<string | null>(null);
 	let actionBusy = $state<string | null>(null);
+	let runRequestJobId = $state<string | null>(null);
 	let createOpen = $state(false);
 	let formMode = $state<'create' | 'edit'>('create');
 	let editJobId = $state('');
@@ -108,6 +109,7 @@
 	);
 	const selectedRun = $derived(currentRunForJob(selectedChannel, selectedJob));
 	const selectedJobRunning = $derived(Boolean(selectedRun));
+	const selectedRunRequested = $derived(Boolean(selectedJob && runRequestJobId === selectedJob.id));
 	const selectedRunHistory = $derived(
 		selectedJob ? runs.filter((run) => run.jobId === selectedJob.id) : []
 	);
@@ -188,6 +190,10 @@
 			jobs = data.jobs ?? [];
 			runs = data.runs ?? [];
 			jobsError = data.jobsError ?? null;
+			if (runRequestJobId && runs.some((run) => run.jobId === runRequestJobId && isActiveRun(run))) {
+				runRequestJobId = null;
+				if (actionBusy === 'run') actionBusy = null;
+			}
 
 			if (!preserveSelection || !channels.some((channel) => channel.slug === selectedSlug)) {
 				selectedSlug = channels[0]?.slug ?? '';
@@ -589,24 +595,27 @@
 
 	async function jobAction(action: 'run' | 'pause' | 'resume') {
 		if (!selectedJob) return;
+		if (actionBusy) return;
+		if (action === 'run' && runRequestJobId === selectedJob.id) return;
+		const jobId = selectedJob.id;
 		const jobName = selectedJob.name;
 		const channelSlug = selectedChannel?.slug ?? '';
 		const previousLatest = selectedPosts[0]?.id ?? '';
 		const previousLastRunAt = selectedJob.lastRunAt ?? null;
 		const requestedAt = Date.now();
 		actionBusy = action;
+		if (action === 'run') runRequestJobId = jobId;
 		error = null;
 		notice = null;
 		noticeChannelSlug = null;
 		try {
-			const response = await fetch(
-				`/api/agent/jobs/${encodeURIComponent(selectedJob.id)}/${action}`,
-				{ method: 'POST' }
-			);
+			const response = await fetch(`/api/agent/jobs/${encodeURIComponent(jobId)}/${action}`, {
+				method: 'POST'
+			});
 			if (!response.ok) throw new Error(await response.text());
 			if (action === 'run') {
 				runWatch = {
-					jobId: selectedJob.id,
+					jobId,
 					channelSlug,
 					requestedAt,
 					status: 'requested',
@@ -619,7 +628,7 @@
 				notice = `${jobName} run requested.`;
 				noticeChannelSlug = channelSlug || null;
 				startRunPoll({
-					jobId: selectedJob.id,
+					jobId,
 					channelSlug,
 					previousLatest,
 					previousLastRunAt,
@@ -631,9 +640,14 @@
 			}
 			await loadChannels(true, action === 'run');
 		} catch (err) {
+			if (action === 'run' && runRequestJobId === jobId) runRequestJobId = null;
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
-			actionBusy = null;
+			if (action !== 'run') {
+				actionBusy = null;
+			} else if (!runRequestJobId) {
+				actionBusy = null;
+			}
 		}
 	}
 
@@ -877,6 +891,8 @@
 
 			if (outcome.kind === 'new-post' && latest) {
 				selectedSlug = input.channelSlug;
+				if (runRequestJobId === input.jobId) runRequestJobId = null;
+				if (actionBusy === 'run') actionBusy = null;
 				if (runWatch && runWatch.jobId === input.jobId) {
 					runWatch = null;
 				}
@@ -901,6 +917,8 @@
 						};
 					}
 					error = `Run failed: ${detail}`;
+					if (runRequestJobId === input.jobId) runRequestJobId = null;
+					if (actionBusy === 'run') actionBusy = null;
 					clearRunPoll();
 					stopRunWatchTicker();
 					return;
@@ -931,6 +949,8 @@
 					}
 					notice = 'Run finished, but no new mission output was saved yet.';
 					noticeChannelSlug = input.channelSlug;
+					if (runRequestJobId === input.jobId) runRequestJobId = null;
+					if (actionBusy === 'run') actionBusy = null;
 					clearRunPoll();
 					stopRunWatchTicker();
 					return;
@@ -952,6 +972,8 @@
 				}
 				notice = `Run requested. Still waiting on completion. Last completed run: ${lastRun}.`;
 				noticeChannelSlug = input.channelSlug;
+				if (runRequestJobId === input.jobId) runRequestJobId = null;
+				if (actionBusy === 'run') actionBusy = null;
 				clearRunPoll();
 				stopRunWatchTicker();
 				return;
@@ -1433,11 +1455,12 @@
 									<button
 										type="button"
 										class="btn btn--ghost"
-										disabled={Boolean(actionBusy) || selectedJobRunning}
+										disabled={Boolean(actionBusy) || selectedJobRunning || selectedRunRequested}
+										aria-busy={actionBusy === 'run' || selectedRunRequested}
 										onclick={() => jobAction('run')}
 									>
 										<Play size="13" strokeWidth={1.8} />
-										{selectedJobRunning ? 'Running' : actionBusy === 'run' ? 'Starting' : 'Run now'}
+										{selectedJobRunning ? 'Running' : actionBusy === 'run' || selectedRunRequested ? 'Starting' : 'Run now'}
 									</button>
 									{#if selectedJob.enabled}
 										<button

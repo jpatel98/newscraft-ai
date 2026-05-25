@@ -58,7 +58,10 @@ describe('mission report expanded metadata', () => {
 		expect(runNowIndex).toBeGreaterThan(0);
 		expect(scheduleToggleIndex).toBeGreaterThan(0);
 		expect(runNowIndex).toBeLessThan(scheduleToggleIndex);
-		expect(source).toContain("{selectedJobRunning ? 'Running' : actionBusy === 'run' ? 'Starting' : 'Run now'}");
+		expect(source).toContain(
+			"{selectedJobRunning ? 'Running' : actionBusy === 'run' || selectedRunRequested ? 'Starting' : 'Run now'}"
+		);
+		expect(source).toContain('disabled={Boolean(actionBusy) || selectedJobRunning || selectedRunRequested}');
 	});
 
 	it('keeps completed manual runs from adding redundant success noise', () => {

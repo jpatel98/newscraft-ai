@@ -22,7 +22,15 @@ export function formatShortTime(ts: number): string {
 export function formatRelativeTime(ts: number, now = Date.now()): string {
 	const d = validDate(ts);
 	if (!d) return '';
-	const diff = Math.max(0, now - d.getTime());
+	const diff = now - d.getTime();
+	if (diff < 0) {
+		return new Intl.DateTimeFormat(undefined, {
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		}).format(d);
+	}
 	for (const unit of RELATIVE_UNITS) {
 		if (diff < unit.limit) {
 			if (unit.suffix === 'now') return 'just now';

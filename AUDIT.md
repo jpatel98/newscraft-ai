@@ -47,6 +47,13 @@ coverage now locks those paths.
 
 ## P1 — Logic holes that corrupt data or surprise users
 
+**Status, 2026-05-25:** Closed by the PR2 logic-safety pass. Agent job
+routes reject blank IDs with 400s, title generation now logs failures and has
+a sidebar retry path for stale automatic titles, `setConversationTitle`
+matches the mutation-return pattern, mission Run-now stays locked until the run
+is observed or resolved, future timestamps render absolutely, and 0x0 image
+input is rejected.
+
 ### 5. Empty-string job IDs threaded through Agent job endpoints — **S**
 **Files:**
 - `src/routes/api/agent/jobs/[id]/+server.ts:15` — `const id = params.id ?? '';`

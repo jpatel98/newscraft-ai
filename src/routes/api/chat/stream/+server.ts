@@ -2,7 +2,6 @@ import { error, type RequestHandler } from '@sveltejs/kit';
 import {
 	streamChatCompletion,
 	streamResponse,
-	completion,
 	deriveSessionId,
 	gatewayHealth,
 	type AgentMessage,
@@ -23,9 +22,9 @@ import {
 	getMessages,
 	lastAssistantMessage,
 	parseContent,
-	setMessageToolCalls,
-	setConversationTitle
+	setMessageToolCalls
 } from '$lib/server/db/conversations';
+import { generateConversationTitle } from '$lib/server/conversation-title';
 import { contentText, type ChatCommand, type ContentPart, type AgentCommand, type MessageContent } from '$lib/types';
 import { readSSE } from '$lib/utils/sse-client';
 import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
@@ -117,15 +116,7 @@ function responseInputFromHistory(history: AgentMessage[]): {
 	return { input, instructions: instructions || undefined };
 }
 
-interface OpenAINonStream {
-	choices?: Array<{ message?: { content?: string } }>;
-}
-
 const enc = new TextEncoder();
-
-const TITLE_SYSTEM =
-	'You generate a 4-to-8-word, sentence-case title for a conversation. ' +
-	'Reply with ONLY the title text — no quotes, no markdown, no trailing punctuation.';
 
 const FAST_SOURCE_SYSTEM =
 	'For source-backed or current-events requests, prioritize speed. Use a fast source budget: search once, read at most 4 highly relevant sources, avoid duplicate domains unless necessary, stop as soon as the answer is sufficiently supported, and answer within about 30 seconds. If sources are incomplete, provide the best supported answer with clear caveats instead of continuing to search.';
@@ -481,43 +472,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			// the client gets the title before the stream closes (and before its
 			// invalidateAll() picks up the conversation list).
 			try {
-				const fresh = await getConversation(accountId, convoId);
-				if (fresh && (isNew || !fresh.title) && assistantRow) {
-					const seedHistory = (await getMessages(convoId))
-						.filter((m) => m.role === 'user' || m.role === 'assistant')
-						.slice(0, 4)
-						.map<AgentMessage>((m) => {
-							const parsed = parseContent(m.content);
-							const text =
-								typeof parsed === 'string'
-									? parsed
-									: parsed
-											.filter((p) => p.type === 'text')
-											.map((p) => (p as { text: string }).text)
-											.join('\n');
-							return { role: m.role as 'user' | 'assistant', content: text };
-						});
-					const titleMessages: AgentMessage[] = [
-						{ role: 'system', content: TITLE_SYSTEM },
-						...seedHistory,
-						{ role: 'user', content: 'Title for this conversation:' }
-					];
-					const idem = `title-${convoId}-${assistantRow.id}`;
-					const result = (await completion(
-						{ messages: titleMessages, stream: false, max_tokens: 24 },
-						{ idempotencyKey: idem }
-					)) as OpenAINonStream;
-					const raw = result.choices?.[0]?.message?.content ?? '';
-					const title = raw.trim().replace(/^["']|["']$/g, '').replace(/[.!?]+$/, '').slice(0, 80);
-					if (title) {
-						await setConversationTitle(accountId, convoId, title);
+				if (assistantRow) {
+					const result = await generateConversationTitle(accountId, convoId, {
+						force: isNew,
+						idempotencyKey: `title-${convoId}-${assistantRow.id}`
+					});
+					if (result?.generated && result.title) {
 						controller.enqueue(
-							enc.encode(`event: agent.title\ndata: ${JSON.stringify({ title })}\n\n`)
+							enc.encode(`event: agent.title\ndata: ${JSON.stringify({ title: result.title })}\n\n`)
 						);
 					}
 				}
-			} catch {
-				/* title generation is best-effort; never fails the stream */
+			} catch (err) {
+				console.warn('NewsCraft title generation failed', err);
 			}
 
 			if (sentDone || done) controller.enqueue(enc.encode('data: [DONE]\n\n'));

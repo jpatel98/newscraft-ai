@@ -200,6 +200,7 @@
 	let missionMenuFor = $state<string | null>(null);
 	let missionDeleteFor = $state<string | null>(null);
 	let missionDeleteTimer: ReturnType<typeof setTimeout> | null = null;
+	let titleRetryBusyFor = $state<string | null>(null);
 
 	let renameInput = $state<HTMLInputElement | null>(null);
 
@@ -298,6 +299,30 @@
 			body: JSON.stringify({ title: next })
 		});
 		await invalidateAll();
+	}
+
+	function canRetryTitle(c: SidebarConvo): boolean {
+		const title = c.title.trim().toLowerCase();
+		return (
+			(!title || title === '(untitled)' || title === 'new chat') &&
+			Date.now() - c.updatedAt > 60_000
+		);
+	}
+
+	async function retryTitle(c: SidebarConvo) {
+		if (titleRetryBusyFor) return;
+		closeMenu();
+		titleRetryBusyFor = c.id;
+		try {
+			const response = await fetch(`/api/conversations/${c.id}/title`, { method: 'POST' });
+			if (!response.ok) throw new Error(await response.text());
+			await invalidateAll();
+		} catch (err) {
+			console.warn('NewsCraft title retry failed', err);
+			alert('Could not retry the title.');
+		} finally {
+			titleRetryBusyFor = null;
+		}
 	}
 
 	function cancelRename() {
@@ -873,6 +898,16 @@
 											<button type="button" role="menuitem" onclick={() => togglePin(c)}>
 												{c.pinned ? 'Unpin' : 'Pin'}
 											</button>
+											{#if canRetryTitle(c)}
+												<button
+													type="button"
+													role="menuitem"
+													disabled={titleRetryBusyFor === c.id}
+													onclick={() => retryTitle(c)}
+												>
+													{titleRetryBusyFor === c.id ? 'Retrying title' : 'Retry title'}
+												</button>
+											{/if}
 											<button type="button" role="menuitem" onclick={() => startRename(c)}>
 												Rename
 											</button>

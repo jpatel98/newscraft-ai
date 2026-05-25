@@ -107,11 +107,16 @@ export async function addMessage(input: {
 	return row;
 }
 
-export async function setConversationTitle(accountId: string, id: string, title: string): Promise<void> {
+export async function setConversationTitle(
+	accountId: string,
+	id: string,
+	title: string
+): Promise<ConversationRow | undefined> {
 	await db
 		.update(conversations)
 		.set({ title })
 		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)));
+	return getConversation(accountId, id);
 }
 
 export async function renameConversation(
