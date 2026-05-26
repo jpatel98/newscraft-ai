@@ -84,7 +84,9 @@ function crawlPlanPromptBlock(plans: CrawlPlanProposal[]): string {
 			`- Link-follow rule: ${escapeWatchlistLine(plan.linkFollowRule)}`,
 			`- Article body strategy: ${plan.articleBodyStrategy}`,
 			`- Polling cadence: ${escapeWatchlistLine(plan.pollingCadence)}`,
+			`- Polling jitter: ${Math.round(plan.jitterMs / 1000)}s`,
 			`- Change detection: ${plan.changeDetection}`,
+			`- Polite fetch: robots ${plan.politeFetch.respectRobots ? 'respected' : 'not enforced'}, host delay ${plan.politeFetch.hostDelayMs}ms, archive ${plan.politeFetch.archiveWeb ? 'on' : 'off'}`,
 			links ? `- Candidate links approved for this run:\n${links}` : '- Candidate links approved for this run: none yet'
 		].join('\n');
 	});

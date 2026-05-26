@@ -2,6 +2,7 @@ import type { CrawlPlanCandidateLink, CrawlPlanProposal } from '$lib/types';
 
 const MAX_BODY_CHARS = 750_000;
 const MAX_CANDIDATE_LINKS = 12;
+const DEFAULT_JITTER_MS = 15 * 60 * 1000;
 const USER_AGENT = 'NewsCraft crawl-plan-inspector/0.1 (+https://newscraft.ai)';
 
 interface DraftCrawlPlanInput {
@@ -31,21 +32,27 @@ export async function draftCrawlPlan(input: DraftCrawlPlanInput): Promise<CrawlP
 	const linkFollowRule = suggestedLinkFollowRule(seedUrl);
 	const pollingCadence = input.missionSchedule?.trim() || 'inherit mission schedule';
 	const plan = {
+		version: 1,
 		seedUrls: [seedUrl],
 		linkFollowRule,
 		articleBodyStrategy: 'auto',
 		pollingCadence,
+		jitterMs: DEFAULT_JITTER_MS,
 		changeDetection: 'hash',
+		politeFetch: defaultPoliteFetchOverrides(),
 		candidateLinks
 	};
 
 	return {
+		version: 1,
 		seedUrl,
 		siteName,
 		linkFollowRule,
 		articleBodyStrategy: 'auto',
 		pollingCadence,
+		jitterMs: DEFAULT_JITTER_MS,
 		changeDetection: 'hash',
+		politeFetch: defaultPoliteFetchOverrides(),
 		candidateLinks,
 		plan
 	};
@@ -73,6 +80,16 @@ function validateSeedUrl(value: string): string {
 	}
 	parsed.hash = '';
 	return parsed.toString();
+}
+
+function defaultPoliteFetchOverrides() {
+	return {
+		respectRobots: true,
+		robotsOverride: false,
+		hostDelayMs: 250,
+		failureBudget: 3,
+		archiveWeb: true
+	};
 }
 
 function suggestedLinkFollowRule(seedUrl: string): string {

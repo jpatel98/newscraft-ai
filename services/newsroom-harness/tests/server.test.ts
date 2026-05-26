@@ -151,6 +151,46 @@ describe('newsroom harness server', () => {
 		]);
 	});
 
+	it('stores versioned crawl plans over the authenticated API', async () => {
+		await startHarness();
+		const first = await authFetch('/api/crawl-plans', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				beat_id: 'city-hall',
+				id: 'plan-city',
+				seed_url: 'https://city.example/news',
+				link_follow_rule: 'Follow same-site links under /news that look like articles.',
+				polling_cadence: 'every 3h',
+				jitter_ms: 900000,
+				polite_fetch: { respect_robots: false, host_delay_ms: 0, archive_web: false }
+			})
+		});
+		const second = await authFetch('/api/crawl-plans', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				beat_id: 'city-hall',
+				id: 'plan-city',
+				seed_url: 'https://city.example/news',
+				link_follow_rule: 'Follow same-site links under /news/transit.',
+				polite_fetch: { respect_robots: false, host_delay_ms: 0, archive_web: false }
+			})
+		});
+		const list = await authFetch('/api/crawl-plans?beat_id=city-hall&plan_id=plan-city');
+		const firstVersion = await authFetch('/api/crawl-plans/plan-city?beat_id=city-hall&version=1');
+
+		expect(first.status).toBe(201);
+		expect(second.status).toBe(201);
+		expect((await second.json()).crawl_plan).toMatchObject({ id: 'plan-city', version: 2, supersedes_version: 1 });
+		expect((await list.json()).crawl_plans.map((plan: { version: number }) => plan.version)).toEqual([1, 2]);
+		expect((await firstVersion.json()).crawl_plan).toMatchObject({
+			id: 'plan-city',
+			version: 1,
+			jitter_ms: 900000
+		});
+	});
+
 	it('serves authenticated memory inspect and write endpoints', async () => {
 		await startHarness();
 

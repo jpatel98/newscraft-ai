@@ -1,5 +1,10 @@
 import type {
 	CreateJobInput,
+	NewsroomCrawlPlanArticleBodyStrategy,
+	NewsroomCrawlPlanCandidateLinkDto,
+	NewsroomCrawlPlanChangeDetection,
+	NewsroomCrawlPlanPoliteFetchOverridesDto,
+	NewsroomCrawlPlanVersionDto,
 	NewsroomGateDto,
 	NewsroomGateStatus,
 	NewsroomGateType,
@@ -14,6 +19,7 @@ import type {
 	QueueGateInput,
 	ResolveGateInput,
 	ResolveGateResult,
+	SaveCrawlPlanVersionInput,
 	RunStatus,
 	UpdateJobInput
 } from '@newscraft/shared';
@@ -250,6 +256,7 @@ const HOUSE_MEMORY_KEYS = [
 ] as const;
 
 const BEAT_MEMORY_KEYS = [
+	'crawl_plans',
 	'source_quality',
 	'prior_coverage',
 	'peer_coverage',
@@ -279,6 +286,26 @@ const DEFAULT_GATE_ACTIONS: Record<NewsroomGateType, string[]> = {
 	crawl_plan: ['approve', 'edit', 'reject'],
 	source_health: ['pause', 'retry', 'drop'],
 	budget: ['approve_overage', 'reduce_scope', 'pause']
+};
+
+const CRAWL_PLAN_BODY_STRATEGIES: readonly NewsroomCrawlPlanArticleBodyStrategy[] = [
+	'auto',
+	'selector',
+	'agent-extract'
+];
+
+const CRAWL_PLAN_CHANGE_DETECTION: readonly NewsroomCrawlPlanChangeDetection[] = [
+	'hash',
+	'structured_diff',
+	'semantic_similarity'
+];
+
+const DEFAULT_CRAWL_PLAN_POLITE_FETCH: NewsroomCrawlPlanPoliteFetchOverridesDto = {
+	respect_robots: true,
+	robots_override: false,
+	host_delay_ms: 250,
+	failure_budget: 3,
+	archive_web: true
 };
 
 export class HarnessRepository {
@@ -501,6 +528,73 @@ export class HarnessRepository {
 			return { gate: this.requireGate(gateId), event };
 		});
 		return tx();
+	}
+
+	saveCrawlPlanVersion(input: SaveCrawlPlanVersionInput): NewsroomCrawlPlanVersionDto {
+		const beatId = requiredText(input.beat_id, 'beat_id');
+		const planId = optionalText(input.id) || newId('crawlplan');
+		const existingVersions = this.listCrawlPlanVersions(beatId, planId);
+		const latestVersion = Math.max(0, ...existingVersions.map((plan) => plan.version));
+		const version = input.version ?? latestVersion + 1;
+		if (!Number.isFinite(version) || version < 1) throw new Error('crawl plan version must be a positive number');
+		if (existingVersions.some((plan) => plan.version === version)) {
+			throw new Error(`Crawl plan version already exists: ${planId}@${version}`);
+		}
+		const createdAt = input.created_at || nowIso();
+		const createdBy = requiredText(input.created_by || 'beat_monitor', 'created_by');
+		const plan: NewsroomCrawlPlanVersionDto = {
+			id: planId,
+			beat_id: beatId,
+			version,
+			seed_urls: normalizeCrawlPlanSeedUrls(input),
+			link_follow_rule: requiredText(input.link_follow_rule, 'link_follow_rule'),
+			article_body_strategy: normalizeCrawlPlanBodyStrategy(input.article_body_strategy),
+			polling_cadence: optionalText(input.polling_cadence) || 'inherit beat schedule',
+			jitter_ms: clampNonNegativeInteger(input.jitter_ms, 0),
+			change_detection: normalizeCrawlPlanChangeDetection(input.change_detection),
+			polite_fetch: normalizeCrawlPlanPoliteFetch(input.polite_fetch),
+			candidate_links: normalizeCrawlPlanCandidateLinks(input.candidate_links),
+			created_by: createdBy,
+			created_at: createdAt,
+			source_memory_entry_id: null,
+			supersedes_version: latestVersion || null
+		};
+		const entry = this.insertMemoryEntry('beat', beatId, 'crawl_plans', 'crawl_plan.versioned', plan, createdBy, createdAt);
+		const stored = { ...plan, source_memory_entry_id: entry.id };
+		this.appendEvent({
+			workspaceId: DEFAULT_WORKSPACE_ID,
+			agent: createdBy,
+			kind: 'crawl_plan.versioned',
+			payload: {
+				plan_id: stored.id,
+				beat_id: beatId,
+				version: stored.version,
+				seed_urls: stored.seed_urls,
+				supersedes_version: stored.supersedes_version,
+				memory_entry_id: entry.id
+			},
+			createdAt
+		});
+		return stored;
+	}
+
+	listCrawlPlanVersions(beatId: string, planId?: string): NewsroomCrawlPlanVersionDto[] {
+		const entries = this.listMemoryEntries('beat', requiredText(beatId, 'beat_id'), 'crawl_plans');
+		return entries
+			.map(crawlPlanVersionFromMemoryEntry)
+			.filter((plan): plan is NewsroomCrawlPlanVersionDto => Boolean(plan))
+			.filter((plan) => !planId || plan.id === planId)
+			.sort((left, right) => left.id.localeCompare(right.id) || left.version - right.version);
+	}
+
+	requireCrawlPlanVersion(beatId: string, planId: string, version?: number): NewsroomCrawlPlanVersionDto {
+		const versions = this.listCrawlPlanVersions(beatId, requiredText(planId, 'plan_id'));
+		const plan =
+			version === undefined
+				? versions.sort((left, right) => right.version - left.version)[0]
+				: versions.find((candidate) => candidate.version === version);
+		if (!plan) throw new Error('Crawl plan not found');
+		return plan;
 	}
 
 	inspectHouseMemory(): HouseMemoryInspectDto {
@@ -1263,6 +1357,104 @@ function normalizeGateActions(value: string[] | undefined, type: NewsroomGateTyp
 	return actions.length ? actions : [...DEFAULT_GATE_ACTIONS[type]];
 }
 
+function normalizeCrawlPlanSeedUrls(input: SaveCrawlPlanVersionInput): string[] {
+	const candidates = input.seed_urls?.length ? input.seed_urls : input.seed_url ? [input.seed_url] : [];
+	const seen = new Set<string>();
+	const urls: string[] = [];
+	for (const candidate of candidates) {
+		const url = normalizeHttpUrl(candidate, 'seed_url');
+		if (seen.has(url)) continue;
+		seen.add(url);
+		urls.push(url);
+	}
+	if (urls.length === 0) throw new Error('at least one seed URL is required');
+	return urls;
+}
+
+function normalizeHttpUrl(value: string, field: string): string {
+	const raw = requiredText(value, field);
+	let parsed: URL;
+	try {
+		parsed = new URL(raw);
+	} catch {
+		throw new Error(`${field} must be a valid URL`);
+	}
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+		throw new Error(`${field} must start with http:// or https://`);
+	}
+	parsed.hash = '';
+	return parsed.toString();
+}
+
+function normalizeCrawlPlanBodyStrategy(
+	value: NewsroomCrawlPlanArticleBodyStrategy | undefined
+): NewsroomCrawlPlanArticleBodyStrategy {
+	const strategy = value || 'auto';
+	if (!CRAWL_PLAN_BODY_STRATEGIES.includes(strategy)) {
+		throw new Error(`Unsupported article body strategy: ${strategy}`);
+	}
+	return strategy;
+}
+
+function normalizeCrawlPlanChangeDetection(
+	value: NewsroomCrawlPlanChangeDetection | undefined
+): NewsroomCrawlPlanChangeDetection {
+	const mode = value || 'hash';
+	if (!CRAWL_PLAN_CHANGE_DETECTION.includes(mode)) {
+		throw new Error(`Unsupported change detection mode: ${mode}`);
+	}
+	return mode;
+}
+
+function normalizeCrawlPlanPoliteFetch(
+	value: Partial<NewsroomCrawlPlanPoliteFetchOverridesDto> | undefined
+): NewsroomCrawlPlanPoliteFetchOverridesDto {
+	return {
+		respect_robots: value?.respect_robots ?? DEFAULT_CRAWL_PLAN_POLITE_FETCH.respect_robots,
+		robots_override: value?.robots_override ?? DEFAULT_CRAWL_PLAN_POLITE_FETCH.robots_override,
+		host_delay_ms: clampNonNegativeInteger(value?.host_delay_ms, DEFAULT_CRAWL_PLAN_POLITE_FETCH.host_delay_ms),
+		failure_budget: clampPositiveInteger(value?.failure_budget, DEFAULT_CRAWL_PLAN_POLITE_FETCH.failure_budget),
+		archive_web: value?.archive_web ?? DEFAULT_CRAWL_PLAN_POLITE_FETCH.archive_web
+	};
+}
+
+function normalizeCrawlPlanCandidateLinks(value: unknown[] | undefined): NewsroomCrawlPlanCandidateLinkDto[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((candidate) => {
+		const raw = objectValue(candidate);
+		if (!raw) return [];
+		const title = optionalText(stringValue(raw.title));
+		const url = normalizeOptionalHttpUrl(stringValue(raw.url) ?? undefined);
+		if (!title || !url) return [];
+		return [
+			{
+				title,
+				url,
+				reason: optionalText(stringValue(raw.reason)) || 'Crawl plan candidate',
+				score: clampNonNegativeInteger(numberValue(raw.score) ?? undefined, 0)
+			}
+		];
+	});
+}
+
+function normalizeOptionalHttpUrl(value: string | undefined): string | null {
+	try {
+		return value ? normalizeHttpUrl(value, 'candidate url') : null;
+	} catch {
+		return null;
+	}
+}
+
+function clampNonNegativeInteger(value: number | undefined, fallback: number): number {
+	if (!Number.isFinite(value)) return fallback;
+	return Math.max(0, Math.trunc(value as number));
+}
+
+function clampPositiveInteger(value: number | undefined, fallback: number): number {
+	if (!Number.isFinite(value)) return fallback;
+	return Math.max(1, Math.trunc(value as number));
+}
+
 function addNullableFilter(
 	conditions: string[],
 	params: unknown[],
@@ -1352,6 +1544,69 @@ function memoryEntryDto(row: MemoryEntryRow): MemoryEntryDto {
 		actor: row.actor,
 		created_at: row.created_at
 	};
+}
+
+function crawlPlanVersionFromMemoryEntry(entry: MemoryEntryDto): NewsroomCrawlPlanVersionDto | null {
+	const raw = objectValue(entry.value);
+	if (!raw) return null;
+	const id = stringValue(raw.id);
+	const beatId = stringValue(raw.beat_id);
+	const version = numberValue(raw.version);
+	if (!id || !beatId || !version) return null;
+	return {
+		id,
+		beat_id: beatId,
+		version,
+		seed_urls: stringArray(raw.seed_urls),
+		link_follow_rule: stringValue(raw.link_follow_rule) || '',
+		article_body_strategy: normalizeCrawlPlanBodyStrategy(
+			stringValue(raw.article_body_strategy) as NewsroomCrawlPlanArticleBodyStrategy | undefined
+		),
+		polling_cadence: stringValue(raw.polling_cadence) || 'inherit beat schedule',
+		jitter_ms: numberValue(raw.jitter_ms) ?? 0,
+		change_detection: normalizeCrawlPlanChangeDetection(
+			stringValue(raw.change_detection) as NewsroomCrawlPlanChangeDetection | undefined
+		),
+		polite_fetch: normalizeCrawlPlanPoliteFetch(
+			objectValue(raw.polite_fetch) as Partial<NewsroomCrawlPlanPoliteFetchOverridesDto> | undefined
+		),
+		candidate_links: normalizeCrawlPlanCandidateLinks(
+			Array.isArray(raw.candidate_links) ? (raw.candidate_links as unknown as NewsroomCrawlPlanCandidateLinkDto[]) : []
+		),
+		created_by: stringValue(raw.created_by) || entry.actor,
+		created_at: stringValue(raw.created_at) || entry.created_at,
+		source_memory_entry_id: stringValue(raw.source_memory_entry_id) || entry.id,
+		supersedes_version: numberValue(raw.supersedes_version)
+	};
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === 'object' && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function stringValue(value: unknown): string | null {
+	if (typeof value === 'string' && value.trim()) return value.trim();
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+	return null;
+}
+
+function numberValue(value: unknown): number | null {
+	if (typeof value === 'number' && Number.isFinite(value)) return value;
+	if (typeof value === 'string') {
+		const parsed = Number(value);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+	return null;
+}
+
+function stringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((candidate) => {
+		const text = stringValue(candidate);
+		return text ? [text] : [];
+	});
 }
 
 function eventDto(row: EventRow): NewsroomEventDto {

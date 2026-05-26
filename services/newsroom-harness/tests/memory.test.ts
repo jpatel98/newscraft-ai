@@ -83,6 +83,7 @@ describe('newsroom memory stores', () => {
 		const story = repo.inspectStoryMemory('story-1', 'workspace-1');
 
 		expect(beat.required_keys).toEqual([
+			'crawl_plans',
 			'source_quality',
 			'prior_coverage',
 			'peer_coverage',

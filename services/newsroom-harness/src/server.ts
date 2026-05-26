@@ -2,12 +2,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import type {
 	CreateJobInput,
+	ExecuteCrawlPlanInput,
 	GatewayChatCompletionRequest,
 	GatewayHealthResponse,
 	GatewayResponsesRequest,
 	NewsroomGateStatus,
 	QueueGateInput,
 	ResolveGateInput,
+	SaveCrawlPlanVersionInput,
 	UpdateJobInput
 } from '@newscraft/shared';
 import { writeChatCompletion, writeResponses } from './chat.js';
@@ -15,6 +17,7 @@ import { loadConfig, type HarnessConfig } from './config.js';
 import { openDatabase } from './db/database.js';
 import { HarnessRepository } from './db/repository.js';
 import { NewsroomAgentRuntime } from './agents/runtime.js';
+import { executeCrawlPlan } from './crawl-plans/executor.js';
 import { JobRunner } from './jobs/runner.js';
 import { JobScheduler } from './jobs/scheduler.js';
 import { bearerToken, HttpError, readJson, tokenMatches, writeJson, writeText } from './util/http.js';
@@ -184,6 +187,37 @@ async function route(
 		}
 	}
 
+	if (req.method === 'GET' && url.pathname === '/api/crawl-plans') {
+		const beatId = requiredQueryText(url, 'beat_id');
+		writeJson(res, 200, {
+			crawl_plans: ctx.repository.listCrawlPlanVersions(beatId, queryText(url, 'plan_id'))
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && url.pathname === '/api/crawl-plans') {
+		const input = await readJson<SaveCrawlPlanVersionInput>(req);
+		writeJson(res, 201, { ok: true, crawl_plan: ctx.repository.saveCrawlPlanVersion(input) });
+		return;
+	}
+
+	const crawlPlanAction = url.pathname.match(/^\/api\/crawl-plans\/([^/]+)(?:\/execute)?$/);
+	if (crawlPlanAction) {
+		const id = decodeURIComponent(crawlPlanAction[1]);
+		const beatId = requiredQueryText(url, 'beat_id');
+		const isExecute = url.pathname.endsWith('/execute');
+		if (req.method === 'GET' && !isExecute) {
+			const version = queryNumber(url, 'version');
+			writeJson(res, 200, { crawl_plan: ctx.repository.requireCrawlPlanVersion(beatId, id, version) });
+			return;
+		}
+		if (req.method === 'POST' && isExecute) {
+			const input = await readJson<ExecuteCrawlPlanInput>(req);
+			writeJson(res, 200, { ok: true, ...(await executeCrawlPlan(ctx.repository, beatId, id, input)) });
+			return;
+		}
+	}
+
 	if (req.method === 'GET' && (url.pathname === '/api/memory/house' || url.pathname === '/api/memory/house/inspect')) {
 		writeJson(res, 200, { memory: ctx.repository.inspectHouseMemory() });
 		return;
@@ -277,8 +311,19 @@ function queryText(url: URL, key: string): string | undefined {
 	return value || undefined;
 }
 
+function requiredQueryText(url: URL, key: string): string {
+	const value = queryText(url, key);
+	if (!value) throw new HttpError(400, `${key} is required`);
+	return value;
+}
+
 function queryLimit(url: URL): number | undefined {
 	const value = Number.parseInt(url.searchParams.get('limit') || '', 10);
+	return Number.isFinite(value) ? value : undefined;
+}
+
+function queryNumber(url: URL, key: string): number | undefined {
+	const value = Number.parseInt(url.searchParams.get(key) || '', 10);
 	return Number.isFinite(value) ? value : undefined;
 }
 

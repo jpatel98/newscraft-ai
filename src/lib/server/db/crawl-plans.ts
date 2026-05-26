@@ -1,5 +1,10 @@
 import { and, asc, eq } from 'drizzle-orm';
-import type { CrawlPlanCandidateLink, CrawlPlanProposal, CrawlPlanStatus } from '$lib/types';
+import type {
+	CrawlPlanCandidateLink,
+	CrawlPlanPoliteFetchOverrides,
+	CrawlPlanProposal,
+	CrawlPlanStatus
+} from '$lib/types';
 import type { CrawlPlanDraft } from '$lib/server/agent/crawl-plans';
 import { newId } from '$lib/utils/id';
 import { db } from './index';
@@ -28,17 +33,49 @@ function parseCandidateLinks(value: string): CrawlPlanCandidateLink[] {
 	}
 }
 
+function parsePlanJson(value: string): Record<string, unknown> {
+	try {
+		const parsed = JSON.parse(value);
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+function numberValue(value: unknown, fallback: number): number {
+	return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function politeFetchValue(value: unknown): CrawlPlanPoliteFetchOverrides {
+	const raw = value && typeof value === 'object' && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {};
+	return {
+		respectRobots: typeof raw.respectRobots === 'boolean' ? raw.respectRobots : true,
+		robotsOverride: typeof raw.robotsOverride === 'boolean' ? raw.robotsOverride : false,
+		hostDelayMs: numberValue(raw.hostDelayMs, 250),
+		failureBudget: numberValue(raw.failureBudget, 3),
+		archiveWeb: typeof raw.archiveWeb === 'boolean' ? raw.archiveWeb : true
+	};
+}
+
 function rowToProposal(row: CrawlPlanRow): CrawlPlanProposal {
+	const plan = parsePlanJson(row.planJson);
 	return {
 		id: row.id,
 		missionId: row.missionId,
+		version: numberValue(plan.version, 1),
 		seedUrl: row.seedUrl,
 		siteName: row.siteName,
 		status: row.status,
 		linkFollowRule: row.linkFollowRule,
 		articleBodyStrategy: row.articleBodyStrategy,
 		pollingCadence: row.pollingCadence,
+		jitterMs: numberValue(plan.jitterMs, 0),
 		changeDetection: row.changeDetection,
+		politeFetch: politeFetchValue(plan.politeFetch),
 		candidateLinks: parseCandidateLinks(row.candidateLinksJson),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
@@ -79,7 +116,7 @@ export async function createCrawlPlanProposal(
 		pollingCadence: draft.pollingCadence,
 		changeDetection: draft.changeDetection,
 		candidateLinksJson: JSON.stringify(draft.candidateLinks),
-		planJson: JSON.stringify(draft.plan),
+		planJson: JSON.stringify({ ...draft.plan, version: draft.version }),
 		createdAt: now,
 		updatedAt: now,
 		approvedAt: null,

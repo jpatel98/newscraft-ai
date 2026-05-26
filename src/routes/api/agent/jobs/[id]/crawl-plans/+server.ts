@@ -5,6 +5,7 @@ import {
 	listCrawlPlans
 } from '$lib/server/db/crawl-plans';
 import { getMissionConfig } from '$lib/server/db/missions';
+import { syncCrawlPlanVersionToAgent } from '$lib/server/agent/crawl-plan-sync';
 
 export const GET: RequestHandler = async ({ locals, params }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
@@ -27,7 +28,13 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	try {
 		const draft = await draftCrawlPlan({ seedUrl, missionSchedule });
 		const proposal = await createCrawlPlanProposal(locals.user.id, id, draft);
-		return json({ ok: true, crawlPlan: proposal });
+		let syncWarning: string | null = null;
+		try {
+			await syncCrawlPlanVersionToAgent(locals.user.id, id, proposal, 'beat_monitor');
+		} catch (err) {
+			syncWarning = err instanceof Error ? err.message : String(err);
+		}
+		return json({ ok: true, crawlPlan: proposal, syncWarning });
 	} catch (err) {
 		throw error(400, err instanceof Error ? err.message : String(err));
 	}

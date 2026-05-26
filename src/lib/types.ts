@@ -73,16 +73,27 @@ export interface CrawlPlanCandidateLink {
 	score: number;
 }
 
+export interface CrawlPlanPoliteFetchOverrides {
+	respectRobots: boolean;
+	robotsOverride: boolean;
+	hostDelayMs: number;
+	failureBudget: number;
+	archiveWeb: boolean;
+}
+
 export interface CrawlPlanProposal {
 	id: string;
 	missionId: string;
+	version: number;
 	seedUrl: string;
 	siteName: string;
 	status: CrawlPlanStatus;
 	linkFollowRule: string;
 	articleBodyStrategy: 'auto' | 'selector' | 'agent-extract';
 	pollingCadence: string;
+	jitterMs: number;
 	changeDetection: 'hash' | 'structured_diff' | 'semantic_similarity';
+	politeFetch: CrawlPlanPoliteFetchOverrides;
 	candidateLinks: CrawlPlanCandidateLink[];
 	createdAt: number;
 	updatedAt: number;

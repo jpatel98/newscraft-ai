@@ -216,7 +216,7 @@ Goal: have the substrate the agentic layer needs.
 - [x] Three memory stores (`house`, `beat`, `story`) with read/write helpers and inspect endpoints.
 - [x] Gate primitive: table, queue API, resolve API, UI primitive for "Open Gate" cards.
 - [ ] **Source Adapter interface** + first four implementations: `rss`, `atom`, `sitemap`, `html_article`. Polite-fetch wrapper (robots, rate limit + jitter, ETag, content cache, archive snapshot).
-- [ ] **Crawl Plan schema** + executor. Plans persist in beat memory; one execution = one fetch pass = one batch of source events.
+- [x] **Crawl Plan schema** + executor. Plans persist in beat memory; one execution = one fetch pass = one batch of source events.
 - [ ] Replace `roles.ts` regex chooser with an explicit Assignment Desk stub that just emits events (to validate the substrate).
 
 **Demo:** open a story workspace, see a placeholder gate, resolve it, see the event written to the log and visible in a live feed.

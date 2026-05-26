@@ -2,7 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit';
 import type { CrawlPlanProposal, CrawlPlanStatus } from '$lib/types';
 import { getCrawlPlan, updateCrawlPlan } from '$lib/server/db/crawl-plans';
 import { getMissionConfig } from '$lib/server/db/missions';
-import { syncApprovedCrawlPlansToAgent } from '$lib/server/agent/crawl-plan-sync';
+import { syncApprovedCrawlPlansToAgent, syncCrawlPlanVersionToAgent } from '$lib/server/agent/crawl-plan-sync';
 
 const STATUSES = new Set<CrawlPlanStatus>(['pending', 'approved', 'rejected']);
 const CHANGE_DETECTION = new Set<CrawlPlanProposal['changeDetection']>([
@@ -38,6 +38,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	});
 	let syncWarning: string | null = null;
 	try {
+		if (crawlPlan) await syncCrawlPlanVersionToAgent(locals.user.id, missionId, crawlPlan);
 		await syncApprovedCrawlPlansToAgent(locals.user.id, missionId);
 	} catch (err) {
 		syncWarning = err instanceof Error ? err.message : String(err);

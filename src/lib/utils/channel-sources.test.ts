@@ -41,13 +41,22 @@ function crawlPlan(overrides: Partial<CrawlPlanProposal> = {}): CrawlPlanProposa
 	return {
 		id: 'plan-1',
 		missionId: 'job-1',
+		version: 1,
 		seedUrl: 'https://example.com/news',
 		siteName: 'Example News',
 		status: 'approved',
 		linkFollowRule: 'Follow same-site links that look like recent articles.',
 		articleBodyStrategy: 'auto',
 		pollingCadence: 'every 3h',
+		jitterMs: 900000,
 		changeDetection: 'hash',
+		politeFetch: {
+			respectRobots: true,
+			robotsOverride: false,
+			hostDelayMs: 250,
+			failureBudget: 3,
+			archiveWeb: true
+		},
 		candidateLinks: [
 			{
 				title: 'Council approves the late-night transit service expansion',
@@ -123,6 +132,8 @@ describe('channel source utilities', () => {
 		expect(prompt).toContain('Scan the latest updates.');
 		expect(prompt).toContain('## Approved Crawl Plans');
 		expect(prompt).toContain('Example News');
+		expect(prompt).toContain('Polling jitter: 900s');
+		expect(prompt).toContain('Polite fetch: robots respected, host delay 250ms, archive on');
 		expect(prompt).toContain('https://example.com/news/transit-service-expansion');
 		expect(prompt).not.toContain('Rejected plan');
 	});
