@@ -41,9 +41,10 @@ There is no "missions tab." Missions become **Standing Briefs** that configure t
 The SvelteKit UI persists account, conversation, settings, mission, and report
 state in Supabase Postgres through the server-only `DATABASE_URL`. Local
 development should not assume a local Homebrew/Docker Postgres process. The
-newsroom harness still owns a separate SQLite database via
-`NEWSROOM_HARNESS_DB_PATH`; migrating harness state to Supabase would be a
-separate architectural task.
+newsroom harness keeps its fast local SQLite database at
+`NEWSROOM_HARNESS_DB_PATH`, and when `NEWSROOM_HARNESS_DATABASE_URL` or
+`DATABASE_URL` is visible to the harness process it mirrors/restores harness
+state into the private Supabase/Postgres `harness` schema.
 
 ### Sources & scraping (the bloodstream)
 

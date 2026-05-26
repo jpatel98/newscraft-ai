@@ -1,11 +1,12 @@
 import { config as loadEnv } from 'dotenv';
 import { DisciplinedNewsroomAgent } from './agents/newsroom-agent.js';
 import { loadConfig } from './config.js';
-import { openDatabase } from './db/database.js';
-import { HarnessRepository } from './db/repository.js';
+import { createHarnessRepository } from './db/factory.js';
 
 loadEnv({ path: '.env.local', override: false, quiet: true });
 loadEnv({ path: '.env', override: false, quiet: true });
+loadEnv({ path: '../../.env.local', override: false, quiet: true });
+loadEnv({ path: '../../.env', override: false, quiet: true });
 
 const prompt = process.argv.slice(2).join(' ').trim();
 
@@ -15,7 +16,8 @@ if (!prompt) {
 }
 
 const config = loadConfig();
-const repository = new HarnessRepository(openDatabase(config.dbPath));
+const { repository, ready } = createHarnessRepository(config);
+await ready;
 const agent = new DisciplinedNewsroomAgent({
 	config: config.agent,
 	repository,
@@ -32,5 +34,5 @@ try {
 	process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
 	process.exitCode = 1;
 } finally {
-	repository.close();
+	await repository.close();
 }

@@ -77,6 +77,7 @@ Harness env:
 NEWSROOM_HARNESS_HOST=127.0.0.1
 NEWSROOM_HARNESS_PORT=8650
 NEWSROOM_HARNESS_DB_PATH=.data/newsroom-harness.db
+NEWSROOM_HARNESS_DATABASE_URL=<optional Supabase Postgres connection string>
 NEWSROOM_HARNESS_API_KEY=
 OPENAI_API_KEY=
 NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/agent/channel-posts
@@ -93,6 +94,13 @@ NEWSROOM_AGENT_SOURCE_PRIORITY=official,primary,source_monitor,internal,media_re
 NEWSROOM_AGENT_SOURCE_MONITORS_JSON=
 NEWSROOM_WEB_SEARCH_MODEL=gpt-5
 ```
+
+`NEWSROOM_HARNESS_DB_PATH` remains the local hot store. When
+`NEWSROOM_HARNESS_DATABASE_URL` is set, the harness creates a private
+Supabase/Postgres `harness` schema, restores remote rows into SQLite on start,
+and mirrors subsequent harness writes back to Supabase. If
+`NEWSROOM_HARNESS_DATABASE_URL` is omitted, the harness falls back to
+`DATABASE_URL` when that value is visible to the harness process.
 
 Mission runs use the disciplined NewsCraft agent harness: requests are routed
 once, tool budgets are enforced before every call, tool output is normalized

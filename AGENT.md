@@ -8,7 +8,9 @@ This repo is the NewsCraft agent UI plus the same-repo newsroom harness. Future 
 - Harness service: `services/newsroom-harness`, a TypeScript HTTP/SSE service on `127.0.0.1:8650`.
 - Shared contracts: `packages/shared`, especially gateway, health, jobs, and SSE DTOs.
 - UI persistence: Supabase Postgres via server-only `DATABASE_URL`.
-- Harness persistence: SQLite via `NEWSROOM_HARNESS_DB_PATH`.
+- Harness persistence: SQLite via `NEWSROOM_HARNESS_DB_PATH`, with Supabase
+  mirroring/restoration enabled when `NEWSROOM_HARNESS_DATABASE_URL` or
+  `DATABASE_URL` is available to the harness process.
 - Local UI port: `127.0.0.1:3001`.
 - Local harness port: `127.0.0.1:8650`.
 
@@ -93,7 +95,7 @@ Useful direct harness prompt:
 corepack pnpm agent:ask -- "What are the top stories in Canada right now?"
 ```
 
-The app loads root `.env.local`; the harness loads `services/newsroom-harness/.env.local` first, then `.env`. Keep secrets out of docs, commits, logs, and memory.
+The app loads root `.env.local`; the harness loads `services/newsroom-harness/.env.local`, `.env`, then the root `.env.local` / `.env` as fallback. Keep secrets out of docs, commits, logs, and memory.
 
 Important local env:
 
@@ -104,6 +106,7 @@ AGENT_GATEWAY_URL=http://127.0.0.1:8650
 AGENT_GATEWAY_API_KEY=
 ENABLE_MISSIONS=1
 NEWSROOM_HARNESS_DB_PATH=.data/newsroom-harness.db
+NEWSROOM_HARNESS_DATABASE_URL=<optional Supabase Postgres connection string>
 NEWSROOM_HARNESS_API_KEY=
 OPENAI_API_KEY=
 NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/agent/channel-posts

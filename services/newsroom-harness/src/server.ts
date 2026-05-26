@@ -14,7 +14,7 @@ import type {
 } from '@newscraft/shared';
 import { writeChatCompletion, writeResponses } from './chat.js';
 import { loadConfig, type HarnessConfig } from './config.js';
-import { openDatabase } from './db/database.js';
+import { createHarnessRepository } from './db/factory.js';
 import { HarnessRepository } from './db/repository.js';
 import { NewsroomAgentRuntime } from './agents/runtime.js';
 import { executeCrawlPlan } from './crawl-plans/executor.js';
@@ -28,6 +28,7 @@ export interface HarnessServer {
 	repository: HarnessRepository;
 	runner: JobRunner;
 	scheduler: JobScheduler;
+	ready: Promise<void>;
 	url(): string;
 	close(): Promise<void>;
 }
@@ -39,7 +40,10 @@ export function createHarnessServer(options: {
 	runtime?: NewsroomAgentRuntime;
 } = {}): HarnessServer {
 	const config = loadConfig(options.config);
-	const repository = options.repository || new HarnessRepository(openDatabase(config.dbPath));
+	const repositoryBundle = options.repository
+		? { repository: options.repository, ready: Promise.resolve() }
+		: createHarnessRepository(config);
+	const { repository, ready } = repositoryBundle;
 	const runtime =
 		options.runtime ||
 		new NewsroomAgentRuntime({
@@ -62,6 +66,7 @@ export function createHarnessServer(options: {
 		repository,
 		runner,
 		scheduler,
+		ready,
 		url() {
 			const address = server.address() as AddressInfo | null;
 			const port = address?.port ?? config.port;
@@ -71,9 +76,13 @@ export function createHarnessServer(options: {
 			scheduler.stop();
 			return new Promise((resolve, reject) => {
 				server.close((err) => {
-					repository.close();
-					if (err) reject(err);
-					else resolve();
+					void Promise.resolve(repository.close()).then(
+						() => {
+							if (err) reject(err);
+							else resolve();
+						},
+						(closeErr) => reject(closeErr)
+					);
 				});
 			});
 		}
@@ -356,7 +365,12 @@ function harnessHealth(ctx: {
 		version: ctx.config.version,
 		time: new Date().toISOString(),
 		uptimeSeconds: Math.round(process.uptime()),
-		db: { ok: dbOk, path: ctx.config.dbPath, error: dbError },
+		db: {
+			ok: dbOk,
+			path: ctx.config.dbPath,
+			backend: ctx.config.databaseUrl ? 'sqlite+supabase' : 'sqlite',
+			error: dbError
+		},
 		openai: { configured: Boolean(ctx.config.openAiApiKey) },
 		scheduler: {
 			running: ctx.scheduler.isRunning(),

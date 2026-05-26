@@ -3,8 +3,12 @@ import { createHarnessServer } from './server.js';
 
 loadEnv({ path: '.env.local', override: false, quiet: true });
 loadEnv({ path: '.env', override: false, quiet: true });
+loadEnv({ path: '../../.env.local', override: false, quiet: true });
+loadEnv({ path: '../../.env', override: false, quiet: true });
 
 const harness = createHarnessServer();
+
+await harness.ready;
 
 harness.server.listen(harness.config.port, harness.config.host, () => {
 	process.stdout.write(`newsroom-harness listening on ${harness.url()}\n`);

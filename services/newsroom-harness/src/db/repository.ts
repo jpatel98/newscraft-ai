@@ -316,7 +316,7 @@ export class HarnessRepository {
 		return true;
 	}
 
-	close(): void {
+	close(): void | Promise<void> {
 		this.db.close();
 	}
 
