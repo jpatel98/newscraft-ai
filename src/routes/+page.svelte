@@ -1,7 +1,16 @@
 <script lang="ts">
 	import { replaceState } from '$app/navigation';
 	import Composer from '$lib/components/Composer.svelte';
-	import type { AgentJob, AgentRun, BoardData, BoardPost, ChannelSource } from '$lib/types';
+	import OpenGateCard from '$lib/components/OpenGateCard.svelte';
+	import type {
+		AgentJob,
+		AgentRun,
+		BoardData,
+		BoardPost,
+		ChannelSource,
+		EditorialEvent,
+		EditorialGate
+	} from '$lib/types';
 	import {
 		createGateEvent,
 		createStoryWorkspace,
@@ -18,6 +27,9 @@
 		data: {
 			board: BoardData | null;
 			boardError: string | null;
+			gates: EditorialGate[];
+			gateEvents: EditorialEvent[];
+			gateError: string | null;
 			missionsEnabled: boolean;
 		};
 	} = $props();
@@ -25,6 +37,10 @@
 	let composer: Composer | undefined = $state();
 	let gateResolutions = $state<Record<string, PitchGateResolution>>({});
 	let gateEvents = $state<WorkspaceEvent[]>([]);
+	let gateOverrides = $state<Record<string, EditorialGate>>({});
+	let eventOverrides = $state<Record<string, EditorialEvent>>({});
+	let gateActionBusy = $state<string | null>(null);
+	let gateResolveError = $state<string | null>(null);
 	let workspaces = $state<StoryWorkspace[]>([]);
 	let selectedWorkspaceId = $state<string | null>(null);
 
@@ -53,6 +69,12 @@
 			.map((post) => pitchFromPost(post, jobsById.get(post.jobId)))
 	);
 	const visiblePitches = $derived(pitches.filter((pitch) => gateResolutions[pitch.id] !== 'spiked'));
+	const editorialGates = $derived(data.gates.map((gate) => gateOverrides[gate.id] ?? gate));
+	const persistedEvents = $derived([
+		...Object.values(eventOverrides),
+		...data.gateEvents.filter((event) => !eventOverrides[event.id])
+	]);
+	const openGates = $derived(editorialGates.filter((gate) => gate.status === 'open'));
 	const standingBriefs = $derived((board?.jobs ?? []).filter((job) => job.enabled).slice(0, 4));
 	const pausedBriefs = $derived((board?.jobs ?? []).filter((job) => !job.enabled).length);
 	const selectedWorkspace = $derived(
@@ -66,7 +88,7 @@
 	);
 	const selectedWorkspaceWire = $derived(workspaceWire(selectedWorkspace, selectedWorkspaceRuns));
 	const wireItems = $derived(
-		[...gateEvents.map(wireFromWorkspaceEvent), ...wireFromBoard(board)]
+		[...persistedEvents.map(wireFromEditorialEvent), ...gateEvents.map(wireFromWorkspaceEvent), ...wireFromBoard(board)]
 			.sort((a, b) => timestampMs(b.at) - timestampMs(a.at))
 			.slice(0, 10)
 	);
@@ -218,6 +240,30 @@
 		selectedWorkspaceId = workspace.id;
 	}
 
+	async function resolveEditorialGateCard(gate: EditorialGate, action: string, notes: string) {
+		gateActionBusy = gate.id;
+		gateResolveError = null;
+		try {
+			const response = await fetch(`/api/gates/${encodeURIComponent(gate.id)}/resolve`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ action, notes })
+			});
+			if (!response.ok) throw new Error(await response.text());
+			const body = (await response.json()) as { gate?: EditorialGate; event?: EditorialEvent };
+			if (body.gate) {
+				gateOverrides = { ...gateOverrides, [body.gate.id]: body.gate };
+			}
+			if (body.event) {
+				eventOverrides = { ...eventOverrides, [body.event.id]: body.event };
+			}
+		} catch (err) {
+			gateResolveError = err instanceof Error ? err.message : String(err);
+		} finally {
+			gateActionBusy = null;
+		}
+	}
+
 	function resolutionLabel(resolution: PitchGateResolution | undefined): string | null {
 		if (resolution === 'accepted') return 'Accepted';
 		if (resolution === 'held') return 'Held';
@@ -275,6 +321,45 @@
 			at: event.at,
 			tone: event.tone
 		};
+	}
+
+	function wireFromEditorialEvent(event: EditorialEvent): WireItem {
+		const payload = objectValue(event.payload);
+		const title = stringValue(payload?.title) || stringValue(payload?.gate_title) || event.agent;
+		const action = stringValue(payload?.action);
+		const detail =
+			event.kind === 'gate.resolved'
+				? `${title} resolved${action ? ` with ${actionLabel(action)}` : ''}.`
+				: event.kind === 'gate.queued'
+					? `${title} is waiting for an editor decision.`
+					: `${event.agent} wrote ${event.kind}.`;
+		return {
+			id: `event:${event.id}`,
+			kind: event.kind,
+			label: title,
+			detail,
+			at: event.createdAt,
+			tone: event.kind === 'gate.resolved' ? 'active' : 'neutral'
+		};
+	}
+
+	function objectValue(value: unknown): Record<string, unknown> | null {
+		return value && typeof value === 'object' && !Array.isArray(value)
+			? (value as Record<string, unknown>)
+			: null;
+	}
+
+	function stringValue(value: unknown): string | null {
+		if (typeof value === 'string' && value.trim()) return value.trim();
+		if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+		return null;
+	}
+
+	function actionLabel(action: string): string {
+		return action
+			.split('_')
+			.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+			.join(' ');
 	}
 
 	function wireFromBoard(value: BoardData | null): WireItem[] {
@@ -357,6 +442,40 @@
 		<section class="newsroom-alert newsroom-alert--warning">
 			<strong>Monitor backend needs attention.</strong>
 			<span>{data.boardError || board?.jobsError}</span>
+		</section>
+	{/if}
+
+	{#if data.gateError}
+		<section class="newsroom-alert newsroom-alert--warning">
+			<strong>Gate queue needs attention.</strong>
+			<span>{data.gateError}</span>
+		</section>
+	{/if}
+
+	{#if gateResolveError}
+		<section class="newsroom-alert newsroom-alert--warning">
+			<strong>Gate resolution failed.</strong>
+			<span>{gateResolveError}</span>
+		</section>
+	{/if}
+
+	{#if openGates.length}
+		<section class="open-gates" aria-labelledby="open-gates-title">
+			<div class="section-head">
+				<div>
+					<div class="panel-eyebrow">Decision Queue</div>
+					<h2 id="open-gates-title">Open gates</h2>
+				</div>
+			</div>
+			<div class="open-gates__list">
+				{#each openGates as gate (gate.id)}
+					<OpenGateCard
+						{gate}
+						busy={gateActionBusy === gate.id}
+						onResolve={resolveEditorialGateCard}
+					/>
+				{/each}
+			</div>
 		</section>
 	{/if}
 
@@ -681,6 +800,7 @@
 	}
 
 	.command-panel,
+	.open-gates,
 	.pitch-queue,
 	.side-panel,
 	.story-workspace,
@@ -775,6 +895,7 @@
 	}
 
 	.pitch-queue,
+	.open-gates,
 	.side-panel,
 	.story-workspace,
 	.wire {
@@ -819,6 +940,7 @@
 	}
 
 	.pitch-list,
+	.open-gates__list,
 	.workspace-list,
 	.brief-list,
 	.wire-list {

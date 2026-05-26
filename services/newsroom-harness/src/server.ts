@@ -5,6 +5,9 @@ import type {
 	GatewayChatCompletionRequest,
 	GatewayHealthResponse,
 	GatewayResponsesRequest,
+	NewsroomGateStatus,
+	QueueGateInput,
+	ResolveGateInput,
 	UpdateJobInput
 } from '@newscraft/shared';
 import { writeChatCompletion, writeResponses } from './chat.js';
@@ -146,6 +149,41 @@ async function route(
 		return;
 	}
 
+	if (req.method === 'GET' && url.pathname === '/api/gates') {
+		writeJson(res, 200, {
+			gates: ctx.repository.listGates({
+				workspaceId: queryText(url, 'workspace_id'),
+				storyId: queryText(url, 'story_id'),
+				jobId: queryText(url, 'job_id'),
+				runId: queryText(url, 'run_id'),
+				status: queryGateStatus(url),
+				limit: queryLimit(url)
+			})
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && url.pathname === '/api/gates') {
+		const input = await readJson<QueueGateInput>(req);
+		writeJson(res, 201, { ok: true, gate: ctx.repository.queueGate(input) });
+		return;
+	}
+
+	const gateAction = url.pathname.match(/^\/api\/gates\/([^/]+)(?:\/resolve)?$/);
+	if (gateAction) {
+		const id = decodeURIComponent(gateAction[1]);
+		const isResolve = url.pathname.endsWith('/resolve');
+		if (req.method === 'GET' && !isResolve) {
+			writeJson(res, 200, { gate: ctx.repository.requireGate(id) });
+			return;
+		}
+		if (req.method === 'POST' && isResolve) {
+			const input = await readJson<ResolveGateInput>(req);
+			writeJson(res, 200, { ok: true, ...ctx.repository.resolveGate(id, input) });
+			return;
+		}
+	}
+
 	if (req.method === 'GET' && (url.pathname === '/api/memory/house' || url.pathname === '/api/memory/house/inspect')) {
 		writeJson(res, 200, { memory: ctx.repository.inspectHouseMemory() });
 		return;
@@ -242,6 +280,12 @@ function queryText(url: URL, key: string): string | undefined {
 function queryLimit(url: URL): number | undefined {
 	const value = Number.parseInt(url.searchParams.get('limit') || '', 10);
 	return Number.isFinite(value) ? value : undefined;
+}
+
+function queryGateStatus(url: URL): NewsroomGateStatus | 'all' | undefined {
+	const value = queryText(url, 'status');
+	if (value === undefined || value === 'open' || value === 'resolved' || value === 'all') return value;
+	throw new HttpError(400, `Unsupported gate status: ${value}`);
 }
 
 function harnessHealth(ctx: {

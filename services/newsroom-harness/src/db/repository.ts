@@ -1,5 +1,8 @@
 import type {
 	CreateJobInput,
+	NewsroomGateDto,
+	NewsroomGateStatus,
+	NewsroomGateType,
 	NewsroomEventDto,
 	NewsroomEventJson,
 	NewsroomJobDto,
@@ -8,6 +11,9 @@ import type {
 	NewsroomRunStepDto,
 	NewsroomSourceDto,
 	NewsroomToolCallDto,
+	QueueGateInput,
+	ResolveGateInput,
+	ResolveGateResult,
 	RunStatus,
 	UpdateJobInput
 } from '@newscraft/shared';
@@ -105,6 +111,29 @@ interface EventRow {
 	created_at: string;
 }
 
+interface GateRow {
+	id: string;
+	workspace_id: string;
+	story_id: string | null;
+	job_id: string | null;
+	run_id: string | null;
+	type: NewsroomGateType;
+	title: string;
+	summary: string;
+	status: NewsroomGateStatus;
+	priority: number;
+	payload_json: string;
+	actions_json: string;
+	created_by: string;
+	created_at: string;
+	resolved_at: string | null;
+	resolved_by: string | null;
+	resolution_action: string | null;
+	resolution_notes: string | null;
+	resolution_payload_json: string | null;
+	resolution_event_id: string | null;
+}
+
 type MemoryTier = 'house' | 'beat' | 'story';
 
 interface HouseMemoryRow {
@@ -165,6 +194,15 @@ export interface ListEventsOptions {
 	limit?: number;
 }
 
+export interface ListGatesOptions {
+	workspaceId?: string;
+	storyId?: string | null;
+	jobId?: string | null;
+	runId?: string | null;
+	status?: NewsroomGateStatus | 'all';
+	limit?: number;
+}
+
 export interface MemoryEntryDto {
 	id: string;
 	tier: MemoryTier;
@@ -220,6 +258,28 @@ const BEAT_MEMORY_KEYS = [
 ] as const;
 
 const STORY_MEMORY_KEYS = ['fact_ledger', 'draft_history', 'agent_event_log', 'editor_decisions'] as const;
+
+const GATE_TYPES: readonly NewsroomGateType[] = [
+	'pitch',
+	'verification',
+	'draft_review',
+	'legal_style',
+	'publish',
+	'crawl_plan',
+	'source_health',
+	'budget'
+];
+
+const DEFAULT_GATE_ACTIONS: Record<NewsroomGateType, string[]> = {
+	pitch: ['accept', 'hold', 'spike'],
+	verification: ['mark_verified', 'mark_disputed', 'request_more_research'],
+	draft_review: ['approve', 'return_with_notes', 'spike'],
+	legal_style: ['approve', 'edit', 'block'],
+	publish: ['approve', 'hold', 'send_to_cms'],
+	crawl_plan: ['approve', 'edit', 'reject'],
+	source_health: ['pause', 'retry', 'drop'],
+	budget: ['approve_overage', 'reduce_scope', 'pause']
+};
 
 export class HarnessRepository {
 	constructor(private db: HarnessDb) {}
@@ -301,6 +361,146 @@ export class HarnessRepository {
 			)
 			.all(...params) as EventRow[];
 		return rows.map(eventDto);
+	}
+
+	queueGate(input: QueueGateInput): NewsroomGateDto {
+		const id = newId('gate');
+		const workspaceId = requiredText(input.workspace_id || DEFAULT_WORKSPACE_ID, 'workspace_id');
+		const type = requiredGateType(input.type);
+		const title = requiredText(input.title, 'gate title');
+		const summary = requiredText(input.summary, 'gate summary');
+		const priority = clampGatePriority(input.priority);
+		const actions = normalizeGateActions(input.actions, type);
+		const createdBy = requiredText(input.created_by || 'assignment_desk', 'created_by');
+		const createdAt = input.created_at || nowIso();
+		this.db
+			.prepare(
+				`INSERT INTO gates (
+					id, workspace_id, story_id, job_id, run_id, type, title, summary, status,
+					priority, payload_json, actions_json, created_by, created_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`
+			)
+			.run(
+				id,
+				workspaceId,
+				optionalText(input.story_id),
+				optionalText(input.job_id),
+				optionalText(input.run_id),
+				type,
+				title,
+				summary,
+				priority,
+				stringifyJson(input.payload ?? {}),
+				stringifyJson(actions),
+				createdBy,
+				createdAt
+			);
+		this.appendEvent({
+			workspaceId,
+			storyId: input.story_id,
+			jobId: input.job_id,
+			runId: input.run_id,
+			agent: createdBy,
+			kind: 'gate.queued',
+			payload: {
+				gate_id: id,
+				gate_type: type,
+				title,
+				summary,
+				priority,
+				actions,
+				payload: input.payload ?? {}
+			},
+			createdAt
+		});
+		return this.requireGate(id);
+	}
+
+	getGate(id: string): NewsroomGateDto | null {
+		const row = this.db.prepare('SELECT * FROM gates WHERE id = ?').get(id) as GateRow | undefined;
+		return row ? gateDto(row) : null;
+	}
+
+	requireGate(id: string): NewsroomGateDto {
+		const gate = this.getGate(id);
+		if (!gate) throw new Error('Gate not found');
+		return gate;
+	}
+
+	listGates(options: ListGatesOptions = {}): NewsroomGateDto[] {
+		const conditions: string[] = ['workspace_id = ?'];
+		const params: unknown[] = [requiredText(options.workspaceId || DEFAULT_WORKSPACE_ID, 'workspace_id')];
+		addNullableFilter(conditions, params, 'story_id', options.storyId);
+		addNullableFilter(conditions, params, 'job_id', options.jobId);
+		addNullableFilter(conditions, params, 'run_id', options.runId);
+		const status = options.status || 'open';
+		if (status !== 'all') {
+			conditions.push('status = ?');
+			params.push(requiredGateStatus(status));
+		}
+		params.push(clampGateLimit(options.limit));
+		const order =
+			status === 'open'
+				? 'priority ASC, created_at ASC, rowid ASC'
+				: 'created_at DESC, rowid DESC';
+		const rows = this.db
+			.prepare(
+				`SELECT * FROM gates
+				 WHERE ${conditions.join(' AND ')}
+				 ORDER BY ${order}
+				 LIMIT ?`
+			)
+			.all(...params) as GateRow[];
+		return rows.map(gateDto);
+	}
+
+	resolveGate(id: string, input: ResolveGateInput): ResolveGateResult {
+		const gateId = requiredText(id, 'gate_id');
+		const action = requiredText(input.action, 'gate action');
+		const actor = requiredText(input.actor || 'editor', 'actor');
+		const notes = optionalText(input.notes);
+		const resolvedAt = input.resolved_at || nowIso();
+		const tx = this.db.transaction(() => {
+			const gate = this.requireGate(gateId);
+			if (gate.status === 'resolved') throw new Error('Gate already resolved');
+			if (gate.actions.length > 0 && !gate.actions.includes(action)) {
+				throw new Error(`Unsupported gate action: ${action}`);
+			}
+			this.db
+				.prepare(
+					`UPDATE gates SET
+						status = 'resolved',
+						resolved_at = ?,
+						resolved_by = ?,
+						resolution_action = ?,
+						resolution_notes = ?,
+						resolution_payload_json = ?
+					 WHERE id = ? AND status = 'open'`
+				)
+				.run(resolvedAt, actor, action, notes, stringifyJson(input.payload ?? null), gateId);
+			const event = this.appendEvent({
+				workspaceId: gate.workspace_id,
+				storyId: gate.story_id,
+				jobId: gate.job_id,
+				runId: gate.run_id,
+				agent: actor,
+				kind: 'gate.resolved',
+				payload: {
+					gate_id: gate.id,
+					gate_type: gate.type,
+					title: gate.title,
+					action,
+					notes,
+					payload: input.payload ?? null
+				},
+				createdAt: resolvedAt
+			});
+			this.db
+				.prepare('UPDATE gates SET resolution_event_id = ? WHERE id = ?')
+				.run(event.id, gateId);
+			return { gate: this.requireGate(gateId), event };
+		});
+		return tx();
 	}
 
 	inspectHouseMemory(): HouseMemoryInspectDto {
@@ -1038,6 +1238,31 @@ function requiredMemoryKey<T extends readonly string[]>(value: string, allowed: 
 	return key;
 }
 
+function requiredGateType(value: string): NewsroomGateType {
+	const type = requiredText(value, 'gate type');
+	if (!GATE_TYPES.includes(type as NewsroomGateType)) throw new Error(`Unsupported gate type: ${type}`);
+	return type as NewsroomGateType;
+}
+
+function requiredGateStatus(value: string): NewsroomGateStatus {
+	const status = requiredText(value, 'gate status');
+	if (status !== 'open' && status !== 'resolved') throw new Error(`Unsupported gate status: ${status}`);
+	return status;
+}
+
+function normalizeGateActions(value: string[] | undefined, type: NewsroomGateType): string[] {
+	const candidates = value?.length ? value : DEFAULT_GATE_ACTIONS[type];
+	const seen = new Set<string>();
+	const actions: string[] = [];
+	for (const candidate of candidates) {
+		const action = optionalText(candidate);
+		if (!action || seen.has(action)) continue;
+		seen.add(action);
+		actions.push(action);
+	}
+	return actions.length ? actions : [...DEFAULT_GATE_ACTIONS[type]];
+}
+
 function addNullableFilter(
 	conditions: string[],
 	params: unknown[],
@@ -1058,6 +1283,16 @@ function clampEventLimit(value: number | undefined): number {
 	return Math.max(1, Math.min(500, Math.trunc(value as number)));
 }
 
+function clampGateLimit(value: number | undefined): number {
+	if (!Number.isFinite(value)) return 50;
+	return Math.max(1, Math.min(200, Math.trunc(value as number)));
+}
+
+function clampGatePriority(value: number | undefined): number {
+	if (!Number.isFinite(value)) return 3;
+	return Math.max(1, Math.min(5, Math.trunc(value as number)));
+}
+
 function stringifyJson(value: unknown): string {
 	const encoded = JSON.stringify(value);
 	return encoded === undefined ? 'null' : encoded;
@@ -1075,6 +1310,12 @@ function parseEventJson(value: string | null, fallback: NewsroomEventJson): News
 function parseEventSources(value: string | null): NewsroomEventJson[] {
 	const parsed = parseEventJson(value, []);
 	return Array.isArray(parsed) ? parsed : [];
+}
+
+function parseGateActions(value: string | null): string[] {
+	const parsed = parseEventJson(value, []);
+	if (!Array.isArray(parsed)) return [];
+	return parsed.flatMap((candidate) => (typeof candidate === 'string' && candidate.trim() ? [candidate.trim()] : []));
 }
 
 function houseMemoryDefaults(): Record<string, NewsroomEventJson> {
@@ -1127,6 +1368,37 @@ function eventDto(row: EventRow): NewsroomEventDto {
 		parent_event_id: row.parent_event_id,
 		cost_metadata: parseEventJson(row.cost_metadata_json, null),
 		created_at: row.created_at
+	};
+}
+
+function gateDto(row: GateRow): NewsroomGateDto {
+	const resolution =
+		row.status === 'resolved' && row.resolution_action && row.resolved_by && row.resolved_at
+			? {
+					action: row.resolution_action,
+					notes: row.resolution_notes,
+					payload: parseEventJson(row.resolution_payload_json, null),
+					actor: row.resolved_by,
+					resolved_at: row.resolved_at,
+					event_id: row.resolution_event_id
+				}
+			: null;
+	return {
+		id: row.id,
+		workspace_id: row.workspace_id,
+		story_id: row.story_id,
+		job_id: row.job_id,
+		run_id: row.run_id,
+		type: row.type,
+		title: row.title,
+		summary: row.summary,
+		status: row.status,
+		priority: row.priority,
+		payload: parseEventJson(row.payload_json, {}),
+		actions: parseGateActions(row.actions_json),
+		created_by: row.created_by,
+		created_at: row.created_at,
+		resolution
 	};
 }
 

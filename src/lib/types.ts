@@ -189,6 +189,60 @@ export interface BoardData {
 	jobsError?: string | null;
 }
 
+export type EditorialGateType =
+	| 'pitch'
+	| 'verification'
+	| 'draft_review'
+	| 'legal_style'
+	| 'publish'
+	| 'crawl_plan'
+	| 'source_health'
+	| 'budget';
+
+export type EditorialGateStatus = 'open' | 'resolved';
+
+export interface EditorialGateResolution {
+	action: string;
+	notes: string | null;
+	payload: unknown;
+	actor: string;
+	resolvedAt: string;
+	eventId: string | null;
+}
+
+export interface EditorialGate {
+	id: string;
+	workspaceId: string;
+	storyId: string | null;
+	jobId: string | null;
+	runId: string | null;
+	type: EditorialGateType;
+	title: string;
+	summary: string;
+	status: EditorialGateStatus;
+	priority: number;
+	payload: unknown;
+	actions: string[];
+	createdBy: string;
+	createdAt: string;
+	resolution: EditorialGateResolution | null;
+}
+
+export interface EditorialEvent {
+	id: string;
+	workspaceId: string;
+	storyId: string | null;
+	jobId: string | null;
+	runId: string | null;
+	agent: string;
+	kind: string;
+	payload: unknown;
+	sources: unknown[];
+	parentEventId: string | null;
+	costMetadata: unknown;
+	createdAt: string;
+}
+
 export interface OperatorFooterStatus {
 	ok: boolean;
 	generatedAt: string;

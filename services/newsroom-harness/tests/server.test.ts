@@ -95,6 +95,62 @@ describe('newsroom harness server', () => {
 		});
 	});
 
+	it('queues, reads, and resolves gates over the authenticated API', async () => {
+		await startHarness();
+		const queuedResponse = await authFetch('/api/gates', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				workspace_id: 'workspace-api',
+				story_id: 'story-api',
+				type: 'pitch',
+				title: 'Review pitch gate',
+				summary: 'Decide whether this pitch should move forward.',
+				actions: ['accept', 'hold', 'spike'],
+				priority: 2
+			})
+		});
+		const queued = await queuedResponse.json();
+		const listResponse = await authFetch('/api/gates?workspace_id=workspace-api&status=open');
+		const readResponse = await authFetch(`/api/gates/${queued.gate.id}`);
+		const resolvedResponse = await authFetch(`/api/gates/${queued.gate.id}/resolve`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				action: 'accept',
+				notes: 'Move this into the story workspace.',
+				actor: 'editor'
+			})
+		});
+		const resolved = await resolvedResponse.json();
+		const events = await authFetch('/api/events?workspace_id=workspace-api&story_id=story-api');
+
+		expect(queuedResponse.status).toBe(201);
+		expect(queued.gate).toMatchObject({
+			workspace_id: 'workspace-api',
+			story_id: 'story-api',
+			status: 'open',
+			type: 'pitch'
+		});
+		expect((await listResponse.json()).gates).toHaveLength(1);
+		expect((await readResponse.json()).gate.id).toBe(queued.gate.id);
+		expect(resolvedResponse.status).toBe(200);
+		expect(resolved.gate).toMatchObject({
+			id: queued.gate.id,
+			status: 'resolved',
+			resolution: {
+				action: 'accept',
+				notes: 'Move this into the story workspace.',
+				actor: 'editor',
+				event_id: resolved.event.id
+			}
+		});
+		expect((await events.json()).events.map((event: { kind: string }) => event.kind)).toEqual([
+			'gate.queued',
+			'gate.resolved'
+		]);
+	});
+
 	it('serves authenticated memory inspect and write endpoints', async () => {
 		await startHarness();
 
