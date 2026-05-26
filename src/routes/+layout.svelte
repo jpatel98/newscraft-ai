@@ -15,14 +15,13 @@
 	import Pin from 'lucide-svelte/icons/pin';
 	import Plus from 'lucide-svelte/icons/plus';
 	import Search from 'lucide-svelte/icons/search';
-	import Activity from 'lucide-svelte/icons/activity';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import SystemPromptEditor from '$lib/components/SystemPromptEditor.svelte';
 	import { groupByDate } from '$lib/utils/group-by-date';
 	import { formatRelativeTime } from '$lib/utils/time';
 	import { matchesAllTokens, searchTokens } from '$lib/utils/search-dedupe';
-	import type { BoardChannel, OperatorFooterStatus } from '$lib/types';
+	import type { BoardChannel } from '$lib/types';
 
 	interface SidebarConvo {
 		id: string;
@@ -46,9 +45,6 @@
 	let paletteOpen = $state(false);
 	let drawerOpen = $state(false);
 	let isMobile = $state(false);
-	let operatorStatus = $state<OperatorFooterStatus | null>(null);
-	let operatorStatusLoading = $state(false);
-	let operatorStatusError = $state<string | null>(null);
 	let drawerToggleButton = $state<HTMLButtonElement | null>(null);
 
 	// `now` snapshot for date-bucketing; refreshed on conversation list change so
@@ -104,90 +100,6 @@
 		return () => {
 			window.removeEventListener('keydown', handler);
 			mq.removeEventListener('change', apply);
-		};
-	});
-
-	function formatOperatorTime(value: string | null | undefined): string {
-		if (!value) return 'Never';
-		const parsed = Date.parse(value);
-		if (!Number.isFinite(parsed)) return value;
-		return formatRelativeTime(parsed);
-	}
-
-	function operatorMood(): 'ok' | 'warn' | 'error' {
-		if (operatorStatus?.ok) return 'ok';
-		if (operatorStatusLoading && !operatorStatus) return 'warn';
-		return 'error';
-	}
-
-	function operatorHeadline(): string {
-		if (operatorStatus?.ok) return 'Systems ready';
-		if (operatorStatusLoading && !operatorStatus) return 'Checking systems';
-		if (operatorStatusError) return 'Status unavailable';
-		if (!operatorStatus?.gateway.ok || !operatorStatus?.agent.available) return 'Needs attention';
-		if (!operatorStatus?.database.ok) return 'Database needs attention';
-		return 'Needs attention';
-	}
-
-	function operatorMissionLine(): string {
-		const lastRun = operatorStatus?.lastSuccessfulMissionRun;
-		if (!lastRun) return 'Missions checking';
-		if (!lastRun.at) return 'No completed missions yet';
-		return `Last mission ${formatOperatorTime(lastRun.at)}`;
-	}
-
-	function operatorDatabaseLine(): string {
-		const database = operatorStatus?.database;
-		if (!database) return 'Database checking';
-		return database.label;
-	}
-
-	function operatorJobsLine(): string {
-		const count = operatorStatus?.pendingJobs.count;
-		if (count === undefined) return 'Jobs checking';
-		if (count === 0) return 'No jobs waiting';
-		return count === 1 ? '1 job waiting' : `${count} jobs waiting`;
-	}
-
-	function operatorDetailTitle(): string {
-		if (operatorStatusError) return operatorStatusError;
-		if (!operatorStatus) return 'Collecting operator status';
-		return [
-			operatorStatus.gateway.detail,
-			operatorStatus.agent.detail,
-			operatorStatus.database.detail
-		]
-			.filter(Boolean)
-			.join('\n');
-	}
-
-	async function refreshOperatorStatus() {
-		operatorStatusLoading = true;
-		try {
-			const response = await fetch('/api/operator/status', {
-				headers: { accept: 'application/json' },
-				cache: 'no-store'
-			});
-			if (!response.ok) throw new Error(`Operator status ${response.status}`);
-			operatorStatus = (await response.json()) as OperatorFooterStatus;
-			operatorStatusError = null;
-		} catch (err) {
-			operatorStatusError = err instanceof Error ? err.message : 'Unable to collect operator status';
-		} finally {
-			operatorStatusLoading = false;
-		}
-	}
-
-	onMount(() => {
-		void refreshOperatorStatus();
-		const refreshIfVisible = () => {
-			if (document.visibilityState === 'visible') void refreshOperatorStatus();
-		};
-		const interval = window.setInterval(refreshIfVisible, 30_000);
-		document.addEventListener('visibilitychange', refreshIfVisible);
-		return () => {
-			window.clearInterval(interval);
-			document.removeEventListener('visibilitychange', refreshIfVisible);
 		};
 	});
 
@@ -938,20 +850,6 @@
 			{/if}
 
 			<div class="sidebar__footer">
-				<div class="operator-footer" title={operatorDetailTitle()} aria-label="Operator health status">
-					<div class="operator-footer__head">
-						<span class="operator-footer__title">
-							<span class="operator-footer__dot operator-footer__dot--{operatorMood()}"></span>
-							{operatorHeadline()}
-						</span>
-						<Activity size="13" strokeWidth={1.7} />
-					</div>
-					<div class="operator-footer__body">
-						<span>{operatorMissionLine()}</span>
-						<span>{operatorDatabaseLine()}</span>
-						<span>{operatorJobsLine()}</span>
-					</div>
-				</div>
 				<a
 					href="/settings"
 					class="sidebar__footer-link {page.url.pathname === '/settings'

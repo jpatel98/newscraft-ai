@@ -12,3 +12,14 @@ describe('sidebar title retry affordance', () => {
 		expect(source).toContain(`/api/conversations/\${c.id}/title`);
 	});
 });
+
+describe('sidebar footer', () => {
+	it('does not render the operator health card', () => {
+		const source = readFileSync(new URL('./+layout.svelte', import.meta.url), 'utf8');
+
+		expect(source).not.toContain('Operator health status');
+		expect(source).not.toContain('Systems ready');
+		expect(source).not.toContain('/api/operator/status');
+		expect(source).not.toContain('operator-footer');
+	});
+});
