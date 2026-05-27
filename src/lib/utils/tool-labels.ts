@@ -23,6 +23,7 @@ interface ToolIntent {
 }
 
 const TABLE: Array<{ test: RegExp; label: ToolLabel }> = [
+	{ test: /assignment[_-]?desk/i, label: { live: 'Planning request', done: 'Request routed' } },
 	{ test: /skill[_-]?view|view[_-]?skill/i, label: { live: 'Loading skill', done: 'Skill loaded' } },
 	{
 		test: /delegate[_-]?task|task[_-]?delegate/i,

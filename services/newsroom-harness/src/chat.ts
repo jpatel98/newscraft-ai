@@ -33,6 +33,15 @@ export async function writeChatCompletion(
 				detail: 'Routing request'
 			})
 		);
+		res.write(
+			agentToolProgressFrame({
+				id: 'assignment_desk',
+				name: 'assignment_desk',
+				status: 'ok',
+				detail: 'Request routed',
+				done: true
+			})
+		);
 		for await (const delta of runtime.streamChat(body.messages || [], {
 			signal,
 			model,
@@ -42,14 +51,6 @@ export async function writeChatCompletion(
 			if (signal.aborted) break;
 			res.write(chatCompletionDeltaFrame(delta, { id, model }));
 		}
-		res.write(
-			agentToolProgressFrame({
-				id: 'assignment_desk',
-				name: 'assignment_desk',
-				status: 'ok',
-				done: true
-			})
-		);
 		res.write(SSE_DONE_FRAME);
 		res.end();
 		return;

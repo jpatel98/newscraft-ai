@@ -172,7 +172,13 @@ export class NewsroomAgentRuntime {
 	private forwardDisciplinedProgress(event: AgentToolEvent, context: RuntimeContext): void {
 		const id = `${context.runId || 'chat'}_${event.tool}`;
 		if (event.type === 'tool_started') {
-			context.onProgress?.({ type: 'tool', id, name: event.tool, status: 'running', detail: event.detail });
+			context.onProgress?.({
+				type: 'tool',
+				id,
+				name: event.tool,
+				status: 'running',
+				detail: event.detail || progressDetailForTool(event.tool)
+			});
 			return;
 		}
 		if (event.type === 'tool_completed') {
@@ -183,7 +189,7 @@ export class NewsroomAgentRuntime {
 				name: event.tool,
 				status: event.status === 'ok' ? 'ok' : 'failed',
 				detail: event.detail,
-				result: { evidenceCount: event.evidence?.length || 0 }
+				result: { count: event.evidence?.length || 0 }
 			});
 			return;
 		}
@@ -448,8 +454,16 @@ function latestUserPromptFromChatMessages(messages: GatewayChatMessage[]): strin
 	return '';
 }
 
+function progressDetailForTool(tool: string): string {
+	if (tool === 'openai_web_search') return 'Searching current coverage';
+	if (tool === 'configured_source_monitor') return 'Checking configured sources';
+	if (tool === 'source_feed_fetcher') return 'Reading attached source feeds';
+	if (tool === 'mission_result_reader') return 'Reading saved NewsCraft output';
+	return '';
+}
+
 function shouldUseDisciplinedChat(prompt: string): boolean {
-	return /\b(source|sources|cite|citation|current|latest|today|yesterday|breaking|news|search|look up|verify|fact[- ]?check|according to|reports?|coverage|read|fetch|rss|url)\b/i.test(
+	return /\b(source|sources|cite|citation|current|latest|today|tomorrow|tonight|forecast|price|prices|rates?|yesterday|breaking|news|search|look up|verify|fact[- ]?check|according to|reports?|coverage|read|fetch|rss|url)\b/i.test(
 		prompt
 	);
 }

@@ -191,8 +191,8 @@ function mentionsCurrentSourceCheck(text: string): boolean {
 function mentionsBroadDiscovery(text: string): boolean {
 	return (
 		/\b(web search|search the web|find sources|broad context|background coverage|latest on|roundup|trend)\b/.test(text) ||
-		/\b(latest|today|new|recent|breaking|current)\b.*\b(news|coverage|reports?|updates?|story|stories|on)\b/.test(text) ||
-		/\b(news|coverage|reports?|updates?|story|stories)\b.*\b(latest|today|new|recent|breaking|current)\b/.test(text)
+		/\b(latest|today|tomorrow|tonight|forecast|new|recent|breaking|current)\b.*\b(news|coverage|reports?|updates?|story|stories|prices?|rates?|on)\b/.test(text) ||
+		/\b(news|coverage|reports?|updates?|story|stories|prices?|rates?)\b.*\b(latest|today|tomorrow|tonight|forecast|new|recent|breaking|current)\b/.test(text)
 	);
 }
 

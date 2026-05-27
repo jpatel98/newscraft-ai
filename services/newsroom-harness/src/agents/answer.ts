@@ -209,7 +209,7 @@ function evidenceTimeMs(item: EvidenceObject): number {
 }
 
 function sourceLabel(item: EvidenceObject): string {
-	return `${compactText(item.title, 90)} (${kindLabel(item)})`;
+	return `${sourceDisplayTitle(item, 90)} (${kindLabel(item)})`;
 }
 
 function kindLabel(item: EvidenceObject): string {
@@ -221,7 +221,7 @@ function kindLabel(item: EvidenceObject): string {
 }
 
 function formatSourceLink(item: EvidenceObject): string {
-	const label = compactText(item.title, 90).replace(/\]/g, ')');
+	const label = sourceDisplayTitle(item, 90).replace(/\]/g, ')');
 	if (item.source_url.startsWith('newsroom://') || item.source_url === 'about:blank') {
 		return `${label} (${item.source_url})`;
 	}
@@ -230,6 +230,28 @@ function formatSourceLink(item: EvidenceObject): string {
 
 function summaryFor(item: EvidenceObject, maxLength = 260): string {
 	return compactText(item.summary || item.extracted_text || item.title, maxLength);
+}
+
+function sourceDisplayTitle(item: EvidenceObject, maxLength: number): string {
+	const title = item.title.trim();
+	if (looksUrlLike(title) || title === item.source_url) return compactUrlLabel(item.source_url, maxLength);
+	return compactText(title, maxLength);
+}
+
+function compactUrlLabel(value: string, maxLength: number): string {
+	try {
+		const url = new URL(value);
+		const path = url.pathname.replace(/\/$/, '');
+		const label = `${url.hostname.replace(/^www\./, '')}${path && path !== '/' ? path : ''}`;
+		if (label.length <= maxLength) return label;
+		return `${label.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+	} catch {
+		return compactText(value, maxLength);
+	}
+}
+
+function looksUrlLike(value: string): boolean {
+	return /^https?:\/\//i.test(value) || /^[a-z0-9.-]+\.[a-z]{2,}(?:\/|$)/i.test(value);
 }
 
 function latestAvailableFraming(prompt: string, item: EvidenceObject): string {

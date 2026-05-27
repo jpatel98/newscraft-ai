@@ -142,7 +142,7 @@ function appendSystemInstruction(history: AgentMessage[], instruction: string): 
 }
 
 function looksSourceBacked(text: string): boolean {
-	return /\b(source|sources|cite|citation|current|latest|today|yesterday|breaking|news|search|look up|verify|fact[- ]?check|according to|reports?|coverage)\b/i.test(
+	return /\b(source|sources|cite|citation|current|latest|today|tomorrow|tonight|forecast|price|prices|rates?|yesterday|breaking|news|search|look up|verify|fact[- ]?check|according to|reports?|coverage)\b/i.test(
 		text
 	);
 }

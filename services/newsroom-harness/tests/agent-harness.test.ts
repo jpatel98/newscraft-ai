@@ -16,6 +16,7 @@ describe('disciplined newsroom agent harness', () => {
 			['Check the latest Toronto Police releases and summarize anything newsworthy', 'source_monitor'],
 			['Scan our configured source monitors for updates', 'source_monitor'],
 			['Latest Mark Carney news', 'web_search'],
+			['what are the gas prices in toronto tomorrow', 'web_search'],
 			['What are other outlets reporting about this story?', 'web_search'],
 			['Search the web for broader coverage of Ontario housing policy', 'web_search'],
 			['Open this dynamic page and click the latest release', 'browser_automation'],
@@ -238,6 +239,39 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).toContain('The freshest usable source found in this run was published 2026-05-26T23:15:00.000Z');
 		expect(answer.indexOf('Carney update from last night')).toBeLessThan(answer.indexOf('Older official background'));
 		expect(answer).not.toContain('No publishable lead was found');
+	});
+
+	it('uses a compact answer shape for chat source runs', () => {
+		const decision = routeNewsroomRequest('latest on gas prices in GTA');
+		const answer = generateFinalAnswer({
+			prompt: 'latest on gas prices in GTA',
+			decision,
+			evidence: [
+				normalizeEvidence({
+					source_name: 'CityNews',
+					source_url: 'https://toronto.citynews.ca/toronto-gta-gas-prices',
+					accessed_at: '2026-05-27T13:00:00.000Z',
+					tool_used: 'openai_web_search',
+					title: 'Toronto & GTA Gas Prices',
+					published_at: null,
+					extracted_text: 'GTA pump prices are expected to hold today.',
+					summary: 'GTA pump prices are expected to hold today.',
+					confidence: 0.7,
+					limitations: [],
+					source_kind: 'media_report'
+				})
+			],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			toolAnswers: ['GTA pump prices are expected to hold today, according to the CityNews fuel tracker.'],
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('GTA pump prices are expected to hold today');
+		expect(answer).toContain('Sources:');
+		expect(answer).not.toContain('## Lead Candidates');
+		expect(answer).not.toContain('## Source Notes');
+		expect(answer).not.toContain('Human Review');
 	});
 
 	it('keeps evidence-heavy reports compact instead of repeating every source body', () => {

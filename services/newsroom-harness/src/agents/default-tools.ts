@@ -490,7 +490,7 @@ function extractOpenAiWebSources(raw: unknown, outputText: string, query: string
 
 function webSource(url: string, title: string, snippet = '') {
 	const sourceSummary = compactToolText(snippet, 220);
-	const titleSummary = compactToolText(title, 220);
+	const titleSummary = compactWebSourceTitle(title, url, 220);
 	const summary = sourceSummary || titleSummary;
 	return {
 		source_name: sourceNameFromUrl(url),
@@ -501,6 +501,22 @@ function webSource(url: string, title: string, snippet = '') {
 		limitations: ['OpenAI web_search result; cite and verify source page before publication.'],
 		confidence: 0.6
 	};
+}
+
+function compactWebSourceTitle(title: string, url: string, maxLength: number): string {
+	const value = title.trim();
+	if (/^https?:\/\//i.test(value) || value === url) {
+		try {
+			const parsed = new URL(url);
+			const path = parsed.pathname.replace(/\/$/, '');
+			const label = `${parsed.hostname.replace(/^www\./, '')}${path && path !== '/' ? path : ''}`;
+			if (label.length <= maxLength) return label;
+			return `${label.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+		} catch {
+			/* fall through */
+		}
+	}
+	return compactToolText(value, maxLength);
 }
 
 function shouldKeepWebSource(url: string, query: string): boolean {

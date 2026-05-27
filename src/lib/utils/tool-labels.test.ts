@@ -14,7 +14,13 @@ import {
 describe('tool labels', () => {
 	it('maps search-style names to a friendly live label', () => {
 		expect(liveLabel('web_search')).toBe('Scanning coverage');
+		expect(liveLabel('openai_web_search')).toBe('Scanning coverage');
 		expect(liveLabel('google_search')).toBe('Scanning coverage');
+	});
+
+	it('maps assignment routing to a short planning label', () => {
+		expect(liveLabel('assignment_desk')).toBe('Planning request');
+		expect(doneLabel('assignment_desk')).toBe('Request routed');
 	});
 
 	it('maps fetch-style names to a friendly live label', () => {
