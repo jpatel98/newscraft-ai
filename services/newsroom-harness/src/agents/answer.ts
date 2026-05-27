@@ -75,7 +75,8 @@ function chatAnswer(
 	toolAnswers: string[]
 ): string {
 	const freshest = evidence[0];
-	const answer = compactText(toolAnswers.find((item) => item.trim()) || summaryFor(freshest, 720), 900);
+	const rawToolAnswer = toolAnswers.find((item) => item.trim());
+	const answer = rawToolAnswer ? formatChatToolAnswer(prompt, rawToolAnswer) : summaryFor(freshest, 720);
 	const freshness = latestAvailableFraming(prompt, freshest);
 	const sourceContext = chatSourceContext(evidence);
 	const sourceLines = evidence.slice(0, 5).map((item) => {
@@ -89,6 +90,15 @@ function chatAnswer(
 	].filter(Boolean);
 
 	return [answer, caveats.join(' '), 'Sources:', sourceLines.join('\n')].filter(Boolean).join('\n\n');
+}
+
+function formatChatToolAnswer(prompt: string, answer: string): string {
+	if (wantsTable(prompt)) return compactMarkdownAnswer(answer, 1400);
+	return compactText(answer, 900);
+}
+
+function wantsTable(prompt: string): boolean {
+	return /\b(table|tabular|rows?|columns?)\b/i.test(prompt);
 }
 
 function chatSourceContext(evidence: EvidenceObject[]): string {
@@ -267,6 +277,16 @@ function compactText(value: string, maxLength: number): string {
 		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
 		.replace(/[*_~>`#-]+/g, ' ')
 		.replace(/\s+/g, ' ')
+		.trim();
+	if (cleaned.length <= maxLength) return cleaned;
+	return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+}
+
+function compactMarkdownAnswer(value: string, maxLength: number): string {
+	const cleaned = value
+		.replace(/```(?:markdown|md|text)?\n?/gi, '')
+		.replace(/```/g, '')
+		.replace(/\n{3,}/g, '\n\n')
 		.trim();
 	if (cleaned.length <= maxLength) return cleaned;
 	return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trim()}…`;

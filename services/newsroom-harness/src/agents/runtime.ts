@@ -463,9 +463,7 @@ function progressDetailForTool(tool: string): string {
 }
 
 function shouldUseDisciplinedChat(prompt: string): boolean {
-	return /\b(source|sources|cite|citation|current|latest|today|tomorrow|tonight|forecast|price|prices|rates?|yesterday|breaking|news|search|look up|verify|fact[- ]?check|according to|reports?|coverage|read|fetch|rss|url)\b/i.test(
-		prompt
-	);
+	return !/^title for this conversation:?\s*$/i.test(prompt.trim());
 }
 
 export function textDeltaFromSdkEvent(event: unknown): string {

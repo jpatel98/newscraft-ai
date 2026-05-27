@@ -17,6 +17,9 @@ describe('disciplined newsroom agent harness', () => {
 			['Scan our configured source monitors for updates', 'source_monitor'],
 			['Latest Mark Carney news', 'web_search'],
 			['what are the gas prices in toronto tomorrow', 'web_search'],
+			['can you find gas prices in Toronto for the past week and present it to me as a table?', 'web_search'],
+			['Who is the mayor of Toronto?', 'web_search'],
+			['What happened at city hall this week?', 'web_search'],
 			['What are other outlets reporting about this story?', 'web_search'],
 			['Search the web for broader coverage of Ontario housing policy', 'web_search'],
 			['Open this dynamic page and click the latest release', 'browser_automation'],
@@ -272,6 +275,37 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).not.toContain('## Lead Candidates');
 		expect(answer).not.toContain('## Source Notes');
 		expect(answer).not.toContain('Human Review');
+	});
+
+	it('preserves requested tables in compact chat source runs', () => {
+		const decision = routeNewsroomRequest('can you find gas prices in Toronto for the past week and present it to me as a table?');
+		const answer = generateFinalAnswer({
+			prompt: 'can you find gas prices in Toronto for the past week and present it to me as a table?',
+			decision,
+			evidence: [
+				normalizeEvidence({
+					source_name: 'CityNews',
+					source_url: 'https://toronto.citynews.ca/toronto-gta-gas-prices',
+					accessed_at: '2026-05-27T13:00:00.000Z',
+					tool_used: 'openai_web_search',
+					title: 'Toronto & GTA Gas Prices',
+					published_at: null,
+					extracted_text: 'Toronto pump prices over the past week.',
+					summary: 'Toronto pump prices over the past week.',
+					confidence: 0.7,
+					limitations: [],
+					source_kind: 'media_report'
+				})
+			],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			toolAnswers: ['| Date | Price |\n|---|---:|\n| 2026-05-21 | 145.9 cents/L |\n| 2026-05-22 | 137.9 cents/L |'],
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('| Date | Price |');
+		expect(answer).toContain('| 2026-05-22 | 137.9 cents/L |');
+		expect(answer).not.toContain('## Lead Candidates');
 	});
 
 	it('keeps evidence-heavy reports compact instead of repeating every source body', () => {

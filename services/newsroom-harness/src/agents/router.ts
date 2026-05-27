@@ -107,7 +107,7 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		);
 	}
 
-	if (wantsOtherOutlets || mentionsBroadDiscovery(text)) {
+	if (wantsOtherOutlets) {
 		return decision(
 			'web_search',
 			'The request asks for broad discovery, related coverage, or what other outlets are reporting.',
@@ -115,6 +115,17 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 			budget,
 			'stop when enough web-search evidence exists or the web search budget/provider is unavailable',
 			'a sourced answer summarizing related coverage and uncertainty'
+		);
+	}
+
+	if (mentionsStableNewsroomGuidance(text)) {
+		return decision(
+			'answer_from_memory',
+			'The request asks for stable newsroom guidance that does not require fresh source retrieval.',
+			[],
+			budget,
+			'stop without calling tools',
+			'a direct answer without pretending to have checked live sources'
 		);
 	}
 
@@ -130,12 +141,12 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 	}
 
 	return decision(
-		'answer_from_memory',
-		'The request appears to be general newsroom guidance that does not require fresh source retrieval.',
-		[],
+		'web_search',
+		'No local-only newsroom handler matched; producer chat defaults to broad source lookup.',
+		[NEWSROOM_TOOL_NAMES.webSearch],
 		budget,
-		'stop without calling tools',
-		'a direct answer without pretending to have checked live sources'
+		'stop when enough web-search evidence exists or the web search budget/provider is unavailable',
+		'a sourced answer with clear caveats when evidence is incomplete'
 	);
 }
 
@@ -188,16 +199,14 @@ function mentionsCurrentSourceCheck(text: string): boolean {
 	return /\b(check|scan|monitor|release|releases|press release|police|public safety)\b/.test(text);
 }
 
-function mentionsBroadDiscovery(text: string): boolean {
-	return (
-		/\b(web search|search the web|find sources|broad context|background coverage|latest on|roundup|trend)\b/.test(text) ||
-		/\b(latest|today|tomorrow|tonight|forecast|new|recent|breaking|current)\b.*\b(news|coverage|reports?|updates?|story|stories|prices?|rates?|on)\b/.test(text) ||
-		/\b(news|coverage|reports?|updates?|story|stories|prices?|rates?)\b.*\b(latest|today|tomorrow|tonight|forecast|new|recent|breaking|current)\b/.test(text)
+function mentionsCustomTool(text: string): boolean {
+	return /\b(newsroom brief|brief generator|producer brief|turn these notes|from these notes|use internal|custom tool)\b/.test(
+		text
 	);
 }
 
-function mentionsCustomTool(text: string): boolean {
-	return /\b(newsroom brief|brief generator|producer brief|turn these notes|from these notes|use internal|custom tool)\b/.test(
+function mentionsStableNewsroomGuidance(text: string): boolean {
+	return /\b(what is|what's|define|explain|how do i|how should i|best practice|style guidance)\b.*\b(nut graf|lede|inverted pyramid|byline|dateline|embargo|off the record|on background|attribution)\b/.test(
 		text
 	);
 }

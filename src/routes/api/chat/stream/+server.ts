@@ -141,12 +141,6 @@ function appendSystemInstruction(history: AgentMessage[], instruction: string): 
 	}
 }
 
-function looksSourceBacked(text: string): boolean {
-	return /\b(source|sources|cite|citation|current|latest|today|tomorrow|tonight|forecast|price|prices|rates?|yesterday|breaking|news|search|look up|verify|fact[- ]?check|according to|reports?|coverage)\b/i.test(
-		text
-	);
-}
-
 async function localAssistantResponse(convoId: string, text: string): Promise<Response> {
 	await addMessage({ conversationId: convoId, role: 'assistant', content: text });
 	return localTextStream(convoId, text);
@@ -351,14 +345,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		if (lastUser) lastUser.content = toAgentContent(body.content);
 	}
 
-	const latestUserText =
-		body.content != null
-			? contentText(body.content)
-			: (() => {
-					const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-					return lastUser ? contentText(parseContent(lastUser.content)) : '';
-				})();
-
 	const override = convo.systemPrompt?.trim();
 	if (override) {
 		const idx = history.findIndex((m) => m.role === 'system');
@@ -367,9 +353,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		else history.unshift(sys);
 	}
 	appendSystemInstruction(history, INTERACTIVE_WEB_SYSTEM);
-	if (looksSourceBacked(latestUserText)) {
-		appendSystemInstruction(history, FAST_SOURCE_SYSTEM);
-	}
+	appendSystemInstruction(history, FAST_SOURCE_SYSTEM);
 
 	const upstreamAbort = new AbortController();
 	if (request.signal.aborted) upstreamAbort.abort();

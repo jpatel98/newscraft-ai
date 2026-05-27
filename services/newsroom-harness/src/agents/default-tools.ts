@@ -170,6 +170,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 						'Prefer primary or official sources and directly relevant local/reputable outlets.',
 						'Avoid forums, social threads, old PDFs, and loosely related background unless the request asks for them.',
 						'Keep the answer concise and newsroom-ready.',
+						'If the request asks for a table, return a compact GitHub-flavored markdown table with pipes and a separator row.',
 						`Request: ${input.query}`
 					].join('\n')
 				}),
@@ -441,15 +442,8 @@ function extractOpenAiOutputText(raw: unknown): string {
 }
 
 function extractOpenAiWebSources(raw: unknown, outputText: string, query: string) {
-	const sources: Array<{
-		source_name: string;
-		source_url: string;
-		title: string;
-		extracted_text: string;
-		summary: string;
-		limitations: string[];
-		confidence: number;
-	}> = [];
+	const actionSources: WebSourceCandidate[] = [];
+	const citedSources: WebSourceCandidate[] = [];
 	const response = raw as {
 		output?: Array<{
 			type?: string;
@@ -469,13 +463,13 @@ function extractOpenAiWebSources(raw: unknown, outputText: string, query: string
 		for (const source of item.action?.sources || []) {
 			if (!source.url) continue;
 			if (!shouldKeepWebSource(source.url, query)) continue;
-			sources.push(webSource(source.url, source.title || source.source || source.url));
+			actionSources.push(webSource(source.url, source.title || source.source || source.url));
 		}
 		for (const content of item.content || []) {
 			for (const annotation of content.annotations || []) {
 				if (annotation.type !== 'url_citation' || !annotation.url) continue;
 				if (!shouldKeepWebSource(annotation.url, query)) continue;
-				sources.push(
+				citedSources.push(
 					webSource(
 						annotation.url,
 						annotation.title || annotation.url,
@@ -485,10 +479,30 @@ function extractOpenAiWebSources(raw: unknown, outputText: string, query: string
 			}
 		}
 	}
-	return sources.slice(0, MAX_WEB_SEARCH_SOURCES);
+	return uniqueWebSources([...citedSources, ...actionSources]).slice(0, MAX_WEB_SEARCH_SOURCES);
 }
 
-function webSource(url: string, title: string, snippet = '') {
+type WebSourceCandidate = {
+	source_name: string;
+	source_url: string;
+	title: string;
+	extracted_text: string;
+	summary: string;
+	limitations: string[];
+	confidence: number;
+};
+
+function uniqueWebSources(sources: WebSourceCandidate[]): WebSourceCandidate[] {
+	const seen = new Set<string>();
+	return sources.filter((source) => {
+		const key = source.source_url.replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase();
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+}
+
+function webSource(url: string, title: string, snippet = ''): WebSourceCandidate {
 	const sourceSummary = compactToolText(snippet, 220);
 	const titleSummary = compactWebSourceTitle(title, url, 220);
 	const summary = sourceSummary || titleSummary;
