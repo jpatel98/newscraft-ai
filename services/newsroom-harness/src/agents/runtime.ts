@@ -2,7 +2,7 @@ import type { GatewayChatMessage, ReasoningEffort } from '@newscraft/shared';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { chooseRole, roleInstructionsFor, roleLabel, type NewsroomRole } from './roles.js';
-import { DisciplinedNewsroomAgent, type NewsroomAgentRunResult } from './newsroom-agent.js';
+import { DisciplinedNewsroomAgent, type AgentToolEvent, type NewsroomAgentRunResult } from './newsroom-agent.js';
 import type { EvidenceObject } from './evidence.js';
 import type { NewsroomAgentConfig } from './harness-config.js';
 import { fetchSourceUrl, sourceFromText, type FetchedSource } from '../tools/sources.js';
@@ -59,14 +59,24 @@ export class NewsroomAgentRuntime {
 
 	async completeChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): Promise<string> {
 		const prompt = promptFromChatMessages(messages);
+		const taskPrompt = latestUserPromptFromChatMessages(messages) || prompt;
 		if (!this.controls.openAiApiKey) return this.localChat(prompt);
+		if (shouldUseDisciplinedChat(taskPrompt)) {
+			return this.withTimeout(() => this.disciplinedComplete(taskPrompt, context), context.signal);
+		}
 		return this.withTimeout(() => this.sdkComplete(prompt, context), context.signal);
 	}
 
 	async *streamChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): AsyncGenerator<string> {
 		const prompt = promptFromChatMessages(messages);
+		const taskPrompt = latestUserPromptFromChatMessages(messages) || prompt;
 		if (!this.controls.openAiApiKey) {
 			for (const chunk of splitForStreaming(this.localChat(prompt))) yield chunk;
+			return;
+		}
+		if (shouldUseDisciplinedChat(taskPrompt)) {
+			const text = await this.withTimeout(() => this.disciplinedComplete(taskPrompt, context), context.signal);
+			for (const chunk of splitForStreaming(text)) yield chunk;
 			return;
 		}
 		yield* this.sdkStream(prompt, context);
@@ -128,6 +138,57 @@ export class NewsroomAgentRuntime {
 				: 'I can scan, summarize, draft, verify, and prepare reports while leaving publishing decisions to an editor.',
 			'For live model-backed analysis, set OPENAI_API_KEY on the newsroom harness.'
 		].join('\n\n');
+	}
+
+	private async disciplinedComplete(prompt: string, context: RuntimeContext): Promise<string> {
+		const result = await this.runDisciplinedAgent(prompt, context);
+		return result.final_answer.trim() || this.localChat(prompt);
+	}
+
+	private async runDisciplinedAgent(prompt: string, context: RuntimeContext): Promise<NewsroomAgentRunResult> {
+		const agent = new DisciplinedNewsroomAgent({
+			config: {
+				...this.controls.agentConfig,
+				default_tool_budget: {
+					max_total_tool_calls: this.controls.maxToolCalls,
+					max_custom_tool_calls: Math.min(4, this.controls.maxToolCalls),
+					max_web_searches: 3,
+					max_browser_tasks: 2,
+					max_runtime_seconds: Math.ceil(this.controls.runTimeoutMs / 1000)
+				}
+			},
+			repository: context.repository,
+			openAiApiKey: this.controls.openAiApiKey
+		});
+		return agent.run(prompt, {
+			repository: context.repository,
+			openAiApiKey: this.controls.openAiApiKey,
+			signal: context.signal,
+			onToolEvent: (event) => this.forwardDisciplinedProgress(event, context)
+		});
+	}
+
+	private forwardDisciplinedProgress(event: AgentToolEvent, context: RuntimeContext): void {
+		const id = `${context.runId || 'chat'}_${event.tool}`;
+		if (event.type === 'tool_started') {
+			context.onProgress?.({ type: 'tool', id, name: event.tool, status: 'running', detail: event.detail });
+			return;
+		}
+		if (event.type === 'tool_completed') {
+			for (const item of event.evidence || []) context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item) });
+			context.onProgress?.({
+				type: 'tool',
+				id,
+				name: event.tool,
+				status: event.status === 'ok' ? 'ok' : 'failed',
+				detail: event.detail,
+				result: { evidenceCount: event.evidence?.length || 0 }
+			});
+			return;
+		}
+		if (event.type === 'tool_skipped') {
+			context.onProgress?.({ type: 'tool', id, name: event.tool, status: 'failed', detail: event.detail });
+		}
 	}
 
 	private async sdkComplete(prompt: string, context: RuntimeContext): Promise<string> {
@@ -368,6 +429,28 @@ function truncateEvidence(value: string, maxLength = 1800): string {
 	const cleaned = value.replace(/\s+/g, ' ').trim();
 	if (cleaned.length <= maxLength) return cleaned;
 	return `${cleaned.slice(0, maxLength - 1).trim()}…`;
+}
+
+function latestUserPromptFromChatMessages(messages: GatewayChatMessage[]): string {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role !== 'user') continue;
+		const text =
+			typeof message.content === 'string'
+				? message.content
+				: message.content
+						.filter((part) => part.type === 'text')
+						.map((part) => part.text)
+						.join('\n');
+		if (text.trim()) return text.trim();
+	}
+	return '';
+}
+
+function shouldUseDisciplinedChat(prompt: string): boolean {
+	return /\b(source|sources|cite|citation|current|latest|today|yesterday|breaking|news|search|look up|verify|fact[- ]?check|according to|reports?|coverage|read|fetch|rss|url)\b/i.test(
+		prompt
+	);
 }
 
 export function textDeltaFromSdkEvent(event: unknown): string {

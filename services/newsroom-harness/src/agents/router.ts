@@ -185,14 +185,14 @@ function mentionsConfiguredSource(text: string): boolean {
 }
 
 function mentionsCurrentSourceCheck(text: string): boolean {
-	return /\b(latest|today|new|recent|breaking|current|check|scan|monitor|release|releases|press release|police|public safety)\b/.test(
-		text
-	);
+	return /\b(check|scan|monitor|release|releases|press release|police|public safety)\b/.test(text);
 }
 
 function mentionsBroadDiscovery(text: string): boolean {
-	return /\b(web search|search the web|find sources|broad context|background coverage|latest on|roundup|trend)\b/.test(
-		text
+	return (
+		/\b(web search|search the web|find sources|broad context|background coverage|latest on|roundup|trend)\b/.test(text) ||
+		/\b(latest|today|new|recent|breaking|current)\b.*\b(news|coverage|reports?|updates?|story|stories|on)\b/.test(text) ||
+		/\b(news|coverage|reports?|updates?|story|stories)\b.*\b(latest|today|new|recent|breaking|current)\b/.test(text)
 	);
 }
 

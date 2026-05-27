@@ -6,6 +6,17 @@ import { fetchSourceUrl, sourceFromText } from '../tools/sources.js';
 import { extractUrls, firstUrl } from '../util/text.js';
 import { assessSourceQuality } from '../util/source-quality.js';
 
+const GENERIC_MONITOR_NAME_TERMS = new Set([
+	'media',
+	'centre',
+	'center',
+	'news',
+	'release',
+	'releases',
+	'resources',
+	'latest'
+]);
+
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
 	for (const tool of [
@@ -397,7 +408,10 @@ function selectMonitors(query: string, context: ToolRunContext) {
 	return [...context.config.source_monitors]
 		.filter((monitor) => {
 			if (monitor.tags.some((tag) => normalized.includes(tag.toLowerCase()))) return true;
-			const terms = monitor.name.toLowerCase().split(/\W+/).filter((term) => term.length > 3);
+			const terms = monitor.name
+				.toLowerCase()
+				.split(/\W+/)
+				.filter((term) => term.length > 3 && !GENERIC_MONITOR_NAME_TERMS.has(term));
 			return terms.some((term) => normalized.includes(term));
 		})
 		.sort((left, right) => right.priority - left.priority);

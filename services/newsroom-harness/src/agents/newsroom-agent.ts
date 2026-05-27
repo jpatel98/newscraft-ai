@@ -29,7 +29,7 @@ interface AgentToolCallRecord {
 	evidence_count: number;
 }
 
-interface AgentToolEvent {
+export interface AgentToolEvent {
 	type: 'tool_started' | 'tool_completed' | 'tool_skipped';
 	tool: string;
 	status?: string;

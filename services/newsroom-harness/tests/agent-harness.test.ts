@@ -15,6 +15,7 @@ describe('disciplined newsroom agent harness', () => {
 			['Summarize the latest mission output', 'custom_tool'],
 			['Check the latest Toronto Police releases and summarize anything newsworthy', 'source_monitor'],
 			['Scan our configured source monitors for updates', 'source_monitor'],
+			['Latest Mark Carney news', 'web_search'],
 			['What are other outlets reporting about this story?', 'web_search'],
 			['Search the web for broader coverage of Ontario housing policy', 'web_search'],
 			['Open this dynamic page and click the latest release', 'browser_automation'],
@@ -197,6 +198,46 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).toContain('Police/legal caution');
 		expect(answer).toContain('media report');
 		expect(answer).not.toContain('Tool budget used');
+	});
+
+	it('treats latest as the freshest usable result even when it is not from today', () => {
+		const decision = routeNewsroomRequest('Latest Mark Carney news');
+		const answer = generateFinalAnswer({
+			prompt: 'Latest Mark Carney news',
+			decision,
+			evidence: [
+				normalizeEvidence({
+					source_name: 'Official archive',
+					source_url: 'https://example.com/official-old',
+					accessed_at: '2026-05-27T13:00:00.000Z',
+					tool_used: 'configured_source_monitor',
+					title: 'Older official background',
+					published_at: '2026-05-25T12:00:00.000Z',
+					extracted_text: 'Older official background about Mark Carney.',
+					confidence: 0.9,
+					limitations: [],
+					source_kind: 'official'
+				}),
+				normalizeEvidence({
+					source_name: 'Newswire',
+					source_url: 'https://example.com/carney-last-night',
+					accessed_at: '2026-05-27T13:00:00.000Z',
+					tool_used: 'openai_web_search',
+					title: 'Carney update from last night',
+					published_at: '2026-05-26T23:15:00.000Z',
+					extracted_text: 'The latest readable report from last night says Carney met provincial officials.',
+					confidence: 0.7,
+					limitations: ['Verify against primary sources before publication.'],
+					source_kind: 'media_report'
+				})
+			],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot()
+		});
+
+		expect(answer).toContain('The freshest usable source found in this run was published 2026-05-26T23:15:00.000Z');
+		expect(answer.indexOf('Carney update from last night')).toBeLessThan(answer.indexOf('Older official background'));
+		expect(answer).not.toContain('No publishable lead was found');
 	});
 
 	it('keeps evidence-heavy reports compact instead of repeating every source body', () => {

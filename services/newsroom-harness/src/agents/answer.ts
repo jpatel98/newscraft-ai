@@ -12,7 +12,7 @@ export interface AnswerGenerationInput {
 }
 
 export function generateFinalAnswer(input: AnswerGenerationInput): string {
-	const sortedEvidence = [...input.evidence].sort(compareEvidencePriority);
+	const sortedEvidence = sortEvidenceForPrompt(input.prompt, input.evidence);
 	const evidence = sortedEvidence.filter(isUsableEvidence);
 	const unusableEvidence = sortedEvidence.filter((item) => !isUsableEvidence(item));
 	if (input.decision.selected_mode === 'clarification_needed') {
@@ -79,6 +79,7 @@ function leadParagraph(prompt: string, evidence: EvidenceObject[]): string {
 	const media = evidence.filter((item) => item.source_kind === 'media_report');
 	const newest = evidence[0];
 	const base = summaryFor(newest, 420);
+	const latestFraming = latestAvailableFraming(prompt, newest);
 	const sourceFraming =
 		official.length && media.length
 			? `The gathered evidence includes ${official.length} official or primary source${official.length === 1 ? '' : 's'} and ${media.length} media report${media.length === 1 ? '' : 's'}.`
@@ -90,7 +91,7 @@ function leadParagraph(prompt: string, evidence: EvidenceObject[]): string {
 	const changed = /\b(latest|new|changed|update|today|recent)\b/i.test(prompt)
 		? ` Latest candidate sources are listed below.`
 		: '';
-	return `${base}\n\n${sourceFraming}${changed}`;
+	return `${base}\n\n${[latestFraming, sourceFraming].filter(Boolean).join(' ')}${changed}`;
 }
 
 function verificationNotesFor(prompt: string, evidence: EvidenceObject[], unusableEvidence: EvidenceObject[]): string[] {
@@ -128,12 +129,35 @@ function detectConflicts(evidence: EvidenceObject[]): string[] {
 	return conflicts;
 }
 
+function sortEvidenceForPrompt(prompt: string, evidence: EvidenceObject[]): EvidenceObject[] {
+	const currentRequest = /\b(latest|today|new|recent|breaking|current|update|updates)\b/i.test(prompt);
+	return [...evidence].sort((left, right) =>
+		currentRequest ? compareEvidenceRecency(left, right) : compareEvidencePriority(left, right)
+	);
+}
+
+function compareEvidenceRecency(left: EvidenceObject, right: EvidenceObject): number {
+	const leftTime = evidenceTimeMs(left);
+	const rightTime = evidenceTimeMs(right);
+	if (leftTime !== rightTime) return rightTime - leftTime;
+	return sourcePriority(left) - sourcePriority(right);
+}
+
 function compareEvidencePriority(left: EvidenceObject, right: EvidenceObject): number {
-	const priority = { official: 0, primary: 1, internal: 2, media_report: 3, unknown: 4 };
-	const leftPriority = priority[left.source_kind || 'unknown'];
-	const rightPriority = priority[right.source_kind || 'unknown'];
+	const leftPriority = sourcePriority(left);
+	const rightPriority = sourcePriority(right);
 	if (leftPriority !== rightPriority) return leftPriority - rightPriority;
-	return Date.parse(right.published_at || right.accessed_at) - Date.parse(left.published_at || left.accessed_at);
+	return evidenceTimeMs(right) - evidenceTimeMs(left);
+}
+
+function sourcePriority(item: EvidenceObject): number {
+	const priority = { official: 0, primary: 1, internal: 2, media_report: 3, unknown: 4 };
+	return priority[item.source_kind || 'unknown'];
+}
+
+function evidenceTimeMs(item: EvidenceObject): number {
+	const parsed = Date.parse(item.published_at || item.accessed_at);
+	return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function sourceLabel(item: EvidenceObject): string {
@@ -158,6 +182,12 @@ function formatSourceLink(item: EvidenceObject): string {
 
 function summaryFor(item: EvidenceObject, maxLength = 260): string {
 	return compactText(item.summary || item.extracted_text || item.title, maxLength);
+}
+
+function latestAvailableFraming(prompt: string, item: EvidenceObject): string {
+	if (!/\b(latest|today|new|recent|breaking|current|update|updates)\b/i.test(prompt)) return '';
+	const timestamp = item.published_at ? `published ${item.published_at}` : `accessed ${item.accessed_at}`;
+	return `The freshest usable source found in this run was ${timestamp}; treat this as the latest available result, not proof that nothing newer exists.`;
 }
 
 function compactText(value: string, maxLength: number): string {
