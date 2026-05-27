@@ -9,6 +9,7 @@ export interface AnswerGenerationInput {
 	limitations: string[];
 	budget: ToolBudgetSnapshot;
 	toolAnswers?: string[];
+	outputStyle?: 'report' | 'chat';
 }
 
 export function generateFinalAnswer(input: AnswerGenerationInput): string {
@@ -25,7 +26,11 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		return input.toolAnswers.join('\n\n').trim();
 	}
 	if (!evidence.length) {
+		if (input.outputStyle === 'chat') return chatNoLead(unusableEvidence);
 		return noPublishableLeadReport(unusableEvidence);
+	}
+	if (input.outputStyle === 'chat') {
+		return chatAnswer(input.prompt, evidence, unusableEvidence, input.toolAnswers || []);
 	}
 
 	const lead = leadParagraph(input.prompt, evidence);
@@ -61,6 +66,49 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		'## Human Review',
 		'A producer or editor should confirm story angle, public-interest value, legal/privacy sensitivity, and any publishable wording before use.'
 	].join('\n');
+}
+
+function chatAnswer(
+	prompt: string,
+	evidence: EvidenceObject[],
+	unusableEvidence: EvidenceObject[],
+	toolAnswers: string[]
+): string {
+	const freshest = evidence[0];
+	const answer = compactText(toolAnswers.find((item) => item.trim()) || summaryFor(freshest, 720), 900);
+	const freshness = latestAvailableFraming(prompt, freshest);
+	const sourceContext = chatSourceContext(evidence);
+	const sourceLines = evidence.slice(0, 5).map((item) => {
+		const timestamp = item.published_at ? `published ${item.published_at}` : `accessed ${item.accessed_at}`;
+		return `- ${formatSourceLink(item)} - ${timestamp}. ${summaryFor(item, 180)}`;
+	});
+	const caveats = [
+		freshness,
+		sourceContext,
+		unusableEvidence.length ? 'Some candidate sources were unreadable and were not used.' : ''
+	].filter(Boolean);
+
+	return [answer, caveats.join(' '), 'Sources:', sourceLines.join('\n')].filter(Boolean).join('\n\n');
+}
+
+function chatSourceContext(evidence: EvidenceObject[]): string {
+	const officialCount = evidence.filter((item) => item.source_kind === 'official' || item.source_kind === 'primary').length;
+	const mediaCount = evidence.filter((item) => item.source_kind === 'media_report').length;
+	if (officialCount && mediaCount) return 'It is backed by primary/official material and media coverage.';
+	if (officialCount) return 'It is backed by primary or official material.';
+	if (mediaCount) return 'It is based on media/search results and should be checked against a primary source before publication.';
+	return 'Treat this as preliminary source material.';
+}
+
+function chatNoLead(unusableEvidence: EvidenceObject[]): string {
+	const notes = sourceIssueNotes(unusableEvidence).slice(0, 3);
+	return [
+		'I could not find readable source material for this run, so I would not use it for a publishable update yet.',
+		notes.length ? `Skipped sources: ${notes.join(' ')}` : '',
+		'Try again with a specific outlet/source, or rerun when the source is readable.'
+	]
+		.filter(Boolean)
+		.join('\n\n');
 }
 
 function answerFromMemory(prompt: string): string {

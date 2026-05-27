@@ -19,6 +19,7 @@ export interface NewsroomAgentRunContext {
 	repository?: HarnessRepository;
 	openAiApiKey?: string;
 	signal?: AbortSignal;
+	outputStyle?: 'report' | 'chat';
 	onToolEvent?: (event: AgentToolEvent) => void;
 }
 
@@ -86,7 +87,7 @@ export class DisciplinedNewsroomAgent {
 				prompt,
 				decision,
 				evidence,
-				final_answer: generateFinalAnswer({ prompt, decision, evidence, limitations, budget }),
+				final_answer: generateFinalAnswer({ prompt, decision, evidence, limitations, budget, outputStyle: context.outputStyle }),
 				limitations,
 				tool_calls: toolCalls,
 				budget,
@@ -167,7 +168,15 @@ export class DisciplinedNewsroomAgent {
 			prompt,
 			decision,
 			evidence,
-			final_answer: generateFinalAnswer({ prompt, decision, evidence, limitations, budget, toolAnswers }),
+			final_answer: generateFinalAnswer({
+				prompt,
+				decision,
+				evidence,
+				limitations,
+				budget,
+				toolAnswers,
+				outputStyle: context.outputStyle
+			}),
 			limitations: [...new Set(limitations.filter(Boolean))],
 			tool_calls: toolCalls,
 			budget,

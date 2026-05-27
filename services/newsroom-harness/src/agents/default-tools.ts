@@ -16,6 +16,7 @@ const GENERIC_MONITOR_NAME_TERMS = new Set([
 	'resources',
 	'latest'
 ]);
+const MAX_WEB_SEARCH_SOURCES = 8;
 
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
@@ -163,7 +164,14 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					tools: [{ type: 'web_search' }],
 					tool_choice: 'auto',
 					include: ['web_search_call.action.sources'],
-					input: `Search for source material relevant to this newsroom request. Summarize neutrally and preserve source context: ${input.query}`
+					input: [
+						'Search for source material relevant to this newsroom request.',
+						'Summarize the freshest usable result first, with concrete dates or timestamps when available.',
+						'Prefer primary or official sources and directly relevant local/reputable outlets.',
+						'Avoid forums, social threads, old PDFs, and loosely related background unless the request asks for them.',
+						'Keep the answer concise and newsroom-ready.',
+						`Request: ${input.query}`
+					].join('\n')
 				}),
 				signal: context.signal
 			});
@@ -177,7 +185,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			}
 			const outputText = extractOpenAiOutputText(raw);
 			const evidence = normalizeToolEvidence(
-				{ evidence: extractOpenAiWebSources(raw, outputText) },
+				{ evidence: extractOpenAiWebSources(raw, outputText, input.query) },
 				NEWSROOM_TOOL_NAMES.webSearch,
 				{
 					source_name: 'OpenAI web_search',
@@ -188,7 +196,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				}
 			);
 			return evidence.length
-				? { status: 'ok', evidence, raw: { output_text: outputText } }
+				? { status: 'ok', evidence, answer: outputText, raw: { output_text: outputText } }
 				: {
 						status: 'unavailable',
 						limitations: ['OpenAI web_search returned no cited sources.'],
@@ -432,7 +440,7 @@ function extractOpenAiOutputText(raw: unknown): string {
 	);
 }
 
-function extractOpenAiWebSources(raw: unknown, outputText: string) {
+function extractOpenAiWebSources(raw: unknown, outputText: string, query: string) {
 	const sources: Array<{
 		source_name: string;
 		source_url: string;
@@ -446,35 +454,77 @@ function extractOpenAiWebSources(raw: unknown, outputText: string) {
 		output?: Array<{
 			type?: string;
 			action?: { sources?: Array<{ url?: string; title?: string; source?: string }> };
-			content?: Array<{ annotations?: Array<{ type?: string; url?: string; title?: string }> }>;
+			content?: Array<{
+				annotations?: Array<{
+					type?: string;
+					url?: string;
+					title?: string;
+					start_index?: number;
+					end_index?: number;
+				}>;
+			}>;
 		}>;
 	};
 	for (const item of response.output || []) {
 		for (const source of item.action?.sources || []) {
 			if (!source.url) continue;
-			sources.push(webSource(source.url, source.title || source.source || source.url, outputText));
+			if (!shouldKeepWebSource(source.url, query)) continue;
+			sources.push(webSource(source.url, source.title || source.source || source.url));
 		}
 		for (const content of item.content || []) {
 			for (const annotation of content.annotations || []) {
 				if (annotation.type !== 'url_citation' || !annotation.url) continue;
-				sources.push(webSource(annotation.url, annotation.title || annotation.url, outputText));
+				if (!shouldKeepWebSource(annotation.url, query)) continue;
+				sources.push(
+					webSource(
+						annotation.url,
+						annotation.title || annotation.url,
+						extractAnnotationSnippet(outputText, annotation.start_index, annotation.end_index)
+					)
+				);
 			}
 		}
 	}
-	return sources;
+	return sources.slice(0, MAX_WEB_SEARCH_SOURCES);
 }
 
-function webSource(url: string, title: string, outputText: string) {
-	const summary = compactToolText(outputText, 280);
+function webSource(url: string, title: string, snippet = '') {
+	const sourceSummary = compactToolText(snippet, 220);
+	const titleSummary = compactToolText(title, 220);
+	const summary = sourceSummary || titleSummary;
 	return {
 		source_name: sourceNameFromUrl(url),
 		source_url: url,
 		title,
-		extracted_text: compactToolText(outputText, 900),
-		summary: summary || 'Web search cited this source; verify the source page directly before publication.',
+		extracted_text: summary || titleSummary || 'Web search cited this source.',
+		summary: summary || titleSummary || 'Web search cited this source; verify the source page directly before publication.',
 		limitations: ['OpenAI web_search result; cite and verify source page before publication.'],
 		confidence: 0.6
 	};
+}
+
+function shouldKeepWebSource(url: string, query: string): boolean {
+	const normalizedQuery = query.toLowerCase();
+	try {
+		const parsed = new URL(url);
+		const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+		const path = parsed.pathname.toLowerCase();
+		if (!/\b(reddit|forum|social|thread)\b/.test(normalizedQuery) && /(^|\.)reddit\.com$/.test(host)) return false;
+		if (!/\b(pdf|document|filing|budget)\b/.test(normalizedQuery) && path.endsWith('.pdf')) return false;
+		return true;
+	} catch {
+		return true;
+	}
+}
+
+function extractAnnotationSnippet(outputText: string, startIndex?: number, endIndex?: number): string {
+	if (!Number.isFinite(startIndex) || !Number.isFinite(endIndex)) return '';
+	const start = Math.max(0, Number(startIndex));
+	const end = Math.min(outputText.length, Number(endIndex));
+	const contextStart = Math.max(0, outputText.lastIndexOf('.', start - 1) + 1);
+	const nextPeriod = outputText.indexOf('.', end);
+	const contextEnd = nextPeriod >= 0 ? Math.min(outputText.length, nextPeriod + 1) : Math.min(outputText.length, end + 180);
+	return compactToolText(outputText.slice(contextStart, contextEnd), 260);
 }
 
 function compactToolText(value: string, maxLength: number): string {

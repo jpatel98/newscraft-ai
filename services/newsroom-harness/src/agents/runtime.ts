@@ -164,6 +164,7 @@ export class NewsroomAgentRuntime {
 			repository: context.repository,
 			openAiApiKey: this.controls.openAiApiKey,
 			signal: context.signal,
+			outputStyle: 'chat',
 			onToolEvent: (event) => this.forwardDisciplinedProgress(event, context)
 		});
 	}
