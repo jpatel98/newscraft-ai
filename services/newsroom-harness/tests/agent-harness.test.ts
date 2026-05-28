@@ -25,6 +25,13 @@ describe('disciplined newsroom agent harness', () => {
 		});
 	});
 
+	it('keeps intent-driven desks for drafting, verification, and monitoring', () => {
+		const desk = new AssignmentDesk();
+		expect(desk.triage('Draft a headline for this story').role).toBe('production');
+		expect(desk.triage('Verify this claim against sources').role).toBe('verification');
+		expect(desk.triage('Monitor the police feed for changes').role).toBe('monitoring');
+	});
+
 	it('routes sample prompts to expected modes with at least 80% accuracy', () => {
 		const samples = [
 			['What is a nut graf?', 'answer_from_memory'],

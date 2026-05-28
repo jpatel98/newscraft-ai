@@ -32,7 +32,7 @@ export class AssignmentDesk {
 		const route = routeNewsroomRequest(command, {
 			default_tool_budget: mergeToolBudget(options.default_tool_budget)
 		});
-		const role = roleForRoute(route);
+		const role = roleForCommand(command, route);
 		const payload: AssignmentDeskEventPayload = {
 			command_excerpt: excerpt(command),
 			routed_role: role,
@@ -53,6 +53,23 @@ export class AssignmentDesk {
 			}
 		};
 	}
+}
+
+function roleForCommand(command: string, route: RouteDecision): NewsroomRole {
+	// Intent-driven desks take priority so drafting, fact-checking, and
+	// monitoring requests reach their role-specific instructions even when the
+	// router resolves them to a generic research/custom-tool mode.
+	const desk = deskFromCommand(command);
+	if (desk) return desk;
+	return roleForRoute(route);
+}
+
+function deskFromCommand(command: string): NewsroomRole | null {
+	const text = command.toLowerCase();
+	if (/\b(verify|fact[- ]?check|corroborate|confirm|source check)\b/.test(text)) return 'verification';
+	if (/\b(draft|headline|production|package|social|summary)\b/.test(text)) return 'production';
+	if (/\b(monitor|watch|alert|track|changes?)\b/.test(text)) return 'monitoring';
+	return null;
 }
 
 function roleForRoute(route: RouteDecision): NewsroomRole {
