@@ -27,7 +27,7 @@ export const actions: Actions = {
 		const c = mintSessionCookie(account.id);
 		cookies.set(c.name, c.value, c.opts);
 
-		const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/';
+		const safeNext = next.startsWith('/') && !/^\/[/\\]/.test(next) ? next : '/';
 		throw redirect(303, safeNext);
 	}
 };

@@ -25,23 +25,6 @@ export async function writeChatCompletion(
 	const model = body.model || 'newsroom-harness';
 	if (body.stream) {
 		res.writeHead(200, noStoreSseHeaders());
-		res.write(
-			agentToolProgressFrame({
-				id: 'assignment_desk',
-				name: 'assignment_desk',
-				status: 'running',
-				detail: 'Routing request'
-			})
-		);
-		res.write(
-			agentToolProgressFrame({
-				id: 'assignment_desk',
-				name: 'assignment_desk',
-				status: 'ok',
-				detail: 'Request routed',
-				done: true
-			})
-		);
 		for await (const delta of runtime.streamChat(body.messages || [], {
 			signal,
 			model,

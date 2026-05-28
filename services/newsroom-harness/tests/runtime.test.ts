@@ -1,11 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
 	NewsroomAgentRuntime,
+	type RuntimeProgressEvent,
 	sourceSnapshotToolParameters,
 	textDeltaFromSdkEvent,
 	urlFetchToolParameters
 } from '../src/agents/runtime.js';
+import { openDatabase, type HarnessDb } from '../src/db/database.js';
+import { HarnessRepository } from '../src/db/repository.js';
+
+let db: HarnessDb | null = null;
+let repository: HarnessRepository | null = null;
+
+afterEach(() => {
+	repository?.close();
+	repository = null;
+	db = null;
+});
 
 describe('newsroom agent runtime', () => {
 	it('keeps OpenAI Agents SDK URL tool schemas free of rejected URL formats', () => {
@@ -31,6 +43,49 @@ describe('newsroom agent runtime', () => {
 				}
 			})
 		).toBe('Producer brief ready.');
+	});
+
+	it('emits assignment desk triage events before running a mission', async () => {
+		db = openDatabase(':memory:');
+		repository = new HarnessRepository(db);
+		const job = repository.createJob({
+			name: 'Mayor lookup',
+			prompt: 'Who is the mayor of Toronto?',
+			schedule: 'every 60m'
+		});
+		const run = repository.createRun(job.id, 'test');
+		const progress: RuntimeProgressEvent[] = [];
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			openAiApiKey: ''
+		});
+
+		const result = await runtime.runMission(job.prompt, {
+			repository,
+			runId: run.id,
+			jobId: job.id,
+			onProgress: (event) => progress.push(event)
+		});
+
+		expect(result.role).toBe('research');
+		expect(
+			progress
+				.filter((event) => event.type === 'tool' && event.name === 'assignment_desk')
+				.map((event) => event.status)
+		).toEqual(['running', 'ok']);
+		const triage = repository.listEvents({ runId: run.id }).find((event) => event.kind === 'assignment.triaged');
+		expect(triage).toMatchObject({
+			agent: 'assignment_desk',
+			job_id: job.id,
+			run_id: run.id,
+			payload: {
+				routed_role: 'research',
+				selected_mode: 'web_search',
+				tools_to_use: ['openai_web_search']
+			}
+		});
 	});
 
 	const liveSmoke = process.env.NEWSROOM_HARNESS_LIVE_OPENAI_SMOKE === '1';
