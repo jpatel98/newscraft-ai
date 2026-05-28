@@ -1,7 +1,8 @@
 import type { GatewayChatMessage, ReasoningEffort } from '@newscraft/shared';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { chooseRole, roleInstructionsFor, roleLabel, type NewsroomRole } from './roles.js';
+import { AssignmentDesk, type AssignmentDeskDecision } from './assignment-desk.js';
+import { roleInstructionsFor, roleLabel, type NewsroomRole } from './roles.js';
 import { DisciplinedNewsroomAgent, type AgentToolEvent, type NewsroomAgentRunResult } from './newsroom-agent.js';
 import type { EvidenceObject } from './evidence.js';
 import type { NewsroomAgentConfig } from './harness-config.js';
@@ -55,6 +56,8 @@ export function sourceSnapshotToolParameters() {
 }
 
 export class NewsroomAgentRuntime {
+	private readonly assignmentDesk = new AssignmentDesk();
+
 	constructor(private controls: RuntimeControls) {}
 
 	async completeChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): Promise<string> {
@@ -83,17 +86,12 @@ export class NewsroomAgentRuntime {
 	}
 
 	async runMission(prompt: string, context: RuntimeContext): Promise<MissionRuntimeResult> {
-		const role = chooseRole(prompt);
+		const assignment = this.triageEditorCommand(prompt, context);
+		const role = assignment.role;
 		const agent = new DisciplinedNewsroomAgent({
 			config: {
 				...this.controls.agentConfig,
-				default_tool_budget: {
-					max_total_tool_calls: this.controls.maxToolCalls,
-					max_custom_tool_calls: Math.min(4, this.controls.maxToolCalls),
-					max_web_searches: 3,
-					max_browser_tasks: 2,
-					max_runtime_seconds: Math.ceil(this.controls.runTimeoutMs / 1000)
-				}
+				default_tool_budget: this.defaultToolBudget()
 			},
 			repository: context.repository,
 			openAiApiKey: this.controls.openAiApiKey
@@ -129,7 +127,7 @@ export class NewsroomAgentRuntime {
 	}
 
 	private localChat(prompt: string): string {
-		const role = chooseRole(prompt);
+		const role = this.assignmentDesk.triage(prompt, { default_tool_budget: this.defaultToolBudget() }).role;
 		const url = firstUrl(prompt);
 		return [
 			`NewsCraft ${roleLabel(role)} ready.`,
@@ -141,6 +139,7 @@ export class NewsroomAgentRuntime {
 	}
 
 	private async disciplinedComplete(prompt: string, context: RuntimeContext): Promise<string> {
+		this.triageEditorCommand(prompt, context);
 		const result = await this.runDisciplinedAgent(prompt, context);
 		return result.final_answer.trim() || this.localChat(prompt);
 	}
@@ -149,13 +148,7 @@ export class NewsroomAgentRuntime {
 		const agent = new DisciplinedNewsroomAgent({
 			config: {
 				...this.controls.agentConfig,
-				default_tool_budget: {
-					max_total_tool_calls: this.controls.maxToolCalls,
-					max_custom_tool_calls: Math.min(4, this.controls.maxToolCalls),
-					max_web_searches: 3,
-					max_browser_tasks: 2,
-					max_runtime_seconds: Math.ceil(this.controls.runTimeoutMs / 1000)
-				}
+				default_tool_budget: this.defaultToolBudget()
 			},
 			repository: context.repository,
 			openAiApiKey: this.controls.openAiApiKey
@@ -201,7 +194,7 @@ export class NewsroomAgentRuntime {
 	private async sdkComplete(prompt: string, context: RuntimeContext): Promise<string> {
 		const sdk = await import('@openai/agents');
 		sdk.setTracingDisabled(true);
-		const agent = this.createSdkAgent(sdk, chooseRole(prompt), context);
+		const agent = this.createSdkAgent(sdk, this.sdkRoleForPrompt(prompt, context), context);
 		const result = await (sdk.run as any)(agent, prompt, {
 			maxTurns: this.controls.maxToolCalls + 2,
 			model: context.model,
@@ -213,7 +206,7 @@ export class NewsroomAgentRuntime {
 	private async *sdkStream(prompt: string, context: RuntimeContext): AsyncGenerator<string> {
 		const sdk = await import('@openai/agents');
 		sdk.setTracingDisabled(true);
-		const agent = this.createSdkAgent(sdk, chooseRole(prompt), context);
+		const agent = this.createSdkAgent(sdk, this.sdkRoleForPrompt(prompt, context), context);
 		const stream = await (sdk.run as any)(agent, prompt, {
 			stream: true,
 			maxTurns: this.controls.maxToolCalls + 2,
@@ -351,6 +344,57 @@ export class NewsroomAgentRuntime {
 		return agents[role] || agents.assistant;
 	}
 
+	private triageEditorCommand(prompt: string, context: RuntimeContext): AssignmentDeskDecision {
+		const assignment = this.assignmentDesk.triage(prompt, { default_tool_budget: this.defaultToolBudget() });
+		this.emitAssignmentDeskDecision(assignment, context);
+		return assignment;
+	}
+
+	private sdkRoleForPrompt(prompt: string, context: RuntimeContext): NewsroomRole {
+		if (isTitlePrompt(prompt)) return 'assistant';
+		return this.triageEditorCommand(prompt, context).role;
+	}
+
+	private emitAssignmentDeskDecision(assignment: AssignmentDeskDecision, context: RuntimeContext): void {
+		const id = `${context.runId || 'chat'}_assignment_desk`;
+		context.onProgress?.({
+			type: 'tool',
+			id,
+			name: 'assignment_desk',
+			status: 'running',
+			detail: 'Routing request'
+		});
+		context.repository?.appendEvent({
+			jobId: context.jobId,
+			runId: context.runId,
+			agent: assignment.event.agent,
+			kind: assignment.event.kind,
+			payload: assignment.event.payload
+		});
+		context.onProgress?.({
+			type: 'tool',
+			id,
+			name: 'assignment_desk',
+			status: 'ok',
+			detail: 'Request routed',
+			result: {
+				role: assignment.role,
+				selectedMode: assignment.route.selected_mode,
+				tools: assignment.route.tools_to_use
+			}
+		});
+	}
+
+	private defaultToolBudget() {
+		return {
+			max_total_tool_calls: this.controls.maxToolCalls,
+			max_custom_tool_calls: Math.min(4, this.controls.maxToolCalls),
+			max_web_searches: 3,
+			max_browser_tasks: 2,
+			max_runtime_seconds: Math.ceil(this.controls.runTimeoutMs / 1000)
+		};
+	}
+
 	private async withTimeout<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
 		if (signal?.aborted) throw new Error('run aborted');
 		const timeout = AbortSignal.timeout(this.controls.runTimeoutMs);
@@ -463,7 +507,11 @@ function progressDetailForTool(tool: string): string {
 }
 
 function shouldUseDisciplinedChat(prompt: string): boolean {
-	return !/^title for this conversation:?\s*$/i.test(prompt.trim());
+	return !isTitlePrompt(prompt);
+}
+
+function isTitlePrompt(prompt: string): boolean {
+	return /^title for this conversation:?\s*$/i.test(prompt.trim());
 }
 
 export function textDeltaFromSdkEvent(event: unknown): string {

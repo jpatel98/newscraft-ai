@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { AssignmentDesk } from '../src/agents/assignment-desk.js';
 import { generateFinalAnswer } from '../src/agents/answer.js';
 import { mergeToolBudget, ToolBudgetLedger } from '../src/agents/budget.js';
 import { normalizeEvidence } from '../src/agents/evidence.js';
@@ -8,6 +9,22 @@ import { ToolRegistry, type NewsroomTool, type ToolCategory } from '../src/agent
 import { assessSourceQuality } from '../src/util/source-quality.js';
 
 describe('disciplined newsroom agent harness', () => {
+	it('triages editor commands through the Assignment Desk stub', () => {
+		const decision = new AssignmentDesk().triage('Who is the mayor of Toronto?');
+
+		expect(decision.role).toBe('research');
+		expect(decision.route.selected_mode).toBe('web_search');
+		expect(decision.event).toMatchObject({
+			agent: 'assignment_desk',
+			kind: 'assignment.triaged',
+			payload: {
+				routed_role: 'research',
+				selected_mode: 'web_search',
+				tools_to_use: ['openai_web_search']
+			}
+		});
+	});
+
 	it('routes sample prompts to expected modes with at least 80% accuracy', () => {
 		const samples = [
 			['What is a nut graf?', 'answer_from_memory'],
