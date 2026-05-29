@@ -154,6 +154,42 @@ describe('beat monitor standing brief runs', () => {
 		expect(repo.listEvents({ runId: run.id }).map((event) => event.kind)).toContain('crawl_plan.executed');
 	});
 
+	it('omits failed archive saves from pitch citation sources', async () => {
+		const repo = createRepository();
+		const job = repo.createJob({
+			name: 'City Hall Monitor',
+			prompt: [
+				'Scan the city hall beat for fresh leads.',
+				'',
+				'## Configured Watchlist',
+				'Use these configured sources as starting points for this scheduled run.',
+				'',
+				'- Council article: https://city.example/news/council-budget'
+			].join('\n'),
+			schedule: 'every 60m'
+		});
+		const run = repo.createRun(job.id, 'test');
+		const fetchMock = fetchFixture(
+			{
+				'https://city.example/news/council-budget': [
+					'<html><head><title>Council budget vote set</title></head>',
+					'<body><article><p>Council set a budget vote after staff published the final operating plan for transit and housing services.</p></article></body></html>'
+				].join('')
+			},
+			{ archiveStatus: 503 }
+		);
+
+		const result = await runBeatMonitor(repo, job, { runId: run.id }, { fetchImpl: fetchMock, maxPitches: 1 });
+		const sourceSet = (result.gates[0]?.payload as { source_set?: Array<Record<string, unknown>> }).source_set;
+
+		expect(result.gates).toHaveLength(1);
+		expect(sourceSet?.[0]).toMatchObject({
+			url: 'https://city.example/news/council-budget',
+			adapter: 'html_article'
+		});
+		expect(sourceSet?.[0]).not.toHaveProperty('archive_snapshot_url');
+	});
+
 	it('keeps unpitched candidate leads eligible for the next monitor pass', async () => {
 		const repo = createRepository();
 		const job = repo.createJob({
@@ -301,11 +337,14 @@ function createRepository(): HarnessRepository {
 	return repository;
 }
 
-function fetchFixture(responses: Record<string, string>) {
+function fetchFixture(responses: Record<string, string>, options: { archiveStatus?: number } = {}) {
 	return vi.fn(async (input: RequestInfo | URL) => {
 		const url = String(input);
 		if (url.startsWith('https://web.archive.org/save/')) {
 			const archivedUrl = decodeURIComponent(url.slice('https://web.archive.org/save/'.length));
+			if (options.archiveStatus && options.archiveStatus >= 400) {
+				return new Response('', { status: options.archiveStatus });
+			}
 			return new Response('', {
 				status: 200,
 				headers: { 'content-location': `/web/20260529010101/${archivedUrl}` }

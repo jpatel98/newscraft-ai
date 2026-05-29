@@ -46,7 +46,7 @@ export async function executeCrawlPlan(
 			fetchedAt: fetched.fetchedAt,
 			statusCode: fetched.statusCode,
 			contentHash: fetched.cache.contentHash,
-			archiveSnapshotUrl: fetched.archiveSnapshot.snapshotUrl,
+			archiveSnapshotUrl: fetched.archiveSnapshot.ok ? fetched.archiveSnapshot.snapshotUrl : null,
 			cache: fetched.cache
 		});
 		const sourceItems =
@@ -120,7 +120,7 @@ async function fetchCandidateArticles(
 			fetchedAt: fetched.fetchedAt,
 			statusCode: fetched.statusCode,
 			contentHash: fetched.cache.contentHash,
-			archiveSnapshotUrl: fetched.archiveSnapshot.snapshotUrl,
+			archiveSnapshotUrl: fetched.archiveSnapshot.ok ? fetched.archiveSnapshot.snapshotUrl : null,
 			cache: fetched.cache
 		});
 		const item = extracted[0];

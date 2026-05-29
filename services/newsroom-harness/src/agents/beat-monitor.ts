@@ -292,7 +292,7 @@ async function readConfiguredSource(
 		fetchedAt: fetched.fetchedAt,
 		statusCode: fetched.statusCode,
 		contentHash: fetched.cache.contentHash,
-		archiveSnapshotUrl: fetched.archiveSnapshot.snapshotUrl,
+		archiveSnapshotUrl: fetched.archiveSnapshot.ok ? fetched.archiveSnapshot.snapshotUrl : null,
 		cache: fetched.cache
 	};
 	const discovered = await adapter.discover(adapterInput);
