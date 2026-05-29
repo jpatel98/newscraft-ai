@@ -52,6 +52,8 @@ export interface DraftingRunResult {
 	gate: NewsroomGateDto;
 }
 
+export class DraftingPreconditionError extends Error {}
+
 export function runDraftingAgent(repository: HarnessRepository, input: DraftingInput): DraftingRunResult {
 	const storyId = requiredText(input.storyId, 'story_id');
 	const workspaceId = input.workspaceId || DEFAULT_WORKSPACE_ID;
@@ -59,7 +61,7 @@ export function runDraftingAgent(repository: HarnessRepository, input: DraftingI
 	const memory = repository.inspectStoryMemory(storyId, workspaceId);
 	const facts = verifiedSourceBackedFacts(memory);
 	if (facts.length === 0) {
-		throw new Error('Drafting requires at least one verified, source-backed fact ledger entry');
+		throw new DraftingPreconditionError('Drafting requires at least one verified, source-backed fact ledger entry');
 	}
 
 	const draft = buildWebStoryDraft(storyId, facts, targetWordCount);
@@ -91,6 +93,7 @@ export function runDraftingAgent(repository: HarnessRepository, input: DraftingI
 		createdAt
 	});
 	const memoryEntry = repository.appendStoryMemory(storyId, {
+		workspaceId,
 		key: 'draft_history',
 		kind: 'draft.produced',
 		actor: 'drafting',

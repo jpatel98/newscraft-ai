@@ -158,7 +158,7 @@ const TABLES: TableSpec[] = [
 		name: 'memory_entries',
 		primaryKey: 'id',
 		appendOnly: true,
-		columns: ['id', 'tier', 'scope_id', 'key', 'kind', 'value_json', 'actor', 'created_at'],
+		columns: ['id', 'workspace_id', 'tier', 'scope_id', 'key', 'kind', 'value_json', 'actor', 'created_at'],
 		orderBy: 'created_at ASC, id ASC'
 	}
 ];
@@ -551,6 +551,7 @@ CREATE TABLE IF NOT EXISTS harness.house_memory (
 
 CREATE TABLE IF NOT EXISTS harness.memory_entries (
 	id text PRIMARY KEY,
+	workspace_id text NOT NULL DEFAULT 'default',
 	tier text NOT NULL CHECK (tier IN ('house', 'beat', 'story')),
 	scope_id text NOT NULL,
 	key text NOT NULL,
@@ -559,6 +560,7 @@ CREATE TABLE IF NOT EXISTS harness.memory_entries (
 	actor text NOT NULL,
 	created_at text NOT NULL
 );
+ALTER TABLE harness.memory_entries ADD COLUMN IF NOT EXISTS workspace_id text NOT NULL DEFAULT 'default';
 
 CREATE OR REPLACE FUNCTION harness.raise_append_only() RETURNS trigger AS $$
 BEGIN
@@ -589,6 +591,7 @@ CREATE INDEX IF NOT EXISTS gates_story_idx ON harness.gates(story_id, status, cr
 CREATE INDEX IF NOT EXISTS gates_job_idx ON harness.gates(job_id, status, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_scope_idx ON harness.memory_entries(tier, scope_id, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_key_idx ON harness.memory_entries(tier, scope_id, key, created_at, id);
+CREATE INDEX IF NOT EXISTS memory_entries_workspace_scope_idx ON harness.memory_entries(workspace_id, tier, scope_id, created_at, id);
 `);
 	}
 }

@@ -256,6 +256,7 @@ describe('newsroom harness server', () => {
 		const workspaceId = 'workspace-api';
 		for (const fact of verifiedDraftFacts()) {
 			harness.repository.appendStoryMemory(storyId, {
+				workspaceId,
 				key: 'fact_ledger',
 				kind: 'claim.verified',
 				actor: 'verification',
@@ -263,6 +264,7 @@ describe('newsroom harness server', () => {
 			});
 		}
 		harness.repository.appendStoryMemory(storyId, {
+			workspaceId,
 			key: 'fact_ledger',
 			kind: 'claim.verified',
 			actor: 'verification',
@@ -294,6 +296,32 @@ describe('newsroom harness server', () => {
 			status: 'open'
 		});
 		expect(harness.repository.listGates({ workspaceId, storyId })).toHaveLength(1);
+	});
+
+	it('returns a conflict instead of queuing draft review when verified facts are missing', async () => {
+		await startHarness();
+		const storyId = 'story-api-undrafted';
+		const workspaceId = 'workspace-api';
+		harness.repository.appendStoryMemory(storyId, {
+			workspaceId,
+			key: 'fact_ledger',
+			value: {
+				id: 'needs-source',
+				claim: 'The agency may add late-night buses',
+				status: 'needs_more',
+				sources: [{ title: 'Planning note', url: 'https://sources.example/needs-source' }]
+			}
+		});
+
+		const response = await authFetch(`/api/stories/${storyId}/drafts/web-story`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ workspace_id: workspaceId })
+		});
+
+		expect(response.status).toBe(409);
+		expect(await response.text()).toContain('verified, source-backed fact ledger entry');
+		expect(harness.repository.listGates({ workspaceId, storyId })).toHaveLength(0);
 	});
 
 	it('streams Chat Completions-compatible SSE frames', async () => {
@@ -354,6 +382,28 @@ describe('newsroom harness server', () => {
 		const deleted = await authFetch(`/api/jobs/${created.id}`, { method: 'DELETE' });
 		expect(deleted.status).toBe(200);
 		expect((await (await authFetch('/api/jobs?include_disabled=true')).json()).jobs).toHaveLength(0);
+	});
+
+	it('filters run listing by job ids', async () => {
+		await startHarness();
+		const first = harness.repository.createJob({
+			name: 'First Watch',
+			prompt: 'Scan first beat.',
+			schedule: 'every 60m'
+		});
+		const second = harness.repository.createJob({
+			name: 'Second Watch',
+			prompt: 'Scan second beat.',
+			schedule: 'every 60m'
+		});
+		const firstRun = harness.repository.createRun(first.id, 'test');
+		harness.repository.createRun(second.id, 'test');
+
+		const response = await authFetch(`/api/runs?include_completed=true&job_ids=${first.id}`);
+		const body = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(body.runs.map((run: { id: string }) => run.id)).toEqual([firstRun.id]);
 	});
 
 	it('runs a mission, persists a report, and posts the UI ingest payload shape', async () => {

@@ -86,7 +86,9 @@ describe('newsroom event log', () => {
 
 	it('bridges run steps, tool calls, source activity, and reports into event records', () => {
 		const repo = createRepository();
+		const workspaceId = 'account:editor-1';
 		const job = repo.createJob({
+			workspace_id: workspaceId,
 			name: 'Morning Watch',
 			prompt: 'Scan local headlines.',
 			schedule: 'every 60m'
@@ -123,7 +125,7 @@ describe('newsroom event log', () => {
 		});
 		repo.updateReportIngest(report.id, 'sent', null);
 
-		const events = repo.listEvents({ workspaceId: DEFAULT_WORKSPACE_ID, runId: run.id });
+		const events = repo.listEvents({ workspaceId, runId: run.id });
 
 		expect(events.map((event) => event.kind)).toEqual([
 			'run.created',
@@ -135,6 +137,7 @@ describe('newsroom event log', () => {
 			'report.ingest.updated'
 		]);
 		expect(events.every((event) => event.job_id === job.id && event.run_id === run.id)).toBe(true);
+		expect(repo.listEvents({ workspaceId: DEFAULT_WORKSPACE_ID, runId: run.id })).toHaveLength(0);
 		expect(events.find((event) => event.kind === 'source.stored')?.sources).toEqual([
 			{
 				id: expect.any(String),

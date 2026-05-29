@@ -19,6 +19,7 @@ describe('drafting agent', () => {
 		const workspaceId = 'account:editor-1';
 		for (const fact of verifiedFacts()) {
 			repo.appendStoryMemory(storyId, {
+				workspaceId,
 				key: 'fact_ledger',
 				kind: 'claim.verified',
 				actor: 'verification',
@@ -26,6 +27,7 @@ describe('drafting agent', () => {
 			});
 		}
 		repo.appendStoryMemory(storyId, {
+			workspaceId,
 			key: 'fact_ledger',
 			kind: 'claim.disputed',
 			actor: 'verification',
@@ -37,6 +39,7 @@ describe('drafting agent', () => {
 			}
 		});
 		repo.appendStoryMemory(storyId, {
+			workspaceId,
 			key: 'fact_ledger',
 			kind: 'claim.verified',
 			actor: 'verification',
@@ -80,7 +83,9 @@ describe('drafting agent', () => {
 
 	it('refuses to draft when no verified source-backed facts exist', () => {
 		const repo = createRepository();
+		const workspaceId = 'account:editor-1';
 		repo.appendStoryMemory('story-draft-2', {
+			workspaceId,
 			key: 'fact_ledger',
 			value: {
 				id: 'needs-more',
@@ -90,10 +95,10 @@ describe('drafting agent', () => {
 			}
 		});
 
-		expect(() => runDraftingAgent(repo, { storyId: 'story-draft-2', workspaceId: 'account:editor-1' })).toThrow(
+		expect(() => runDraftingAgent(repo, { storyId: 'story-draft-2', workspaceId })).toThrow(
 			/verified, source-backed fact ledger entry/
 		);
-		expect(repo.listGates({ workspaceId: 'account:editor-1', storyId: 'story-draft-2' })).toHaveLength(0);
+		expect(repo.listGates({ workspaceId, storyId: 'story-draft-2' })).toHaveLength(0);
 	});
 });
 

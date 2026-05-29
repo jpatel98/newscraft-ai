@@ -152,6 +152,7 @@ interface HouseMemoryRow {
 
 interface MemoryEntryRow {
 	id: string;
+	workspace_id: string;
 	tier: MemoryTier;
 	scope_id: string;
 	key: string;
@@ -213,6 +214,7 @@ export interface ListGatesOptions {
 
 export interface MemoryEntryDto {
 	id: string;
+	workspace_id: string;
 	tier: MemoryTier;
 	scope_id: string;
 	key: string;
@@ -243,6 +245,8 @@ export interface ScopedMemoryInspectDto {
 export interface AppendMemoryInput {
 	key: string;
 	value: unknown;
+	workspaceId?: string;
+	workspace_id?: string;
 	kind?: string;
 	actor?: string;
 	createdAt?: string;
@@ -667,7 +671,8 @@ export class HarnessRepository {
 
 	inspectStoryMemory(storyId: string, workspaceId = DEFAULT_WORKSPACE_ID): ScopedMemoryInspectDto {
 		const scopeId = requiredText(storyId, 'story_id');
-		const entries = this.listMemoryEntries('story', scopeId);
+		const scopedWorkspaceId = requiredText(workspaceId || DEFAULT_WORKSPACE_ID, 'workspace_id');
+		const entries = this.listMemoryEntries('story', scopeId, undefined, scopedWorkspaceId);
 		const eventLog = this.listEvents({ workspaceId, storyId: scopeId, limit: 500 });
 		return {
 			tier: 'story',
@@ -685,6 +690,7 @@ export class HarnessRepository {
 	appendStoryMemory(storyId: string, input: AppendMemoryInput): MemoryEntryDto {
 		const scopeId = requiredText(storyId, 'story_id');
 		const key = requiredMemoryKey(input.key, STORY_MEMORY_KEYS, 'story memory key');
+		const workspaceId = optionalText(input.workspaceId ?? input.workspace_id) || DEFAULT_WORKSPACE_ID;
 		return this.insertMemoryEntry(
 			'story',
 			scopeId,
@@ -692,27 +698,30 @@ export class HarnessRepository {
 			input.kind || `story.${key}.recorded`,
 			input.value,
 			input.actor || 'agent',
-			input.createdAt || nowIso()
+			input.createdAt || nowIso(),
+			workspaceId
 		);
 	}
 
-	listMemoryEntries(tier: MemoryTier, scopeId: string, key?: string): MemoryEntryDto[] {
+	listMemoryEntries(tier: MemoryTier, scopeId: string, key?: string, workspaceId?: string): MemoryEntryDto[] {
 		const scope = requiredText(scopeId, 'scope_id');
-		const rows = key
-			? (this.db
-					.prepare(
-						`SELECT * FROM memory_entries
-						 WHERE tier = ? AND scope_id = ? AND key = ?
-						 ORDER BY created_at ASC, rowid ASC`
-					)
-					.all(tier, scope, key) as MemoryEntryRow[])
-			: (this.db
-					.prepare(
-						`SELECT * FROM memory_entries
-						 WHERE tier = ? AND scope_id = ?
-						 ORDER BY created_at ASC, rowid ASC`
-					)
-					.all(tier, scope) as MemoryEntryRow[]);
+		const conditions = ['tier = ?', 'scope_id = ?'];
+		const params: unknown[] = [tier, scope];
+		if (key) {
+			conditions.push('key = ?');
+			params.push(key);
+		}
+		if (workspaceId) {
+			conditions.push('workspace_id = ?');
+			params.push(requiredText(workspaceId, 'workspace_id'));
+		}
+		const rows = this.db
+			.prepare(
+				`SELECT * FROM memory_entries
+				 WHERE ${conditions.join(' AND ')}
+				 ORDER BY created_at ASC, rowid ASC`
+			)
+			.all(...params) as MemoryEntryRow[];
 		return rows.map(memoryEntryDto);
 	}
 
@@ -723,16 +732,18 @@ export class HarnessRepository {
 		kind: string,
 		value: unknown,
 		actor: string,
-		createdAt: string
+		createdAt: string,
+		workspaceId = DEFAULT_WORKSPACE_ID
 	): MemoryEntryDto {
 		const id = newId('mem');
 		this.db
 			.prepare(
-				`INSERT INTO memory_entries (id, tier, scope_id, key, kind, value_json, actor, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+				`INSERT INTO memory_entries (id, workspace_id, tier, scope_id, key, kind, value_json, actor, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 			)
 			.run(
 				id,
+				requiredText(workspaceId, 'workspace_id'),
 				tier,
 				requiredText(scopeId, 'scope_id'),
 				requiredText(key, 'key'),
@@ -741,7 +752,7 @@ export class HarnessRepository {
 				requiredText(actor, 'actor'),
 				createdAt
 			);
-		return this.listMemoryEntries(tier, scopeId, key).find((entry) => entry.id === id) as MemoryEntryDto;
+		return this.listMemoryEntries(tier, scopeId, key, workspaceId).find((entry) => entry.id === id) as MemoryEntryDto;
 	}
 
 	private jobIdForRun(runId: string): string | null {
@@ -749,6 +760,17 @@ export class HarnessRepository {
 			| { job_id: string }
 			| undefined;
 		return row?.job_id ?? null;
+	}
+
+	private workspaceIdForRun(runId: string): string {
+		const row = this.db
+			.prepare(
+				`SELECT jobs.workspace_id
+				 FROM runs JOIN jobs ON jobs.id = runs.job_id
+				 WHERE runs.id = ?`
+			)
+			.get(runId) as { workspace_id: string | null } | undefined;
+		return row?.workspace_id || DEFAULT_WORKSPACE_ID;
 	}
 
 	createJob(input: CreateJobInput): NewsroomJobDto {
@@ -957,18 +979,23 @@ export class HarnessRepository {
 		return runDto(row);
 	}
 
-	listRuns(options: { includeCompleted?: boolean; includeRecent?: boolean } = {}): NewsroomRunDto[] {
+	listRuns(options: { includeCompleted?: boolean; includeRecent?: boolean; jobIds?: string[] } = {}): NewsroomRunDto[] {
 		const includeCompleted = options.includeCompleted ?? false;
+		const jobIds = Array.from(new Set((options.jobIds ?? []).map(optionalText).filter((id): id is string => Boolean(id))));
+		const conditions = includeCompleted ? [] : [`runs.status IN ('queued', 'running')`];
+		const params: unknown[] = [];
+		if (jobIds.length > 0) {
+			conditions.push(`runs.job_id IN (${jobIds.map(() => '?').join(', ')})`);
+			params.push(...jobIds);
+		}
+		params.push(options.includeRecent ? 50 : 200);
 		const rows = this.db
 			.prepare(
-				includeCompleted
-					? `SELECT runs.*, jobs.name AS job_name FROM runs JOIN jobs ON jobs.id = runs.job_id
-					   ORDER BY COALESCE(runs.updated_at, runs.queued_at) DESC LIMIT ?`
-					: `SELECT runs.*, jobs.name AS job_name FROM runs JOIN jobs ON jobs.id = runs.job_id
-					   WHERE runs.status IN ('queued', 'running')
-					   ORDER BY COALESCE(runs.updated_at, runs.queued_at) DESC LIMIT ?`
+				`SELECT runs.*, jobs.name AS job_name FROM runs JOIN jobs ON jobs.id = runs.job_id
+				 ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
+				 ORDER BY COALESCE(runs.updated_at, runs.queued_at) DESC LIMIT ?`
 			)
-			.all(options.includeRecent ? 50 : 200) as RunRow[];
+			.all(...params) as RunRow[];
 		return rows.map((row) => this.runDtoWithProgress(row));
 	}
 
@@ -1058,7 +1085,7 @@ export class HarnessRepository {
 			)
 			.run(runId, stepType, label, status, now, now, detail ? JSON.stringify(detail) : null);
 		this.appendEvent({
-			workspaceId: DEFAULT_WORKSPACE_ID,
+			workspaceId: this.workspaceIdForRun(runId),
 			jobId: this.jobIdForRun(runId),
 			runId,
 			agent: stepType,
@@ -1106,7 +1133,7 @@ export class HarnessRepository {
 				input.error || null
 			);
 		this.appendEvent({
-			workspaceId: DEFAULT_WORKSPACE_ID,
+			workspaceId: input.runId ? this.workspaceIdForRun(input.runId) : DEFAULT_WORKSPACE_ID,
 			jobId: input.runId ? this.jobIdForRun(input.runId) : null,
 			runId: input.runId || null,
 			agent: input.name,
@@ -1142,7 +1169,7 @@ export class HarnessRepository {
 			);
 		if (existing) {
 			this.appendEvent({
-				workspaceId: DEFAULT_WORKSPACE_ID,
+				workspaceId: existing.run_id ? this.workspaceIdForRun(existing.run_id) : DEFAULT_WORKSPACE_ID,
 				jobId: existing.run_id ? this.jobIdForRun(existing.run_id) : null,
 				runId: existing.run_id,
 				agent: existing.name,
@@ -1197,7 +1224,7 @@ export class HarnessRepository {
 				input.used ? 1 : 0
 			);
 		this.appendEvent({
-			workspaceId: DEFAULT_WORKSPACE_ID,
+			workspaceId: this.workspaceIdForRun(input.runId),
 			jobId: input.jobId,
 			runId: input.runId,
 			agent: 'source_monitor',
@@ -1225,7 +1252,7 @@ export class HarnessRepository {
 		});
 		if (input.healthGate) {
 			this.appendEvent({
-				workspaceId: DEFAULT_WORKSPACE_ID,
+				workspaceId: this.workspaceIdForRun(input.runId),
 				jobId: input.jobId,
 				runId: input.runId,
 				agent: 'source_monitor',
@@ -1282,7 +1309,7 @@ export class HarnessRepository {
 				ingestError
 			);
 		this.appendEvent({
-			workspaceId: DEFAULT_WORKSPACE_ID,
+			workspaceId: this.workspaceIdForRun(input.runId),
 			jobId: input.jobId,
 			runId: input.runId,
 			agent: 'reporter',
@@ -1305,7 +1332,7 @@ export class HarnessRepository {
 		this.db.prepare('UPDATE reports SET ingest_status = ?, ingest_error = ? WHERE id = ?').run(status, error, id);
 		if (existing) {
 			this.appendEvent({
-				workspaceId: DEFAULT_WORKSPACE_ID,
+				workspaceId: this.workspaceIdForRun(existing.run_id),
 				jobId: existing.job_id,
 				runId: existing.run_id,
 				agent: 'reporter',
@@ -1561,6 +1588,7 @@ function scopedMemoryCurrent(
 function memoryEntryDto(row: MemoryEntryRow): MemoryEntryDto {
 	return {
 		id: row.id,
+		workspace_id: row.workspace_id || DEFAULT_WORKSPACE_ID,
 		tier: row.tier,
 		scope_id: row.scope_id,
 		key: row.key,

@@ -16,7 +16,7 @@ import { writeChatCompletion, writeResponses } from './chat.js';
 import { loadConfig, type HarnessConfig } from './config.js';
 import { createHarnessRepository } from './db/factory.js';
 import { HarnessRepository } from './db/repository.js';
-import { runDraftingAgent } from './agents/drafting.js';
+import { DraftingPreconditionError, runDraftingAgent } from './agents/drafting.js';
 import { NewsroomAgentRuntime } from './agents/runtime.js';
 import { executeCrawlPlan } from './crawl-plans/executor.js';
 import { JobRunner } from './jobs/runner.js';
@@ -142,7 +142,8 @@ async function route(
 		writeJson(res, 200, {
 			runs: ctx.repository.listRuns({
 				includeCompleted: url.searchParams.get('include_completed') === 'true',
-				includeRecent: url.searchParams.get('include_recent') === 'true'
+				includeRecent: url.searchParams.get('include_recent') === 'true',
+				jobIds: queryList(url, 'job_id', 'job_ids')
 			})
 		});
 		return;
@@ -273,7 +274,7 @@ async function route(
 			const input = await readJson<{ key: string; value: unknown; kind?: string; actor?: string }>(req);
 			writeJson(res, 201, {
 				ok: true,
-				entry: ctx.repository.appendStoryMemory(storyId, input),
+				entry: ctx.repository.appendStoryMemory(storyId, { ...input, workspaceId: workspaceId ?? undefined }),
 				memory: ctx.repository.inspectStoryMemory(storyId, workspaceId)
 			});
 			return;
@@ -291,16 +292,21 @@ async function route(
 				target_word_count?: number;
 			}>(req);
 			if (!input.workspace_id?.trim()) throw new HttpError(400, 'workspace_id is required');
-			writeJson(res, 201, {
-				ok: true,
-				...runDraftingAgent(ctx.repository, {
-					storyId,
-					workspaceId: input.workspace_id,
-					jobId: input.job_id,
-					runId: input.run_id,
-					targetWordCount: input.target_word_count
-				})
-			});
+			try {
+				writeJson(res, 201, {
+					ok: true,
+					...runDraftingAgent(ctx.repository, {
+						storyId,
+						workspaceId: input.workspace_id,
+						jobId: input.job_id,
+						runId: input.run_id,
+						targetWordCount: input.target_word_count
+					})
+				});
+			} catch (err) {
+				if (err instanceof DraftingPreconditionError) throw new HttpError(409, err.message);
+				throw err;
+			}
 			return;
 		}
 	}
@@ -346,6 +352,15 @@ function publicError(err: unknown): string {
 function queryText(url: URL, key: string): string | undefined {
 	const value = url.searchParams.get(key)?.trim();
 	return value || undefined;
+}
+
+function queryList(url: URL, singleKey: string, listKey: string): string[] {
+	return [
+		...url.searchParams.getAll(singleKey),
+		...url.searchParams.getAll(listKey).flatMap((value) => value.split(','))
+	]
+		.map((value) => value.trim())
+		.filter(Boolean);
 }
 
 function requiredQueryText(url: URL, key: string): string {

@@ -349,13 +349,16 @@ export async function listAgentJobs(accountId: string): Promise<AgentJob[]> {
 }
 
 async function listAgentRuns(jobs: AgentJob[] = []): Promise<AgentRun[]> {
+	if (jobs.length === 0) return [];
 	const jobsById = new Map(jobs.map((job) => [job.id, job]));
+	const jobIds = new Set(jobsById.keys());
 	const now = Date.now();
 	for (const endpoint of RUN_ENDPOINTS) {
+		const scopedEndpoint = appendRunJobFilter(endpoint, jobsById.keys());
 		const disabledUntil = runEndpointDisabledUntil.get(endpoint) ?? 0;
 		if (disabledUntil > now) continue;
 		try {
-			const response = await agentFetch(endpoint, {
+			const response = await agentFetch(scopedEndpoint, {
 				method: 'GET',
 				signal: AbortSignal.timeout(RUN_FETCH_TIMEOUT_MS)
 			});
@@ -373,6 +376,7 @@ async function listAgentRuns(jobs: AgentJob[] = []): Promise<AgentRun[]> {
 				rawRunsFromBody(body)
 					.map((run) => normalizeAgentRun(run))
 					.filter((run): run is AgentRun => Boolean(run))
+					.filter((run) => jobIds.has(run.jobId))
 					.map((run) => ({ ...run, jobName: run.jobName ?? jobsById.get(run.jobId)?.name ?? null }))
 			);
 		} catch {
@@ -381,6 +385,13 @@ async function listAgentRuns(jobs: AgentJob[] = []): Promise<AgentRun[]> {
 		}
 	}
 	return [];
+}
+
+function appendRunJobFilter(endpoint: string, jobIds: Iterable<string>): string {
+	const ids = Array.from(jobIds);
+	if (ids.length === 0) return endpoint;
+	const separator = endpoint.includes('?') ? '&' : '?';
+	return `${endpoint}${separator}job_ids=${encodeURIComponent(ids.join(','))}`;
 }
 
 async function syncCronOutputToDb(

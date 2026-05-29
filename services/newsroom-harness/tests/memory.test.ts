@@ -65,6 +65,7 @@ describe('newsroom memory stores', () => {
 			createdAt: '2026-05-24T10:01:00.000Z'
 		});
 		repo.appendStoryMemory('story-1', {
+			workspaceId: 'workspace-1',
 			key: 'fact_ledger',
 			value: { claim: 'Board requested an operational review', status: 'verified' },
 			actor: 'research',
@@ -115,6 +116,27 @@ describe('newsroom memory stores', () => {
 		expect(() =>
 			repo.appendStoryMemory('story-1', { key: 'random_notes', value: 'nope' })
 		).toThrow(/Unsupported story memory key/);
+	});
+
+	it('scopes story memory entries to the requested workspace', () => {
+		const repo = createRepository();
+		repo.appendStoryMemory('story-shared', {
+			workspaceId: 'workspace-a',
+			key: 'fact_ledger',
+			value: { claim: 'Workspace A verified this claim', status: 'verified' }
+		});
+		repo.appendStoryMemory('story-shared', {
+			workspaceId: 'workspace-b',
+			key: 'fact_ledger',
+			value: { claim: 'Workspace B verified a different claim', status: 'verified' }
+		});
+
+		expect(repo.inspectStoryMemory('story-shared', 'workspace-a').current.fact_ledger).toEqual([
+			{ claim: 'Workspace A verified this claim', status: 'verified' }
+		]);
+		expect(repo.inspectStoryMemory('story-shared', 'workspace-b').current.fact_ledger).toEqual([
+			{ claim: 'Workspace B verified a different claim', status: 'verified' }
+		]);
 	});
 });
 
