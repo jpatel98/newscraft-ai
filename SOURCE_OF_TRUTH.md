@@ -1,6 +1,6 @@
 # NewsCraft AI Source of Truth
 
-Last updated: 2026-05-25
+Last updated: 2026-05-29
 
 This document is the canonical project reference for the current state of the
 `newscraft-ai` repository. It is meant to answer four questions in one place:
@@ -18,10 +18,10 @@ changes.
 ## Executive summary
 
 NewsCraft AI is a SvelteKit application for an authenticated newsroom agent UI.
-It supports conversational chat, source-aware agent activity, mission scheduling,
+It supports conversational chat, a newsroom overview, source-aware agent
+activity, standing-brief missions, editor gates, story leads, crawl plans,
 mission reports, account management, Supabase Postgres-backed persistence,
-export/status tools, and a migration path from a older agent gateway to a
-NewsCraft-native newsroom harness.
+export/status tools, and a NewsCraft-native newsroom harness.
 
 The repo is now a small pnpm monorepo:
 
@@ -36,23 +36,45 @@ newscraft-ai/
 ```
 
 The web app still exposes UI route names under `/api/agent/*` for compatibility,
-but it can point to the newsroom harness.
-The preferred gateway is `AGENT_GATEWAY_URL`.
+but the active local target is the newsroom harness. The preferred gateway is
+`AGENT_GATEWAY_URL`.
 
 The newsroom harness is a separate Node service that listens by default on
 `127.0.0.1:8650`, implements the gateway endpoints the UI needs, owns its own
-SQLite database, runs scheduled missions, can fetch sources, can draft reports,
-and can post completed mission reports back into the SvelteKit UI ingest
-endpoint.
+SQLite database, runs scheduled missions, fetches and extracts source material,
+routes editor commands to newsroom agents, tracks gates/events/memory, drafts
+reports, and can post completed mission reports back into the SvelteKit UI
+ingest endpoint.
+
+## Current checkpoint
+
+As of 2026-05-29, Phase 1/JIG-141-era work has the repo on a pushed `main`
+state with these important changes in place:
+
+- The front page is the Newsroom overview, not the old new-thread starter
+  screen.
+- Overview scrolling is document-level and works with the Newsroom overview
+  layout.
+- Mission setup no longer exposes fixed Delivery target or Output format
+  fields; those are compatibility defaults behind the API.
+- Editor commands route to monitor or drafting agents.
+- The harness starts against older local SQLite databases by repairing missing
+  `workspace_id` columns before index creation.
+- Structured article extraction, source adapters, archive snapshots, and
+  provenance propagation are active in the harness path.
+- Crawl-plan provenance is preserved through beat monitor pitches.
 
 ## Current product shape
 
 ### Primary user-facing surfaces
 
-- `/` is the new-thread screen with starter prompts.
+- `/` is the Newsroom overview: Ask NewsCraft command bar, monitor health,
+  open gates/decision queue, story leads, active story workspaces, standing
+  briefs, and activity wire.
 - `/c/[id]` is an individual chat thread.
 - `/missions` is the mission control surface for scheduled editorial work,
-  mission runs, source lists, and generated reports.
+  standing-brief configuration, mission runs, source lists, crawl plans, and
+  generated reports.
 - `/settings` is the operator/admin surface for accounts, password changes,
   export, status, and destructive maintenance actions.
 - `/login`, `/signup`, `/setup`, and `/account-setup/[token]` handle access and
@@ -69,7 +91,7 @@ The current app supports:
   password-only invite links for additional accounts.
 - Multi-account storage in the configured Supabase Postgres database.
 - Chat threads with persisted messages.
-- New chat creation from `/` or the sidebar.
+- New chat creation from the sidebar, keyboard shortcut, or conversation API.
 - Thread list navigation with pinned threads and date grouping.
 - Rename, pin, delete, and export for conversations.
 - Per-conversation system prompt overrides.
@@ -93,10 +115,18 @@ The current app supports:
 - Persisted tool/source recap after a streamed response finishes.
 - Source chips and source metadata for agent runs that emit source events.
 - Operator footer/status checks.
+- Newsroom overview with monitor health, decision queue, story leads, active
+  story workspaces, standing briefs, and recent activity.
+- Ask NewsCraft editor command routing to monitor or drafting agents.
+- Open gate resolution for editor decisions.
 - Mission/job list, creation, editing, deletion, pause/resume, and run-now.
 - Mission source configuration with URL watchlists.
+- Mission crawl-plan review and approved crawl-plan execution.
+- Story lead and workspace workflows seeded from monitor pitches.
 - Mission report ingestion and display.
 - Mission run polling and active/failed run cards.
+- Structured article/source extraction with provenance, archive snapshots, and
+  source links suitable for citation chips.
 - Supabase Postgres database status checks.
 - Full account-scoped data export as JSONL.
 - Per-thread export as Markdown or JSONL.
@@ -130,7 +160,8 @@ SvelteKit app on 127.0.0.1:3001
       Newsroom harness on 127.0.0.1:8650
         |
         | Chat, Responses-compatible endpoint, mission CRUD,
-        | scheduled runs, source fetches, reports
+        | scheduled runs, source fetches, crawl plans,
+        | editor gates, memory, story drafts, reports
         |
         +--> Harness SQLite DB
         |
@@ -168,8 +199,8 @@ The SvelteKit web app. Important areas:
 - `src/hooks.server.ts` enforces migrations, session loading, setup redirects,
   login redirects, and public route exceptions.
 - `src/routes/` contains pages and API routes.
-- `src/lib/server/` contains server-only auth, database, gateway, and operator
-  status modules.
+- `src/lib/server/` contains server-only auth, database, gateway, gates,
+  crawl-plan, and operator status modules.
 - `src/lib/components/` contains reusable Svelte UI components for chat,
   markdown, composer, command palette, tool activity, shortcuts, and system
   prompt editing.
@@ -191,21 +222,31 @@ Important areas:
   and handles shutdown.
 - `src/config.ts` maps environment variables into typed harness config.
 - `src/server.ts` owns HTTP routing, auth, health, chat, responses, jobs, runs,
-  pause/resume, deletion, and graceful close.
+  events, gates, crawl plans, memory, editor commands, story drafts, and
+  graceful close.
 - `src/chat.ts` adapts runtime output into chat-completion and Responses-style
   outputs.
 - `src/agents/runtime.ts` is the model/runtime abstraction, using OpenAI Agents
   SDK when configured and deterministic fallbacks otherwise.
 - `src/agents/roles.ts` defines newsroom-oriented role prompts.
+- `src/agents/beat-monitor.ts` turns watchlists and approved crawl plans into
+  pitch gates and story-lead events.
+- `src/agents/editor-command.ts` routes Ask NewsCraft/editor commands to the
+  monitor or drafting agent.
+- `src/agents/drafting.ts` drafts story artifacts from accepted pitch facts.
+- `src/crawl-plans/executor.ts` executes approved crawl plans and preserves
+  source provenance for downstream pitches.
 - `src/jobs/scheduler.ts` polls due jobs.
 - `src/jobs/runner.ts` executes runs and updates state.
 - `src/jobs/report.ts` creates and optionally ingests reports.
 - `src/jobs/schedule.ts` parses interval and simple cron schedules.
-- `src/db/database.ts` creates the harness tables.
-- `src/db/repository.ts` contains job, run, source, snapshot, and report
-  persistence.
-- `src/tools/sources.ts` fetches RSS/XML/HTML URL sources and extracts
-  lightweight text, snippets, summaries, hashes, and provenance.
+- `src/db/database.ts` creates the harness tables and applies idempotent legacy
+  workspace-column repair for older SQLite databases.
+- `src/db/repository.ts` contains job, run, source, snapshot, report, event,
+  gate, crawl-plan, and memory persistence.
+- `src/tools/sources.ts`, `src/tools/source-adapters/*`,
+  `src/tools/article-extraction.ts`, and `src/tools/polite-fetch.ts` fetch and
+  extract source material while preserving provenance.
 
 ### `packages/shared/`
 
@@ -216,6 +257,7 @@ It contains:
 - Gateway chat/request/response DTOs.
 - Gateway health DTOs.
 - Job, run, source, and report DTOs.
+- Gate, event, crawl-plan, memory, and story draft DTOs.
 - SSE framing helpers.
 - Chat-completion delta helpers.
 - agent tool/source event frame helpers.
@@ -311,6 +353,7 @@ Current logical tables:
 - `agent_channel_sources`
 - `missions`
 - `mission_sources`
+- `mission_crawl_plans`
 - `mission_runs`
 - `mission_reports`
 
@@ -367,9 +410,12 @@ to NewsCraft-native missions.
 
 - `missions` stores account-scoped mission config overlays.
 - `mission_sources` stores URL watchlist entries for missions.
-- `mission_runs` exists in the app schema for local run state.
+- `mission_crawl_plans` stores approved/discarded crawl-plan versions and
+  execution metadata for mission source discovery.
+- `mission_runs` exists in the app schema for local run state, though current
+  run execution is primarily gateway/harness-driven.
 - `mission_reports` stores generated markdown report summaries and full report
-  bodies.
+  bodies with markdown as the current fixed output format.
 - `agent_channel_configs`, `agent_channel_sources`, and
   `agent_channel_posts` are legacy compatibility tables.
 
@@ -389,6 +435,15 @@ Current harness tables:
 - `source_snapshots`
 - `sources`
 - `reports`
+- `events`
+- `gates`
+- `house_memory`
+- `memory_entries`
+
+On startup the harness creates missing tables and repairs older SQLite
+databases by adding `workspace_id` to legacy `jobs`, `events`, `gates`, and
+`memory_entries` tables before creating indexes. This keeps existing local
+databases from failing startup when newer workspace-scoped queries run.
 
 #### `jobs`
 
@@ -401,9 +456,14 @@ Stores scheduled mission definitions:
 - Enabled flag.
 - Next run.
 - Last run/status/error/delivery error.
-- Delivery target.
-- Output format.
+- Compatibility delivery target.
+- Compatibility output format, currently defaulting to `markdown`.
 - Created/updated timestamps.
+
+Delivery target and output format remain stored for gateway/API compatibility,
+but they are not visible mission setup controls. Current product behavior is a
+fixed database/dashboard delivery path with markdown/text report bodies rendered
+by the app.
 
 #### `runs`
 
@@ -440,6 +500,37 @@ Stores generated mission reports:
 - Markdown body.
 - Created timestamp.
 - UI ingest status and error.
+
+#### `events`
+
+Stores append-only newsroom activity:
+
+- Workspace, story, job, and run scope.
+- Agent and event kind.
+- Payload and source metadata JSON.
+- Optional parent event and cost metadata.
+- Created timestamp.
+
+Updates and deletes are blocked by SQLite triggers.
+
+#### `gates`
+
+Stores editor decision queue items:
+
+- Workspace, story, job, and run scope.
+- Gate type, title, summary, priority, status, and actions.
+- Creator and creation timestamp.
+- Resolution action, notes, payload, resolver, and resolved timestamp.
+
+The overview uses open gates as the decision queue.
+
+#### `house_memory` and `memory_entries`
+
+Store newsroom memory:
+
+- `house_memory` stores current house-level key/value state.
+- `memory_entries` appends immutable house, beat, and story memory entries.
+- Beat and story memory can be inspected by agents and editor commands.
 
 ## Authentication and authorization
 
@@ -593,6 +684,11 @@ completed recap after reload without replaying live events.
 Mission functionality is implemented as a compatibility layer around gateway
 jobs/runs plus local app overlays.
 
+The operational front door is `/`: newsroom overview, Ask NewsCraft, gates,
+story leads, workspaces, standing briefs, and activity. `/missions` remains the
+configuration/admin surface for standing briefs, watchlists, crawl plans, runs,
+and reports.
+
 ### UI concepts
 
 In the UI, a mission is a recurring newsroom task with:
@@ -602,11 +698,14 @@ In the UI, a mission is a recurring newsroom task with:
 - Prompt.
 - Schedule.
 - Enabled/paused state.
-- Delivery target.
-- Output format.
 - URL sources/watchlist.
+- Approved crawl plans.
 - Recent runs.
 - Generated reports.
+
+Delivery target and output format are intentionally not shown in mission setup.
+Current behavior is fixed: outputs are stored in the database/dashboard path and
+rendered as markdown/text by the app.
 
 The UI currently uses `/missions` as the canonical route. Older `/board`,
 `/channels`, and `/mission-control` routes redirect there.
@@ -625,6 +724,7 @@ The SvelteKit API routes under `/api/agent/*` provide the UI contract:
 - `GET /api/agent/reports/[id]`
 - `POST /api/agent/channel-posts`
 - `DELETE /api/agent/channels/[jobId]`
+- `POST /api/agent/editor-command`
 - `GET /api/agent/commands`
 - `GET /api/agent/skills`
 - `GET /api/agent/skills/[slug]`
@@ -644,7 +744,7 @@ prompt locally.
 
 ### Source watchlists
 
-Only URL sources are supported right now.
+Only URL sources are configurable from mission setup right now.
 
 Source behavior:
 
@@ -653,6 +753,25 @@ Source behavior:
 - Enabled sources are appended to the base prompt under
   `## Configured Watchlist`.
 - Disabled sources remain stored but are not included in the compiled prompt.
+
+### Crawl plans
+
+Mission crawl plans are source-discovery plans proposed by the monitor workflow
+and approved or discarded by an editor. Approved versions can be executed by the
+harness. Execution preserves provenance such as discovered/fetched timestamps,
+content type, status code, content hash, archive snapshot, and extraction
+metadata so downstream pitches can carry their source trail.
+
+### Editor commands and gates
+
+Ask NewsCraft/editor commands are posted through the SvelteKit
+`/api/agent/editor-command` route and forwarded to the harness
+`/api/editor-commands` endpoint. The harness routes commands to the monitor or
+drafting agent based on command context and target agent hints.
+
+Open gates are editor decision items. The overview presents them as the
+decision queue; resolving a gate records the resolution and lets follow-on
+agent workflows continue from the accepted/rejected action.
 
 ### Reports
 
@@ -702,6 +821,23 @@ The harness currently implements:
 - `POST /api/jobs/:id/pause`
 - `POST /api/jobs/:id/resume`
 - `GET /api/runs?include_completed=true&include_recent=true`
+- `GET /api/events`
+- `GET /api/gates`
+- `POST /api/gates`
+- `GET /api/gates/:id`
+- `POST /api/gates/:id/resolve`
+- `GET /api/crawl-plans?beat_id=...`
+- `POST /api/crawl-plans`
+- `GET /api/crawl-plans/:id?beat_id=...`
+- `POST /api/crawl-plans/:id/execute?beat_id=...`
+- `POST /api/editor-commands`
+- `GET /api/memory/house`
+- `PATCH /api/memory/house`
+- `GET /api/memory/beats/:id`
+- `POST /api/memory/beats/:id`
+- `GET /api/memory/stories/:id`
+- `POST /api/memory/stories/:id`
+- `POST /api/stories/:id/drafts/web-story`
 
 These endpoints are shaped to satisfy the existing SvelteKit adapter and UI.
 
@@ -740,19 +876,42 @@ time.
 
 ### Source fetching
 
-The harness source tool:
+The harness source tools now use `politeFetch`, source adapters, and structured
+article extraction.
 
-- Fetches URLs with a NewsCraft user agent.
-- Detects RSS/Atom-ish feeds by content type or body.
-- Summarizes up to 8 feed entries.
-- Converts basic HTML to text.
-- Extracts title from title/meta tags when possible.
-- Normalizes whitespace.
-- Truncates content text to 20,000 characters.
-- Stores snippets, summaries, hashes, content type, status code, and fetch time.
+Current adapter coverage:
 
-This is not a full article extraction system yet. It is a lightweight
-provenance-preserving fetch/summarize layer.
+- RSS.
+- Atom.
+- Sitemap.
+- Web search.
+- PR/newswire style feeds.
+- PDF.
+- Bluesky.
+- HTML article pages.
+
+Stored/propagated source evidence includes:
+
+- Adapter and source URL.
+- Discovered and fetched timestamps.
+- Content type and status code.
+- Content hash.
+- Archive snapshot metadata when available.
+- ETag and last-modified headers when available.
+- Title, description, canonical URL, site name, publish/update times, authors,
+  image, section, keywords, structured type, and metadata source hints.
+- Readable text, snippet, summary, extraction method, and source/canonical
+  provenance.
+
+This is now more than a lightweight fetch layer, but it is still not a complete
+paywall, credibility-scoring, or comprehensive dedupe system.
+
+### Beat monitor behavior
+
+The beat monitor combines configured watchlists, approved crawl plans, source
+fetch/extraction output, and beat memory. It creates pitch gates and activity
+events for promising leads and preserves source provenance in the pitch
+`source_set` so accepted workspaces can retain their evidence trail.
 
 ### Report delivery back to UI
 
@@ -904,11 +1063,13 @@ corepack pnpm start
 corepack pnpm check
 corepack pnpm test
 corepack pnpm test:harness
+corepack pnpm --filter @newscraft/newsroom-harness test -- tests/database.test.ts
 corepack pnpm test:e2e
 ```
 
 The root `test` script runs root Vitest tests, shared package tests, and harness
-tests. The e2e script uses Playwright.
+tests. The e2e script uses Playwright. Use the filtered harness command when
+running a single harness test file by path.
 
 ### Database migrations
 
@@ -1090,10 +1251,12 @@ Supported shortcuts include:
 - `GET /api/agent/jobs`
 - `POST /api/agent/jobs`
 - `PATCH /api/agent/jobs/[id]`
+- `POST /api/agent/jobs/[id]`
 - `DELETE /api/agent/jobs/[id]`
 - `GET /api/agent/reports/[id]`
 - `POST /api/agent/channel-posts`
 - `DELETE /api/agent/channels/[jobId]`
+- `POST /api/agent/editor-command`
 - `GET /api/agent/commands`
 - `GET /api/agent/skills`
 - `GET /api/agent/skills/[slug]`
@@ -1112,13 +1275,19 @@ Notable tested utility areas visible in the repo:
 
 - Account database behavior.
 - Mission report database behavior.
+- Harness database schema creation, idempotency, and legacy `workspace_id`
+  repair.
 - Agent bridge and transport behavior.
+- Editor command routing.
 - Reasoning command behavior.
 - Board data shaping.
 - Channel source normalization.
+- Open gates, story leads, and active story workspace shaping.
+- Crawl-plan execution and provenance preservation.
 - Cron delivery helpers.
 - Run polling.
 - Search dedupe/snippets.
+- Source adapters and structured article extraction.
 - Slash commands.
 - SSE parsing.
 - Thread message projection.
@@ -1151,9 +1320,11 @@ Notable tested utility areas visible in the repo:
 ### Source extraction
 
 - URL sources are the only configured mission source type.
-- RSS/Atom and lightweight HTML extraction are supported.
-- Full article extraction, paywall handling, canonicalization, dedupe, and
-  source credibility scoring are not yet complete systems.
+- RSS, Atom, sitemap, web search, PR/newswire, PDF, Bluesky, and HTML article
+  adapters are supported.
+- Structured article extraction and provenance preservation exist, but paywall
+  handling, source credibility scoring, and comprehensive dedupe are not yet
+  complete systems.
 
 ### Publishing
 
@@ -1161,6 +1332,8 @@ Notable tested utility areas visible in the repo:
 - It does not publish to a CMS.
 - It does not write to external newsroom systems beyond optional ingest back to
   the UI.
+- Delivery/output format controls are fixed defaults in the current product,
+  not user-selectable publishing channels.
 - Human review remains required for editorial decisions.
 
 ### Auth/admin model
@@ -1198,7 +1371,8 @@ Notable tested utility areas visible in the repo:
 
 - Harness config exposes timeout, max tool calls, and retry limit.
 - Richer agent budget controls, audit trails, cancellation UX, approval queues,
-  and role-based editorial gates are still future work.
+  and role-based editorial permissions are still future work. Basic gate
+  creation/resolution exists, but it is not a full permission model.
 
 ## Operational notes
 
@@ -1268,25 +1442,38 @@ When making changes, these are the usual files to know first.
 
 ### Missions
 
+- `src/routes/+page.svelte`
 - `src/routes/missions/+page.svelte`
 - `src/lib/server/agent/board.ts`
+- `src/lib/server/agent/gates.ts`
+- `src/lib/server/agent/crawl-plans.ts`
+- `src/lib/server/agent/crawl-plan-sync.ts`
 - `src/lib/server/db/missions.ts`
 - `src/lib/server/db/mission-reports.ts`
 - `src/lib/utils/board.ts`
 - `src/lib/utils/channel-sources.ts`
 - `src/lib/utils/cron-delivery.ts`
 - `src/lib/utils/run-poll.ts`
+- `src/routes/api/agent/editor-command/+server.ts`
 - `src/routes/api/agent/*`
 
 ### Harness
 
 - `services/newsroom-harness/src/server.ts`
 - `services/newsroom-harness/src/chat.ts`
+- `services/newsroom-harness/src/agents/beat-monitor.ts`
+- `services/newsroom-harness/src/agents/drafting.ts`
+- `services/newsroom-harness/src/agents/editor-command.ts`
 - `services/newsroom-harness/src/agents/runtime.ts`
+- `services/newsroom-harness/src/crawl-plans/executor.ts`
 - `services/newsroom-harness/src/jobs/runner.ts`
 - `services/newsroom-harness/src/jobs/scheduler.ts`
 - `services/newsroom-harness/src/jobs/report.ts`
+- `services/newsroom-harness/src/db/database.ts`
 - `services/newsroom-harness/src/db/repository.ts`
+- `services/newsroom-harness/src/tools/article-extraction.ts`
+- `services/newsroom-harness/src/tools/polite-fetch.ts`
+- `services/newsroom-harness/src/tools/source-adapters/*`
 - `services/newsroom-harness/src/tools/sources.ts`
 - `packages/shared/src/*`
 
