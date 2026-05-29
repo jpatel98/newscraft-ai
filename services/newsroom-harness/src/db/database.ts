@@ -184,7 +184,10 @@ BEFORE DELETE ON memory_entries
 BEGIN
 	SELECT RAISE(ABORT, 'memory entries are append-only');
 END;
+`);
+	ensureLegacyWorkspaceColumns(db);
 
+	db.exec(`
 CREATE INDEX IF NOT EXISTS runs_job_idx ON runs(job_id, updated_at);
 CREATE INDEX IF NOT EXISTS jobs_next_run_idx ON jobs(enabled, next_run_at);
 CREATE INDEX IF NOT EXISTS sources_run_idx ON sources(run_id);
@@ -200,7 +203,12 @@ CREATE INDEX IF NOT EXISTS memory_entries_scope_idx ON memory_entries(tier, scop
 CREATE INDEX IF NOT EXISTS memory_entries_key_idx ON memory_entries(tier, scope_id, key, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_workspace_scope_idx ON memory_entries(workspace_id, tier, scope_id, created_at, id);
 `);
+}
+
+function ensureLegacyWorkspaceColumns(db: HarnessDb): void {
 	ensureColumn(db, 'jobs', 'workspace_id', "TEXT NOT NULL DEFAULT 'default'");
+	ensureColumn(db, 'events', 'workspace_id', "TEXT NOT NULL DEFAULT 'default'");
+	ensureColumn(db, 'gates', 'workspace_id', "TEXT NOT NULL DEFAULT 'default'");
 	ensureColumn(db, 'memory_entries', 'workspace_id', "TEXT NOT NULL DEFAULT 'default'");
 }
 

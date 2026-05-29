@@ -393,7 +393,7 @@ async function executeApprovedCrawlPlan(
 		statusCode: source.status_code,
 		archiveSnapshotUrl: source.archive_snapshot_url ?? null,
 		metadata: source.metadata ?? null,
-		provenance: source.provenance ? (source.provenance as SourceItem['provenance']) : undefined,
+		provenance: source.provenance ? (source.provenance as unknown as SourceItem['provenance']) : undefined,
 		eventId: source.event_id,
 		via: 'crawl_plan'
 	}));

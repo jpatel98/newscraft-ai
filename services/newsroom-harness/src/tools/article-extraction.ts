@@ -129,9 +129,9 @@ export function extractArticleMetadata(html: string, url: string): ArticleMetada
 		image: jsonLd.image || schemaOrg.image || absoluteUrl(metaValue(meta, 'og:image') || metaValue(meta, 'twitter:image'), url),
 		section: jsonLd.section || schemaOrg.section || metaValue(meta, 'article:section'),
 		keywords: uniqueStrings([...jsonLd.keywords, ...schemaOrg.keywords, ...keywordsFromValue(metaValue(meta, 'keywords'))]),
-		structuredType: jsonLd.structuredType || schemaOrg.structuredType,
+		structuredType: jsonLd.structuredType || schemaOrg.structuredType || null,
 		metadataSources: [...sources],
-		body: jsonLd.body || schemaOrg.body
+		body: jsonLd.body || schemaOrg.body || null
 	};
 }
 

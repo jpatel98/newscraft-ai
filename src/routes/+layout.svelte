@@ -41,6 +41,7 @@
 	);
 	const sidebarMissions = $derived((data.channels ?? []) as BoardChannel[]);
 	const missionsEnabled = $derived(Boolean(data.missionsEnabled));
+	const isThreadPage = $derived(page.url.pathname.startsWith('/c/'));
 
 	let paletteOpen = $state(false);
 	let drawerOpen = $state(false);
@@ -505,7 +506,7 @@
 {#if onAuthPage || !data.user}
 	{@render children()}
 {:else}
-	<div class="shell {drawerOpen ? 'shell--drawer-open' : ''}">
+	<div class="shell {drawerOpen ? 'shell--drawer-open' : ''} {isThreadPage ? 'shell--thread' : 'shell--plain'}">
 		<!-- Floating command bar — top-left, fixed, three icon buttons.
 		     Hides when the drawer is open (drawer's own header has the toggle). -->
 		<div class="cmdbar" role="toolbar" aria-label="App actions" data-hidden={drawerOpen}>
@@ -865,7 +866,7 @@
 			</div>
 		</aside>
 
-		<main class="pane {page.url.pathname.startsWith('/c/') ? 'pane--thread' : 'pane--plain'}">
+		<main class="pane {isThreadPage ? 'pane--thread' : 'pane--plain'}">
 			{@render children()}
 		</main>
 	</div>

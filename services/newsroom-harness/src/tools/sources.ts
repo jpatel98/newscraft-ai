@@ -10,7 +10,13 @@ import {
 	type PoliteFetchRobotsResult,
 	type PoliteFetchSourceHealthGate
 } from './polite-fetch.js';
-import { selectSourceAdapter, type SourceAdapterKind, type SourceItem } from './source-adapters/index.js';
+import {
+	selectSourceAdapter,
+	type SourceAdapterKind,
+	type SourceArticleMetadata,
+	type SourceItem,
+	type SourceProvenance
+} from './source-adapters/index.js';
 
 export { createFilePoliteFetchCache, politeFetch, NEWSCRAFT_USER_AGENT } from './polite-fetch.js';
 export {

@@ -237,9 +237,13 @@ function sourceEventDto(
 		archive_snapshot_url: item.provenance.archiveSnapshotUrl ?? null,
 		adapter: item.provenance.adapter,
 		plan_version: plan.version,
-		metadata: item.metadata ?? null,
+		metadata: sourceMetadataPayload(item),
 		provenance: sourceProvenancePayload(item)
 	};
+}
+
+function sourceMetadataPayload(item: SourceItem): Record<string, unknown> | null {
+	return item.metadata ? { ...item.metadata } : null;
 }
 
 function sourceProvenancePayload(item: SourceItem): Record<string, unknown> {

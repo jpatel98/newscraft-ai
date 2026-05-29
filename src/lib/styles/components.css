@@ -35,6 +35,11 @@ body,
 	--pane-title-inset: 24px;
 	--menu-title-gap: 32px;
 }
+.shell--plain {
+	min-height: 100vh;
+	min-height: 100dvh;
+	height: auto;
+}
 
 /* ---------- Floating command bar ---------- *
  * Compact horizontal pill of three icon buttons, top-left corner. It belongs
@@ -736,8 +741,9 @@ body,
 }
 
 .pane--plain {
-	overflow-y: auto;
-	overflow-x: hidden;
+	min-height: 100vh;
+	min-height: 100dvh;
+	overflow: visible;
 }
 
 .pane__header {
