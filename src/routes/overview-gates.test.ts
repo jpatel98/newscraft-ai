@@ -41,10 +41,12 @@ describe('newsroom overview gates', () => {
 		expect(source).toContain('targetAgent: commandTarget(command)');
 		expect(source).toContain('facts: commandFacts(selectedWorkspace)');
 		expect(source).toContain("if (selectedWorkspace && /\\b(draft|write|lede|headline)\\b/i.test(command)) return 'drafting'");
+		expect(source).toContain("return 'research'");
 		expect(source).toContain("if (/\\b(lead|leads|source|monitor|beat)\\b/i.test(command)) return 'monitor'");
 		expect(source).toContain('onSend={handleCommandSend}');
 		expect(source).toContain('commandResult.handled_by');
 		expect(source).toContain('Monitor');
+		expect(source).toContain('Research');
 		expect(source).toContain('Drafting');
 	});
 });

@@ -348,8 +348,9 @@ async function readConfiguredSource(
 		return [];
 	}
 
-	for (const item of extracted.slice(0, maxItems)) {
-		const lead = leadFromSourceItem(item, source.name, source.url, adapter.kind);
+	for (const candidate of extracted.slice(0, maxItems)) {
+		const item = await hydrateDiscoveredSourceItem(candidate, source.url, options);
+		const lead = leadFromSourceItem(item, source.name, source.url, item.provenance.adapter || adapter.kind);
 		const quality = assessSourceQuality({
 			title: lead.title,
 			text: lead.contentText,
@@ -378,6 +379,40 @@ async function readConfiguredSource(
 	}
 
 	return leads;
+}
+
+async function hydrateDiscoveredSourceItem(
+	item: SourceItem,
+	parentUrl: string,
+	options: BeatMonitorRunOptions
+): Promise<SourceItem> {
+	if (sameUrl(item.url, parentUrl)) return item;
+	try {
+		const fetched = await politeFetch(item.url, monitorFetchOptions(options));
+		if (!fetched.ok) return item;
+		const adapter = selectSourceAdapter({ url: item.url, contentType: fetched.contentType, body: fetched.body });
+		const extracted = await adapter.extract({
+			url: item.url,
+			body: fetched.body,
+			contentType: fetched.contentType,
+			fetchedAt: fetched.fetchedAt,
+			statusCode: fetched.statusCode,
+			contentHash: fetched.cache.contentHash,
+			archiveSnapshotUrl: fetched.archiveSnapshot.ok ? fetched.archiveSnapshot.snapshotUrl : null,
+			cache: fetched.cache
+		});
+		const article = extracted.find((candidate) => candidate.contentText.length > item.contentText.length) || extracted[0];
+		if (!article) return item;
+		return {
+			...article,
+			provenance: {
+				...article.provenance,
+				parentUrl
+			}
+		};
+	} catch {
+		return item;
+	}
 }
 
 async function executeApprovedCrawlPlan(
@@ -728,6 +763,14 @@ function sourceNameFromUrl(value: string): string {
 		return new URL(value).hostname.replace(/^www\./, '');
 	} catch {
 		return value;
+	}
+}
+
+function sameUrl(left: string, right: string): boolean {
+	try {
+		return new URL(left).toString() === new URL(right).toString();
+	} catch {
+		return left === right;
 	}
 }
 

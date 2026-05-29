@@ -240,6 +240,7 @@ export class NewsroomAgentRuntime {
 					'The mission prompt is the output contract. Follow it exactly.',
 					'Do not add default NewsCraft sections, source notes, verification notes, human-review notes, or boilerplate unless the mission prompt asks for them.',
 					'Use only the provided evidence. If the evidence is insufficient, say so in the requested format or as plainly as possible.',
+					'Never invent publication dates. If a source says Published: NOT FOUND, write Date: Not found or omit the date; never use the accessed/run time as the publication date.',
 					'Return only the mission output.'
 				].join('\n')
 			});
@@ -462,8 +463,10 @@ function missionSynthesisInput(prompt: string, result: NewsroomAgentRunResult): 
 					[
 						`Source ${index + 1}: ${item.title}`,
 						`URL: ${item.source_url}`,
-						item.published_at ? `Published: ${item.published_at}` : null,
-						`Accessed: ${item.accessed_at}`,
+						item.published_at
+							? `Published: ${item.published_at}`
+							: 'Published: NOT FOUND IN SOURCE METADATA. Do not infer this from the accessed/run time.',
+						`Accessed: ${item.accessed_at} (retrieval time only; not a publication date)`,
 						`Text: ${truncateEvidence(item.extracted_text || item.summary || item.title)}`
 					]
 						.filter(Boolean)

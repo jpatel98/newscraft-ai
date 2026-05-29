@@ -143,6 +143,136 @@ describe('editor command routing', () => {
 		]);
 	});
 
+	it('routes story fact-ledger commands to Research and targets referenced claims', async () => {
+		const repo = createRepository();
+		const workspaceId = 'workspace-command';
+		const storyId = 'story-active';
+
+		const result = await runEditorCommand(repo, {
+			command: 'Find a counter-source on claim 3.',
+			workspaceId,
+			storyId,
+			facts: verifiedFacts()
+		});
+		const events = repo.listEvents({ workspaceId, storyId });
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: 'completed',
+			handled_by: 'Research',
+			agent: 'research',
+			target_claim: {
+				id: 'fact-3',
+				index: 3,
+				claim: verifiedFacts()[2].claim,
+				source_urls: ['https://sources.example/fact-3']
+			}
+		});
+		expect(events.map((event) => event.kind)).toEqual([
+			'editor.command.routed',
+			'research.counter_source.requested'
+		]);
+		expect(events[1]).toMatchObject({
+			agent: 'research',
+			parent_event_id: events[0]?.id,
+			payload: expect.objectContaining({
+				research_intent: 'counter_source',
+				target_claim: expect.objectContaining({
+					id: 'fact-3',
+					index: 3,
+					claim: verifiedFacts()[2].claim
+				})
+			})
+		});
+	});
+
+	it('lets Research scrape a story source and append a proposed fact with provenance', async () => {
+		const repo = createRepository();
+		const workspaceId = 'workspace-command';
+		const storyId = 'story-active';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url.endsWith('/robots.txt')) return new Response('', { status: 404 });
+				return new Response(
+					[
+						'<html><head><title>Budget office posts repair warning</title></head>',
+						'<body><article><p>The budget office warned that delayed bridge repairs could increase costs by twelve percent next year.</p>',
+						'<p>The office said the estimate is based on tender prices and inspection records published this week.</p></article></body></html>'
+					].join(''),
+					{ status: 200, headers: { 'content-type': 'text/html' } }
+				);
+			})
+		);
+
+		const result = await runEditorCommand(repo, {
+			command: 'Research this source for the fact ledger: https://city.example/bridge-warning',
+			workspaceId,
+			storyId,
+			facts: verifiedFacts()
+		});
+		const events = repo.listEvents({ workspaceId, storyId });
+		const factLedger = repo.inspectStoryMemory(storyId, workspaceId).current.fact_ledger;
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: 'completed',
+			handled_by: 'Research',
+			agent: 'research',
+			claim: {
+				status: 'proposed',
+				sources: [
+					expect.objectContaining({
+						url: 'https://city.example/bridge-warning',
+						adapter: 'html_article',
+						content_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+						status_code: 200,
+						provenance: expect.objectContaining({
+							adapter: 'html_article',
+							extraction_method: 'readability'
+						})
+					})
+				]
+			}
+		});
+		expect(events.map((event) => event.kind)).toEqual(['editor.command.routed', 'claim.proposed']);
+		expect(events[1]).toMatchObject({
+			agent: 'research',
+			payload: expect.objectContaining({
+				status: 'proposed',
+				source_count: 1,
+				sources: [
+					expect.objectContaining({
+						url: 'https://city.example/bridge-warning',
+						content_hash: expect.stringMatching(/^[a-f0-9]{64}$/)
+					})
+				]
+			}),
+			sources: [
+				expect.objectContaining({
+					url: 'https://city.example/bridge-warning',
+					adapter: 'html_article',
+					provenance: expect.objectContaining({
+						extraction_method: 'readability'
+					})
+				})
+			]
+		});
+		expect(factLedger).toEqual([
+			expect.objectContaining({
+				status: 'proposed',
+				event_id: events[1]?.id,
+				sources: [
+					expect.objectContaining({
+						url: 'https://city.example/bridge-warning',
+						content_hash: expect.stringMatching(/^[a-f0-9]{64}$/)
+					})
+				]
+			})
+		]);
+	});
+
 	it('seeds client fact context before drafting from an overview workspace', async () => {
 		const repo = createRepository();
 		const workspaceId = 'story-post-1';

@@ -89,6 +89,54 @@ describe('beat monitor standing brief runs', () => {
 		]);
 	});
 
+	it('fetches discovered article pages before pitching so dates come from article metadata', async () => {
+		const repo = createRepository();
+		const job = repo.createJob({
+			name: 'Canada FIFA Newswatch',
+			prompt: [
+				'Scan for FIFA 2026 host-city updates.',
+				'',
+				'## Configured Watchlist',
+				'Use these configured sources as starting points for this scheduled run.',
+				'',
+				'- Toronto news: https://www.toronto.ca/news/'
+			].join('\n'),
+			schedule: 'every 5m'
+		});
+		const run = repo.createRun(job.id, 'test');
+		const articleUrl =
+			'https://www.toronto.ca/news/one-month-to-kickoff-toronto-prepares-to-welcome-fifa-world-cup-2026/';
+		const fetchMock = fetchFixture({
+			'https://www.toronto.ca/news/': [
+				'<html><head><title>City of Toronto news</title></head><body><main>',
+				`<a href="${articleUrl}">Toronto: One month to kickoff as city prepares for FIFA World Cup 2026</a>`,
+				'</main></body></html>'
+			].join(''),
+			[articleUrl]: [
+				'<html><head>',
+				'<meta property="article:published_time" content="2026-05-12T14:00:00Z">',
+				'<meta property="og:description" content="City of Toronto update on final preparations for FIFA World Cup 2026.">',
+				'<title>Toronto: One month to kickoff as city prepares for FIFA World Cup 2026</title>',
+				'</head><body><article>',
+				'<p>The City of Toronto says final hosting preparations are continuing one month before kickoff.</p>',
+				'<p>Officials outlined local readiness work, public activations, and civic planning for FIFA World Cup 2026.</p>',
+				'</article></body></html>'
+			].join('')
+		});
+
+		const result = await runBeatMonitor(repo, job, { runId: run.id }, { fetchImpl: fetchMock, maxPitches: 1 });
+		const sourceSet = (result.gates[0]?.payload as { source_set?: Array<Record<string, unknown>> }).source_set;
+
+		expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(articleUrl);
+		expect(sourceSet?.[0]).toMatchObject({
+			url: articleUrl,
+			adapter: 'html_article',
+			published_at: '2026-05-12T14:00:00.000Z',
+			summary: 'City of Toronto update on final preparations for FIFA World Cup 2026.'
+		});
+		expect(sourceSet?.[0]?.published_at).not.toContain('2026-05-29');
+	});
+
 	it('executes only approved crawl plans assigned to the beat', async () => {
 		const repo = createRepository();
 		const job = repo.createJob({
@@ -259,7 +307,7 @@ describe('beat monitor standing brief runs', () => {
 		]);
 	});
 
-	it('lets the job runner complete Standing Briefs without creating mission reports', async () => {
+	it('lets the job runner complete Standing Briefs and save mission output', async () => {
 		const repo = createRepository();
 		const job = repo.createJob({
 			workspace_id: 'account:editor-1',
@@ -292,7 +340,13 @@ describe('beat monitor standing brief runs', () => {
 
 		expect(runtime.runMission).not.toHaveBeenCalled();
 		expect(repo.requireRun(run.id)).toMatchObject({ status: 'completed', last_error: null });
-		expect(repo.listReports()).toHaveLength(0);
+		const reports = repo.listReports();
+		expect(reports).toHaveLength(1);
+		expect(reports[0].markdown).toContain('# Cron Job: Morning Policy Monitor');
+		expect(reports[0].markdown).toContain('## Summary');
+		expect(reports[0].markdown).toContain('queued 1 pitch gate');
+		expect(reports[0].markdown).toContain('Ministry announces new housing permit dashboard');
+		expect(reports[0].markdown).toContain('## Human Review');
 		expect(repo.listGates({ workspaceId: 'account:editor-1', jobId: job.id })).toHaveLength(1);
 		expect(repo.listGates({ workspaceId: 'default', jobId: job.id })).toHaveLength(0);
 	});
@@ -338,6 +392,46 @@ describe('beat monitor standing brief runs', () => {
 		expect(repo.listRuns({ includeCompleted: true }).find((candidate) => candidate.id === run.id)).toMatchObject({
 			source_count: 1
 		});
+	});
+
+	it('lets the job runner replace stale active runs with a fresh manual run', async () => {
+		const repo = createRepository();
+		const job = repo.createJob({
+			workspace_id: 'account:editor-1',
+			name: 'Stale Run Watch',
+			prompt: 'Write a short monitor update.',
+			schedule: 'every 5m'
+		});
+		const stale = repo.createRun(job.id, 'schedule');
+		db?.prepare(
+			`UPDATE runs
+			 SET status = 'running',
+				 queued_at = '2026-05-29T18:00:00.000Z',
+				 started_at = '2026-05-29T18:00:00.000Z',
+				 updated_at = '2026-05-29T18:00:00.000Z'
+			 WHERE id = ?`
+		).run(stale.id);
+		const runtime = {
+			runMission: vi.fn(async () => ({
+				role: 'assignment_desk',
+				markdown: '## Summary\n\nFresh manual output.',
+				sources: [],
+				evidence: []
+			}))
+		} as unknown as NewsroomAgentRuntime;
+		const runner = new JobRunner(repo, runtime, loadConfig({ openAiApiKey: '', runTimeoutMs: 1000 }));
+
+		const fresh = runner.start(job.id, 'manual');
+		await runner.waitFor(fresh.id);
+		const runs = repo.listRuns({ includeCompleted: true }).filter((run) => run.job_id === job.id);
+
+		expect(fresh.id).not.toBe(stale.id);
+		expect(repo.requireRun(stale.id)).toMatchObject({
+			status: 'failed',
+			last_error: 'Run marked failed because the runner no longer has active execution for it.'
+		});
+		expect(runs.map((run) => run.status)).toContain('completed');
+		expect(runtime.runMission).toHaveBeenCalledOnce();
 	});
 });
 

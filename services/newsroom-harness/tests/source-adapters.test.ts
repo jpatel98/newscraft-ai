@@ -263,6 +263,43 @@ describe('source adapters', () => {
 		expect(items[0].contentText).not.toContain('Short teaser only');
 	});
 
+	it('discovers story links from an HTML listing instead of treating the listing as the article', async () => {
+		const items = await htmlArticleAdapter.discover(
+			extractInput(
+				`
+				<html>
+					<head><title>Latest news</title></head>
+					<body>
+						<nav><a href="/subscribe">Subscribe now</a></nav>
+						<main>
+							<a href="/news/one-month-to-kickoff-toronto-prepares-to-welcome-fifa-world-cup-2026/">
+								Toronto: One month to kickoff as city prepares for FIFA World Cup 2026
+							</a>
+							<a href="/news/world-cup-transit-plan">
+								Vancouver confirms World Cup transit service plan for tournament crowds
+							</a>
+						</main>
+					</body>
+				</html>
+			`,
+				'text/html',
+				'https://www.toronto.ca/news/'
+			)
+		);
+
+		expect(items).toEqual([
+			expect.objectContaining({
+				url: 'https://www.toronto.ca/news/one-month-to-kickoff-toronto-prepares-to-welcome-fifa-world-cup-2026/',
+				title: 'Toronto: One month to kickoff as city prepares for FIFA World Cup 2026',
+				publishedAt: null
+			}),
+			expect.objectContaining({
+				url: 'https://www.toronto.ca/news/world-cup-transit-plan',
+				title: 'Vancouver confirms World Cup transit service plan for tournament crowds'
+			})
+		]);
+	});
+
 	it('combines schema.org, OpenGraph, and Twitter metadata with readable article text', async () => {
 		const items = await htmlArticleAdapter.extract(
 			extractInput(

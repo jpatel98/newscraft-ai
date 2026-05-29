@@ -140,6 +140,7 @@ async function route(
 	}
 
 	if (req.method === 'GET' && url.pathname === '/api/runs') {
+		ctx.runner.clearStaleActiveRuns();
 		writeJson(res, 200, {
 			runs: ctx.repository.listRuns({
 				includeCompleted: url.searchParams.get('include_completed') === 'true',
@@ -147,6 +148,13 @@ async function route(
 				jobIds: queryList(url, 'job_id', 'job_ids')
 			})
 		});
+		return;
+	}
+
+	if (req.method === 'GET' && url.pathname === '/api/reports') {
+		const jobIds = new Set(queryList(url, 'job_id', 'job_ids'));
+		const reports = ctx.repository.listReports().filter((report) => jobIds.size === 0 || jobIds.has(report.job_id));
+		writeJson(res, 200, { reports });
 		return;
 	}
 
@@ -220,7 +228,7 @@ async function route(
 			story_id?: string | null;
 			job_id?: string | null;
 			run_id?: string | null;
-			target_agent?: 'monitor' | 'drafting' | null;
+			target_agent?: 'monitor' | 'research' | 'drafting' | null;
 			target_word_count?: number;
 			facts?: unknown[];
 		}>(req);

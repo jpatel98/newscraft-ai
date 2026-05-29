@@ -33,15 +33,20 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		return chatAnswer(input.prompt, evidence, unusableEvidence, input.toolAnswers || []);
 	}
 
-	const lead = leadParagraph(input.prompt, evidence);
-	const leadCandidates = evidence.slice(0, 5).map((item) => `- ${sourceLabel(item)}: ${summaryFor(item)}`);
+	const briefItems = evidence.slice(0, 5).map((item) => briefItemFor(item));
+	const lead = leadParagraph(input.prompt, evidence, briefItems);
+	const leadCandidates = briefItems.map((item) => {
+		const detail = item.detail ? ` — ${item.detail}` : '';
+		return `- **${item.title}** (${kindLabel(item.evidence)}): ${item.source}${detail}`;
+	});
 	const listedSources = evidence.slice(0, 12);
 	const sourceNotes = [
 		...listedSources.map((item) => {
 			const timestamp = [item.published_at ? `published ${item.published_at}` : null, `accessed ${item.accessed_at}`]
 				.filter(Boolean)
 				.join('; ');
-			return `- ${formatSourceLink(item)} - ${kindLabel(item)}; ${timestamp}. ${summaryFor(item)}`;
+			const note = sourceNoteFor(item);
+			return `- ${formatSourceLink(item)} - ${kindLabel(item)}; ${timestamp}.${note ? ` ${note}` : ''}`;
 		}),
 		...(evidence.length > listedSources.length
 			? [`- ${evidence.length - listedSources.length} additional usable sources were recorded and omitted from this compact brief.`]
@@ -132,11 +137,22 @@ function answerFromMemory(prompt: string): string {
 	return 'This appears to be stable newsroom guidance rather than a live-source request. I would answer from established practice, and I would not claim to have checked current sources unless a tool run is routed.';
 }
 
-function leadParagraph(prompt: string, evidence: EvidenceObject[]): string {
+interface BriefItem {
+	evidence: EvidenceObject;
+	title: string;
+	source: string;
+	detail: string;
+}
+
+function leadParagraph(prompt: string, evidence: EvidenceObject[], briefItems: BriefItem[]): string {
 	const official = evidence.filter((item) => item.source_kind === 'official' || item.source_kind === 'primary');
 	const media = evidence.filter((item) => item.source_kind === 'media_report');
 	const newest = evidence[0];
-	const base = summaryFor(newest, 420);
+	const itemCount = briefItems.length;
+	const base =
+		itemCount > 1
+			? `This run found ${itemCount} usable source${itemCount === 1 ? '' : 's'} for editor review. The strongest candidates are listed below with source attribution.`
+			: `This run found one usable source for editor review: ${briefItems[0]?.title || sourceDisplayTitle(newest, 120)}.`;
 	const latestFraming = latestAvailableFraming(prompt, newest);
 	const sourceFraming =
 		official.length && media.length
@@ -218,10 +234,6 @@ function evidenceTimeMs(item: EvidenceObject): number {
 	return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function sourceLabel(item: EvidenceObject): string {
-	return `${sourceDisplayTitle(item, 90)} (${kindLabel(item)})`;
-}
-
 function kindLabel(item: EvidenceObject): string {
 	if (item.source_kind === 'official') return 'official source';
 	if (item.source_kind === 'primary') return 'primary source';
@@ -236,6 +248,58 @@ function formatSourceLink(item: EvidenceObject): string {
 		return `${label} (${item.source_url})`;
 	}
 	return `[${label}](${item.source_url})`;
+}
+
+function briefItemFor(item: EvidenceObject): BriefItem {
+	const title = sourceDisplayTitle(item, 110);
+	const source = formatSourceLink(item);
+	const detail = cleanBriefDetail(item, title);
+	return { evidence: item, title, source, detail };
+}
+
+function sourceNoteFor(item: EvidenceObject): string {
+	const title = sourceDisplayTitle(item, 110);
+	return cleanBriefDetail(item, title, 220);
+}
+
+function cleanBriefDetail(item: EvidenceObject, title: string, maxLength = 180): string {
+	const raw = item.summary || firstUsefulSentence(item.extracted_text) || '';
+	const cleaned = compactText(raw, maxLength);
+	if (!cleaned) return '';
+	if (sameNormalized(cleaned, title)) return '';
+	if (looksLikeHeadlineBlob(cleaned)) return '';
+	return cleaned;
+}
+
+function firstUsefulSentence(value: string): string {
+	return value
+		.split(/(?<=[.!?])\s+/)
+		.map((sentence) => sentence.trim())
+		.find((sentence) => sentence.length >= 40 && !looksLikeHeadlineBlob(sentence)) || '';
+}
+
+function looksLikeHeadlineBlob(value: string): boolean {
+	const cleaned = value.toLowerCase();
+	const urlish = (cleaned.match(/\b(?:https?:\/\/|www\.|[a-z0-9-]+\.(?:ca|com|org|net)\/)/g) || []).length;
+	const dateReadMarkers = (cleaned.match(/\b(?:mins?|hours?|min read|updated|breaking|subscribe|skip to|sign in)\b/g) || [])
+		.length;
+	const sentenceMarks = (value.match(/[.!?]/g) || []).length;
+	return urlish >= 1 || dateReadMarkers >= 2 || (value.length > 180 && sentenceMarks <= 1);
+}
+
+function sameNormalized(left: string, right: string): boolean {
+	const normalizedLeft = normalizeComparable(left);
+	const normalizedRight = normalizeComparable(right);
+	return Boolean(normalizedLeft && normalizedRight && (normalizedLeft === normalizedRight || normalizedLeft.includes(normalizedRight)));
+}
+
+function normalizeComparable(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/https?:\/\/\S+/g, '')
+		.replace(/[^a-z0-9]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
 }
 
 function summaryFor(item: EvidenceObject, maxLength = 260): string {

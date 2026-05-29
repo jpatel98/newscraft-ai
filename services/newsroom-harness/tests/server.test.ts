@@ -446,6 +446,41 @@ describe('newsroom harness server', () => {
 		expect(body.runs.map((run: { id: string }) => run.id)).toEqual([firstRun.id]);
 	});
 
+	it('lists saved reports by job ids', async () => {
+		await startHarness();
+		const first = harness.repository.createJob({
+			name: 'First Watch',
+			prompt: 'Scan first beat.',
+			schedule: 'every 60m'
+		});
+		const second = harness.repository.createJob({
+			name: 'Second Watch',
+			prompt: 'Scan second beat.',
+			schedule: 'every 60m'
+		});
+		const firstRun = harness.repository.createRun(first.id, 'test');
+		const secondRun = harness.repository.createRun(second.id, 'test');
+		const firstReport = harness.repository.createReport({
+			runId: firstRun.id,
+			jobId: first.id,
+			title: first.name,
+			markdown: '# Cron Job: First Watch\n\n**Job ID:** first\n\n## Response\n\nFirst output'
+		});
+		harness.repository.createReport({
+			runId: secondRun.id,
+			jobId: second.id,
+			title: second.name,
+			markdown: '# Cron Job: Second Watch\n\n**Job ID:** second\n\n## Response\n\nSecond output'
+		});
+
+		const response = await authFetch(`/api/reports?job_ids=${first.id}`);
+		const body = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(body.reports.map((report: { id: string }) => report.id)).toEqual([firstReport.id]);
+		expect(body.reports[0].markdown).toContain('First output');
+	});
+
 	it('runs a mission, persists a report, and posts the UI ingest payload shape', async () => {
 		const received: unknown[] = [];
 		const ingest = await startIngestServer(received);

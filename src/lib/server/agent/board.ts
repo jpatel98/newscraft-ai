@@ -39,6 +39,7 @@ const RUN_ENDPOINTS = [
 const RUN_FETCH_TIMEOUT_MS = 2500;
 const RUN_ENDPOINT_SOFT_DISABLE_MS = 60_000;
 const RUN_ENDPOINT_HARD_DISABLE_MS = 10 * 60_000;
+const REPORT_FETCH_TIMEOUT_MS = 5000;
 const JOB_FETCH_TIMEOUT_MS = 5000;
 const JOB_FETCH_ATTEMPTS = 3;
 const runEndpointDisabledUntil = new Map<string, number>();
@@ -140,6 +141,14 @@ function rawRunsFromBody(body: unknown): unknown[] {
 	if (Array.isArray(raw?.jobRuns)) return raw.jobRuns;
 	if (Array.isArray(raw?.active_runs)) return raw.active_runs;
 	if (Array.isArray(raw?.activeRuns)) return raw.activeRuns;
+	if (Array.isArray(raw?.data)) return raw.data;
+	return [];
+}
+
+function rawReportsFromBody(body: unknown): unknown[] {
+	const raw = objectValue(body);
+	if (Array.isArray(body)) return body;
+	if (Array.isArray(raw?.reports)) return raw.reports;
 	if (Array.isArray(raw?.data)) return raw.data;
 	return [];
 }
@@ -269,6 +278,33 @@ function normalizeAgentRun(value: unknown, fallbackJob?: AgentJob): AgentRun | n
 	};
 }
 
+function normalizeAgentReport(value: unknown, jobsById: Map<string, AgentJob>): BoardPost | null {
+	const raw = objectValue(value);
+	if (!raw) return null;
+	const id = stringValue(raw.id ?? raw.report_id ?? raw.reportId);
+	const jobId = stringValue(raw.job_id ?? raw.jobId);
+	const markdown = stringValue(raw.markdown ?? raw.responseMarkdown ?? raw.response_markdown) || '';
+	if (!id || !jobId || !markdown) return null;
+	const parsed = parseCronMarkdown(markdown, jobId);
+	const createdAt = normalizeDate(raw.created_at ?? raw.createdAt);
+	const job = jobsById.get(jobId);
+	const channel = job?.name || stringValue(raw.title) || parsed.channel || jobId;
+	return {
+		id,
+		jobId,
+		channel,
+		channelSlug: '',
+		kind: 'report',
+		runTime: parsed.runTime ?? createdAt,
+		schedule: parsed.schedule ?? job?.scheduleDisplay ?? null,
+		filename: `${id}.md`,
+		filePathDisplay: `harness:${id}`,
+		responseMarkdown: parsed.responseMarkdown,
+		preview: parsed.preview,
+		archived: false
+	};
+}
+
 function dedupeRuns(runs: AgentRun[]): AgentRun[] {
 	const byId = new Map<string, AgentRun>();
 	for (const run of runs) byId.set(run.id, run);
@@ -387,11 +423,39 @@ async function listAgentRuns(jobs: AgentJob[] = []): Promise<AgentRun[]> {
 	return [];
 }
 
+async function listAgentReports(jobs: AgentJob[] = []): Promise<BoardPost[]> {
+	if (jobs.length === 0) return [];
+	const jobsById = new Map(jobs.map((job) => [job.id, job]));
+	const endpoint = `/api/reports?job_ids=${encodeURIComponent(jobs.map((job) => job.id).join(','))}`;
+	try {
+		const response = await agentFetch(endpoint, {
+			method: 'GET',
+			signal: AbortSignal.timeout(REPORT_FETCH_TIMEOUT_MS)
+		});
+		if (!response.ok) return [];
+		const body = await response.json();
+		return rawReportsFromBody(body)
+			.map((report) => normalizeAgentReport(report, jobsById))
+			.filter((post): post is BoardPost => Boolean(post));
+	} catch {
+		return [];
+	}
+}
+
 function appendRunJobFilter(endpoint: string, jobIds: Iterable<string>): string {
 	const ids = Array.from(jobIds);
 	if (ids.length === 0) return endpoint;
 	const separator = endpoint.includes('?') ? '&' : '?';
 	return `${endpoint}${separator}job_ids=${encodeURIComponent(ids.join(','))}`;
+}
+
+function mergeBoardPosts(posts: BoardPost[]): BoardPost[] {
+	const byId = new Map<string, BoardPost>();
+	for (const post of posts) {
+		const existing = byId.get(post.id);
+		if (!existing || (!existing.responseMarkdown && post.responseMarkdown)) byId.set(post.id, post);
+	}
+	return Array.from(byId.values());
 }
 
 async function syncCronOutputToDb(
@@ -569,6 +633,9 @@ export async function boardData(
 		).filter((post) => !hiddenJobIds.has(post.jobId));
 	} catch {
 		posts = includeResponseMarkdown ? await listCronPostsFromFilesystem(jobs, hiddenJobIds) : [];
+	}
+	if (!jobsError) {
+		posts = mergeBoardPosts([...posts, ...(await listAgentReports(jobs))]).filter((post) => !hiddenJobIds.has(post.jobId));
 	}
 	return { ...buildBoardData(posts, jobs, runs, { orphanedPostsArchived: !jobsError }), jobsError };
 }

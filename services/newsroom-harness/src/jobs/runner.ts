@@ -1,10 +1,10 @@
-import type { NewsroomRunDto } from '@newscraft/shared';
+import type { NewsroomJobDto, NewsroomRunDto } from '@newscraft/shared';
 import type { HarnessConfig } from '../config.js';
 import type { HarnessRepository } from '../db/repository.js';
 import type { NewsroomAgentRuntime, RuntimeProgressEvent } from '../agents/runtime.js';
 import { hasBeatMonitorInputs, runBeatMonitor } from '../agents/beat-monitor.js';
 import { nowIso } from '../util/ids.js';
-import { postReportToUi, wrapMissionReport } from './report.js';
+import { beatMonitorReportMarkdown, postReportToUi, wrapMissionReport } from './report.js';
 
 export class JobRunner {
 	private active = new Map<string, Promise<void>>();
@@ -16,6 +16,7 @@ export class JobRunner {
 	) {}
 
 	start(jobId: string, trigger: 'manual' | 'schedule' | 'test' = 'manual', workspaceId?: string): NewsroomRunDto {
+		this.clearStaleActiveRuns();
 		if (this.repository.hasActiveRun(jobId)) {
 			return this.repository
 				.listRuns({ includeCompleted: false })
@@ -30,6 +31,12 @@ export class JobRunner {
 
 	async waitFor(runId: string): Promise<void> {
 		await this.active.get(runId);
+	}
+
+	clearStaleActiveRuns(): number {
+		const staleAgeMs = Math.max(this.config.runTimeoutMs * 2, 10 * 60_000);
+		const cutoff = new Date(Date.now() - staleAgeMs).toISOString();
+		return this.repository.failStaleActiveRuns(cutoff, 'Run marked failed because the runner no longer has active execution for it.');
 	}
 
 	private async execute(runId: string, workspaceId?: string): Promise<void> {
@@ -48,7 +55,9 @@ export class JobRunner {
 					pitchCount: result.pitchCount,
 					gateIds: result.gates.map((gate) => gate.id)
 				});
+				this.repository.addRunStep(run.id, 'production', 'Write mission report');
 				const completedAt = nowIso();
+				await this.saveReport(job, run.id, beatMonitorReportMarkdown(job, result), completedAt);
 				run = this.repository.updateRun(run.id, {
 					status: 'completed',
 					completed_at: completedAt,
@@ -70,30 +79,7 @@ export class JobRunner {
 			});
 			this.repository.addRunStep(run.id, 'production', 'Write mission report');
 			const completedAt = nowIso();
-			const wrapped = wrapMissionReport(job, result.markdown, completedAt);
-			const report = this.repository.createReport({
-				runId: run.id,
-				jobId: job.id,
-				title: job.name,
-				markdown: wrapped.markdown
-			});
-			try {
-				if (this.config.uiIngestUrl && this.config.uiIngestKey) {
-					await postReportToUi({
-						url: this.config.uiIngestUrl,
-						key: this.config.uiIngestKey,
-						id: report.id,
-						job,
-						runTime: completedAt,
-						filename: wrapped.filename,
-						markdown: wrapped.markdown,
-						signal: AbortSignal.timeout(10_000)
-					});
-					this.repository.updateReportIngest(report.id, 'sent', null);
-				}
-			} catch (err) {
-				this.repository.updateReportIngest(report.id, 'failed', err instanceof Error ? err.message : String(err));
-			}
+			await this.saveReport(job, run.id, result.markdown, completedAt);
 			run = this.repository.updateRun(run.id, {
 				status: 'completed',
 				completed_at: completedAt,
@@ -111,6 +97,33 @@ export class JobRunner {
 			this.repository.completeJobSchedule(run.job_id);
 		} finally {
 			clearTimeout(timeout);
+		}
+	}
+
+	private async saveReport(job: NewsroomJobDto, runId: string, markdown: string, completedAt: string): Promise<void> {
+		const wrapped = wrapMissionReport(job, markdown, completedAt);
+		const report = this.repository.createReport({
+			runId,
+			jobId: job.id,
+			title: job.name,
+			markdown: wrapped.markdown
+		});
+		try {
+			if (this.config.uiIngestUrl && this.config.uiIngestKey) {
+				await postReportToUi({
+					url: this.config.uiIngestUrl,
+					key: this.config.uiIngestKey,
+					id: report.id,
+					job,
+					runTime: completedAt,
+					filename: wrapped.filename,
+					markdown: wrapped.markdown,
+					signal: AbortSignal.timeout(10_000)
+				});
+				this.repository.updateReportIngest(report.id, 'sent', null);
+			}
+		} catch (err) {
+			this.repository.updateReportIngest(report.id, 'failed', err instanceof Error ? err.message : String(err));
 		}
 	}
 

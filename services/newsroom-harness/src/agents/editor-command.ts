@@ -2,8 +2,9 @@ import { DEFAULT_WORKSPACE_ID, type HarnessRepository } from '../db/repository.j
 import { fetchSourceUrl, type FetchedSource } from '../tools/sources.js';
 import { nowIso } from '../util/ids.js';
 import { DraftingPreconditionError, runDraftingAgent, type DraftingRunResult } from './drafting.js';
+import { runResearchAgent, type ResearchClaim, type ResearchSourceEvidence, type ResearchTargetClaim } from './research.js';
 
-type CommandAgent = 'beat_monitor' | 'drafting';
+type CommandAgent = 'beat_monitor' | 'research' | 'drafting';
 type CommandStatus = 'completed' | 'blocked';
 
 export interface EditorCommandInput {
@@ -12,7 +13,7 @@ export interface EditorCommandInput {
 	storyId?: string | null;
 	jobId?: string | null;
 	runId?: string | null;
-	targetAgent?: 'monitor' | 'drafting' | null;
+	targetAgent?: 'monitor' | 'research' | 'drafting' | null;
 	targetWordCount?: number;
 	facts?: unknown[];
 }
@@ -20,7 +21,7 @@ export interface EditorCommandInput {
 export interface EditorCommandResult {
 	ok: boolean;
 	status: CommandStatus;
-	handled_by: 'Monitor' | 'Drafting';
+	handled_by: 'Monitor' | 'Research' | 'Drafting';
 	agent: CommandAgent;
 	route_reason: string;
 	command_excerpt: string;
@@ -35,6 +36,8 @@ export interface EditorCommandResult {
 		metadata?: unknown;
 		provenance?: unknown;
 	};
+	claim?: ResearchClaim;
+	target_claim?: ResearchTargetClaim | null;
 	draft?: DraftingRunResult['draft'];
 	gate?: DraftingRunResult['gate'];
 	error?: string;
@@ -117,6 +120,35 @@ export async function runEditorCommand(
 				{ id: event.id, kind: event.kind }
 			],
 			source: sourceResult(source)
+		};
+	}
+
+	if (route.agent === 'research') {
+		const research = await runResearchAgent(
+			repository,
+			{
+				command,
+				workspaceId,
+				storyId,
+				jobId: input.jobId,
+				runId: input.runId,
+				parentEventId: routed.id,
+				facts: input.facts
+			},
+			options
+		);
+		return {
+			ok: research.ok,
+			status: research.status,
+			handled_by: route.handledBy,
+			agent: route.agent,
+			route_reason: route.reason,
+			command_excerpt: excerpt(command),
+			events: [{ id: routed.id, kind: routed.kind }, ...research.events],
+			source: research.source ? sourceResultFromResearch(research.source) : undefined,
+			claim: research.claim,
+			target_claim: research.target_claim,
+			error: research.error
 		};
 	}
 
@@ -237,12 +269,21 @@ function routeCommand(
 	sourceUrl: string | null,
 	targetAgent: EditorCommandInput['targetAgent'],
 	storyId: string | null
-): { agent: CommandAgent; handledBy: 'Monitor' | 'Drafting'; reason: string } {
+): { agent: CommandAgent; handledBy: 'Monitor' | 'Research' | 'Drafting'; reason: string } {
 	if (targetAgent === 'drafting') {
 		return { agent: 'drafting', handledBy: 'Drafting', reason: 'Explicit drafting target.' };
 	}
+	if (targetAgent === 'research') {
+		return { agent: 'research', handledBy: 'Research', reason: 'Explicit research target.' };
+	}
 	if (targetAgent === 'monitor') {
 		return { agent: 'beat_monitor', handledBy: 'Monitor', reason: 'Explicit monitor target.' };
+	}
+	if (storyId && sourceUrl) {
+		return { agent: 'research', handledBy: 'Research', reason: 'Story-context source commands route to Research.' };
+	}
+	if (storyId && /\b(counter[- ]?source|counter source|research|claim|fact|corroborat|contradict|verify source)\b/i.test(command)) {
+		return { agent: 'research', handledBy: 'Research', reason: 'Story-context fact-ledger command.' };
 	}
 	if (sourceUrl) {
 		return { agent: 'beat_monitor', handledBy: 'Monitor', reason: 'URL commands route to Monitor for one-shot extraction.' };
@@ -306,7 +347,7 @@ function sourceProvenancePayload(source: FetchedSource): Record<string, unknown>
 }
 
 function blocked(
-	route: { agent: CommandAgent; handledBy: 'Monitor' | 'Drafting'; reason: string },
+	route: { agent: CommandAgent; handledBy: 'Monitor' | 'Research' | 'Drafting'; reason: string },
 	command: string,
 	routed: { id: string; kind: string },
 	event: { id: string; kind: string },
@@ -324,6 +365,19 @@ function blocked(
 			{ id: event.id, kind: event.kind }
 		],
 		error
+	};
+}
+
+function sourceResultFromResearch(source: ResearchSourceEvidence): EditorCommandResult['source'] {
+	return {
+		url: source.url,
+		title: source.title,
+		summary: source.summary,
+		adapter: source.adapter,
+		content_hash: source.content_hash,
+		archive_snapshot_url: source.archive_snapshot_url,
+		metadata: source.metadata,
+		provenance: source.provenance
 	};
 }
 

@@ -14,6 +14,7 @@
 	import { detectRunRequestOutcome } from '$lib/utils/run-poll';
 	import { effectiveRunError } from '$lib/utils/cron-delivery';
 	import { formatRelativeTime } from '$lib/utils/time';
+	import Markdown from '$lib/components/Markdown.svelte';
 	import Hash from 'lucide-svelte/icons/hash';
 	import Pause from 'lucide-svelte/icons/pause';
 	import Pencil from 'lucide-svelte/icons/pencil';
@@ -32,6 +33,7 @@
 		| 'failed'
 		| 'finished-no-output'
 		| 'timeout';
+	const ACTIVE_RUN_STALE_MS = 10 * 60_000;
 
 	interface RunWatchState {
 		jobId: string;
@@ -95,7 +97,7 @@
 		channels.find((channel) => channel.slug === selectedSlug) ?? channels[0] ?? null
 	);
 	const selectedPosts = $derived(
-		selectedChannel ? posts.filter((post) => post.channelSlug === selectedChannel.slug) : []
+		selectedChannel ? posts.filter((post) => post.channelSlug === selectedChannel.slug && post.kind !== 'run') : []
 	);
 	const selectedJob = $derived(
 		selectedChannel?.jobId ? jobs.find((job) => job.id === selectedChannel.jobId) ?? null : null
@@ -1117,11 +1119,22 @@
 	function isActiveRun(run: AgentRun | null | undefined): run is AgentRun {
 		if (!run) return false;
 		const status = String(run.status ?? '').toLowerCase();
-		if (['running', 'queued', 'pending', 'started', 'in_progress'].includes(status)) return true;
+		if (['running', 'queued', 'pending', 'started', 'in_progress'].includes(status)) {
+			return !isStaleActiveRun(run);
+		}
 		if (['ok', 'error', 'failed', 'cancelled', 'canceled', 'complete', 'completed'].includes(status)) {
 			return false;
 		}
-		return Boolean(run.startedAt || run.queuedAt) && !run.completedAt;
+		return Boolean(run.startedAt || run.queuedAt) && !run.completedAt && !isStaleActiveRun(run);
+	}
+
+	function isStaleActiveRun(run: AgentRun): boolean {
+		const candidates = [run.latestActivityAt, run.updatedAt, run.startedAt, run.queuedAt];
+		for (const candidate of candidates) {
+			const time = candidate ? Date.parse(candidate) : Number.NaN;
+			if (Number.isFinite(time)) return Date.now() - time > ACTIVE_RUN_STALE_MS;
+		}
+		return false;
 	}
 
 	function runStartedAt(run: AgentRun | null): string | null {
@@ -1821,7 +1834,9 @@
 													Could not load saved output: {outputLoadError}
 												</div>
 											{:else if savedOutputMarkdown(post)}
-												<pre>{savedOutputMarkdown(post)}</pre>
+												<div class="latest-output__markdown">
+													<Markdown content={savedOutputMarkdown(post)} />
+												</div>
 											{:else}
 												<div class="latest-output__status">No full output was saved for this report.</div>
 											{/if}
@@ -2636,17 +2651,14 @@
 	.latest-output__details summary:hover {
 		color: var(--fg-1);
 	}
-	.latest-output__details pre {
+	.latest-output__markdown {
 		margin: 10px 0 0;
 		max-height: min(58vh, 680px);
 		overflow: auto;
-		white-space: pre-wrap;
-		word-break: break-word;
 		border: 1px solid var(--border-soft);
 		border-radius: var(--radius-2);
 		background: var(--bg-surface);
-		padding: 12px;
-		font-family: var(--font-body);
+		padding: 14px 16px;
 		font-size: 13px;
 		line-height: 1.5;
 		color: var(--fg-1);

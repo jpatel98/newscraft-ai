@@ -58,10 +58,18 @@ state with these important changes in place:
 - Mission setup no longer exposes fixed Delivery target or Output format
   fields; those are compatibility defaults behind the API.
 - Editor commands route to monitor or drafting agents.
+- Story-workspace editor commands can route to the Research agent, which writes
+  source-backed `claim.proposed` events and fact-ledger memory entries.
 - The harness starts against older local SQLite databases by repairing missing
   `workspace_id` columns before index creation.
 - Structured article extraction, source adapters, archive snapshots, and
   provenance propagation are active in the harness path.
+- HTML watchlist pages can now act as discovery pages: the beat monitor follows
+  candidate story links, fetches the article pages, and extracts article
+  metadata before pitching.
+- Mission output synthesis must distinguish publication dates from retrieval
+  times; missing publication metadata is not allowed to be inferred from run or
+  accessed timestamps.
 - Crawl-plan provenance is preserved through beat monitor pitches.
 
 ## Current product shape
@@ -117,16 +125,21 @@ The current app supports:
 - Operator footer/status checks.
 - Newsroom overview with monitor health, decision queue, story leads, active
   story workspaces, standing briefs, and recent activity.
-- Ask NewsCraft editor command routing to monitor or drafting agents.
+- Ask NewsCraft editor command routing to monitor, research, or drafting
+  agents.
 - Open gate resolution for editor decisions.
 - Mission/job list, creation, editing, deletion, pause/resume, and run-now.
 - Mission source configuration with URL watchlists.
 - Mission crawl-plan review and approved crawl-plan execution.
 - Story lead and workspace workflows seeded from monitor pitches.
+- Research fact-ledger growth from story-workspace commands, including
+  counter-source requests and URL-backed proposed claims with source provenance.
 - Mission report ingestion and display.
 - Mission run polling and active/failed run cards.
 - Structured article/source extraction with provenance, archive snapshots, and
   source links suitable for citation chips.
+- Mission agents ground output dates in source metadata; accessed/run times are
+  retrieval metadata only.
 - Supabase Postgres database status checks.
 - Full account-scoped data export as JSONL.
 - Per-thread export as Markdown or JSONL.
@@ -230,9 +243,12 @@ Important areas:
   SDK when configured and deterministic fallbacks otherwise.
 - `src/agents/roles.ts` defines newsroom-oriented role prompts.
 - `src/agents/beat-monitor.ts` turns watchlists and approved crawl plans into
-  pitch gates and story-lead events.
+  pitch gates and story-lead events, hydrating discovered listing/feed items by
+  fetching the candidate article pages when available.
 - `src/agents/editor-command.ts` routes Ask NewsCraft/editor commands to the
-  monitor or drafting agent.
+  monitor, research, or drafting agent.
+- `src/agents/research.ts` handles story-workspace research commands, ad-hoc
+  source scrapes, `claim.proposed` events, and fact-ledger memory updates.
 - `src/agents/drafting.ts` drafts story artifacts from accepted pitch facts.
 - `src/crawl-plans/executor.ts` executes approved crawl plans and preserves
   source provenance for downstream pitches.
@@ -246,7 +262,8 @@ Important areas:
   gate, crawl-plan, and memory persistence.
 - `src/tools/sources.ts`, `src/tools/source-adapters/*`,
   `src/tools/article-extraction.ts`, and `src/tools/polite-fetch.ts` fetch and
-  extract source material while preserving provenance.
+  extract source material while preserving provenance. HTML adapters separate
+  listing-page discovery from standalone article extraction.
 
 ### `packages/shared/`
 
@@ -766,8 +783,14 @@ metadata so downstream pitches can carry their source trail.
 
 Ask NewsCraft/editor commands are posted through the SvelteKit
 `/api/agent/editor-command` route and forwarded to the harness
-`/api/editor-commands` endpoint. The harness routes commands to the monitor or
-drafting agent based on command context and target agent hints.
+`/api/editor-commands` endpoint. The harness routes commands to the monitor,
+research, or drafting agent based on command context and target agent hints.
+
+Research owns fact-ledger growth in story workspaces. Story-context commands
+such as "find a counter-source on claim 3" create Research events tied to the
+referenced claim. Story-context URL commands fetch/extract the source, preserve
+source provenance and hash metadata, emit a source-backed `claim.proposed`
+event, and append the proposed claim to story memory under `fact_ledger`.
 
 Open gates are editor decision items. The overview presents them as the
 decision queue; resolving a gate records the resolution and lets follow-on
@@ -776,6 +799,11 @@ agent workflows continue from the accepted/rejected action.
 ### Reports
 
 Mission reports are markdown documents stored in `mission_reports`.
+
+Mission runs that execute the Beat Monitor / Standing Brief path also save a
+mission report. The report summarizes sources scanned, pitch gates queued, lead
+candidates, and the human review action so the mission page has visible output
+even when the primary agent artifact is an editor gate.
 
 The harness writes reports in a parseable board format:
 
@@ -792,6 +820,11 @@ The harness writes reports in a parseable board format:
 The UI ingest endpoint accepts either `responseMarkdown` or `markdown`, parses
 metadata, resolves the mission account id, and upserts the report.
 
+The Missions board also reads saved reports from the harness `/api/reports`
+endpoint for the user's live mission ids. This keeps output visible when the
+harness has stored the report but UI ingest is not configured or has not
+completed.
+
 ### Run cards
 
 The board builder combines:
@@ -799,10 +832,16 @@ The board builder combines:
 - Gateway jobs.
 - Gateway runs.
 - Local mission reports.
+- Harness mission reports.
 - Hidden/deleted channel ids.
 
 It builds channels and posts, including synthetic posts for queued, running, or
 failed runs that have not yet produced a saved markdown report.
+
+Stale active run rows are not allowed to block manual runs indefinitely. The
+harness marks old `queued`/`running` rows failed when the runner no longer has
+active execution for them, and the Missions UI ignores active-looking run rows
+that have not had activity within its freshness window.
 
 ## Newsroom harness architecture
 

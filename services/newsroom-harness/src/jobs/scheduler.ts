@@ -28,6 +28,7 @@ export class JobScheduler {
 	}
 
 	tick(): void {
+		this.runner.clearStaleActiveRuns();
 		for (const job of this.repository.dueJobs()) {
 			if (!this.repository.hasActiveRun(job.id)) this.runner.start(job.id, 'schedule');
 		}

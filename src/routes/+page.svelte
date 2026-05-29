@@ -137,8 +137,8 @@
 	interface CommandBarResult {
 		ok: boolean;
 		status: 'completed' | 'blocked';
-		handled_by: 'Monitor' | 'Drafting';
-		agent: 'beat_monitor' | 'drafting';
+		handled_by: 'Monitor' | 'Research' | 'Drafting';
+		agent: 'beat_monitor' | 'research' | 'drafting';
 		route_reason: string;
 		command_excerpt: string;
 		source?: {
@@ -149,6 +149,18 @@
 			content_hash: string;
 			archive_snapshot_url: string | null;
 		};
+		claim?: {
+			id: string;
+			claim: string;
+			status: 'proposed';
+		};
+		target_claim?: {
+			id: string | null;
+			index: number | null;
+			claim: string;
+			status: string | null;
+			source_urls: string[];
+		} | null;
 		draft?: {
 			headline?: string;
 			word_count?: number;
@@ -188,9 +200,16 @@
 		}
 	}
 
-	function commandTarget(command: string): 'monitor' | 'drafting' | null {
-		if (/https?:\/\//i.test(command) || /\bread this\b/i.test(command)) return 'monitor';
+	function commandTarget(command: string): 'monitor' | 'research' | 'drafting' | null {
+		if (selectedWorkspace && /https?:\/\//i.test(command)) return 'research';
 		if (selectedWorkspace && /\b(draft|write|lede|headline)\b/i.test(command)) return 'drafting';
+		if (
+			selectedWorkspace &&
+			/\b(counter[- ]?source|counter source|research|claim|fact|corroborat|contradict|verify source)\b/i.test(command)
+		) {
+			return 'research';
+		}
+		if (/https?:\/\//i.test(command) || /\bread this\b/i.test(command)) return 'monitor';
 		if (/\b(lead|leads|source|monitor|beat)\b/i.test(command)) return 'monitor';
 		return null;
 	}
@@ -256,8 +275,10 @@
 
 	function commandResultDetail(result: CommandBarResult): string {
 		if (result.error) return result.error;
+		if (result.claim) return `Proposed fact-ledger claim: ${trimText(result.claim.claim, 120)}`;
 		if (result.source) return `Extracted ${result.source.title} through ${result.source.adapter || 'source adapter'}.`;
 		if (result.draft) return `Drafted ${result.draft.headline || 'web story'} for review.`;
+		if (result.target_claim) return `Queued research on claim ${result.target_claim.index ?? ''}.`;
 		return result.route_reason;
 	}
 
@@ -589,7 +610,7 @@
 			<div class="command-panel__status" class:command-panel__status--warning={commandResult?.status === 'blocked' || commandError}>
 				{#if commandBusy}
 					<span>Routing command</span>
-					<strong>{selectedWorkspace ? 'Drafting or Monitor' : 'Monitor'}</strong>
+					<strong>{selectedWorkspace ? 'Research, Drafting, or Monitor' : 'Monitor'}</strong>
 				{:else if commandResult}
 					<span>{commandResult.handled_by}</span>
 					<strong>{commandResult.status === 'blocked' ? 'Needs editor context' : commandResultDetail(commandResult)}</strong>

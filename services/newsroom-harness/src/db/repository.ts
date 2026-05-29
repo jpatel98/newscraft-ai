@@ -1002,6 +1002,46 @@ export class HarnessRepository {
 		return rows.map((row) => this.runDtoWithProgress(row));
 	}
 
+	failStaleActiveRuns(cutoffIso: string, reason: string): number {
+		const now = nowIso();
+		const staleRuns = this.db
+			.prepare(
+				`SELECT runs.id, runs.job_id, runs.queued_at, runs.started_at
+				 FROM runs
+				 WHERE runs.status IN ('queued', 'running')
+				   AND COALESCE(runs.updated_at, runs.started_at, runs.queued_at) < ?`
+			)
+			.all(cutoffIso) as Pick<RunRow, 'id' | 'job_id' | 'queued_at' | 'started_at'>[];
+		for (const run of staleRuns) {
+			const startedAt = run.started_at || run.queued_at || now;
+			const elapsedMs = Math.max(0, Date.parse(now) - Date.parse(startedAt));
+			this.db
+				.prepare(
+					`UPDATE runs
+					 SET status = 'failed', completed_at = ?, elapsed_ms = ?, last_error = ?, updated_at = ?
+					 WHERE id = ?`
+				)
+				.run(now, Number.isFinite(elapsedMs) ? elapsedMs : null, reason, now, run.id);
+			this.db
+				.prepare(`UPDATE jobs SET last_status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`)
+				.run(reason, now, run.job_id);
+			this.appendEvent({
+				workspaceId: workspaceIdForJob(this.requireJob(run.job_id)),
+				jobId: run.job_id,
+				runId: run.id,
+				agent: 'runner',
+				kind: 'run.stale_failed',
+				payload: {
+					status: 'failed',
+					reason,
+					cutoff_at: cutoffIso
+				},
+				createdAt: now
+			});
+		}
+		return staleRuns.length;
+	}
+
 	private runDtoWithProgress(row: RunRow): NewsroomRunDto {
 		const run = runDto(row);
 		const steps = this.db

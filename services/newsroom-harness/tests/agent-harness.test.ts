@@ -364,6 +364,55 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer.match(/Canada-clean-electricity-strategy/g)?.length ?? 0).toBeLessThan(20);
 	});
 
+	it('does not turn homepage headline blobs into report prose', () => {
+		const decision = routeNewsroomRequest('Track competitor coverage across Canadian politics and energy');
+		const homepageBlob =
+			'Alberta’s referendum question could chill private investment, expert says Canada 11 mins 3 min read. globalnews.ca/news/11860428/alberta-referendum-pipeline-investment/ Alberta must be at the centre of making Canada better, Carney says Canada 5 hours 2 min read. globalnews.ca/news/11860220/alberta-separatism-referendum-mark-carney/ Canadian couples want money for wedding gifts to buy a home: survey';
+		const answer = generateFinalAnswer({
+			prompt: 'Track competitor coverage across Canadian politics and energy',
+			decision,
+			evidence: [
+				normalizeEvidence({
+					source_name: 'Global News',
+					source_url: 'https://globalnews.ca/',
+					accessed_at: '2026-05-22T19:31:04.249Z',
+					tool_used: 'configured_source_monitor',
+					title: 'Global News | Breaking, Latest News and Video for Canada',
+					published_at: null,
+					extracted_text: homepageBlob,
+					summary: homepageBlob,
+					confidence: 0.7,
+					limitations: [],
+					source_kind: 'media_report'
+				}),
+				normalizeEvidence({
+					source_name: 'CTV News',
+					source_url: 'https://www.ctvnews.ca/',
+					accessed_at: '2026-05-22T19:31:04.174Z',
+					tool_used: 'configured_source_monitor',
+					title: 'CTV News - Breaking News and Video, Canada News Today',
+					published_at: null,
+					extracted_text:
+						'Canada Revenue Agency to require public servants in office 4 days a week. ctvnews.ca/ottawa/article/canada-revenue-agency-office-four-days-week-union/ One runner’s journey to return to Ottawa Race Weekend after beating cancer.',
+					summary:
+						'Canada Revenue Agency to require public servants in office 4 days a week. ctvnews.ca/ottawa/article/canada-revenue-agency-office-four-days-week-union/ One runner’s journey to return to Ottawa Race Weekend after beating cancer.',
+					confidence: 0.7,
+					limitations: [],
+					source_kind: 'media_report'
+				})
+			],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot()
+		});
+
+		expect(answer).toContain('This run found 2 usable sources for editor review.');
+		expect(answer).toContain('**Global News | Breaking, Latest News and Video for Canada**');
+		expect(answer).toContain('[Global News | Breaking, Latest News and Video for Canada](https://globalnews.ca/)');
+		expect(answer).not.toContain('Alberta must be at the centre');
+		expect(answer).not.toContain('Canadian couples want money');
+		expect(answer).not.toContain('3 min read');
+	});
+
 	it('does not turn blocked source evidence into a lead candidate', () => {
 		const decision = routeNewsroomRequest('Check the latest City of Toronto releases');
 		const answer = generateFinalAnswer({
