@@ -46,6 +46,7 @@ export async function executeCrawlPlan(
 			fetchedAt: fetched.fetchedAt,
 			statusCode: fetched.statusCode,
 			contentHash: fetched.cache.contentHash,
+			archiveSnapshotUrl: fetched.archiveSnapshot.snapshotUrl,
 			cache: fetched.cache
 		});
 		const sourceItems =
@@ -119,6 +120,7 @@ async function fetchCandidateArticles(
 			fetchedAt: fetched.fetchedAt,
 			statusCode: fetched.statusCode,
 			contentHash: fetched.cache.contentHash,
+			archiveSnapshotUrl: fetched.archiveSnapshot.snapshotUrl,
 			cache: fetched.cache
 		});
 		const item = extracted[0];
@@ -197,6 +199,7 @@ function appendSourceEvent(
 			summary: item.summary,
 			adapter: item.provenance.adapter,
 			content_hash: item.provenance.contentHash,
+			archive_snapshot_url: item.provenance.archiveSnapshotUrl,
 			status_code: item.provenance.statusCode
 		},
 		sources: [
@@ -206,6 +209,7 @@ function appendSourceEvent(
 				summary: item.summary,
 				adapter: item.provenance.adapter,
 				content_hash: item.provenance.contentHash,
+				archive_snapshot_url: item.provenance.archiveSnapshotUrl,
 				status_code: item.provenance.statusCode,
 				plan_id: plan.id,
 				plan_version: plan.version
@@ -226,6 +230,7 @@ function sourceEventDto(
 		event_id: eventId,
 		content_hash: item.provenance.contentHash ?? null,
 		status_code: item.provenance.statusCode ?? null,
+		archive_snapshot_url: item.provenance.archiveSnapshotUrl ?? null,
 		adapter: item.provenance.adapter,
 		plan_version: plan.version
 	};

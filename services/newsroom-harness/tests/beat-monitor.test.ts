@@ -127,7 +127,7 @@ describe('beat monitor standing brief runs', () => {
 					score: 9
 				}
 			],
-			polite_fetch: { respect_robots: false, host_delay_ms: 0, archive_web: false }
+			polite_fetch: { respect_robots: false, host_delay_ms: 0, archive_web: true }
 		});
 		const fetchMock = fetchFixture({
 			'https://city.example/news': '<html><title>Transit news</title></html>',
@@ -146,7 +146,8 @@ describe('beat monitor standing brief runs', () => {
 			source_set: [
 				expect.objectContaining({
 					url: 'https://city.example/news/subway-closure-plan',
-					adapter: 'html_article'
+					adapter: 'html_article',
+					archive_snapshot_url: 'https://web.archive.org/web/20260529010101/https://city.example/news/subway-closure-plan'
 				})
 			]
 		});
@@ -303,6 +304,13 @@ function createRepository(): HarnessRepository {
 function fetchFixture(responses: Record<string, string>) {
 	return vi.fn(async (input: RequestInfo | URL) => {
 		const url = String(input);
+		if (url.startsWith('https://web.archive.org/save/')) {
+			const archivedUrl = decodeURIComponent(url.slice('https://web.archive.org/save/'.length));
+			return new Response('', {
+				status: 200,
+				headers: { 'content-location': `/web/20260529010101/${archivedUrl}` }
+			});
+		}
 		if (url.endsWith('/robots.txt')) {
 			return new Response('User-agent: *\nAllow: /\n', { status: 200, headers: { 'content-type': 'text/plain' } });
 		}

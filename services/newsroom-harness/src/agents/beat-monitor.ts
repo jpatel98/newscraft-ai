@@ -52,6 +52,7 @@ interface BeatMonitorLead {
 	updatedAt: string | null;
 	contentHash: string | null;
 	statusCode: number | null;
+	archiveSnapshotUrl: string | null;
 	eventId?: string | null;
 	via: 'watchlist' | 'crawl_plan';
 }
@@ -71,6 +72,7 @@ interface BeatMonitorPitch {
 		published_at: string | null;
 		updated_at: string | null;
 		content_hash: string | null;
+		archive_snapshot_url?: string | null;
 		event_id?: string | null;
 	}>;
 }
@@ -194,7 +196,8 @@ export async function runBeatMonitor(
 			url: lead.url,
 			title: lead.title,
 			adapter: lead.adapter,
-			source_name: lead.sourceName
+			source_name: lead.sourceName,
+			...(lead.archiveSnapshotUrl ? { archive_snapshot_url: lead.archiveSnapshotUrl } : {})
 		})),
 		createdAt: completedAt
 	});
@@ -289,6 +292,7 @@ async function readConfiguredSource(
 		fetchedAt: fetched.fetchedAt,
 		statusCode: fetched.statusCode,
 		contentHash: fetched.cache.contentHash,
+		archiveSnapshotUrl: fetched.archiveSnapshot.snapshotUrl,
 		cache: fetched.cache
 	};
 	const discovered = await adapter.discover(adapterInput);
@@ -336,6 +340,7 @@ async function readConfiguredSource(
 			contentHash: lead.contentHash || hashText(`${lead.url}\n${lead.title}\n${lead.contentText}`),
 			contentType: item.provenance.contentType || fetched.contentType,
 			statusCode: item.provenance.statusCode ?? fetched.statusCode,
+			archiveSnapshotUrl: lead.archiveSnapshotUrl,
 			healthGate: fetched.sourceHealthGate ?? null
 		});
 		if (quality.usable) leads.push({ ...lead, eventId: stored.id });
@@ -378,6 +383,7 @@ async function executeApprovedCrawlPlan(
 		updatedAt: null,
 		contentHash: source.content_hash,
 		statusCode: source.status_code,
+		archiveSnapshotUrl: source.archive_snapshot_url ?? null,
 		eventId: source.event_id,
 		via: 'crawl_plan'
 	}));
@@ -438,6 +444,7 @@ function leadFromSourceItem(
 		updatedAt: item.updatedAt,
 		contentHash: item.provenance.contentHash || hashText(`${item.url}\n${item.title}\n${contentText}`),
 		statusCode: item.provenance.statusCode ?? null,
+		archiveSnapshotUrl: item.provenance.archiveSnapshotUrl ?? null,
 		via: 'watchlist'
 	};
 }
@@ -461,6 +468,7 @@ function pitchFromLead(job: NewsroomJobDto, lead: BeatMonitorLead): BeatMonitorP
 				published_at: lead.publishedAt,
 				updated_at: lead.updatedAt,
 				content_hash: lead.contentHash,
+				...(lead.archiveSnapshotUrl ? { archive_snapshot_url: lead.archiveSnapshotUrl } : {}),
 				event_id: lead.eventId ?? null
 			}
 		]

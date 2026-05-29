@@ -35,7 +35,7 @@ export function sourceItem(
 		contentText,
 		publishedAt: item.publishedAt ?? null,
 		updatedAt: item.updatedAt ?? null,
-		provenance: sourceProvenance(kind, input)
+		provenance: sourceProvenance(kind, input, item.url)
 	};
 }
 
@@ -113,7 +113,7 @@ export function hostMatches(url: string, hosts: string[]): boolean {
 	}
 }
 
-function sourceProvenance(kind: SourceAdapterKind, input: SourceAdapterExtractInput): SourceProvenance {
+function sourceProvenance(kind: SourceAdapterKind, input: SourceAdapterExtractInput, itemUrl: string): SourceProvenance {
 	return {
 		adapter: kind,
 		sourceUrl: input.url,
@@ -122,9 +122,18 @@ function sourceProvenance(kind: SourceAdapterKind, input: SourceAdapterExtractIn
 		contentType: input.contentType,
 		statusCode: input.statusCode,
 		contentHash: input.contentHash,
+		archiveSnapshotUrl: sameUrl(input.url, itemUrl) ? input.archiveSnapshotUrl ?? null : null,
 		etag: input.cache?.etag ?? null,
 		lastModified: input.cache?.lastModified ?? null
 	};
+}
+
+function sameUrl(left: string, right: string): boolean {
+	try {
+		return new URL(left).toString() === new URL(right).toString();
+	} catch {
+		return left === right;
+	}
 }
 
 function sourceItemId(url: string, title: string): string {

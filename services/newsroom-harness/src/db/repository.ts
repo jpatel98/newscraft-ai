@@ -175,6 +175,7 @@ export interface StoreSourceInput {
 	contentHash: string;
 	contentType?: string | null;
 	statusCode?: number | null;
+	archiveSnapshotUrl?: string | null;
 	healthGate?: unknown | null;
 }
 
@@ -1237,7 +1238,8 @@ export class HarnessRepository {
 				fetched_at: input.fetchedAt,
 				used: input.used,
 				content_type: input.contentType || null,
-				status_code: input.statusCode || null
+				status_code: input.statusCode || null,
+				...(input.archiveSnapshotUrl ? { archive_snapshot_url: input.archiveSnapshotUrl } : {})
 			},
 			sources: [
 				{
@@ -1245,7 +1247,8 @@ export class HarnessRepository {
 					url: input.url,
 					title: input.title,
 					fetched_at: input.fetchedAt,
-					used: input.used
+					used: input.used,
+					...(input.archiveSnapshotUrl ? { archive_snapshot_url: input.archiveSnapshotUrl } : {})
 				}
 			],
 			createdAt: nowIso()

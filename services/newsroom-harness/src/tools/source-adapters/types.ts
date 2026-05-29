@@ -19,6 +19,7 @@ export interface SourceProvenance {
 	contentType?: string | null;
 	statusCode?: number | null;
 	contentHash?: string | null;
+	archiveSnapshotUrl?: string | null;
 	etag?: string | null;
 	lastModified?: string | null;
 }
@@ -47,6 +48,7 @@ export interface SourceAdapterExtractInput {
 	fetchedAt: string;
 	statusCode: number | null;
 	contentHash: string | null;
+	archiveSnapshotUrl?: string | null;
 	cache?: PoliteFetchCacheMetadata;
 }
 

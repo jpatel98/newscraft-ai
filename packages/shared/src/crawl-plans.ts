@@ -72,6 +72,7 @@ export interface CrawlPlanSourceEventDto {
 	event_id: string;
 	content_hash: string | null;
 	status_code: number | null;
+	archive_snapshot_url?: string | null;
 	adapter: string;
 	plan_version: number;
 }
