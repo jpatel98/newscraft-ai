@@ -127,7 +127,15 @@ describe('crawl plan versions and execution', () => {
 				url: 'https://city.example/news/transit-expansion',
 				title: 'Transit expansion approved',
 				adapter: 'html_article',
-				plan_version: 1
+				plan_version: 1,
+				metadata: expect.objectContaining({
+					title: 'Transit expansion approved',
+					metadataSources: expect.arrayContaining(['html'])
+				}),
+				provenance: expect.objectContaining({
+					adapter: 'html_article',
+					extraction_method: 'readability'
+				})
 			})
 		]);
 		expect(result.events.map((event) => event.kind)).toEqual(['source.discovered', 'crawl_plan.executed']);
@@ -136,7 +144,10 @@ describe('crawl plan versions and execution', () => {
 			plan_id: 'plan-city',
 			plan_version: 1,
 			beat_id: 'city-hall',
-			plan_memory_entry_id: plan.source_memory_entry_id
+			plan_memory_entry_id: plan.source_memory_entry_id,
+			provenance: expect.objectContaining({
+				extraction_method: 'readability'
+			})
 		});
 		expect(repo.listEvents({ workspaceId: 'workspace-city' }).map((event) => event.kind)).toEqual([
 			'source.discovered',

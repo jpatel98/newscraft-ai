@@ -174,4 +174,54 @@ describe('source extraction', () => {
 		expect(source.snippet.length).toBeLessThanOrEqual(600);
 		expect(source.contentHash).toMatch(/^[a-f0-9]{64}$/);
 	});
+
+	it('preserves structured article metadata and extraction provenance on fetched sources', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL) => {
+				if (String(input).endsWith('/robots.txt')) return new Response('', { status: 404 });
+				return new Response(
+					`
+					<html>
+						<head>
+							<meta property="og:site_name" content="Example Local">
+							<script type="application/ld+json">
+								{
+									"@context": "https://schema.org",
+									"@type": "NewsArticle",
+									"headline": "Library branch hours extended after budget vote",
+									"description": "Council added evening hours at three library branches.",
+									"articleBody": "Council added evening hours at three library branches after trustees reported a jump in after-school demand. The budget amendment funds extra staffing through the end of the year and requires a usage report before renewal. Library officials said the schedule starts next month and focuses on neighbourhoods with fewer recreation spaces.",
+									"datePublished": "2026-05-25T14:00:00Z"
+								}
+							</script>
+						</head>
+						<body><article><p>Fallback paragraph should not replace the structured body.</p></article></body>
+					</html>
+				`,
+					{ status: 200, headers: { 'content-type': 'text/html' } }
+				);
+			})
+		);
+
+		const source = await fetchSourceUrl('https://example.test/library-hours');
+
+		expect(source).toMatchObject({
+			title: 'Library branch hours extended after budget vote',
+			summary: 'Council added evening hours at three library branches.',
+			metadata: {
+				publishedAt: '2026-05-25T14:00:00.000Z',
+				siteName: 'Example Local',
+				metadataSources: expect.arrayContaining(['json_ld', 'opengraph'])
+			},
+			provenance: {
+				adapter: 'html_article',
+				extractionMethod: 'json_ld_article_body',
+				metadataSources: expect.arrayContaining(['json_ld', 'opengraph']),
+				structuredType: 'NewsArticle'
+			}
+		});
+		expect(source.contentText).toContain('requires a usage report before renewal');
+		expect(source.contentText).not.toContain('Fallback paragraph');
+	});
 });

@@ -6,6 +6,8 @@ import type {
 	SourceAdapterDiff,
 	SourceAdapterExtractInput,
 	SourceAdapterKind,
+	SourceArticleMetadata,
+	SourceExtractionMethod,
 	SourceItem,
 	SourceProvenance
 } from './types.js';
@@ -22,6 +24,11 @@ export function sourceItem(
 		contentText?: string;
 		publishedAt?: string | null;
 		updatedAt?: string | null;
+		metadata?: SourceArticleMetadata | null;
+		extractionMethod?: SourceExtractionMethod | null;
+		metadataSources?: string[];
+		structuredType?: string | null;
+		canonicalUrl?: string | null;
 	}
 ): SourceItem {
 	const title = cleanText(item.title) || sourceTitleFromUrl(item.url);
@@ -35,7 +42,8 @@ export function sourceItem(
 		contentText,
 		publishedAt: item.publishedAt ?? null,
 		updatedAt: item.updatedAt ?? null,
-		provenance: sourceProvenance(kind, input, item.url)
+		provenance: sourceProvenance(kind, input, item.url, item),
+		metadata: item.metadata ?? null
 	};
 }
 
@@ -113,7 +121,17 @@ export function hostMatches(url: string, hosts: string[]): boolean {
 	}
 }
 
-function sourceProvenance(kind: SourceAdapterKind, input: SourceAdapterExtractInput, itemUrl: string): SourceProvenance {
+function sourceProvenance(
+	kind: SourceAdapterKind,
+	input: SourceAdapterExtractInput,
+	itemUrl: string,
+	item: {
+		extractionMethod?: SourceExtractionMethod | null;
+		metadataSources?: string[];
+		structuredType?: string | null;
+		canonicalUrl?: string | null;
+	}
+): SourceProvenance {
 	return {
 		adapter: kind,
 		sourceUrl: input.url,
@@ -124,7 +142,11 @@ function sourceProvenance(kind: SourceAdapterKind, input: SourceAdapterExtractIn
 		contentHash: input.contentHash,
 		archiveSnapshotUrl: sameUrl(input.url, itemUrl) ? input.archiveSnapshotUrl ?? null : null,
 		etag: input.cache?.etag ?? null,
-		lastModified: input.cache?.lastModified ?? null
+		lastModified: input.cache?.lastModified ?? null,
+		extractionMethod: item.extractionMethod ?? null,
+		metadataSources: item.metadataSources ?? null,
+		structuredType: item.structuredType ?? null,
+		canonicalUrl: item.canonicalUrl ?? null
 	};
 }
 

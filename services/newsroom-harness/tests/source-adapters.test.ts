@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	atomAdapter,
 	blueskyAdapter,
+	htmlArticleAdapter,
 	pdfAdapter,
 	prWireAdapter,
 	rssAdapter,
@@ -202,6 +203,113 @@ describe('source adapters', () => {
 			provenance: { adapter: 'pr_wire' }
 		});
 		expect(items[0].contentText).toContain('Example Corp announced a newsroom partnership');
+	});
+
+	it('extracts JSON-LD NewsArticle metadata and body before readability fallback', async () => {
+		const body = [
+			'Council approved a late-night transit shuttle network while crews repair the downtown rail tunnel this summer.',
+			'The plan adds buses every fifteen minutes on two overnight routes that normally stop running shortly after midnight.',
+			'Agency staff said water damage has accelerated corrosion around electrical cabinets and signal equipment.',
+			'The transportation department expects the first twelve weeks to cost about two million dollars.'
+		].join(' ');
+		const items = await htmlArticleAdapter.extract(
+			extractInput(
+				`
+				<html>
+					<head>
+						<script type="application/ld+json">
+							{
+								"@context": "https://schema.org",
+								"@type": "NewsArticle",
+								"headline": "Transit shuttles approved during tunnel repairs",
+								"description": "Council approved an overnight shuttle plan for the summer repair period.",
+								"articleBody": ${JSON.stringify(body)},
+								"datePublished": "2026-05-24T09:30:00-04:00",
+								"dateModified": "2026-05-24T10:15:00-04:00",
+								"author": { "@type": "Person", "name": "City Desk" },
+								"image": "https://example.test/images/transit.jpg",
+								"keywords": "transit, council, repairs"
+							}
+						</script>
+					</head>
+					<body><nav>Subscribe Search</nav><article><p>Short teaser only.</p></article></body>
+				</html>
+			`,
+				'text/html',
+				'https://example.test/news/transit-shuttles'
+			)
+		);
+
+		expect(items[0]).toMatchObject({
+			title: 'Transit shuttles approved during tunnel repairs',
+			summary: 'Council approved an overnight shuttle plan for the summer repair period.',
+			publishedAt: '2026-05-24T13:30:00.000Z',
+			updatedAt: '2026-05-24T14:15:00.000Z',
+			metadata: {
+				authors: ['City Desk'],
+				image: 'https://example.test/images/transit.jpg',
+				keywords: ['transit', 'council', 'repairs'],
+				metadataSources: ['json_ld'],
+				structuredType: 'NewsArticle'
+			},
+			provenance: {
+				adapter: 'html_article',
+				extractionMethod: 'json_ld_article_body',
+				metadataSources: ['json_ld'],
+				structuredType: 'NewsArticle'
+			}
+		});
+		expect(items[0].contentText).toContain('electrical cabinets and signal equipment');
+		expect(items[0].contentText).not.toContain('Short teaser only');
+	});
+
+	it('combines schema.org, OpenGraph, and Twitter metadata with readable article text', async () => {
+		const items = await htmlArticleAdapter.extract(
+			extractInput(
+				`
+				<html>
+					<head>
+						<meta property="og:title" content="Clinic expansion clears council vote">
+						<meta property="og:description" content="Council approved zoning for a larger community clinic.">
+						<meta name="twitter:description" content="The clinic project now moves to detailed design.">
+						<meta property="article:published_time" content="2026-05-25T08:00:00Z">
+					</head>
+					<body itemscope itemtype="https://schema.org/NewsArticle">
+						<header>Home News Canada Search Subscribe</header>
+						<div class="story-content">
+							<meta itemprop="dateModified" content="2026-05-25T12:00:00Z">
+							<p>Councillors approved zoning changes for a larger community clinic after staff said the current site had run out of exam rooms.</p>
+							<p>The health agency said the expansion will add urgent-care capacity and move some specialist appointments closer to transit.</p>
+							<div class="share-tools">Share this story Facebook X Reddit</div>
+							<p>Construction planning will begin this fall, with a public update expected before the capital budget is finalized.</p>
+						</div>
+						<footer>Privacy Policy Terms</footer>
+					</body>
+				</html>
+			`,
+				'text/html',
+				'https://example.test/news/clinic-expansion'
+			)
+		);
+
+		expect(items[0]).toMatchObject({
+			title: 'Clinic expansion clears council vote',
+			summary: 'Council approved zoning for a larger community clinic.',
+			publishedAt: '2026-05-25T08:00:00.000Z',
+			updatedAt: '2026-05-25T12:00:00.000Z',
+			metadata: {
+				description: 'Council approved zoning for a larger community clinic.',
+				structuredType: 'NewsArticle',
+				metadataSources: expect.arrayContaining(['schema_org', 'opengraph', 'twitter'])
+			},
+			provenance: {
+				extractionMethod: 'readability',
+				metadataSources: expect.arrayContaining(['schema_org', 'opengraph', 'twitter']),
+				structuredType: 'NewsArticle'
+			}
+		});
+		expect(items[0].contentText).toContain('urgent-care capacity');
+		expect(items[0].contentText).not.toMatch(/Home News Canada|Share this story|Privacy Policy/);
 	});
 
 	it('extracts text from simple PDF text operators', async () => {

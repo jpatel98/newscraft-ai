@@ -53,6 +53,8 @@ interface BeatMonitorLead {
 	contentHash: string | null;
 	statusCode: number | null;
 	archiveSnapshotUrl: string | null;
+	metadata?: SourceItem['metadata'];
+	provenance?: SourceItem['provenance'];
 	eventId?: string | null;
 	via: 'watchlist' | 'crawl_plan';
 }
@@ -73,6 +75,8 @@ interface BeatMonitorPitch {
 		updated_at: string | null;
 		content_hash: string | null;
 		archive_snapshot_url?: string | null;
+		metadata?: SourceItem['metadata'];
+		provenance?: Record<string, unknown>;
 		event_id?: string | null;
 	}>;
 }
@@ -197,6 +201,8 @@ export async function runBeatMonitor(
 			title: lead.title,
 			adapter: lead.adapter,
 			source_name: lead.sourceName,
+			metadata: lead.metadata ?? null,
+			provenance: lead.provenance ? sourceProvenancePayload(lead) : null,
 			...(lead.archiveSnapshotUrl ? { archive_snapshot_url: lead.archiveSnapshotUrl } : {})
 		})),
 		createdAt: completedAt
@@ -384,6 +390,8 @@ async function executeApprovedCrawlPlan(
 		contentHash: source.content_hash,
 		statusCode: source.status_code,
 		archiveSnapshotUrl: source.archive_snapshot_url ?? null,
+		metadata: source.metadata ?? null,
+		provenance: source.provenance ? (source.provenance as SourceItem['provenance']) : undefined,
 		eventId: source.event_id,
 		via: 'crawl_plan'
 	}));
@@ -445,6 +453,8 @@ function leadFromSourceItem(
 		contentHash: item.provenance.contentHash || hashText(`${item.url}\n${item.title}\n${contentText}`),
 		statusCode: item.provenance.statusCode ?? null,
 		archiveSnapshotUrl: item.provenance.archiveSnapshotUrl ?? null,
+		metadata: item.metadata ?? null,
+		provenance: item.provenance,
 		via: 'watchlist'
 	};
 }
@@ -468,10 +478,30 @@ function pitchFromLead(job: NewsroomJobDto, lead: BeatMonitorLead): BeatMonitorP
 				published_at: lead.publishedAt,
 				updated_at: lead.updatedAt,
 				content_hash: lead.contentHash,
+				metadata: lead.metadata ?? null,
+				provenance: lead.provenance ? sourceProvenancePayload(lead) : undefined,
 				...(lead.archiveSnapshotUrl ? { archive_snapshot_url: lead.archiveSnapshotUrl } : {}),
 				event_id: lead.eventId ?? null
 			}
 		]
+	};
+}
+
+function sourceProvenancePayload(lead: Pick<BeatMonitorLead, 'provenance' | 'metadata' | 'adapter'>): Record<string, unknown> {
+	return {
+		adapter: lead.provenance?.adapter ?? lead.adapter,
+		source_url: lead.provenance?.sourceUrl ?? null,
+		fetched_at: lead.provenance?.fetchedAt ?? null,
+		content_type: lead.provenance?.contentType ?? null,
+		status_code: lead.provenance?.statusCode ?? null,
+		content_hash: lead.provenance?.contentHash ?? null,
+		archive_snapshot_url: lead.provenance?.archiveSnapshotUrl ?? null,
+		etag: lead.provenance?.etag ?? null,
+		last_modified: lead.provenance?.lastModified ?? null,
+		extraction_method: lead.provenance?.extractionMethod ?? null,
+		metadata_sources: lead.provenance?.metadataSources ?? lead.metadata?.metadataSources ?? null,
+		structured_type: lead.provenance?.structuredType ?? lead.metadata?.structuredType ?? null,
+		canonical_url: lead.provenance?.canonicalUrl ?? lead.metadata?.canonicalUrl ?? null
 	};
 }
 

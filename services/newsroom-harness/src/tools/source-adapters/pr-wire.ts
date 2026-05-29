@@ -1,3 +1,4 @@
+import { extractArticle } from '../article-extraction.js';
 import { extractSourceText, extractTitle } from '../sources.js';
 import type { SourceAdapter, SourceAdapterExtractInput, SourceItem } from './types.js';
 import { adapterFetch, cleanText, dateText, defaultDiff, hostMatches, sourceItem } from './utils.js';
@@ -16,11 +17,13 @@ export const prWireAdapter: SourceAdapter = {
 };
 
 function extractPressRelease(input: SourceAdapterExtractInput): SourceItem[] {
-	const title = extractTitle(input.body) || jsonLdValue(input.body, 'headline') || 'Press release';
-	const publishedAt = dateText(jsonLdValue(input.body, 'datePublished') || metaContent(input.body, 'article:published_time'));
-	const text = cleanText(extractSourceText(input.body, input.contentType, input.url));
+	const article = extractArticle(input.body, input.url);
+	const title = article.title || extractTitle(input.body) || jsonLdValue(input.body, 'headline') || 'Press release';
+	const publishedAt =
+		article.publishedAt || dateText(jsonLdValue(input.body, 'datePublished') || metaContent(input.body, 'article:published_time'));
+	const text = cleanText(article.contentText || extractSourceText(input.body, input.contentType, input.url));
 	const dateline = datelineText(text);
-	const summary = dateline ? `${dateline} ${firstSentence(text)}` : firstSentence(text);
+	const summary = article.summary || (dateline ? `${dateline} ${firstSentence(text)}` : firstSentence(text));
 	return [
 		sourceItem('pr_wire', input, {
 			url: input.url,
@@ -28,7 +31,25 @@ function extractPressRelease(input: SourceAdapterExtractInput): SourceItem[] {
 			summary,
 			contentText: text,
 			publishedAt,
-			updatedAt: dateText(jsonLdValue(input.body, 'dateModified'))
+			updatedAt: article.updatedAt || dateText(jsonLdValue(input.body, 'dateModified')),
+			metadata: {
+				title: article.metadata.title,
+				description: article.metadata.description,
+				canonicalUrl: article.metadata.canonicalUrl,
+				siteName: article.metadata.siteName,
+				publishedAt: article.metadata.publishedAt,
+				updatedAt: article.metadata.updatedAt,
+				authors: article.metadata.authors,
+				image: article.metadata.image,
+				section: article.metadata.section,
+				keywords: article.metadata.keywords,
+				structuredType: article.metadata.structuredType,
+				metadataSources: article.metadata.metadataSources
+			},
+			extractionMethod: article.provenance.extractionMethod,
+			metadataSources: article.provenance.metadataSources,
+			structuredType: article.provenance.structuredType,
+			canonicalUrl: article.provenance.canonicalUrl
 		})
 	];
 }

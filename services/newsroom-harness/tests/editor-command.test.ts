@@ -58,13 +58,25 @@ describe('editor command routing', () => {
 			payload: expect.objectContaining({
 				adapter: 'html_article',
 				content_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
-				status_code: 200
+				status_code: 200,
+				metadata: expect.objectContaining({
+					title: 'Water repairs approved',
+					metadataSources: expect.arrayContaining(['html'])
+				}),
+				provenance: expect.objectContaining({
+					adapter: 'html_article',
+					extraction_method: 'readability',
+					metadata_sources: expect.arrayContaining(['html'])
+				})
 			}),
 			sources: [
 				expect.objectContaining({
 					url: 'https://city.example/water-repairs',
 					adapter: 'html_article',
-					content_hash: expect.stringMatching(/^[a-f0-9]{64}$/)
+					content_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+					provenance: expect.objectContaining({
+						extraction_method: 'readability'
+					})
 				})
 			]
 		});

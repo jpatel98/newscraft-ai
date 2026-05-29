@@ -75,6 +75,8 @@ export interface CrawlPlanSourceEventDto {
 	archive_snapshot_url?: string | null;
 	adapter: string;
 	plan_version: number;
+	metadata?: Record<string, unknown> | null;
+	provenance?: Record<string, unknown> | null;
 }
 
 export interface ExecuteCrawlPlanResult {

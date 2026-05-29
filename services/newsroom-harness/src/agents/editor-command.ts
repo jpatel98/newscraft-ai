@@ -32,6 +32,8 @@ export interface EditorCommandResult {
 		adapter: string | null;
 		content_hash: string;
 		archive_snapshot_url: string | null;
+		metadata?: unknown;
+		provenance?: unknown;
 	};
 	draft?: DraftingRunResult['draft'];
 	gate?: DraftingRunResult['gate'];
@@ -186,6 +188,7 @@ function appendAdHocSourceEvent(
 	}
 ) {
 	const archiveSnapshotUrl = input.source.archiveSnapshot?.ok ? input.source.archiveSnapshot.snapshotUrl : null;
+	const provenance = sourceProvenancePayload(input.source);
 	return repository.appendEvent({
 		workspaceId: input.workspaceId,
 		storyId: input.storyId,
@@ -207,7 +210,9 @@ function appendAdHocSourceEvent(
 			cache_status: input.source.cacheStatus ?? null,
 			archive_snapshot_url: archiveSnapshotUrl,
 			robots: input.source.robots ?? null,
-			health_gate: input.source.healthGate ?? null
+			health_gate: input.source.healthGate ?? null,
+			metadata: input.source.metadata ?? null,
+			provenance
 		},
 		sources: [
 			{
@@ -218,7 +223,9 @@ function appendAdHocSourceEvent(
 				fetched_at: input.source.fetchedAt,
 				content_hash: input.source.contentHash,
 				status_code: input.source.statusCode,
-				archive_snapshot_url: archiveSnapshotUrl
+				archive_snapshot_url: archiveSnapshotUrl,
+				metadata: input.source.metadata ?? null,
+				provenance
 			}
 		],
 		parentEventId: input.parentEventId
@@ -273,7 +280,28 @@ function sourceResult(source: FetchedSource): EditorCommandResult['source'] {
 		summary: source.summary,
 		adapter: source.adapter ?? null,
 		content_hash: source.contentHash,
-		archive_snapshot_url: source.archiveSnapshot?.ok ? source.archiveSnapshot.snapshotUrl : null
+		archive_snapshot_url: source.archiveSnapshot?.ok ? source.archiveSnapshot.snapshotUrl : null,
+		metadata: source.metadata ?? null,
+		provenance: sourceProvenancePayload(source)
+	};
+}
+
+function sourceProvenancePayload(source: FetchedSource): Record<string, unknown> {
+	return {
+		adapter: source.provenance?.adapter ?? source.adapter ?? null,
+		source_url: source.provenance?.sourceUrl ?? source.url,
+		fetched_at: source.provenance?.fetchedAt ?? source.fetchedAt,
+		content_hash: source.provenance?.contentHash ?? source.contentHash,
+		content_type: source.provenance?.contentType ?? source.contentType,
+		status_code: source.provenance?.statusCode ?? source.statusCode,
+		archive_snapshot_url:
+			source.provenance?.archiveSnapshotUrl ?? (source.archiveSnapshot?.ok ? source.archiveSnapshot.snapshotUrl : null),
+		etag: source.provenance?.etag ?? null,
+		last_modified: source.provenance?.lastModified ?? null,
+		extraction_method: source.provenance?.extractionMethod ?? null,
+		metadata_sources: source.provenance?.metadataSources ?? source.metadata?.metadataSources ?? null,
+		structured_type: source.provenance?.structuredType ?? source.metadata?.structuredType ?? null,
+		canonical_url: source.provenance?.canonicalUrl ?? source.metadata?.canonicalUrl ?? null
 	};
 }
 

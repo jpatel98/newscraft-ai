@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { nowIso } from '../util/ids.js';
 import { assessSourceQuality } from '../util/source-quality.js';
+import { extractArticleMetadata, extractReadableArticleText } from './article-extraction.js';
 import {
 	createFilePoliteFetchCache,
 	politeFetch,
@@ -30,6 +31,8 @@ export type {
 	SourceAdapterExtractInput,
 	SourceAdapterInput,
 	SourceAdapterKind,
+	SourceArticleMetadata,
+	SourceExtractionMethod,
 	SourceItem,
 	SourceProvenance
 } from './source-adapters/index.js';
@@ -54,6 +57,8 @@ export interface FetchedSource {
 	statusCode: number | null;
 	used: boolean;
 	adapter?: SourceAdapterKind;
+	metadata?: SourceArticleMetadata | null;
+	provenance?: SourceProvenance | null;
 	cacheStatus?: PoliteFetchCacheStatus;
 	archiveSnapshot?: PoliteFetchArchiveResult;
 	robots?: PoliteFetchRobotsResult;
@@ -81,9 +86,12 @@ export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise
 		cache: fetched.cache
 	});
 	const text = sourceTextFromAdapter(adapter.kind, adapterItems, body, contentType, url);
-	const title = extractTitle(body) || new URL(url).hostname;
+	const primaryArticleItem = articleLikeItem(adapter.kind, adapterItems);
+	const title = primaryArticleItem?.title || extractTitle(body) || new URL(url).hostname;
 	const cleaned = capText(cleanSourceText(text), MAX_SOURCE_TEXT_CHARS);
-	const summary = summarizeText(cleaned);
+	const summary = primaryArticleItem?.summary
+		? capText(cleanSourceText(primaryArticleItem.summary), MAX_SOURCE_SUMMARY_CHARS)
+		: summarizeText(cleaned);
 	const quality = assessSourceQuality({ title, text: cleaned, summary, statusCode: fetched.statusCode });
 	const usableText = quality.usable ? cleaned : '';
 	const snippet = usableText.slice(0, 600);
@@ -99,6 +107,8 @@ export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise
 		statusCode: fetched.statusCode,
 		used: fetched.ok && quality.usable,
 		adapter: adapter.kind,
+		metadata: primaryArticleItem?.metadata ?? null,
+		provenance: primaryArticleItem?.provenance ?? null,
 		cacheStatus: fetched.cacheStatus,
 		archiveSnapshot: fetched.archiveSnapshot,
 		robots: fetched.robots,
@@ -108,7 +118,7 @@ export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise
 
 export function extractSourceText(body: string, contentType: string | null, url: string): string {
 	if (contentType?.includes('xml') || looksLikeFeed(body)) return cleanSourceText(summarizeFeed(body));
-	return cleanSourceText(summarizeHeadlineLinks(body, url) || htmlToText(body));
+	return cleanSourceText(summarizeHeadlineLinks(body, url) || extractReadableArticleText(body, url) || htmlToText(body));
 }
 
 function sourceTextFromAdapter(
@@ -127,6 +137,11 @@ function sourceTextFromAdapter(
 			.join('\n\n');
 	}
 	return items[0]?.contentText || extractSourceText(body, contentType, url);
+}
+
+function articleLikeItem(kind: SourceAdapterKind, items: SourceItem[]): SourceItem | null {
+	if (kind !== 'html_article' && kind !== 'pr_wire') return null;
+	return items[0] ?? null;
 }
 
 export function sourceFromText(url: string, text: string, title = 'Provided source'): FetchedSource {
@@ -232,7 +247,12 @@ function headlineScore(title: string, url: string): number {
 }
 
 export function extractTitle(body: string): string | null {
-	return tagText(body, 'title') || metaContent(body, 'og:title') || metaContent(body, 'twitter:title');
+	return (
+		extractArticleMetadata(body, 'https://example.invalid/').title ||
+		tagText(body, 'title') ||
+		metaContent(body, 'og:title') ||
+		metaContent(body, 'twitter:title')
+	);
 }
 
 function tagText(body: string, tag: string): string | null {

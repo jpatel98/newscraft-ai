@@ -10,6 +10,27 @@ export type SourceAdapterKind =
 	| 'api_bluesky'
 	| 'html_article';
 
+export type SourceExtractionMethod =
+	| 'json_ld_article_body'
+	| 'schema_article_body'
+	| 'readability'
+	| 'metadata_summary_fallback';
+
+export interface SourceArticleMetadata {
+	title?: string | null;
+	description?: string | null;
+	canonicalUrl?: string | null;
+	siteName?: string | null;
+	publishedAt?: string | null;
+	updatedAt?: string | null;
+	authors?: string[];
+	image?: string | null;
+	section?: string | null;
+	keywords?: string[];
+	structuredType?: string | null;
+	metadataSources?: string[];
+}
+
 export interface SourceProvenance {
 	adapter: SourceAdapterKind;
 	sourceUrl: string;
@@ -22,6 +43,10 @@ export interface SourceProvenance {
 	archiveSnapshotUrl?: string | null;
 	etag?: string | null;
 	lastModified?: string | null;
+	extractionMethod?: SourceExtractionMethod | null;
+	metadataSources?: string[] | null;
+	structuredType?: string | null;
+	canonicalUrl?: string | null;
 }
 
 export interface SourceItem {
@@ -33,6 +58,7 @@ export interface SourceItem {
 	publishedAt: string | null;
 	updatedAt: string | null;
 	provenance: SourceProvenance;
+	metadata?: SourceArticleMetadata | null;
 }
 
 export interface SourceAdapterInput {

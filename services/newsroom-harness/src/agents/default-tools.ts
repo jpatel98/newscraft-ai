@@ -370,6 +370,7 @@ function fetchedSourceToEvidence(
 		summary: string;
 		snippet: string;
 		statusCode: number | null;
+		metadata?: { publishedAt?: string | null } | null;
 	},
 	toolUsed: string,
 	limitations: string[] = []
@@ -391,7 +392,7 @@ function fetchedSourceToEvidence(
 		accessed_at: source.fetchedAt,
 		tool_used: toolUsed,
 		title: source.title,
-		published_at: null,
+		published_at: source.metadata?.publishedAt ?? null,
 		extracted_text: source.contentText,
 		summary: source.summary || source.snippet,
 		confidence: quality.usable ? 0.75 : 0,

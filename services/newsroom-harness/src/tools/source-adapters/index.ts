@@ -37,6 +37,8 @@ export type {
 	SourceAdapterExtractInput,
 	SourceAdapterInput,
 	SourceAdapterKind,
+	SourceArticleMetadata,
+	SourceExtractionMethod,
 	SourceItem,
 	SourceProvenance
 } from './types.js';

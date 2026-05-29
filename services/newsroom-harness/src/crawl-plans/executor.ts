@@ -200,7 +200,9 @@ function appendSourceEvent(
 			adapter: item.provenance.adapter,
 			content_hash: item.provenance.contentHash,
 			archive_snapshot_url: item.provenance.archiveSnapshotUrl,
-			status_code: item.provenance.statusCode
+			status_code: item.provenance.statusCode,
+			metadata: item.metadata ?? null,
+			provenance: sourceProvenancePayload(item)
 		},
 		sources: [
 			{
@@ -211,6 +213,8 @@ function appendSourceEvent(
 				content_hash: item.provenance.contentHash,
 				archive_snapshot_url: item.provenance.archiveSnapshotUrl,
 				status_code: item.provenance.statusCode,
+				metadata: item.metadata ?? null,
+				provenance: sourceProvenancePayload(item),
 				plan_id: plan.id,
 				plan_version: plan.version
 			}
@@ -232,7 +236,27 @@ function sourceEventDto(
 		status_code: item.provenance.statusCode ?? null,
 		archive_snapshot_url: item.provenance.archiveSnapshotUrl ?? null,
 		adapter: item.provenance.adapter,
-		plan_version: plan.version
+		plan_version: plan.version,
+		metadata: item.metadata ?? null,
+		provenance: sourceProvenancePayload(item)
+	};
+}
+
+function sourceProvenancePayload(item: SourceItem): Record<string, unknown> {
+	return {
+		adapter: item.provenance.adapter,
+		source_url: item.provenance.sourceUrl,
+		fetched_at: item.provenance.fetchedAt ?? null,
+		content_type: item.provenance.contentType ?? null,
+		status_code: item.provenance.statusCode ?? null,
+		content_hash: item.provenance.contentHash ?? null,
+		archive_snapshot_url: item.provenance.archiveSnapshotUrl ?? null,
+		etag: item.provenance.etag ?? null,
+		last_modified: item.provenance.lastModified ?? null,
+		extraction_method: item.provenance.extractionMethod ?? null,
+		metadata_sources: item.provenance.metadataSources ?? item.metadata?.metadataSources ?? null,
+		structured_type: item.provenance.structuredType ?? item.metadata?.structuredType ?? null,
+		canonical_url: item.provenance.canonicalUrl ?? item.metadata?.canonicalUrl ?? null
 	};
 }
 
