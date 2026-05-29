@@ -151,4 +151,27 @@ describe('story workspace utilities', () => {
 			]
 		});
 	});
+
+	it('does not create citation links for non-http source URLs', () => {
+		const workspace = createStoryWorkspace(
+			{
+				...pitch,
+				id: 'pitch-unsafe-source',
+				sources: [{ ...sources[0], url: 'javascript:alert(1)' }]
+			},
+			'2026-05-24T15:10:00.000Z'
+		);
+
+		expect(workspace.factLedger[2]).toEqual({
+			id: 'fact-pitch-unsafe-source-source-source-1',
+			label: 'Source 1',
+			detail: 'City desk',
+			sourceName: 'City desk',
+			sourceUrl: undefined,
+			citationMarker: undefined,
+			archiveUrl: undefined
+		});
+		expect(workspace.citations).toEqual([]);
+		expect(workspace.draft).toBe('Draft workspace for "Transit board weighs late-night service cuts".');
+	});
 });

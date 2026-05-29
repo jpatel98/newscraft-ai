@@ -49,6 +49,18 @@ describe('drafting agent', () => {
 				status: 'verified'
 			}
 		});
+		repo.appendStoryMemory(storyId, {
+			workspaceId,
+			key: 'fact_ledger',
+			kind: 'claim.verified',
+			actor: 'verification',
+			value: {
+				id: 'unsupported-bad-url',
+				claim: 'A bad source URL should never become a draft citation link',
+				status: 'verified',
+				sources: [{ title: 'Bad source', url: 'javascript:alert(1)' }]
+			}
+		});
 
 		const result = runDraftingAgent(repo, { storyId, workspaceId, targetWordCount: 300 });
 		const story = repo.inspectStoryMemory(storyId, workspaceId);
@@ -61,6 +73,7 @@ describe('drafting agent', () => {
 		expect(result.draft.markdown).toContain('[8]');
 		expect(result.draft.markdown).not.toContain('rumour');
 		expect(result.draft.markdown).not.toContain('privately expect');
+		expect(result.draft.markdown).not.toContain('bad source URL');
 		expect(result.draft.citations).toHaveLength(8);
 		expect(result.draft.citations.every((citation) => citation.source_url.startsWith('https://sources.example/'))).toBe(true);
 		expect(result.draft.citations[0]).toMatchObject({
@@ -138,7 +151,11 @@ function verifiedFacts() {
 				name: `Transit agency source ${index + 1}`,
 				url: `https://sources.example/fact-${index + 1}`,
 				archive_snapshot_url:
-					index === 0 ? 'https://web.archive.org/web/20260529010000/https://sources.example/fact-1' : undefined,
+					index === 0
+						? 'https://web.archive.org/web/20260529010000/https://sources.example/fact-1'
+						: index === 1
+							? 'javascript:alert(1)'
+							: undefined,
 				content_hash: `hash-${index + 1}`
 			}
 		]

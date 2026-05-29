@@ -87,4 +87,41 @@ describe('citation utilities', () => {
 			]
 		});
 	});
+
+	it('drops draft review citations with non-http original source URLs', () => {
+		expect(
+			draftReviewPayloadFromValue({
+				draft_markdown: 'Story body [1] [2]',
+				citations: [
+					{
+						marker: 1,
+						fact_id: 'unsafe',
+						claim: 'Unsafe claim.',
+						source_title: 'Bad source',
+						source_url: 'javascript:alert(1)'
+					},
+					{
+						marker: 2,
+						fact_id: 'safe',
+						claim: 'Safe claim.',
+						source_title: 'Good source',
+						source_url: 'https://safe.example/source',
+						archive_snapshot_url: 'javascript:alert(2)'
+					}
+				]
+			})?.citations
+		).toEqual([
+			{
+				marker: 2,
+				factId: 'safe',
+				claim: 'Safe claim.',
+				sourceTitle: 'Good source',
+				sourceName: 'Good source',
+				sourceUrl: 'https://safe.example/source',
+				archiveUrl: 'https://web.archive.org/web/*/https://safe.example/source',
+				contentHash: null,
+				eventId: null
+			}
+		]);
+	});
 });

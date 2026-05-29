@@ -71,7 +71,7 @@ function citationRecordFromValue(value: unknown): CitationRecord | null {
 	const raw = objectValue(value);
 	if (!raw) return null;
 	const marker = numberValue(raw.marker);
-	const sourceUrl = stringValue(raw.source_url) || stringValue(raw.sourceUrl);
+	const sourceUrl = safeHttpUrl(stringValue(raw.source_url) || stringValue(raw.sourceUrl));
 	if (!marker || !sourceUrl) return null;
 	const snapshot =
 		stringValue(raw.archive_snapshot_url) ||
@@ -122,7 +122,7 @@ function numberValue(value: unknown): number | null {
 	return null;
 }
 
-function safeHttpUrl(value?: string | null): string | null {
+export function safeHttpUrl(value?: string | null): string | null {
 	if (!value) return null;
 	try {
 		const url = new URL(value);

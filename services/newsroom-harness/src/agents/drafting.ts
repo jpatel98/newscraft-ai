@@ -222,20 +222,22 @@ function sourceFromValue(
 		stringValue(raw.url) ||
 		stringValue(objectValue(raw.provenance)?.url);
 	if (!url) return null;
+	const sourceUrl = safeHttpUrl(url);
+	if (!sourceUrl) return null;
 	return {
-		url,
+		url: sourceUrl,
 		title: stringValue(raw.source_title) || stringValue(raw.sourceTitle) || stringValue(raw.title),
 		name: stringValue(raw.source_name) || stringValue(raw.sourceName),
-		archiveSnapshotUrl:
+		archiveSnapshotUrl: safeHttpUrl(
 			stringValue(raw.archive_snapshot_url) ||
-			stringValue(raw.archiveSnapshotUrl) ||
-			stringValue(raw.archive_url) ||
-			stringValue(raw.archiveUrl) ||
-			stringValue(raw.snapshot_url) ||
-			stringValue(raw.snapshotUrl) ||
-			stringValue(objectValue(raw.provenance)?.archive_snapshot_url) ||
-			stringValue(objectValue(raw.provenance)?.archiveSnapshotUrl) ||
-			null,
+				stringValue(raw.archiveSnapshotUrl) ||
+				stringValue(raw.archive_url) ||
+				stringValue(raw.archiveUrl) ||
+				stringValue(raw.snapshot_url) ||
+				stringValue(raw.snapshotUrl) ||
+				stringValue(objectValue(raw.provenance)?.archive_snapshot_url) ||
+				stringValue(objectValue(raw.provenance)?.archiveSnapshotUrl)
+		),
 		contentHash:
 			stringValue(raw.content_hash) ||
 			stringValue(raw.contentHash) ||
@@ -248,20 +250,20 @@ function sourceFromValue(
 function sourceObject(value: unknown): { title: string; name: string; url: string; archiveSnapshotUrl: string | null; contentHash: string | null } | null {
 	const raw = objectValue(value);
 	if (!raw) return null;
-	const url = stringValue(raw.url) || stringValue(raw.source_url) || stringValue(raw.sourceUrl);
+	const url = safeHttpUrl(stringValue(raw.url) || stringValue(raw.source_url) || stringValue(raw.sourceUrl));
 	if (!url) return null;
 	return {
 		url,
 		title: stringValue(raw.title) || stringValue(raw.source_title) || stringValue(raw.sourceTitle),
 		name: stringValue(raw.name) || stringValue(raw.source_name) || stringValue(raw.sourceName),
-		archiveSnapshotUrl:
+		archiveSnapshotUrl: safeHttpUrl(
 			stringValue(raw.archive_snapshot_url) ||
-			stringValue(raw.archiveSnapshotUrl) ||
-			stringValue(raw.archive_url) ||
-			stringValue(raw.archiveUrl) ||
-			stringValue(raw.snapshot_url) ||
-			stringValue(raw.snapshotUrl) ||
-			null,
+				stringValue(raw.archiveSnapshotUrl) ||
+				stringValue(raw.archive_url) ||
+				stringValue(raw.archiveUrl) ||
+				stringValue(raw.snapshot_url) ||
+				stringValue(raw.snapshotUrl)
+		),
 		contentHash: stringValue(raw.content_hash) || stringValue(raw.contentHash) || null
 	};
 }
@@ -392,6 +394,17 @@ function archiveFallbackUrl(value: string): string {
 		return `https://web.archive.org/web/*/${url.toString()}`;
 	} catch {
 		return 'https://web.archive.org/';
+	}
+}
+
+function safeHttpUrl(value: string): string | null {
+	if (!value) return null;
+	try {
+		const url = new URL(value);
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+		return url.toString();
+	} catch {
+		return null;
 	}
 }
 

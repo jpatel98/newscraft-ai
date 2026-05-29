@@ -1,5 +1,5 @@
 import type { ChannelSource } from '$lib/types';
-import { archiveFallbackUrl, type CitationRecord } from './citations';
+import { archiveFallbackUrl, safeHttpUrl, type CitationRecord } from './citations';
 
 export type PitchGateResolution = 'accepted' | 'held' | 'spiked';
 
@@ -93,14 +93,15 @@ function createFactLedger(pitch: WorkspacePitch): WorkspaceFact[] {
 	];
 
 	for (const [index, source] of pitch.sources.entries()) {
+		const sourceUrl = safeHttpUrl(source.url);
 		facts.push({
 			id: `fact-${pitch.id}-source-${source.id || index}`,
 			label: `Source ${index + 1}`,
 			detail: source.name,
 			sourceName: source.name,
-			sourceUrl: source.url,
-			citationMarker: index + 1,
-			archiveUrl: archiveFallbackUrl(source.url)
+			sourceUrl: sourceUrl ?? undefined,
+			citationMarker: sourceUrl ? index + 1 : undefined,
+			archiveUrl: sourceUrl ? archiveFallbackUrl(sourceUrl) : undefined
 		});
 	}
 
