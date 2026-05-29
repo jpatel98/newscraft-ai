@@ -17,6 +17,7 @@ import { loadConfig, type HarnessConfig } from './config.js';
 import { createHarnessRepository } from './db/factory.js';
 import { HarnessRepository } from './db/repository.js';
 import { DraftingPreconditionError, runDraftingAgent } from './agents/drafting.js';
+import { runEditorCommand } from './agents/editor-command.js';
 import { NewsroomAgentRuntime } from './agents/runtime.js';
 import { executeCrawlPlan } from './crawl-plans/executor.js';
 import { JobRunner } from './jobs/runner.js';
@@ -209,6 +210,37 @@ async function route(
 	if (req.method === 'POST' && url.pathname === '/api/crawl-plans') {
 		const input = await readJson<SaveCrawlPlanVersionInput>(req);
 		writeJson(res, 201, { ok: true, crawl_plan: ctx.repository.saveCrawlPlanVersion(input) });
+		return;
+	}
+
+	if (req.method === 'POST' && url.pathname === '/api/editor-commands') {
+		const input = await readJson<{
+			command?: string;
+			workspace_id?: string;
+			story_id?: string | null;
+			job_id?: string | null;
+			run_id?: string | null;
+			target_agent?: 'monitor' | 'drafting' | null;
+			target_word_count?: number;
+		}>(req);
+		if (!input.command?.trim()) throw new HttpError(400, 'command is required');
+		const abort = requestAbortSignal(req, res);
+		writeJson(res, 200, {
+			ok: true,
+			result: await runEditorCommand(
+				ctx.repository,
+				{
+					command: input.command || '',
+					workspaceId: input.workspace_id,
+					storyId: input.story_id,
+					jobId: input.job_id,
+					runId: input.run_id,
+					targetAgent: input.target_agent,
+					targetWordCount: input.target_word_count
+				},
+				{ signal: abort.signal }
+			)
+		});
 		return;
 	}
 

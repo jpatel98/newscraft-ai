@@ -95,6 +95,40 @@ describe('newsroom harness server', () => {
 		});
 	});
 
+	it('routes editor commands to ad-hoc source extraction over the authenticated API', async () => {
+		await startHarness();
+		const fixture = await startNewsFixtureServer();
+		try {
+			const response = await authFetch('/api/editor-commands', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					command: `read this: ${fixture.url}/story`,
+					workspace_id: 'workspace-api'
+				})
+			});
+			const body = await response.json();
+
+			expect(response.status).toBe(200);
+			expect(body.result).toMatchObject({
+				ok: true,
+				status: 'completed',
+				handled_by: 'Monitor',
+				agent: 'beat_monitor',
+				source: {
+					url: `${fixture.url}/story`,
+					adapter: 'html_article'
+				}
+			});
+			expect(harness.repository.listEvents({ workspaceId: 'workspace-api' }).map((event) => event.kind)).toEqual([
+				'editor.command.routed',
+				'source.ad_hoc_scraped'
+			]);
+		} finally {
+			await fixture.close();
+		}
+	});
+
 	it('queues, reads, and resolves gates over the authenticated API', async () => {
 		await startHarness();
 		const queuedResponse = await authFetch('/api/gates', {

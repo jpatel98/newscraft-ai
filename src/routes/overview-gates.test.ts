@@ -32,4 +32,16 @@ describe('newsroom overview gates', () => {
 		expect(source).toContain('selectedCitation.archiveUrl');
 		expect(source).toContain('Archive fallback');
 	});
+
+	it('routes overview command bar sends through the editor command endpoint', () => {
+		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+		expect(source).toContain('async function handleCommandSend(content: MessageContent)');
+		expect(source).toContain("fetch('/api/agent/editor-command'");
+		expect(source).toContain('targetAgent: commandTarget(command)');
+		expect(source).toContain('onSend={handleCommandSend}');
+		expect(source).toContain('commandResult.handled_by');
+		expect(source).toContain('Monitor');
+		expect(source).toContain('Drafting');
+	});
 });

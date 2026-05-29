@@ -53,6 +53,7 @@ export interface FetchedSource {
 	contentType: string | null;
 	statusCode: number | null;
 	used: boolean;
+	adapter?: SourceAdapterKind;
 	cacheStatus?: PoliteFetchCacheStatus;
 	archiveSnapshot?: PoliteFetchArchiveResult;
 	robots?: PoliteFetchRobotsResult;
@@ -76,6 +77,7 @@ export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise
 		fetchedAt: fetched.fetchedAt,
 		statusCode: fetched.statusCode,
 		contentHash: fetched.cache.contentHash,
+		archiveSnapshotUrl: fetched.archiveSnapshot.ok ? fetched.archiveSnapshot.snapshotUrl : null,
 		cache: fetched.cache
 	});
 	const text = sourceTextFromAdapter(adapter.kind, adapterItems, body, contentType, url);
@@ -96,6 +98,7 @@ export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise
 		contentType,
 		statusCode: fetched.statusCode,
 		used: fetched.ok && quality.usable,
+		adapter: adapter.kind,
 		cacheStatus: fetched.cacheStatus,
 		archiveSnapshot: fetched.archiveSnapshot,
 		robots: fetched.robots,

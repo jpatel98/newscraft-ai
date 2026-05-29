@@ -10,8 +10,10 @@
 		BoardPost,
 		ChannelSource,
 		EditorialEvent,
-		EditorialGate
+		EditorialGate,
+		MessageContent
 	} from '$lib/types';
+	import { contentText } from '$lib/types';
 	import {
 		createGateEvent,
 		createStoryWorkspace,
@@ -45,6 +47,9 @@
 	let workspaces = $state<StoryWorkspace[]>([]);
 	let selectedWorkspaceId = $state<string | null>(null);
 	let selectedCitationMarker = $state<number | null>(null);
+	let commandBusy = $state(false);
+	let commandError = $state<string | null>(null);
+	let commandResult = $state<CommandBarResult | null>(null);
 
 	const starters = [
 		{
@@ -127,6 +132,83 @@
 		detail: string;
 		at: string | null;
 		tone: 'neutral' | 'active' | 'warning';
+	}
+
+	interface CommandBarResult {
+		ok: boolean;
+		status: 'completed' | 'blocked';
+		handled_by: 'Monitor' | 'Drafting';
+		agent: 'beat_monitor' | 'drafting';
+		route_reason: string;
+		command_excerpt: string;
+		source?: {
+			url: string;
+			title: string;
+			summary: string;
+			adapter: string | null;
+			content_hash: string;
+			archive_snapshot_url: string | null;
+		};
+		draft?: {
+			headline?: string;
+			word_count?: number;
+		};
+		error?: string;
+	}
+
+	async function handleCommandSend(content: MessageContent) {
+		const command = contentText(content);
+		if (!command || commandBusy) return;
+		commandBusy = true;
+		commandError = null;
+		commandResult = null;
+		try {
+			const response = await fetch('/api/agent/editor-command', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					command,
+					workspaceId: selectedWorkspace?.id,
+					storyId: selectedWorkspace?.id,
+					jobId: selectedWorkspacePitch?.jobId,
+					targetAgent: commandTarget(command)
+				})
+			});
+			const body = (await response.json().catch(() => null)) as { result?: CommandBarResult; message?: string } | null;
+			if (!response.ok || !body?.result) {
+				throw new Error(body?.message || `Command failed with ${response.status}`);
+			}
+			commandResult = body.result;
+			gateEvents = [wireEventFromCommandResult(body.result), ...gateEvents];
+		} catch (err) {
+			commandError = err instanceof Error ? err.message : String(err);
+		} finally {
+			commandBusy = false;
+		}
+	}
+
+	function commandTarget(command: string): 'monitor' | 'drafting' | null {
+		if (/https?:\/\//i.test(command) || /\bread this\b/i.test(command)) return 'monitor';
+		if (selectedWorkspace && /\b(draft|write|lede|headline|story)\b/i.test(command)) return 'drafting';
+		return null;
+	}
+
+	function wireEventFromCommandResult(result: CommandBarResult): WorkspaceEvent {
+		return {
+			id: `command-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+			kind: result.agent,
+			label: `${result.handled_by} handled command`,
+			detail: commandResultDetail(result),
+			at: new Date().toISOString(),
+			tone: result.status === 'blocked' ? 'warning' : 'active'
+		};
+	}
+
+	function commandResultDetail(result: CommandBarResult): string {
+		if (result.error) return result.error;
+		if (result.source) return `Extracted ${result.source.title} through ${result.source.adapter || 'source adapter'}.`;
+		if (result.draft) return `Drafted ${result.draft.headline || 'web story'} for review.`;
+		return result.route_reason;
 	}
 
 	function pitchFromPost(post: BoardPost, job: AgentJob | undefined): Pitch {
@@ -447,7 +529,27 @@
 				<button type="button" onclick={() => composer?.setValue(starter.prompt)}>{starter.label}</button>
 			{/each}
 		</div>
-		<Composer bind:this={composer} placeholder="Ask for leads, paste a source URL, or draft from a lead..." />
+		<Composer
+			bind:this={composer}
+			placeholder="Ask for leads, paste a source URL, or draft from a lead..."
+			onSend={handleCommandSend}
+			disabled={commandBusy}
+		/>
+		{#if commandBusy || commandResult || commandError}
+			<div class="command-panel__status" class:command-panel__status--warning={commandResult?.status === 'blocked' || commandError}>
+				{#if commandBusy}
+					<span>Routing command</span>
+					<strong>{selectedWorkspace ? 'Drafting or Monitor' : 'Monitor'}</strong>
+				{:else if commandResult}
+					<span>{commandResult.handled_by}</span>
+					<strong>{commandResult.status === 'blocked' ? 'Needs editor context' : commandResultDetail(commandResult)}</strong>
+					<small>{commandResult.route_reason}</small>
+				{:else if commandError}
+					<span>Command failed</span>
+					<strong>{commandError}</strong>
+				{/if}
+			</div>
+		{/if}
 	</section>
 
 	{#if !data.missionsEnabled}
@@ -905,6 +1007,34 @@
 	.section-head a:hover {
 		background: var(--bg-raised);
 		border-color: var(--border-strong);
+	}
+
+	.command-panel__status {
+		display: grid;
+		gap: var(--space-1);
+		border-left: 3px solid var(--accent);
+		background: var(--accent-soft);
+		padding: var(--space-3);
+	}
+
+	.command-panel__status--warning {
+		border-left-color: var(--caution-500);
+		background: var(--status-review-bg);
+	}
+
+	.command-panel__status span,
+	.command-panel__status small {
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		letter-spacing: var(--tr-meta);
+		text-transform: uppercase;
+	}
+
+	.command-panel__status strong {
+		color: var(--fg-1);
+		font-size: var(--fs-body-sm);
+		line-height: var(--lh-body);
 	}
 
 	.pitch-card__actions button:not(.button-secondary) {
