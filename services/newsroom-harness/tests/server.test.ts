@@ -289,6 +289,12 @@ describe('newsroom harness server', () => {
 		expect(body.draft.markdown).toContain('[1]');
 		expect(body.draft.markdown).toContain('[8]');
 		expect(body.draft.markdown).not.toContain('unsupported claim');
+		expect(body.draft.citations[0]).toMatchObject({
+			marker: 1,
+			fact_id: 'fact-1',
+			source_url: 'https://sources.example/fact-1',
+			archive_snapshot_url: 'https://web.archive.org/web/20260529010000/https://sources.example/fact-1'
+		});
 		expect(body.gate).toMatchObject({
 			workspace_id: workspaceId,
 			story_id: storyId,
@@ -493,6 +499,8 @@ function verifiedDraftFacts() {
 				title: `Source document ${index + 1}`,
 				name: `Transit agency source ${index + 1}`,
 				url: `https://sources.example/fact-${index + 1}`,
+				archive_snapshot_url:
+					index === 0 ? 'https://web.archive.org/web/20260529010000/https://sources.example/fact-1' : undefined,
 				content_hash: `hash-${index + 1}`
 			}
 		]

@@ -94,10 +94,25 @@ describe('story workspace utilities', () => {
 					label: 'Source 1',
 					detail: 'City desk',
 					sourceName: 'City desk',
-					sourceUrl: 'https://example.com/city'
+					sourceUrl: 'https://example.com/city',
+					citationMarker: 1,
+					archiveUrl: 'https://web.archive.org/web/*/https://example.com/city'
 				}
 			],
-			draft: `Draft workspace for "${pitch.title}".`,
+			citations: [
+				{
+					marker: 1,
+					factId: `fact-${pitch.id}-source-source-1`,
+					claim: 'City desk',
+					sourceTitle: 'City desk',
+					sourceName: 'City desk',
+					sourceUrl: 'https://example.com/city',
+					archiveUrl: 'https://web.archive.org/web/*/https://example.com/city',
+					contentHash: null,
+					eventId: null
+				}
+			],
+			draft: `Draft workspace for "${pitch.title}". The accepted pitch is ready for reporting from City desk [1].`,
 			eventLog: [
 				{
 					id: `pitch-${pitch.id}-accepted-${now}`,

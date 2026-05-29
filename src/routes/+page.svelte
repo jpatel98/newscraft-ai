@@ -2,6 +2,7 @@
 	import { replaceState } from '$app/navigation';
 	import Composer from '$lib/components/Composer.svelte';
 	import OpenGateCard from '$lib/components/OpenGateCard.svelte';
+	import { segmentDraftWithCitations, type CitationRecord } from '$lib/utils/citations';
 	import type {
 		AgentJob,
 		AgentRun,
@@ -43,6 +44,7 @@
 	let gateResolveError = $state<string | null>(null);
 	let workspaces = $state<StoryWorkspace[]>([]);
 	let selectedWorkspaceId = $state<string | null>(null);
+	let selectedCitationMarker = $state<number | null>(null);
 
 	const starters = [
 		{
@@ -87,6 +89,10 @@
 		selectedWorkspace ? runsForWorkspace(selectedWorkspace, selectedWorkspacePitch) : []
 	);
 	const selectedWorkspaceWire = $derived(workspaceWire(selectedWorkspace, selectedWorkspaceRuns));
+	const selectedDraftSegments = $derived(
+		selectedWorkspace ? segmentDraftWithCitations(selectedWorkspace.draft, selectedWorkspace.citations) : []
+	);
+	const selectedCitation = $derived(citationForMarker(selectedWorkspace?.citations ?? [], selectedCitationMarker));
 	const wireItems = $derived(
 		[...persistedEvents.map(wireFromEditorialEvent), ...gateEvents.map(wireFromWorkspaceEvent), ...wireFromBoard(board)]
 			.sort((a, b) => timestampMs(b.at) - timestampMs(a.at))
@@ -232,12 +238,14 @@
 		const existing = workspaces.find((workspace) => workspace.pitchId === pitch.id);
 		if (existing) {
 			selectedWorkspaceId = existing.id;
+			selectedCitationMarker = existing.citations[0]?.marker ?? null;
 			return;
 		}
 
 		const workspace = createStoryWorkspace(pitch, now);
 		workspaces = [workspace, ...workspaces];
 		selectedWorkspaceId = workspace.id;
+		selectedCitationMarker = workspace.citations[0]?.marker ?? null;
 	}
 
 	async function resolveEditorialGateCard(gate: EditorialGate, action: string, notes: string) {
@@ -273,6 +281,15 @@
 
 	function selectWorkspace(workspace: StoryWorkspace) {
 		selectedWorkspaceId = workspace.id;
+		selectedCitationMarker = workspace.citations[0]?.marker ?? null;
+	}
+
+	function citationForMarker(citations: CitationRecord[], marker: number | null): CitationRecord | null {
+		if (marker !== null) {
+			const match = citations.find((citation) => citation.marker === marker);
+			if (match) return match;
+		}
+		return citations[0] ?? null;
 	}
 
 	function runsForWorkspace(workspace: StoryWorkspace, pitch: Pitch | null): AgentRun[] {
@@ -659,9 +676,44 @@
 					</div>
 					<div class="draft-canvas">
 						<strong>{selectedWorkspace.title}</strong>
-						<p>{selectedWorkspace.draft}</p>
+						<p class="draft-canvas__prose">
+							{#each selectedDraftSegments as segment, index (segment.kind === 'citation' ? `citation-${segment.marker}-${index}` : `text-${index}`)}
+								{#if segment.kind === 'citation'}
+									<button
+										type="button"
+										class:active={selectedCitation?.marker === segment.marker}
+										aria-label={`Open source details for citation ${segment.marker}`}
+										onclick={() => (selectedCitationMarker = segment.marker)}
+									>
+										{segment.label}
+									</button>
+								{:else}
+									{segment.text}
+								{/if}
+							{/each}
+						</p>
 						<p>{selectedWorkspace.angle}</p>
 						<div>{selectedWorkspace.whyNow}</div>
+						{#if selectedCitation}
+							<aside class="citation-inspector" aria-label={`Citation ${selectedCitation.marker} source details`}>
+								<div>
+									<span>Citation [{selectedCitation.marker}]</span>
+									<strong>{selectedCitation.sourceTitle}</strong>
+								</div>
+								<p>{selectedCitation.claim}</p>
+								<div class="citation-inspector__links">
+									<a href={selectedCitation.sourceUrl} target="_blank" rel="noreferrer">
+										Original source
+									</a>
+									<a href={selectedCitation.archiveUrl} target="_blank" rel="noreferrer">
+										Archive fallback
+									</a>
+								</div>
+								{#if selectedCitation.contentHash}
+									<small>Hash {selectedCitation.contentHash}</small>
+								{/if}
+							</aside>
+						{/if}
 					</div>
 				</section>
 			</div>
@@ -1204,13 +1256,91 @@
 		margin: 0;
 	}
 
-	.draft-canvas div {
+	.draft-canvas__prose button {
+		display: inline-flex;
+		align-items: center;
+		min-width: 1.9rem;
+		min-height: 1.5rem;
+		margin: 0 0.1rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		background: var(--bg-surface);
+		color: var(--accent-fg);
+		cursor: pointer;
+		font: inherit;
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		font-weight: var(--fw-semibold);
+		justify-content: center;
+		padding: 0 0.25rem;
+		vertical-align: baseline;
+	}
+
+	.draft-canvas__prose button:hover,
+	.draft-canvas__prose button.active {
+		border-color: var(--accent);
+		background: var(--accent-soft);
+		color: var(--fg-1);
+	}
+
+	.draft-canvas > div {
 		padding-top: var(--space-3);
 		border-top: 1px solid var(--border-soft);
 		color: var(--fg-3);
 		font-family: var(--font-mono);
 		font-size: var(--fs-body-sm);
 		font-weight: var(--fw-medium);
+	}
+
+	.citation-inspector {
+		display: grid;
+		gap: var(--space-2);
+		padding: var(--space-3);
+		border: 1px solid var(--border-default);
+		border-left: 3px solid var(--accent);
+		background: var(--bg-surface);
+		color: var(--fg-2);
+	}
+
+	.citation-inspector div {
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+	}
+
+	.citation-inspector span,
+	.citation-inspector small {
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		font-weight: var(--fw-medium);
+		text-transform: uppercase;
+	}
+
+	.citation-inspector strong {
+		display: block;
+		margin-top: var(--space-1);
+		font-family: var(--font-body);
+		font-size: var(--fs-body);
+		line-height: var(--lh-body);
+	}
+
+	.citation-inspector__links {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.citation-inspector__links a {
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		color: var(--accent-fg);
+		font-size: var(--fs-body-sm);
+		font-weight: var(--fw-semibold);
+		padding: 0.35rem 0.5rem;
+		text-decoration: none;
 	}
 
 	.brief-row--muted {

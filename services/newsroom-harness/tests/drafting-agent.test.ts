@@ -63,6 +63,16 @@ describe('drafting agent', () => {
 		expect(result.draft.markdown).not.toContain('privately expect');
 		expect(result.draft.citations).toHaveLength(8);
 		expect(result.draft.citations.every((citation) => citation.source_url.startsWith('https://sources.example/'))).toBe(true);
+		expect(result.draft.citations[0]).toMatchObject({
+			marker: 1,
+			fact_id: 'fact-1',
+			claim: verifiedFacts()[0].claim,
+			source_url: 'https://sources.example/fact-1',
+			archive_snapshot_url: 'https://web.archive.org/web/20260529010000/https://sources.example/fact-1'
+		});
+		expect(result.draft.citations[1]?.archive_snapshot_url).toBe(
+			'https://web.archive.org/web/*/https://sources.example/fact-2'
+		);
 		expect(result.gate).toMatchObject({
 			workspace_id: workspaceId,
 			story_id: storyId,
@@ -127,6 +137,8 @@ function verifiedFacts() {
 				title: `Source document ${index + 1}`,
 				name: `Transit agency source ${index + 1}`,
 				url: `https://sources.example/fact-${index + 1}`,
+				archive_snapshot_url:
+					index === 0 ? 'https://web.archive.org/web/20260529010000/https://sources.example/fact-1' : undefined,
 				content_hash: `hash-${index + 1}`
 			}
 		]

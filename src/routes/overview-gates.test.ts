@@ -21,4 +21,15 @@ describe('newsroom overview gates', () => {
 		expect(source).toContain('wireFromEditorialEvent');
 		expect(source).toContain("'gate.resolved'");
 	});
+
+	it('renders draft citation markers as source-backed controls with archive fallback', () => {
+		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+		expect(source).toContain("import { segmentDraftWithCitations, type CitationRecord } from '$lib/utils/citations'");
+		expect(source).toContain('selectedDraftSegments');
+		expect(source).toContain('Open source details for citation');
+		expect(source).toContain('selectedCitation.sourceUrl');
+		expect(source).toContain('selectedCitation.archiveUrl');
+		expect(source).toContain('Archive fallback');
+	});
 });

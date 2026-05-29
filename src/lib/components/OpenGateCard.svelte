@@ -1,5 +1,10 @@
 <script lang="ts">
 	import type { EditorialGate, EditorialGateType } from '$lib/types';
+	import {
+		draftReviewPayloadFromValue,
+		segmentDraftWithCitations,
+		type CitationRecord
+	} from '$lib/utils/citations';
 
 	let {
 		gate,
@@ -12,6 +17,7 @@
 	} = $props();
 
 	let notes = $state('');
+	let selectedCitationMarker = $state<number | null>(null);
 
 	const typeLabels: Record<EditorialGateType, string> = {
 		pitch: 'Pitch',
@@ -24,6 +30,12 @@
 		budget: 'Budget'
 	};
 
+	const draftReview = $derived(gate.type === 'draft_review' ? draftReviewPayloadFromValue(gate.payload) : null);
+	const draftSegments = $derived(
+		draftReview ? segmentDraftWithCitations(draftReview.markdown, draftReview.citations) : []
+	);
+	const selectedCitation = $derived(citationForMarker(draftReview?.citations ?? [], selectedCitationMarker));
+
 	async function resolve(action: string) {
 		await onResolve(gate, action, notes.trim());
 		notes = '';
@@ -34,6 +46,14 @@
 			.split('_')
 			.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
 			.join(' ');
+	}
+
+	function citationForMarker(citations: CitationRecord[], marker: number | null): CitationRecord | null {
+		if (marker !== null) {
+			const match = citations.find((citation) => citation.marker === marker);
+			if (match) return match;
+		}
+		return citations[0] ?? null;
 	}
 </script>
 
@@ -50,6 +70,49 @@
 	</div>
 
 	<p>{gate.summary}</p>
+
+	{#if draftReview}
+		<section class="open-gate-card__draft" aria-label="Draft review citation preview">
+			<div class="open-gate-card__draft-head">
+				<strong>{draftReview.headline || 'Draft for review'}</strong>
+				{#if draftReview.wordCount}
+					<span>{draftReview.wordCount} words</span>
+				{/if}
+			</div>
+			<p class="open-gate-card__draft-text">
+				{#each draftSegments as segment, index (segment.kind === 'citation' ? `citation-${segment.marker}-${index}` : `text-${index}`)}
+					{#if segment.kind === 'citation'}
+						<button
+							type="button"
+							class:active={selectedCitation?.marker === segment.marker}
+							aria-label={`Open source details for citation ${segment.marker}`}
+							onclick={() => (selectedCitationMarker = segment.marker)}
+						>
+							{segment.label}
+						</button>
+					{:else}
+						{segment.text}
+					{/if}
+				{/each}
+			</p>
+			{#if selectedCitation}
+				<aside class="open-gate-card__citation" aria-label={`Citation ${selectedCitation.marker} source details`}>
+					<div>
+						<span>Citation [{selectedCitation.marker}]</span>
+						<strong>{selectedCitation.sourceTitle}</strong>
+					</div>
+					<p>{selectedCitation.claim}</p>
+					<div class="open-gate-card__citation-links">
+						<a href={selectedCitation.sourceUrl} target="_blank" rel="noreferrer">Original source</a>
+						<a href={selectedCitation.archiveUrl} target="_blank" rel="noreferrer">Archive fallback</a>
+					</div>
+					{#if selectedCitation.contentHash}
+						<small>Hash {selectedCitation.contentHash}</small>
+					{/if}
+				</aside>
+			{/if}
+		</section>
+	{/if}
 
 	<label class="open-gate-card__notes">
 		<span>Notes</span>
@@ -140,6 +203,100 @@
 		font: inherit;
 		line-height: var(--lh-body);
 		padding: var(--space-3);
+	}
+
+	.open-gate-card__draft {
+		display: grid;
+		gap: var(--space-3);
+		padding: var(--space-3);
+		border: 1px solid var(--border-soft);
+		background: var(--bg-raised);
+	}
+
+	.open-gate-card__draft-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+	}
+
+	.open-gate-card__draft-head strong {
+		color: var(--fg-1);
+		font-family: var(--font-display);
+		font-size: var(--fs-h4);
+		line-height: var(--lh-h4);
+	}
+
+	.open-gate-card__draft-head span,
+	.open-gate-card__citation span,
+	.open-gate-card__citation small {
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		font-weight: var(--fw-medium);
+		text-transform: uppercase;
+	}
+
+	.open-gate-card__draft-text {
+		white-space: pre-wrap;
+	}
+
+	.open-gate-card__draft-text button {
+		display: inline-flex;
+		align-items: center;
+		min-width: 1.9rem;
+		min-height: 1.5rem;
+		margin: 0 0.1rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		background: var(--bg-surface);
+		color: var(--accent-fg);
+		cursor: pointer;
+		font: inherit;
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		font-weight: var(--fw-semibold);
+		justify-content: center;
+		padding: 0 0.25rem;
+		vertical-align: baseline;
+	}
+
+	.open-gate-card__draft-text button:hover,
+	.open-gate-card__draft-text button.active {
+		border-color: var(--accent);
+		background: var(--accent-soft);
+		color: var(--fg-1);
+	}
+
+	.open-gate-card__citation {
+		display: grid;
+		gap: var(--space-2);
+		padding: var(--space-3);
+		border: 1px solid var(--border-default);
+		border-left: 3px solid var(--accent);
+		background: var(--bg-surface);
+	}
+
+	.open-gate-card__citation strong {
+		display: block;
+		margin-top: var(--space-1);
+		color: var(--fg-1);
+	}
+
+	.open-gate-card__citation-links {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.open-gate-card__citation-links a {
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		color: var(--accent-fg);
+		font-size: var(--fs-body-sm);
+		font-weight: var(--fw-semibold);
+		padding: 0.35rem 0.5rem;
+		text-decoration: none;
 	}
 
 	.open-gate-card__actions {

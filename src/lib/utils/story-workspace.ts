@@ -1,4 +1,5 @@
 import type { ChannelSource } from '$lib/types';
+import { archiveFallbackUrl, type CitationRecord } from './citations';
 
 export type PitchGateResolution = 'accepted' | 'held' | 'spiked';
 
@@ -21,7 +22,12 @@ export interface WorkspaceFact {
 	detail: string;
 	sourceName?: string;
 	sourceUrl?: string;
+	citationMarker?: number;
+	contentHash?: string | null;
+	archiveUrl?: string;
 }
+
+export type WorkspaceCitation = CitationRecord;
 
 export interface WorkspaceEvent {
 	id: string;
@@ -46,6 +52,7 @@ export interface StoryWorkspace {
 	createdAt: string;
 	status: 'active';
 	factLedger: WorkspaceFact[];
+	citations: WorkspaceCitation[];
 	draft: string;
 	eventLog: WorkspaceEvent[];
 	activity: WorkspaceActivity[];
@@ -91,16 +98,45 @@ function createFactLedger(pitch: WorkspacePitch): WorkspaceFact[] {
 			label: `Source ${index + 1}`,
 			detail: source.name,
 			sourceName: source.name,
-			sourceUrl: source.url
+			sourceUrl: source.url,
+			citationMarker: index + 1,
+			archiveUrl: archiveFallbackUrl(source.url)
 		});
 	}
 
 	return facts;
 }
 
+function createCitations(facts: WorkspaceFact[]): WorkspaceCitation[] {
+	return facts
+		.filter((fact) => fact.citationMarker && fact.sourceUrl)
+		.map((fact) => ({
+			marker: fact.citationMarker as number,
+			factId: fact.id,
+			claim: fact.detail,
+			sourceTitle: fact.sourceName || fact.detail,
+			sourceName: fact.sourceName || fact.detail,
+			sourceUrl: fact.sourceUrl as string,
+			archiveUrl: fact.archiveUrl || archiveFallbackUrl(fact.sourceUrl as string),
+			contentHash: fact.contentHash ?? null,
+			eventId: null
+		}));
+}
+
+function createDraftText(pitch: WorkspacePitch, citations: WorkspaceCitation[]): string {
+	if (citations.length === 0) return `Draft workspace for "${pitch.title}".`;
+	const sourceSentence = citations
+		.slice(0, 3)
+		.map((citation) => `${citation.sourceName} [${citation.marker}]`)
+		.join(', ');
+	return `Draft workspace for "${pitch.title}". The accepted pitch is ready for reporting from ${sourceSentence}.`;
+}
+
 export function createStoryWorkspace(pitch: WorkspacePitch, now?: string): StoryWorkspace {
 	const createdAt = timestamp(now);
 	const sourceLabel = `${pitch.sources.length} source${pitch.sources.length === 1 ? '' : 's'}`;
+	const factLedger = createFactLedger(pitch);
+	const citations = createCitations(factLedger);
 	return {
 		id: `story-${pitch.id}`,
 		pitchId: pitch.id,
@@ -112,8 +148,9 @@ export function createStoryWorkspace(pitch: WorkspacePitch, now?: string): Story
 		sources: pitch.sources,
 		createdAt,
 		status: 'active',
-		factLedger: createFactLedger(pitch),
-		draft: `Draft workspace for "${pitch.title}".`,
+		factLedger,
+		citations,
+		draft: createDraftText(pitch, citations),
 		eventLog: [
 			createGateEvent(pitch, 'accepted', createdAt),
 			{

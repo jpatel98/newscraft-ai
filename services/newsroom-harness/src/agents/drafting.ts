@@ -20,6 +20,7 @@ interface DraftFact {
 	sourceTitle: string;
 	sourceUrl: string;
 	sourceName: string;
+	archiveSnapshotUrl: string;
 	contentHash: string | null;
 	eventId: string | null;
 }
@@ -31,6 +32,7 @@ interface DraftCitation {
 	source_title: string;
 	source_name: string;
 	source_url: string;
+	archive_snapshot_url: string;
 	content_hash: string | null;
 	event_id: string | null;
 }
@@ -88,6 +90,7 @@ export function runDraftingAgent(repository: HarnessRepository, input: DraftingI
 			title: citation.source_title,
 			fact_id: citation.fact_id,
 			marker: citation.marker,
+			archive_snapshot_url: citation.archive_snapshot_url,
 			content_hash: citation.content_hash
 		})),
 		createdAt
@@ -181,6 +184,7 @@ function factFromValue(value: NewsroomEventJson, eventId: string | null, eventSo
 		sourceTitle: source.title || source.name || sourceHost(source.url),
 		sourceName: source.name || source.title || sourceHost(source.url),
 		sourceUrl: source.url,
+		archiveSnapshotUrl: source.archiveSnapshotUrl || archiveFallbackUrl(source.url),
 		contentHash: source.contentHash,
 		eventId
 	};
@@ -201,7 +205,7 @@ function isVerifiedFact(raw: Record<string, unknown>, verifiedByEvent: boolean):
 function sourceFromValue(
 	raw: Record<string, unknown>,
 	eventSources: NewsroomEventJson[] = []
-): { title: string; name: string; url: string; contentHash: string | null } | null {
+): { title: string; name: string; url: string; archiveSnapshotUrl: string | null; contentHash: string | null } | null {
 	const candidates = [
 		...arrayValue(raw.sources),
 		...arrayValue(raw.source_set),
@@ -222,6 +226,16 @@ function sourceFromValue(
 		url,
 		title: stringValue(raw.source_title) || stringValue(raw.sourceTitle) || stringValue(raw.title),
 		name: stringValue(raw.source_name) || stringValue(raw.sourceName),
+		archiveSnapshotUrl:
+			stringValue(raw.archive_snapshot_url) ||
+			stringValue(raw.archiveSnapshotUrl) ||
+			stringValue(raw.archive_url) ||
+			stringValue(raw.archiveUrl) ||
+			stringValue(raw.snapshot_url) ||
+			stringValue(raw.snapshotUrl) ||
+			stringValue(objectValue(raw.provenance)?.archive_snapshot_url) ||
+			stringValue(objectValue(raw.provenance)?.archiveSnapshotUrl) ||
+			null,
 		contentHash:
 			stringValue(raw.content_hash) ||
 			stringValue(raw.contentHash) ||
@@ -231,7 +245,7 @@ function sourceFromValue(
 	};
 }
 
-function sourceObject(value: unknown): { title: string; name: string; url: string; contentHash: string | null } | null {
+function sourceObject(value: unknown): { title: string; name: string; url: string; archiveSnapshotUrl: string | null; contentHash: string | null } | null {
 	const raw = objectValue(value);
 	if (!raw) return null;
 	const url = stringValue(raw.url) || stringValue(raw.source_url) || stringValue(raw.sourceUrl);
@@ -240,6 +254,14 @@ function sourceObject(value: unknown): { title: string; name: string; url: strin
 		url,
 		title: stringValue(raw.title) || stringValue(raw.source_title) || stringValue(raw.sourceTitle),
 		name: stringValue(raw.name) || stringValue(raw.source_name) || stringValue(raw.sourceName),
+		archiveSnapshotUrl:
+			stringValue(raw.archive_snapshot_url) ||
+			stringValue(raw.archiveSnapshotUrl) ||
+			stringValue(raw.archive_url) ||
+			stringValue(raw.archiveUrl) ||
+			stringValue(raw.snapshot_url) ||
+			stringValue(raw.snapshotUrl) ||
+			null,
 		contentHash: stringValue(raw.content_hash) || stringValue(raw.contentHash) || null
 	};
 }
@@ -252,6 +274,7 @@ function buildWebStoryDraft(storyId: string, facts: DraftFact[], targetWordCount
 		source_title: fact.sourceTitle,
 		source_name: fact.sourceName,
 		source_url: fact.sourceUrl,
+		archive_snapshot_url: fact.archiveSnapshotUrl,
 		content_hash: fact.contentHash,
 		event_id: fact.eventId
 	}));
@@ -359,6 +382,16 @@ function sourceHost(value: string): string {
 		return new URL(value).hostname.replace(/^www\./, '');
 	} catch {
 		return value;
+	}
+}
+
+function archiveFallbackUrl(value: string): string {
+	try {
+		const url = new URL(value);
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'https://web.archive.org/';
+		return `https://web.archive.org/web/*/${url.toString()}`;
+	} catch {
+		return 'https://web.archive.org/';
 	}
 }
 
