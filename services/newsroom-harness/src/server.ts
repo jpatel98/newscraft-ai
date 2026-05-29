@@ -302,7 +302,9 @@ async function route(
 			return;
 		}
 		if (req.method === 'POST' && action === 'run') {
-			const run = ctx.runner.start(id, 'manual');
+			const input = (await readJson<{ workspace_id?: string }>(req).catch(() => null)) ?? {};
+			const workspaceId = typeof input.workspace_id === 'string' ? input.workspace_id : undefined;
+			const run = ctx.runner.start(id, 'manual', workspaceId);
 			writeJson(res, 202, { ok: true, run, job: ctx.repository.requireJob(id) });
 			return;
 		}

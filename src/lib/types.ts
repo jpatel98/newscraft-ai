@@ -111,6 +111,7 @@ type ReasoningEffort = 'low' | 'medium' | 'high';
 
 export interface AgentJob {
 	id: string;
+	workspaceId?: string | null;
 	name: string;
 	description?: string;
 	prompt: string | null;

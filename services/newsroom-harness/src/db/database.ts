@@ -17,6 +17,7 @@ function ensureSchema(db: HarnessDb): void {
 	db.exec(`
 CREATE TABLE IF NOT EXISTS jobs (
 	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL DEFAULT 'default',
 	name TEXT NOT NULL,
 	description TEXT NOT NULL DEFAULT '',
 	prompt TEXT NOT NULL,
@@ -197,4 +198,11 @@ CREATE INDEX IF NOT EXISTS gates_job_idx ON gates(job_id, status, created_at, id
 CREATE INDEX IF NOT EXISTS memory_entries_scope_idx ON memory_entries(tier, scope_id, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_key_idx ON memory_entries(tier, scope_id, key, created_at, id);
 `);
+	ensureColumn(db, 'jobs', 'workspace_id', "TEXT NOT NULL DEFAULT 'default'");
+}
+
+function ensureColumn(db: HarnessDb, table: string, column: string, definition: string): void {
+	const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+	if (columns.some((existing) => existing.name === column)) return;
+	db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
 }

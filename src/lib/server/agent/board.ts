@@ -106,6 +106,7 @@ function normalizeAgentJob(value: unknown): AgentJob | null {
 
 	return {
 		id,
+		workspaceId: stringValue(raw.workspace_id ?? raw.workspaceId),
 		name,
 		description: stringValue(raw.description) || '',
 		prompt: stringValue(raw.prompt),
@@ -327,14 +328,20 @@ async function listAgentJobsWithRuns(accountId: string): Promise<{ jobs: AgentJo
 		accountId,
 		normalizedJobs.filter((job) => ownedConfigs.has(job.id))
 	);
-	const jobsById = new Map(jobs.map((job) => [job.id, job]));
+	await ensureAgentJobWorkspaces(accountId, jobs);
+	const scopedJobs = jobs.map((job) => ({ ...job, workspaceId: workspaceIdForAccount(accountId) }));
+	const jobsById = new Map(scopedJobs.map((job) => [job.id, job]));
+	const ownedJobIds = new Set(scopedJobs.map((job) => job.id));
 	const runs = rawJobs.flatMap((rawJob) => {
 		const job = normalizeAgentJob(rawJob);
 		return embeddedRunsFromJob(rawJob)
 			.map((run) => normalizeAgentRun(run, job ?? undefined))
-			.filter((run): run is AgentRun => Boolean(run));
+			.filter((run): run is AgentRun => {
+				if (!run) return false;
+				return ownedJobIds.has(run.jobId);
+			});
 	});
-	return { jobs, runs: dedupeRuns(runs.map((run) => ({ ...run, jobName: run.jobName ?? jobsById.get(run.jobId)?.name ?? null }))) };
+	return { jobs: scopedJobs, runs: dedupeRuns(runs.map((run) => ({ ...run, jobName: run.jobName ?? jobsById.get(run.jobId)?.name ?? null }))) };
 }
 
 export async function listAgentJobs(accountId: string): Promise<AgentJob[]> {
@@ -560,6 +567,7 @@ export async function runJobAction(accountId: string, id: string, action: 'run' 
 	if (!(await getMissionConfig(accountId, id))) throw new Error('Mission not found');
 	const response = await agentFetch(`/api/jobs/${encodeURIComponent(id)}/${action}`, {
 		method: 'POST',
+		body: JSON.stringify({ workspace_id: workspaceIdForAccount(accountId) }),
 		signal: AbortSignal.timeout(15000)
 	});
 	if (!response.ok) throw new Error(`Mission ${action} ${response.status}: ${await response.text()}`);
@@ -583,6 +591,7 @@ export interface CreateAgentJobInput {
 
 export async function createAgentJob(accountId: string, input: CreateAgentJobInput): Promise<AgentJob | null> {
 	const payload = {
+		workspace_id: workspaceIdForAccount(accountId),
 		name: input.name,
 		title: input.name,
 		schedule: input.schedule,
@@ -603,6 +612,19 @@ export async function createAgentJob(accountId: string, input: CreateAgentJobInp
 	const job = normalizeAgentJob(body?.job ?? body?.data ?? body) ?? null;
 	if (job) await unhideChannelJobId(accountId, job.id);
 	return job;
+}
+
+async function ensureAgentJobWorkspaces(accountId: string, jobs: AgentJob[]): Promise<void> {
+	const workspaceId = workspaceIdForAccount(accountId);
+	for (const job of jobs) {
+		if (job.workspaceId === workspaceId) continue;
+		const response = await agentFetch(`/api/jobs/${encodeURIComponent(job.id)}`, {
+			method: 'PATCH',
+			body: JSON.stringify({ workspace_id: workspaceId }),
+			signal: AbortSignal.timeout(15000)
+		});
+		if (!response.ok) throw new Error(`Mission workspace sync ${response.status}: ${await response.text()}`);
+	}
 }
 
 export interface UpdateAgentJobInput {
@@ -638,6 +660,7 @@ export async function updateAgentJob(accountId: string, id: string, input: Updat
 		payload.deliver = toAgentDeliverTarget(input.deliver);
 	}
 	if (typeof input.enabled === 'boolean') payload.enabled = input.enabled;
+	payload.workspace_id = workspaceIdForAccount(accountId);
 
 	const response = await agentFetch(`/api/jobs/${encodeURIComponent(id)}`, {
 		method: 'PATCH',
@@ -652,6 +675,10 @@ export async function updateAgentJob(accountId: string, id: string, input: Updat
 	if (job) await unhideChannelJobId(accountId, job.id);
 	if (job?.name) await renameMissionReportsForMission(accountId, job.id, job.name);
 	return job;
+}
+
+function workspaceIdForAccount(accountId: string): string {
+	return `account:${accountId}`;
 }
 
 export async function deleteAgentJob(accountId: string, id: string): Promise<void> {

@@ -94,7 +94,7 @@ export async function runBeatMonitor(
 	input: BeatMonitorRunInput,
 	options: BeatMonitorRunOptions = {}
 ): Promise<BeatMonitorRunResult> {
-	const workspaceId = input.workspaceId || DEFAULT_WORKSPACE_ID;
+	const workspaceId = input.workspaceId || job.workspace_id || DEFAULT_WORKSPACE_ID;
 	const promptConfig = parseStandingBriefPrompt(job.prompt || '');
 	const startedAt = nowIso();
 	const knownKeys = knownLeadKeys(repository, job.id);
@@ -148,6 +148,7 @@ export async function runBeatMonitor(
 		.slice(0, clampPositiveInteger(options.maxPitches, DEFAULT_MAX_PITCHES))
 		.map((lead) => pitchFromLead(job, lead));
 	const gates = pitches.map((pitch) => queuePitchGate(repository, job, input.runId, workspaceId, pitch));
+	const pitchedLeads = candidateLeads.slice(0, pitches.length);
 	const completedAt = nowIso();
 
 	repository.appendBeatMemory(job.id, {
@@ -164,7 +165,7 @@ export async function runBeatMonitor(
 			source_count: leads.length,
 			pitch_count: pitches.length,
 			pitch_gate_ids: gates.map((gate) => gate.id),
-			source_urls: candidateLeads.map((lead) => lead.url),
+			source_urls: pitchedLeads.map((lead) => lead.url),
 			pitches: pitches.map((pitch) => ({
 				pitch_id: pitch.id,
 				title: pitch.title,
@@ -267,7 +268,7 @@ function approvedCrawlPlansForBeat(
 	}
 	return Array.from(latest.values()).filter((plan) => {
 		if (plan.status === 'approved') return true;
-		if (plan.status && plan.status !== 'approved') return false;
+		if (plan.status === 'pending' || plan.status === 'rejected') return false;
 		return promptConfig.hasApprovedCrawlPlanBlock && plan.seed_urls.some((url) => promptConfig.approvedPlanSeedUrls.has(url));
 	});
 }

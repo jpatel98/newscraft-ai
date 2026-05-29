@@ -15,14 +15,15 @@ export class JobRunner {
 		private config: HarnessConfig
 	) {}
 
-	start(jobId: string, trigger: 'manual' | 'schedule' | 'test' = 'manual'): NewsroomRunDto {
+	start(jobId: string, trigger: 'manual' | 'schedule' | 'test' = 'manual', workspaceId?: string): NewsroomRunDto {
 		if (this.repository.hasActiveRun(jobId)) {
 			return this.repository
 				.listRuns({ includeCompleted: false })
 				.find((run) => run.job_id === jobId) as NewsroomRunDto;
 		}
+		if (workspaceId) this.repository.updateJob(jobId, { workspace_id: workspaceId });
 		const run = this.repository.createRun(jobId, trigger);
-		const execution = this.execute(run.id).finally(() => this.active.delete(run.id));
+		const execution = this.execute(run.id, workspaceId).finally(() => this.active.delete(run.id));
 		this.active.set(run.id, execution);
 		return run;
 	}
@@ -31,7 +32,7 @@ export class JobRunner {
 		await this.active.get(runId);
 	}
 
-	private async execute(runId: string): Promise<void> {
+	private async execute(runId: string, workspaceId?: string): Promise<void> {
 		const startedAt = nowIso();
 		let run = this.repository.updateRun(runId, { status: 'running', started_at: startedAt, last_error: null });
 		const job = this.repository.requireJob(run.job_id);
@@ -41,7 +42,7 @@ export class JobRunner {
 		try {
 			if (hasBeatMonitorInputs(this.repository, job)) {
 				this.repository.addRunStep(run.id, 'beat_monitor', 'Read Standing Brief sources and approved Crawl Plans');
-				const result = await runBeatMonitor(this.repository, job, { runId: run.id }, { signal: abort.signal });
+				const result = await runBeatMonitor(this.repository, job, { runId: run.id, workspaceId }, { signal: abort.signal });
 				this.repository.addRunStep(run.id, 'beat_monitor', 'Queue pitch gates for editor review', 'completed', {
 					sourceCount: result.sourceCount,
 					pitchCount: result.pitchCount,

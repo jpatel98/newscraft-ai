@@ -36,6 +36,7 @@ const TABLES: TableSpec[] = [
 		primaryKey: 'id',
 		columns: [
 			'id',
+			'workspace_id',
 			'name',
 			'description',
 			'prompt',
@@ -415,6 +416,7 @@ export class SupabaseHarnessMirror {
 		await this.sql.unsafe(`
 CREATE TABLE IF NOT EXISTS harness.jobs (
 	id text PRIMARY KEY,
+	workspace_id text NOT NULL DEFAULT 'default',
 	name text NOT NULL,
 	description text NOT NULL DEFAULT '',
 	prompt text NOT NULL,
@@ -430,6 +432,7 @@ CREATE TABLE IF NOT EXISTS harness.jobs (
 	created_at text NOT NULL,
 	updated_at text NOT NULL
 );
+ALTER TABLE harness.jobs ADD COLUMN IF NOT EXISTS workspace_id text NOT NULL DEFAULT 'default';
 
 CREATE TABLE IF NOT EXISTS harness.runs (
 	id text PRIMARY KEY,

@@ -30,6 +30,7 @@ import { computeNextRunAt } from '../jobs/schedule.js';
 
 interface JobRow {
 	id: string;
+	workspace_id: string;
 	name: string;
 	description: string;
 	prompt: string;
@@ -753,6 +754,7 @@ export class HarnessRepository {
 	createJob(input: CreateJobInput): NewsroomJobDto {
 		const now = nowIso();
 		const id = newId('job');
+		const workspaceId = optionalText(input.workspace_id) || DEFAULT_WORKSPACE_ID;
 		const name = (input.name || input.title || '').trim();
 		const prompt = (input.prompt || '').trim();
 		const schedule = (input.schedule || input.cron || '').trim();
@@ -764,12 +766,13 @@ export class HarnessRepository {
 		this.db
 			.prepare(
 				`INSERT INTO jobs (
-					id, name, description, prompt, schedule, enabled, next_run_at, last_status,
+					id, workspace_id, name, description, prompt, schedule, enabled, next_run_at, last_status,
 					deliver, output_format, created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 			)
 			.run(
 				id,
+				workspaceId,
 				name,
 				String(input.description || '').trim(),
 				prompt,
@@ -787,6 +790,7 @@ export class HarnessRepository {
 
 	updateJob(id: string, input: UpdateJobInput): NewsroomJobDto {
 		const existing = this.requireJob(id);
+		const workspaceId = optionalText(input.workspace_id) || existing.workspace_id || DEFAULT_WORKSPACE_ID;
 		const name = input.name ?? input.title ?? existing.name;
 		const prompt = input.prompt ?? existing.prompt ?? '';
 		const schedule = input.schedule ?? input.cron ?? existing.schedule;
@@ -796,12 +800,13 @@ export class HarnessRepository {
 		this.db
 			.prepare(
 				`UPDATE jobs SET
-					name = ?, description = ?, prompt = ?, schedule = ?, enabled = ?, next_run_at = ?,
+					workspace_id = ?, name = ?, description = ?, prompt = ?, schedule = ?, enabled = ?, next_run_at = ?,
 					last_status = CASE WHEN ? = 0 THEN 'paused' ELSE COALESCE(last_status, 'scheduled') END,
 					deliver = ?, output_format = ?, updated_at = ?
 				WHERE id = ?`
 			)
 			.run(
+				workspaceId,
 				name.trim(),
 				input.description ?? existing.description ?? '',
 				prompt.trim(),
@@ -876,7 +881,7 @@ export class HarnessRepository {
 			)
 			.run(now, job.id);
 		this.appendEvent({
-			workspaceId: DEFAULT_WORKSPACE_ID,
+			workspaceId: workspaceIdForJob(job),
 			jobId: job.id,
 			runId: id,
 			agent: 'runner',
@@ -915,7 +920,7 @@ export class HarnessRepository {
 			)
 			.run(updated.status, updated.last_error, updated.started_at, now, updated.job_id);
 		this.appendEvent({
-			workspaceId: DEFAULT_WORKSPACE_ID,
+			workspaceId: workspaceIdForJob(this.requireJob(updated.job_id)),
 			jobId: updated.job_id,
 			runId: updated.id,
 			agent: 'runner',
@@ -999,12 +1004,20 @@ export class HarnessRepository {
 				 WHERE run_id = ?`
 			)
 			.get(row.id) as { count: number; latest: string | null } | undefined;
+		const crawlPlanSourceStats = this.db
+			.prepare(
+				`SELECT COUNT(*) AS count, MAX(created_at) AS latest
+				 FROM events
+				 WHERE run_id = ? AND kind = 'source.discovered'`
+			)
+			.get(row.id) as { count: number; latest: string | null } | undefined;
 		const latestActivityAt = latestIso([
 			run.updated_at,
 			run.completed_at,
 			run.started_at,
 			run.queued_at,
 			usableSourceStats?.latest ?? sourceStats?.latest,
+			crawlPlanSourceStats?.latest,
 			...steps.flatMap((step) => [step.completed_at, step.started_at]),
 			...toolCalls.flatMap((call) => [call.completed_at, call.started_at])
 		]);
@@ -1013,7 +1026,7 @@ export class HarnessRepository {
 			...run,
 			steps: steps.map(runStepDto).reverse(),
 			tool_calls: toolCalls.map(toolCallDto).reverse(),
-			source_count: usableSourceStats?.count ?? 0,
+			source_count: (usableSourceStats?.count ?? 0) + (crawlPlanSourceStats?.count ?? 0),
 			latest_activity_at: latestActivityAt
 		};
 	}
@@ -1676,6 +1689,7 @@ function jobDto(row: JobRow): NewsroomJobDto {
 	const state = row.enabled ? row.last_status || 'scheduled' : 'paused';
 	return {
 		id: row.id,
+		workspace_id: row.workspace_id || DEFAULT_WORKSPACE_ID,
 		name: row.name,
 		title: row.name,
 		description: row.description,
@@ -1695,6 +1709,10 @@ function jobDto(row: JobRow): NewsroomJobDto {
 		created_at: row.created_at,
 		updated_at: row.updated_at
 	};
+}
+
+function workspaceIdForJob(job: Pick<NewsroomJobDto, 'workspace_id'>): string {
+	return job.workspace_id || DEFAULT_WORKSPACE_ID;
 }
 
 function runDto(row: RunRow): NewsroomRunDto {

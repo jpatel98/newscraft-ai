@@ -3,6 +3,7 @@ export type RunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancell
 
 export interface NewsroomJobDto {
 	id: string;
+	workspace_id?: string;
 	name: string;
 	title: string;
 	description?: string;
@@ -108,6 +109,7 @@ export interface NewsroomEventDto {
 }
 
 export interface CreateJobInput {
+	workspace_id?: string;
 	name?: string;
 	title?: string;
 	prompt?: string;

@@ -153,9 +153,69 @@ describe('beat monitor standing brief runs', () => {
 		expect(repo.listEvents({ runId: run.id }).map((event) => event.kind)).toContain('crawl_plan.executed');
 	});
 
+	it('keeps unpitched candidate leads eligible for the next monitor pass', async () => {
+		const repo = createRepository();
+		const job = repo.createJob({
+			name: 'City Desk Monitor',
+			prompt: [
+				'Scan the city desk beat for fresh leads.',
+				'',
+				'## Configured Watchlist',
+				'Use these configured sources as starting points for this scheduled run.',
+				'',
+				'- City RSS: https://city.example/rss.xml'
+			].join('\n'),
+			schedule: 'every 60m'
+		});
+		const items = [
+			{
+				title: 'Council confirms waterfront housing vote',
+				link: 'https://city.example/news/waterfront-housing',
+				description: 'Council confirmed a waterfront housing vote with zoning changes that affect several neighbourhoods.'
+			},
+			{
+				title: 'Transit agency adds overnight shuttle service',
+				link: 'https://city.example/news/overnight-shuttles',
+				description: 'The transit agency added overnight shuttle service while track repairs continue this month.'
+			},
+			{
+				title: 'School board releases new enrolment forecast',
+				link: 'https://city.example/news/enrolment-forecast',
+				description: 'The school board released an enrolment forecast showing pressure on elementary classrooms.'
+			},
+			{
+				title: 'Province opens applications for flood grants',
+				link: 'https://city.example/news/flood-grants',
+				description: 'The province opened flood grant applications for households affected by spring storms.'
+			}
+		];
+		const fetchMock = fetchFixture({ 'https://city.example/rss.xml': rssFixture(items) });
+		const firstRun = repo.createRun(job.id, 'test');
+
+		const first = await runBeatMonitor(repo, job, { runId: firstRun.id }, { fetchImpl: fetchMock, maxPitches: 2 });
+		const firstMemory = repo.inspectBeatMemory(job.id).current.prior_coverage as Array<{ source_urls?: string[] }>;
+		const secondRun = repo.createRun(job.id, 'test');
+		const second = await runBeatMonitor(repo, job, { runId: secondRun.id }, { fetchImpl: fetchMock, maxPitches: 2 });
+		const secondUrls = second.gates.map((gate) => {
+			const payload = gate.payload as { source_set?: Array<{ url?: string }> };
+			return payload.source_set?.[0]?.url;
+		});
+
+		expect(first.gates).toHaveLength(2);
+		expect(firstMemory[firstMemory.length - 1]?.source_urls).toEqual([
+			'https://city.example/news/waterfront-housing',
+			'https://city.example/news/overnight-shuttles'
+		]);
+		expect(secondUrls).toEqual([
+			'https://city.example/news/enrolment-forecast',
+			'https://city.example/news/flood-grants'
+		]);
+	});
+
 	it('lets the job runner complete Standing Briefs without creating mission reports', async () => {
 		const repo = createRepository();
 		const job = repo.createJob({
+			workspace_id: 'account:editor-1',
 			name: 'Morning Policy Monitor',
 			prompt: [
 				'Scan the policy beat for fresh leads.',
@@ -186,7 +246,51 @@ describe('beat monitor standing brief runs', () => {
 		expect(runtime.runMission).not.toHaveBeenCalled();
 		expect(repo.requireRun(run.id)).toMatchObject({ status: 'completed', last_error: null });
 		expect(repo.listReports()).toHaveLength(0);
-		expect(repo.listGates({ jobId: job.id })).toHaveLength(1);
+		expect(repo.listGates({ workspaceId: 'account:editor-1', jobId: job.id })).toHaveLength(1);
+		expect(repo.listGates({ workspaceId: 'default', jobId: job.id })).toHaveLength(0);
+	});
+
+	it('counts crawl-plan source events in runner progress', async () => {
+		const repo = createRepository();
+		const job = repo.createJob({
+			workspace_id: 'account:editor-1',
+			name: 'Transit Crawl Monitor',
+			prompt: 'Scan the transit beat.',
+			schedule: 'every 60m'
+		});
+		repo.saveCrawlPlanVersion({
+			beat_id: job.id,
+			id: 'approved-plan',
+			status: 'approved',
+			seed_url: 'https://city.example/news',
+			link_follow_rule: 'Follow same-site links under /news that look like articles.',
+			candidate_links: [
+				{
+					title: 'Agency releases new subway closure plan for weekend repairs',
+					url: 'https://city.example/news/subway-closure-plan',
+					reason: 'Same-site story candidate',
+					score: 9
+				}
+			],
+			polite_fetch: { respect_robots: false, host_delay_ms: 0, archive_web: false }
+		});
+		const fetchMock = fetchFixture({
+			'https://city.example/news': '<html><title>Transit news</title></html>',
+			'https://city.example/news/subway-closure-plan': [
+				'<html><head><title>Subway closure plan released</title></head>',
+				'<body><article><p>The transit agency released a weekend subway closure plan for repairs that will redirect riders to shuttle buses.</p></article></body></html>'
+			].join('')
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		const runtime = { runMission: vi.fn() } as unknown as NewsroomAgentRuntime;
+		const runner = new JobRunner(repo, runtime, loadConfig({ openAiApiKey: '', runTimeoutMs: 5000 }));
+
+		const run = runner.start(job.id, 'test');
+		await runner.waitFor(run.id);
+
+		expect(repo.listRuns({ includeCompleted: true }).find((candidate) => candidate.id === run.id)).toMatchObject({
+			source_count: 1
+		});
 	});
 });
 
