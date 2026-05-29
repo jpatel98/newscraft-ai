@@ -250,6 +250,7 @@ function sourceProvenancePayload(item: SourceItem): Record<string, unknown> {
 	return {
 		adapter: item.provenance.adapter,
 		source_url: item.provenance.sourceUrl,
+		discovered_at: item.provenance.discoveredAt,
 		fetched_at: item.provenance.fetchedAt ?? null,
 		content_type: item.provenance.contentType ?? null,
 		status_code: item.provenance.statusCode ?? null,

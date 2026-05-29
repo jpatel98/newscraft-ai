@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type {
+	CrawlPlanSourceEventDto,
 	NewsroomCrawlPlanVersionDto,
 	NewsroomGateDto,
 	NewsroomJobDto
@@ -7,7 +8,13 @@ import type {
 import { executeCrawlPlan } from '../crawl-plans/executor.js';
 import { DEFAULT_WORKSPACE_ID, type HarnessRepository } from '../db/repository.js';
 import { politeFetch, type PoliteFetchOptions } from '../tools/polite-fetch.js';
-import { selectSourceAdapter, type SourceAdapterKind, type SourceItem } from '../tools/source-adapters/index.js';
+import {
+	selectSourceAdapter,
+	type SourceAdapterKind,
+	type SourceExtractionMethod,
+	type SourceItem,
+	type SourceProvenance
+} from '../tools/source-adapters/index.js';
 import { nowIso } from '../util/ids.js';
 import { assessSourceQuality } from '../util/source-quality.js';
 
@@ -16,6 +23,22 @@ const CRAWL_PLAN_HEADING = '## Approved Crawl Plans';
 const DEFAULT_MAX_PITCHES = 3;
 const DEFAULT_MAX_ITEMS_PER_SOURCE = 6;
 const DEFAULT_MAX_CRAWL_PLAN_LINKS = 4;
+const SOURCE_ADAPTER_KINDS = new Set<SourceAdapterKind>([
+	'rss',
+	'atom',
+	'sitemap',
+	'web_search',
+	'pr_wire',
+	'pdf',
+	'api_bluesky',
+	'html_article'
+]);
+const SOURCE_EXTRACTION_METHODS = new Set<SourceExtractionMethod>([
+	'json_ld_article_body',
+	'schema_article_body',
+	'readability',
+	'metadata_summary_fallback'
+]);
 
 interface StandingBriefSource {
 	name: string;
@@ -393,7 +416,7 @@ async function executeApprovedCrawlPlan(
 		statusCode: source.status_code,
 		archiveSnapshotUrl: source.archive_snapshot_url ?? null,
 		metadata: source.metadata ?? null,
-		provenance: source.provenance ? (source.provenance as unknown as SourceItem['provenance']) : undefined,
+		provenance: crawlPlanSourceProvenance(source),
 		eventId: source.event_id,
 		via: 'crawl_plan'
 	}));
@@ -493,6 +516,7 @@ function sourceProvenancePayload(lead: Pick<BeatMonitorLead, 'provenance' | 'met
 	return {
 		adapter: lead.provenance?.adapter ?? lead.adapter,
 		source_url: lead.provenance?.sourceUrl ?? null,
+		discovered_at: lead.provenance?.discoveredAt ?? null,
 		fetched_at: lead.provenance?.fetchedAt ?? null,
 		content_type: lead.provenance?.contentType ?? null,
 		status_code: lead.provenance?.statusCode ?? null,
@@ -504,6 +528,30 @@ function sourceProvenancePayload(lead: Pick<BeatMonitorLead, 'provenance' | 'met
 		metadata_sources: lead.provenance?.metadataSources ?? lead.metadata?.metadataSources ?? null,
 		structured_type: lead.provenance?.structuredType ?? lead.metadata?.structuredType ?? null,
 		canonical_url: lead.provenance?.canonicalUrl ?? lead.metadata?.canonicalUrl ?? null
+	};
+}
+
+function crawlPlanSourceProvenance(source: CrawlPlanSourceEventDto): SourceProvenance | undefined {
+	const record = source.provenance;
+	if (!record) return undefined;
+	const fetchedAt = textValue(record.fetched_at);
+	const discoveredAt = textValue(record.discovered_at) || textValue(record.discoveredAt) || fetchedAt || nowIso();
+	return {
+		adapter: adapterKind(record.adapter) ?? adapterKind(source.adapter) ?? 'html_article',
+		sourceUrl: textValue(record.source_url) || source.url,
+		discoveredAt,
+		fetchedAt: fetchedAt ?? undefined,
+		parentUrl: textValue(record.parent_url) ?? undefined,
+		contentType: nullableTextValue(record.content_type),
+		statusCode: nullableNumberValue(record.status_code) ?? source.status_code ?? null,
+		contentHash: nullableTextValue(record.content_hash) ?? source.content_hash ?? null,
+		archiveSnapshotUrl: nullableTextValue(record.archive_snapshot_url) ?? source.archive_snapshot_url ?? null,
+		etag: nullableTextValue(record.etag),
+		lastModified: nullableTextValue(record.last_modified),
+		extractionMethod: extractionMethod(record.extraction_method),
+		metadataSources: textListValue(record.metadata_sources) ?? null,
+		structuredType: nullableTextValue(record.structured_type),
+		canonicalUrl: nullableTextValue(record.canonical_url)
 	};
 }
 
@@ -622,6 +670,38 @@ function dedupeLeads(leads: BeatMonitorLead[]): BeatMonitorLead[] {
 function leadKey(url: string): string {
 	const normalized = normalizeHttpUrl(url);
 	return normalized ? normalized.toLowerCase() : url.trim().toLowerCase();
+}
+
+function textValue(value: unknown): string | null {
+	return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function nullableTextValue(value: unknown): string | null {
+	if (value === null || value === undefined) return null;
+	return textValue(value);
+}
+
+function nullableNumberValue(value: unknown): number | null {
+	if (typeof value === 'number' && Number.isFinite(value)) return value;
+	if (typeof value !== 'string' || !value.trim()) return null;
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
+function textListValue(value: unknown): string[] | null {
+	if (!Array.isArray(value)) return null;
+	const items = value.map(textValue).filter((item): item is string => Boolean(item));
+	return items.length ? items : null;
+}
+
+function adapterKind(value: unknown): SourceAdapterKind | null {
+	const text = textValue(value);
+	return text && SOURCE_ADAPTER_KINDS.has(text as SourceAdapterKind) ? (text as SourceAdapterKind) : null;
+}
+
+function extractionMethod(value: unknown): SourceExtractionMethod | null {
+	const text = textValue(value);
+	return text && SOURCE_EXTRACTION_METHODS.has(text as SourceExtractionMethod) ? (text as SourceExtractionMethod) : null;
 }
 
 function isRecent(value: string | null, hours: number): boolean {

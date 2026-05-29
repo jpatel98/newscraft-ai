@@ -147,7 +147,17 @@ describe('beat monitor standing brief runs', () => {
 				expect.objectContaining({
 					url: 'https://city.example/news/subway-closure-plan',
 					adapter: 'html_article',
-					archive_snapshot_url: 'https://web.archive.org/web/20260529010101/https://city.example/news/subway-closure-plan'
+					archive_snapshot_url: 'https://web.archive.org/web/20260529010101/https://city.example/news/subway-closure-plan',
+					provenance: expect.objectContaining({
+						source_url: 'https://city.example/news/subway-closure-plan',
+						discovered_at: expect.any(String),
+						fetched_at: expect.any(String),
+						content_type: 'text/html',
+						status_code: 200,
+						content_hash: expect.any(String),
+						archive_snapshot_url:
+							'https://web.archive.org/web/20260529010101/https://city.example/news/subway-closure-plan'
+					})
 				})
 			]
 		});

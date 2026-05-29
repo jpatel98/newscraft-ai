@@ -32,6 +32,23 @@ describe('harness database schema', () => {
 		expect(workspaceIdFor(db, 'gates', 'gate-legacy')).toBe('default');
 		expect(workspaceIdFor(db, 'memory_entries', 'memory-legacy')).toBe('default');
 	});
+
+	it('re-opens an already-migrated legacy database without error and preserves rows', async () => {
+		tempDir = await mkdtemp(path.join(tmpdir(), 'newsroom-harness-db-'));
+		const dbPath = path.join(tempDir, 'harness.db');
+		createLegacyWorkspaceUnscopedDatabase(dbPath);
+
+		openDatabase(dbPath).close();
+		db = openDatabase(dbPath);
+
+		for (const table of ['jobs', 'events', 'gates', 'memory_entries']) {
+			expect(columnsFor(db, table).filter((column) => column === 'workspace_id')).toHaveLength(1);
+		}
+		expect(workspaceIdFor(db, 'jobs', 'job-legacy')).toBe('default');
+		expect(workspaceIdFor(db, 'events', 'event-legacy')).toBe('default');
+		expect(workspaceIdFor(db, 'gates', 'gate-legacy')).toBe('default');
+		expect(workspaceIdFor(db, 'memory_entries', 'memory-legacy')).toBe('default');
+	});
 });
 
 function createLegacyWorkspaceUnscopedDatabase(dbPath: string): void {
