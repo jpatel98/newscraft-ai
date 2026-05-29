@@ -41,7 +41,15 @@ describe('agent editor command route', () => {
 					workspaceId: 'workspace-1',
 					storyId: 'story-1',
 					jobId: 'job-1',
-					targetAgent: 'monitor'
+					targetAgent: 'monitor',
+					facts: [
+						{
+							id: 'fact-1',
+							claim: 'Council approved the plan.',
+							status: 'verified',
+							sources: [{ title: 'Council report', url: 'https://example.test/report' }]
+						}
+					]
 				})
 			})
 		} as any);
@@ -60,7 +68,15 @@ describe('agent editor command route', () => {
 				story_id: 'story-1',
 				job_id: 'job-1',
 				run_id: undefined,
-				target_agent: 'monitor'
+				target_agent: 'monitor',
+				facts: [
+					{
+						id: 'fact-1',
+						claim: 'Council approved the plan.',
+						status: 'verified',
+						sources: [{ title: 'Council report', url: 'https://example.test/report' }]
+					}
+				]
 			})
 		});
 	});

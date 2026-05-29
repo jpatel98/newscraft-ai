@@ -222,6 +222,7 @@ async function route(
 			run_id?: string | null;
 			target_agent?: 'monitor' | 'drafting' | null;
 			target_word_count?: number;
+			facts?: unknown[];
 		}>(req);
 		if (!input.command?.trim()) throw new HttpError(400, 'command is required');
 		const abort = requestAbortSignal(req, res);
@@ -236,7 +237,8 @@ async function route(
 					jobId: input.job_id,
 					runId: input.run_id,
 					targetAgent: input.target_agent,
-					targetWordCount: input.target_word_count
+					targetWordCount: input.target_word_count,
+					facts: input.facts
 				},
 				{ signal: abort.signal }
 			)

@@ -10,6 +10,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		jobId?: string | null;
 		runId?: string | null;
 		targetAgent?: 'monitor' | 'drafting' | null;
+		facts?: unknown[];
 	};
 	const command = input.command?.trim();
 	if (!command) throw error(400, 'command is required');
@@ -23,7 +24,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				story_id: input.storyId || undefined,
 				job_id: input.jobId || undefined,
 				run_id: input.runId || undefined,
-				target_agent: input.targetAgent || undefined
+				target_agent: input.targetAgent || undefined,
+				facts: Array.isArray(input.facts) ? input.facts : undefined
 			})
 		});
 		const body = await response.json().catch(() => null);

@@ -14,6 +14,7 @@ export interface EditorCommandInput {
 	runId?: string | null;
 	targetAgent?: 'monitor' | 'drafting' | null;
 	targetWordCount?: number;
+	facts?: unknown[];
 }
 
 export interface EditorCommandResult {
@@ -134,6 +135,7 @@ export async function runEditorCommand(
 	}
 
 	try {
+		appendClientFacts(repository, storyId, workspaceId, input.facts);
 		const draft = runDraftingAgent(repository, {
 			storyId,
 			workspaceId,
@@ -238,10 +240,30 @@ function routeCommand(
 	if (sourceUrl) {
 		return { agent: 'beat_monitor', handledBy: 'Monitor', reason: 'URL commands route to Monitor for one-shot extraction.' };
 	}
-	if (storyId || /\b(draft|write|lede|headline|story)\b/i.test(command)) {
+	if (/\b(draft|write|lede|headline)\b/i.test(command)) {
 		return { agent: 'drafting', handledBy: 'Drafting', reason: 'Story-context drafting command.' };
 	}
 	return { agent: 'beat_monitor', handledBy: 'Monitor', reason: 'Beat/source commands route to Monitor.' };
+}
+
+function appendClientFacts(
+	repository: HarnessRepository,
+	storyId: string,
+	workspaceId: string,
+	facts: unknown[] | undefined
+): void {
+	if (!Array.isArray(facts)) return;
+	for (const fact of facts) {
+		const raw = objectValue(fact);
+		if (!raw) continue;
+		repository.appendStoryMemory(storyId, {
+			workspaceId,
+			key: 'fact_ledger',
+			kind: 'claim.verified',
+			actor: 'assignment_desk',
+			value: raw
+		});
+	}
 }
 
 function sourceResult(source: FetchedSource): EditorCommandResult['source'] {
@@ -301,4 +323,8 @@ function firstHttpUrl(value: string): string | null {
 
 function excerpt(value: string): string {
 	return value.length <= 180 ? value : `${value.slice(0, 177).trim()}...`;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }

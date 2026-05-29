@@ -110,6 +110,69 @@ describe('editor command routing', () => {
 		]);
 	});
 
+	it('keeps monitor lead commands on Monitor even when a story workspace is selected', async () => {
+		const repo = createRepository();
+
+		const result = await runEditorCommand(repo, {
+			command: 'Find story leads for today.',
+			workspaceId: 'workspace-command',
+			storyId: 'story-active'
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: 'completed',
+			handled_by: 'Monitor',
+			agent: 'beat_monitor'
+		});
+		expect(repo.listEvents({ workspaceId: 'workspace-command', storyId: 'story-active' }).map((event) => event.kind)).toEqual([
+			'editor.command.routed',
+			'monitor.command.noted'
+		]);
+	});
+
+	it('seeds client fact context before drafting from an overview workspace', async () => {
+		const repo = createRepository();
+		const workspaceId = 'story-post-1';
+
+		const result = await runEditorCommand(repo, {
+			command: 'Draft a 300-word web story from this lead.',
+			workspaceId,
+			storyId: workspaceId,
+			facts: [
+				{
+					id: 'overview-angle',
+					claim: 'Council approved overnight transit shuttles while the downtown rail tunnel is closed for repairs.',
+					status: 'verified',
+					sources: [
+						{
+							title: 'Transit agency briefing',
+							name: 'Transit agency',
+							url: 'https://sources.example/transit-briefing',
+							content_hash: 'hash-overview'
+						}
+					]
+				}
+			]
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: 'completed',
+			handled_by: 'Drafting',
+			agent: 'drafting',
+			draft: {
+				format: 'web_story_300'
+			}
+		});
+		expect(repo.inspectStoryMemory(workspaceId, workspaceId).current.fact_ledger).toEqual([
+			expect.objectContaining({
+				id: 'overview-angle',
+				status: 'verified'
+			})
+		]);
+	});
+
 	it('records a blocked Drafting event when no active story workspace is available', () => {
 		const repo = createRepository();
 

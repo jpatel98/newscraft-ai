@@ -171,7 +171,8 @@
 					workspaceId: selectedWorkspace?.id,
 					storyId: selectedWorkspace?.id,
 					jobId: selectedWorkspacePitch?.jobId,
-					targetAgent: commandTarget(command)
+					targetAgent: commandTarget(command),
+					facts: commandFacts(selectedWorkspace)
 				})
 			});
 			const body = (await response.json().catch(() => null)) as { result?: CommandBarResult; message?: string } | null;
@@ -189,8 +190,57 @@
 
 	function commandTarget(command: string): 'monitor' | 'drafting' | null {
 		if (/https?:\/\//i.test(command) || /\bread this\b/i.test(command)) return 'monitor';
-		if (selectedWorkspace && /\b(draft|write|lede|headline|story)\b/i.test(command)) return 'drafting';
+		if (selectedWorkspace && /\b(draft|write|lede|headline)\b/i.test(command)) return 'drafting';
+		if (/\b(lead|leads|source|monitor|beat)\b/i.test(command)) return 'monitor';
 		return null;
+	}
+
+	function commandFacts(workspace: StoryWorkspace | null): unknown[] | undefined {
+		if (!workspace) return undefined;
+		const sources = workspace.citations.map((citation) => ({
+			title: citation.sourceTitle,
+			name: citation.sourceName,
+			url: citation.sourceUrl,
+			archive_snapshot_url: citation.archiveUrl,
+			content_hash: citation.contentHash
+		}));
+		if (sources.length === 0) return undefined;
+		return [
+			{
+				id: `${workspace.id}-title`,
+				claim: workspace.title,
+				status: 'verified',
+				sources
+			},
+			{
+				id: `${workspace.id}-angle`,
+				claim: workspace.angle,
+				status: 'verified',
+				sources
+			},
+			{
+				id: `${workspace.id}-why-now`,
+				claim: workspace.whyNow,
+				status: 'verified',
+				sources
+			},
+			...workspace.factLedger
+				.filter((fact) => fact.sourceUrl)
+				.map((fact) => ({
+					id: fact.id,
+					claim: fact.detail,
+					status: 'verified',
+					sources: [
+						{
+							title: fact.sourceName || fact.detail,
+							name: fact.sourceName || fact.detail,
+							url: fact.sourceUrl,
+							archive_snapshot_url: fact.archiveUrl,
+							content_hash: fact.contentHash ?? null
+						}
+					]
+				}))
+		];
 	}
 
 	function wireEventFromCommandResult(result: CommandBarResult): WorkspaceEvent {
