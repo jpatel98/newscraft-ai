@@ -250,6 +250,52 @@ describe('newsroom harness server', () => {
 		expect(story.agent_event_log.map((event: { kind: string }) => event.kind)).toEqual(['claim.proposed']);
 	});
 
+	it('drafts a cited web story from verified story memory over the authenticated API', async () => {
+		await startHarness();
+		const storyId = 'story-api-draft';
+		const workspaceId = 'workspace-api';
+		for (const fact of verifiedDraftFacts()) {
+			harness.repository.appendStoryMemory(storyId, {
+				key: 'fact_ledger',
+				kind: 'claim.verified',
+				actor: 'verification',
+				value: fact
+			});
+		}
+		harness.repository.appendStoryMemory(storyId, {
+			key: 'fact_ledger',
+			kind: 'claim.verified',
+			actor: 'verification',
+			value: {
+				id: 'sourceless',
+				claim: 'Editors heard an unsupported claim that service may expand citywide',
+				status: 'verified'
+			}
+		});
+
+		const response = await authFetch(`/api/stories/${storyId}/drafts/web-story`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ workspace_id: workspaceId, target_word_count: 300 })
+		});
+		const body = await response.json();
+
+		expect(response.status).toBe(201);
+		expect(body.draft.format).toBe('web_story_300');
+		expect(body.draft.word_count).toBeGreaterThanOrEqual(260);
+		expect(body.draft.word_count).toBeLessThanOrEqual(340);
+		expect(body.draft.markdown).toContain('[1]');
+		expect(body.draft.markdown).toContain('[8]');
+		expect(body.draft.markdown).not.toContain('unsupported claim');
+		expect(body.gate).toMatchObject({
+			workspace_id: workspaceId,
+			story_id: storyId,
+			type: 'draft_review',
+			status: 'open'
+		});
+		expect(harness.repository.listGates({ workspaceId, storyId })).toHaveLength(1);
+	});
+
 	it('streams Chat Completions-compatible SSE frames', async () => {
 		await startHarness();
 		const response = await authFetch('/v1/chat/completions', {
@@ -376,6 +422,31 @@ async function createJob(overrides: Record<string, unknown> = {}) {
 	});
 	expect(response.status).toBe(201);
 	return (await response.json()).job;
+}
+
+function verifiedDraftFacts() {
+	return [
+		'The transit agency approved a temporary overnight shuttle network while crews repair the downtown rail tunnel through the summer period',
+		'The approved plan adds buses every fifteen minutes on two routes that normally stop running shortly after midnight',
+		'Agency staff said the tunnel work is needed because water damage has accelerated corrosion around electrical cabinets and signal equipment',
+		'The city transportation department expects the shuttle network to cost about two million dollars over the first twelve weeks',
+		'Council members asked staff to publish weekly ridership updates so riders can see whether crowding worsens during repairs',
+		'The agency said riders with accessibility needs will be able to request taxis when replacement buses cannot serve a stop',
+		'Business groups near the closed stations asked the city for signs directing late-night customers to temporary bus stops',
+		'The first closure begins June tenth, with the agency planning a public briefing and route maps one week earlier'
+	].map((claim, index) => ({
+		id: `fact-${index + 1}`,
+		claim,
+		status: 'verified',
+		sources: [
+			{
+				title: `Source document ${index + 1}`,
+				name: `Transit agency source ${index + 1}`,
+				url: `https://sources.example/fact-${index + 1}`,
+				content_hash: `hash-${index + 1}`
+			}
+		]
+	}));
 }
 
 async function waitFor(check: () => Promise<boolean>, timeoutMs = 5000): Promise<void> {

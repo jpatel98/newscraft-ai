@@ -16,6 +16,7 @@ import { writeChatCompletion, writeResponses } from './chat.js';
 import { loadConfig, type HarnessConfig } from './config.js';
 import { createHarnessRepository } from './db/factory.js';
 import { HarnessRepository } from './db/repository.js';
+import { runDraftingAgent } from './agents/drafting.js';
 import { NewsroomAgentRuntime } from './agents/runtime.js';
 import { executeCrawlPlan } from './crawl-plans/executor.js';
 import { JobRunner } from './jobs/runner.js';
@@ -274,6 +275,31 @@ async function route(
 				ok: true,
 				entry: ctx.repository.appendStoryMemory(storyId, input),
 				memory: ctx.repository.inspectStoryMemory(storyId, workspaceId)
+			});
+			return;
+		}
+	}
+
+	const storyDraft = url.pathname.match(/^\/api\/stories\/([^/]+)\/drafts\/web-story$/);
+	if (storyDraft) {
+		const storyId = decodeURIComponent(storyDraft[1]);
+		if (req.method === 'POST') {
+			const input = await readJson<{
+				workspace_id?: string;
+				job_id?: string | null;
+				run_id?: string | null;
+				target_word_count?: number;
+			}>(req);
+			if (!input.workspace_id?.trim()) throw new HttpError(400, 'workspace_id is required');
+			writeJson(res, 201, {
+				ok: true,
+				...runDraftingAgent(ctx.repository, {
+					storyId,
+					workspaceId: input.workspace_id,
+					jobId: input.job_id,
+					runId: input.run_id,
+					targetWordCount: input.target_word_count
+				})
 			});
 			return;
 		}
