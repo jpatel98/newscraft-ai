@@ -64,8 +64,6 @@
 	let createDescription = $state('');
 	let createSchedule = $state('');
 	let createPrompt = $state('');
-	let createDeliver = $state('database');
-	let createOutputFormat = $state('markdown');
 	let createSources = $state<ChannelSource[]>([]);
 	let focusedChannelView = $state(false);
 	let renameOpen = $state(false);
@@ -286,8 +284,6 @@
 		createDescription = '';
 		createSchedule = '';
 		createPrompt = '';
-		createDeliver = 'database';
-		createOutputFormat = 'markdown';
 		createSources = [];
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
@@ -307,8 +303,6 @@
 		createDescription = job.description ?? '';
 		createSchedule = job.scheduleDisplay || targetPosts[0]?.schedule || '';
 		createPrompt = job.prompt ?? '';
-		createDeliver = job.deliver || 'database';
-		createOutputFormat = job.outputFormat || 'markdown';
 		createSources = cloneSources(job.sources);
 	}
 
@@ -538,8 +532,6 @@
 					description: createDescription,
 					schedule: createSchedule,
 					prompt: createPrompt,
-					deliver: createDeliver,
-					outputFormat: createOutputFormat,
 					sources: sourcePayload()
 				})
 			});
@@ -557,8 +549,6 @@
 			createDescription = '';
 			createSchedule = '';
 			createPrompt = '';
-			createDeliver = 'database';
-			createOutputFormat = 'markdown';
 			createSources = [];
 			closeCreate();
 			notice = 'Mission created.';
@@ -667,8 +657,6 @@
 					description: createDescription,
 					schedule: createSchedule,
 					prompt: createPrompt,
-					deliver: createDeliver,
-					outputFormat: createOutputFormat,
 					sources: sourcePayload()
 				})
 			});
@@ -794,8 +782,6 @@
 				createDescription = '';
 				createSchedule = '';
 				createPrompt = '';
-				createDeliver = 'database';
-				createOutputFormat = 'markdown';
 				createSources = [];
 			} else {
 				formMode = 'create';
@@ -804,8 +790,6 @@
 				createDescription = '';
 				createSchedule = '';
 				createPrompt = '';
-				createDeliver = 'database';
-				createOutputFormat = 'markdown';
 				createSources = [];
 			}
 		}
@@ -1356,24 +1340,6 @@
 							<div class="channels-watchlist__empty">No attached sources configured.</div>
 						{/if}
 					</div>
-					<div class="field">
-						<label class="field__label" for="channel-deliver">Delivery target</label>
-						<input
-							id="channel-deliver"
-							class="field__input"
-							bind:value={createDeliver}
-							placeholder="database (recommended)"
-						/>
-					</div>
-					<div class="field">
-						<label class="field__label" for="mission-output-format">Output format</label>
-						<input
-							id="mission-output-format"
-							class="field__input"
-							bind:value={createOutputFormat}
-							placeholder="markdown"
-						/>
-					</div>
 					<div class="channels-create__actions">
 						<button type="submit" class="btn btn--primary" disabled={createBusy}>
 							{#if formMode === 'edit'}
@@ -1555,14 +1521,6 @@
 							<div class="channel-detail__item">
 								<span>Last run</span>
 								<strong>{formatDate(selectedJob?.lastRunAt ?? selectedChannel.latestRunAt)}</strong>
-							</div>
-							<div class="channel-detail__item">
-								<span>Delivery</span>
-								<strong>{selectedJob?.deliver ?? 'Local archive'}</strong>
-							</div>
-							<div class="channel-detail__item">
-								<span>Output</span>
-								<strong>{selectedJob?.outputFormat ?? 'markdown'}</strong>
 							</div>
 							<div class="channel-detail__item">
 								<span>Sources</span>

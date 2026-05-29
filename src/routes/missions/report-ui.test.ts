@@ -50,6 +50,15 @@ describe('mission report expanded metadata', () => {
 		expect(source).toContain("{createBusy ? 'Saving' : 'Save changes'}");
 	});
 
+	it('does not expose fixed delivery or output format controls', () => {
+		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+		expect(source).not.toContain('Delivery target');
+		expect(source).not.toContain('channel-deliver');
+		expect(source).not.toContain('Output format');
+		expect(source).not.toContain('mission-output-format');
+	});
+
 	it('keeps Run now available as a manual action independent of the schedule state', () => {
 		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
 		const runNowIndex = source.indexOf("onclick={() => jobAction('run')}");
