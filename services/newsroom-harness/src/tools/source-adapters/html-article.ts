@@ -43,10 +43,7 @@ function extractHtmlArticle(input: SourceAdapterExtractInput): SourceItem[] {
 				structuredType: article.metadata.structuredType,
 				metadataSources: article.metadata.metadataSources
 			},
-			extractionMethod:
-				article.provenance.extractionMethod === 'metadata_summary_fallback' && fallbackText.length > article.contentText.length
-					? 'readability'
-					: article.provenance.extractionMethod,
+			extractionMethod: article.provenance.extractionMethod,
 			metadataSources: article.provenance.metadataSources,
 			structuredType: article.provenance.structuredType,
 			canonicalUrl: article.provenance.canonicalUrl

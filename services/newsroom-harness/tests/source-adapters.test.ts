@@ -312,6 +312,77 @@ describe('source adapters', () => {
 		expect(items[0].contentText).not.toMatch(/Home News Canada|Share this story|Privacy Policy/);
 	});
 
+	it('does not let site-level JSON-LD override article OpenGraph metadata', async () => {
+		const items = await htmlArticleAdapter.extract(
+			extractInput(
+				`
+				<html>
+					<head>
+						<script type="application/ld+json">
+							{
+								"@context": "https://schema.org",
+								"@type": "WebSite",
+								"name": "Example Local",
+								"description": "Example Local home page metadata",
+								"url": "https://example.test/"
+							}
+						</script>
+						<meta property="og:title" content="Housing motion advances after late vote">
+						<meta property="og:description" content="Councillors sent the housing motion to a final budget vote.">
+						<meta name="twitter:title" content="Housing motion advances after late vote">
+					</head>
+					<body>
+						<article>
+							<p>Councillors sent the housing motion to a final budget vote after staff said shelter capacity remained under pressure.</p>
+							<p>The amendment asks staff to report on vacant public land and construction timelines before the summer recess.</p>
+							<p>Advocates said the plan still needs operating money before new units can open.</p>
+						</article>
+					</body>
+				</html>
+			`,
+				'text/html',
+				'https://example.test/news/housing-motion'
+			)
+		);
+
+		expect(items[0]).toMatchObject({
+			title: 'Housing motion advances after late vote',
+			summary: 'Councillors sent the housing motion to a final budget vote.',
+			metadata: {
+				metadataSources: expect.arrayContaining(['opengraph', 'twitter'])
+			},
+			provenance: {
+				extractionMethod: 'readability'
+			}
+		});
+		expect(items[0].title).not.toBe('Example Local');
+	});
+
+	it('keeps last-resort provenance when a section fallback supplies headline links', async () => {
+		const items = await htmlArticleAdapter.extract(
+			extractInput(
+				`
+				<html>
+					<body>
+						<main>
+							<a href="/news/city-budget-vote">City budget vote moves ahead.</a>
+							<a href="/news/hydro-repair-plan">Hydro repair plan faces review.</a>
+						</main>
+					</body>
+				</html>
+			`,
+				'text/html',
+				'https://example.test/news'
+			)
+		);
+
+		expect(items[0].contentText).toContain('https://example.test/news/city-budget-vote');
+		expect(items[0].provenance).toMatchObject({
+			adapter: 'html_article',
+			extractionMethod: 'metadata_summary_fallback'
+		});
+	});
+
 	it('extracts text from simple PDF text operators', async () => {
 		const items = await pdfAdapter.extract(
 			extractInput(

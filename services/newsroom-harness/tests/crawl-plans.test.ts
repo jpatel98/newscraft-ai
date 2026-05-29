@@ -103,7 +103,11 @@ describe('crawl plan versions and execution', () => {
 				`
 				<html>
 					<head><title>Transit expansion approved</title></head>
-					<body><article><p>Council approved the late-night transit expansion after a budget vote.</p></article></body>
+					<body><article>
+						<p>Council approved the late-night transit expansion after a budget vote that ran into the evening.</p>
+						<p>The plan adds buses every fifteen minutes on two overnight routes while repair crews close part of the downtown rail tunnel.</p>
+						<p>Transit staff said the shuttle network will start next month and remain in place until signal work is finished.</p>
+					</article></body>
 				</html>
 			`,
 				{

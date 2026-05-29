@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
 	NewsroomAgentRuntime,
 	type RuntimeProgressEvent,
+	sourceToolResult,
 	sourceSnapshotToolParameters,
 	textDeltaFromSdkEvent,
 	urlFetchToolParameters
@@ -43,6 +44,54 @@ describe('newsroom agent runtime', () => {
 				}
 			})
 		).toBe('Producer brief ready.');
+	});
+
+	it('keeps extraction metadata and provenance in URL fetch tool results', () => {
+		const result = sourceToolResult({
+			url: 'https://example.test/story',
+			title: 'Story title',
+			fetchedAt: '2026-05-25T10:00:00.000Z',
+			snippet: 'Story snippet',
+			summary: 'Story summary',
+			contentText: 'Story body',
+			contentHash: 'hash',
+			contentType: 'text/html',
+			statusCode: 200,
+			used: true,
+			adapter: 'html_article',
+			metadata: {
+				title: 'Story title',
+				structuredType: 'NewsArticle',
+				metadataSources: ['json_ld']
+			},
+			provenance: {
+				adapter: 'html_article',
+				sourceUrl: 'https://example.test/story',
+				discoveredAt: '2026-05-25T10:00:00.000Z',
+				fetchedAt: '2026-05-25T10:00:00.000Z',
+				contentType: 'text/html',
+				statusCode: 200,
+				contentHash: 'hash',
+				extractionMethod: 'json_ld_article_body',
+				metadataSources: ['json_ld'],
+				structuredType: 'NewsArticle',
+				canonicalUrl: 'https://example.test/story'
+			}
+		});
+
+		expect(result).toMatchObject({
+			url: 'https://example.test/story',
+			metadata: {
+				structuredType: 'NewsArticle',
+				metadataSources: ['json_ld']
+			},
+			provenance: {
+				adapter: 'html_article',
+				extractionMethod: 'json_ld_article_body',
+				metadataSources: ['json_ld'],
+				structuredType: 'NewsArticle'
+			}
+		});
 	});
 
 	it('emits assignment desk triage events before running a mission', async () => {

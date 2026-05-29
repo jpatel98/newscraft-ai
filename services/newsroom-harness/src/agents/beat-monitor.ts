@@ -347,6 +347,8 @@ async function readConfiguredSource(
 			contentType: item.provenance.contentType || fetched.contentType,
 			statusCode: item.provenance.statusCode ?? fetched.statusCode,
 			archiveSnapshotUrl: lead.archiveSnapshotUrl,
+			metadata: lead.metadata ?? null,
+			provenance: lead.provenance ?? null,
 			healthGate: fetched.sourceHealthGate ?? null
 		});
 		if (quality.usable) leads.push({ ...lead, eventId: stored.id });

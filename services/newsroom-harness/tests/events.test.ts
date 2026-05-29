@@ -195,6 +195,61 @@ describe('newsroom event log', () => {
 			reason: 'HTTP 503'
 		});
 	});
+
+	it('preserves extraction metadata and provenance on stored source events', () => {
+		const repo = createRepository();
+		const job = repo.createJob({
+			name: 'Source Metadata',
+			prompt: 'Read a source.',
+			schedule: 'every 60m'
+		});
+		const run = repo.createRun(job.id, 'test');
+
+		repo.storeSource({
+			runId: run.id,
+			jobId: job.id,
+			url: 'https://example.com/story',
+			title: 'Story title',
+			fetchedAt: '2026-05-24T10:00:03.000Z',
+			snippet: 'Story snippet',
+			summary: 'Story summary',
+			used: true,
+			contentText: 'Story body',
+			contentHash: 'hash',
+			contentType: 'text/html',
+			statusCode: 200,
+			metadata: {
+				structuredType: 'NewsArticle',
+				metadataSources: ['json_ld']
+			},
+			provenance: {
+				adapter: 'html_article',
+				extractionMethod: 'json_ld_article_body',
+				metadataSources: ['json_ld'],
+				structuredType: 'NewsArticle'
+			}
+		});
+
+		const event = repo.listEvents({ runId: run.id }).find((candidate) => candidate.kind === 'source.stored');
+		expect(event?.payload).toMatchObject({
+			metadata: {
+				structuredType: 'NewsArticle',
+				metadataSources: ['json_ld']
+			},
+			provenance: {
+				extractionMethod: 'json_ld_article_body',
+				structuredType: 'NewsArticle'
+			}
+		});
+		expect(event?.sources[0]).toMatchObject({
+			metadata: {
+				structuredType: 'NewsArticle'
+			},
+			provenance: {
+				extractionMethod: 'json_ld_article_body'
+			}
+		});
+	});
 });
 
 function createRepository(): HarnessRepository {

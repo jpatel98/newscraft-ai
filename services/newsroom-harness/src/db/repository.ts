@@ -176,6 +176,8 @@ export interface StoreSourceInput {
 	contentType?: string | null;
 	statusCode?: number | null;
 	archiveSnapshotUrl?: string | null;
+	metadata?: unknown;
+	provenance?: unknown;
 	healthGate?: unknown | null;
 }
 
@@ -1239,6 +1241,8 @@ export class HarnessRepository {
 				used: input.used,
 				content_type: input.contentType || null,
 				status_code: input.statusCode || null,
+				...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+				...(input.provenance !== undefined ? { provenance: input.provenance } : {}),
 				...(input.archiveSnapshotUrl ? { archive_snapshot_url: input.archiveSnapshotUrl } : {})
 			},
 			sources: [
@@ -1248,6 +1252,8 @@ export class HarnessRepository {
 					title: input.title,
 					fetched_at: input.fetchedAt,
 					used: input.used,
+					...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+					...(input.provenance !== undefined ? { provenance: input.provenance } : {}),
 					...(input.archiveSnapshotUrl ? { archive_snapshot_url: input.archiveSnapshotUrl } : {})
 				}
 			],

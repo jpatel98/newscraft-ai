@@ -147,6 +147,8 @@ export class JobRunner {
 			contentHash: source.contentHash,
 			contentType: source.contentType,
 			statusCode: source.statusCode,
+			metadata: source.metadata ?? null,
+			provenance: source.provenance ?? null,
 			healthGate: source.healthGate ?? null
 		});
 	}

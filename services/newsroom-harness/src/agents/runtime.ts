@@ -277,17 +277,12 @@ export class NewsroomAgentRuntime {
 						contentHash: source.contentHash,
 						contentType: source.contentType,
 						statusCode: source.statusCode,
+						metadata: source.metadata ?? null,
+						provenance: source.provenance ?? null,
 						healthGate: source.healthGate ?? null
 					});
 				}
-				return {
-					url: source.url,
-					title: source.title,
-					fetchedAt: source.fetchedAt,
-					snippet: source.snippet,
-					summary: source.summary,
-					used: source.used
-				};
+				return sourceToolResult(source);
 			}
 		});
 
@@ -415,6 +410,19 @@ export class NewsroomAgentRuntime {
 				: timeoutSignal;
 		return this.withTimeout(() => fn(combined), signal);
 	}
+}
+
+export function sourceToolResult(source: FetchedSource) {
+	return {
+		url: source.url,
+		title: source.title,
+		fetchedAt: source.fetchedAt,
+		snippet: source.snippet,
+		summary: source.summary,
+		used: source.used,
+		metadata: source.metadata ?? null,
+		provenance: source.provenance ?? null
+	};
 }
 
 function assertHttpUrl(value: string): void {

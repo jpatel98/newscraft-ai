@@ -217,10 +217,20 @@ function flattenJsonLd(value: unknown): unknown[] {
 }
 
 function jsonLdScore(record: Record<string, unknown>): number {
-	let score = ARTICLE_TYPE_PATTERN.test(structuredType(record) || '') ? 10 : 0;
-	if (fieldText(record, ['headline', 'name'])) score += 3;
-	if (fieldText(record, ['articleBody'])) score += 5;
-	if (fieldText(record, ['datePublished'])) score += 2;
+	const type = structuredType(record);
+	const typed = Boolean(record['@type']);
+	const articleType = ARTICLE_TYPE_PATTERN.test(type || '');
+	if (typed && !articleType) return 0;
+
+	const headline = fieldText(record, ['headline']);
+	const articleBody = fieldText(record, ['articleBody']);
+	const publishedAt = fieldText(record, ['datePublished']);
+	if (!articleType && !articleBody && !(headline && publishedAt)) return 0;
+
+	let score = articleType ? 10 : 0;
+	if (headline || fieldText(record, ['name'])) score += 3;
+	if (articleBody) score += 5;
+	if (publishedAt) score += 2;
 	if (fieldText(record, ['description'])) score += 1;
 	return score;
 }
@@ -478,7 +488,10 @@ function mainEntityUrl(record: Record<string, unknown>): string | null {
 
 function structuredType(record: Record<string, unknown>): string | null {
 	const type = record['@type'];
-	const raw = Array.isArray(type) ? type.find((item): item is string => typeof item === 'string') : type;
+	const raw = Array.isArray(type)
+		? type.find((item): item is string => typeof item === 'string' && ARTICLE_TYPE_PATTERN.test(item)) ||
+			type.find((item): item is string => typeof item === 'string')
+		: type;
 	if (typeof raw !== 'string') return null;
 	return raw.split(/[\/#]/).filter(Boolean).pop() || raw;
 }
