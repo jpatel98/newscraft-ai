@@ -2,6 +2,7 @@ import type { NewsroomRunDto } from '@newscraft/shared';
 import type { HarnessConfig } from '../config.js';
 import type { HarnessRepository } from '../db/repository.js';
 import type { NewsroomAgentRuntime, RuntimeProgressEvent } from '../agents/runtime.js';
+import { hasBeatMonitorInputs, runBeatMonitor } from '../agents/beat-monitor.js';
 import { nowIso } from '../util/ids.js';
 import { postReportToUi, wrapMissionReport } from './report.js';
 
@@ -38,6 +39,23 @@ export class JobRunner {
 		const timeout = setTimeout(() => abort.abort(), this.config.runTimeoutMs);
 
 		try {
+			if (hasBeatMonitorInputs(this.repository, job)) {
+				this.repository.addRunStep(run.id, 'beat_monitor', 'Read Standing Brief sources and approved Crawl Plans');
+				const result = await runBeatMonitor(this.repository, job, { runId: run.id }, { signal: abort.signal });
+				this.repository.addRunStep(run.id, 'beat_monitor', 'Queue pitch gates for editor review', 'completed', {
+					sourceCount: result.sourceCount,
+					pitchCount: result.pitchCount,
+					gateIds: result.gates.map((gate) => gate.id)
+				});
+				const completedAt = nowIso();
+				run = this.repository.updateRun(run.id, {
+					status: 'completed',
+					completed_at: completedAt,
+					elapsed_ms: Date.parse(completedAt) - Date.parse(startedAt)
+				});
+				this.repository.completeJobSchedule(run.job_id);
+				return;
+			}
 			this.repository.addRunStep(run.id, 'assignment_desk', 'Route mission to newsroom role');
 			const result = await this.runtime.runMission(job.prompt || '', {
 				repository: this.repository,

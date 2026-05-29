@@ -68,6 +68,7 @@ export async function syncCrawlPlanVersionToAgent(
 				failure_budget: plan.politeFetch.failureBudget,
 				archive_web: plan.politeFetch.archiveWeb
 			},
+			status: plan.status,
 			candidate_links: plan.candidateLinks,
 			created_by: actor
 		})

@@ -4,6 +4,7 @@ import type {
 	NewsroomCrawlPlanCandidateLinkDto,
 	NewsroomCrawlPlanChangeDetection,
 	NewsroomCrawlPlanPoliteFetchOverridesDto,
+	NewsroomCrawlPlanStatus,
 	NewsroomCrawlPlanVersionDto,
 	NewsroomGateDto,
 	NewsroomGateStatus,
@@ -300,6 +301,8 @@ const CRAWL_PLAN_CHANGE_DETECTION: readonly NewsroomCrawlPlanChangeDetection[] =
 	'semantic_similarity'
 ];
 
+const CRAWL_PLAN_STATUSES: readonly NewsroomCrawlPlanStatus[] = ['pending', 'approved', 'rejected'];
+
 const DEFAULT_CRAWL_PLAN_POLITE_FETCH: NewsroomCrawlPlanPoliteFetchOverridesDto = {
 	respect_robots: true,
 	robots_override: false,
@@ -552,6 +555,7 @@ export class HarnessRepository {
 			polling_cadence: optionalText(input.polling_cadence) || 'inherit beat schedule',
 			jitter_ms: clampNonNegativeInteger(input.jitter_ms, 0),
 			change_detection: normalizeCrawlPlanChangeDetection(input.change_detection),
+			status: normalizeCrawlPlanStatus(input.status),
 			polite_fetch: normalizeCrawlPlanPoliteFetch(input.polite_fetch),
 			candidate_links: normalizeCrawlPlanCandidateLinks(input.candidate_links),
 			created_by: createdBy,
@@ -1406,6 +1410,14 @@ function normalizeCrawlPlanChangeDetection(
 	return mode;
 }
 
+function normalizeCrawlPlanStatus(value: NewsroomCrawlPlanStatus | undefined): NewsroomCrawlPlanStatus {
+	const status = value || 'pending';
+	if (!CRAWL_PLAN_STATUSES.includes(status)) {
+		throw new Error(`Unsupported crawl plan status: ${status}`);
+	}
+	return status;
+}
+
 function normalizeCrawlPlanPoliteFetch(
 	value: Partial<NewsroomCrawlPlanPoliteFetchOverridesDto> | undefined
 ): NewsroomCrawlPlanPoliteFetchOverridesDto {
@@ -1567,6 +1579,9 @@ function crawlPlanVersionFromMemoryEntry(entry: MemoryEntryDto): NewsroomCrawlPl
 		change_detection: normalizeCrawlPlanChangeDetection(
 			stringValue(raw.change_detection) as NewsroomCrawlPlanChangeDetection | undefined
 		),
+		status: stringValue(raw.status)
+			? normalizeCrawlPlanStatus(stringValue(raw.status) as NewsroomCrawlPlanStatus | undefined)
+			: undefined,
 		polite_fetch: normalizeCrawlPlanPoliteFetch(
 			objectValue(raw.polite_fetch) as Partial<NewsroomCrawlPlanPoliteFetchOverridesDto> | undefined
 		),

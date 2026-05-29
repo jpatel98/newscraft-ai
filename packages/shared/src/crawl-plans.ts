@@ -2,6 +2,7 @@ import type { NewsroomEventDto } from './jobs.js';
 
 export type NewsroomCrawlPlanArticleBodyStrategy = 'auto' | 'selector' | 'agent-extract';
 export type NewsroomCrawlPlanChangeDetection = 'hash' | 'structured_diff' | 'semantic_similarity';
+export type NewsroomCrawlPlanStatus = 'pending' | 'approved' | 'rejected';
 
 export interface NewsroomCrawlPlanCandidateLinkDto {
 	title: string;
@@ -28,6 +29,7 @@ export interface NewsroomCrawlPlanVersionDto {
 	polling_cadence: string;
 	jitter_ms: number;
 	change_detection: NewsroomCrawlPlanChangeDetection;
+	status?: NewsroomCrawlPlanStatus;
 	polite_fetch: NewsroomCrawlPlanPoliteFetchOverridesDto;
 	candidate_links: NewsroomCrawlPlanCandidateLinkDto[];
 	created_by: string;
@@ -47,6 +49,7 @@ export interface SaveCrawlPlanVersionInput {
 	polling_cadence?: string;
 	jitter_ms?: number;
 	change_detection?: NewsroomCrawlPlanChangeDetection;
+	status?: NewsroomCrawlPlanStatus;
 	polite_fetch?: Partial<NewsroomCrawlPlanPoliteFetchOverridesDto>;
 	candidate_links?: NewsroomCrawlPlanCandidateLinkDto[];
 	created_by?: string;
