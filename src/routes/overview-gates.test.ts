@@ -53,6 +53,7 @@ describe('newsroom overview gates', () => {
 		expect(source).toContain("if (/\\b(lead|leads|source|monitor|beat)\\b/i.test(command)) return 'monitor'");
 		expect(source).toContain('onSend={handleCommandSend}');
 		expect(source).toContain('commandResult.handled_by');
+		expect(source).toContain('commandResult.route_reason !== commandResultDetail(commandResult)');
 		expect(source).toContain('Monitor');
 		expect(source).toContain('Research');
 		expect(source).toContain('Verification');

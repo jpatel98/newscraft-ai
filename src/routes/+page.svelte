@@ -641,8 +641,10 @@
 					<strong>{selectedWorkspace ? 'Research, Drafting, or Monitor' : 'Monitor'}</strong>
 				{:else if commandResult}
 					<span>{commandResult.handled_by}</span>
-					<strong>{commandResult.status === 'blocked' ? 'Needs editor context' : commandResultDetail(commandResult)}</strong>
-					<small>{commandResult.route_reason}</small>
+					<strong>{commandResultDetail(commandResult)}</strong>
+					{#if commandResult.route_reason !== commandResultDetail(commandResult)}
+						<small>{commandResult.route_reason}</small>
+					{/if}
 				{:else if commandError}
 					<span>Command failed</span>
 					<strong>{commandError}</strong>

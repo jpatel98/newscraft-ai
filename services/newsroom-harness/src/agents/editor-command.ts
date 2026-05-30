@@ -9,6 +9,9 @@ import { runVerificationAgent, type VerificationRunResult } from './verification
 type CommandAgent = 'beat_monitor' | 'research' | 'verification' | 'copy' | 'drafting';
 type CommandStatus = 'completed' | 'blocked';
 
+const UNSUPPORTED_COMMAND_REASON =
+	'Ask NewsCraft commands need a source URL, a lead or beat request, or an active story action such as research, verification, copy, or drafting.';
+
 export interface EditorCommandInput {
 	command: string;
 	workspaceId?: string;
@@ -77,6 +80,34 @@ export async function runEditorCommand(
 
 	if (route.agent === 'beat_monitor') {
 		if (!sourceUrl) {
+			if (route.reason === UNSUPPORTED_COMMAND_REASON) {
+				const event = repository.appendEvent({
+					workspaceId,
+					storyId,
+					jobId: input.jobId,
+					runId: input.runId,
+					agent: 'assignment_desk',
+					kind: 'editor.command.blocked',
+					payload: {
+						command_excerpt: excerpt(command),
+						route_reason: route.reason
+					},
+					parentEventId: routed.id
+				});
+				return {
+					ok: false,
+					status: 'blocked',
+					handled_by: route.handledBy,
+					agent: route.agent,
+					route_reason: route.reason,
+					command_excerpt: excerpt(command),
+					events: [
+						{ id: routed.id, kind: routed.kind },
+						{ id: event.id, kind: event.kind }
+					],
+					error: route.reason
+				};
+			}
 			const event = repository.appendEvent({
 				workspaceId,
 				storyId,
@@ -365,7 +396,10 @@ function routeCommand(
 	if (/\b(draft|write|lede|headline)\b/i.test(command)) {
 		return { agent: 'drafting', handledBy: 'Drafting', reason: 'Story-context drafting command.' };
 	}
-	return { agent: 'beat_monitor', handledBy: 'Monitor', reason: 'Beat/source commands route to Monitor.' };
+	if (/\b(lead|leads|story ideas?|source|monitor|beat|watchlist|brief|scan)\b/i.test(command)) {
+		return { agent: 'beat_monitor', handledBy: 'Monitor', reason: 'Beat/source commands route to Monitor.' };
+	}
+	return { agent: 'beat_monitor', handledBy: 'Monitor', reason: UNSUPPORTED_COMMAND_REASON };
 }
 
 function appendClientFacts(

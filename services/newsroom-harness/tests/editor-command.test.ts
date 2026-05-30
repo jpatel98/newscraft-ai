@@ -143,6 +143,28 @@ describe('editor command routing', () => {
 		]);
 	});
 
+	it('blocks generic questions instead of silently routing them to Monitor', async () => {
+		const repo = createRepository();
+
+		const result = await runEditorCommand(repo, {
+			command: 'What should I work on next?',
+			workspaceId: 'workspace-command'
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			status: 'blocked',
+			handled_by: 'Monitor',
+			agent: 'beat_monitor',
+			error:
+				'Ask NewsCraft commands need a source URL, a lead or beat request, or an active story action such as research, verification, copy, or drafting.'
+		});
+		expect(repo.listEvents({ workspaceId: 'workspace-command' }).map((event) => event.kind)).toEqual([
+			'editor.command.routed',
+			'editor.command.blocked'
+		]);
+	});
+
 	it('routes story fact-ledger commands to Research and targets referenced claims', async () => {
 		const repo = createRepository();
 		const workspaceId = 'workspace-command';
