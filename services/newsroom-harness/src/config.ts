@@ -42,7 +42,7 @@ export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfi
 		host: process.env.NEWSROOM_HARNESS_HOST || '127.0.0.1',
 		port: intFromEnv(process.env.NEWSROOM_HARNESS_PORT, 8650),
 		dbPath: process.env.NEWSROOM_HARNESS_DB_PATH || path.join(process.cwd(), '.data', 'newsroom-harness.db'),
-		databaseUrl: process.env.NEWSROOM_HARNESS_DATABASE_URL || process.env.DATABASE_URL || '',
+		databaseUrl: process.env.NEWSROOM_HARNESS_DATABASE_URL || '',
 		apiKey: process.env.NEWSROOM_HARNESS_API_KEY || '',
 		openAiApiKey: process.env.OPENAI_API_KEY || '',
 		uiIngestUrl: process.env.NEWSROOM_UI_INGEST_URL || '',

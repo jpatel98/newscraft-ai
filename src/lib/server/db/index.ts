@@ -9,7 +9,8 @@ const databaseUrl = env.DATABASE_URL || 'postgres://invalid:invalid@127.0.0.1:1/
 
 export const sql = postgres(databaseUrl, {
 	max: 1,
-	prepare: false
+	prepare: false,
+	onnotice: () => {}
 });
 export const db = drizzle(sql, { schema }) as any;
 

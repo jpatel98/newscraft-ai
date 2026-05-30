@@ -311,6 +311,11 @@ async function readConfiguredSource(
 	source: StandingBriefSource,
 	options: BeatMonitorRunOptions
 ): Promise<BeatMonitorLead[]> {
+	const sourceDecision = repository.sourceHealthDecisionForUrl(source.url, job.workspace_id || DEFAULT_WORKSPACE_ID);
+	if (sourceDecision?.blocks_fetch) {
+		appendSourceHealthSkippedEvent(repository, job, runId, source.url, sourceDecision);
+		return [];
+	}
 	const fetched = await politeFetch(source.url, monitorFetchOptions(options));
 	const adapter = selectSourceAdapter({ url: source.url, contentType: fetched.contentType, body: fetched.body });
 	const adapterInput = {
@@ -348,7 +353,7 @@ async function readConfiguredSource(
 	}
 
 	for (const candidate of extracted.slice(0, maxItems)) {
-		const item = await hydrateDiscoveredSourceItem(candidate, source.url, options);
+		const item = await hydrateDiscoveredSourceItem(repository, job, runId, candidate, source.url, options);
 		const lead = leadFromSourceItem(item, source.name, source.url, item.provenance.adapter || adapter.kind);
 		const quality = assessSourceQuality({
 			title: lead.title,
@@ -381,11 +386,19 @@ async function readConfiguredSource(
 }
 
 async function hydrateDiscoveredSourceItem(
+	repository: HarnessRepository,
+	job: NewsroomJobDto,
+	runId: string,
 	item: SourceItem,
 	parentUrl: string,
 	options: BeatMonitorRunOptions
 ): Promise<SourceItem> {
 	if (sameUrl(item.url, parentUrl)) return item;
+	const sourceDecision = repository.sourceHealthDecisionForUrl(item.url, job.workspace_id || DEFAULT_WORKSPACE_ID);
+	if (sourceDecision?.blocks_fetch) {
+		appendSourceHealthSkippedEvent(repository, job, runId, item.url, sourceDecision);
+		return item;
+	}
 	try {
 		const fetched = await politeFetch(item.url, monitorFetchOptions(options));
 		if (!fetched.ok) return item;
@@ -412,6 +425,30 @@ async function hydrateDiscoveredSourceItem(
 	} catch {
 		return item;
 	}
+}
+
+function appendSourceHealthSkippedEvent(
+	repository: HarnessRepository,
+	job: NewsroomJobDto,
+	runId: string,
+	url: string,
+	decision: ReturnType<HarnessRepository['sourceHealthDecisionForUrl']>
+): void {
+	repository.appendEvent({
+		workspaceId: job.workspace_id || DEFAULT_WORKSPACE_ID,
+		jobId: job.id,
+		runId,
+		agent: 'beat_monitor',
+		kind: 'source.health.skipped',
+		payload: {
+			url,
+			host: decision?.host ?? null,
+			action: decision?.action ?? null,
+			status: decision?.status ?? null,
+			gate_id: decision?.gate_id ?? null,
+			reason: 'Source Health policy blocks fetch.'
+		}
+	});
 }
 
 async function executeApprovedCrawlPlan(

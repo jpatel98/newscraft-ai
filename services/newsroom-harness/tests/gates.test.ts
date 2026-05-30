@@ -130,6 +130,80 @@ describe('newsroom gates', () => {
 
 		expect(repo.listGates({ workspaceId: 'workspace-gates', limit: 20 })).toHaveLength(types.length);
 	});
+
+	it('writes verification gate resolutions back into the fact ledger', () => {
+		const repo = createRepository();
+		const gate = repo.queueGate({
+			workspace_id: 'workspace-gates',
+			story_id: 'story-gates',
+			type: 'verification',
+			title: 'Verify claim',
+			summary: 'Resolve the claim status.',
+			payload: {
+				id: 'claim-resolution',
+				claim: 'Council approved the shuttle plan.',
+				sources: [{ title: 'Council minutes', url: 'https://sources.example/minutes' }],
+				source_count: 1,
+				two_source_rule: { required: 2, actual: 1, passed: false }
+			}
+		});
+
+		repo.resolveGate(gate.id, {
+			action: 'mark_verified',
+			notes: 'Editor confirmed with a second source.'
+		});
+
+		expect(repo.inspectStoryMemory('story-gates', 'workspace-gates').current.fact_ledger).toEqual([
+			expect.objectContaining({
+				id: 'claim-resolution',
+				status: 'verified',
+				resolved_from_gate_id: gate.id
+			})
+		]);
+		expect(repo.listEvents({ workspaceId: 'workspace-gates', storyId: 'story-gates' }).map((event) => event.kind)).toEqual([
+			'gate.queued',
+			'gate.resolved',
+			'claim.verified'
+		]);
+	});
+
+	it('writes source-health gate resolutions into source memory', () => {
+		const repo = createRepository();
+		const gate = repo.queueGate({
+			workspace_id: 'workspace-gates',
+			type: 'source_health',
+			title: 'Review source health',
+			summary: 'Source exceeded the failure budget.',
+			payload: {
+				url: 'https://example.com/flaky',
+				host: 'example.com',
+				reason: 'HTTP 503'
+			}
+		});
+
+		repo.resolveGate(gate.id, {
+			action: 'pause',
+			notes: 'Pause until the feed recovers.'
+		});
+
+		expect(repo.inspectBeatMemory('source:example.com').current.source_quality).toEqual([
+			expect.objectContaining({
+				gate_id: gate.id,
+				url: 'https://example.com/flaky',
+				host: 'example.com',
+				action: 'pause',
+				status: 'paused',
+				blocks_fetch: true
+			})
+		]);
+		expect(repo.sourceHealthDecisionForUrl('https://example.com/flaky', 'workspace-gates')).toMatchObject({
+			host: 'example.com',
+			action: 'pause',
+			status: 'paused',
+			blocks_fetch: true,
+			gate_id: gate.id
+		});
+	});
 });
 
 function createRepository(): HarnessRepository {

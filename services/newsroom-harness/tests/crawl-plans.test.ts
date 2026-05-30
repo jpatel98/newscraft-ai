@@ -158,6 +158,50 @@ describe('crawl plan versions and execution', () => {
 			'crawl_plan.executed'
 		]);
 	});
+
+	it('skips crawl-plan fetches blocked by Source Health policy', async () => {
+		const repo = createRepository();
+		repo.saveCrawlPlanVersion({
+			beat_id: 'city-hall',
+			id: 'plan-city',
+			seed_url: 'https://city.example/news',
+			link_follow_rule: 'Follow same-site links.',
+			polite_fetch: {
+				respect_robots: false,
+				host_delay_ms: 0,
+				archive_web: false
+			}
+		});
+		const gate = repo.queueGate({
+			workspace_id: 'workspace-city',
+			type: 'source_health',
+			title: 'Review source health',
+			summary: 'Source exceeded the failure budget.',
+			payload: {
+				url: 'https://city.example/news',
+				host: 'city.example'
+			}
+		});
+		repo.resolveGate(gate.id, { action: 'pause' });
+		const fetchMock = vi.fn(async () => new Response('should not fetch'));
+
+		const result = await executeCrawlPlan(
+			repo,
+			'city-hall',
+			'plan-city',
+			{ workspace_id: 'workspace-city' },
+			{ fetchImpl: fetchMock as typeof fetch }
+		);
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(result.sources).toEqual([]);
+		expect(result.events.map((event) => event.kind)).toEqual(['source.health.skipped', 'crawl_plan.executed']);
+		expect(result.events[0].payload).toMatchObject({
+			url: 'https://city.example/news',
+			host: 'city.example',
+			status: 'paused'
+		});
+	});
 });
 
 function createRepository(): HarnessRepository {

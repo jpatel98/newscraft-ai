@@ -2,7 +2,11 @@
 	import { replaceState } from '$app/navigation';
 	import Composer from '$lib/components/Composer.svelte';
 	import OpenGateCard from '$lib/components/OpenGateCard.svelte';
-	import { segmentDraftWithCitations, type CitationRecord } from '$lib/utils/citations';
+	import {
+		citationGraphFromCitations,
+		segmentDraftWithCitations,
+		type CitationRecord
+	} from '$lib/utils/citations';
 	import type {
 		AgentJob,
 		AgentRun,
@@ -47,6 +51,7 @@
 	let workspaces = $state<StoryWorkspace[]>([]);
 	let selectedWorkspaceId = $state<string | null>(null);
 	let selectedCitationMarker = $state<number | null>(null);
+	let citationInspector = $state<HTMLElement | null>(null);
 	let commandBusy = $state(false);
 	let commandError = $state<string | null>(null);
 	let commandResult = $state<CommandBarResult | null>(null);
@@ -98,11 +103,18 @@
 		selectedWorkspace ? segmentDraftWithCitations(selectedWorkspace.draft, selectedWorkspace.citations) : []
 	);
 	const selectedCitation = $derived(citationForMarker(selectedWorkspace?.citations ?? [], selectedCitationMarker));
+	const selectedCitationGraph = $derived(
+		selectedWorkspace ? citationGraphFromCitations(selectedWorkspace.citations) : []
+	);
 	const wireItems = $derived(
 		[...persistedEvents.map(wireFromEditorialEvent), ...gateEvents.map(wireFromWorkspaceEvent), ...wireFromBoard(board)]
 			.sort((a, b) => timestampMs(b.at) - timestampMs(a.at))
 			.slice(0, 10)
 	);
+
+	$effect(() => {
+		if (selectedCitationMarker !== null) citationInspector?.focus();
+	});
 
 	onMount(() => {
 		const draft = new URL(location.href).searchParams.get('draft');
@@ -137,8 +149,8 @@
 	interface CommandBarResult {
 		ok: boolean;
 		status: 'completed' | 'blocked';
-		handled_by: 'Monitor' | 'Research' | 'Drafting';
-		agent: 'beat_monitor' | 'research' | 'drafting';
+		handled_by: 'Monitor' | 'Research' | 'Verification' | 'Copy' | 'Drafting';
+		agent: 'beat_monitor' | 'research' | 'verification' | 'copy' | 'drafting';
 		route_reason: string;
 		command_excerpt: string;
 		source?: {
@@ -164,6 +176,12 @@
 		draft?: {
 			headline?: string;
 			word_count?: number;
+		};
+		verification?: {
+			processed_claims?: unknown[];
+		};
+		copy?: {
+			risk?: string;
 		};
 		error?: string;
 	}
@@ -200,8 +218,14 @@
 		}
 	}
 
-	function commandTarget(command: string): 'monitor' | 'research' | 'drafting' | null {
+	function commandTarget(command: string): 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | null {
 		if (selectedWorkspace && /https?:\/\//i.test(command)) return 'research';
+		if (selectedWorkspace && /\b(copy|style|legal|libel|risk|copy edit|line edit|review draft)\b/i.test(command)) {
+			return 'copy';
+		}
+		if (selectedWorkspace && /\b(verify|verification|fact[- ]?check|cross[- ]?check|two[- ]?source|source rule)\b/i.test(command)) {
+			return 'verification';
+		}
 		if (selectedWorkspace && /\b(draft|write|lede|headline)\b/i.test(command)) return 'drafting';
 		if (
 			selectedWorkspace &&
@@ -278,6 +302,10 @@
 		if (result.claim) return `Proposed fact-ledger claim: ${trimText(result.claim.claim, 120)}`;
 		if (result.source) return `Extracted ${result.source.title} through ${result.source.adapter || 'source adapter'}.`;
 		if (result.draft) return `Drafted ${result.draft.headline || 'web story'} for review.`;
+		if (result.verification?.processed_claims?.length) {
+			return `Verification processed ${result.verification.processed_claims.length} claim${result.verification.processed_claims.length === 1 ? '' : 's'}.`;
+		}
+		if (result.copy?.risk) return `Copy pass completed with ${result.copy.risk} risk.`;
 		if (result.target_claim) return `Queued research on claim ${result.target_claim.index ?? ''}.`;
 		return result.route_reason;
 	}
@@ -855,6 +883,7 @@
 									<button
 										type="button"
 										class:active={selectedCitation?.marker === segment.marker}
+										aria-pressed={selectedCitation?.marker === segment.marker}
 										aria-label={`Open source details for citation ${segment.marker}`}
 										onclick={() => (selectedCitationMarker = segment.marker)}
 									>
@@ -868,7 +897,12 @@
 						<p>{selectedWorkspace.angle}</p>
 						<div>{selectedWorkspace.whyNow}</div>
 						{#if selectedCitation}
-							<aside class="citation-inspector" aria-label={`Citation ${selectedCitation.marker} source details`}>
+							<aside
+								bind:this={citationInspector}
+								tabindex="-1"
+								class="citation-inspector"
+								aria-label={`Citation ${selectedCitation.marker} source details`}
+							>
 								<div>
 									<span>Citation [{selectedCitation.marker}]</span>
 									<strong>{selectedCitation.sourceTitle}</strong>
@@ -886,6 +920,37 @@
 									<small>Hash {selectedCitation.contentHash}</small>
 								{/if}
 							</aside>
+						{/if}
+						{#if selectedCitationGraph.length}
+							<section class="citation-graph" aria-label="Citation graph per claim">
+								<div class="citation-graph__head">
+									<span>Citation graph</span>
+									<strong>{selectedCitationGraph.length} claim{selectedCitationGraph.length === 1 ? '' : 's'}</strong>
+								</div>
+								<div class="citation-graph__claims">
+									{#each selectedCitationGraph as claim (claim.factId)}
+										<article class="citation-graph__claim" class:citation-graph__claim--conflict={claim.hasContradiction}>
+											<div>
+												<span>{claim.status.replace('_', ' ')}</span>
+												<strong>{claim.claim}</strong>
+											</div>
+											<ul>
+												{#each claim.sources as source (`${claim.factId}-${source.marker}-${source.url}`)}
+													<li>
+														<a href={source.url} target="_blank" rel="noreferrer">
+															[{source.marker}] {source.name || source.title}
+														</a>
+														<span>{source.relationship.replace('_', ' ')}</span>
+														{#if source.claim && source.claim !== claim.claim}
+															<small>{source.claim}</small>
+														{/if}
+													</li>
+												{/each}
+											</ul>
+										</article>
+									{/each}
+								</div>
+							</section>
 						{/if}
 					</div>
 				</section>
@@ -1542,6 +1607,92 @@
 		font-weight: var(--fw-semibold);
 		padding: 0.35rem 0.5rem;
 		text-decoration: none;
+	}
+
+	.citation-graph {
+		display: grid;
+		gap: var(--space-2);
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--border-soft);
+	}
+
+	.citation-graph__head {
+		display: flex;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: 0;
+		border: 0;
+		background: transparent;
+	}
+
+	.citation-graph__head span,
+	.citation-graph__claim span {
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		font-weight: var(--fw-medium);
+		text-transform: uppercase;
+	}
+
+	.citation-graph__claims {
+		display: grid;
+		gap: var(--space-2);
+	}
+
+	.citation-graph__claim {
+		display: grid;
+		gap: var(--space-2);
+		padding: var(--space-3);
+		border: 1px solid var(--border-soft);
+		background: var(--bg-surface);
+	}
+
+	.citation-graph__claim--conflict {
+		border-color: var(--status-breaking);
+		background: color-mix(in srgb, var(--status-breaking-bg) 45%, var(--bg-surface));
+	}
+
+	.citation-graph__claim div {
+		padding: 0;
+		border: 0;
+		background: transparent;
+	}
+
+	.citation-graph__claim strong {
+		display: block;
+		margin-top: var(--space-1);
+		color: var(--fg-1);
+		font-size: var(--fs-body-sm);
+		line-height: var(--lh-body);
+	}
+
+	.citation-graph__claim ul {
+		display: grid;
+		gap: var(--space-1);
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.citation-graph__claim li {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: var(--space-2);
+		color: var(--fg-3);
+		font-size: var(--fs-body-sm);
+	}
+
+	.citation-graph__claim a {
+		color: var(--accent-fg);
+		text-decoration: none;
+	}
+
+	.citation-graph__claim li small {
+		flex-basis: 100%;
+		color: var(--fg-2);
+		font-size: var(--fs-meta);
+		line-height: var(--lh-body);
 	}
 
 	.brief-row--muted {

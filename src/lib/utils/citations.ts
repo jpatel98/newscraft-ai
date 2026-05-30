@@ -8,6 +8,8 @@ export interface CitationRecord {
 	archiveUrl: string;
 	contentHash?: string | null;
 	eventId?: string | null;
+	status?: 'verified' | 'disputed' | 'needs_more' | 'proposed' | string | null;
+	relationship?: 'supports' | 'contradicts' | 'needs_more' | string | null;
 }
 
 export type DraftCitationSegment =
@@ -20,6 +22,25 @@ export interface DraftReviewPayload {
 	wordCount: number | null;
 	targetWordCount: number | null;
 	citations: CitationRecord[];
+}
+
+export interface CitationGraphSource {
+	marker: number;
+	claim: string;
+	title: string;
+	name: string;
+	url: string;
+	archiveUrl: string;
+	contentHash?: string | null;
+	relationship: string;
+}
+
+export interface CitationGraphClaim {
+	factId: string;
+	claim: string;
+	status: string;
+	hasContradiction: boolean;
+	sources: CitationGraphSource[];
 }
 
 export function archiveFallbackUrl(sourceUrl: string, snapshotUrl?: string | null): string {
@@ -49,6 +70,41 @@ export function segmentDraftWithCitations(text: string, citations: CitationRecor
 	return segments.length > 0 ? segments : [{ kind: 'text', text }];
 }
 
+export function citationGraphFromCitations(citations: CitationRecord[]): CitationGraphClaim[] {
+	const claims = new Map<string, CitationGraphClaim>();
+	for (const citation of citations) {
+		const key = citation.factId || citation.claim || `citation-${citation.marker}`;
+		const status = citation.status || statusFromCitation(citation);
+		const relationship = citation.relationship || relationshipFromStatus(status);
+		const claim =
+			claims.get(key) ??
+			{
+				factId: key,
+				claim: citation.claim,
+				status,
+				hasContradiction: relationship === 'contradicts' || status === 'disputed',
+				sources: []
+			};
+		claim.status = strongestStatus(claim.status, status);
+		claim.hasContradiction =
+			claim.hasContradiction || relationship === 'contradicts' || status === 'disputed';
+		if (!claim.sources.some((source) => source.url === citation.sourceUrl && source.marker === citation.marker)) {
+			claim.sources.push({
+				marker: citation.marker,
+				claim: citation.claim,
+				title: citation.sourceTitle,
+				name: citation.sourceName,
+				url: citation.sourceUrl,
+				archiveUrl: citation.archiveUrl,
+				contentHash: citation.contentHash,
+				relationship
+			});
+		}
+		claims.set(key, claim);
+	}
+	return [...claims.values()];
+}
+
 export function draftReviewPayloadFromValue(value: unknown): DraftReviewPayload | null {
 	const raw = objectValue(value);
 	if (!raw) return null;
@@ -72,7 +128,7 @@ function citationRecordFromValue(value: unknown): CitationRecord | null {
 	if (!raw) return null;
 	const marker = numberValue(raw.marker);
 	const sourceUrl = safeHttpUrl(stringValue(raw.source_url) || stringValue(raw.sourceUrl));
-	if (!marker || !sourceUrl) return null;
+	if (marker === null || marker < 1 || !sourceUrl) return null;
 	const snapshot =
 		stringValue(raw.archive_snapshot_url) ||
 		stringValue(raw.archiveSnapshotUrl) ||
@@ -95,8 +151,39 @@ function citationRecordFromValue(value: unknown): CitationRecord | null {
 		sourceUrl,
 		archiveUrl: archiveFallbackUrl(sourceUrl, snapshot),
 		contentHash: stringValue(raw.content_hash) || stringValue(raw.contentHash),
-		eventId: stringValue(raw.event_id) || stringValue(raw.eventId)
+		eventId: stringValue(raw.event_id) || stringValue(raw.eventId),
+		status:
+			stringValue(raw.status) ||
+			stringValue(raw.verification_status) ||
+			stringValue(raw.verificationStatus),
+		relationship:
+			stringValue(raw.relationship) ||
+			stringValue(raw.source_relationship) ||
+			stringValue(raw.sourceRelationship)
 	};
+}
+
+function statusFromCitation(citation: CitationRecord): string {
+	const text = `${citation.claim} ${citation.sourceTitle} ${citation.sourceName}`.toLowerCase();
+	if (/\b(disputed|contradict|denied|refuted|no evidence)\b/.test(text)) return 'disputed';
+	if (/\b(needs more|single-source|single source|unverified)\b/.test(text)) return 'needs_more';
+	return 'proposed';
+}
+
+function relationshipFromStatus(status: string | null | undefined): string {
+	if (status === 'disputed') return 'contradicts';
+	if (status === 'needs_more') return 'needs_more';
+	return 'supports';
+}
+
+function strongestStatus(left: string, right: string): string {
+	const rank: Record<string, number> = {
+		disputed: 3,
+		needs_more: 2,
+		proposed: 1,
+		verified: 0
+	};
+	return (rank[right] ?? 0) > (rank[left] ?? 0) ? right : left;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | null {

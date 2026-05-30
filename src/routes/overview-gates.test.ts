@@ -25,12 +25,18 @@ describe('newsroom overview gates', () => {
 	it('renders draft citation markers as source-backed controls with archive fallback', () => {
 		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
 
-		expect(source).toContain("import { segmentDraftWithCitations, type CitationRecord } from '$lib/utils/citations'");
+		expect(source).toContain('citationGraphFromCitations');
+		expect(source).toContain('segmentDraftWithCitations');
 		expect(source).toContain('selectedDraftSegments');
 		expect(source).toContain('Open source details for citation');
+		expect(source).toContain('aria-pressed={selectedCitation?.marker === segment.marker}');
+		expect(source).toContain('tabindex="-1"');
 		expect(source).toContain('selectedCitation.sourceUrl');
 		expect(source).toContain('selectedCitation.archiveUrl');
 		expect(source).toContain('Archive fallback');
+		expect(source).toContain('Citation graph');
+		expect(source).toContain('citation-graph__claim--conflict');
+		expect(source).toContain('{source.claim}');
 	});
 
 	it('routes overview command bar sends through the editor command endpoint', () => {
@@ -42,11 +48,15 @@ describe('newsroom overview gates', () => {
 		expect(source).toContain('facts: commandFacts(selectedWorkspace)');
 		expect(source).toContain("if (selectedWorkspace && /\\b(draft|write|lede|headline)\\b/i.test(command)) return 'drafting'");
 		expect(source).toContain("return 'research'");
+		expect(source).toContain("return 'verification'");
+		expect(source).toContain("return 'copy'");
 		expect(source).toContain("if (/\\b(lead|leads|source|monitor|beat)\\b/i.test(command)) return 'monitor'");
 		expect(source).toContain('onSend={handleCommandSend}');
 		expect(source).toContain('commandResult.handled_by');
 		expect(source).toContain('Monitor');
 		expect(source).toContain('Research');
+		expect(source).toContain('Verification');
+		expect(source).toContain('Copy');
 		expect(source).toContain('Drafting');
 	});
 });

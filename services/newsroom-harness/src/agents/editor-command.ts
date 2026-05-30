@@ -1,10 +1,12 @@
 import { DEFAULT_WORKSPACE_ID, type HarnessRepository } from '../db/repository.js';
 import { fetchSourceUrl, type FetchedSource } from '../tools/sources.js';
 import { nowIso } from '../util/ids.js';
+import { runCopyAgent, type CopyRunResult } from './copy.js';
 import { DraftingPreconditionError, runDraftingAgent, type DraftingRunResult } from './drafting.js';
 import { runResearchAgent, type ResearchClaim, type ResearchSourceEvidence, type ResearchTargetClaim } from './research.js';
+import { runVerificationAgent, type VerificationRunResult } from './verification.js';
 
-type CommandAgent = 'beat_monitor' | 'research' | 'drafting';
+type CommandAgent = 'beat_monitor' | 'research' | 'verification' | 'copy' | 'drafting';
 type CommandStatus = 'completed' | 'blocked';
 
 export interface EditorCommandInput {
@@ -13,7 +15,7 @@ export interface EditorCommandInput {
 	storyId?: string | null;
 	jobId?: string | null;
 	runId?: string | null;
-	targetAgent?: 'monitor' | 'research' | 'drafting' | null;
+	targetAgent?: 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | null;
 	targetWordCount?: number;
 	facts?: unknown[];
 }
@@ -21,7 +23,7 @@ export interface EditorCommandInput {
 export interface EditorCommandResult {
 	ok: boolean;
 	status: CommandStatus;
-	handled_by: 'Monitor' | 'Research' | 'Drafting';
+	handled_by: 'Monitor' | 'Research' | 'Verification' | 'Copy' | 'Drafting';
 	agent: CommandAgent;
 	route_reason: string;
 	command_excerpt: string;
@@ -38,8 +40,11 @@ export interface EditorCommandResult {
 	};
 	claim?: ResearchClaim;
 	target_claim?: ResearchTargetClaim | null;
+	verification?: VerificationRunResult;
+	copy?: CopyRunResult;
 	draft?: DraftingRunResult['draft'];
 	gate?: DraftingRunResult['gate'];
+	gates?: Array<DraftingRunResult['gate']>;
 	error?: string;
 }
 
@@ -137,6 +142,16 @@ export async function runEditorCommand(
 			},
 			options
 		);
+		const verification =
+			research.claim && storyId
+				? runVerificationAgent(repository, {
+						workspaceId,
+						storyId,
+						jobId: input.jobId,
+						runId: input.runId,
+						claimEventId: research.events.find((event) => event.kind === 'claim.proposed')?.id
+					})
+				: null;
 		return {
 			ok: research.ok,
 			status: research.status,
@@ -144,11 +159,58 @@ export async function runEditorCommand(
 			agent: route.agent,
 			route_reason: route.reason,
 			command_excerpt: excerpt(command),
-			events: [{ id: routed.id, kind: routed.kind }, ...research.events],
+			events: [{ id: routed.id, kind: routed.kind }, ...research.events, ...(verification?.events ?? [])],
 			source: research.source ? sourceResultFromResearch(research.source) : undefined,
 			claim: research.claim,
 			target_claim: research.target_claim,
+			verification: verification ?? undefined,
+			gates: verification?.gates,
+			gate: verification?.gates[0],
 			error: research.error
+		};
+	}
+
+	if (route.agent === 'verification') {
+		const verification = runVerificationAgent(repository, {
+			workspaceId,
+			storyId,
+			jobId: input.jobId,
+			runId: input.runId
+		});
+		return {
+			ok: verification.ok,
+			status: verification.status,
+			handled_by: route.handledBy,
+			agent: route.agent,
+			route_reason: route.reason,
+			command_excerpt: excerpt(command),
+			events: [{ id: routed.id, kind: routed.kind }, ...verification.events],
+			verification,
+			gates: verification.gates,
+			gate: verification.gates[0],
+			error: verification.error
+		};
+	}
+
+	if (route.agent === 'copy') {
+		const copy = runCopyAgent(repository, {
+			workspaceId,
+			storyId,
+			jobId: input.jobId,
+			runId: input.runId
+		});
+		return {
+			ok: copy.ok,
+			status: copy.status,
+			handled_by: route.handledBy,
+			agent: route.agent,
+			route_reason: route.reason,
+			command_excerpt: excerpt(command),
+			events: [{ id: routed.id, kind: routed.kind }, ...copy.events],
+			copy,
+			gate: copy.gate,
+			gates: copy.gate ? [copy.gate] : [],
+			error: copy.error
 		};
 	}
 
@@ -269,9 +331,15 @@ function routeCommand(
 	sourceUrl: string | null,
 	targetAgent: EditorCommandInput['targetAgent'],
 	storyId: string | null
-): { agent: CommandAgent; handledBy: 'Monitor' | 'Research' | 'Drafting'; reason: string } {
+): { agent: CommandAgent; handledBy: 'Monitor' | 'Research' | 'Verification' | 'Copy' | 'Drafting'; reason: string } {
 	if (targetAgent === 'drafting') {
 		return { agent: 'drafting', handledBy: 'Drafting', reason: 'Explicit drafting target.' };
+	}
+	if (targetAgent === 'copy') {
+		return { agent: 'copy', handledBy: 'Copy', reason: 'Explicit copy target.' };
+	}
+	if (targetAgent === 'verification') {
+		return { agent: 'verification', handledBy: 'Verification', reason: 'Explicit verification target.' };
 	}
 	if (targetAgent === 'research') {
 		return { agent: 'research', handledBy: 'Research', reason: 'Explicit research target.' };
@@ -282,7 +350,13 @@ function routeCommand(
 	if (storyId && sourceUrl) {
 		return { agent: 'research', handledBy: 'Research', reason: 'Story-context source commands route to Research.' };
 	}
-	if (storyId && /\b(counter[- ]?source|counter source|research|claim|fact|corroborat|contradict|verify source)\b/i.test(command)) {
+	if (storyId && /\b(copy|style|legal|libel|risk|copy edit|line edit|review draft)\b/i.test(command)) {
+		return { agent: 'copy', handledBy: 'Copy', reason: 'Story-context copy/legal-style command.' };
+	}
+	if (storyId && /\b(verify|verification|fact[- ]?check|cross[- ]?check|two[- ]?source|source rule)\b/i.test(command)) {
+		return { agent: 'verification', handledBy: 'Verification', reason: 'Story-context verification command.' };
+	}
+	if (storyId && /\b(counter[- ]?source|counter source|research|claim|fact|corroborat|contradict)\b/i.test(command)) {
 		return { agent: 'research', handledBy: 'Research', reason: 'Story-context fact-ledger command.' };
 	}
 	if (sourceUrl) {
@@ -347,7 +421,7 @@ function sourceProvenancePayload(source: FetchedSource): Record<string, unknown>
 }
 
 function blocked(
-	route: { agent: CommandAgent; handledBy: 'Monitor' | 'Research' | 'Drafting'; reason: string },
+	route: { agent: CommandAgent; handledBy: 'Monitor' | 'Research' | 'Verification' | 'Copy' | 'Drafting'; reason: string },
 	command: string,
 	routed: { id: string; kind: string },
 	event: { id: string; kind: string },

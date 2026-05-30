@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { EditorialGate, EditorialGateType } from '$lib/types';
 	import {
+		citationGraphFromCitations,
 		draftReviewPayloadFromValue,
 		segmentDraftWithCitations,
 		type CitationRecord
@@ -18,6 +19,7 @@
 
 	let notes = $state('');
 	let selectedCitationMarker = $state<number | null>(null);
+	let citationInspector = $state<HTMLElement | null>(null);
 
 	const typeLabels: Record<EditorialGateType, string> = {
 		pitch: 'Pitch',
@@ -35,6 +37,11 @@
 		draftReview ? segmentDraftWithCitations(draftReview.markdown, draftReview.citations) : []
 	);
 	const selectedCitation = $derived(citationForMarker(draftReview?.citations ?? [], selectedCitationMarker));
+	const citationGraph = $derived(draftReview ? citationGraphFromCitations(draftReview.citations) : []);
+
+	$effect(() => {
+		if (selectedCitationMarker !== null) citationInspector?.focus();
+	});
 
 	async function resolve(action: string) {
 		await onResolve(gate, action, notes.trim());
@@ -85,6 +92,7 @@
 						<button
 							type="button"
 							class:active={selectedCitation?.marker === segment.marker}
+							aria-pressed={selectedCitation?.marker === segment.marker}
 							aria-label={`Open source details for citation ${segment.marker}`}
 							onclick={() => (selectedCitationMarker = segment.marker)}
 						>
@@ -96,7 +104,12 @@
 				{/each}
 			</p>
 			{#if selectedCitation}
-				<aside class="open-gate-card__citation" aria-label={`Citation ${selectedCitation.marker} source details`}>
+				<aside
+					bind:this={citationInspector}
+					tabindex="-1"
+					class="open-gate-card__citation"
+					aria-label={`Citation ${selectedCitation.marker} source details`}
+				>
 					<div>
 						<span>Citation [{selectedCitation.marker}]</span>
 						<strong>{selectedCitation.sourceTitle}</strong>
@@ -110,6 +123,35 @@
 						<small>Hash {selectedCitation.contentHash}</small>
 					{/if}
 				</aside>
+			{/if}
+			{#if citationGraph.length}
+				<section class="open-gate-card__citation-graph" aria-label="Citation graph per claim">
+					<div class="open-gate-card__citation-graph-head">
+						<span>Citation graph</span>
+						<strong>{citationGraph.length} claim{citationGraph.length === 1 ? '' : 's'}</strong>
+					</div>
+					{#each citationGraph as claim (claim.factId)}
+						<article class="open-gate-card__citation-claim" class:open-gate-card__citation-claim--conflict={claim.hasContradiction}>
+							<div>
+								<span>{claim.status.replace('_', ' ')}</span>
+								<strong>{claim.claim}</strong>
+							</div>
+							<ul>
+								{#each claim.sources as source (`${claim.factId}-${source.marker}-${source.url}`)}
+									<li>
+										<a href={source.url} target="_blank" rel="noreferrer">
+											[{source.marker}] {source.name || source.title}
+										</a>
+										<span>{source.relationship.replace('_', ' ')}</span>
+										{#if source.claim && source.claim !== claim.claim}
+											<small>{source.claim}</small>
+										{/if}
+									</li>
+								{/each}
+							</ul>
+						</article>
+					{/each}
+				</section>
 			{/if}
 		</section>
 	{/if}
@@ -297,6 +339,78 @@
 		font-weight: var(--fw-semibold);
 		padding: 0.35rem 0.5rem;
 		text-decoration: none;
+	}
+
+	.open-gate-card__citation-graph {
+		display: grid;
+		gap: var(--space-2);
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--border-soft);
+	}
+
+	.open-gate-card__citation-graph-head {
+		display: flex;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+
+	.open-gate-card__citation-graph-head span,
+	.open-gate-card__citation-claim span {
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-meta);
+		font-weight: var(--fw-medium);
+		text-transform: uppercase;
+	}
+
+	.open-gate-card__citation-claim {
+		display: grid;
+		gap: var(--space-2);
+		padding: var(--space-3);
+		border: 1px solid var(--border-soft);
+		background: var(--bg-surface);
+	}
+
+	.open-gate-card__citation-claim--conflict {
+		border-color: var(--status-breaking);
+		background: color-mix(in srgb, var(--status-breaking-bg) 45%, var(--bg-surface));
+	}
+
+	.open-gate-card__citation-claim strong {
+		display: block;
+		margin-top: var(--space-1);
+		color: var(--fg-1);
+		font-size: var(--fs-body-sm);
+	}
+
+	.open-gate-card__citation-claim ul {
+		display: grid;
+		gap: var(--space-1);
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.open-gate-card__citation-claim li {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: var(--space-2);
+		color: var(--fg-3);
+		font-size: var(--fs-body-sm);
+	}
+
+	.open-gate-card__citation-claim a {
+		color: var(--accent-fg);
+		text-decoration: none;
+	}
+
+	.open-gate-card__citation-claim li small {
+		flex-basis: 100%;
+		color: var(--fg-2);
+		font-size: var(--fs-meta);
+		line-height: var(--lh-body);
+		text-transform: none;
 	}
 
 	.open-gate-card__actions {

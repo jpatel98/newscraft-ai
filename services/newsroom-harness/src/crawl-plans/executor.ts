@@ -33,6 +33,11 @@ export async function executeCrawlPlan(
 
 	for (const seedUrl of plan.seed_urls) {
 		if (sources.length >= maxLinks) break;
+		const seedDecision = repository.sourceHealthDecisionForUrl(seedUrl, workspaceId);
+		if (seedDecision?.blocks_fetch) {
+			events.push(appendSourceHealthSkippedEvent(repository, seedUrl, seedDecision, { actor, workspaceId, jobId: input.job_id, runId: input.run_id }));
+			continue;
+		}
 		const fetched = await politeFetch(seedUrl, politeFetchOptions(plan, options.fetchImpl));
 		const adapter = selectSourceAdapter({
 			url: seedUrl,
@@ -51,7 +56,14 @@ export async function executeCrawlPlan(
 		});
 		const sourceItems =
 			adapter.kind === 'html_article'
-				? await fetchCandidateArticles(plan, seedUrl, maxLinks - sources.length, options.fetchImpl)
+				? await fetchCandidateArticles(repository, plan, seedUrl, maxLinks - sources.length, {
+						actor,
+						workspaceId,
+						jobId: input.job_id,
+						runId: input.run_id,
+						fetchImpl: options.fetchImpl,
+						events
+					})
 				: filterDiscoveredItems(discovered, plan, seedUrl).slice(0, maxLinks - sources.length);
 
 		for (const item of sourceItems) {
@@ -96,17 +108,37 @@ export async function executeCrawlPlan(
 }
 
 async function fetchCandidateArticles(
+	repository: HarnessRepository,
 	plan: NewsroomCrawlPlanVersionDto,
 	seedUrl: string,
 	maxLinks: number,
-	fetchImpl: typeof fetch | undefined
+	options: {
+		actor: string;
+		workspaceId: string;
+		jobId?: string | null;
+		runId?: string | null;
+		fetchImpl: typeof fetch | undefined;
+		events: NewsroomEventDto[];
+	}
 ): Promise<SourceItem[]> {
 	const candidates = plan.candidate_links
 		.filter((candidate) => candidateMatchesRule(candidate, plan, seedUrl))
 		.slice(0, maxLinks);
 	const items: SourceItem[] = [];
 	for (const candidate of candidates) {
-		const fetched = await politeFetch(candidate.url, politeFetchOptions(plan, fetchImpl));
+		const decision = repository.sourceHealthDecisionForUrl(candidate.url, options.workspaceId);
+		if (decision?.blocks_fetch) {
+			options.events.push(
+				appendSourceHealthSkippedEvent(repository, candidate.url, decision, {
+					actor: options.actor,
+					workspaceId: options.workspaceId,
+					jobId: options.jobId,
+					runId: options.runId
+				})
+			);
+			continue;
+		}
+		const fetched = await politeFetch(candidate.url, politeFetchOptions(plan, options.fetchImpl));
 		if (!fetched.ok) continue;
 		const adapter = selectSourceAdapter({
 			url: candidate.url,
@@ -127,6 +159,34 @@ async function fetchCandidateArticles(
 		if (item) items.push(item);
 	}
 	return items;
+}
+
+function appendSourceHealthSkippedEvent(
+	repository: HarnessRepository,
+	url: string,
+	decision: ReturnType<HarnessRepository['sourceHealthDecisionForUrl']>,
+	input: {
+		actor: string;
+		workspaceId: string;
+		jobId?: string | null;
+		runId?: string | null;
+	}
+): NewsroomEventDto {
+	return repository.appendEvent({
+		workspaceId: input.workspaceId,
+		jobId: input.jobId,
+		runId: input.runId,
+		agent: input.actor,
+		kind: 'source.health.skipped',
+		payload: {
+			url,
+			host: decision?.host ?? null,
+			action: decision?.action ?? null,
+			status: decision?.status ?? null,
+			gate_id: decision?.gate_id ?? null,
+			reason: 'Source Health policy blocks fetch.'
+		}
+	});
 }
 
 function filterDiscoveredItems(items: SourceItem[], plan: NewsroomCrawlPlanVersionDto, seedUrl: string): SourceItem[] {

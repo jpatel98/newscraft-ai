@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	archiveFallbackUrl,
+	citationGraphFromCitations,
 	draftReviewPayloadFromValue,
 	segmentDraftWithCitations,
 	type CitationRecord
@@ -82,9 +83,85 @@ describe('citation utilities', () => {
 					sourceUrl: 'https://city.example/agenda',
 					archiveUrl: 'https://web.archive.org/web/20260529010000/https://city.example/agenda',
 					contentHash: 'hash-3',
-					eventId: 'evt-3'
+					eventId: 'evt-3',
+					status: null,
+					relationship: null
 				}
 			]
+		});
+	});
+
+	it('builds a per-claim citation graph and highlights contradictions', () => {
+		expect(
+			citationGraphFromCitations([
+				...citations,
+				{
+					marker: 3,
+					factId: 'fact-1',
+					claim: 'Council approval was disputed by the agency.',
+					sourceTitle: 'Agency denial',
+					sourceName: 'Transit agency',
+					sourceUrl: 'https://transit.example/denial',
+					archiveUrl: 'https://web.archive.org/web/*/https://transit.example/denial',
+					status: 'disputed',
+					relationship: 'contradicts'
+				}
+			])
+		).toEqual([
+			{
+				factId: 'fact-1',
+				claim: 'Council approved the shuttle plan.',
+				status: 'disputed',
+				hasContradiction: true,
+				sources: [
+					{
+						marker: 1,
+						claim: 'Council approved the shuttle plan.',
+						title: 'Council agenda',
+						name: 'City Clerk',
+						url: 'https://city.example/agenda',
+						archiveUrl: 'https://web.archive.org/web/20260529010000/https://city.example/agenda',
+						contentHash: 'hash-1',
+						relationship: 'supports'
+					},
+					{
+						marker: 3,
+						claim: 'Council approval was disputed by the agency.',
+						title: 'Agency denial',
+						name: 'Transit agency',
+						url: 'https://transit.example/denial',
+						archiveUrl: 'https://web.archive.org/web/*/https://transit.example/denial',
+						contentHash: undefined,
+						relationship: 'contradicts'
+					}
+				]
+			},
+			{
+				factId: 'fact-2',
+				claim: 'Buses run every fifteen minutes.',
+				status: 'proposed',
+				hasContradiction: false,
+				sources: [
+					{
+						marker: 2,
+						claim: 'Buses run every fifteen minutes.',
+						title: 'Transit memo',
+						name: 'Transit agency',
+						url: 'https://transit.example/memo',
+						archiveUrl: 'https://web.archive.org/web/*/https://transit.example/memo',
+						contentHash: undefined,
+						relationship: 'supports'
+					}
+				]
+			}
+		]);
+	});
+
+	it('does not treat missing citation status as verified', () => {
+		expect(citationGraphFromCitations([citations[0]])[0]).toMatchObject({
+			factId: 'fact-1',
+			status: 'proposed',
+			hasContradiction: false
 		});
 	});
 
@@ -120,7 +197,9 @@ describe('citation utilities', () => {
 				sourceUrl: 'https://safe.example/source',
 				archiveUrl: 'https://web.archive.org/web/*/https://safe.example/source',
 				contentHash: null,
-				eventId: null
+				eventId: null,
+				status: null,
+				relationship: null
 			}
 		]);
 	});

@@ -234,9 +234,27 @@ describe('editor command routing', () => {
 						})
 					})
 				]
+			},
+			verification: {
+				processed_claims: [
+					{
+						status: 'needs_more'
+					}
+				],
+				gates: [
+					{
+						type: 'verification',
+						status: 'open'
+					}
+				]
 			}
 		});
-		expect(events.map((event) => event.kind)).toEqual(['editor.command.routed', 'claim.proposed']);
+		expect(events.map((event) => event.kind)).toEqual([
+			'editor.command.routed',
+			'claim.proposed',
+			'claim.needs_more',
+			'gate.queued'
+		]);
 		expect(events[1]).toMatchObject({
 			agent: 'research',
 			payload: expect.objectContaining({
@@ -261,15 +279,110 @@ describe('editor command routing', () => {
 		});
 		expect(factLedger).toEqual([
 			expect.objectContaining({
-				status: 'proposed',
-				event_id: events[1]?.id,
+				status: 'needs_more',
+				proposed_event_id: events[1]?.id,
 				sources: [
 					expect.objectContaining({
 						url: 'https://city.example/bridge-warning',
 						content_hash: expect.stringMatching(/^[a-f0-9]{64}$/)
 					})
-				]
+				],
+				two_source_rule: { required: 2, actual: 1, passed: false }
 			})
+		]);
+	});
+
+	it('routes story verification commands to Verification', async () => {
+		const repo = createRepository();
+		const workspaceId = 'workspace-command';
+		const storyId = 'story-active';
+		repo.appendEvent({
+			workspaceId,
+			storyId,
+			agent: 'research',
+			kind: 'claim.proposed',
+			payload: {
+				id: 'claim-ready',
+				claim: 'Council approved the shuttle plan.',
+				sources: [
+					{ title: 'Council minutes', url: 'https://city.example/minutes' },
+					{ title: 'Transit briefing', url: 'https://transit.example/briefing' }
+				]
+			}
+		});
+
+		const result = await runEditorCommand(repo, {
+			command: 'Verify the proposed claims.',
+			workspaceId,
+			storyId
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: 'completed',
+			handled_by: 'Verification',
+			agent: 'verification',
+			verification: {
+				processed_claims: [
+					{
+						claim_id: 'claim-ready',
+						status: 'verified'
+					}
+				]
+			}
+		});
+		expect(repo.listEvents({ workspaceId, storyId }).map((event) => event.kind)).toEqual([
+			'claim.proposed',
+			'editor.command.routed',
+			'claim.verified'
+		]);
+	});
+
+	it('routes story copy commands to Copy and can raise a Legal/Style gate', async () => {
+		const repo = createRepository();
+		const workspaceId = 'workspace-command';
+		const storyId = 'story-active';
+		repo.updateHouseMemory(
+			{
+				style_guide: 'Prefer precise attribution.',
+				libel_patterns: ['unsupported criminal accusation']
+			},
+			'editor'
+		);
+		repo.appendStoryMemory(storyId, {
+			workspaceId,
+			key: 'draft_history',
+			kind: 'draft.produced',
+			actor: 'drafting',
+			value: {
+				headline: 'Draft for copy',
+				draft_markdown: 'The draft contains an unsupported criminal accusation.'
+			}
+		});
+
+		const result = await runEditorCommand(repo, {
+			command: 'Copy edit this draft for legal risk.',
+			workspaceId,
+			storyId
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: 'completed',
+			handled_by: 'Copy',
+			agent: 'copy',
+			copy: {
+				risk: 'high'
+			},
+			gate: {
+				type: 'legal_style',
+				status: 'open'
+			}
+		});
+		expect(repo.listEvents({ workspaceId, storyId }).map((event) => event.kind)).toEqual([
+			'editor.command.routed',
+			'copy.reviewed',
+			'gate.queued'
 		]);
 	});
 

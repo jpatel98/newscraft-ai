@@ -8,9 +8,10 @@ rewrite.
 
 - HTTP service defaults to `127.0.0.1:8650`.
 - SQLite persistence is owned by the harness at `NEWSROOM_HARNESS_DB_PATH`.
-  When `NEWSROOM_HARNESS_DATABASE_URL` or `DATABASE_URL` is visible to the
-  harness process, the service mirrors/restores that state through a private
-  Supabase/Postgres `harness` schema.
+  The service mirrors/restores that state through a private Supabase/Postgres
+  `harness` schema only when `NEWSROOM_HARNESS_DATABASE_URL` is explicitly set.
+  The root app's `DATABASE_URL` is reserved for the SvelteKit UI database and
+  does not enable harness mirroring by itself.
 - The existing UI continues using `/api/agent/*` routes and points at the
   harness with `AGENT_GATEWAY_URL`.
 - Shared DTOs and SSE helpers live in `packages/shared`.
@@ -70,7 +71,7 @@ service loads `.env.local` first and then `.env`.
 NEWSROOM_HARNESS_HOST=127.0.0.1
 NEWSROOM_HARNESS_PORT=8650
 NEWSROOM_HARNESS_DB_PATH=.data/newsroom-harness.db
-NEWSROOM_HARNESS_DATABASE_URL=<optional Supabase Postgres connection string>
+NEWSROOM_HARNESS_DATABASE_URL=<optional explicit harness mirror connection string>
 NEWSROOM_HARNESS_API_KEY=
 OPENAI_API_KEY=
 NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/agent/channel-posts

@@ -9,8 +9,8 @@ This repo is the NewsCraft agent UI plus the same-repo newsroom harness. Future 
 - Shared contracts: `packages/shared`, especially gateway, health, jobs, and SSE DTOs.
 - UI persistence: Supabase Postgres via server-only `DATABASE_URL`.
 - Harness persistence: SQLite via `NEWSROOM_HARNESS_DB_PATH`, with Supabase
-  mirroring/restoration enabled when `NEWSROOM_HARNESS_DATABASE_URL` or
-  `DATABASE_URL` is available to the harness process.
+  mirroring/restoration enabled only when `NEWSROOM_HARNESS_DATABASE_URL` is
+  explicitly set. Do not use the UI `DATABASE_URL` as the harness mirror.
 - Local UI port: `127.0.0.1:3001`.
 - Local harness port: `127.0.0.1:8650`.
 
@@ -106,7 +106,7 @@ AGENT_GATEWAY_URL=http://127.0.0.1:8650
 AGENT_GATEWAY_API_KEY=
 ENABLE_MISSIONS=1
 NEWSROOM_HARNESS_DB_PATH=.data/newsroom-harness.db
-NEWSROOM_HARNESS_DATABASE_URL=<optional Supabase Postgres connection string>
+NEWSROOM_HARNESS_DATABASE_URL=<optional explicit harness mirror connection string>
 NEWSROOM_HARNESS_API_KEY=
 OPENAI_API_KEY=
 NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/agent/channel-posts

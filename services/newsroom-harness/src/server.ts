@@ -228,7 +228,7 @@ async function route(
 			story_id?: string | null;
 			job_id?: string | null;
 			run_id?: string | null;
-			target_agent?: 'monitor' | 'research' | 'drafting' | null;
+			target_agent?: 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | null;
 			target_word_count?: number;
 			facts?: unknown[];
 		}>(req);

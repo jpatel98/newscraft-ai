@@ -58,6 +58,21 @@ state with these important changes in place:
 - Editor commands route to monitor or drafting agents.
 - Story-workspace editor commands can route to the Research agent, which writes
   source-backed `claim.proposed` events and fact-ledger memory entries.
+- Verification now processes `claim.proposed` events into `claim.verified`,
+  `claim.disputed`, or `claim.needs_more`, applies the independent-host
+  two-source rule, detects counter-source conflicts, and queues Verification
+  gates when an editor must resolve the claim. Gate resolutions supersede the
+  prior verification event in the effective fact ledger, and
+  `request_more_research` can re-run once new evidence arrives.
+- Copy now runs an advisory house-style/legal-risk pass over drafts, using the
+  inspectable House memory style guide, banned phrases, and libel patterns, and
+  queues Legal/Style gates for high-risk findings.
+- Source Health failures now queue first-class editor gates, dedupe open gates
+  for the same source host, write source-quality memory when resolved, and
+  enforce `pause`/`drop` decisions in crawl-plan and beat-monitor fetch paths.
+- Draft citation markers now have a per-claim citation graph view in the story
+  workspace and open-gate draft review UI, with disputed relationships
+  highlighted.
 - The harness starts against older local SQLite databases by repairing missing
   `workspace_id` columns before index creation.
 - Structured article extraction, source adapters, archive snapshots, and
@@ -247,9 +262,14 @@ Important areas:
   pitch gates and story-lead events, hydrating discovered listing/feed items by
   fetching the candidate article pages when available.
 - `src/agents/editor-command.ts` routes Ask NewsCraft/editor commands to the
-  monitor, research, or drafting agent.
+  monitor, research, verification, copy, or drafting agent.
 - `src/agents/research.ts` handles story-workspace research commands, ad-hoc
   source scrapes, `claim.proposed` events, and fact-ledger memory updates.
+- `src/agents/verification.ts` checks proposed claims, applies the
+  independent-host two-source rule, detects counter-source conflicts, writes
+  claim-status events, and queues Verification gates.
+- `src/agents/copy.ts` runs the House-memory-backed copy/style risk pass and
+  queues Legal/Style gates for high-risk drafts.
 - `src/agents/drafting.ts` drafts story artifacts from accepted pitch facts.
 - `src/crawl-plans/executor.ts` executes approved crawl plans and preserves
   source provenance for downstream pitches.
@@ -443,6 +463,9 @@ Agent channel tables when needed.
 ### Harness database
 
 The harness database is configured by `NEWSROOM_HARNESS_DB_PATH`.
+Optional Supabase/Postgres mirroring is enabled only when
+`NEWSROOM_HARNESS_DATABASE_URL` is explicitly set. The app `DATABASE_URL` is
+reserved for SvelteKit UI persistence and does not enable harness mirroring.
 
 Current harness tables:
 
@@ -1024,6 +1047,7 @@ Keep the real direct or pooler URL out of docs and commits. Store it in
 NEWSROOM_HARNESS_HOST=127.0.0.1
 NEWSROOM_HARNESS_PORT=8650
 NEWSROOM_HARNESS_DB_PATH=.data/newsroom-harness.db
+NEWSROOM_HARNESS_DATABASE_URL=<optional explicit harness mirror connection string>
 NEWSROOM_HARNESS_API_KEY=
 OPENAI_API_KEY=
 NEWSROOM_UI_INGEST_URL=http://127.0.0.1:3001/api/agent/channel-posts
