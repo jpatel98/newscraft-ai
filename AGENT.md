@@ -154,8 +154,7 @@ lsof -nP -iTCP:8650 -sTCP:LISTEN
 - Start with `git status --short --branch`; this repo is often dirty.
 - Do not revert user changes. If a pull/update requires discarding local WIP, make a reversible safety step first, then discard only after explicit approval.
 - Before broad harness changes, read:
-  - `NEWSROOM_HARNESS_NOTES.md`
-  - `AGENTIC_NEWSROOM.md`
+  - `SOURCE_OF_TRUTH.md`
   - `src/lib/server/agent/transport.ts`
   - `src/routes/api/chat/stream/+server.ts`
   - `services/newsroom-harness/src/agents/runtime.ts`

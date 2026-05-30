@@ -10,10 +10,8 @@ This document is the canonical project reference for the current state of the
 3. How is it architected?
 4. What are the known limits, contracts, and next decisions?
 
-Older notes such as `PLAN.md`, `NEWSROOM_HARNESS_NOTES.md`, and the README are
-still useful historical context, but this file should be treated as the current
-source of truth when onboarding, planning, debugging, or deciding where to make
-changes.
+This file should be treated as the current source of truth when onboarding,
+planning, debugging, or deciding where to make changes.
 
 ## Executive summary
 
