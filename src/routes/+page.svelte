@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { replaceState } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import Composer from '$lib/components/Composer.svelte';
 	import OpenGateCard from '$lib/components/OpenGateCard.svelte';
 	import {
@@ -15,6 +15,7 @@
 		ChannelSource,
 		EditorialEvent,
 		EditorialGate,
+		ChatCommand,
 		MessageContent
 	} from '$lib/types';
 	import { contentText } from '$lib/types';
@@ -55,6 +56,8 @@
 	let commandBusy = $state(false);
 	let commandError = $state<string | null>(null);
 	let commandResult = $state<CommandBarResult | null>(null);
+	let chatBusy = $state(false);
+	let chatError = $state<string | null>(null);
 
 	const starters = [
 		{
@@ -186,12 +189,53 @@
 		error?: string;
 	}
 
+	async function handleComposerSend(content: MessageContent, chatCommand?: ChatCommand) {
+		const command = contentText(content);
+		if (!chatCommand && command && !command.startsWith('/') && commandTarget(command) !== null) {
+			await handleCommandSend(content);
+			return;
+		}
+		await startConversation(content);
+	}
+
+	async function startConversation(content: MessageContent) {
+		if (chatBusy || commandBusy) return;
+		chatBusy = true;
+		chatError = null;
+		commandError = null;
+		commandResult = null;
+		try {
+			const response = await fetch('/api/conversations', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: '{}'
+			});
+			if (!response.ok) throw new Error(`Chat failed with ${response.status}`);
+			const { id } = (await response.json()) as { id: string };
+			if (typeof content === 'string') {
+				await goto(`/c/${id}#p=${encodeURIComponent(content)}`);
+				return;
+			}
+			try {
+				sessionStorage.setItem(`agent:pending:${id}`, JSON.stringify(content));
+			} catch {
+				/* If storage is unavailable, the chat page still opens for text-only follow-up. */
+			}
+			await goto(`/c/${id}#p=`);
+		} catch (err) {
+			chatError = err instanceof Error ? err.message : String(err);
+		} finally {
+			chatBusy = false;
+		}
+	}
+
 	async function handleCommandSend(content: MessageContent) {
 		const command = contentText(content);
-		if (!command || commandBusy) return;
+		if (!command || commandBusy || chatBusy) return;
 		commandBusy = true;
 		commandError = null;
 		commandResult = null;
+		chatError = null;
 		try {
 			const response = await fetch('/api/agent/editor-command', {
 				method: 'POST',
@@ -631,12 +675,18 @@
 		<Composer
 			bind:this={composer}
 			placeholder="Ask for leads, paste a source URL, or draft from a lead..."
-			onSend={handleCommandSend}
-			disabled={commandBusy}
+			onSend={handleComposerSend}
+			disabled={commandBusy || chatBusy}
 		/>
-		{#if commandBusy || commandResult || commandError}
-			<div class="command-panel__status" class:command-panel__status--warning={commandResult?.status === 'blocked' || commandError}>
-				{#if commandBusy}
+		{#if chatBusy || chatError || commandBusy || commandResult || commandError}
+			<div class="command-panel__status" class:command-panel__status--warning={commandResult?.status === 'blocked' || commandError || chatError}>
+				{#if chatBusy}
+					<span>Opening chat</span>
+					<strong>Starting a normal conversation</strong>
+				{:else if chatError}
+					<span>Chat failed</span>
+					<strong>{chatError}</strong>
+				{:else if commandBusy}
 					<span>Routing command</span>
 					<strong>{selectedWorkspace ? 'Research, Drafting, or Monitor' : 'Monitor'}</strong>
 				{:else if commandResult}

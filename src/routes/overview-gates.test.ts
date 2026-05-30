@@ -39,9 +39,15 @@ describe('newsroom overview gates', () => {
 		expect(source).toContain('{source.claim}');
 	});
 
-	it('routes overview command bar sends through the editor command endpoint', () => {
+	it('keeps normal chat separate from explicit overview commands', () => {
 		const source = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
 
+		expect(source).toContain('async function handleComposerSend(content: MessageContent, chatCommand?: ChatCommand)');
+		expect(source).toContain("if (!chatCommand && command && !command.startsWith('/') && commandTarget(command) !== null)");
+		expect(source).toContain('await handleCommandSend(content)');
+		expect(source).toContain('await startConversation(content)');
+		expect(source).toContain("fetch('/api/conversations'");
+		expect(source).toContain('await goto(`/c/${id}#p=${encodeURIComponent(content)}`)');
 		expect(source).toContain('async function handleCommandSend(content: MessageContent)');
 		expect(source).toContain("fetch('/api/agent/editor-command'");
 		expect(source).toContain('targetAgent: commandTarget(command)');
@@ -51,7 +57,9 @@ describe('newsroom overview gates', () => {
 		expect(source).toContain("return 'verification'");
 		expect(source).toContain("return 'copy'");
 		expect(source).toContain("if (/\\b(lead|leads|source|monitor|beat)\\b/i.test(command)) return 'monitor'");
-		expect(source).toContain('onSend={handleCommandSend}');
+		expect(source).toContain('onSend={handleComposerSend}');
+		expect(source).toContain('disabled={commandBusy || chatBusy}');
+		expect(source).toContain('Opening chat');
 		expect(source).toContain('commandResult.handled_by');
 		expect(source).toContain('commandResult.route_reason !== commandResultDetail(commandResult)');
 		expect(source).toContain('Monitor');
