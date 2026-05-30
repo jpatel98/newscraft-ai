@@ -37,8 +37,8 @@ describe('disciplined newsroom agent harness', () => {
 			['What is a nut graf?', 'answer_from_memory'],
 			['Use the newsroom brief generator for these notes: council approved a pilot.', 'custom_tool'],
 			['Summarize the latest mission output', 'custom_tool'],
-			['Check the latest Toronto Police releases and summarize anything newsworthy', 'source_monitor'],
-			['Scan our configured source monitors for updates', 'source_monitor'],
+			['Check the latest Toronto Police releases and summarize anything newsworthy', 'hybrid_research'],
+			['Scan our configured source monitors for updates', 'hybrid_research'],
 			['Latest Mark Carney news', 'web_search'],
 			['what are the gas prices in toronto tomorrow', 'web_search'],
 			['can you find gas prices in Toronto for the past week and present it to me as a table?', 'web_search'],
@@ -481,7 +481,8 @@ describe('disciplined newsroom agent harness', () => {
 
 		const result = await agent.run('Check the latest Toronto Police releases');
 
-		expect(result.tool_calls).toHaveLength(1);
+		expect(result.tool_calls.map((call) => call.name)).toEqual(['configured_source_monitor', 'openai_web_search']);
+		expect(result.tool_calls[1]).toMatchObject({ status: 'skipped' });
 		expect(result.final_answer).toContain('No publishable lead was found');
 		expect(result.limitations).toContain('Fixture source unavailable');
 	});
@@ -598,7 +599,8 @@ describe('disciplined newsroom agent harness', () => {
 
 		const result = await agent.run('Check the latest Toronto Police releases');
 
-		expect(result.tool_calls).toHaveLength(1);
+		expect(result.tool_calls.map((call) => call.name)).toEqual(['configured_source_monitor', 'openai_web_search']);
+		expect(result.tool_calls[1]).toMatchObject({ status: 'skipped' });
 		expect(result.budget.usage.total_tool_calls).toBe(1);
 		expect(result.final_answer.length).toBeGreaterThan(0);
 	});

@@ -25,7 +25,7 @@
 		draft_review: 'Draft Review',
 		legal_style: 'Legal / Style',
 		publish: 'Publish',
-		crawl_plan: 'Crawl Plan',
+		crawl_plan: 'Source Review',
 		source_health: 'Source Health',
 		budget: 'Budget'
 	};

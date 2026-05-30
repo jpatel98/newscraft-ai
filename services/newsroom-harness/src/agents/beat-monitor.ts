@@ -113,7 +113,6 @@ export interface BeatMonitorRunResult {
 
 export function hasBeatMonitorInputs(repository: HarnessRepository, job: NewsroomJobDto): boolean {
 	const promptConfig = parseStandingBriefPrompt(job.prompt || '');
-	if (promptConfig.sources.length > 0) return true;
 	return approvedCrawlPlansForBeat(repository, job.id, promptConfig).length > 0;
 }
 
@@ -641,7 +640,7 @@ function whyNowForLead(job: NewsroomJobDto, lead: BeatMonitorLead): string {
 		return `${lead.sourceName} published or updated this item at ${timestamp}; the ${job.name} Standing Brief surfaced it on this monitor pass.`;
 	}
 	if (lead.via === 'crawl_plan') {
-		return `An approved Crawl Plan assigned to ${job.name} surfaced this source during the monitor pass.`;
+		return `An approved source-discovery rule assigned to ${job.name} surfaced this source during the monitor pass.`;
 	}
 	return `${job.name} surfaced this configured-source lead during the latest monitor pass.`;
 }

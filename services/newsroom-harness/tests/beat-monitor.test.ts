@@ -307,7 +307,7 @@ describe('beat monitor standing brief runs', () => {
 		]);
 	});
 
-	it('lets the job runner complete Standing Briefs and save mission output', async () => {
+	it('lets source-only missions run through the broader mission agent and save output', async () => {
 		const repo = createRepository();
 		const job = repo.createJob({
 			workspace_id: 'account:editor-1',
@@ -332,22 +332,27 @@ describe('beat monitor standing brief runs', () => {
 			])
 		});
 		vi.stubGlobal('fetch', fetchMock);
-		const runtime = { runMission: vi.fn() } as unknown as NewsroomAgentRuntime;
+		const runtime = {
+			runMission: vi.fn(async () => ({
+				role: 'research',
+				markdown: '## Summary\n\nBroad source discovery found one policy update.',
+				sources: [],
+				evidence: []
+			}))
+		} as unknown as NewsroomAgentRuntime;
 		const runner = new JobRunner(repo, runtime, loadConfig({ openAiApiKey: '', runTimeoutMs: 5000 }));
 
 		const run = runner.start(job.id, 'test');
 		await runner.waitFor(run.id);
 
-		expect(runtime.runMission).not.toHaveBeenCalled();
+		expect(runtime.runMission).toHaveBeenCalledOnce();
 		expect(repo.requireRun(run.id)).toMatchObject({ status: 'completed', last_error: null });
 		const reports = repo.listReports();
 		expect(reports).toHaveLength(1);
 		expect(reports[0].markdown).toContain('# Cron Job: Morning Policy Monitor');
 		expect(reports[0].markdown).toContain('## Summary');
-		expect(reports[0].markdown).toContain('queued 1 pitch gate');
-		expect(reports[0].markdown).toContain('Ministry announces new housing permit dashboard');
-		expect(reports[0].markdown).toContain('## Human Review');
-		expect(repo.listGates({ workspaceId: 'account:editor-1', jobId: job.id })).toHaveLength(1);
+		expect(reports[0].markdown).toContain('Broad source discovery found one policy update.');
+		expect(repo.listGates({ workspaceId: 'account:editor-1', jobId: job.id })).toHaveLength(0);
 		expect(repo.listGates({ workspaceId: 'default', jobId: job.id })).toHaveLength(0);
 	});
 

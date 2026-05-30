@@ -48,7 +48,7 @@ export class JobRunner {
 
 		try {
 			if (hasBeatMonitorInputs(this.repository, job)) {
-				this.repository.addRunStep(run.id, 'beat_monitor', 'Read Standing Brief sources and approved Crawl Plans');
+				this.repository.addRunStep(run.id, 'beat_monitor', 'Read approved source-discovery rules');
 				const result = await runBeatMonitor(this.repository, job, { runId: run.id, workspaceId }, { signal: abort.signal });
 				this.repository.addRunStep(run.id, 'beat_monitor', 'Queue pitch gates for editor review', 'completed', {
 					sourceCount: result.sourceCount,

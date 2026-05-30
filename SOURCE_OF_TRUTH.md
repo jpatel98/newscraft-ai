@@ -17,9 +17,9 @@ planning, debugging, or deciding where to make changes.
 
 NewsCraft AI is a SvelteKit application for an authenticated newsroom agent UI.
 It supports conversational chat, a newsroom overview, source-aware agent
-activity, standing-brief missions, editor gates, story leads, crawl plans,
-mission reports, account management, Supabase Postgres-backed persistence,
-export/status tools, and a NewsCraft-native newsroom harness.
+activity, standing-brief missions, editor gates, story leads, mission reports,
+account management, Supabase Postgres-backed persistence, export/status tools,
+and a NewsCraft-native newsroom harness.
 
 The repo is now a small pnpm monorepo:
 
@@ -79,8 +79,8 @@ state with these important changes in place:
   briefs, and activity wire.
 - `/c/[id]` is an individual chat thread.
 - `/missions` is the mission control surface for scheduled editorial work,
-  standing-brief configuration, mission runs, source lists, crawl plans, and
-  generated reports.
+  standing-brief configuration, mission runs, source lists, and generated
+  reports.
 - `/settings` is the operator/admin surface for accounts, password changes,
   export, status, and destructive maintenance actions.
 - `/login`, `/signup`, `/setup`, and `/account-setup/[token]` handle access and
@@ -127,8 +127,11 @@ The current app supports:
   agents.
 - Open gate resolution for editor decisions.
 - Mission/job list, creation, editing, deletion, pause/resume, and run-now.
-- Mission source configuration with URL watchlists.
-- Mission crawl-plan review and approved crawl-plan execution.
+- Mission source configuration with URL watchlists. Attached sources are
+  starting points; scheduled missions default to broad source discovery unless
+  the prompt asks for official/primary-only research.
+- Source-discovery rules remain backend plumbing for approved legacy plans, but
+  crawl-plan review is no longer a journalist-facing Missions workflow.
 - Story lead and workspace workflows seeded from monitor pitches.
 - Research fact-ledger growth from story-workspace commands, including
   counter-source requests and URL-backed proposed claims with source provenance.
@@ -943,12 +946,17 @@ Stored/propagated source evidence includes:
 This is now more than a lightweight fetch layer, but it is still not a complete
 paywall, credibility-scoring, or comprehensive dedupe system.
 
-### Beat monitor behavior
+### Source discovery behavior
 
-The beat monitor combines configured watchlists, approved crawl plans, source
-fetch/extraction output, and beat memory. It creates pitch gates and activity
-events for promising leads and preserves source provenance in the pitch
-`source_set` so accepted workspaces can retain their evidence trail.
+Scheduled missions default to broad discovery across reputable media and
+configured sources. Official and primary sources are labeled separately from
+media reports. The agent should restrict itself to official/primary sources
+only when the mission prompt explicitly asks for that.
+
+The backend still supports approved source-discovery rules for legacy/advanced
+flows. Those rules combine seed URLs, source fetch/extraction output, and beat
+memory to create pitch gates with preserved provenance, but they are not exposed
+as a primary Missions-page workflow.
 
 ### Report delivery back to UI
 

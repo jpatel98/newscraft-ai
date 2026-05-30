@@ -102,10 +102,10 @@ describe('channel source utilities', () => {
 		]);
 	});
 
-	it('leaves prompts unchanged when no sources are enabled', () => {
-		expect(compileChannelPrompt('Scan the latest updates.', [])).toBe('Scan the latest updates.');
-		expect(compileChannelPrompt('Scan the latest updates.', [source({ enabled: false })])).toBe(
-			'Scan the latest updates.'
+	it('adds the default broad source strategy when no sources are enabled', () => {
+		expect(compileChannelPrompt('Scan the latest updates.', [])).toContain('## Source Strategy');
+		expect(compileChannelPrompt('Scan the latest updates.', [source({ enabled: false })])).toContain(
+			'Default to broad source discovery'
 		);
 	});
 
@@ -117,6 +117,8 @@ describe('channel source utilities', () => {
 		]);
 
 		expect(prompt).toContain('Scan the latest updates.');
+		expect(prompt).toContain('## Source Strategy');
+		expect(prompt).toContain('Search reputable news/media coverage');
 		expect(prompt).toContain('## Configured Watchlist');
 		expect(prompt).toContain('- FDA newsroom: https://www.fda.gov/news-events');
 		expect(prompt).toContain('- CMS announcements: https://www.cms.gov/newsroom');

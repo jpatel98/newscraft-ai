@@ -11,7 +11,7 @@ describe('OpenGateCard', () => {
 			'Draft Review',
 			'Legal / Style',
 			'Publish',
-			'Crawl Plan',
+			'Source Review',
 			'Source Health',
 			'Budget'
 		]) {

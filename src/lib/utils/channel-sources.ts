@@ -2,6 +2,7 @@ import type { ChannelSource } from '$lib/types';
 import type { CrawlPlanProposal } from '$lib/types';
 
 const WATCHLIST_HEADING = '## Configured Watchlist';
+const SOURCE_STRATEGY_HEADING = '## Source Strategy';
 
 export type ChannelSourceInput = Partial<ChannelSource> & {
 	url?: unknown;
@@ -108,7 +109,10 @@ export function compileChannelPrompt(
 		.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 	const crawlPlanBlock = crawlPlanPromptBlock(crawlPlans);
 
-	if (enabledSources.length === 0 && !crawlPlanBlock) return prompt;
+	const strategyBlock = `${SOURCE_STRATEGY_HEADING}
+Default to broad source discovery for this mission. Search reputable news/media coverage and use attached sources as useful starting points, not as the whole universe of allowed sources. Label official/primary sources separately from media reports. Only restrict the mission to official or primary sources when the mission prompt explicitly asks for that.`;
+
+	if (enabledSources.length === 0 && !crawlPlanBlock) return [prompt, strategyBlock].filter(Boolean).join('\n\n');
 
 	const lines = enabledSources.map(
 		(source) => `- ${escapeWatchlistLine(source.name)}: ${source.url}`
@@ -121,7 +125,7 @@ Use these configured sources as starting points for this scheduled run. They are
 ${lines.join('\n')}`
 		: '';
 
-	return [prompt, watchlistBlock, crawlPlanBlock].filter(Boolean).join('\n\n');
+	return [prompt, strategyBlock, watchlistBlock, crawlPlanBlock].filter(Boolean).join('\n\n');
 }
 
 export interface ChannelConfigOverlay {

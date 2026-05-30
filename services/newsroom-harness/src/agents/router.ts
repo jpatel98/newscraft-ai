@@ -83,6 +83,7 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 	const wantsOtherOutlets = mentionsOtherOutlets(text);
 	const wantsConfiguredSources = mentionsConfiguredSource(text);
 	const wantsCurrentSources = mentionsCurrentSourceCheck(text);
+	const wantsOfficialOnly = mentionsOfficialOnly(text);
 	const hasUrl = /https?:\/\//i.test(text);
 
 	if ((wantsCurrentSources || hasUrl) && wantsOtherOutlets) {
@@ -96,14 +97,25 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		);
 	}
 
-	if (wantsConfiguredSources || wantsCurrentSources) {
+	if (wantsOfficialOnly && (wantsConfiguredSources || wantsCurrentSources || hasUrl)) {
 		return decision(
 			'source_monitor',
-			'The request targets configured sources, feeds, releases, or source monitors.',
+			'The request asks for official or primary-source-only research.',
 			[NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.webSearch],
 			budget,
-			'stop when configured-source evidence is sufficient, or use web search if configured sources are unavailable',
-			'a concise monitored-source brief with provenance or a clean no-lead result'
+			'stop when configured or primary-source evidence is sufficient, or use web search only to locate primary material',
+			'a concise primary-source brief with provenance'
+		);
+	}
+
+	if (wantsConfiguredSources || wantsCurrentSources) {
+		return decision(
+			'hybrid_research',
+			'The request targets a current newsroom mission; default to broad discovery plus configured-source checks.',
+			[NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.webSearch],
+			budget,
+			'stop after configured/source evidence and broader coverage evidence exist, or a budget/availability limit is hit',
+			'a sourced brief labeling official or primary sources separately from media reports'
 		);
 	}
 
@@ -197,6 +209,12 @@ function mentionsConfiguredSource(text: string): boolean {
 
 function mentionsCurrentSourceCheck(text: string): boolean {
 	return /\b(check|scan|monitor|release|releases|press release|police|public safety)\b/.test(text);
+}
+
+function mentionsOfficialOnly(text: string): boolean {
+	return /\b(official only|primary only|first[- ]party only|source of truth only|original source|original sources|press releases only|do not use media|no media reports|verify against official|official sources)\b/.test(
+		text
+	);
 }
 
 function mentionsCustomTool(text: string): boolean {
