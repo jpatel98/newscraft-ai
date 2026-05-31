@@ -417,6 +417,7 @@ export function sourceToolResult(source: FetchedSource) {
 	return {
 		url: source.url,
 		title: source.title,
+		publishedAt: source.metadata?.publishedAt ?? null,
 		fetchedAt: source.fetchedAt,
 		snippet: source.snippet,
 		summary: source.summary,
@@ -451,6 +452,7 @@ function evidenceToFetchedSource(evidence: EvidenceObject): FetchedSource {
 		contentType: evidence.source_url.startsWith('newsroom://') ? 'text/markdown' : null,
 		statusCode: evidence.confidence > 0 ? 200 : null,
 		used: evidence.confidence > 0,
+		metadata: evidence.published_at ? { publishedAt: evidence.published_at } : null,
 		healthGate: null
 	};
 }

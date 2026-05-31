@@ -224,4 +224,33 @@ describe('source extraction', () => {
 		expect(source.contentText).toContain('requires a usage report before renewal');
 		expect(source.contentText).not.toContain('Fallback paragraph');
 	});
+
+	it('carries feed item publication dates in source text instead of fetch time', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL) => {
+				if (String(input).endsWith('/robots.txt')) return new Response('', { status: 404 });
+				return new Response(
+					`
+					<rss>
+						<channel>
+							<item>
+								<title>Transit agency posts weekend service update</title>
+								<link>https://example.test/transit-update</link>
+								<description>Shuttle buses will replace part of the line this weekend.</description>
+								<pubDate>Sat, 30 May 2026 13:00:00 GMT</pubDate>
+							</item>
+						</channel>
+					</rss>
+					`,
+					{ status: 200, headers: { 'content-type': 'application/rss+xml' } }
+				);
+			})
+		);
+
+		const source = await fetchSourceUrl('https://example.test/feed.xml');
+
+		expect(source.contentText).toContain('Published: 2026-05-30T13:00:00.000Z');
+		expect(source.contentText).not.toContain(source.fetchedAt);
+	});
 });

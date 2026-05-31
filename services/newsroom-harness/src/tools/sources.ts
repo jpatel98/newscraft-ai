@@ -139,10 +139,18 @@ function sourceTextFromAdapter(
 	if (kind === 'rss' || kind === 'atom' || kind === 'web_search' || kind === 'api_bluesky') {
 		return items
 			.slice(0, 8)
-			.map((item) => `${item.title}. ${item.summary || item.contentText}`)
+			.map((item) => sourceItemSummaryLine(item))
 			.join('\n\n');
 	}
 	return items[0]?.contentText || extractSourceText(body, contentType, url);
+}
+
+function sourceItemSummaryLine(item: SourceItem): string {
+	const date = item.publishedAt
+		? `Published: ${item.publishedAt}.`
+		: 'Published: NOT FOUND IN SOURCE METADATA. Do not infer this from fetch time.';
+	const summary = item.summary || item.contentText;
+	return `${item.title}. ${date}${summary ? ` ${summary}` : ''}`;
 }
 
 function articleLikeItem(kind: SourceAdapterKind, items: SourceItem[]): SourceItem | null {

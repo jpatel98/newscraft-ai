@@ -268,6 +268,50 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).not.toContain('No publishable lead was found');
 	});
 
+	it('does not use retrieval timestamps as publication dates for latest requests', () => {
+		const decision = routeNewsroomRequest('Latest Toronto transit stories');
+		const answer = generateFinalAnswer({
+			prompt: 'Latest Toronto transit stories',
+			decision,
+			evidence: [
+				normalizeEvidence({
+					source_name: 'Live feed without dates',
+					source_url: 'https://example.com/feed',
+					accessed_at: '2026-05-31T22:00:00.000Z',
+					tool_used: 'configured_source_monitor',
+					title: 'Feed item without source date',
+					published_at: null,
+					extracted_text: 'Transit officials described a service update in a readable source item.',
+					confidence: 0.7,
+					limitations: [],
+					source_kind: 'media_report'
+				}),
+				normalizeEvidence({
+					source_name: 'Transit agency',
+					source_url: 'https://example.com/release',
+					accessed_at: '2026-05-31T21:00:00.000Z',
+					tool_used: 'configured_source_monitor',
+					title: 'Transit agency publishes service plan',
+					published_at: '2026-05-30T13:00:00.000Z',
+					extracted_text: 'The transit agency published a service plan with source-dated information.',
+					confidence: 0.9,
+					limitations: [],
+					source_kind: 'official'
+				})
+			],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('published 2026-05-30T13:00:00.000Z');
+		expect(answer).toContain('publication date not found');
+		expect(answer).not.toContain('accessed 2026-05-31T22:00:00.000Z');
+		expect(answer.indexOf('Transit agency publishes service plan')).toBeLessThan(
+			answer.indexOf('Feed item without source date')
+		);
+	});
+
 	it('uses a compact answer shape for chat source runs', () => {
 		const decision = routeNewsroomRequest('latest on gas prices in GTA');
 		const answer = generateFinalAnswer({

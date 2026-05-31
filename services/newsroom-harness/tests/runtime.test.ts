@@ -61,6 +61,7 @@ describe('newsroom agent runtime', () => {
 			adapter: 'html_article',
 			metadata: {
 				title: 'Story title',
+				publishedAt: '2026-05-25T09:00:00.000Z',
 				structuredType: 'NewsArticle',
 				metadataSources: ['json_ld']
 			},
@@ -81,7 +82,9 @@ describe('newsroom agent runtime', () => {
 
 		expect(result).toMatchObject({
 			url: 'https://example.test/story',
+			publishedAt: '2026-05-25T09:00:00.000Z',
 			metadata: {
+				publishedAt: '2026-05-25T09:00:00.000Z',
 				structuredType: 'NewsArticle',
 				metadataSources: ['json_ld']
 			},

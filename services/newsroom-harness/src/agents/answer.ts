@@ -42,11 +42,8 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 	const listedSources = evidence.slice(0, 12);
 	const sourceNotes = [
 		...listedSources.map((item) => {
-			const timestamp = [item.published_at ? `published ${item.published_at}` : null, `accessed ${item.accessed_at}`]
-				.filter(Boolean)
-				.join('; ');
 			const note = sourceNoteFor(item);
-			return `- ${formatSourceLink(item)} - ${kindLabel(item)}; ${timestamp}.${note ? ` ${note}` : ''}`;
+			return `- ${formatSourceLink(item)} - ${kindLabel(item)}; ${publicationDateLabel(item)}.${note ? ` ${note}` : ''}`;
 		}),
 		...(evidence.length > listedSources.length
 			? [`- ${evidence.length - listedSources.length} additional usable sources were recorded and omitted from this compact brief.`]
@@ -85,8 +82,7 @@ function chatAnswer(
 	const freshness = latestAvailableFraming(prompt, freshest);
 	const sourceContext = chatSourceContext(evidence);
 	const sourceLines = evidence.slice(0, 5).map((item) => {
-		const timestamp = item.published_at ? `published ${item.published_at}` : `accessed ${item.accessed_at}`;
-		return `- ${formatSourceLink(item)} - ${timestamp}. ${summaryFor(item, 180)}`;
+		return `- ${formatSourceLink(item)} - ${publicationDateLabel(item)}. ${summaryFor(item, 180)}`;
 	});
 	const caveats = [
 		freshness,
@@ -230,7 +226,7 @@ function sourcePriority(item: EvidenceObject): number {
 }
 
 function evidenceTimeMs(item: EvidenceObject): number {
-	const parsed = Date.parse(item.published_at || item.accessed_at);
+	const parsed = Date.parse(item.published_at || '');
 	return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -330,8 +326,14 @@ function looksUrlLike(value: string): boolean {
 
 function latestAvailableFraming(prompt: string, item: EvidenceObject): string {
 	if (!/\b(latest|today|new|recent|breaking|current|update|updates)\b/i.test(prompt)) return '';
-	const timestamp = item.published_at ? `published ${item.published_at}` : `accessed ${item.accessed_at}`;
-	return `The freshest usable source found in this run was ${timestamp}; treat this as the latest available result, not proof that nothing newer exists.`;
+	if (!item.published_at) {
+		return 'No usable source in this run included a publication date; treat the date as unknown and verify recency before use.';
+	}
+	return `The freshest usable source found in this run was published ${item.published_at}; treat this as the latest available result, not proof that nothing newer exists.`;
+}
+
+function publicationDateLabel(item: EvidenceObject): string {
+	return item.published_at ? `published ${item.published_at}` : 'publication date not found';
 }
 
 function compactText(value: string, maxLength: number): string {
