@@ -71,6 +71,10 @@
 		{
 			label: 'Draft a story',
 			prompt: 'Draft a 300-word web story from this lead using only sourced facts.'
+		},
+		{
+			label: 'Package story',
+			prompt: 'Package this approved story for publish review.'
 		}
 	];
 
@@ -152,8 +156,8 @@
 	interface CommandBarResult {
 		ok: boolean;
 		status: 'completed' | 'blocked';
-		handled_by: 'Monitor' | 'Research' | 'Verification' | 'Copy' | 'Drafting';
-		agent: 'beat_monitor' | 'research' | 'verification' | 'copy' | 'drafting';
+		handled_by: 'Monitor' | 'Research' | 'Verification' | 'Copy' | 'Drafting' | 'Packaging';
+		agent: 'beat_monitor' | 'research' | 'verification' | 'copy' | 'drafting' | 'packaging';
 		route_reason: string;
 		command_excerpt: string;
 		source?: {
@@ -179,6 +183,14 @@
 		draft?: {
 			headline?: string;
 			word_count?: number;
+		};
+		package?: {
+			package_id?: string;
+			outputs?: {
+				headline_pack?: {
+					general?: Array<{ headline?: string }>;
+				};
+			};
 		};
 		verification?: {
 			processed_claims?: unknown[];
@@ -262,10 +274,16 @@
 		}
 	}
 
-	function commandTarget(command: string): 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | null {
+	function commandTarget(command: string): 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | 'packaging' | null {
 		if (selectedWorkspace && /https?:\/\//i.test(command)) return 'research';
 		if (selectedWorkspace && /\b(copy|style|legal|libel|risk|copy edit|line edit|review draft)\b/i.test(command)) {
 			return 'copy';
+		}
+		if (
+			selectedWorkspace &&
+			/\b(package|packaging|publish pack|delivery pack|headline pack|social pack|newsletter|push copy)\b/i.test(command)
+		) {
+			return 'packaging';
 		}
 		if (selectedWorkspace && /\b(verify|verification|fact[- ]?check|cross[- ]?check|two[- ]?source|source rule)\b/i.test(command)) {
 			return 'verification';
@@ -346,6 +364,10 @@
 		if (result.claim) return `Proposed fact-ledger claim: ${trimText(result.claim.claim, 120)}`;
 		if (result.source) return `Extracted ${result.source.title} through ${result.source.adapter || 'source adapter'}.`;
 		if (result.draft) return `Drafted ${result.draft.headline || 'web story'} for review.`;
+		if (result.package) {
+			const count = result.package.outputs?.headline_pack?.general?.length ?? 0;
+			return `Packaged story for publish review${count ? ` with ${count} headline options` : ''}.`;
+		}
 		if (result.verification?.processed_claims?.length) {
 			return `Verification processed ${result.verification.processed_claims.length} claim${result.verification.processed_claims.length === 1 ? '' : 's'}.`;
 		}

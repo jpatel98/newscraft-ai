@@ -3,14 +3,15 @@ import { fetchSourceUrl, type FetchedSource } from '../tools/sources.js';
 import { nowIso } from '../util/ids.js';
 import { runCopyAgent, type CopyRunResult } from './copy.js';
 import { DraftingPreconditionError, runDraftingAgent, type DraftingRunResult } from './drafting.js';
+import { PackagerPreconditionError, runPackagerAgent, type PackagerRunResult } from './packager.js';
 import { runResearchAgent, type ResearchClaim, type ResearchSourceEvidence, type ResearchTargetClaim } from './research.js';
 import { runVerificationAgent, type VerificationRunResult } from './verification.js';
 
-type CommandAgent = 'beat_monitor' | 'research' | 'verification' | 'copy' | 'drafting';
+type CommandAgent = 'beat_monitor' | 'research' | 'verification' | 'copy' | 'drafting' | 'packaging';
 type CommandStatus = 'completed' | 'blocked';
 
 const UNSUPPORTED_COMMAND_REASON =
-	'Ask NewsCraft commands need a source URL, a lead or beat request, or an active story action such as research, verification, copy, or drafting.';
+	'Ask NewsCraft commands need a source URL, a lead or beat request, or an active story action such as research, verification, copy, drafting, or packaging.';
 
 export interface EditorCommandInput {
 	command: string;
@@ -18,7 +19,7 @@ export interface EditorCommandInput {
 	storyId?: string | null;
 	jobId?: string | null;
 	runId?: string | null;
-	targetAgent?: 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | null;
+	targetAgent?: 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | 'packaging' | null;
 	targetWordCount?: number;
 	facts?: unknown[];
 }
@@ -26,7 +27,7 @@ export interface EditorCommandInput {
 export interface EditorCommandResult {
 	ok: boolean;
 	status: CommandStatus;
-	handled_by: 'Monitor' | 'Research' | 'Verification' | 'Copy' | 'Drafting';
+	handled_by: 'Monitor' | 'Research' | 'Verification' | 'Copy' | 'Drafting' | 'Packaging';
 	agent: CommandAgent;
 	route_reason: string;
 	command_excerpt: string;
@@ -46,6 +47,7 @@ export interface EditorCommandResult {
 	verification?: VerificationRunResult;
 	copy?: CopyRunResult;
 	draft?: DraftingRunResult['draft'];
+	package?: PackagerRunResult['package'];
 	gate?: DraftingRunResult['gate'];
 	gates?: Array<DraftingRunResult['gate']>;
 	error?: string;
@@ -245,6 +247,60 @@ export async function runEditorCommand(
 		};
 	}
 
+	if (route.agent === 'packaging') {
+		if (!storyId) {
+			const event = repository.appendEvent({
+				workspaceId,
+				jobId: input.jobId,
+				runId: input.runId,
+				agent: 'packager',
+				kind: 'package.command.blocked',
+				payload: {
+					command_excerpt: excerpt(command),
+					reason: 'Packaging needs an active story workspace with an approved draft.'
+				},
+				parentEventId: routed.id
+			});
+			return blocked(route, command, routed, event, 'Packaging needs an active story workspace with an approved draft.');
+		}
+		try {
+			const packaged = runPackagerAgent(repository, {
+				storyId,
+				workspaceId,
+				jobId: input.jobId,
+				runId: input.runId
+			});
+			return {
+				ok: true,
+				status: 'completed',
+				handled_by: route.handledBy,
+				agent: route.agent,
+				route_reason: route.reason,
+				command_excerpt: excerpt(command),
+				events: [{ id: routed.id, kind: routed.kind }],
+				package: packaged.package,
+				gate: packaged.gate,
+				gates: [packaged.gate]
+			};
+		} catch (err) {
+			if (!(err instanceof PackagerPreconditionError)) throw err;
+			const event = repository.appendEvent({
+				workspaceId,
+				storyId,
+				jobId: input.jobId,
+				runId: input.runId,
+				agent: 'packager',
+				kind: 'package.command.blocked',
+				payload: {
+					command_excerpt: excerpt(command),
+					reason: err.message
+				},
+				parentEventId: routed.id
+			});
+			return blocked(route, command, routed, event, err.message);
+		}
+	}
+
 	if (!storyId) {
 		const event = repository.appendEvent({
 			workspaceId,
@@ -362,7 +418,7 @@ function routeCommand(
 	sourceUrl: string | null,
 	targetAgent: EditorCommandInput['targetAgent'],
 	storyId: string | null
-): { agent: CommandAgent; handledBy: 'Monitor' | 'Research' | 'Verification' | 'Copy' | 'Drafting'; reason: string } {
+): { agent: CommandAgent; handledBy: EditorCommandResult['handled_by']; reason: string } {
 	if (targetAgent === 'drafting') {
 		return { agent: 'drafting', handledBy: 'Drafting', reason: 'Explicit drafting target.' };
 	}
@@ -378,11 +434,17 @@ function routeCommand(
 	if (targetAgent === 'monitor') {
 		return { agent: 'beat_monitor', handledBy: 'Monitor', reason: 'Explicit monitor target.' };
 	}
+	if (targetAgent === 'packaging') {
+		return { agent: 'packaging', handledBy: 'Packaging', reason: 'Explicit packaging target.' };
+	}
 	if (storyId && sourceUrl) {
 		return { agent: 'research', handledBy: 'Research', reason: 'Story-context source commands route to Research.' };
 	}
 	if (storyId && /\b(copy|style|legal|libel|risk|copy edit|line edit|review draft)\b/i.test(command)) {
 		return { agent: 'copy', handledBy: 'Copy', reason: 'Story-context copy/legal-style command.' };
+	}
+	if (storyId && /\b(package|packaging|publish pack|delivery pack|headline pack|social pack|newsletter|push copy)\b/i.test(command)) {
+		return { agent: 'packaging', handledBy: 'Packaging', reason: 'Story-context packaging command.' };
 	}
 	if (storyId && /\b(verify|verification|fact[- ]?check|cross[- ]?check|two[- ]?source|source rule)\b/i.test(command)) {
 		return { agent: 'verification', handledBy: 'Verification', reason: 'Story-context verification command.' };
@@ -455,7 +517,7 @@ function sourceProvenancePayload(source: FetchedSource): Record<string, unknown>
 }
 
 function blocked(
-	route: { agent: CommandAgent; handledBy: 'Monitor' | 'Research' | 'Verification' | 'Copy' | 'Drafting'; reason: string },
+	route: { agent: CommandAgent; handledBy: EditorCommandResult['handled_by']; reason: string },
 	command: string,
 	routed: { id: string; kind: string },
 	event: { id: string; kind: string },

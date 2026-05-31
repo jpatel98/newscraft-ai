@@ -338,6 +338,48 @@ describe('newsroom harness server', () => {
 		expect(harness.repository.listGates({ workspaceId, storyId })).toHaveLength(1);
 	});
 
+	it('packages an approved draft over the authenticated API', async () => {
+		await startHarness();
+		const storyId = 'story-api-package';
+		const workspaceId = 'workspace-api';
+		for (const fact of verifiedDraftFacts()) {
+			harness.repository.appendStoryMemory(storyId, {
+				workspaceId,
+				key: 'fact_ledger',
+				kind: 'claim.verified',
+				actor: 'verification',
+				value: fact
+			});
+		}
+		const draftResponse = await authFetch(`/api/stories/${storyId}/drafts/web-story`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ workspace_id: workspaceId, target_word_count: 300 })
+		});
+		const draft = await draftResponse.json();
+		harness.repository.resolveGate(draft.gate.id, { action: 'approve', actor: 'editor' });
+
+		const packageResponse = await authFetch(`/api/stories/${storyId}/packages`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ workspace_id: workspaceId })
+		});
+		const packaged = await packageResponse.json();
+		const listResponse = await authFetch(`/api/stories/${storyId}/packages?workspace_id=${workspaceId}`);
+		const listed = await listResponse.json();
+
+		expect(packageResponse.status).toBe(201);
+		expect(packaged.package.outputs.headline_pack.general).toHaveLength(5);
+		expect(packaged.gate).toMatchObject({
+			type: 'publish',
+			status: 'open',
+			actions: ['approve', 'hold', 'send_to_cms']
+		});
+		expect(listed.packages.map((candidate: { package_id: string }) => candidate.package_id)).toEqual([
+			packaged.package.package_id
+		]);
+	});
+
 	it('returns a conflict instead of queuing draft review when verified facts are missing', async () => {
 		await startHarness();
 		const storyId = 'story-api-undrafted';

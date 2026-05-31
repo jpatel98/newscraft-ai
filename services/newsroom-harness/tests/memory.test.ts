@@ -94,7 +94,14 @@ describe('newsroom memory stores', () => {
 		expect(beat.current.source_quality).toEqual([
 			{ source: 'Transit agency RSS', reliability: 'primary' }
 		]);
-		expect(story.required_keys).toEqual(['fact_ledger', 'draft_history', 'agent_event_log', 'editor_decisions']);
+		expect(story.required_keys).toEqual([
+			'fact_ledger',
+			'draft_history',
+			'package_history',
+			'delivery_history',
+			'agent_event_log',
+			'editor_decisions'
+		]);
 		expect(story.current.fact_ledger).toEqual([
 			{ claim: 'Board requested an operational review', status: 'verified' }
 		]);

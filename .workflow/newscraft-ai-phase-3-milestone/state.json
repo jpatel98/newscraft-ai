@@ -1,0 +1,52 @@
+{
+  "title": "newscraft-ai phase 3 milestone",
+  "slug": "newscraft-ai-phase-3-milestone",
+  "created_at": "2026-05-30T22:13:34+00:00",
+  "status": "completed",
+  "approval": {
+    "required": true,
+    "granted": false,
+    "notes": "Approval required for Linear writes and real external delivery calls. Local code edits and local fixture tests are proceeding."
+  },
+  "packets": [
+    {
+      "id": "A",
+      "name": "Harness packaging model and packager agent",
+      "status": "completed",
+      "result": "results/implementation.md"
+    },
+    {
+      "id": "B",
+      "name": "Publish gate side effects and delivery adapters",
+      "status": "completed",
+      "result": "results/implementation.md"
+    },
+    {
+      "id": "C",
+      "name": "API endpoints and tests",
+      "status": "completed",
+      "result": "results/implementation.md"
+    },
+    {
+      "id": "D",
+      "name": "UI/type compatibility",
+      "status": "completed",
+      "result": "results/implementation.md"
+    },
+    {
+      "id": "E",
+      "name": "Verification and final report",
+      "status": "completed",
+      "result": "final-report.md"
+    }
+  ],
+  "verification": {
+    "status": "passed",
+    "checks": [
+      "pnpm --filter @newscraft/newsroom-harness exec vitest run --config vitest.config.ts tests/packager-agent.test.ts tests/server.test.ts tests/editor-command.test.ts tests/memory.test.ts",
+      "pnpm --filter @newscraft/newsroom-harness test",
+      "pnpm check",
+      "pnpm test"
+    ]
+  }
+}

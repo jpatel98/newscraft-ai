@@ -9,7 +9,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		storyId?: string | null;
 		jobId?: string | null;
 		runId?: string | null;
-		targetAgent?: 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | null;
+		targetAgent?: 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | 'packaging' | null;
 		facts?: unknown[];
 	};
 	const command = input.command?.trim();

@@ -16,8 +16,10 @@ import { writeChatCompletion, writeResponses } from './chat.js';
 import { loadConfig, type HarnessConfig } from './config.js';
 import { createHarnessRepository } from './db/factory.js';
 import { HarnessRepository } from './db/repository.js';
+import { deliverPackage, DeliveryPreconditionError } from './agents/delivery.js';
 import { DraftingPreconditionError, runDraftingAgent } from './agents/drafting.js';
 import { runEditorCommand } from './agents/editor-command.js';
+import { PackagerPreconditionError, listStoryPackages, runPackagerAgent } from './agents/packager.js';
 import { NewsroomAgentRuntime } from './agents/runtime.js';
 import { executeCrawlPlan } from './crawl-plans/executor.js';
 import { JobRunner } from './jobs/runner.js';
@@ -228,7 +230,7 @@ async function route(
 			story_id?: string | null;
 			job_id?: string | null;
 			run_id?: string | null;
-			target_agent?: 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | null;
+			target_agent?: 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | 'packaging' | null;
 			target_word_count?: number;
 			facts?: unknown[];
 		}>(req);
@@ -351,6 +353,78 @@ async function route(
 			}
 			return;
 		}
+	}
+
+	const storyPackages = url.pathname.match(/^\/api\/stories\/([^/]+)\/packages$/);
+	if (storyPackages) {
+		const storyId = decodeURIComponent(storyPackages[1]);
+		if (req.method === 'GET') {
+			const workspaceId = requiredQueryText(url, 'workspace_id');
+			writeJson(res, 200, { packages: listStoryPackages(ctx.repository, storyId, workspaceId) });
+			return;
+		}
+		if (req.method === 'POST') {
+			const input = await readJson<{
+				workspace_id?: string;
+				job_id?: string | null;
+				run_id?: string | null;
+				draft_event_id?: string | null;
+			}>(req);
+			if (!input.workspace_id?.trim()) throw new HttpError(400, 'workspace_id is required');
+			try {
+				writeJson(res, 201, {
+					ok: true,
+					...runPackagerAgent(ctx.repository, {
+						storyId,
+						workspaceId: input.workspace_id,
+						jobId: input.job_id,
+						runId: input.run_id,
+						draftEventId: input.draft_event_id
+					})
+				});
+			} catch (err) {
+				if (err instanceof PackagerPreconditionError) throw new HttpError(409, err.message);
+				throw err;
+			}
+			return;
+		}
+	}
+
+	const packageDelivery = url.pathname.match(/^\/api\/stories\/([^/]+)\/packages\/([^/]+)\/deliver$/);
+	if (packageDelivery && req.method === 'POST') {
+		const storyId = decodeURIComponent(packageDelivery[1]);
+		const packageId = decodeURIComponent(packageDelivery[2]);
+		const input = await readJson<{
+			workspace_id?: string;
+			job_id?: string | null;
+			run_id?: string | null;
+			channel?: 'email_digest' | 'webhook' | 'slack' | 'wordpress';
+			target_url?: string | null;
+			wordpress_post_id?: string | number | null;
+			actor?: string;
+		}>(req);
+		if (!input.workspace_id?.trim()) throw new HttpError(400, 'workspace_id is required');
+		if (!input.channel?.trim()) throw new HttpError(400, 'channel is required');
+		try {
+			const result = await deliverPackage(ctx.repository, ctx.config, {
+				storyId,
+				packageId,
+				workspaceId: input.workspace_id,
+				jobId: input.job_id,
+				runId: input.run_id,
+				channel: input.channel,
+				targetUrl: input.target_url,
+				wordpressPostId: input.wordpress_post_id,
+				actor: input.actor
+			});
+			writeJson(res, result.ok ? 200 : 409, { ok: result.ok, delivery: result });
+		} catch (err) {
+			if (err instanceof DeliveryPreconditionError || err instanceof PackagerPreconditionError) {
+				throw new HttpError(409, err.message);
+			}
+			throw err;
+		}
+		return;
 	}
 
 	const jobAction = url.pathname.match(/^\/api\/jobs\/([^/]+)(?:\/(run|pause|resume))?$/);

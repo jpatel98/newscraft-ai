@@ -67,6 +67,9 @@ state with these important changes in place:
 - Copy now runs an advisory house-style/legal-risk pass over drafts, using the
   inspectable House memory style guide, banned phrases, and libel patterns, and
   queues Legal/Style gates for high-risk findings.
+- Packaging now turns approved drafts into brief, web, feature, broadcast,
+  social, push, newsletter, and headline-pack outputs, queues a Publish gate,
+  and keeps delivery behind that resolved human checkpoint.
 - Source Health failures now queue first-class editor gates, dedupe open gates
   for the same source host, write source-quality memory when resolved, and
   enforce `pause`/`drop` decisions in crawl-plan and beat-monitor fetch paths.
@@ -1063,6 +1066,12 @@ NEWSROOM_AGENT_ENABLED_TOOLS=
 NEWSROOM_AGENT_SOURCE_PRIORITY=official,primary,source_monitor,internal,media_report,unknown
 NEWSROOM_AGENT_SOURCE_MONITORS_JSON=
 NEWSROOM_WEB_SEARCH_MODEL=gpt-5
+NEWSROOM_EMAIL_DIGEST_WEBHOOK_URL=
+NEWSROOM_DELIVERY_WEBHOOK_URL=
+NEWSROOM_SLACK_WEBHOOK_URL=
+WORDPRESS_REST_URL=
+WORDPRESS_USERNAME=
+WORDPRESS_APP_PASSWORD=
 ```
 
 All of these are represented in the example env files. The timeout, tool-call,
@@ -1398,11 +1407,12 @@ Notable tested utility areas visible in the repo:
 ### Publishing
 
 - The system drafts reports and stores/displays them.
-- It does not publish to a CMS.
-- It does not write to external newsroom systems beyond optional ingest back to
-  the UI.
-- Delivery/output format controls are fixed defaults in the current product,
-  not user-selectable publishing channels.
+- Approved story drafts can be packaged for delivery and reviewed through a
+  Publish gate.
+- Delivery adapters exist for email digest, generic webhook, Slack, and
+  WordPress REST draft push.
+- Delivery and CMS push require a resolved Publish gate; target URLs and
+  credentials come from environment/deployment secrets, not story memory.
 - Human review remains required for editorial decisions.
 
 ### Auth/admin model

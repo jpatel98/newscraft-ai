@@ -284,7 +284,14 @@ const BEAT_MEMORY_KEYS = [
 	'editor_spike_patterns'
 ] as const;
 
-const STORY_MEMORY_KEYS = ['fact_ledger', 'draft_history', 'agent_event_log', 'editor_decisions'] as const;
+const STORY_MEMORY_KEYS = [
+	'fact_ledger',
+	'draft_history',
+	'package_history',
+	'delivery_history',
+	'agent_event_log',
+	'editor_decisions'
+] as const;
 
 const GATE_TYPES: readonly NewsroomGateType[] = [
 	'pitch',
@@ -637,6 +644,28 @@ export class HarnessRepository {
 					gate_id: gate.id,
 					action: input.action,
 					notes: optionalText(input.notes),
+					payload: input.payload ?? null
+				}
+			});
+			return;
+		}
+
+		if ((gate.type === 'draft_review' || gate.type === 'publish') && gate.story_id) {
+			const payload = objectValue(gate.payload) ?? {};
+			this.appendStoryMemory(gate.story_id, {
+				workspaceId: gate.workspace_id,
+				key: 'editor_decisions',
+				kind: `${gate.type}.resolved`,
+				actor,
+				createdAt: resolvedAt,
+				value: {
+					gate_id: gate.id,
+					gate_type: gate.type,
+					action: input.action,
+					notes: optionalText(input.notes),
+					draft_event_id: stringValue(payload.draft_event_id),
+					package_id: stringValue(payload.package_id),
+					package_event_id: stringValue(payload.package_event_id),
 					payload: input.payload ?? null
 				}
 			});

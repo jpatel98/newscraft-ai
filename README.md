@@ -93,6 +93,12 @@ NEWSROOM_AGENT_ENABLED_TOOLS=
 NEWSROOM_AGENT_SOURCE_PRIORITY=official,primary,source_monitor,internal,media_report,unknown
 NEWSROOM_AGENT_SOURCE_MONITORS_JSON=
 NEWSROOM_WEB_SEARCH_MODEL=gpt-5
+NEWSROOM_EMAIL_DIGEST_WEBHOOK_URL=
+NEWSROOM_DELIVERY_WEBHOOK_URL=
+NEWSROOM_SLACK_WEBHOOK_URL=
+WORDPRESS_REST_URL=
+WORDPRESS_USERNAME=
+WORDPRESS_APP_PASSWORD=
 ```
 
 `NEWSROOM_HARNESS_DB_PATH` remains the local hot store. When
@@ -112,6 +118,13 @@ mission runs are saved in the harness DB; if `NEWSROOM_UI_INGEST_URL` and
 `NEWSROOM_UI_INGEST_KEY` are set, the markdown report is posted to the existing
 UI ingest endpoint so Missions can display it. `NEWSROOM_UI_INGEST_KEY` must
 match the UI's `NEWSROOM_UI_INGEST_KEY`.
+
+Phase 3 packaging is harness-owned. Once a draft review gate is approved, the
+Packager can create brief, web, feature, broadcast, social, push, newsletter,
+and headline-pack outputs, then queue a Publish gate. Delivery adapters for
+email digest, generic webhook, Slack, and WordPress REST only run after a
+Publish gate is resolved with `approve` or `send_to_cms`; real target URLs and
+WordPress credentials must come from env/deployment secrets.
 
 Harness commands:
 
@@ -208,8 +221,8 @@ corepack pnpm build
 ## Current Limits
 
 - `/api/agent/*` route/type names are intentionally preserved for compatibility.
-- The harness does not publish or write to a CMS; it only drafts reports and
-  posts them to the existing UI ingest endpoint when configured.
+- CMS/delivery adapters are present, but they require a resolved Publish gate
+  and explicit env/deployment configuration before anything leaves NewsCraft.
 - The v1 scheduler runs only while the harness process is running.
 - Cron parsing is intentionally conservative; interval schedules like
   `every 180m` and simple five-field cron schedules are supported first.

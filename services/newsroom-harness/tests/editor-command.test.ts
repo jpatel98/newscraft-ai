@@ -154,11 +154,11 @@ describe('editor command routing', () => {
 		expect(result).toMatchObject({
 			ok: false,
 			status: 'blocked',
-			handled_by: 'Monitor',
-			agent: 'beat_monitor',
-			error:
-				'Ask NewsCraft commands need a source URL, a lead or beat request, or an active story action such as research, verification, copy, or drafting.'
-		});
+				handled_by: 'Monitor',
+				agent: 'beat_monitor',
+				error:
+					'Ask NewsCraft commands need a source URL, a lead or beat request, or an active story action such as research, verification, copy, drafting, or packaging.'
+			});
 		expect(repo.listEvents({ workspaceId: 'workspace-command' }).map((event) => event.kind)).toEqual([
 			'editor.command.routed',
 			'editor.command.blocked'
