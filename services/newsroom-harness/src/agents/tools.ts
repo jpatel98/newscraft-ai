@@ -7,7 +7,7 @@ import type { ToolBudgetSnapshot } from './budget.js';
 export type ToolCategory =
 	| 'source_feed_fetcher'
 	| 'source_monitor'
-	| 'mission_result_reader'
+	| 'saved_research_reader'
 	| 'web_search_provider'
 	| 'browser_automation_provider'
 	| 'pdf_text_extractor'

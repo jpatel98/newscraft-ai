@@ -1,14 +1,5 @@
 import type {
 	CreateJobInput,
-	NewsroomCrawlPlanArticleBodyStrategy,
-	NewsroomCrawlPlanCandidateLinkDto,
-	NewsroomCrawlPlanChangeDetection,
-	NewsroomCrawlPlanPoliteFetchOverridesDto,
-	NewsroomCrawlPlanStatus,
-	NewsroomCrawlPlanVersionDto,
-	NewsroomGateDto,
-	NewsroomGateStatus,
-	NewsroomGateType,
 	NewsroomEventDto,
 	NewsroomEventJson,
 	NewsroomJobDto,
@@ -17,10 +8,6 @@ import type {
 	NewsroomRunStepDto,
 	NewsroomSourceDto,
 	NewsroomToolCallDto,
-	QueueGateInput,
-	ResolveGateInput,
-	ResolveGateResult,
-	SaveCrawlPlanVersionInput,
 	RunStatus,
 	UpdateJobInput
 } from '@newscraft/shared';
@@ -119,36 +106,7 @@ interface EventRow {
 	created_at: string;
 }
 
-interface GateRow {
-	id: string;
-	workspace_id: string;
-	story_id: string | null;
-	job_id: string | null;
-	run_id: string | null;
-	type: NewsroomGateType;
-	title: string;
-	summary: string;
-	status: NewsroomGateStatus;
-	priority: number;
-	payload_json: string;
-	actions_json: string;
-	created_by: string;
-	created_at: string;
-	resolved_at: string | null;
-	resolved_by: string | null;
-	resolution_action: string | null;
-	resolution_notes: string | null;
-	resolution_payload_json: string | null;
-	resolution_event_id: string | null;
-}
-
-type MemoryTier = 'house' | 'beat' | 'story';
-
-interface HouseMemoryRow {
-	key: string;
-	value_json: string;
-	updated_at: string;
-}
+type MemoryTier = 'story';
 
 interface MemoryEntryRow {
 	id: string;
@@ -178,7 +136,6 @@ export interface StoreSourceInput {
 	archiveSnapshotUrl?: string | null;
 	metadata?: unknown;
 	provenance?: unknown;
-	healthGate?: unknown | null;
 }
 
 export const DEFAULT_WORKSPACE_ID = 'default';
@@ -206,15 +163,6 @@ export interface ListEventsOptions {
 	limit?: number;
 }
 
-export interface ListGatesOptions {
-	workspaceId?: string;
-	storyId?: string | null;
-	jobId?: string | null;
-	runId?: string | null;
-	status?: NewsroomGateStatus | 'all';
-	limit?: number;
-}
-
 export interface MemoryEntryDto {
 	id: string;
 	workspace_id: string;
@@ -227,17 +175,8 @@ export interface MemoryEntryDto {
 	created_at: string;
 }
 
-export interface HouseMemoryInspectDto {
-	tier: 'house';
-	scope_id: 'global';
-	current: Record<string, NewsroomEventJson>;
-	required_keys: string[];
-	updated_at: string | null;
-	entries: MemoryEntryDto[];
-}
-
 export interface ScopedMemoryInspectDto {
-	tier: 'beat' | 'story';
+	tier: 'story';
 	scope_id: string;
 	current: Record<string, NewsroomEventJson[]>;
 	required_keys: string[];
@@ -255,87 +194,10 @@ export interface AppendMemoryInput {
 	createdAt?: string;
 }
 
-export interface SourceHealthDecision {
-	url: string;
-	host: string;
-	action: string;
-	status: string;
-	blocks_fetch: boolean;
-	gate_id: string | null;
-	resolved_event_id: string | null;
-	notes: string | null;
-}
-
-const HOUSE_MEMORY_KEYS = [
-	'style_guide',
-	'banned_phrases',
-	'libel_patterns',
-	'gazetteer',
-	'model_preferences',
-	'beats'
-] as const;
-
-const BEAT_MEMORY_KEYS = [
-	'crawl_plans',
-	'source_quality',
-	'prior_coverage',
-	'peer_coverage',
-	'editor_accept_patterns',
-	'editor_spike_patterns'
-] as const;
-
 const STORY_MEMORY_KEYS = [
 	'fact_ledger',
-	'draft_history',
-	'package_history',
-	'delivery_history',
 	'agent_event_log',
-	'editor_decisions'
 ] as const;
-
-const GATE_TYPES: readonly NewsroomGateType[] = [
-	'pitch',
-	'verification',
-	'draft_review',
-	'legal_style',
-	'publish',
-	'crawl_plan',
-	'source_health',
-	'budget'
-];
-
-const DEFAULT_GATE_ACTIONS: Record<NewsroomGateType, string[]> = {
-	pitch: ['accept', 'hold', 'spike'],
-	verification: ['mark_verified', 'mark_disputed', 'request_more_research'],
-	draft_review: ['approve', 'return_with_notes', 'spike'],
-	legal_style: ['approve', 'edit', 'block'],
-	publish: ['approve', 'hold', 'send_to_cms'],
-	crawl_plan: ['approve', 'edit', 'reject'],
-	source_health: ['pause', 'retry', 'drop', 'override'],
-	budget: ['approve_overage', 'reduce_scope', 'pause']
-};
-
-const CRAWL_PLAN_BODY_STRATEGIES: readonly NewsroomCrawlPlanArticleBodyStrategy[] = [
-	'auto',
-	'selector',
-	'agent-extract'
-];
-
-const CRAWL_PLAN_CHANGE_DETECTION: readonly NewsroomCrawlPlanChangeDetection[] = [
-	'hash',
-	'structured_diff',
-	'semantic_similarity'
-];
-
-const CRAWL_PLAN_STATUSES: readonly NewsroomCrawlPlanStatus[] = ['pending', 'approved', 'rejected'];
-
-const DEFAULT_CRAWL_PLAN_POLITE_FETCH: NewsroomCrawlPlanPoliteFetchOverridesDto = {
-	respect_robots: true,
-	robots_override: false,
-	host_delay_ms: 250,
-	failure_budget: 3,
-	archive_web: true
-};
 
 export class HarnessRepository {
 	constructor(private db: HarnessDb) {}
@@ -417,443 +279,6 @@ export class HarnessRepository {
 			)
 			.all(...params) as EventRow[];
 		return rows.map(eventDto);
-	}
-
-	queueGate(input: QueueGateInput): NewsroomGateDto {
-		const id = newId('gate');
-		const workspaceId = requiredText(input.workspace_id || DEFAULT_WORKSPACE_ID, 'workspace_id');
-		const type = requiredGateType(input.type);
-		const title = requiredText(input.title, 'gate title');
-		const summary = requiredText(input.summary, 'gate summary');
-		const priority = clampGatePriority(input.priority);
-		const actions = normalizeGateActions(input.actions, type);
-		const createdBy = requiredText(input.created_by || 'assignment_desk', 'created_by');
-		const createdAt = input.created_at || nowIso();
-		this.db
-			.prepare(
-				`INSERT INTO gates (
-					id, workspace_id, story_id, job_id, run_id, type, title, summary, status,
-					priority, payload_json, actions_json, created_by, created_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`
-			)
-			.run(
-				id,
-				workspaceId,
-				optionalText(input.story_id),
-				optionalText(input.job_id),
-				optionalText(input.run_id),
-				type,
-				title,
-				summary,
-				priority,
-				stringifyJson(input.payload ?? {}),
-				stringifyJson(actions),
-				createdBy,
-				createdAt
-			);
-		this.appendEvent({
-			workspaceId,
-			storyId: input.story_id,
-			jobId: input.job_id,
-			runId: input.run_id,
-			agent: createdBy,
-			kind: 'gate.queued',
-			payload: {
-				gate_id: id,
-				gate_type: type,
-				title,
-				summary,
-				priority,
-				actions,
-				payload: input.payload ?? {}
-			},
-			createdAt
-		});
-		return this.requireGate(id);
-	}
-
-	getGate(id: string): NewsroomGateDto | null {
-		const row = this.db.prepare('SELECT * FROM gates WHERE id = ?').get(id) as GateRow | undefined;
-		return row ? gateDto(row) : null;
-	}
-
-	requireGate(id: string): NewsroomGateDto {
-		const gate = this.getGate(id);
-		if (!gate) throw new Error('Gate not found');
-		return gate;
-	}
-
-	listGates(options: ListGatesOptions = {}): NewsroomGateDto[] {
-		const conditions: string[] = ['workspace_id = ?'];
-		const params: unknown[] = [requiredText(options.workspaceId || DEFAULT_WORKSPACE_ID, 'workspace_id')];
-		addNullableFilter(conditions, params, 'story_id', options.storyId);
-		addNullableFilter(conditions, params, 'job_id', options.jobId);
-		addNullableFilter(conditions, params, 'run_id', options.runId);
-		const status = options.status || 'open';
-		if (status !== 'all') {
-			conditions.push('status = ?');
-			params.push(requiredGateStatus(status));
-		}
-		params.push(clampGateLimit(options.limit));
-		const order =
-			status === 'open'
-				? 'priority ASC, created_at ASC, rowid ASC'
-				: 'created_at DESC, rowid DESC';
-		const rows = this.db
-			.prepare(
-				`SELECT * FROM gates
-				 WHERE ${conditions.join(' AND ')}
-				 ORDER BY ${order}
-				 LIMIT ?`
-			)
-			.all(...params) as GateRow[];
-		return rows.map(gateDto);
-	}
-
-	findOpenGate(
-		options: ListGatesOptions & {
-			type: NewsroomGateType;
-			matches?: (gate: NewsroomGateDto) => boolean;
-		}
-	): NewsroomGateDto | null {
-		return (
-			this.listGates({ ...options, status: 'open', limit: options.limit ?? 200 })
-				.filter((gate) => gate.type === options.type)
-				.find((gate) => (options.matches ? options.matches(gate) : true)) ?? null
-		);
-	}
-
-	resolveGate(id: string, input: ResolveGateInput): ResolveGateResult {
-		const gateId = requiredText(id, 'gate_id');
-		const action = requiredText(input.action, 'gate action');
-		const actor = requiredText(input.actor || 'editor', 'actor');
-		const notes = optionalText(input.notes);
-		const resolvedAt = input.resolved_at || nowIso();
-		const tx = this.db.transaction(() => {
-			const gate = this.requireGate(gateId);
-			if (gate.status === 'resolved') throw new Error('Gate already resolved');
-			if (gate.actions.length > 0 && !gate.actions.includes(action)) {
-				throw new Error(`Unsupported gate action: ${action}`);
-			}
-			this.db
-				.prepare(
-					`UPDATE gates SET
-						status = 'resolved',
-						resolved_at = ?,
-						resolved_by = ?,
-						resolution_action = ?,
-						resolution_notes = ?,
-						resolution_payload_json = ?
-					 WHERE id = ? AND status = 'open'`
-				)
-				.run(resolvedAt, actor, action, notes, stringifyJson(input.payload ?? null), gateId);
-			const event = this.appendEvent({
-				workspaceId: gate.workspace_id,
-				storyId: gate.story_id,
-				jobId: gate.job_id,
-				runId: gate.run_id,
-				agent: actor,
-				kind: 'gate.resolved',
-				payload: {
-					gate_id: gate.id,
-					gate_type: gate.type,
-					title: gate.title,
-					action,
-					notes,
-					payload: input.payload ?? null
-				},
-				createdAt: resolvedAt
-			});
-			this.db
-				.prepare('UPDATE gates SET resolution_event_id = ? WHERE id = ?')
-				.run(event.id, gateId);
-			this.recordGateResolutionSideEffects(gate, input, event, actor, resolvedAt);
-			return { gate: this.requireGate(gateId), event };
-		});
-		return tx();
-	}
-
-	private recordGateResolutionSideEffects(
-		gate: NewsroomGateDto,
-		input: ResolveGateInput,
-		event: NewsroomEventDto,
-		actor: string,
-		resolvedAt: string
-	): void {
-		if (gate.type === 'verification' && gate.story_id) {
-			const payload = objectValue(gate.payload) ?? {};
-			const status = verificationResolutionStatus(input.action);
-			if (!status) return;
-			const claimId = stringValue(payload.id) || stringValue(payload.claim_id) || `claim-${gate.id}`;
-			const claim = stringValue(payload.claim) || gate.title;
-			const claimPayload = {
-				id: claimId,
-				claim_id: claimId,
-				claim,
-				status,
-				source_count: numberValue(payload.source_count),
-				sources: Array.isArray(payload.sources) ? payload.sources : [],
-				target_claim: payload.target_claim ?? null,
-				two_source_rule: payload.two_source_rule ?? null,
-				conflict_detection: payload.conflict_detection ?? null,
-				proposed_event_id: payload.proposed_event_id ?? null,
-				proposed_event_ids: Array.isArray(payload.proposed_event_ids) ? payload.proposed_event_ids : [],
-				verification_event_id: payload.verification_event_id ?? null,
-				supersedes_event_id: payload.verification_event_id ?? null,
-				supersedes_verification_event_id: payload.verification_event_id ?? null,
-				resolved_from_gate_id: gate.id,
-				resolved_by: actor,
-				resolved_at: resolvedAt,
-				notes: optionalText(input.notes),
-				reopens_verification: input.action === 'request_more_research'
-			};
-			const claimEvent = this.appendEvent({
-				workspaceId: gate.workspace_id,
-				storyId: gate.story_id,
-				jobId: gate.job_id,
-				runId: gate.run_id,
-				agent: actor,
-				kind: `claim.${status}`,
-				payload: claimPayload,
-				sources: Array.isArray(payload.sources) ? payload.sources : [],
-				parentEventId: event.id,
-				createdAt: resolvedAt
-			});
-			this.appendStoryMemory(gate.story_id, {
-				workspaceId: gate.workspace_id,
-				key: 'fact_ledger',
-				kind: `claim.${status}`,
-				actor,
-				createdAt: resolvedAt,
-				value: {
-					...claimPayload,
-					event_id: claimEvent.id
-				}
-			});
-			return;
-		}
-
-		if (gate.type === 'legal_style' && gate.story_id) {
-			this.appendStoryMemory(gate.story_id, {
-				workspaceId: gate.workspace_id,
-				key: 'editor_decisions',
-				kind: 'legal_style.resolved',
-				actor,
-				createdAt: resolvedAt,
-				value: {
-					gate_id: gate.id,
-					action: input.action,
-					notes: optionalText(input.notes),
-					payload: input.payload ?? null
-				}
-			});
-			return;
-		}
-
-		if ((gate.type === 'draft_review' || gate.type === 'publish') && gate.story_id) {
-			const payload = objectValue(gate.payload) ?? {};
-			this.appendStoryMemory(gate.story_id, {
-				workspaceId: gate.workspace_id,
-				key: 'editor_decisions',
-				kind: `${gate.type}.resolved`,
-				actor,
-				createdAt: resolvedAt,
-				value: {
-					gate_id: gate.id,
-					gate_type: gate.type,
-					action: input.action,
-					notes: optionalText(input.notes),
-					draft_event_id: stringValue(payload.draft_event_id),
-					package_id: stringValue(payload.package_id),
-					package_event_id: stringValue(payload.package_event_id),
-					payload: input.payload ?? null
-				}
-			});
-			return;
-		}
-
-		if (gate.type === 'source_health') {
-			const payload = objectValue(gate.payload) ?? {};
-			const url = stringValue(payload.url) || stringValue(objectValue(payload.source)?.url);
-			const host = stringValue(payload.host) || (url ? safeHostFromUrl(url) : null);
-			this.insertMemoryEntry(
-				'beat',
-				host ? `source:${host}` : `source:${gate.id}`,
-				'source_quality',
-				'source_health.resolved',
-				{
-					gate_id: gate.id,
-					url,
-					host,
-					action: input.action,
-					notes: optionalText(input.notes),
-					status: sourceHealthStatus(input.action),
-					blocks_fetch: sourceHealthBlocksFetch(input.action),
-					resolved_event_id: event.id
-				},
-				actor,
-				resolvedAt,
-				gate.workspace_id
-			);
-		}
-	}
-
-	saveCrawlPlanVersion(input: SaveCrawlPlanVersionInput): NewsroomCrawlPlanVersionDto {
-		const beatId = requiredText(input.beat_id, 'beat_id');
-		const planId = optionalText(input.id) || newId('crawlplan');
-		const existingVersions = this.listCrawlPlanVersions(beatId, planId);
-		const latestVersion = Math.max(0, ...existingVersions.map((plan) => plan.version));
-		const version = input.version ?? latestVersion + 1;
-		if (!Number.isFinite(version) || version < 1) throw new Error('crawl plan version must be a positive number');
-		if (existingVersions.some((plan) => plan.version === version)) {
-			throw new Error(`Crawl plan version already exists: ${planId}@${version}`);
-		}
-		const createdAt = input.created_at || nowIso();
-		const createdBy = requiredText(input.created_by || 'beat_monitor', 'created_by');
-		const plan: NewsroomCrawlPlanVersionDto = {
-			id: planId,
-			beat_id: beatId,
-			version,
-			seed_urls: normalizeCrawlPlanSeedUrls(input),
-			link_follow_rule: requiredText(input.link_follow_rule, 'link_follow_rule'),
-			article_body_strategy: normalizeCrawlPlanBodyStrategy(input.article_body_strategy),
-			polling_cadence: optionalText(input.polling_cadence) || 'inherit beat schedule',
-			jitter_ms: clampNonNegativeInteger(input.jitter_ms, 0),
-			change_detection: normalizeCrawlPlanChangeDetection(input.change_detection),
-			status: normalizeCrawlPlanStatus(input.status),
-			polite_fetch: normalizeCrawlPlanPoliteFetch(input.polite_fetch),
-			candidate_links: normalizeCrawlPlanCandidateLinks(input.candidate_links),
-			created_by: createdBy,
-			created_at: createdAt,
-			source_memory_entry_id: null,
-			supersedes_version: latestVersion || null
-		};
-		const entry = this.insertMemoryEntry('beat', beatId, 'crawl_plans', 'crawl_plan.versioned', plan, createdBy, createdAt);
-		const stored = { ...plan, source_memory_entry_id: entry.id };
-		this.appendEvent({
-			workspaceId: DEFAULT_WORKSPACE_ID,
-			agent: createdBy,
-			kind: 'crawl_plan.versioned',
-			payload: {
-				plan_id: stored.id,
-				beat_id: beatId,
-				version: stored.version,
-				seed_urls: stored.seed_urls,
-				supersedes_version: stored.supersedes_version,
-				memory_entry_id: entry.id
-			},
-			createdAt
-		});
-		return stored;
-	}
-
-	listCrawlPlanVersions(beatId: string, planId?: string): NewsroomCrawlPlanVersionDto[] {
-		const entries = this.listMemoryEntries('beat', requiredText(beatId, 'beat_id'), 'crawl_plans');
-		return entries
-			.map(crawlPlanVersionFromMemoryEntry)
-			.filter((plan): plan is NewsroomCrawlPlanVersionDto => Boolean(plan))
-			.filter((plan) => !planId || plan.id === planId)
-			.sort((left, right) => left.id.localeCompare(right.id) || left.version - right.version);
-	}
-
-	requireCrawlPlanVersion(beatId: string, planId: string, version?: number): NewsroomCrawlPlanVersionDto {
-		const versions = this.listCrawlPlanVersions(beatId, requiredText(planId, 'plan_id'));
-		const plan =
-			version === undefined
-				? versions.sort((left, right) => right.version - left.version)[0]
-				: versions.find((candidate) => candidate.version === version);
-		if (!plan) throw new Error('Crawl plan not found');
-		return plan;
-	}
-
-	inspectHouseMemory(): HouseMemoryInspectDto {
-		const rows = this.db.prepare('SELECT * FROM house_memory ORDER BY key ASC').all() as HouseMemoryRow[];
-		const current = houseMemoryDefaults();
-		let updatedAt: string | null = null;
-		for (const row of rows) {
-			current[row.key] = parseEventJson(row.value_json, null);
-			updatedAt = latestIso([updatedAt, row.updated_at]);
-		}
-		return {
-			tier: 'house',
-			scope_id: 'global',
-			current,
-			required_keys: [...HOUSE_MEMORY_KEYS],
-			updated_at: updatedAt,
-			entries: this.listMemoryEntries('house', 'global')
-		};
-	}
-
-	updateHouseMemory(values: Record<string, unknown>, actor = 'editor'): HouseMemoryInspectDto {
-		const now = nowIso();
-		const entries = Object.entries(values).filter(([key]) => HOUSE_MEMORY_KEYS.includes(key as any));
-		if (entries.length === 0) throw new Error('No supported house memory keys provided');
-		const tx = this.db.transaction(() => {
-			for (const [key, value] of entries) {
-				this.db
-					.prepare(
-						`INSERT INTO house_memory (key, value_json, updated_at)
-						 VALUES (?, ?, ?)
-						 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`
-					)
-					.run(key, stringifyJson(value), now);
-				this.insertMemoryEntry('house', 'global', key, 'house.updated', value, actor, now);
-			}
-		});
-		tx();
-		return this.inspectHouseMemory();
-	}
-
-	inspectBeatMemory(beatId: string): ScopedMemoryInspectDto {
-		const scopeId = requiredText(beatId, 'beat_id');
-		return {
-			tier: 'beat',
-			scope_id: scopeId,
-			current: scopedMemoryCurrent(this.listMemoryEntries('beat', scopeId), BEAT_MEMORY_KEYS),
-			required_keys: [...BEAT_MEMORY_KEYS],
-			entries: this.listMemoryEntries('beat', scopeId)
-		};
-	}
-
-	sourceHealthDecisionForUrl(url: string, workspaceId = DEFAULT_WORKSPACE_ID): SourceHealthDecision | null {
-		const safeUrl = normalizeHttpUrl(url, 'source url');
-		const host = safeHostFromUrl(safeUrl);
-		if (!host) return null;
-		const entries = this.listMemoryEntries(
-			'beat',
-			`source:${host}`,
-			'source_quality',
-			workspaceId || DEFAULT_WORKSPACE_ID
-		).filter((entry) => entry.kind === 'source_health.resolved');
-		const latest = entries.at(-1);
-		if (!latest) return null;
-		const value = objectValue(latest.value) ?? {};
-		const action = stringValue(value.action) || 'unknown';
-		const status = stringValue(value.status) || sourceHealthStatus(action);
-		return {
-			url: safeUrl,
-			host,
-			action,
-			status,
-			blocks_fetch: Boolean(value.blocks_fetch) || status === 'paused' || status === 'dropped',
-			gate_id: stringValue(value.gate_id),
-			resolved_event_id: stringValue(value.resolved_event_id),
-			notes: stringValue(value.notes)
-		};
-	}
-
-	appendBeatMemory(beatId: string, input: AppendMemoryInput): MemoryEntryDto {
-		const scopeId = requiredText(beatId, 'beat_id');
-		const key = requiredMemoryKey(input.key, BEAT_MEMORY_KEYS, 'beat memory key');
-		return this.insertMemoryEntry(
-			'beat',
-			scopeId,
-			key,
-			input.kind || `beat.${key}.recorded`,
-			input.value,
-			input.actor || 'agent',
-			input.createdAt || nowIso()
-		);
 	}
 
 	inspectStoryMemory(storyId: string, workspaceId = DEFAULT_WORKSPACE_ID): ScopedMemoryInspectDto {
@@ -1258,20 +683,12 @@ export class HarnessRepository {
 				 WHERE run_id = ?`
 			)
 			.get(row.id) as { count: number; latest: string | null } | undefined;
-		const crawlPlanSourceStats = this.db
-			.prepare(
-				`SELECT COUNT(*) AS count, MAX(created_at) AS latest
-				 FROM events
-				 WHERE run_id = ? AND kind = 'source.discovered'`
-			)
-			.get(row.id) as { count: number; latest: string | null } | undefined;
 		const latestActivityAt = latestIso([
 			run.updated_at,
 			run.completed_at,
 			run.started_at,
 			run.queued_at,
 			usableSourceStats?.latest ?? sourceStats?.latest,
-			crawlPlanSourceStats?.latest,
 			...steps.flatMap((step) => [step.completed_at, step.started_at]),
 			...toolCalls.flatMap((call) => [call.completed_at, call.started_at])
 		]);
@@ -1280,7 +697,7 @@ export class HarnessRepository {
 			...run,
 			steps: steps.map(runStepDto).reverse(),
 			tool_calls: toolCalls.map(toolCallDto).reverse(),
-			source_count: (usableSourceStats?.count ?? 0) + (crawlPlanSourceStats?.count ?? 0),
+			source_count: usableSourceStats?.count ?? 0,
 			latest_activity_at: latestActivityAt
 		};
 	}
@@ -1483,61 +900,8 @@ export class HarnessRepository {
 			],
 			createdAt: nowIso()
 		});
-		if (input.healthGate) {
-			const workspaceId = this.workspaceIdForRun(input.runId);
-			const healthPayload = objectValue(input.healthGate) ?? {};
-			const host = stringValue(healthPayload.host) || safeHostFromUrl(input.url);
-			const existingGate = this.findOpenGate({
-				workspaceId,
-				type: 'source_health',
-				matches: (gate) => sourceHealthGateMatches(gate, input.url, host)
-			});
-			if (!existingGate) {
-				this.appendEvent({
-					workspaceId,
-					jobId: input.jobId,
-					runId: input.runId,
-					agent: 'source_monitor',
-					kind: 'source.health.gate',
-					payload: input.healthGate,
-					sources: [
-						{
-							id: sourceId,
-							url: input.url,
-							title: input.title,
-							fetched_at: input.fetchedAt,
-							used: input.used
-						}
-					],
-					createdAt: nowIso()
-				});
-				this.queueGate({
-					workspace_id: workspaceId,
-					job_id: input.jobId,
-					run_id: input.runId,
-					type: 'source_health',
-					title: `Review source health: ${host || input.title || input.url}`,
-					summary: `${input.title || input.url} exceeded its source failure budget and needs an editor decision.`,
-					priority: 2,
-					created_by: 'source_monitor',
-					actions: stringArray(healthPayload.actions),
-					payload: {
-						...healthPayload,
-						host,
-						source_id: sourceId,
-						snapshot_id: snapshotId,
-						source: {
-							url: input.url,
-							title: input.title,
-							fetched_at: input.fetchedAt,
-							used: input.used
-						}
-					}
-				});
-			}
+			return this.listSourcesForRun(input.runId).find((source) => source.id === sourceId) as NewsroomSourceDto;
 		}
-		return this.listSourcesForRun(input.runId).find((source) => source.id === sourceId) as NewsroomSourceDto;
-	}
 
 	listSourcesForRun(runId: string): NewsroomSourceDto[] {
 		const rows = this.db
@@ -1642,171 +1006,6 @@ function requiredMemoryKey<T extends readonly string[]>(value: string, allowed: 
 	return key;
 }
 
-function requiredGateType(value: string): NewsroomGateType {
-	const type = requiredText(value, 'gate type');
-	if (!GATE_TYPES.includes(type as NewsroomGateType)) throw new Error(`Unsupported gate type: ${type}`);
-	return type as NewsroomGateType;
-}
-
-function requiredGateStatus(value: string): NewsroomGateStatus {
-	const status = requiredText(value, 'gate status');
-	if (status !== 'open' && status !== 'resolved') throw new Error(`Unsupported gate status: ${status}`);
-	return status;
-}
-
-function normalizeGateActions(value: string[] | undefined, type: NewsroomGateType): string[] {
-	const candidates = value?.length ? value : DEFAULT_GATE_ACTIONS[type];
-	const seen = new Set<string>();
-	const actions: string[] = [];
-	for (const candidate of candidates) {
-		const action = optionalText(candidate);
-		if (!action || seen.has(action)) continue;
-		seen.add(action);
-		actions.push(action);
-	}
-	return actions.length ? actions : [...DEFAULT_GATE_ACTIONS[type]];
-}
-
-function verificationResolutionStatus(action: string): 'verified' | 'disputed' | 'needs_more' | null {
-	if (action === 'mark_verified') return 'verified';
-	if (action === 'mark_disputed') return 'disputed';
-	if (action === 'request_more_research') return 'needs_more';
-	return null;
-}
-
-function sourceHealthStatus(action: string): string {
-	if (action === 'pause') return 'paused';
-	if (action === 'retry') return 'retry_requested';
-	if (action === 'drop') return 'dropped';
-	if (action === 'override') return 'overridden';
-	return action;
-}
-
-function sourceHealthBlocksFetch(action: string): boolean {
-	return action === 'pause' || action === 'drop';
-}
-
-function sourceHealthGateMatches(gate: NewsroomGateDto, url: string, host: string | null): boolean {
-	const payload = objectValue(gate.payload) ?? {};
-	const gateUrl = stringValue(payload.url) || stringValue(objectValue(payload.source)?.url);
-	const gateHost = stringValue(payload.host) || (gateUrl ? safeHostFromUrl(gateUrl) : null);
-	return Boolean((host && gateHost === host) || (gateUrl && gateUrl === url));
-}
-
-function safeHostFromUrl(value: string): string | null {
-	try {
-		return new URL(value).host;
-	} catch {
-		return null;
-	}
-}
-
-function normalizeCrawlPlanSeedUrls(input: SaveCrawlPlanVersionInput): string[] {
-	const candidates = input.seed_urls?.length ? input.seed_urls : input.seed_url ? [input.seed_url] : [];
-	const seen = new Set<string>();
-	const urls: string[] = [];
-	for (const candidate of candidates) {
-		const url = normalizeHttpUrl(candidate, 'seed_url');
-		if (seen.has(url)) continue;
-		seen.add(url);
-		urls.push(url);
-	}
-	if (urls.length === 0) throw new Error('at least one seed URL is required');
-	return urls;
-}
-
-function normalizeHttpUrl(value: string, field: string): string {
-	const raw = requiredText(value, field);
-	let parsed: URL;
-	try {
-		parsed = new URL(raw);
-	} catch {
-		throw new Error(`${field} must be a valid URL`);
-	}
-	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-		throw new Error(`${field} must start with http:// or https://`);
-	}
-	parsed.hash = '';
-	return parsed.toString();
-}
-
-function normalizeCrawlPlanBodyStrategy(
-	value: NewsroomCrawlPlanArticleBodyStrategy | undefined
-): NewsroomCrawlPlanArticleBodyStrategy {
-	const strategy = value || 'auto';
-	if (!CRAWL_PLAN_BODY_STRATEGIES.includes(strategy)) {
-		throw new Error(`Unsupported article body strategy: ${strategy}`);
-	}
-	return strategy;
-}
-
-function normalizeCrawlPlanChangeDetection(
-	value: NewsroomCrawlPlanChangeDetection | undefined
-): NewsroomCrawlPlanChangeDetection {
-	const mode = value || 'hash';
-	if (!CRAWL_PLAN_CHANGE_DETECTION.includes(mode)) {
-		throw new Error(`Unsupported change detection mode: ${mode}`);
-	}
-	return mode;
-}
-
-function normalizeCrawlPlanStatus(value: NewsroomCrawlPlanStatus | undefined): NewsroomCrawlPlanStatus {
-	const status = value || 'pending';
-	if (!CRAWL_PLAN_STATUSES.includes(status)) {
-		throw new Error(`Unsupported crawl plan status: ${status}`);
-	}
-	return status;
-}
-
-function normalizeCrawlPlanPoliteFetch(
-	value: Partial<NewsroomCrawlPlanPoliteFetchOverridesDto> | undefined
-): NewsroomCrawlPlanPoliteFetchOverridesDto {
-	return {
-		respect_robots: value?.respect_robots ?? DEFAULT_CRAWL_PLAN_POLITE_FETCH.respect_robots,
-		robots_override: value?.robots_override ?? DEFAULT_CRAWL_PLAN_POLITE_FETCH.robots_override,
-		host_delay_ms: clampNonNegativeInteger(value?.host_delay_ms, DEFAULT_CRAWL_PLAN_POLITE_FETCH.host_delay_ms),
-		failure_budget: clampPositiveInteger(value?.failure_budget, DEFAULT_CRAWL_PLAN_POLITE_FETCH.failure_budget),
-		archive_web: value?.archive_web ?? DEFAULT_CRAWL_PLAN_POLITE_FETCH.archive_web
-	};
-}
-
-function normalizeCrawlPlanCandidateLinks(value: unknown[] | undefined): NewsroomCrawlPlanCandidateLinkDto[] {
-	if (!Array.isArray(value)) return [];
-	return value.flatMap((candidate) => {
-		const raw = objectValue(candidate);
-		if (!raw) return [];
-		const title = optionalText(stringValue(raw.title));
-		const url = normalizeOptionalHttpUrl(stringValue(raw.url) ?? undefined);
-		if (!title || !url) return [];
-		return [
-			{
-				title,
-				url,
-				reason: optionalText(stringValue(raw.reason)) || 'Crawl plan candidate',
-				score: clampNonNegativeInteger(numberValue(raw.score) ?? undefined, 0)
-			}
-		];
-	});
-}
-
-function normalizeOptionalHttpUrl(value: string | undefined): string | null {
-	try {
-		return value ? normalizeHttpUrl(value, 'candidate url') : null;
-	} catch {
-		return null;
-	}
-}
-
-function clampNonNegativeInteger(value: number | undefined, fallback: number): number {
-	if (!Number.isFinite(value)) return fallback;
-	return Math.max(0, Math.trunc(value as number));
-}
-
-function clampPositiveInteger(value: number | undefined, fallback: number): number {
-	if (!Number.isFinite(value)) return fallback;
-	return Math.max(1, Math.trunc(value as number));
-}
-
 function addNullableFilter(
 	conditions: string[],
 	params: unknown[],
@@ -1827,16 +1026,6 @@ function clampEventLimit(value: number | undefined): number {
 	return Math.max(1, Math.min(500, Math.trunc(value as number)));
 }
 
-function clampGateLimit(value: number | undefined): number {
-	if (!Number.isFinite(value)) return 50;
-	return Math.max(1, Math.min(200, Math.trunc(value as number)));
-}
-
-function clampGatePriority(value: number | undefined): number {
-	if (!Number.isFinite(value)) return 3;
-	return Math.max(1, Math.min(5, Math.trunc(value as number)));
-}
-
 function stringifyJson(value: unknown): string {
 	const encoded = JSON.stringify(value);
 	return encoded === undefined ? 'null' : encoded;
@@ -1854,23 +1043,6 @@ function parseEventJson(value: string | null, fallback: NewsroomEventJson): News
 function parseEventSources(value: string | null): NewsroomEventJson[] {
 	const parsed = parseEventJson(value, []);
 	return Array.isArray(parsed) ? parsed : [];
-}
-
-function parseGateActions(value: string | null): string[] {
-	const parsed = parseEventJson(value, []);
-	if (!Array.isArray(parsed)) return [];
-	return parsed.flatMap((candidate) => (typeof candidate === 'string' && candidate.trim() ? [candidate.trim()] : []));
-}
-
-function houseMemoryDefaults(): Record<string, NewsroomEventJson> {
-	return {
-		style_guide: '',
-		banned_phrases: [],
-		libel_patterns: [],
-		gazetteer: {},
-		model_preferences: {},
-		beats: []
-	};
 }
 
 function scopedMemoryCurrent(
@@ -1944,43 +1116,6 @@ function memoryEntryDto(row: MemoryEntryRow): MemoryEntryDto {
 	};
 }
 
-function crawlPlanVersionFromMemoryEntry(entry: MemoryEntryDto): NewsroomCrawlPlanVersionDto | null {
-	const raw = objectValue(entry.value);
-	if (!raw) return null;
-	const id = stringValue(raw.id);
-	const beatId = stringValue(raw.beat_id);
-	const version = numberValue(raw.version);
-	if (!id || !beatId || !version) return null;
-	return {
-		id,
-		beat_id: beatId,
-		version,
-		seed_urls: stringArray(raw.seed_urls),
-		link_follow_rule: stringValue(raw.link_follow_rule) || '',
-		article_body_strategy: normalizeCrawlPlanBodyStrategy(
-			stringValue(raw.article_body_strategy) as NewsroomCrawlPlanArticleBodyStrategy | undefined
-		),
-		polling_cadence: stringValue(raw.polling_cadence) || 'inherit beat schedule',
-		jitter_ms: numberValue(raw.jitter_ms) ?? 0,
-		change_detection: normalizeCrawlPlanChangeDetection(
-			stringValue(raw.change_detection) as NewsroomCrawlPlanChangeDetection | undefined
-		),
-		status: stringValue(raw.status)
-			? normalizeCrawlPlanStatus(stringValue(raw.status) as NewsroomCrawlPlanStatus | undefined)
-			: undefined,
-		polite_fetch: normalizeCrawlPlanPoliteFetch(
-			objectValue(raw.polite_fetch) as Partial<NewsroomCrawlPlanPoliteFetchOverridesDto> | undefined
-		),
-		candidate_links: normalizeCrawlPlanCandidateLinks(
-			Array.isArray(raw.candidate_links) ? (raw.candidate_links as unknown as NewsroomCrawlPlanCandidateLinkDto[]) : []
-		),
-		created_by: stringValue(raw.created_by) || entry.actor,
-		created_at: stringValue(raw.created_at) || entry.created_at,
-		source_memory_entry_id: stringValue(raw.source_memory_entry_id) || entry.id,
-		supersedes_version: numberValue(raw.supersedes_version)
-	};
-}
-
 function objectValue(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === 'object' && !Array.isArray(value)
 		? (value as Record<string, unknown>)
@@ -2002,14 +1137,6 @@ function numberValue(value: unknown): number | null {
 	return null;
 }
 
-function stringArray(value: unknown): string[] {
-	if (!Array.isArray(value)) return [];
-	return value.flatMap((candidate) => {
-		const text = stringValue(candidate);
-		return text ? [text] : [];
-	});
-}
-
 function eventDto(row: EventRow): NewsroomEventDto {
 	return {
 		id: row.id,
@@ -2024,37 +1151,6 @@ function eventDto(row: EventRow): NewsroomEventDto {
 		parent_event_id: row.parent_event_id,
 		cost_metadata: parseEventJson(row.cost_metadata_json, null),
 		created_at: row.created_at
-	};
-}
-
-function gateDto(row: GateRow): NewsroomGateDto {
-	const resolution =
-		row.status === 'resolved' && row.resolution_action && row.resolved_by && row.resolved_at
-			? {
-					action: row.resolution_action,
-					notes: row.resolution_notes,
-					payload: parseEventJson(row.resolution_payload_json, null),
-					actor: row.resolved_by,
-					resolved_at: row.resolved_at,
-					event_id: row.resolution_event_id
-				}
-			: null;
-	return {
-		id: row.id,
-		workspace_id: row.workspace_id,
-		story_id: row.story_id,
-		job_id: row.job_id,
-		run_id: row.run_id,
-		type: row.type,
-		title: row.title,
-		summary: row.summary,
-		status: row.status,
-		priority: row.priority,
-		payload: parseEventJson(row.payload_json, {}),
-		actions: parseGateActions(row.actions_json),
-		created_by: row.created_by,
-		created_at: row.created_at,
-		resolution
 	};
 }
 

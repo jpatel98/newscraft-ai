@@ -3,7 +3,7 @@ import type { ChannelSource, AgentJob } from '$lib/types';
 import { newId } from '$lib/utils/id';
 import { normalizeChannelSource, overlayChannelSourceConfigs } from '$lib/utils/channel-sources';
 import { db } from './index';
-import { agentChannelConfigs, agentChannelSources, missionCrawlPlans, missions, missionSources } from './schema';
+import { agentChannelConfigs, agentChannelSources, missions, missionSources } from './schema';
 
 export interface MissionConfig {
 	missionId: string;
@@ -16,7 +16,7 @@ export interface MissionConfig {
 function missingMissionTables(err: unknown): boolean {
 	return (
 		err instanceof Error &&
-		/(no such table:\s*mission(s|_sources|_crawl_plans)?|relation "mission(s|_sources|_crawl_plans)?" does not exist)/i.test(err.message)
+		/(no such table:\s*mission(s|_sources)?|relation "mission(s|_sources)?" does not exist)/i.test(err.message)
 	);
 }
 
@@ -285,7 +285,6 @@ export async function deleteMissionConfig(accountId: string, missionId: string):
 	if (!id) return;
 	try {
 		await db.transaction(async (tx: any) => {
-			await tx.delete(missionCrawlPlans).where(and(eq(missionCrawlPlans.accountId, accountId), eq(missionCrawlPlans.missionId, id)));
 			await tx.delete(missionSources).where(eq(missionSources.missionId, id));
 			await tx.delete(missions).where(and(eq(missions.accountId, accountId), eq(missions.id, id)));
 		});
@@ -297,7 +296,6 @@ export async function deleteMissionConfig(accountId: string, missionId: string):
 export async function clearAllMissionConfigs(accountId: string): Promise<void> {
 	try {
 		await db.transaction(async (tx: any) => {
-			await tx.delete(missionCrawlPlans).where(eq(missionCrawlPlans.accountId, accountId));
 			await tx.delete(missions).where(eq(missions.accountId, accountId));
 		});
 	} catch (err) {

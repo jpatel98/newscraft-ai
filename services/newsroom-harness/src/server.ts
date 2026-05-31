@@ -2,26 +2,16 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import type {
 	CreateJobInput,
-	ExecuteCrawlPlanInput,
 	GatewayChatCompletionRequest,
 	GatewayHealthResponse,
 	GatewayResponsesRequest,
-	NewsroomGateStatus,
-	QueueGateInput,
-	ResolveGateInput,
-	SaveCrawlPlanVersionInput,
 	UpdateJobInput
 } from '@newscraft/shared';
 import { writeChatCompletion, writeResponses } from './chat.js';
 import { loadConfig, type HarnessConfig } from './config.js';
 import { createHarnessRepository } from './db/factory.js';
 import { HarnessRepository } from './db/repository.js';
-import { deliverPackage, DeliveryPreconditionError } from './agents/delivery.js';
-import { DraftingPreconditionError, runDraftingAgent } from './agents/drafting.js';
-import { runEditorCommand } from './agents/editor-command.js';
-import { PackagerPreconditionError, listStoryPackages, runPackagerAgent } from './agents/packager.js';
 import { NewsroomAgentRuntime } from './agents/runtime.js';
-import { executeCrawlPlan } from './crawl-plans/executor.js';
 import { JobRunner } from './jobs/runner.js';
 import { JobScheduler } from './jobs/scheduler.js';
 import { bearerToken, HttpError, readJson, tokenMatches, writeJson, writeText } from './util/http.js';
@@ -174,138 +164,6 @@ async function route(
 		return;
 	}
 
-	if (req.method === 'GET' && url.pathname === '/api/gates') {
-		writeJson(res, 200, {
-			gates: ctx.repository.listGates({
-				workspaceId: queryText(url, 'workspace_id'),
-				storyId: queryText(url, 'story_id'),
-				jobId: queryText(url, 'job_id'),
-				runId: queryText(url, 'run_id'),
-				status: queryGateStatus(url),
-				limit: queryLimit(url)
-			})
-		});
-		return;
-	}
-
-	if (req.method === 'POST' && url.pathname === '/api/gates') {
-		const input = await readJson<QueueGateInput>(req);
-		writeJson(res, 201, { ok: true, gate: ctx.repository.queueGate(input) });
-		return;
-	}
-
-	const gateAction = url.pathname.match(/^\/api\/gates\/([^/]+)(?:\/resolve)?$/);
-	if (gateAction) {
-		const id = decodeURIComponent(gateAction[1]);
-		const isResolve = url.pathname.endsWith('/resolve');
-		if (req.method === 'GET' && !isResolve) {
-			writeJson(res, 200, { gate: ctx.repository.requireGate(id) });
-			return;
-		}
-		if (req.method === 'POST' && isResolve) {
-			const input = await readJson<ResolveGateInput>(req);
-			writeJson(res, 200, { ok: true, ...ctx.repository.resolveGate(id, input) });
-			return;
-		}
-	}
-
-	if (req.method === 'GET' && url.pathname === '/api/crawl-plans') {
-		const beatId = requiredQueryText(url, 'beat_id');
-		writeJson(res, 200, {
-			crawl_plans: ctx.repository.listCrawlPlanVersions(beatId, queryText(url, 'plan_id'))
-		});
-		return;
-	}
-
-	if (req.method === 'POST' && url.pathname === '/api/crawl-plans') {
-		const input = await readJson<SaveCrawlPlanVersionInput>(req);
-		writeJson(res, 201, { ok: true, crawl_plan: ctx.repository.saveCrawlPlanVersion(input) });
-		return;
-	}
-
-	if (req.method === 'POST' && url.pathname === '/api/editor-commands') {
-		const input = await readJson<{
-			command?: string;
-			workspace_id?: string;
-			story_id?: string | null;
-			job_id?: string | null;
-			run_id?: string | null;
-			target_agent?: 'monitor' | 'research' | 'verification' | 'copy' | 'drafting' | 'packaging' | null;
-			target_word_count?: number;
-			facts?: unknown[];
-		}>(req);
-		if (!input.command?.trim()) throw new HttpError(400, 'command is required');
-		const abort = requestAbortSignal(req, res);
-		writeJson(res, 200, {
-			ok: true,
-			result: await runEditorCommand(
-				ctx.repository,
-				{
-					command: input.command || '',
-					workspaceId: input.workspace_id,
-					storyId: input.story_id,
-					jobId: input.job_id,
-					runId: input.run_id,
-					targetAgent: input.target_agent,
-					targetWordCount: input.target_word_count,
-					facts: input.facts
-				},
-				{ signal: abort.signal }
-			)
-		});
-		return;
-	}
-
-	const crawlPlanAction = url.pathname.match(/^\/api\/crawl-plans\/([^/]+)(?:\/execute)?$/);
-	if (crawlPlanAction) {
-		const id = decodeURIComponent(crawlPlanAction[1]);
-		const beatId = requiredQueryText(url, 'beat_id');
-		const isExecute = url.pathname.endsWith('/execute');
-		if (req.method === 'GET' && !isExecute) {
-			const version = queryNumber(url, 'version');
-			writeJson(res, 200, { crawl_plan: ctx.repository.requireCrawlPlanVersion(beatId, id, version) });
-			return;
-		}
-		if (req.method === 'POST' && isExecute) {
-			const input = await readJson<ExecuteCrawlPlanInput>(req);
-			writeJson(res, 200, { ok: true, ...(await executeCrawlPlan(ctx.repository, beatId, id, input)) });
-			return;
-		}
-	}
-
-	if (req.method === 'GET' && (url.pathname === '/api/memory/house' || url.pathname === '/api/memory/house/inspect')) {
-		writeJson(res, 200, { memory: ctx.repository.inspectHouseMemory() });
-		return;
-	}
-
-	if (req.method === 'PATCH' && url.pathname === '/api/memory/house') {
-		const input = await readJson<{ values?: Record<string, unknown>; actor?: string } & Record<string, unknown>>(req);
-		const { values, actor, ...directValues } = input;
-		writeJson(res, 200, {
-			ok: true,
-			memory: ctx.repository.updateHouseMemory(values || directValues, actor || 'editor')
-		});
-		return;
-	}
-
-	const beatMemory = url.pathname.match(/^\/api\/memory\/beats\/([^/]+)(?:\/inspect)?$/);
-	if (beatMemory) {
-		const beatId = decodeURIComponent(beatMemory[1]);
-		if (req.method === 'GET') {
-			writeJson(res, 200, { memory: ctx.repository.inspectBeatMemory(beatId) });
-			return;
-		}
-		if (req.method === 'POST') {
-			const input = await readJson<{ key: string; value: unknown; kind?: string; actor?: string }>(req);
-			writeJson(res, 201, {
-				ok: true,
-				entry: ctx.repository.appendBeatMemory(beatId, input),
-				memory: ctx.repository.inspectBeatMemory(beatId)
-			});
-			return;
-		}
-	}
-
 	const storyMemory = url.pathname.match(/^\/api\/memory\/stories\/([^/]+)(?:\/inspect)?$/);
 	if (storyMemory) {
 		const storyId = decodeURIComponent(storyMemory[1]);
@@ -325,108 +183,6 @@ async function route(
 		}
 	}
 
-	const storyDraft = url.pathname.match(/^\/api\/stories\/([^/]+)\/drafts\/web-story$/);
-	if (storyDraft) {
-		const storyId = decodeURIComponent(storyDraft[1]);
-		if (req.method === 'POST') {
-			const input = await readJson<{
-				workspace_id?: string;
-				job_id?: string | null;
-				run_id?: string | null;
-				target_word_count?: number;
-			}>(req);
-			if (!input.workspace_id?.trim()) throw new HttpError(400, 'workspace_id is required');
-			try {
-				writeJson(res, 201, {
-					ok: true,
-					...runDraftingAgent(ctx.repository, {
-						storyId,
-						workspaceId: input.workspace_id,
-						jobId: input.job_id,
-						runId: input.run_id,
-						targetWordCount: input.target_word_count
-					})
-				});
-			} catch (err) {
-				if (err instanceof DraftingPreconditionError) throw new HttpError(409, err.message);
-				throw err;
-			}
-			return;
-		}
-	}
-
-	const storyPackages = url.pathname.match(/^\/api\/stories\/([^/]+)\/packages$/);
-	if (storyPackages) {
-		const storyId = decodeURIComponent(storyPackages[1]);
-		if (req.method === 'GET') {
-			const workspaceId = requiredQueryText(url, 'workspace_id');
-			writeJson(res, 200, { packages: listStoryPackages(ctx.repository, storyId, workspaceId) });
-			return;
-		}
-		if (req.method === 'POST') {
-			const input = await readJson<{
-				workspace_id?: string;
-				job_id?: string | null;
-				run_id?: string | null;
-				draft_event_id?: string | null;
-			}>(req);
-			if (!input.workspace_id?.trim()) throw new HttpError(400, 'workspace_id is required');
-			try {
-				writeJson(res, 201, {
-					ok: true,
-					...runPackagerAgent(ctx.repository, {
-						storyId,
-						workspaceId: input.workspace_id,
-						jobId: input.job_id,
-						runId: input.run_id,
-						draftEventId: input.draft_event_id
-					})
-				});
-			} catch (err) {
-				if (err instanceof PackagerPreconditionError) throw new HttpError(409, err.message);
-				throw err;
-			}
-			return;
-		}
-	}
-
-	const packageDelivery = url.pathname.match(/^\/api\/stories\/([^/]+)\/packages\/([^/]+)\/deliver$/);
-	if (packageDelivery && req.method === 'POST') {
-		const storyId = decodeURIComponent(packageDelivery[1]);
-		const packageId = decodeURIComponent(packageDelivery[2]);
-		const input = await readJson<{
-			workspace_id?: string;
-			job_id?: string | null;
-			run_id?: string | null;
-			channel?: 'email_digest' | 'webhook' | 'slack' | 'wordpress';
-			target_url?: string | null;
-			wordpress_post_id?: string | number | null;
-			actor?: string;
-		}>(req);
-		if (!input.workspace_id?.trim()) throw new HttpError(400, 'workspace_id is required');
-		if (!input.channel?.trim()) throw new HttpError(400, 'channel is required');
-		try {
-			const result = await deliverPackage(ctx.repository, ctx.config, {
-				storyId,
-				packageId,
-				workspaceId: input.workspace_id,
-				jobId: input.job_id,
-				runId: input.run_id,
-				channel: input.channel,
-				targetUrl: input.target_url,
-				wordpressPostId: input.wordpress_post_id,
-				actor: input.actor
-			});
-			writeJson(res, result.ok ? 200 : 409, { ok: result.ok, delivery: result });
-		} catch (err) {
-			if (err instanceof DeliveryPreconditionError || err instanceof PackagerPreconditionError) {
-				throw new HttpError(409, err.message);
-			}
-			throw err;
-		}
-		return;
-	}
-
 	const jobAction = url.pathname.match(/^\/api\/jobs\/([^/]+)(?:\/(run|pause|resume))?$/);
 	if (jobAction) {
 		const id = decodeURIComponent(jobAction[1]);
@@ -437,7 +193,7 @@ async function route(
 			return;
 		}
 		if (req.method === 'DELETE' && !action) {
-			if (!ctx.repository.deleteJob(id)) throw new HttpError(404, 'Mission not found');
+			if (!ctx.repository.deleteJob(id)) throw new HttpError(404, 'Story not found');
 			writeJson(res, 200, { ok: true });
 			return;
 		}
@@ -479,26 +235,9 @@ function queryList(url: URL, singleKey: string, listKey: string): string[] {
 		.filter(Boolean);
 }
 
-function requiredQueryText(url: URL, key: string): string {
-	const value = queryText(url, key);
-	if (!value) throw new HttpError(400, `${key} is required`);
-	return value;
-}
-
 function queryLimit(url: URL): number | undefined {
 	const value = Number.parseInt(url.searchParams.get('limit') || '', 10);
 	return Number.isFinite(value) ? value : undefined;
-}
-
-function queryNumber(url: URL, key: string): number | undefined {
-	const value = Number.parseInt(url.searchParams.get(key) || '', 10);
-	return Number.isFinite(value) ? value : undefined;
-}
-
-function queryGateStatus(url: URL): NewsroomGateStatus | 'all' | undefined {
-	const value = queryText(url, 'status');
-	if (value === undefined || value === 'open' || value === 'resolved' || value === 'all') return value;
-	throw new HttpError(400, `Unsupported gate status: ${value}`);
 }
 
 function harnessHealth(ctx: {

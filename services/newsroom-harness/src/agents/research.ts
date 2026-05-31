@@ -77,7 +77,7 @@ export async function runResearchAgent(
 			kind: 'research.command.blocked',
 			payload: {
 				command_excerpt: excerpt(command),
-				reason: 'Research needs an active story workspace.'
+				reason: 'Research needs an active story.'
 			},
 			parentEventId: input.parentEventId
 		});
@@ -85,7 +85,7 @@ export async function runResearchAgent(
 			ok: false,
 			status: 'blocked',
 			events: [{ id: event.id, kind: event.kind }],
-			error: 'Research needs an active story workspace.'
+			error: 'Research needs an active story.'
 		};
 	}
 

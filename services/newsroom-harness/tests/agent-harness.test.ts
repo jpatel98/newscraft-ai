@@ -9,7 +9,7 @@ import { ToolRegistry, type NewsroomTool, type ToolCategory } from '../src/agent
 import { assessSourceQuality } from '../src/util/source-quality.js';
 
 describe('disciplined newsroom agent harness', () => {
-	it('triages editor commands through the Assignment Desk stub', () => {
+	it('triages newsroom requests through the Assignment Desk stub', () => {
 		const decision = new AssignmentDesk().triage('Who is the mayor of Toronto?');
 
 		expect(decision.role).toBe('research');
@@ -25,10 +25,10 @@ describe('disciplined newsroom agent harness', () => {
 		});
 	});
 
-	it('keeps intent-driven desks for drafting, verification, and monitoring', () => {
+	it('routes monitor requests separately and keeps other newsroom tasks in research', () => {
 		const desk = new AssignmentDesk();
-		expect(desk.triage('Draft a headline for this story').role).toBe('production');
-		expect(desk.triage('Verify this claim against sources').role).toBe('verification');
+		expect(desk.triage('Draft a headline for this story').role).toBe('research');
+		expect(desk.triage('Verify this claim against sources').role).toBe('research');
 		expect(desk.triage('Monitor the police feed for changes').role).toBe('monitoring');
 	});
 
@@ -36,7 +36,7 @@ describe('disciplined newsroom agent harness', () => {
 		const samples = [
 			['What is a nut graf?', 'answer_from_memory'],
 			['Use the newsroom brief generator for these notes: council approved a pilot.', 'custom_tool'],
-			['Summarize the latest mission output', 'custom_tool'],
+			['Summarize the latest research update', 'custom_tool'],
 			['Check the latest Toronto Police releases and summarize anything newsworthy', 'hybrid_research'],
 			['Scan our configured source monitors for updates', 'hybrid_research'],
 			['Latest Mark Carney news', 'web_search'],
@@ -156,13 +156,13 @@ describe('disciplined newsroom agent harness', () => {
 
 		expect(
 			assessSourceQuality({
-				title: 'Mission report copied into source',
+				title: 'Research update copied into source',
 				text: [
 					'## Summary',
-					'No publishable lead was found in this run.',
-					'## Lead Candidates',
-					'No lead candidates met the source threshold.',
-					'## Source Notes',
+					'No usable source material was available in this run.',
+					'## Sources',
+					'No readable source material was found.',
+					'## Uncertainty',
 					'Tool budget used: configured_source_monitor.'
 				].join('\n')
 			})
@@ -265,7 +265,7 @@ describe('disciplined newsroom agent harness', () => {
 
 		expect(answer).toContain('The freshest usable source found in this run was published 2026-05-26T23:15:00.000Z');
 		expect(answer.indexOf('Carney update from last night')).toBeLessThan(answer.indexOf('Older official background'));
-		expect(answer).not.toContain('No publishable lead was found');
+		expect(answer).not.toContain('No research update was saved');
 	});
 
 	it('does not use retrieval timestamps as publication dates for latest requests', () => {
@@ -449,8 +449,7 @@ describe('disciplined newsroom agent harness', () => {
 			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot()
 		});
 
-		expect(answer).toContain('This run found 2 usable sources for editor review.');
-		expect(answer).toContain('**Global News | Breaking, Latest News and Video for Canada**');
+		expect(answer).toContain('This research update found 2 usable sources.');
 		expect(answer).toContain('[Global News | Breaking, Latest News and Video for Canada](https://globalnews.ca/)');
 		expect(answer).not.toContain('Alberta must be at the centre');
 		expect(answer).not.toContain('Canadian couples want money');
@@ -481,8 +480,8 @@ describe('disciplined newsroom agent harness', () => {
 			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot()
 		});
 
-		expect(answer).toContain('No publishable lead was found');
-		expect(answer).toContain('No lead candidates');
+		expect(answer).toContain('No research update was saved');
+		expect(answer).toContain('Source returned access or browser-check text');
 		expect(answer).not.toContain('Enable JavaScript');
 		expect(answer).not.toContain('HTTP 403');
 		expect(answer).not.toContain('Tool budget used');
@@ -527,7 +526,7 @@ describe('disciplined newsroom agent harness', () => {
 
 		expect(result.tool_calls.map((call) => call.name)).toEqual(['configured_source_monitor', 'openai_web_search']);
 		expect(result.tool_calls[1]).toMatchObject({ status: 'skipped' });
-		expect(result.final_answer).toContain('No publishable lead was found');
+		expect(result.final_answer).toContain('No research update was saved');
 		expect(result.limitations).toContain('Fixture source unavailable');
 	});
 
@@ -546,7 +545,7 @@ describe('disciplined newsroom agent harness', () => {
 		const result = await agent.run('Check the latest City of Toronto releases');
 
 		expect(result.tool_calls.map((call) => call.name)).toEqual(['configured_source_monitor', 'openai_web_search']);
-		expect(result.final_answer).toContain('No publishable lead was found');
+		expect(result.final_answer).toContain('No research update was saved');
 		expect(result.final_answer).not.toMatch(/Tool budget used|job_|SDK|API|database|harness|HTTP/i);
 	});
 
@@ -565,10 +564,10 @@ describe('disciplined newsroom agent harness', () => {
 		const result = await agent.run('Check the latest City of Toronto releases');
 
 		expect(result.tool_calls.map((call) => call.name)).toEqual(['configured_source_monitor', 'openai_web_search']);
-		expect(result.final_answer).toContain('## Lead Candidates');
+		expect(result.final_answer).toContain('## Sources');
 		expect(result.final_answer).toContain('media report');
 		expect(result.final_answer).toContain('Secondary or media source material is available');
-		expect(result.final_answer).not.toContain('No publishable lead was found');
+		expect(result.final_answer).not.toContain('No research update was saved');
 	});
 
 	it('uses web-search fallback evidence when a configured source tool errors', async () => {
@@ -588,26 +587,26 @@ describe('disciplined newsroom agent harness', () => {
 		const result = await agent.run('Check the latest City of Toronto releases');
 
 		expect(result.tool_calls.map((call) => call.name)).toEqual(['configured_source_monitor', 'openai_web_search']);
-		expect(result.final_answer).toContain('## Lead Candidates');
+		expect(result.final_answer).toContain('## Sources');
 		expect(result.final_answer).toContain('CTV and CBC');
-		expect(result.final_answer).not.toContain('No publishable lead was found');
+		expect(result.final_answer).not.toContain('No research update was saved');
 	});
 
-	it('summarizes saved mission output before reusing it as evidence', async () => {
+	it('summarizes saved research output before reusing it as evidence', async () => {
 		const hugeMarkdown = [
 			'## Summary',
 			'This is the reusable part.',
-			'## Source Notes',
+			'## Sources',
 			'Unique tail marker should not survive compacting. '.repeat(200)
 		].join('\n');
 		const agent = new DisciplinedNewsroomAgent({
 			config: {
 				...defaultAgentConfig(),
-				enabled_tools: ['mission_result_reader']
+				enabled_tools: ['saved_research_reader']
 			}
 		});
 
-		const result = await agent.run('Summarize the latest mission output', {
+		const result = await agent.run('Summarize the latest research update', {
 			repository: {
 				listReports: () => [
 					{

@@ -48,7 +48,7 @@ describe('agent channel-post ingest', () => {
 		ingestMocks.getMissionAccountId.mockResolvedValue('account-1');
 
 		const response = await request({
-			responseMarkdown: `# Cron Job: Politics\n\n**Job ID:** mission-1\n**Run Time:** 2026-05-25 01:30:00\n\n## Response\n\n# Brief\n\nLead item.`
+			responseMarkdown: `# Research Update: Politics\n\n**Story ID:** mission-1\n**Research Time:** 2026-05-25 01:30:00\n\n## Update\n\n# Brief\n\nLead item.`
 		});
 		const body = await response.json();
 

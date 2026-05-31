@@ -13,12 +13,6 @@ export interface HarnessConfig {
 	openAiApiKey: string;
 	uiIngestUrl: string;
 	uiIngestKey: string;
-	emailDigestWebhookUrl: string;
-	deliveryWebhookUrl: string;
-	slackWebhookUrl: string;
-	wordpressRestUrl: string;
-	wordpressUsername: string;
-	wordpressApplicationPassword: string;
 	runTimeoutMs: number;
 	maxToolCalls: number;
 	retryLimit: number;
@@ -53,12 +47,6 @@ export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfi
 		openAiApiKey: process.env.OPENAI_API_KEY || '',
 		uiIngestUrl: process.env.NEWSROOM_UI_INGEST_URL || '',
 		uiIngestKey: process.env.NEWSROOM_UI_INGEST_KEY || '',
-		emailDigestWebhookUrl: process.env.NEWSROOM_EMAIL_DIGEST_WEBHOOK_URL || '',
-		deliveryWebhookUrl: process.env.NEWSROOM_DELIVERY_WEBHOOK_URL || '',
-		slackWebhookUrl: process.env.NEWSROOM_SLACK_WEBHOOK_URL || '',
-		wordpressRestUrl: process.env.WORDPRESS_REST_URL || '',
-		wordpressUsername: process.env.WORDPRESS_USERNAME || '',
-		wordpressApplicationPassword: process.env.WORDPRESS_APP_PASSWORD || '',
 		runTimeoutMs,
 		maxToolCalls,
 		retryLimit: intFromEnv(process.env.NEWSROOM_HARNESS_RETRY_LIMIT, 1),

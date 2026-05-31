@@ -54,23 +54,15 @@ export function assessReportQuality(markdown: string): ReportQualityResult {
 export function fallbackProducerReport(): string {
 	return `## Summary
 
-The generated output failed quality checks and was not saved as an editor-ready draft. Rerun the mission or have a producer review the source material before using this report.
+The generated output failed quality checks and was not saved as a research update. Rerun the story research or review the source material directly.
 
-## Lead Candidates
+## Sources
 
-No lead candidates are ready for assignment from this run.
+Review the gathered sources directly before making coverage decisions.
 
-## Source Notes
+## Uncertainty
 
-Review the mission sources directly before making coverage decisions.
-
-## Verification Notes
-
-Confirm any possible story angle against primary sources before use.
-
-## Human Review
-
-A human editor should rerun or review this mission before any assignment or publication decision.`;
+No usable summary is available from this run.`;
 }
 
 function hasRepeatedSections(markdown: string): boolean {

@@ -47,11 +47,12 @@ function previewMarkdown(markdown: string, limit = 220): string {
 }
 
 export function parseCronMarkdown(markdown: string, fallbackJobId = 'unknown'): ParsedCronMarkdown {
-	const channel = markdown.match(/^#\s+Cron Job:\s*(.+?)\s*$/m)?.[1]?.trim() || fallbackJobId;
-	const jobId = readMetadata(markdown, 'Job ID') || fallbackJobId;
-	const runTime = normalizeTimestamp(readMetadata(markdown, 'Run Time'));
+	const channel =
+		markdown.match(/^#\s+(?:Cron Job|Research Update):\s*(.+?)\s*$/m)?.[1]?.trim() || fallbackJobId;
+	const jobId = readMetadata(markdown, 'Story ID') || readMetadata(markdown, 'Job ID') || fallbackJobId;
+	const runTime = normalizeTimestamp(readMetadata(markdown, 'Research Time') || readMetadata(markdown, 'Run Time'));
 	const schedule = readMetadata(markdown, 'Schedule');
-	const responseHeading = markdown.match(/^##\s+Response\s*$/m);
+	const responseHeading = markdown.match(/^##\s+(?:Update|Response)\s*$/m);
 	const responseMarkdown =
 		responseHeading && responseHeading.index !== undefined
 			? markdown.slice(responseHeading.index + responseHeading[0].length).trim()

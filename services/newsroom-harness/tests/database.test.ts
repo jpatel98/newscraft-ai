@@ -25,11 +25,9 @@ describe('harness database schema', () => {
 
 		expect(columnsFor(db, 'jobs')).toContain('workspace_id');
 		expect(columnsFor(db, 'events')).toContain('workspace_id');
-		expect(columnsFor(db, 'gates')).toContain('workspace_id');
 		expect(columnsFor(db, 'memory_entries')).toContain('workspace_id');
 		expect(workspaceIdFor(db, 'jobs', 'job-legacy')).toBe('default');
 		expect(workspaceIdFor(db, 'events', 'event-legacy')).toBe('default');
-		expect(workspaceIdFor(db, 'gates', 'gate-legacy')).toBe('default');
 		expect(workspaceIdFor(db, 'memory_entries', 'memory-legacy')).toBe('default');
 	});
 
@@ -41,12 +39,11 @@ describe('harness database schema', () => {
 		openDatabase(dbPath).close();
 		db = openDatabase(dbPath);
 
-		for (const table of ['jobs', 'events', 'gates', 'memory_entries']) {
+		for (const table of ['jobs', 'events', 'memory_entries']) {
 			expect(columnsFor(db, table).filter((column) => column === 'workspace_id')).toHaveLength(1);
 		}
 		expect(workspaceIdFor(db, 'jobs', 'job-legacy')).toBe('default');
 		expect(workspaceIdFor(db, 'events', 'event-legacy')).toBe('default');
-		expect(workspaceIdFor(db, 'gates', 'gate-legacy')).toBe('default');
 		expect(workspaceIdFor(db, 'memory_entries', 'memory-legacy')).toBe('default');
 	});
 });
@@ -87,31 +84,9 @@ CREATE TABLE events (
 	created_at TEXT NOT NULL
 );
 
-CREATE TABLE gates (
-	id TEXT PRIMARY KEY,
-	story_id TEXT,
-	job_id TEXT,
-	run_id TEXT,
-	type TEXT NOT NULL,
-	title TEXT NOT NULL,
-	summary TEXT NOT NULL,
-	status TEXT NOT NULL CHECK (status IN ('open', 'resolved')) DEFAULT 'open',
-	priority INTEGER NOT NULL DEFAULT 3,
-	payload_json TEXT NOT NULL DEFAULT '{}',
-	actions_json TEXT NOT NULL DEFAULT '[]',
-	created_by TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	resolved_at TEXT,
-	resolved_by TEXT,
-	resolution_action TEXT,
-	resolution_notes TEXT,
-	resolution_payload_json TEXT,
-	resolution_event_id TEXT
-);
-
 CREATE TABLE memory_entries (
 	id TEXT PRIMARY KEY,
-	tier TEXT NOT NULL CHECK (tier IN ('house', 'beat', 'story')),
+	tier TEXT NOT NULL CHECK (tier IN ('story')),
 	scope_id TEXT NOT NULL,
 	key TEXT NOT NULL,
 	kind TEXT NOT NULL,
@@ -129,11 +104,6 @@ INSERT INTO events (
 	id, agent, kind, created_at
 ) VALUES (
 	'event-legacy', 'assignment_desk', 'story.created', '2026-05-29T10:00:00.000Z'
-);
-INSERT INTO gates (
-	id, type, title, summary, created_by, created_at
-) VALUES (
-	'gate-legacy', 'source_health', 'Source needs review', 'Legacy gate.', 'monitor', '2026-05-29T10:00:00.000Z'
 );
 INSERT INTO memory_entries (
 	id, tier, scope_id, key, kind, value_json, actor, created_at

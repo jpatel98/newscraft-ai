@@ -15,8 +15,6 @@ const dbMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/server/agent/board', () => boardMocks);
-vi.mock('$lib/server/agent/crawl-plan-sync', () => ({ syncApprovedCrawlPlansToAgent: vi.fn() }));
-vi.mock('$lib/server/db/crawl-plans', () => ({ listApprovedCrawlPlans: vi.fn() }));
 vi.mock('$lib/server/db/hidden-channels', () => ({ hideChannelJobId: dbMocks.hideChannelJobId }));
 vi.mock('$lib/server/db/missions', () => ({
 	deleteMissionConfig: dbMocks.deleteMissionConfig,

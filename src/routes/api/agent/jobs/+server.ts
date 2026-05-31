@@ -16,7 +16,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const description = typeof body?.description === 'string' ? body.description.trim() : '';
 	const schedule = typeof body?.schedule === 'string' ? body.schedule.trim() : '';
 	const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : '';
-	const deliver = typeof body?.deliver === 'string' ? body.deliver.trim() : '';
 	const outputFormat = typeof body?.outputFormat === 'string' ? body.outputFormat.trim() : 'markdown';
 	let sources: ChannelSource[];
 
@@ -34,7 +33,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			name,
 			schedule,
 			prompt: compileChannelPrompt(prompt, sources),
-			deliver: deliver || null,
 			enabled: body?.enabled !== false
 		});
 		if (job) {
@@ -43,7 +41,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				description,
 				schedule,
 				enabled: body?.enabled !== false,
-				deliveryTarget: deliver || 'database',
+				deliveryTarget: 'database',
 				outputFormat: outputFormat || 'markdown'
 			});
 			return json({ ok: true, job: { ...job, description, prompt, sources, outputFormat: outputFormat || 'markdown' } });

@@ -7,19 +7,13 @@ export const NEWSCRAFT_USER_AGENT = 'NewsCraft newsroom-harness/0.0.1 (+https://
 
 const DEFAULT_HOST_DELAY_MS = 250;
 const MAX_BACKOFF_MS = 30_000;
-const DEFAULT_SOURCE_FAILURE_BUDGET = 3;
 
 interface HostState {
 	nextAllowedAt: number;
 	failureCount: number;
 }
 
-interface SourceHealthState {
-	failureCount: number;
-}
-
 const hostStates = new Map<string, HostState>();
-const sourceHealthStates = new Map<string, SourceHealthState>();
 const archivedUrls = new Set<string>();
 
 export interface PoliteFetchCacheMetadata {
@@ -92,18 +86,6 @@ export interface PoliteFetchRobotsResult {
 	error?: string;
 }
 
-export interface PoliteFetchSourceHealthGate {
-	type: 'source_health';
-	url: string;
-	host: string;
-	statusCode: number | null;
-	reason: string;
-	failureCount: number;
-	failureBudget: number;
-	createdAt: string;
-	actions: Array<'pause' | 'retry' | 'drop' | 'override'>;
-}
-
 export interface PoliteFetchOptions {
 	signal?: AbortSignal;
 	fetchImpl?: typeof fetch;
@@ -127,10 +109,6 @@ export interface PoliteFetchOptions {
 		webArchive?: boolean;
 		fetchImpl?: typeof fetch;
 	};
-	sourceHealth?: {
-		failureBudget?: number;
-		onGate?: (gate: PoliteFetchSourceHealthGate) => Promise<void> | void;
-	};
 }
 
 export interface PoliteFetchResult {
@@ -145,7 +123,6 @@ export interface PoliteFetchResult {
 	cacheStatus: PoliteFetchCacheStatus;
 	archiveSnapshot: PoliteFetchArchiveResult;
 	robots: PoliteFetchRobotsResult;
-	sourceHealthGate: PoliteFetchSourceHealthGate | null;
 }
 
 export function createFilePoliteFetchCache(rootDir = path.join(process.cwd(), '.data', 'source-cache')): PoliteFetchCacheStore {
@@ -185,7 +162,6 @@ export function createFilePoliteFetchCache(rootDir = path.join(process.cwd(), '.
 
 export function resetPoliteFetchStateForTests(): void {
 	hostStates.clear();
-	sourceHealthStates.clear();
 	archivedUrls.clear();
 }
 
@@ -207,12 +183,6 @@ export async function politeFetch(url: string, options: PoliteFetchOptions = {})
 			},
 		});
 		const cache = cacheMetadata(response, body);
-		const sourceHealthGate = await recordSourceFailure(
-			url,
-			451,
-			'robots.txt disallowed fetch',
-			options,
-		);
 
 		return {
 			url,
@@ -226,7 +196,6 @@ export async function politeFetch(url: string, options: PoliteFetchOptions = {})
 			cacheStatus: 'bypass',
 			archiveSnapshot: noArchiveSnapshot(),
 			robots,
-			sourceHealthGate,
 		};
 	}
 
@@ -240,20 +209,12 @@ export async function politeFetch(url: string, options: PoliteFetchOptions = {})
 			signal: options.signal,
 		});
 	} catch (error) {
-		await recordSourceFailure(
-			url,
-			null,
-			error instanceof Error ? error.message : 'fetch failed',
-			options,
-		);
 		throw error;
 	}
 
 	updateHostState(parsed, response, options);
 
 	if (response.status === 304 && cachedEntry) {
-		await recordSourceSuccess(url);
-
 		return {
 			url,
 			fetchedAt: nowIso(),
@@ -271,7 +232,6 @@ export async function politeFetch(url: string, options: PoliteFetchOptions = {})
 			cacheStatus: 'revalidated',
 			archiveSnapshot: cachedEntry.archiveSnapshot ?? noArchiveSnapshot(),
 			robots,
-			sourceHealthGate: null,
 		};
 	}
 
@@ -280,9 +240,6 @@ export async function politeFetch(url: string, options: PoliteFetchOptions = {})
 	const cache = cacheMetadata(response, body);
 	const contentType = response.headers.get('content-type');
 	const archiveSnapshot = await archiveFetchedDocument(url, fetchedAt, response.status, contentType, cache, body, options, cachedEntry);
-	const sourceHealthGate = response.ok
-		? await recordSourceSuccess(url)
-		: await recordSourceFailure(url, response.status, `HTTP ${response.status}`, options);
 	const result: PoliteFetchResult = {
 		url,
 		fetchedAt,
@@ -295,7 +252,6 @@ export async function politeFetch(url: string, options: PoliteFetchOptions = {})
 		cacheStatus: cacheStore ? (response.ok ? 'stored' : 'miss') : 'bypass',
 		archiveSnapshot,
 		robots,
-		sourceHealthGate,
 	};
 
 	if (cacheStore && options.cache?.write !== false && response.ok) {
@@ -636,44 +592,6 @@ function pathMatchesRobotsRule(rulePath: string, requestPath: string): boolean {
 	const source = escaped.endsWith('$') ? `^${escaped}` : `^${escaped}`;
 
 	return new RegExp(source).test(requestPath);
-}
-
-async function recordSourceSuccess(url: string): Promise<null> {
-	sourceHealthStates.set(url, { failureCount: 0 });
-	return null;
-}
-
-async function recordSourceFailure(
-	url: string,
-	statusCode: number | null,
-	reason: string,
-	options: PoliteFetchOptions,
-): Promise<PoliteFetchSourceHealthGate | null> {
-	const failureBudget = options.sourceHealth?.failureBudget ?? DEFAULT_SOURCE_FAILURE_BUDGET;
-	const state = sourceHealthStates.get(url) ?? { failureCount: 0 };
-	state.failureCount += 1;
-	sourceHealthStates.set(url, state);
-
-	if (state.failureCount < failureBudget) {
-		return null;
-	}
-
-	const parsed = new URL(url);
-	const gate: PoliteFetchSourceHealthGate = {
-		type: 'source_health',
-		url,
-		host: parsed.host,
-		statusCode,
-		reason,
-		failureCount: state.failureCount,
-		failureBudget,
-		createdAt: nowIso(),
-		actions: ['pause', 'retry', 'drop', 'override'],
-	};
-
-	await options.sourceHealth?.onGate?.(gate);
-
-	return gate;
 }
 
 function cachePaths(rootDir: string, url: string): { metadata: string } {

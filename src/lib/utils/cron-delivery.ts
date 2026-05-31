@@ -15,12 +15,6 @@ function isDashboardOnlyDeliverTarget(value: string | null | undefined): boolean
 	return !normalized || normalized === 'local' || normalized === 'database' || normalized === 'dashboard';
 }
 
-export function toAgentDeliverTarget(value: string | null | undefined): string | undefined {
-	const raw = String(value ?? '').trim();
-	if (!raw) return 'local';
-	return isDashboardOnlyDeliverTarget(raw) ? 'local' : raw;
-}
-
 export function toUiDeliverTarget(value: string | null | undefined): string {
 	return isDashboardOnlyDeliverTarget(value) ? 'database' : String(value ?? '').trim();
 }

@@ -21,9 +21,9 @@ const MAX_WEB_SEARCH_SOURCES = 8;
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
 	for (const tool of [
-		configuredSourceMonitorTool(),
-		sourceFeedFetcherTool(),
-		missionResultReaderTool(),
+			configuredSourceMonitorTool(),
+			sourceFeedFetcherTool(),
+			savedResearchReaderTool(),
 		openAiWebSearchTool(),
 		browserAutomationProviderTool(),
 		pdfTextExtractorTool(),
@@ -93,38 +93,38 @@ function sourceFeedFetcherTool(): NewsroomTool<{ query: string; urls?: string[] 
 	};
 }
 
-function missionResultReaderTool(): NewsroomTool<{ latest?: boolean }> {
+function savedResearchReaderTool(): NewsroomTool<{ latest?: boolean }> {
 	return {
-		name: NEWSROOM_TOOL_NAMES.missionResultReader,
-		description: 'Read saved NewsCraft mission outputs from the harness repository.',
-		when_to_use: 'Use when a user asks for the latest mission output, saved mission report, or previous stored report.',
-		category: 'mission_result_reader',
+		name: NEWSROOM_TOOL_NAMES.researchResultReader,
+		description: 'Read saved NewsCraft research updates from the harness repository.',
+		when_to_use: 'Use when a user asks for the latest research update, saved research, or previous stored report.',
+		category: 'saved_research_reader',
 		input_schema: {
 			type: 'object',
 			properties: { latest: { type: 'boolean' } }
 		},
 		output_schema: evidenceOutputSchema,
-		async run(_input, context) {
-			if (!context.repository) {
-				return { status: 'unavailable', limitations: ['No harness repository is available to read mission output.'] };
-			}
-			const report = context.repository.listReports()[0];
-			if (!report) return { status: 'unavailable', limitations: ['No saved mission outputs were found.'] };
-			const reportPreview = compactSavedReport(report.markdown);
-			return {
-				status: 'ok',
-				evidence: [
-					normalizeEvidence({
-						source_name: 'NewsCraft saved mission output',
-						source_url: `newsroom://mission-output/${report.id}`,
-						accessed_at: new Date().toISOString(),
-						tool_used: NEWSROOM_TOOL_NAMES.missionResultReader,
+			async run(_input, context) {
+				if (!context.repository) {
+					return { status: 'unavailable', limitations: ['No harness repository is available to read saved research.'] };
+				}
+				const report = context.repository.listReports()[0];
+				if (!report) return { status: 'unavailable', limitations: ['No saved research updates were found.'] };
+				const reportPreview = compactSavedReport(report.markdown);
+				return {
+					status: 'ok',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'NewsCraft saved research update',
+							source_url: `newsroom://research-update/${report.id}`,
+							accessed_at: new Date().toISOString(),
+							tool_used: NEWSROOM_TOOL_NAMES.researchResultReader,
 						title: report.title,
 						published_at: report.created_at,
 						extracted_text: reportPreview,
 						summary: compactToolText(reportPreview, 260),
 						confidence: 0.85,
-						limitations: ['Saved mission output was summarized before reuse to avoid recursive report expansion.'],
+							limitations: ['Saved research output was summarized before reuse to avoid recursive report expansion.'],
 						source_kind: 'internal'
 					})
 				]

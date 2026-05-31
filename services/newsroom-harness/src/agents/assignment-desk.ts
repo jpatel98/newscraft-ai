@@ -56,9 +56,8 @@ export class AssignmentDesk {
 }
 
 function roleForCommand(command: string, route: RouteDecision): NewsroomRole {
-	// Intent-driven desks take priority so drafting, fact-checking, and
-	// monitoring requests reach their role-specific instructions even when the
-	// router resolves them to a generic research/custom-tool mode.
+	// Intent-driven monitoring requests keep their role-specific instructions;
+	// everything else routes through the research desk.
 	const desk = deskFromCommand(command);
 	if (desk) return desk;
 	return roleForRoute(route);
@@ -66,8 +65,6 @@ function roleForCommand(command: string, route: RouteDecision): NewsroomRole {
 
 function deskFromCommand(command: string): NewsroomRole | null {
 	const text = command.toLowerCase();
-	if (/\b(verify|fact[- ]?check|corroborate|confirm|source check)\b/.test(text)) return 'verification';
-	if (/\b(draft|headline|production|package|social|summary)\b/.test(text)) return 'production';
 	if (/\b(monitor|watch|alert|track|changes?)\b/.test(text)) return 'monitoring';
 	return null;
 }

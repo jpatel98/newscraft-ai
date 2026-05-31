@@ -120,39 +120,10 @@ CREATE TABLE IF NOT EXISTS events (
 	created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS gates (
-	id TEXT PRIMARY KEY,
-	workspace_id TEXT NOT NULL,
-	story_id TEXT,
-	job_id TEXT,
-	run_id TEXT,
-	type TEXT NOT NULL,
-	title TEXT NOT NULL,
-	summary TEXT NOT NULL,
-	status TEXT NOT NULL CHECK (status IN ('open', 'resolved')) DEFAULT 'open',
-	priority INTEGER NOT NULL DEFAULT 3,
-	payload_json TEXT NOT NULL DEFAULT '{}',
-	actions_json TEXT NOT NULL DEFAULT '[]',
-	created_by TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	resolved_at TEXT,
-	resolved_by TEXT,
-	resolution_action TEXT,
-	resolution_notes TEXT,
-	resolution_payload_json TEXT,
-	resolution_event_id TEXT REFERENCES events(id) ON DELETE SET NULL
-);
-
-CREATE TABLE IF NOT EXISTS house_memory (
-	key TEXT PRIMARY KEY,
-	value_json TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS memory_entries (
 	id TEXT PRIMARY KEY,
 	workspace_id TEXT NOT NULL DEFAULT 'default',
-	tier TEXT NOT NULL CHECK (tier IN ('house', 'beat', 'story')),
+	tier TEXT NOT NULL CHECK (tier IN ('story')),
 	scope_id TEXT NOT NULL,
 	key TEXT NOT NULL,
 	kind TEXT NOT NULL,
@@ -196,9 +167,6 @@ CREATE INDEX IF NOT EXISTS events_workspace_created_idx ON events(workspace_id, 
 CREATE INDEX IF NOT EXISTS events_story_idx ON events(story_id, created_at, id);
 CREATE INDEX IF NOT EXISTS events_job_idx ON events(job_id, created_at, id);
 CREATE INDEX IF NOT EXISTS events_run_idx ON events(run_id, created_at, id);
-CREATE INDEX IF NOT EXISTS gates_queue_idx ON gates(workspace_id, status, priority, created_at, id);
-CREATE INDEX IF NOT EXISTS gates_story_idx ON gates(story_id, status, created_at, id);
-CREATE INDEX IF NOT EXISTS gates_job_idx ON gates(job_id, status, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_scope_idx ON memory_entries(tier, scope_id, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_key_idx ON memory_entries(tier, scope_id, key, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_workspace_scope_idx ON memory_entries(workspace_id, tier, scope_id, created_at, id);
@@ -208,7 +176,6 @@ CREATE INDEX IF NOT EXISTS memory_entries_workspace_scope_idx ON memory_entries(
 function ensureLegacyWorkspaceColumns(db: HarnessDb): void {
 	ensureColumn(db, 'jobs', 'workspace_id', "TEXT NOT NULL DEFAULT 'default'");
 	ensureColumn(db, 'events', 'workspace_id', "TEXT NOT NULL DEFAULT 'default'");
-	ensureColumn(db, 'gates', 'workspace_id', "TEXT NOT NULL DEFAULT 'default'");
 	ensureColumn(db, 'memory_entries', 'workspace_id', "TEXT NOT NULL DEFAULT 'default'");
 }
 

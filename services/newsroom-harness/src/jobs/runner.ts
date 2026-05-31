@@ -2,9 +2,8 @@ import type { NewsroomJobDto, NewsroomRunDto } from '@newscraft/shared';
 import type { HarnessConfig } from '../config.js';
 import type { HarnessRepository } from '../db/repository.js';
 import type { NewsroomAgentRuntime, RuntimeProgressEvent } from '../agents/runtime.js';
-import { hasBeatMonitorInputs, runBeatMonitor } from '../agents/beat-monitor.js';
 import { nowIso } from '../util/ids.js';
-import { beatMonitorReportMarkdown, postReportToUi, wrapMissionReport } from './report.js';
+import { postReportToUi, wrapMissionReport } from './report.js';
 
 export class JobRunner {
 	private active = new Map<string, Promise<void>>();
@@ -47,26 +46,7 @@ export class JobRunner {
 		const timeout = setTimeout(() => abort.abort(), this.config.runTimeoutMs);
 
 		try {
-			if (hasBeatMonitorInputs(this.repository, job)) {
-				this.repository.addRunStep(run.id, 'beat_monitor', 'Read approved source-discovery rules');
-				const result = await runBeatMonitor(this.repository, job, { runId: run.id, workspaceId }, { signal: abort.signal });
-				this.repository.addRunStep(run.id, 'beat_monitor', 'Queue pitch gates for editor review', 'completed', {
-					sourceCount: result.sourceCount,
-					pitchCount: result.pitchCount,
-					gateIds: result.gates.map((gate) => gate.id)
-				});
-				this.repository.addRunStep(run.id, 'production', 'Write mission report');
-				const completedAt = nowIso();
-				await this.saveReport(job, run.id, beatMonitorReportMarkdown(job, result), completedAt);
-				run = this.repository.updateRun(run.id, {
-					status: 'completed',
-					completed_at: completedAt,
-					elapsed_ms: Date.parse(completedAt) - Date.parse(startedAt)
-				});
-				this.repository.completeJobSchedule(run.job_id);
-				return;
-			}
-			this.repository.addRunStep(run.id, 'assignment_desk', 'Route mission to newsroom role');
+			this.repository.addRunStep(run.id, 'assignment_desk', 'Research story or topic');
 			const result = await this.runtime.runMission(job.prompt || '', {
 				repository: this.repository,
 				runId: run.id,
@@ -77,7 +57,7 @@ export class JobRunner {
 			this.repository.addRunStep(run.id, result.role, `Completed ${result.role.replace(/_/g, ' ')} pass`, 'completed', {
 				sourceCount: result.sources.length
 			});
-			this.repository.addRunStep(run.id, 'production', 'Write mission report');
+			this.repository.addRunStep(run.id, 'research_update', 'Write research update');
 			const completedAt = nowIso();
 			await this.saveReport(job, run.id, result.markdown, completedAt);
 			run = this.repository.updateRun(run.id, {
@@ -158,11 +138,10 @@ export class JobRunner {
 			used: source.used,
 			contentText: source.contentText,
 			contentHash: source.contentHash,
-			contentType: source.contentType,
-			statusCode: source.statusCode,
-			metadata: source.metadata ?? null,
-			provenance: source.provenance ?? null,
-			healthGate: source.healthGate ?? null
-		});
+				contentType: source.contentType,
+				statusCode: source.statusCode,
+				metadata: source.metadata ?? null,
+				provenance: source.provenance ?? null
+			});
 	}
 }

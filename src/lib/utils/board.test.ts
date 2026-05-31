@@ -2,17 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { buildBoardData, isActiveRun, isSafeChildPath, parseCronMarkdown } from './board';
 import type { BoardPost, AgentJob, AgentRun } from '$lib/types';
 
-const SAMPLE = `# Cron Job: NEWSWATCH
+const SAMPLE = `# Research Update: NEWSWATCH
 
-**Job ID:** 4c84f5c519d7
-**Run Time:** 2026-04-26 17:38:23
+**Story ID:** 4c84f5c519d7
+**Research Time:** 2026-04-26 17:38:23
 **Schedule:** every 180m
 
 ## Prompt
 
 This metadata should stay out of the board body.
 
-## Response
+## Update
 
 # Newswatch Report
 

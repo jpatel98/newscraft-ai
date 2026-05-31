@@ -1,15 +1,9 @@
 import postgres, { type Sql } from 'postgres';
 import type {
 	CreateJobInput,
-	NewsroomCrawlPlanVersionDto,
-	NewsroomGateDto,
 	NewsroomReportDto,
 	NewsroomRunDto,
 	NewsroomSourceDto,
-	QueueGateInput,
-	ResolveGateInput,
-	ResolveGateResult,
-	SaveCrawlPlanVersionInput,
 	UpdateJobInput
 } from '@newscraft/shared';
 import type { HarnessDb } from './database.js';
@@ -17,7 +11,6 @@ import {
 	type AppendEventInput,
 	type AppendMemoryInput,
 	HarnessRepository,
-	type HouseMemoryInspectDto,
 	type MemoryEntryDto,
 	type StoreSourceInput
 } from './repository.js';
@@ -122,39 +115,6 @@ const TABLES: TableSpec[] = [
 		orderBy: 'created_at ASC, id ASC'
 	},
 	{
-		name: 'gates',
-		primaryKey: 'id',
-		columns: [
-			'id',
-			'workspace_id',
-			'story_id',
-			'job_id',
-			'run_id',
-			'type',
-			'title',
-			'summary',
-			'status',
-			'priority',
-			'payload_json',
-			'actions_json',
-			'created_by',
-			'created_at',
-			'resolved_at',
-			'resolved_by',
-			'resolution_action',
-			'resolution_notes',
-			'resolution_payload_json',
-			'resolution_event_id'
-		],
-		orderBy: 'created_at ASC, id ASC'
-	},
-	{
-		name: 'house_memory',
-		primaryKey: 'key',
-		columns: ['key', 'value_json', 'updated_at'],
-		orderBy: 'key ASC'
-	},
-	{
 		name: 'memory_entries',
 		primaryKey: 'id',
 		appendOnly: true,
@@ -180,36 +140,6 @@ export class SupabaseMirroredHarnessRepository extends HarnessRepository {
 		const event = super.appendEvent(input);
 		this.mirror.scheduleSync();
 		return event;
-	}
-
-	override queueGate(input: QueueGateInput): NewsroomGateDto {
-		const gate = super.queueGate(input);
-		this.mirror.scheduleSync();
-		return gate;
-	}
-
-	override resolveGate(id: string, input: ResolveGateInput): ResolveGateResult {
-		const result = super.resolveGate(id, input);
-		this.mirror.scheduleSync();
-		return result;
-	}
-
-	override saveCrawlPlanVersion(input: SaveCrawlPlanVersionInput): NewsroomCrawlPlanVersionDto {
-		const plan = super.saveCrawlPlanVersion(input);
-		this.mirror.scheduleSync();
-		return plan;
-	}
-
-	override updateHouseMemory(values: Record<string, unknown>, actor = 'editor'): HouseMemoryInspectDto {
-		const memory = super.updateHouseMemory(values, actor);
-		this.mirror.scheduleSync();
-		return memory;
-	}
-
-	override appendBeatMemory(beatId: string, input: AppendMemoryInput): MemoryEntryDto {
-		const entry = super.appendBeatMemory(beatId, input);
-		this.mirror.scheduleSync();
-		return entry;
 	}
 
 	override appendStoryMemory(storyId: string, input: AppendMemoryInput): MemoryEntryDto {
@@ -520,39 +450,10 @@ CREATE TABLE IF NOT EXISTS harness.events (
 	created_at text NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS harness.gates (
-	id text PRIMARY KEY,
-	workspace_id text NOT NULL,
-	story_id text,
-	job_id text,
-	run_id text,
-	type text NOT NULL,
-	title text NOT NULL,
-	summary text NOT NULL,
-	status text NOT NULL CHECK (status IN ('open', 'resolved')) DEFAULT 'open',
-	priority integer NOT NULL DEFAULT 3,
-	payload_json text NOT NULL DEFAULT '{}',
-	actions_json text NOT NULL DEFAULT '[]',
-	created_by text NOT NULL,
-	created_at text NOT NULL,
-	resolved_at text,
-	resolved_by text,
-	resolution_action text,
-	resolution_notes text,
-	resolution_payload_json text,
-	resolution_event_id text REFERENCES harness.events(id) ON DELETE SET NULL
-);
-
-CREATE TABLE IF NOT EXISTS harness.house_memory (
-	key text PRIMARY KEY,
-	value_json text NOT NULL,
-	updated_at text NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS harness.memory_entries (
 	id text PRIMARY KEY,
 	workspace_id text NOT NULL DEFAULT 'default',
-	tier text NOT NULL CHECK (tier IN ('house', 'beat', 'story')),
+	tier text NOT NULL CHECK (tier IN ('story')),
 	scope_id text NOT NULL,
 	key text NOT NULL,
 	kind text NOT NULL,
@@ -586,9 +487,6 @@ CREATE INDEX IF NOT EXISTS events_workspace_created_idx ON harness.events(worksp
 CREATE INDEX IF NOT EXISTS events_story_idx ON harness.events(story_id, created_at, id);
 CREATE INDEX IF NOT EXISTS events_job_idx ON harness.events(job_id, created_at, id);
 CREATE INDEX IF NOT EXISTS events_run_idx ON harness.events(run_id, created_at, id);
-CREATE INDEX IF NOT EXISTS gates_queue_idx ON harness.gates(workspace_id, status, priority, created_at, id);
-CREATE INDEX IF NOT EXISTS gates_story_idx ON harness.gates(story_id, status, created_at, id);
-CREATE INDEX IF NOT EXISTS gates_job_idx ON harness.gates(job_id, status, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_scope_idx ON harness.memory_entries(tier, scope_id, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_key_idx ON harness.memory_entries(tier, scope_id, key, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_workspace_scope_idx ON harness.memory_entries(workspace_id, tier, scope_id, created_at, id);

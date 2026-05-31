@@ -129,13 +129,13 @@ export class NewsroomAgentRuntime {
 	private localChat(prompt: string): string {
 		const role = this.assignmentDesk.triage(prompt, { default_tool_budget: this.defaultToolBudget() }).role;
 		const url = firstUrl(prompt);
-		return [
-			`NewsCraft ${roleLabel(role)} ready.`,
-			url
-				? `I can use ${url} as a source and keep provenance in the harness run log.`
-				: 'I can scan, summarize, draft, verify, and prepare reports while leaving publishing decisions to an editor.',
-			'For live model-backed analysis, set OPENAI_API_KEY on the newsroom harness.'
-		].join('\n\n');
+			return [
+				`NewsCraft ${roleLabel(role)} ready.`,
+				url
+					? `I can use ${url} as a source and keep provenance in the harness run log.`
+					: 'I can scan, summarize, compare coverage, and prepare source-backed research updates.',
+				'For live model-backed analysis, set OPENAI_API_KEY on the newsroom harness.'
+			].join('\n\n');
 	}
 
 	private async disciplinedComplete(prompt: string, context: RuntimeContext): Promise<string> {
@@ -230,20 +230,20 @@ export class NewsroomAgentRuntime {
 		context: RuntimeContext
 	): Promise<string> {
 		if (!this.controls.openAiApiKey) return result.final_answer;
-		try {
-			const sdk = await import('@openai/agents');
-			sdk.setTracingDisabled(true);
-			const agent = new sdk.Agent({
-				name: 'Cron Mission Output Writer',
-				instructions: [
-					'You write the final output for a scheduled newsroom cron mission.',
-					'The mission prompt is the output contract. Follow it exactly.',
-					'Do not add default NewsCraft sections, source notes, verification notes, human-review notes, or boilerplate unless the mission prompt asks for them.',
-					'Use only the provided evidence. If the evidence is insufficient, say so in the requested format or as plainly as possible.',
-					'Never invent publication dates. If a source says Published: NOT FOUND, write Date: Not found or omit the date; never use the accessed/run time as the publication date.',
-					'Return only the mission output.'
-				].join('\n')
-			});
+			try {
+				const sdk = await import('@openai/agents');
+				sdk.setTracingDisabled(true);
+				const agent = new sdk.Agent({
+					name: 'Research Update Writer',
+					instructions: [
+						'You write the final output for a NewsCraft research update.',
+						'The prompt is the output contract. Follow it exactly.',
+						'Do not add default NewsCraft sections, internal process notes, or boilerplate unless the prompt asks for them.',
+						'Use only the provided evidence. If the evidence is insufficient, say so in the requested format or as plainly as possible.',
+						'Never invent publication dates. If a source says Published: NOT FOUND, write Date: Not found or omit the date; never use the accessed/run time as the publication date.',
+						'Return only the research update.'
+					].join('\n')
+				});
 			const response = await (sdk.run as any)(agent, missionSynthesisInput(prompt, result), {
 				maxTurns: 1,
 				model: context.model,
@@ -276,13 +276,12 @@ export class NewsroomAgentRuntime {
 						used: source.used,
 						contentText: source.contentText,
 						contentHash: source.contentHash,
-						contentType: source.contentType,
-						statusCode: source.statusCode,
-						metadata: source.metadata ?? null,
-						provenance: source.provenance ?? null,
-						healthGate: source.healthGate ?? null
-					});
-				}
+							contentType: source.contentType,
+							statusCode: source.statusCode,
+							metadata: source.metadata ?? null,
+							provenance: source.provenance ?? null
+						});
+					}
 				return sourceToolResult(source);
 			}
 		});
@@ -310,24 +309,14 @@ export class NewsroomAgentRuntime {
 				instructions: roleInstructionsFor('assignment_desk'),
 				tools: [fetchTool, snapshotTool]
 			}),
-			research: new sdk.Agent({
-				name: 'Research Desk',
-				instructions: roleInstructionsFor('research'),
-				tools: [fetchTool, snapshotTool]
-			}),
-			verification: new sdk.Agent({
-				name: 'Verification Desk',
-				instructions: roleInstructionsFor('verification'),
-				tools: [fetchTool, snapshotTool]
-			}),
-			production: new sdk.Agent({
-				name: 'Production Desk',
-				instructions: roleInstructionsFor('production'),
-				tools: [fetchTool, snapshotTool]
-			}),
-			monitoring: new sdk.Agent({
-				name: 'Monitoring Desk',
-				instructions: roleInstructionsFor('monitoring'),
+				research: new sdk.Agent({
+					name: 'Research Desk',
+					instructions: roleInstructionsFor('research'),
+					tools: [fetchTool, snapshotTool]
+				}),
+				monitoring: new sdk.Agent({
+					name: 'Monitoring Desk',
+					instructions: roleInstructionsFor('monitoring'),
 				tools: [fetchTool, snapshotTool]
 			}),
 			assistant: new sdk.Agent({
@@ -452,8 +441,7 @@ function evidenceToFetchedSource(evidence: EvidenceObject): FetchedSource {
 		contentType: evidence.source_url.startsWith('newsroom://') ? 'text/markdown' : null,
 		statusCode: evidence.confidence > 0 ? 200 : null,
 		used: evidence.confidence > 0,
-		metadata: evidence.published_at ? { publishedAt: evidence.published_at } : null,
-		healthGate: null
+		metadata: evidence.published_at ? { publishedAt: evidence.published_at } : null
 	};
 }
 
@@ -477,7 +465,7 @@ function missionSynthesisInput(prompt: string, result: NewsroomAgentRunResult): 
 				.join('\n\n')
 		: 'No usable evidence was gathered.';
 	const limitations = result.limitations.length ? result.limitations.join('\n') : 'None recorded.';
-	return `Mission prompt:
+	return `Research prompt:
 ${prompt}
 
 Evidence gathered for this run:
@@ -486,7 +474,7 @@ ${evidence}
 Limitations:
 ${limitations}
 
-Write the mission output now. Follow the mission prompt's requested output format exactly.`;
+Write the research update now. Follow the prompt's requested output format exactly.`;
 }
 
 function truncateEvidence(value: string, maxLength = 1800): string {
@@ -515,7 +503,7 @@ function progressDetailForTool(tool: string): string {
 	if (tool === 'openai_web_search') return 'Searching current coverage';
 	if (tool === 'configured_source_monitor') return 'Checking configured sources';
 	if (tool === 'source_feed_fetcher') return 'Reading attached source feeds';
-	if (tool === 'mission_result_reader') return 'Reading saved NewsCraft output';
+	if (tool === 'saved_research_reader') return 'Reading saved NewsCraft research';
 	return '';
 }
 

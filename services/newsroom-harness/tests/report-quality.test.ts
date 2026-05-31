@@ -24,8 +24,8 @@ const job: NewsroomJobDto = {
 	updated_at: '2026-05-22T10:00:00.000Z'
 };
 
-describe('mission report quality gate', () => {
-	it('replaces looping repeated output before saving the mission report body', () => {
+describe('research update quality checks', () => {
+	it('replaces looping repeated output before saving the research update body', () => {
 		const repeatedBlock = `## Source Notes
 
 Source: Local feed
@@ -43,10 +43,8 @@ City desk confirms river inspection. Officials scheduled a levee inspection afte
 		expect(quality.reasons).toEqual(expect.arrayContaining(['repeated_sections', 'duplicate_content']));
 		expect(wrapped.markdown).toContain('The generated output failed quality checks');
 		expect(wrapped.markdown).toContain('## Summary');
-		expect(wrapped.markdown).toContain('## Lead Candidates');
-		expect(wrapped.markdown).toContain('## Source Notes');
-		expect(wrapped.markdown).toContain('## Verification Notes');
-		expect(wrapped.markdown).toContain('## Human Review');
+		expect(wrapped.markdown).toContain('## Sources');
+		expect(wrapped.markdown).toContain('## Uncertainty');
 		expect(wrapped.markdown.length).toBeLessThan(1800);
 		expect(wrapped.markdown.match(/City desk confirms river inspection/g)?.length ?? 0).toBe(0);
 	});
@@ -55,9 +53,7 @@ City desk confirms river inspection. Officials scheduled a levee inspection afte
 		const noisyMarkdown = [
 			'## Summary',
 			'The SDK returned a database payload while the tool budget was exhausted.',
-			'## Lead Candidates',
-			'No assignment decision is ready.',
-			'## Source Notes',
+			'## Sources',
 			'Raw API response follows.',
 			'A very long model trace line. '.repeat(900)
 		].join('\n\n');
@@ -74,7 +70,7 @@ City desk confirms river inspection. Officials scheduled a levee inspection afte
 		expect(wrapped.markdown).not.toContain('too_long');
 	});
 
-	it('keeps valid mission output exactly as generated', () => {
+	it('keeps valid research output exactly as generated', () => {
 		const goodMarkdown = `CP News Outlook
 
 (City-River-Inspection)
@@ -104,7 +100,7 @@ The public works office says the inspection is expected this afternoon.
 
 		expect(wrapped.markdown).toContain('ASSIGNMENT DESK QUEUE');
 		expect(wrapped.markdown).not.toContain('## Lead Candidates');
-		expect(wrapped.markdown).not.toContain('## Source Notes');
+		expect(wrapped.markdown).not.toContain('## Sources');
 		expect(wrapped.markdown).not.toContain('## Human Review');
 		expect(wrapped.markdown).not.toContain('failed quality checks');
 	});

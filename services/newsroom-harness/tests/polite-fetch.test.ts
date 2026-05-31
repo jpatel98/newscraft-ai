@@ -162,34 +162,6 @@ describe('politeFetch', () => {
 		});
 	});
 
-	it('surfaces source-health gates when a source exceeds its failure budget', async () => {
-		const gateSpy = vi.fn();
-		const fetchMock = vi.fn(async () => new Response('busy', { status: 503 }));
-
-		await politeFetch('https://example.test/flaky', {
-			fetchImpl: fetchMock as typeof fetch,
-			rateLimit: { hostDelayMs: 0 },
-			robots: { respect: false },
-			sourceHealth: { failureBudget: 2, onGate: gateSpy }
-		});
-		const second = await politeFetch('https://example.test/flaky', {
-			fetchImpl: fetchMock as typeof fetch,
-			rateLimit: { hostDelayMs: 0 },
-			robots: { respect: false },
-			sourceHealth: { failureBudget: 2, onGate: gateSpy }
-		});
-
-		expect(second.sourceHealthGate).toMatchObject({
-			type: 'source_health',
-			host: 'example.test',
-			statusCode: 503,
-			reason: 'HTTP 503',
-			failureCount: 2,
-			failureBudget: 2
-		});
-		expect(gateSpy).toHaveBeenCalledTimes(1);
-	});
-
 	it('applies per-host delay and response backoff hints', async () => {
 		let now = 1_000;
 		const wait = vi.fn(async (ms: number) => {

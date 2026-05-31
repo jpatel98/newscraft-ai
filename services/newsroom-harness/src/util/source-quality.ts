@@ -63,11 +63,11 @@ export function assessSourceQuality(input: SourceQualityInput): SourceQualityAss
 		);
 	}
 
-	if (looksLikeRecycledMissionOutput(rawText, rawSummary)) {
+	if (looksLikeRecycledResearchOutput(rawText, rawSummary)) {
 		return unusable(
 			'recycled_report_unusable',
-			'Source looked like recycled mission output instead of a story page.',
-			'recycled mission report text'
+			'Source looked like a recycled research update instead of a story page.',
+			'recycled research update text'
 		);
 	}
 
@@ -122,22 +122,25 @@ function looksLikeNavigationOnly(value: string): boolean {
 	return false;
 }
 
-function looksLikeRecycledMissionOutput(text: string, summary: string): boolean {
+function looksLikeRecycledResearchOutput(text: string, summary: string): boolean {
 	const value = `${summary}\n${text}`;
 	if (!value.trim()) return false;
 	const reportMarkers = [
 		/^#{1,3}\s+summary\b/im,
-		/^#{1,3}\s+lead candidates\b/im,
+		/^#{1,3}\s+sources?\b/im,
 		/^#{1,3}\s+source notes\b/im,
+		/^#{1,3}\s+uncertainty\b/im,
 		/^#{1,3}\s+limitations\b/im,
-		/\bno publishable lead was found\b/i,
+		/\bno usable source material was (?:found|available)\b/i,
 		/\badditional usable sources were recorded\b/i,
 		/\btool budget used\b/i,
-		/\bbacked by\b.+\bmission\b/i,
-		/\bnewsroom:\/\/mission-output\//i
+		/\bbacked by\b.+\bresearch update\b/i,
+		/\bnewsroom:\/\/research-update\//i
 	];
+	const legacyMarkers = [/\bno publishable lead was found\b/i, /\bnewsroom:\/\/mission-output\//i];
 	const matches = reportMarkers.filter((pattern) => pattern.test(value)).length;
-	return matches >= 2 || (/^#{1,3}\s+source notes\b/im.test(value) && value.length > 1200);
+	const legacyMatches = legacyMarkers.filter((pattern) => pattern.test(value)).length;
+	return matches + legacyMatches >= 2 || (/^#{1,3}\s+source notes\b/im.test(value) && value.length > 1200);
 }
 
 function looksLikeRepeatedBoilerplate(value: string): boolean {

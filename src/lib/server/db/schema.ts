@@ -130,40 +130,6 @@ export const missionSources = pgTable(
 	})
 );
 
-export const missionCrawlPlans = pgTable(
-	'mission_crawl_plans',
-	{
-		id: text('id').primaryKey(),
-		accountId: text('account_id')
-			.notNull()
-			.references(() => accounts.id, { onDelete: 'cascade' }),
-		missionId: text('mission_id')
-			.notNull()
-			.references(() => missions.id, { onDelete: 'cascade' }),
-		seedUrl: text('seed_url').notNull(),
-		siteName: text('site_name').notNull(),
-		status: text('status', { enum: ['pending', 'approved', 'rejected'] }).notNull().default('pending'),
-		linkFollowRule: text('link_follow_rule').notNull(),
-		articleBodyStrategy: text('article_body_strategy', {
-			enum: ['auto', 'selector', 'agent-extract']
-		}).notNull().default('auto'),
-		pollingCadence: text('polling_cadence').notNull().default('inherit mission schedule'),
-		changeDetection: text('change_detection', {
-			enum: ['hash', 'structured_diff', 'semantic_similarity']
-		}).notNull().default('hash'),
-		candidateLinksJson: text('candidate_links_json').notNull().default('[]'),
-		planJson: text('plan_json').notNull().default('{}'),
-		createdAt: timestampMs('created_at').notNull(),
-		updatedAt: timestampMs('updated_at').notNull(),
-		approvedAt: timestampMs('approved_at'),
-		rejectedAt: timestampMs('rejected_at')
-	},
-	(t) => ({
-		accountMissionIdx: index('mission_crawl_plans_account_mission_idx').on(t.accountId, t.missionId),
-		missionStatusIdx: index('mission_crawl_plans_mission_status_idx').on(t.missionId, t.status)
-	})
-);
-
 export const missionRuns = pgTable(
 	'mission_runs',
 	{

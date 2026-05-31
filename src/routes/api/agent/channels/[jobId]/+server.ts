@@ -19,7 +19,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 		cronDeleted = true;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		// If the upstream task already vanished, still clear local mission reports.
+		// If the upstream task already vanished, still clear local research updates.
 		if (/\b404\b/.test(message) || /not found/i.test(message)) {
 			cronDeleteError = message;
 		} else {

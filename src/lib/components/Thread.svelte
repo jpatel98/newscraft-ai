@@ -1,107 +1,12 @@
-<script lang="ts">
-	import type { ChatMessage, ContentPart, MessageContent } from '$lib/types';
-	import { contentText } from '$lib/types';
-	import ChevronRight from 'lucide-svelte/icons/chevron-right';
-	import Copy from 'lucide-svelte/icons/copy';
-	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
-	import Markdown from './Markdown.svelte';
-	import ToolActivity from './ToolActivity.svelte';
-	import { chat } from '$lib/stores/chat.svelte';
-	import type { PersistedSource, StreamToolCall } from '$lib/utils/stream-events';
-	import { formatShortTime } from '$lib/utils/time';
-	import { parseToolMetadata, usedSources } from '$lib/utils/tool-metadata';
-	import {
-		formatElapsed,
-		showToolRawName,
-		toolStepDetail,
-		toolStepLabel
-	} from '$lib/utils/tool-labels';
-
-	type ToolStepCall = Omit<StreamToolCall, 'status'> & {
-		status?: 'running' | 'ok' | 'failed' | 'unknown';
-	};
-
-	function parseToolCalls(m: ChatMessage): ToolStepCall[] {
-		return parseToolMetadata(m.toolCalls).tools.map((tool) => ({
-			...tool,
-			status: inspectorStatus(tool.status)
-		}));
-	}
-
-	function parseMessageSources(m: ChatMessage): PersistedSource[] {
-		return usedSources(parseToolMetadata(m.toolCalls).sources);
-	}
-
-	function inspectorStatus(status: string | undefined): ToolStepCall['status'] {
-		const value = (status || 'unknown').toLowerCase();
-		if (['running', 'started', 'start', 'active', 'queued', 'pending', 'in_progress'].includes(value)) {
-			return 'running';
-		}
-		if (['ok', 'done', 'complete', 'completed', 'success'].includes(value)) return 'ok';
-		if (['failed', 'failure', 'error', 'errored'].includes(value)) return 'failed';
-		return 'unknown';
-	}
-
-	function liveSources(): PersistedSource[] {
-		return usedSources(
-			chat.sources.map((source) => ({
-				id: source.id,
-				url: source.url,
-				title: source.title,
-				status: source.status,
-				domain: source.domain,
-				detail: source.detail,
-				firstSeenAt: source.firstSeenAt ?? source.updatedAt,
-				lastSeenAt: source.lastSeenAt ?? source.updatedAt,
-				used: source.used ?? true
-			}))
-		);
-	}
-
-	function sourcesForMessage(m: ChatMessage): PersistedSource[] {
-		if (
-			m.id === lastAssistantId &&
-			conversationId != null &&
-			chat.activityConversationId === conversationId &&
-			(chat.streaming || chat.sources.length > 0)
-		) {
-			return liveSources();
-		}
-		if (m.role !== 'assistant') return [];
-		return parseMessageSources(m);
-	}
-
-	function persistedStepCallsForMessage(m: ChatMessage): ToolStepCall[] {
-		if (m.role !== 'assistant' || m.streaming) return [];
-		if (
-			m.id === lastAssistantId &&
-			conversationId != null &&
-			chat.activityConversationId === conversationId &&
-			(chat.streaming || chat.tools.length > 0 || chat.toolHistory.length > 0)
-		) {
-			return [];
-		}
-		return parseToolCalls(m).filter((t) => t.status !== 'running');
-	}
-
-	function stepDuration(t: ToolStepCall): string {
-		const ms =
-			typeof t.durationMs === 'number'
-				? t.durationMs
-				: t.startedAt && t.endedAt
-					? t.endedAt - t.startedAt
-					: undefined;
-		return typeof ms === 'number' && Number.isFinite(ms) ? formatElapsed(ms) : '';
-	}
-
-	let toolRecapExpanded = $state<Record<string, boolean>>({});
-	let sourceStripExpanded = $state<Record<string, boolean>>({});
-	function toggleToolRecap(id: string) {
-		toolRecapExpanded = { ...toolRecapExpanded, [id]: !toolRecapExpanded[id] };
-	}
-	function toggleSourceStrip(id: string) {
-		sourceStripExpanded = { ...sourceStripExpanded, [id]: !sourceStripExpanded[id] };
-	}
+	<script lang="ts">
+		import type { ChatMessage, ContentPart, MessageContent } from '$lib/types';
+		import { contentText } from '$lib/types';
+		import Copy from 'lucide-svelte/icons/copy';
+		import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
+		import Markdown from './Markdown.svelte';
+		import ToolActivity from './ToolActivity.svelte';
+		import { chat } from '$lib/stores/chat.svelte';
+		import { formatShortTime } from '$lib/utils/time';
 
 	interface Props {
 		messages: ChatMessage[];
@@ -188,15 +93,13 @@
 	$effect(() => {
 		const key = messages[0]?.id ?? null;
 		if (key !== conversationKey) {
-			conversationKey = key;
-			didInitialScroll = false;
-			scrolledToHash = false;
-			hashMessageId = null;
-			toolRecapExpanded = {};
-			sourceStripExpanded = {};
-			stickToBottom = true;
-		}
-	});
+				conversationKey = key;
+				didInitialScroll = false;
+				scrolledToHash = false;
+				hashMessageId = null;
+				stickToBottom = true;
+			}
+		});
 
 	$effect(() => {
 		// Track length AND the tail's content length so streaming token-by-token
@@ -305,9 +208,9 @@
 							{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 							{#if m.partial && !m.streaming}
 								<span
-									style="display:inline-block;margin-left:6px;font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em"
+									style="display:inline-block;margin-left:6px;font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0"
 								>
-									— interrupted
+									interrupted
 								</span>
 							{/if}
 						{:else if Array.isArray(m.content)}
@@ -331,102 +234,9 @@
 						{/if}
 					</div>
 
-					{#if m.role === 'assistant'}
-						{@const sources = sourcesForMessage(m)}
-						{#if sources.length > 0}
-							{@const sourceOpen = !!sourceStripExpanded[m.id]}
-							{@const visibleSources = sourceOpen ? sources : sources.slice(0, 4)}
-							<div class="msg__sources" aria-label="Sources used">
-								<span class="msg__sources__label">Sources</span>
-								<div class="msg__sources__list">
-									{#each visibleSources as source (source.url)}
-										<a
-											class="msg-source"
-											href={source.url}
-											target="_blank"
-											rel="noopener noreferrer"
-											title={source.title}
-										>
-											<span class="msg-source__domain">{source.domain}</span>
-											<span class="msg-source__title">{source.title}</span>
-										</a>
-									{/each}
-									{#if sources.length > 4}
-										<button
-											type="button"
-											class="msg-source msg-source--more"
-											onclick={() => toggleSourceStrip(m.id)}
-											aria-expanded={sourceOpen}
-										>
-											{sourceOpen ? 'Show fewer' : `+${sources.length - 4} more`}
-										</button>
-									{/if}
-								</div>
-							</div>
+						{#if m.role === 'assistant' && m.id === lastAssistantId && chat.activityConversationId === conversationId}
+							<ToolActivity activeTurn={true} />
 						{/if}
-					{/if}
-
-					{#if m.role === 'assistant'}
-						{@const persistedSteps = persistedStepCallsForMessage(m)}
-						{#if persistedSteps.length > 0}
-							{@const recapOpen = !!toolRecapExpanded[m.id]}
-							<div class="msg__tool-recap" aria-label="Completed tool steps">
-								<div class="msg__tool-recap__head">
-									<button
-										type="button"
-										class="msg__tool-recap__toggle"
-										onclick={() => toggleToolRecap(m.id)}
-										aria-expanded={recapOpen}
-									>
-										<ChevronRight
-											class="msg__tool-recap__chev {recapOpen
-												? 'msg__tool-recap__chev--open'
-												: ''}"
-											size="12"
-											strokeWidth={1.75}
-										/>
-										<span>{persistedSteps.length === 1 ? 'Task completed' : 'Tasks completed'}</span>
-										<span class="msg__tool-recap__count">
-											· {persistedSteps.length} {persistedSteps.length === 1 ? 'step' : 'steps'}
-										</span>
-									</button>
-								</div>
-								{#if recapOpen}
-									<ol class="msg__tool-recap__list">
-										{#each persistedSteps as t, ti (t.id)}
-											{@const detail = toolStepDetail(t)}
-											{@const duration = stepDuration(t)}
-											<li
-												class="msg__tool-step {t.status === 'failed'
-													? 'msg__tool-step--failed'
-													: ''}"
-											>
-												<span class="msg__tool-step__index">{ti + 1}</span>
-												<span class="msg__tool-step__main">
-													<span class="msg__tool-step__row">
-														<span class="msg__tool-step__name">{toolStepLabel(t, true)}</span>
-														{#if showToolRawName(t)}
-															<span class="msg__tool-step__raw">{t.name}</span>
-														{/if}
-													</span>
-													{#if detail}
-														<span class="msg__tool-step__detail">{detail}</span>
-													{/if}
-												</span>
-												{#if duration}
-													<span class="msg__tool-step__duration">{duration}</span>
-												{/if}
-											</li>
-										{/each}
-									</ol>
-								{/if}
-							</div>
-						{/if}
-					{/if}
-
-					{#if m.role === 'assistant' && m.id === lastAssistantId && chat.activityConversationId === conversationId}
-						<ToolActivity activeTurn={true} />
-					{/if}
 
 					{#if m.role === 'assistant' && m.partial && !m.streaming && !m.id.startsWith('tmp-')}
 						<div class="msg__resume" role="status">

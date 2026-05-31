@@ -216,7 +216,7 @@ export class DisciplinedNewsroomAgent {
 function inputForTool(name: string, prompt: string, evidence: EvidenceObject[]): unknown {
 	if (name === 'configured_source_monitor') return { query: prompt, urls: urlsFromText(prompt) };
 	if (name === 'source_feed_fetcher') return { query: prompt };
-	if (name === 'mission_result_reader') return { latest: true };
+	if (name === 'saved_research_reader') return { latest: true };
 	if (name === 'openai_web_search') return { query: prompt };
 	if (name === 'browser_automation_provider') return { task: prompt, url: firstUrlFromText(prompt) };
 	if (name === 'pdf_text_extractor') return { url: firstUrlFromText(prompt), text: undefined };

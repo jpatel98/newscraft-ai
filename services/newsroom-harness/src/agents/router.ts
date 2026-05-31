@@ -25,7 +25,7 @@ export interface RouterOptions {
 export const NEWSROOM_TOOL_NAMES = {
 	sourceMonitor: 'configured_source_monitor',
 	sourceFeedFetcher: 'source_feed_fetcher',
-	missionResultReader: 'mission_result_reader',
+	researchResultReader: 'saved_research_reader',
 	webSearch: 'openai_web_search',
 	browserAutomation: 'browser_automation_provider',
 	pdfTextExtractor: 'pdf_text_extractor',
@@ -39,7 +39,7 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 	if (!text || isAmbiguousReference(text)) {
 		return decision(
 			'clarification_needed',
-			'The request does not identify a source, story, mission output, or concrete newsroom task.',
+				'The request does not identify a source, story, saved update, or concrete newsroom task.',
 			[],
 			budget,
 			'stop immediately and ask for the missing source or story target',
@@ -58,14 +58,14 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		);
 	}
 
-	if (mentionsMissionOutput(text)) {
+	if (mentionsResearchOutput(text)) {
 		return decision(
 			'custom_tool',
-			'The request asks for saved NewsCraft mission output.',
-			[NEWSROOM_TOOL_NAMES.missionResultReader],
+			'The request asks for saved NewsCraft research output.',
+			[NEWSROOM_TOOL_NAMES.researchResultReader],
 			budget,
-			'stop after the latest relevant mission output is found or confirmed unavailable',
-			'a concise answer grounded in saved mission evidence'
+			'stop after the latest relevant research output is found or confirmed unavailable',
+			'a concise answer grounded in saved research evidence'
 		);
 	}
 
@@ -111,7 +111,7 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 	if (wantsConfiguredSources || wantsCurrentSources) {
 		return decision(
 			'hybrid_research',
-			'The request targets a current newsroom mission; default to broad discovery plus configured-source checks.',
+				'The request targets current newsroom research; default to broad discovery plus configured-source checks.',
 			[NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.webSearch],
 			budget,
 			'stop after configured/source evidence and broader coverage evidence exist, or a budget/availability limit is hit',
@@ -187,10 +187,8 @@ function mentionsBrowserAutomation(text: string): boolean {
 	);
 }
 
-function mentionsMissionOutput(text: string): boolean {
-	return /\b(mission output|mission report|saved mission|latest mission|last mission|previous mission|stored report)\b/.test(
-		text
-	);
+function mentionsResearchOutput(text: string): boolean {
+	return /\b(research output|saved research(?: update)?|saved update|latest (?:research )?update|last (?:research )?update|previous (?:research )?update|stored report)\b/.test(text);
 }
 
 function mentionsPdfOrDocument(text: string): boolean {

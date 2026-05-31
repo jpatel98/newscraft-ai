@@ -17,7 +17,7 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 	const evidence = sortedEvidence.filter(isUsableEvidence);
 	const unusableEvidence = sortedEvidence.filter((item) => !isUsableEvidence(item));
 	if (input.decision.selected_mode === 'clarification_needed') {
-		return 'I need a specific source, story, document, or mission output to check before I can answer cleanly.';
+		return 'I need a specific source, story, document, or research update to check before I can answer cleanly.';
 	}
 	if (input.decision.selected_mode === 'answer_from_memory') {
 		return answerFromMemory(input.prompt);
@@ -35,10 +35,6 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 
 	const briefItems = evidence.slice(0, 5).map((item) => briefItemFor(item));
 	const lead = leadParagraph(input.prompt, evidence, briefItems);
-	const leadCandidates = briefItems.map((item) => {
-		const detail = item.detail ? ` — ${item.detail}` : '';
-		return `- **${item.title}** (${kindLabel(item.evidence)}): ${item.source}${detail}`;
-	});
 	const listedSources = evidence.slice(0, 12);
 	const sourceNotes = [
 		...listedSources.map((item) => {
@@ -50,23 +46,17 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 			: []),
 		...sourceIssueNotes(unusableEvidence)
 	];
-	const verificationNotes = verificationNotesFor(input.prompt, evidence, unusableEvidence);
+	const uncertaintyNotes = uncertaintyNotesFor(input.prompt, evidence, unusableEvidence);
 
 	return [
 		'## Summary',
 		lead,
 		'',
-		'## Lead Candidates',
-		leadCandidates.join('\n'),
-		'',
-		'## Source Notes',
+		'## Sources',
 		sourceNotes.join('\n'),
 		'',
-		'## Verification Notes',
-		verificationNotes.join('\n'),
-		'',
-		'## Human Review',
-		'A producer or editor should confirm story angle, public-interest value, legal/privacy sensitivity, and any publishable wording before use.'
+		'## Uncertainty',
+		uncertaintyNotes.join('\n')
 	].join('\n');
 }
 
@@ -114,7 +104,7 @@ function chatSourceContext(evidence: EvidenceObject[]): string {
 function chatNoLead(unusableEvidence: EvidenceObject[]): string {
 	const notes = sourceIssueNotes(unusableEvidence).slice(0, 3);
 	return [
-		'I could not find readable source material for this run, so I would not use it for a publishable update yet.',
+		'I could not find readable source material for this research update.',
 		notes.length ? `Skipped sources: ${notes.join(' ')}` : '',
 		'Try again with a specific outlet/source, or rerun when the source is readable.'
 	]
@@ -147,8 +137,8 @@ function leadParagraph(prompt: string, evidence: EvidenceObject[], briefItems: B
 	const itemCount = briefItems.length;
 	const base =
 		itemCount > 1
-			? `This run found ${itemCount} usable source${itemCount === 1 ? '' : 's'} for editor review. The strongest candidates are listed below with source attribution.`
-			: `This run found one usable source for editor review: ${briefItems[0]?.title || sourceDisplayTitle(newest, 120)}.`;
+			? `This research update found ${itemCount} usable source${itemCount === 1 ? '' : 's'}. The strongest source material is listed below with attribution.`
+			: `This research update found one usable source: ${briefItems[0]?.title || sourceDisplayTitle(newest, 120)}.`;
 	const latestFraming = latestAvailableFraming(prompt, newest);
 	const sourceFraming =
 		official.length && media.length
@@ -156,19 +146,19 @@ function leadParagraph(prompt: string, evidence: EvidenceObject[], briefItems: B
 			: official.length
 				? `The gathered evidence is led by official or primary source material.`
 				: media.length
-					? `The gathered evidence is based on media reports and still needs primary-source confirmation.`
+					? `The gathered evidence is based on media reports and should be checked against primary-source material before you rely on it.`
 					: `The gathered evidence should be treated as preliminary.`;
 	const changed = /\b(latest|new|changed|update|today|recent)\b/i.test(prompt)
-		? ` Latest candidate sources are listed below.`
+		? ` Latest source material is listed below.`
 		: '';
 	return `${base}\n\n${[latestFraming, sourceFraming].filter(Boolean).join(' ')}${changed}`;
 }
 
-function verificationNotesFor(prompt: string, evidence: EvidenceObject[], unusableEvidence: EvidenceObject[]): string[] {
+function uncertaintyNotesFor(prompt: string, evidence: EvidenceObject[], unusableEvidence: EvidenceObject[]): string[] {
 	const notes: string[] = [];
 	const officialCount = evidence.filter((item) => item.source_kind === 'official' || item.source_kind === 'primary').length;
 	const mediaCount = evidence.filter((item) => item.source_kind === 'media_report').length;
-	if (officialCount) notes.push(`- Official or primary source material is available for editor review: ${officialCount}.`);
+	if (officialCount) notes.push(`- Official or primary source material is available: ${officialCount}.`);
 	if (mediaCount) notes.push(`- Secondary or media source material is available: ${mediaCount}; attribute outlet reporting separately from official statements.`);
 	if (detectPoliceLegalTask(prompt)) {
 		notes.push(
@@ -182,7 +172,7 @@ function verificationNotesFor(prompt: string, evidence: EvidenceObject[], unusab
 			: '- No conflicting claims were apparent in the usable source notes.'
 	);
 	if (unusableEvidence.length) notes.push('- Some configured sources could not be read and were not used as evidence.');
-	return notes.length ? notes : ['- No additional verification notes were generated.'];
+	return notes.length ? notes : ['- No additional uncertainty notes were generated.'];
 }
 
 function detectPoliceLegalTask(prompt: string): boolean {
@@ -362,19 +352,13 @@ function noPublishableLeadReport(unusableEvidence: EvidenceObject[]): string {
 	const sourceNotes = sourceIssueNotes(unusableEvidence);
 	return [
 		'## Summary',
-		'No publishable lead was found in this run because no usable source material was available.',
+		'No research update was saved from this run because no usable source material was available.',
 		'',
-		'## Lead Candidates',
-		'- No lead candidates. Do not assign or publish from this run without a readable source.',
-		'',
-		'## Source Notes',
+		'## Sources',
 		sourceNotes.length ? sourceNotes.join('\n') : '- No readable source material was available from this run.',
 		'',
-		'## Verification Notes',
-		'- Re-run after the source is readable, attach a source feed, or verify the story against a readable primary or reliable secondary source.',
-		'',
-		'## Human Review',
-		'A producer or editor should review the source setup before using this mission for coverage decisions.'
+		'## Uncertainty',
+		'- Re-run after the source is readable, attach a source feed, or check the story against a readable primary or reliable secondary source.'
 	].join('\n');
 }
 

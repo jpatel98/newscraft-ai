@@ -64,43 +64,6 @@ export interface ChannelSource {
 	sortOrder: number;
 }
 
-export type CrawlPlanStatus = 'pending' | 'approved' | 'rejected';
-
-export interface CrawlPlanCandidateLink {
-	title: string;
-	url: string;
-	reason: string;
-	score: number;
-}
-
-export interface CrawlPlanPoliteFetchOverrides {
-	respectRobots: boolean;
-	robotsOverride: boolean;
-	hostDelayMs: number;
-	failureBudget: number;
-	archiveWeb: boolean;
-}
-
-export interface CrawlPlanProposal {
-	id: string;
-	missionId: string;
-	version: number;
-	seedUrl: string;
-	siteName: string;
-	status: CrawlPlanStatus;
-	linkFollowRule: string;
-	articleBodyStrategy: 'auto' | 'selector' | 'agent-extract';
-	pollingCadence: string;
-	jitterMs: number;
-	changeDetection: 'hash' | 'structured_diff' | 'semantic_similarity';
-	politeFetch: CrawlPlanPoliteFetchOverrides;
-	candidateLinks: CrawlPlanCandidateLink[];
-	createdAt: number;
-	updatedAt: number;
-	approvedAt: number | null;
-	rejectedAt: number | null;
-}
-
 export interface ChatCommand {
 	slash: string;
 	kind: AgentCommandKind;
@@ -199,45 +162,6 @@ export interface BoardData {
 	jobs: AgentJob[];
 	runs?: AgentRun[];
 	jobsError?: string | null;
-}
-
-export type EditorialGateType =
-	| 'pitch'
-	| 'verification'
-	| 'draft_review'
-	| 'legal_style'
-	| 'publish'
-	| 'crawl_plan'
-	| 'source_health'
-	| 'budget';
-
-export type EditorialGateStatus = 'open' | 'resolved';
-
-export interface EditorialGateResolution {
-	action: string;
-	notes: string | null;
-	payload: unknown;
-	actor: string;
-	resolvedAt: string;
-	eventId: string | null;
-}
-
-export interface EditorialGate {
-	id: string;
-	workspaceId: string;
-	storyId: string | null;
-	jobId: string | null;
-	runId: string | null;
-	type: EditorialGateType;
-	title: string;
-	summary: string;
-	status: EditorialGateStatus;
-	priority: number;
-	payload: unknown;
-	actions: string[];
-	createdBy: string;
-	createdAt: string;
-	resolution: EditorialGateResolution | null;
 }
 
 export interface EditorialEvent {

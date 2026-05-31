@@ -7,8 +7,7 @@ import {
 	politeFetch,
 	type PoliteFetchArchiveResult,
 	type PoliteFetchCacheStatus,
-	type PoliteFetchRobotsResult,
-	type PoliteFetchSourceHealthGate
+	type PoliteFetchRobotsResult
 } from './polite-fetch.js';
 import {
 	selectSourceAdapter,
@@ -68,15 +67,13 @@ export interface FetchedSource {
 	cacheStatus?: PoliteFetchCacheStatus;
 	archiveSnapshot?: PoliteFetchArchiveResult;
 	robots?: PoliteFetchRobotsResult;
-	healthGate?: PoliteFetchSourceHealthGate | null;
 }
 
 export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise<FetchedSource> {
 	const fetched = await politeFetch(url, {
 		signal,
 		cache: DEFAULT_SOURCE_CACHE ? { store: DEFAULT_SOURCE_CACHE } : undefined,
-		archive: { webArchive: DEFAULT_ARCHIVE_ENABLED },
-		sourceHealth: { failureBudget: 3 }
+		archive: { webArchive: DEFAULT_ARCHIVE_ENABLED }
 	});
 	const contentType = fetched.contentType;
 	const body = fetched.body;
@@ -115,12 +112,11 @@ export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise
 		adapter: adapter.kind,
 		metadata: primaryArticleItem?.metadata ?? null,
 		provenance: primaryArticleItem?.provenance ?? null,
-		cacheStatus: fetched.cacheStatus,
-		archiveSnapshot: fetched.archiveSnapshot,
-		robots: fetched.robots,
-		healthGate: fetched.sourceHealthGate
-	};
-}
+			cacheStatus: fetched.cacheStatus,
+			archiveSnapshot: fetched.archiveSnapshot,
+			robots: fetched.robots
+		};
+	}
 
 export function extractSourceText(body: string, contentType: string | null, url: string): string {
 	if (contentType?.includes('xml') || looksLikeFeed(body)) return cleanSourceText(summarizeFeed(body));

@@ -125,7 +125,7 @@ function summarizeEvidenceText(text: string, maxLength = 320): string {
 
 function classifyEvidenceSource(sourceName: string, sourceUrl: string): EvidenceSourceKind {
 	const haystack = `${sourceName} ${sourceUrl}`.toLowerCase();
-	if (haystack.startsWith('newsroom://') || haystack.includes('mission output')) return 'internal';
+	if (haystack.startsWith('newsroom://') || haystack.includes('research update')) return 'internal';
 	if (/\b(police|sheriff|court|city of|government|ministry|department|agency|official)\b/.test(haystack)) {
 		return 'official';
 	}

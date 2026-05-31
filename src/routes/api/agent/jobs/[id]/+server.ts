@@ -6,7 +6,6 @@ import {
 	getMissionConfig,
 	saveMissionConfig
 } from '$lib/server/db/missions';
-import { listApprovedCrawlPlans } from '$lib/server/db/crawl-plans';
 import { deleteAgentJob, listAgentJobs, updateAgentJob } from '$lib/server/agent/board';
 import { compileChannelPrompt, normalizeChannelSources } from '$lib/utils/channel-sources';
 
@@ -19,7 +18,6 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	const description = typeof body?.description === 'string' ? body.description.trim() : undefined;
 	const schedule = typeof body?.schedule === 'string' ? body.schedule.trim() : undefined;
 	const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : undefined;
-	const deliver = typeof body?.deliver === 'string' ? body.deliver.trim() : undefined;
 	const outputFormat = typeof body?.outputFormat === 'string' ? body.outputFormat.trim() : undefined;
 	const enabled = typeof body?.enabled === 'boolean' ? body.enabled : undefined;
 	const hasSources = Boolean(body && Object.prototype.hasOwnProperty.call(body, 'sources'));
@@ -47,16 +45,14 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 			outputFormat !== undefined ||
 			name !== undefined ||
 			schedule !== undefined ||
-			deliver !== undefined ||
 			enabled !== undefined
 		) {
-			const existingJob = prompt === undefined ? (await listAgentJobs(locals.user.id)).find((job) => job.id === id) : null;
-			const basePrompt = prompt ?? existingConfig?.basePrompt ?? existingJob?.prompt ?? '';
-			const nextSources = sources ?? existingConfig?.sources ?? [];
-			if (prompt !== undefined || sources !== undefined) {
-				const crawlPlans = await listApprovedCrawlPlans(locals.user.id, id);
-				promptForAgent = compileChannelPrompt(basePrompt, nextSources, crawlPlans);
-			}
+				const existingJob = prompt === undefined ? (await listAgentJobs(locals.user.id)).find((job) => job.id === id) : null;
+				const basePrompt = prompt ?? existingConfig?.basePrompt ?? existingJob?.prompt ?? '';
+				const nextSources = sources ?? existingConfig?.sources ?? [];
+				if (prompt !== undefined || sources !== undefined) {
+					promptForAgent = compileChannelPrompt(basePrompt, nextSources);
+				}
 			configToSave = { basePrompt, sources: nextSources };
 		}
 
@@ -64,7 +60,6 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 			name,
 			schedule,
 			prompt: promptForAgent,
-			deliver,
 			enabled
 		});
 		if (job && configToSave) {
@@ -73,7 +68,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 				description: description ?? existingConfig?.description ?? job.description ?? '',
 				schedule: schedule ?? job.scheduleDisplay,
 				enabled: enabled ?? job.enabled,
-				deliveryTarget: deliver ?? job.deliver ?? 'database',
+				deliveryTarget: 'database',
 				outputFormat: outputFormat ?? existingConfig?.outputFormat ?? job.outputFormat ?? 'markdown'
 			});
 			return json({

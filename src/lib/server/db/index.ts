@@ -184,29 +184,6 @@ async function ensureSchema(): Promise<void> {
 	await sql`CREATE INDEX IF NOT EXISTS mission_sources_type_idx ON mission_sources (type)`;
 
 	await sql`
-		CREATE TABLE IF NOT EXISTS mission_crawl_plans (
-			id text PRIMARY KEY,
-			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-			mission_id text NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
-			seed_url text NOT NULL,
-			site_name text NOT NULL,
-			status text NOT NULL DEFAULT 'pending',
-			link_follow_rule text NOT NULL,
-			article_body_strategy text NOT NULL DEFAULT 'auto',
-			polling_cadence text NOT NULL DEFAULT 'inherit mission schedule',
-			change_detection text NOT NULL DEFAULT 'hash',
-			candidate_links_json text NOT NULL DEFAULT '[]',
-			plan_json text NOT NULL DEFAULT '{}',
-			created_at bigint NOT NULL,
-			updated_at bigint NOT NULL,
-			approved_at bigint,
-			rejected_at bigint
-		)
-	`;
-	await sql`CREATE INDEX IF NOT EXISTS mission_crawl_plans_account_mission_idx ON mission_crawl_plans (account_id, mission_id)`;
-	await sql`CREATE INDEX IF NOT EXISTS mission_crawl_plans_mission_status_idx ON mission_crawl_plans (mission_id, status)`;
-
-	await sql`
 		CREATE TABLE IF NOT EXISTS mission_runs (
 			id text PRIMARY KEY,
 			mission_id text NOT NULL REFERENCES missions(id) ON DELETE CASCADE,

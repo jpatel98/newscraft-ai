@@ -1,5 +1,4 @@
 import type { ChannelSource } from '$lib/types';
-import type { CrawlPlanProposal } from '$lib/types';
 
 const WATCHLIST_HEADING = '## Configured Watchlist';
 const SOURCE_STRATEGY_HEADING = '## Source Strategy';
@@ -70,49 +69,16 @@ function escapeWatchlistLine(value: string): string {
 	return value.replace(/\s+/g, ' ').trim();
 }
 
-function crawlPlanPromptBlock(plans: CrawlPlanProposal[]): string {
-	const approved = plans.filter((plan) => plan.status === 'approved');
-	if (approved.length === 0) return '';
-
-	const sections = approved.map((plan) => {
-		const links = plan.candidateLinks
-			.slice(0, 8)
-			.map((link) => `  - ${escapeWatchlistLine(link.title)}: ${link.url}`)
-			.join('\n');
-		return [
-			`### ${escapeWatchlistLine(plan.siteName)}`,
-			`- Seed URL: ${plan.seedUrl}`,
-			`- Link-follow rule: ${escapeWatchlistLine(plan.linkFollowRule)}`,
-			`- Article body strategy: ${plan.articleBodyStrategy}`,
-			`- Polling cadence: ${escapeWatchlistLine(plan.pollingCadence)}`,
-			`- Polling jitter: ${Math.round(plan.jitterMs / 1000)}s`,
-			`- Change detection: ${plan.changeDetection}`,
-			`- Polite fetch: robots ${plan.politeFetch.respectRobots ? 'respected' : 'not enforced'}, host delay ${plan.politeFetch.hostDelayMs}ms, archive ${plan.politeFetch.archiveWeb ? 'on' : 'off'}`,
-			links ? `- Candidate links approved for this run:\n${links}` : '- Candidate links approved for this run: none yet'
-		].join('\n');
-	});
-
-	return `## Approved Crawl Plans
-Before proposing a pitch from this beat, inspect these approved crawl plans. Fetch the seed URL, follow matching candidate links, and only surface leads backed by fetched source text.
-
-${sections.join('\n\n')}`;
-}
-
-export function compileChannelPrompt(
-	basePrompt: string,
-	sources: ChannelSource[] = [],
-	crawlPlans: CrawlPlanProposal[] = []
-): string {
+export function compileChannelPrompt(basePrompt: string, sources: ChannelSource[] = []): string {
 	const prompt = basePrompt.trim();
 	const enabledSources = sources
 		.filter((source) => source.enabled !== false)
 		.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
-	const crawlPlanBlock = crawlPlanPromptBlock(crawlPlans);
 
 	const strategyBlock = `${SOURCE_STRATEGY_HEADING}
-Default to broad source discovery for this mission. Search reputable news/media coverage and use attached sources as useful starting points, not as the whole universe of allowed sources. Label official/primary sources separately from media reports. Only restrict the mission to official or primary sources when the mission prompt explicitly asks for that.`;
+Default to broad source discovery for this story. Search reputable news/media coverage and use attached sources as useful starting points, not as the whole universe of allowed sources. Label official/primary sources separately from media reports. Only restrict the story to official or primary sources when the prompt explicitly asks for that.`;
 
-	if (enabledSources.length === 0 && !crawlPlanBlock) return [prompt, strategyBlock].filter(Boolean).join('\n\n');
+	if (enabledSources.length === 0) return [prompt, strategyBlock].filter(Boolean).join('\n\n');
 
 	const lines = enabledSources.map(
 		(source) => `- ${escapeWatchlistLine(source.name)}: ${source.url}`
@@ -125,7 +91,7 @@ Use these configured sources as starting points for this scheduled run. They are
 ${lines.join('\n')}`
 		: '';
 
-	return [prompt, strategyBlock, watchlistBlock, crawlPlanBlock].filter(Boolean).join('\n\n');
+	return [prompt, strategyBlock, watchlistBlock].filter(Boolean).join('\n\n');
 }
 
 export interface ChannelConfigOverlay {

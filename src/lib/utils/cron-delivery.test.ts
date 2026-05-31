@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { effectiveRunError, toAgentDeliverTarget, toUiDeliverTarget } from './cron-delivery';
+import { effectiveRunError, toUiDeliverTarget } from './cron-delivery';
 
 describe('cron delivery helpers', () => {
-	it('sends dashboard-only jobs to Agent as local delivery', () => {
-		expect(toAgentDeliverTarget('database')).toBe('local');
-		expect(toAgentDeliverTarget(' dashboard ')).toBe('local');
-		expect(toAgentDeliverTarget('local')).toBe('local');
-	});
-
 	it('shows local Agent jobs as dashboard delivery in the UI', () => {
 		expect(toUiDeliverTarget('local')).toBe('database');
 		expect(toUiDeliverTarget('database')).toBe('database');

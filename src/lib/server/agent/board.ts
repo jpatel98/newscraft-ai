@@ -3,7 +3,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { BoardData, BoardPost, AgentJob, AgentRun } from '$lib/types';
-import { toAgentDeliverTarget, toUiDeliverTarget } from '$lib/utils/cron-delivery';
+import { toUiDeliverTarget } from '$lib/utils/cron-delivery';
 import {
 	boardPostId,
 	buildBoardData,
@@ -664,7 +664,6 @@ export interface CreateAgentJobInput {
 	schedule: string;
 	prompt: string;
 	enabled?: boolean;
-	deliver?: string | null;
 }
 
 export async function createAgentJob(accountId: string, input: CreateAgentJobInput): Promise<AgentJob | null> {
@@ -675,8 +674,7 @@ export async function createAgentJob(accountId: string, input: CreateAgentJobInp
 		schedule: input.schedule,
 		cron: input.schedule,
 		prompt: input.prompt,
-		enabled: input.enabled ?? true,
-		deliver: toAgentDeliverTarget(input.deliver)
+		enabled: input.enabled ?? true
 	};
 	const response = await agentFetch('/api/jobs', {
 		method: 'POST',
@@ -709,7 +707,6 @@ export interface UpdateAgentJobInput {
 	name?: string | null;
 	schedule?: string | null;
 	prompt?: string | null;
-	deliver?: string | null;
 	enabled?: boolean;
 }
 
@@ -733,9 +730,6 @@ export async function updateAgentJob(accountId: string, id: string, input: Updat
 	}
 	if (typeof input.prompt === 'string') {
 		payload.prompt = input.prompt.trim();
-	}
-	if (typeof input.deliver === 'string') {
-		payload.deliver = toAgentDeliverTarget(input.deliver);
 	}
 	if (typeof input.enabled === 'boolean') payload.enabled = input.enabled;
 	payload.workspace_id = workspaceIdForAccount(accountId);

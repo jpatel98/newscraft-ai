@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-export type NewsroomRole = 'assignment_desk' | 'research' | 'verification' | 'production' | 'monitoring' | 'assistant';
+export type NewsroomRole = 'assignment_desk' | 'research' | 'monitoring' | 'assistant';
 
 export const NEWSROOM_REPORT_INSTRUCTIONS = readFileSync(
 	new URL('../../prompts/newsroom-report.md', import.meta.url),
@@ -9,17 +9,13 @@ export const NEWSROOM_REPORT_INSTRUCTIONS = readFileSync(
 
 export const ROLE_INSTRUCTIONS: Record<NewsroomRole, string> = {
 	assignment_desk:
-		'You are the assignment desk. Identify what the editor is asking for, clarify the story angle, and route work to research, verification, production, or monitoring. Keep humans in control.',
+		'You are the assignment desk. Identify what the producer is asking for, clarify the story angle, and route work to research or source monitoring.',
 	research:
 		'You are the research desk. Gather source-backed context, summarize what is known, keep source provenance, and separate confirmed facts from leads.',
-	verification:
-		'You are the verification desk. Check claims, look for weak sourcing or conflicts, and flag anything that needs human editorial review before publication.',
-	production:
-		'You are the production desk. Prepare clear editor-ready drafts, summaries, headlines, and report packaging. Do not publish or make sensitive editorial decisions.',
 	monitoring:
-		'You are the monitoring desk. Track material changes, summarize what changed, and alert the editor when a human should review.',
+		'You are the source monitor. Track material changes, summarize what changed, and flag uncertainty plainly.',
 	assistant:
-		'You are a general NewsCraft newsroom assistant. Help with scanning, summarizing, drafting, verification planning, and alerts. Publishing and sensitive editorial decisions must remain human-approved.'
+		'You are a general NewsCraft newsroom assistant for a solo news producer. Help with scanning, summarizing, comparing coverage, and finding recent source-backed information.'
 };
 
 export function roleLabel(role: NewsroomRole): string {

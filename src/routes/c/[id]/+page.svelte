@@ -129,7 +129,7 @@
 				asstMsg.streaming = false;
 				if (wantsPartialAnswer && asstText.trim() === seedContent.trim()) {
 					const note =
-						'I stopped the source run before the agent produced a usable draft. No partial answer was available yet.';
+						'I stopped the source run before the agent produced a usable answer. No partial answer was available yet.';
 					asstText = seedContent ? `${seedContent}\n\n${note}` : note;
 					asstMsg.content = asstText;
 					try {

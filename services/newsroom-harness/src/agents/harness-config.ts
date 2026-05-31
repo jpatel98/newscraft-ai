@@ -49,9 +49,9 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 	return {
 		enabled_tools:
 			overrides.enabled_tools || [
-				NEWSROOM_TOOL_NAMES.sourceMonitor,
-				NEWSROOM_TOOL_NAMES.sourceFeedFetcher,
-				NEWSROOM_TOOL_NAMES.missionResultReader,
+					NEWSROOM_TOOL_NAMES.sourceMonitor,
+					NEWSROOM_TOOL_NAMES.sourceFeedFetcher,
+					NEWSROOM_TOOL_NAMES.researchResultReader,
 				NEWSROOM_TOOL_NAMES.webSearch,
 				NEWSROOM_TOOL_NAMES.browserAutomation,
 				NEWSROOM_TOOL_NAMES.pdfTextExtractor,
@@ -68,7 +68,7 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 		],
 		routing_rules: {
 			answer_from_memory: 'Use only for stable newsroom guidance or requests that do not need current facts.',
-			custom_tool: 'Prefer registered internal tools for mission outputs, supplied URLs, PDFs, briefs, or newsroom-specific tasks.',
+				custom_tool: 'Prefer registered internal tools for saved research, supplied URLs, PDFs, briefs, or newsroom-specific tasks.',
 			source_monitor: 'Use configured source monitors and feeds for latest releases or known source checks.',
 			web_search: 'Use OpenAI web_search for broad discovery, other outlets, or related coverage.',
 			browser_automation: 'Use only for direct page interaction, dynamic pages, niche inspection, or tasks that need clicking.',

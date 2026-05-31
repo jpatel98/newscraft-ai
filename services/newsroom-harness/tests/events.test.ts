@@ -95,7 +95,7 @@ describe('newsroom event log', () => {
 		});
 		const run = repo.createRun(job.id, 'test');
 
-		repo.addRunStep(run.id, 'assignment_desk', 'Route mission to newsroom role');
+		repo.addRunStep(run.id, 'assignment_desk', 'Research story or topic');
 		const toolId = repo.recordToolCall({
 			runId: run.id,
 			name: 'configured_source_monitor',
@@ -151,106 +151,6 @@ describe('newsroom event log', () => {
 			report_id: report.id,
 			ingest_status: 'not_configured'
 		});
-	});
-
-	it('surfaces source-health gates as source monitor events', () => {
-		const repo = createRepository();
-		const job = repo.createJob({
-			name: 'Source Health',
-			prompt: 'Check source reliability.',
-			schedule: 'every 60m'
-		});
-		const run = repo.createRun(job.id, 'test');
-
-		repo.storeSource({
-			runId: run.id,
-			jobId: job.id,
-			url: 'https://example.com/flaky',
-			title: 'Flaky source',
-			fetchedAt: '2026-05-24T10:00:03.000Z',
-			snippet: '',
-			summary: '',
-			used: false,
-			contentText: '',
-			contentHash: 'hash',
-			contentType: 'text/plain',
-			statusCode: 503,
-			healthGate: {
-				type: 'source_health',
-				url: 'https://example.com/flaky',
-				host: 'example.com',
-				statusCode: 503,
-				reason: 'HTTP 503',
-				failureCount: 3,
-				failureBudget: 3
-			}
-		});
-
-		const events = repo.listEvents({ workspaceId: DEFAULT_WORKSPACE_ID, runId: run.id });
-
-		expect(events.map((event) => event.kind)).toEqual([
-			'run.created',
-			'source.stored',
-			'source.health.gate',
-			'gate.queued'
-		]);
-		expect(events.find((event) => event.kind === 'source.health.gate')?.payload).toMatchObject({
-			type: 'source_health',
-			host: 'example.com',
-			reason: 'HTTP 503'
-		});
-		expect(repo.listGates({ workspaceId: DEFAULT_WORKSPACE_ID, runId: run.id })[0]).toMatchObject({
-			type: 'source_health',
-			actions: ['pause', 'retry', 'drop', 'override'],
-			payload: expect.objectContaining({
-				host: 'example.com',
-				source: expect.objectContaining({
-					url: 'https://example.com/flaky'
-				})
-			})
-		});
-	});
-
-	it('does not duplicate open Source Health gates for the same host', () => {
-		const repo = createRepository();
-		const job = repo.createJob({
-			name: 'Source Health',
-			prompt: 'Check source reliability.',
-			schedule: 'every 60m'
-		});
-		const run = repo.createRun(job.id, 'test');
-		const source = {
-			runId: run.id,
-			jobId: job.id,
-			url: 'https://example.com/flaky',
-			title: 'Flaky source',
-			fetchedAt: '2026-05-24T10:00:03.000Z',
-			snippet: '',
-			summary: '',
-			used: false,
-			contentText: '',
-			contentHash: 'hash',
-			contentType: 'text/plain',
-			statusCode: 503,
-			healthGate: {
-				type: 'source_health',
-				url: 'https://example.com/flaky',
-				host: 'example.com',
-				statusCode: 503,
-				reason: 'HTTP 503',
-				failureCount: 3,
-				failureBudget: 3
-			}
-		};
-
-		repo.storeSource(source);
-		repo.storeSource({ ...source, contentHash: 'hash-2', url: 'https://example.com/other-flaky' });
-
-		expect(repo.listGates({ workspaceId: DEFAULT_WORKSPACE_ID, runId: run.id })).toHaveLength(1);
-		expect(repo.listEvents({ workspaceId: DEFAULT_WORKSPACE_ID, runId: run.id }).filter((event) => event.kind === 'gate.queued')).toHaveLength(1);
-		expect(
-			repo.listEvents({ workspaceId: DEFAULT_WORKSPACE_ID, runId: run.id }).filter((event) => event.kind === 'source.health.gate')
-		).toHaveLength(1);
 	});
 
 	it('preserves extraction metadata and provenance on stored source events', () => {

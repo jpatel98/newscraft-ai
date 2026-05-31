@@ -171,7 +171,7 @@ function localTextStream(convoId: string, text: string): Response {
 function gatewayUnavailableMessage(detail: string): string {
 	const cleaned = detail.replace(/\s+/g, ' ').trim().slice(0, 240);
 	return [
-		"I couldn't reach the agent gateway, so I couldn't draft a reply.",
+		"I couldn't reach the agent gateway, so I couldn't answer.",
 		'Your message was saved. Try regenerate or send again once the gateway is healthy.',
 		cleaned ? `Gateway detail: ${cleaned}` : ''
 	]

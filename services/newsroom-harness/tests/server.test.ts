@@ -95,160 +95,9 @@ describe('newsroom harness server', () => {
 		});
 	});
 
-	it('routes editor commands to ad-hoc source extraction over the authenticated API', async () => {
-		await startHarness();
-		const fixture = await startNewsFixtureServer();
-		try {
-			const response = await authFetch('/api/editor-commands', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					command: `read this: ${fixture.url}/story`,
-					workspace_id: 'workspace-api'
-				})
-			});
-			const body = await response.json();
-
-			expect(response.status).toBe(200);
-			expect(body.result).toMatchObject({
-				ok: true,
-				status: 'completed',
-				handled_by: 'Monitor',
-				agent: 'beat_monitor',
-				source: {
-					url: `${fixture.url}/story`,
-					adapter: 'html_article'
-				}
-			});
-			expect(harness.repository.listEvents({ workspaceId: 'workspace-api' }).map((event) => event.kind)).toEqual([
-				'editor.command.routed',
-				'source.ad_hoc_scraped'
-			]);
-		} finally {
-			await fixture.close();
-		}
-	});
-
-	it('queues, reads, and resolves gates over the authenticated API', async () => {
-		await startHarness();
-		const queuedResponse = await authFetch('/api/gates', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				workspace_id: 'workspace-api',
-				story_id: 'story-api',
-				type: 'pitch',
-				title: 'Review pitch gate',
-				summary: 'Decide whether this pitch should move forward.',
-				actions: ['accept', 'hold', 'spike'],
-				priority: 2
-			})
-		});
-		const queued = await queuedResponse.json();
-		const listResponse = await authFetch('/api/gates?workspace_id=workspace-api&status=open');
-		const readResponse = await authFetch(`/api/gates/${queued.gate.id}`);
-		const resolvedResponse = await authFetch(`/api/gates/${queued.gate.id}/resolve`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				action: 'accept',
-				notes: 'Move this into the story workspace.',
-				actor: 'editor'
-			})
-		});
-		const resolved = await resolvedResponse.json();
-		const events = await authFetch('/api/events?workspace_id=workspace-api&story_id=story-api');
-
-		expect(queuedResponse.status).toBe(201);
-		expect(queued.gate).toMatchObject({
-			workspace_id: 'workspace-api',
-			story_id: 'story-api',
-			status: 'open',
-			type: 'pitch'
-		});
-		expect((await listResponse.json()).gates).toHaveLength(1);
-		expect((await readResponse.json()).gate.id).toBe(queued.gate.id);
-		expect(resolvedResponse.status).toBe(200);
-		expect(resolved.gate).toMatchObject({
-			id: queued.gate.id,
-			status: 'resolved',
-			resolution: {
-				action: 'accept',
-				notes: 'Move this into the story workspace.',
-				actor: 'editor',
-				event_id: resolved.event.id
-			}
-		});
-		expect((await events.json()).events.map((event: { kind: string }) => event.kind)).toEqual([
-			'gate.queued',
-			'gate.resolved'
-		]);
-	});
-
-	it('stores versioned crawl plans over the authenticated API', async () => {
-		await startHarness();
-		const first = await authFetch('/api/crawl-plans', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				beat_id: 'city-hall',
-				id: 'plan-city',
-				seed_url: 'https://city.example/news',
-				link_follow_rule: 'Follow same-site links under /news that look like articles.',
-				polling_cadence: 'every 3h',
-				jitter_ms: 900000,
-				polite_fetch: { respect_robots: false, host_delay_ms: 0, archive_web: false }
-			})
-		});
-		const second = await authFetch('/api/crawl-plans', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				beat_id: 'city-hall',
-				id: 'plan-city',
-				seed_url: 'https://city.example/news',
-				link_follow_rule: 'Follow same-site links under /news/transit.',
-				polite_fetch: { respect_robots: false, host_delay_ms: 0, archive_web: false }
-			})
-		});
-		const list = await authFetch('/api/crawl-plans?beat_id=city-hall&plan_id=plan-city');
-		const firstVersion = await authFetch('/api/crawl-plans/plan-city?beat_id=city-hall&version=1');
-
-		expect(first.status).toBe(201);
-		expect(second.status).toBe(201);
-		expect((await second.json()).crawl_plan).toMatchObject({ id: 'plan-city', version: 2, supersedes_version: 1 });
-		expect((await list.json()).crawl_plans.map((plan: { version: number }) => plan.version)).toEqual([1, 2]);
-		expect((await firstVersion.json()).crawl_plan).toMatchObject({
-			id: 'plan-city',
-			version: 1,
-			jitter_ms: 900000
-		});
-	});
-
 	it('serves authenticated memory inspect and write endpoints', async () => {
 		await startHarness();
 
-		const houseUpdate = await authFetch('/api/memory/house', {
-			method: 'PATCH',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				values: {
-					style_guide: 'Use precise sourcing.',
-					banned_phrases: ['sources say without context'],
-					beats: ['city hall']
-				},
-				actor: 'editor'
-			})
-		});
-		const beatAppend = await authFetch('/api/memory/beats/city%20hall', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				key: 'source_quality',
-				value: { source: 'Council agenda', reliability: 'primary' },
-				actor: 'beat_monitor'
-			})
-		});
 		harness.repository.appendEvent({
 			workspaceId: 'workspace-api',
 			storyId: 'story-api',
@@ -260,150 +109,17 @@ describe('newsroom harness server', () => {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
-				key: 'editor_decisions',
-				value: { decision: 'request_more_reporting' },
-				actor: 'editor'
+				key: 'fact_ledger',
+				value: { claim: 'Council meets Monday', status: 'checking' },
+				actor: 'research'
 			})
 		});
-		const houseInspect = await authFetch('/api/memory/house/inspect');
-		const beatInspect = await authFetch('/api/memory/beats/city%20hall/inspect');
 		const storyInspect = await authFetch('/api/memory/stories/story-api/inspect?workspace_id=workspace-api');
 
-		expect(houseUpdate.status).toBe(200);
-		expect(beatAppend.status).toBe(201);
 		expect(storyAppend.status).toBe(201);
-		expect((await houseInspect.json()).memory.current).toMatchObject({
-			style_guide: 'Use precise sourcing.',
-			beats: ['city hall']
-		});
-		expect((await beatInspect.json()).memory.current.source_quality).toEqual([
-			{ source: 'Council agenda', reliability: 'primary' }
-		]);
 		const story = (await storyInspect.json()).memory;
-		expect(story.current.editor_decisions).toEqual([{ decision: 'request_more_reporting' }]);
+		expect(story.current.fact_ledger).toEqual([{ claim: 'Council meets Monday', status: 'checking' }]);
 		expect(story.agent_event_log.map((event: { kind: string }) => event.kind)).toEqual(['claim.proposed']);
-	});
-
-	it('drafts a cited web story from verified story memory over the authenticated API', async () => {
-		await startHarness();
-		const storyId = 'story-api-draft';
-		const workspaceId = 'workspace-api';
-		for (const fact of verifiedDraftFacts()) {
-			harness.repository.appendStoryMemory(storyId, {
-				workspaceId,
-				key: 'fact_ledger',
-				kind: 'claim.verified',
-				actor: 'verification',
-				value: fact
-			});
-		}
-		harness.repository.appendStoryMemory(storyId, {
-			workspaceId,
-			key: 'fact_ledger',
-			kind: 'claim.verified',
-			actor: 'verification',
-			value: {
-				id: 'sourceless',
-				claim: 'Editors heard an unsupported claim that service may expand citywide',
-				status: 'verified'
-			}
-		});
-
-		const response = await authFetch(`/api/stories/${storyId}/drafts/web-story`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ workspace_id: workspaceId, target_word_count: 300 })
-		});
-		const body = await response.json();
-
-		expect(response.status).toBe(201);
-		expect(body.draft.format).toBe('web_story_300');
-		expect(body.draft.word_count).toBeGreaterThanOrEqual(260);
-		expect(body.draft.word_count).toBeLessThanOrEqual(340);
-		expect(body.draft.markdown).toContain('[1]');
-		expect(body.draft.markdown).toContain('[8]');
-		expect(body.draft.markdown).not.toContain('unsupported claim');
-		expect(body.draft.citations[0]).toMatchObject({
-			marker: 1,
-			fact_id: 'fact-1',
-			source_url: 'https://sources.example/fact-1',
-			archive_snapshot_url: 'https://web.archive.org/web/20260529010000/https://sources.example/fact-1'
-		});
-		expect(body.gate).toMatchObject({
-			workspace_id: workspaceId,
-			story_id: storyId,
-			type: 'draft_review',
-			status: 'open'
-		});
-		expect(harness.repository.listGates({ workspaceId, storyId })).toHaveLength(1);
-	});
-
-	it('packages an approved draft over the authenticated API', async () => {
-		await startHarness();
-		const storyId = 'story-api-package';
-		const workspaceId = 'workspace-api';
-		for (const fact of verifiedDraftFacts()) {
-			harness.repository.appendStoryMemory(storyId, {
-				workspaceId,
-				key: 'fact_ledger',
-				kind: 'claim.verified',
-				actor: 'verification',
-				value: fact
-			});
-		}
-		const draftResponse = await authFetch(`/api/stories/${storyId}/drafts/web-story`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ workspace_id: workspaceId, target_word_count: 300 })
-		});
-		const draft = await draftResponse.json();
-		harness.repository.resolveGate(draft.gate.id, { action: 'approve', actor: 'editor' });
-
-		const packageResponse = await authFetch(`/api/stories/${storyId}/packages`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ workspace_id: workspaceId })
-		});
-		const packaged = await packageResponse.json();
-		const listResponse = await authFetch(`/api/stories/${storyId}/packages?workspace_id=${workspaceId}`);
-		const listed = await listResponse.json();
-
-		expect(packageResponse.status).toBe(201);
-		expect(packaged.package.outputs.headline_pack.general).toHaveLength(5);
-		expect(packaged.gate).toMatchObject({
-			type: 'publish',
-			status: 'open',
-			actions: ['approve', 'hold', 'send_to_cms']
-		});
-		expect(listed.packages.map((candidate: { package_id: string }) => candidate.package_id)).toEqual([
-			packaged.package.package_id
-		]);
-	});
-
-	it('returns a conflict instead of queuing draft review when verified facts are missing', async () => {
-		await startHarness();
-		const storyId = 'story-api-undrafted';
-		const workspaceId = 'workspace-api';
-		harness.repository.appendStoryMemory(storyId, {
-			workspaceId,
-			key: 'fact_ledger',
-			value: {
-				id: 'needs-source',
-				claim: 'The agency may add late-night buses',
-				status: 'needs_more',
-				sources: [{ title: 'Planning note', url: 'https://sources.example/needs-source' }]
-			}
-		});
-
-		const response = await authFetch(`/api/stories/${storyId}/drafts/web-story`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ workspace_id: workspaceId })
-		});
-
-		expect(response.status).toBe(409);
-		expect(await response.text()).toContain('verified, source-backed fact ledger entry');
-		expect(harness.repository.listGates({ workspaceId, storyId })).toHaveLength(0);
 	});
 
 	it('streams Chat Completions-compatible SSE frames', async () => {
@@ -502,18 +218,18 @@ describe('newsroom harness server', () => {
 		});
 		const firstRun = harness.repository.createRun(first.id, 'test');
 		const secondRun = harness.repository.createRun(second.id, 'test');
-		const firstReport = harness.repository.createReport({
-			runId: firstRun.id,
-			jobId: first.id,
-			title: first.name,
-			markdown: '# Cron Job: First Watch\n\n**Job ID:** first\n\n## Response\n\nFirst output'
-		});
-		harness.repository.createReport({
-			runId: secondRun.id,
-			jobId: second.id,
-			title: second.name,
-			markdown: '# Cron Job: Second Watch\n\n**Job ID:** second\n\n## Response\n\nSecond output'
-		});
+			const firstReport = harness.repository.createReport({
+				runId: firstRun.id,
+				jobId: first.id,
+				title: first.name,
+				markdown: '# Research Update: First Watch\n\n**Story ID:** first\n\n## Update\n\nFirst output'
+			});
+			harness.repository.createReport({
+				runId: secondRun.id,
+				jobId: second.id,
+				title: second.name,
+				markdown: '# Research Update: Second Watch\n\n**Story ID:** second\n\n## Update\n\nSecond output'
+			});
 
 		const response = await authFetch(`/api/reports?job_ids=${first.id}`);
 		const body = await response.json();
@@ -523,7 +239,7 @@ describe('newsroom harness server', () => {
 		expect(body.reports[0].markdown).toContain('First output');
 	});
 
-	it('runs a mission, persists a report, and posts the UI ingest payload shape', async () => {
+	it('runs story research, persists an update, and posts the UI ingest payload shape', async () => {
 		const received: unknown[] = [];
 		const ingest = await startIngestServer(received);
 		const fixture = await startNewsFixtureServer();
@@ -532,7 +248,7 @@ describe('newsroom harness server', () => {
 			uiIngestKey: 'ingest-key'
 		});
 		const job = await createJob({
-			prompt: `You are the assignment producer preparing the morning editorial meeting. Use this local newsroom RSS fixture to identify lead candidates, audience relevance, verification needs, source notes, and human review blocks before anything is published: ${fixture.url}/local-news.rss`
+			prompt: `Find recent local coverage from this RSS fixture and write a concise research update with source links: ${fixture.url}/local-news.rss`
 		});
 
 		const runResponse = await authFetch(`/api/jobs/${job.id}/run`, { method: 'POST' });
@@ -546,14 +262,9 @@ describe('newsroom harness server', () => {
 
 		const reports = harness.repository.listReports();
 		expect(reports).toHaveLength(1);
-		expect(reports[0].markdown).toContain('# Cron Job: Morning Watch');
-		expect(reports[0].markdown).toContain('## Summary');
-		expect(reports[0].markdown).toContain('## Lead Candidates');
-		expect(reports[0].markdown).toContain('## Source Notes');
-		expect(reports[0].markdown).toContain('## Verification Notes');
-		expect(reports[0].markdown).toContain('## Human Review');
-		expect(reports[0].markdown).toMatch(/lead candidate|producer review|assignment decision/i);
-		expect(reports[0].markdown).toMatch(/confirm|verify|primary sources|before use/i);
+		expect(reports[0].markdown).toContain('# Research Update: Morning Watch');
+		expect(reports[0].markdown).toContain('## Update');
+		expect(reports[0].markdown).toMatch(/City desk confirms river inspection|Transit board advances late train review/i);
 		expect(reports[0].markdown).not.toMatch(/SDK|database|test account/i);
 		expect(reports[0].ingest_status).toBe('sent');
 		expect(received).toHaveLength(1);
@@ -566,7 +277,7 @@ describe('newsroom harness server', () => {
 		expect(String((received[0] as { filePathDisplay: string }).filePathDisplay)).toMatch(
 			new RegExp(`^${job.id}/`)
 		);
-		expect(String((received[0] as { markdown: string }).markdown)).toContain('## Response');
+		expect(String((received[0] as { markdown: string }).markdown)).toContain('## Update');
 		expect(harness.repository.listSourcesForRun(run.id).map((source) => source.url)).toContain(
 			`${fixture.url}/local-news.rss`
 		);
@@ -589,33 +300,6 @@ async function createJob(overrides: Record<string, unknown> = {}) {
 	});
 	expect(response.status).toBe(201);
 	return (await response.json()).job;
-}
-
-function verifiedDraftFacts() {
-	return [
-		'The transit agency approved a temporary overnight shuttle network while crews repair the downtown rail tunnel through the summer period',
-		'The approved plan adds buses every fifteen minutes on two routes that normally stop running shortly after midnight',
-		'Agency staff said the tunnel work is needed because water damage has accelerated corrosion around electrical cabinets and signal equipment',
-		'The city transportation department expects the shuttle network to cost about two million dollars over the first twelve weeks',
-		'Council members asked staff to publish weekly ridership updates so riders can see whether crowding worsens during repairs',
-		'The agency said riders with accessibility needs will be able to request taxis when replacement buses cannot serve a stop',
-		'Business groups near the closed stations asked the city for signs directing late-night customers to temporary bus stops',
-		'The first closure begins June tenth, with the agency planning a public briefing and route maps one week earlier'
-	].map((claim, index) => ({
-		id: `fact-${index + 1}`,
-		claim,
-		status: 'verified',
-		sources: [
-			{
-				title: `Source document ${index + 1}`,
-				name: `Transit agency source ${index + 1}`,
-				url: `https://sources.example/fact-${index + 1}`,
-				archive_snapshot_url:
-					index === 0 ? 'https://web.archive.org/web/20260529010000/https://sources.example/fact-1' : undefined,
-				content_hash: `hash-${index + 1}`
-			}
-		]
-	}));
 }
 
 async function waitFor(check: () => Promise<boolean>, timeoutMs = 5000): Promise<void> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ChannelSource, AgentJob, CrawlPlanProposal } from '$lib/types';
+import type { ChannelSource, AgentJob } from '$lib/types';
 import {
 	compileChannelPrompt,
 	normalizeChannelSources,
@@ -33,42 +33,6 @@ function job(overrides: Partial<AgentJob> = {}): AgentJob {
 		lastError: null,
 		lastDeliveryError: null,
 		deliver: 'database',
-		...overrides
-	};
-}
-
-function crawlPlan(overrides: Partial<CrawlPlanProposal> = {}): CrawlPlanProposal {
-	return {
-		id: 'plan-1',
-		missionId: 'job-1',
-		version: 1,
-		seedUrl: 'https://example.com/news',
-		siteName: 'Example News',
-		status: 'approved',
-		linkFollowRule: 'Follow same-site links that look like recent articles.',
-		articleBodyStrategy: 'auto',
-		pollingCadence: 'every 3h',
-		jitterMs: 900000,
-		changeDetection: 'hash',
-		politeFetch: {
-			respectRobots: true,
-			robotsOverride: false,
-			hostDelayMs: 250,
-			failureBudget: 3,
-			archiveWeb: true
-		},
-		candidateLinks: [
-			{
-				title: 'Council approves the late-night transit service expansion',
-				url: 'https://example.com/news/transit-service-expansion',
-				reason: 'Same-site story candidate',
-				score: 9
-			}
-		],
-		createdAt: 1,
-		updatedAt: 1,
-		approvedAt: 1,
-		rejectedAt: null,
 		...overrides
 	};
 }
@@ -123,21 +87,6 @@ describe('channel source utilities', () => {
 		expect(prompt).toContain('- FDA newsroom: https://www.fda.gov/news-events');
 		expect(prompt).toContain('- CMS announcements: https://www.cms.gov/newsroom');
 		expect(prompt).not.toContain('Hidden source');
-	});
-
-	it('appends approved crawl plans to the compiled prompt', () => {
-		const prompt = compileChannelPrompt('Scan the latest updates.', [], [
-			crawlPlan(),
-			crawlPlan({ id: 'plan-2', status: 'rejected', siteName: 'Rejected plan' })
-		]);
-
-		expect(prompt).toContain('Scan the latest updates.');
-		expect(prompt).toContain('## Approved Crawl Plans');
-		expect(prompt).toContain('Example News');
-		expect(prompt).toContain('Polling jitter: 900s');
-		expect(prompt).toContain('Polite fetch: robots respected, host delay 250ms, archive on');
-		expect(prompt).toContain('https://example.com/news/transit-service-expansion');
-		expect(prompt).not.toContain('Rejected plan');
 	});
 
 	it('overlays local source config onto Agent jobs', () => {
