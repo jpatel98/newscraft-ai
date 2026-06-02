@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AssignmentDesk } from '../src/agents/assignment-desk.js';
-import { generateFinalAnswer } from '../src/agents/answer.js';
+import { cleanVisibleChatOutput, generateFinalAnswer } from '../src/agents/answer.js';
 import { mergeToolBudget, ToolBudgetLedger } from '../src/agents/budget.js';
 import { normalizeEvidence } from '../src/agents/evidence.js';
 import { createModelPolicyConfig } from '../src/agents/model-policy.js';
@@ -417,6 +417,58 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).toBe(
 			"Canada beat Uzbekistan 2-0 in a men's international friendly in Edmonton on June 1, 2026."
 		);
+	});
+
+	it('keeps multi-story chat answers organized instead of flattening and cutting them off', () => {
+		const raw = [
+			"Here’s what’s new today (June 2, 2026) related to FIFA in Toronto, ordered by freshness: - Today — Toronto police seized more than $3.5M in counterfeit soccer merchandise ahead of the tournament. - Yesterday — Toronto police confirmed the FIFA Planning Team began the investigation in May and executed a warehouse warrant. - Yesterday — CityNews details the two arrests and Toronto’s host-city role.",
+			'More context that should survive the cleanup because the answer needs room to breathe and should not be cut off before it reaches the useful final item.',
+			'',
+			'Sources:',
+			'- [Now Toronto](https://nowtoronto.com/story) - publication date not found.'
+		].join('\n');
+
+		const answer = cleanVisibleChatOutput(raw, 'Show me all news stories related to FIFA and Toronto today');
+
+		expect(answer).toContain('Today: Toronto police seized more than $3.5M');
+		expect(answer).toContain("Yesterday: Toronto police confirmed the FIFA Planning Team");
+		expect(answer).toContain("Yesterday: CityNews details the two arrests");
+		expect(answer).toContain('useful final item');
+		expect(answer).not.toContain('ordered by freshness');
+		expect(answer).not.toContain('##');
+		expect(answer).not.toContain('**');
+		expect(answer).not.toContain('Sources:');
+		expect(answer).not.toContain('publication date not found');
+		expect(answer.endsWith('…')).toBe(false);
+	});
+
+	it('normalizes plain section labels and literal Bold markers in chat answers', () => {
+		const answer = cleanVisibleChatOutput(
+			'Today\n- Bold: Counterfeit FIFA gear bust — Toronto police seized fake soccer merchandise.\n\nLatest context\n- Bold: Fan festival tickets — Free tickets are required for entry.',
+			'Show me FIFA Toronto news today'
+		);
+
+		expect(answer).toContain('Today');
+		expect(answer).toContain('Counterfeit FIFA gear bust: Toronto police seized fake soccer merchandise.');
+		expect(answer).toContain('Latest context');
+		expect(answer).toContain('Fan festival tickets: Free tickets are required for entry.');
+		expect(answer).not.toContain('##');
+		expect(answer).not.toContain('**');
+		expect(answer).not.toContain('Bold:');
+	});
+
+	it('strips legacy markdown markers from visible chat answers', () => {
+		const answer = cleanVisibleChatOutput(
+			'## Today\n- **Counterfeit gear bust:** Toronto police seized fake soccer merchandise.\n\nSources [Now Toronto](https://nowtoronto.com/story) - publication date not found.',
+			'Show me FIFA Toronto news today'
+		);
+
+		expect(answer).toContain('Today');
+		expect(answer).toContain('Counterfeit gear bust: Toronto police seized fake soccer merchandise.');
+		expect(answer).not.toContain('##');
+		expect(answer).not.toContain('**');
+		expect(answer).not.toContain('Sources');
+		expect(answer).not.toContain('publication date not found');
 	});
 
 	it('preserves requested tables in compact chat source runs', () => {

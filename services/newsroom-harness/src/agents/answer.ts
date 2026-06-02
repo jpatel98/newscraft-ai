@@ -80,8 +80,8 @@ function formatChatToolAnswer(prompt: string, answer: string): string {
 
 export function cleanVisibleChatOutput(answer: string, prompt = ''): string {
 	const cleaned = cleanChatToolAnswer(answer);
-	if (wantsTable(prompt)) return compactMarkdownAnswer(cleaned, 1400);
-	return compactText(cleaned, 900);
+	if (wantsTable(prompt)) return compactChatText(cleaned, 4000);
+	return polishedChatText(cleaned, 4000);
 }
 
 function wantsTable(prompt: string): boolean {
@@ -325,10 +325,13 @@ function compactText(value: string, maxLength: number): string {
 	return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
 }
 
-function compactMarkdownAnswer(value: string, maxLength: number): string {
+function compactChatText(value: string, maxLength: number): string {
 	const cleaned = value
 		.replace(/```(?:markdown|md|text)?\n?/gi, '')
 		.replace(/```/g, '')
+		.replace(/^#{1,6}\s+/gm, '')
+		.replace(/\*\*([^*]+)\*\*/g, '$1')
+		.replace(/__([^_]+)__/g, '$1')
 		.replace(/\n{3,}/g, '\n\n')
 		.trim();
 	if (cleaned.length <= maxLength) return cleaned;
@@ -336,13 +339,13 @@ function compactMarkdownAnswer(value: string, maxLength: number): string {
 }
 
 function cleanChatToolAnswer(value: string): string {
-	return normalizeChatAnswerWhitespace(stripCitationChatter(stripSourceSections(value)));
+	return normalizeChatAnswerWhitespace(repairInlineStoryLines(stripCitationChatter(stripSourceSections(value))));
 }
 
 function stripSourceSections(value: string): string {
 	return value
 		.replace(
-			/(?:^|\n)\s*(?:#{1,6}\s*)?(?:sources?|references?|citations?)\s*:?\s*\n[\s\S]*$/i,
+			/(?:^|\n)\s*(?:#{1,6}\s*)?(?:sources?|references?|citations?)\b\s*:?\s*[\s\S]*$/i,
 			''
 		)
 		.replace(/(?:^|\n)\s*(?:[-*]\s*)?\[[^\]]+\]\(https?:\/\/[^)]+\)[^\n]*/gi, '');
@@ -356,6 +359,8 @@ function stripCitationChatter(value: string): string {
 		.replace(/\bCanadian Press version carried by\s*[\s\S]*$/i, '')
 		.replace(/\bIt is based on media\/search results and should be checked against a primary source before publication\.?/gi, '')
 		.replace(/\bshould be checked against a primary source before publication\.?/gi, '')
+		.replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/gi, '$1')
+		.replace(/https?:\/\/\S+/gi, '')
 		.replace(/\s+\((?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^)]*)?\)/gi, '');
 }
 
@@ -366,6 +371,45 @@ function normalizeChatAnswerWhitespace(value: string): string {
 		.replace(/[ \t]{2,}/g, ' ')
 		.replace(/\s+([,.;:!?])/g, '$1')
 		.trim();
+}
+
+function repairInlineStoryLines(value: string): string {
+	return value
+		.replace(/\s*,?\s*ordered by freshness:?\s*/gi, ':\n')
+		.replace(/:\s+-\s+/g, ':\n- ')
+		.replace(
+			/\s+-\s+(?=(?:Today|Yesterday|Latest|This morning|This afternoon|This evening|[A-Z][A-Za-z0-9'’$,.&/ ]{2,80})\s+[—–-]\s+)/g,
+			'\n- '
+		)
+		.replace(/^- (Today|Yesterday|Latest|This morning|This afternoon|This evening)\s+[—–-]\s+/gim, '$1: ')
+		.replace(/^- Bold:\s*([^—–:\n]{2,100})\s+[—–-]\s+/gim, '$1: ')
+		.replace(/^- ([A-Z][^:\n]{2,80})\s+[—–-]\s+/gm, '$1: ');
+}
+
+function polishedChatText(value: string, maxLength: number): string {
+	const cleaned = value
+		.replace(/```(?:markdown|md|text)?\n?/gi, '')
+		.replace(/```/g, '')
+		.replace(/^#{1,6}\s+/gm, '')
+		.replace(/\*\*([^*]+)\*\*/g, '$1')
+		.replace(/__([^_]+)__/g, '$1')
+		.replace(/`([^`]+)`/g, '$1')
+		.replace(/^[-*•]\s+/gm, '')
+		.replace(/^Bold:\s*/gim, '')
+		.replace(/\n{3,}/g, '\n\n')
+		.trim();
+	if (cleaned.length <= maxLength) return cleaned;
+	return truncateTextAtBoundary(cleaned, maxLength);
+}
+
+function truncateTextAtBoundary(value: string, maxLength: number): string {
+	const slice = value.slice(0, maxLength);
+	const paragraph = slice.lastIndexOf('\n\n');
+	const line = slice.lastIndexOf('\n');
+	const sentence = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('! '), slice.lastIndexOf('? '));
+	const boundary = Math.max(paragraph, line, sentence);
+	const trimmed = slice.slice(0, boundary > maxLength * 0.55 ? boundary : maxLength).trim();
+	return `${trimmed}…`;
 }
 
 function noPublishableLeadReport(unusableEvidence: EvidenceObject[]): string {

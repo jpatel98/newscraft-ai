@@ -212,9 +212,12 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 						'Summarize the freshest usable result first, using concrete event dates or timestamps only when they matter to the answer.',
 						'Prefer primary or official sources and directly relevant local/reputable outlets.',
 						'Avoid forums, social threads, old PDFs, and loosely related background unless the request asks for them.',
-						'Keep the answer concise and newsroom-ready.',
+						'Keep the answer concise, readable, and organized for a normal person scanning local news.',
+						'For multi-story requests, use plain text sections: put Today on its own line, then one story per line as "Counterfeit gear bust: One clean sentence." Use Latest context only if older items matter.',
+						'Do not use markdown markers such as #, **, markdown links, or markdown bullets. Do not write the word "Bold".',
+						'Do not say "ordered by freshness", "source-led", "local outlet reports", or "according to" unless it is essential to avoid overstating a claim.',
 						'Do not include a Sources/References section, raw URLs, domain parentheticals, or outlet posting-time roundups; source links are captured separately.',
-						'If the request asks for a table, return a compact GitHub-flavored markdown table with pipes and a separator row.',
+						'If the request asks for a table, return a compact plain-text table or labeled rows. Do not include a markdown separator row unless it is necessary for legibility.',
 						`Request: ${input.query}`
 					].join('\n')
 				}),

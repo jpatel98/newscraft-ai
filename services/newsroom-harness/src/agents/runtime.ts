@@ -42,6 +42,15 @@ export interface MissionRuntimeResult {
 	evidence: EvidenceObject[];
 }
 
+const CHAT_VISIBLE_OUTPUT_INSTRUCTIONS = [
+	'For web chat, write like a clean local-news brief, not an academic source report.',
+	'Do not write Sources, References, citation lists, raw URLs, domain parentheticals, or posting-time roundups. Source tags are rendered separately in the UI.',
+	'Do not use markdown markers such as #, **, markdown links, or markdown bullets.',
+	'For multi-story answers, use plain text sections. Put section headings on their own line, then one story per line as "Counterfeit gear bust: One clean sentence." Do not pack several stories into one paragraph.',
+	'Do not write the word "Bold".',
+	'If the user asks for today, lead with today. Put older but relevant items under Latest context only when they are necessary.'
+].join('\n');
+
 function httpUrlToolParameter(description: string) {
 	return z.string().min(1).describe(description);
 }
@@ -342,22 +351,22 @@ export class NewsroomAgentRuntime {
 		const agents = {
 			assignment_desk: new sdk.Agent({
 				name: 'Assignment Desk',
-				instructions: roleInstructionsFor('assignment_desk'),
+				instructions: chatRoleInstructions('assignment_desk'),
 				tools: [fetchTool, snapshotTool]
 			}),
 			research: new sdk.Agent({
 				name: 'Research Desk',
-				instructions: roleInstructionsFor('research'),
+				instructions: chatRoleInstructions('research'),
 				tools: [fetchTool, snapshotTool]
 			}),
 			monitoring: new sdk.Agent({
 				name: 'Monitoring Desk',
-				instructions: roleInstructionsFor('monitoring'),
+				instructions: chatRoleInstructions('monitoring'),
 				tools: [fetchTool, snapshotTool]
 			}),
 			assistant: new sdk.Agent({
 				name: 'Newsroom Assistant',
-				instructions: roleInstructionsFor('assistant'),
+				instructions: chatRoleInstructions('assistant'),
 				tools: [fetchTool, snapshotTool]
 			})
 		};
@@ -583,6 +592,12 @@ function progressDetailForTool(tool: string): string {
 	if (tool === 'source_feed_fetcher') return 'Reading attached source feeds';
 	if (tool === 'saved_research_reader') return 'Reading saved NewsCraft research';
 	return '';
+}
+
+function chatRoleInstructions(role: NewsroomRole): string {
+	return `${roleInstructionsFor(role)}
+
+${CHAT_VISIBLE_OUTPUT_INSTRUCTIONS}`;
 }
 
 function shouldUseDisciplinedChat(prompt: string): boolean {

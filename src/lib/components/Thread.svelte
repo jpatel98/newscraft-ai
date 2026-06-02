@@ -3,7 +3,7 @@
 		import { contentText } from '$lib/types';
 		import Copy from 'lucide-svelte/icons/copy';
 		import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
-		import Markdown from './Markdown.svelte';
+		import MessageText from './MessageText.svelte';
 		import ToolActivity from './ToolActivity.svelte';
 		import { chat } from '$lib/stores/chat.svelte';
 		import { formatShortTime } from '$lib/utils/time';
@@ -41,7 +41,7 @@
 
 	const THREAD_CONTAINMENT_THRESHOLD = 80;
 	const UNCONTAINED_TAIL_COUNT = 12;
-	const SOURCE_TAG_LIMIT = 8;
+	const SOURCE_TAG_LIMIT = 5;
 	const deferredBeforeIndex = $derived(
 		messages.length >= THREAD_CONTAINMENT_THRESHOLD
 			? Math.max(0, messages.length - UNCONTAINED_TAIL_COUNT)
@@ -133,7 +133,7 @@
 		if (!didInitialScroll) {
 			const hashId = messageIdFromHash();
 			hashMessageId = hashId;
-			// Two rAFs let markdown + late-loading images settle before we measure
+			// Two rAFs let rich text + late-loading images settle before we measure
 			// scrollHeight; a 60ms re-anchor catches images that decode after that.
 			requestAnimationFrame(() =>
 				requestAnimationFrame(() => {
@@ -225,7 +225,7 @@
 							   ToolActivity card below shows the live "Drafting answer" pulse.
 							   That avoids two pulses competing for the same moment. -->
 						{:else if m.role === 'assistant'}
-							<Markdown content={textOf(m.content)} partial={m.streaming === true} />
+							<MessageText content={textOf(m.content)} />
 							{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 							{#if m.partial && !m.streaming}
 								<span
