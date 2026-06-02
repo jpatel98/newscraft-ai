@@ -3,6 +3,7 @@ import { AssignmentDesk } from '../src/agents/assignment-desk.js';
 import { generateFinalAnswer } from '../src/agents/answer.js';
 import { mergeToolBudget, ToolBudgetLedger } from '../src/agents/budget.js';
 import { normalizeEvidence } from '../src/agents/evidence.js';
+import { createModelPolicyConfig } from '../src/agents/model-policy.js';
 import { DisciplinedNewsroomAgent } from '../src/agents/newsroom-agent.js';
 import { routeNewsroomRequest } from '../src/agents/router.js';
 import { ToolRegistry, type NewsroomTool, type ToolCategory } from '../src/agents/tools.js';
@@ -102,6 +103,21 @@ describe('disciplined newsroom agent harness', () => {
 		);
 		expect(outputs).toHaveLength(3);
 		expect(outputs.every((output) => output.status === 'ok' && output.evidence?.length === 1)).toBe(true);
+	});
+
+	it('blocks scheduled OpenAI web search through model policy before the provider call', async () => {
+		const result = await new DisciplinedNewsroomAgent().run('Who is the mayor of Toronto?', {
+			openAiApiKey: 'fake-key',
+			trigger: 'schedule'
+		});
+
+		expect(result.tool_calls).toEqual([
+			expect.objectContaining({
+				name: 'openai_web_search',
+				status: 'unavailable',
+				limitations: ['Scheduled web search is disabled by model policy.']
+			})
+		]);
 	});
 
 	it('normalizes tool output into evidence objects', () => {
@@ -723,6 +739,7 @@ function defaultAgentConfig() {
 			answer_with_limitations_when_incomplete: true
 		},
 		source_monitors: [],
-		web_search_model: 'gpt-5'
+		web_search_model: 'gpt-5',
+		model_policy: createModelPolicyConfig()
 	};
 }

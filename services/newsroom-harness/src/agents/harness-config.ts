@@ -1,4 +1,10 @@
 import { DEFAULT_TOOL_BUDGET, mergeToolBudget, type ToolBudget } from './budget.js';
+import {
+	createModelPolicyConfig,
+	loadModelPolicyConfigFromEnv,
+	type ModelPolicyConfig,
+	type ModelPolicyOverrides
+} from './model-policy.js';
 import { NEWSROOM_TOOL_NAMES } from './router.js';
 
 interface SourceMonitorConfig {
@@ -25,6 +31,7 @@ export interface NewsroomAgentConfig {
 	};
 	source_monitors: SourceMonitorConfig[];
 	web_search_model: string;
+	model_policy: ModelPolicyConfig;
 }
 
 const DEFAULT_SOURCE_MONITORS: SourceMonitorConfig[] = [
@@ -49,9 +56,9 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 	return {
 		enabled_tools:
 			overrides.enabled_tools || [
-					NEWSROOM_TOOL_NAMES.sourceMonitor,
-					NEWSROOM_TOOL_NAMES.sourceFeedFetcher,
-					NEWSROOM_TOOL_NAMES.researchResultReader,
+				NEWSROOM_TOOL_NAMES.sourceMonitor,
+				NEWSROOM_TOOL_NAMES.sourceFeedFetcher,
+				NEWSROOM_TOOL_NAMES.researchResultReader,
 				NEWSROOM_TOOL_NAMES.webSearch,
 				NEWSROOM_TOOL_NAMES.browserAutomation,
 				NEWSROOM_TOOL_NAMES.pdfTextExtractor,
@@ -68,7 +75,7 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 		],
 		routing_rules: {
 			answer_from_memory: 'Use only for stable newsroom guidance or requests that do not need current facts.',
-				custom_tool: 'Prefer registered internal tools for saved research, supplied URLs, PDFs, briefs, or newsroom-specific tasks.',
+			custom_tool: 'Prefer registered internal tools for saved research, supplied URLs, PDFs, briefs, or newsroom-specific tasks.',
 			source_monitor: 'Use configured source monitors and feeds for latest releases or known source checks.',
 			web_search: 'Use OpenAI web_search for broad discovery, other outlets, or related coverage.',
 			browser_automation: 'Use only for direct page interaction, dynamic pages, niche inspection, or tasks that need clicking.',
@@ -92,6 +99,7 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 			...overrides.required_citation_behavior
 		},
 		source_monitors: overrides.source_monitors || DEFAULT_SOURCE_MONITORS,
+		model_policy: createModelPolicyConfig(overrides.model_policy as ModelPolicyOverrides | undefined),
 		web_search_model: overrides.web_search_model || 'gpt-5'
 	};
 }
@@ -106,12 +114,16 @@ export function loadNewsroomAgentConfigFromEnv(overrides: Partial<NewsroomAgentC
 	});
 	const monitors = parseSourceMonitors(process.env.NEWSROOM_AGENT_SOURCE_MONITORS_JSON);
 	return createNewsroomAgentConfig({
+		...overrides,
 		default_tool_budget: envBudget,
 		enabled_tools: csv(process.env.NEWSROOM_AGENT_ENABLED_TOOLS) || overrides.enabled_tools,
 		source_priority: csv(process.env.NEWSROOM_AGENT_SOURCE_PRIORITY) as NewsroomAgentConfig['source_priority'],
 		source_monitors: monitors || overrides.source_monitors,
-		web_search_model: process.env.NEWSROOM_WEB_SEARCH_MODEL || overrides.web_search_model,
-		...overrides
+		model_policy: loadModelPolicyConfigFromEnv(overrides.model_policy as ModelPolicyOverrides | undefined),
+		web_search_model:
+			process.env.NEWSROOM_WEB_SEARCH_MODEL ||
+			(overrides.model_policy as ModelPolicyOverrides | undefined)?.models?.web_search ||
+			overrides.web_search_model
 	});
 }
 

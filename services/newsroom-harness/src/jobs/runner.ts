@@ -51,6 +51,7 @@ export class JobRunner {
 				repository: this.repository,
 				runId: run.id,
 				jobId: job.id,
+				trigger: normalizeTrigger(run.trigger),
 				signal: abort.signal,
 				onProgress: (event) => this.recordProgress(run.id, job.id, event)
 			});
@@ -138,10 +139,14 @@ export class JobRunner {
 			used: source.used,
 			contentText: source.contentText,
 			contentHash: source.contentHash,
-				contentType: source.contentType,
-				statusCode: source.statusCode,
-				metadata: source.metadata ?? null,
-				provenance: source.provenance ?? null
-			});
+			contentType: source.contentType,
+			statusCode: source.statusCode,
+			metadata: source.metadata ?? null,
+			provenance: source.provenance ?? null
+		});
 	}
+}
+
+function normalizeTrigger(value: string): 'manual' | 'schedule' | 'test' {
+	return value === 'schedule' || value === 'test' ? value : 'manual';
 }

@@ -140,6 +140,44 @@ describe('newsroom agent runtime', () => {
 		});
 	});
 
+	it('skips scheduled synthesis model calls through model policy', async () => {
+		db = openDatabase(':memory:');
+		repository = new HarnessRepository(db);
+		const job = repository.createJob({
+			name: 'Scheduled lookup',
+			prompt: 'Who is the mayor of Toronto?',
+			schedule: 'every 60m'
+		});
+		const run = repository.createRun(job.id, 'schedule');
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			openAiApiKey: 'fake-key'
+		});
+
+		await runtime.runMission(job.prompt, {
+			repository,
+			runId: run.id,
+			jobId: job.id,
+			trigger: 'schedule'
+		});
+
+		expect(
+			repository.listEvents({ runId: run.id }).filter((event) => event.kind === 'model.call.skipped')
+		).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					agent: 'model_policy',
+					payload: expect.objectContaining({
+						task: 'scheduled_research_update',
+						reason: 'Scheduled model calls are disabled by model policy.'
+					})
+				})
+			])
+		);
+	});
+
 	const liveSmoke = process.env.NEWSROOM_HARNESS_LIVE_OPENAI_SMOKE === '1';
 	const liveIt = liveSmoke ? it : it.skip;
 

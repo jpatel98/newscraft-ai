@@ -16,6 +16,7 @@ export interface HarnessConfig {
 	runTimeoutMs: number;
 	maxToolCalls: number;
 	retryLimit: number;
+	schedulerEnabled: boolean;
 	schedulerIntervalMs: number;
 	agent: NewsroomAgentConfig;
 	version: string;
@@ -24,6 +25,13 @@ export interface HarnessConfig {
 function intFromEnv(value: string | undefined, fallback: number): number {
 	const parsed = Number(value);
 	return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
+}
+
+function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
+	if (value === undefined) return fallback;
+	if (/^(1|true|yes|on)$/i.test(value.trim())) return true;
+	if (/^(0|false|no|off)$/i.test(value.trim())) return false;
+	return fallback;
 }
 
 export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfig {
@@ -50,6 +58,7 @@ export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfi
 		runTimeoutMs,
 		maxToolCalls,
 		retryLimit: intFromEnv(process.env.NEWSROOM_HARNESS_RETRY_LIMIT, 1),
+		schedulerEnabled: boolFromEnv(process.env.NEWSROOM_HARNESS_SCHEDULER_ENABLED, false),
 		schedulerIntervalMs: intFromEnv(process.env.NEWSROOM_HARNESS_SCHEDULER_INTERVAL_MS, 30_000),
 		agent,
 		version: '0.0.1',

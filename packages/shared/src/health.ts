@@ -14,6 +14,7 @@ export interface GatewayHealthResponse {
 		configured: boolean;
 	};
 	scheduler?: {
+		enabled?: boolean;
 		running: boolean;
 		intervalMs: number;
 		dueJobs: number | null;

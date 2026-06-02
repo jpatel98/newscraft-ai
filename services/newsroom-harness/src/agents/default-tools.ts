@@ -2,6 +2,7 @@ import { generateFinalAnswer } from './answer.js';
 import { isUsableEvidence, normalizeEvidence, normalizeToolEvidence, type EvidenceObject } from './evidence.js';
 import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { evidenceOutputSchema, ToolRegistry, type NewsroomTool, type ToolRunContext, type ToolRunOutput } from './tools.js';
+import { resolveModelPolicy } from './model-policy.js';
 import { fetchSourceUrl, sourceFromText } from '../tools/sources.js';
 import { extractUrls, firstUrl } from '../util/text.js';
 import { assessSourceQuality } from '../util/source-quality.js';
@@ -21,9 +22,9 @@ const MAX_WEB_SEARCH_SOURCES = 8;
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
 	for (const tool of [
-			configuredSourceMonitorTool(),
-			sourceFeedFetcherTool(),
-			savedResearchReaderTool(),
+		configuredSourceMonitorTool(),
+		sourceFeedFetcherTool(),
+		savedResearchReaderTool(),
 		openAiWebSearchTool(),
 		browserAutomationProviderTool(),
 		pdfTextExtractorTool(),
@@ -104,27 +105,27 @@ function savedResearchReaderTool(): NewsroomTool<{ latest?: boolean }> {
 			properties: { latest: { type: 'boolean' } }
 		},
 		output_schema: evidenceOutputSchema,
-			async run(_input, context) {
-				if (!context.repository) {
-					return { status: 'unavailable', limitations: ['No harness repository is available to read saved research.'] };
-				}
-				const report = context.repository.listReports()[0];
-				if (!report) return { status: 'unavailable', limitations: ['No saved research updates were found.'] };
-				const reportPreview = compactSavedReport(report.markdown);
-				return {
-					status: 'ok',
-					evidence: [
-						normalizeEvidence({
-							source_name: 'NewsCraft saved research update',
-							source_url: `newsroom://research-update/${report.id}`,
-							accessed_at: new Date().toISOString(),
-							tool_used: NEWSROOM_TOOL_NAMES.researchResultReader,
+		async run(_input, context) {
+			if (!context.repository) {
+				return { status: 'unavailable', limitations: ['No harness repository is available to read saved research.'] };
+			}
+			const report = context.repository.listReports()[0];
+			if (!report) return { status: 'unavailable', limitations: ['No saved research updates were found.'] };
+			const reportPreview = compactSavedReport(report.markdown);
+			return {
+				status: 'ok',
+				evidence: [
+					normalizeEvidence({
+						source_name: 'NewsCraft saved research update',
+						source_url: `newsroom://research-update/${report.id}`,
+						accessed_at: new Date().toISOString(),
+						tool_used: NEWSROOM_TOOL_NAMES.researchResultReader,
 						title: report.title,
 						published_at: report.created_at,
 						extracted_text: reportPreview,
 						summary: compactToolText(reportPreview, 260),
 						confidence: 0.85,
-							limitations: ['Saved research output was summarized before reuse to avoid recursive report expansion.'],
+						limitations: ['Saved research output was summarized before reuse to avoid recursive report expansion.'],
 						source_kind: 'internal'
 					})
 				]
@@ -152,6 +153,48 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					limitations: ['OpenAI web_search is not configured because OPENAI_API_KEY is missing.']
 				};
 			}
+			const modelDecision = resolveModelPolicy(context.config.model_policy, 'web_search', { trigger: context.trigger });
+			if (!modelDecision.allowed || !modelDecision.model) {
+				context.repository?.appendEvent({
+					jobId: context.jobId,
+					runId: context.runId,
+					agent: 'model_policy',
+					kind: 'model.call.skipped',
+					payload: {
+						task: modelDecision.task,
+						tier: modelDecision.tier,
+						model: modelDecision.model,
+						reason: modelDecision.reason,
+						trigger: modelDecision.trigger,
+						tool: NEWSROOM_TOOL_NAMES.webSearch
+					}
+				});
+				return {
+					status: 'unavailable',
+					limitations: [modelDecision.reason]
+				};
+			}
+			context.repository?.appendEvent({
+				jobId: context.jobId,
+				runId: context.runId,
+				agent: 'model_policy',
+				kind: 'model.call.selected',
+				payload: {
+					task: modelDecision.task,
+					tier: modelDecision.tier,
+					model: modelDecision.model,
+					reason: modelDecision.reason,
+					trigger: modelDecision.trigger,
+					tool: NEWSROOM_TOOL_NAMES.webSearch
+				},
+				costMetadata: {
+					provider: 'openai',
+					model: modelDecision.model,
+					endpoint: 'responses',
+					tool: NEWSROOM_TOOL_NAMES.webSearch,
+					estimated: false
+				}
+			});
 			const response = await fetch('https://api.openai.com/v1/responses', {
 				method: 'POST',
 				headers: {
@@ -159,7 +202,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					'content-type': 'application/json'
 				},
 				body: JSON.stringify({
-					model: context.config.web_search_model,
+					model: modelDecision.model,
 					reasoning: { effort: 'low' },
 					tools: [{ type: 'web_search' }],
 					tool_choice: 'auto',
@@ -177,6 +220,27 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				signal: context.signal
 			});
 			const raw = await response.json().catch(() => ({}));
+			context.repository?.appendEvent({
+				jobId: context.jobId,
+				runId: context.runId,
+				agent: NEWSROOM_TOOL_NAMES.webSearch,
+				kind: response.ok ? 'model.call.completed' : 'model.call.failed',
+				payload: {
+					task: modelDecision.task,
+					tier: modelDecision.tier,
+					model: modelDecision.model,
+					status: response.status,
+					tool: NEWSROOM_TOOL_NAMES.webSearch
+				},
+				costMetadata: {
+					provider: 'openai',
+					model: modelDecision.model,
+					endpoint: 'responses',
+					tool: NEWSROOM_TOOL_NAMES.webSearch,
+					usage: openAiUsageMetadata(raw),
+					estimated: false
+				}
+			});
 			if (!response.ok) {
 				return {
 					status: 'error',
@@ -440,6 +504,16 @@ function extractOpenAiOutputText(raw: unknown): string {
 			.join('\n')
 			.trim() || ''
 	);
+}
+
+function openAiUsageMetadata(raw: unknown): Record<string, number> | null {
+	const usage = (raw as { usage?: Record<string, unknown> })?.usage;
+	if (!usage || typeof usage !== 'object') return null;
+	const metadata: Record<string, number> = {};
+	for (const [key, value] of Object.entries(usage)) {
+		if (typeof value === 'number' && Number.isFinite(value)) metadata[key] = value;
+	}
+	return Object.keys(metadata).length ? metadata : null;
 }
 
 function extractOpenAiWebSources(raw: unknown, outputText: string, query: string) {

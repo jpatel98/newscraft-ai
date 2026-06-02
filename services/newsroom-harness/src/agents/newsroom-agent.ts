@@ -17,7 +17,10 @@ import type { NewsroomTool, ToolRegistry, ToolRunContext, ToolRunOutput } from '
 
 export interface NewsroomAgentRunContext {
 	repository?: HarnessRepository;
+	runId?: string;
+	jobId?: string;
 	openAiApiKey?: string;
+	trigger?: 'manual' | 'schedule' | 'test';
 	signal?: AbortSignal;
 	outputStyle?: 'report' | 'chat';
 	onToolEvent?: (event: AgentToolEvent) => void;
@@ -193,15 +196,18 @@ export class DisciplinedNewsroomAgent {
 		context: NewsroomAgentRunContext
 	): Promise<ToolRunOutput> {
 		const toolContext: ToolRunContext = {
-			prompt,
-			decision,
-			config: this.config,
-			evidence,
-			budget,
-			repository: context.repository || this.options.repository,
-			openAiApiKey: context.openAiApiKey || this.options.openAiApiKey,
-			signal: context.signal
-		};
+				prompt,
+				decision,
+				config: this.config,
+				evidence,
+				budget,
+				repository: context.repository || this.options.repository,
+				runId: context.runId,
+				jobId: context.jobId,
+				openAiApiKey: context.openAiApiKey || this.options.openAiApiKey,
+				trigger: context.trigger,
+				signal: context.signal
+			};
 		try {
 			return await tool.run(inputForTool(tool.name, prompt, evidence), toolContext);
 		} catch (err) {

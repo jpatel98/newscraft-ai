@@ -53,7 +53,7 @@ export function createHarnessServer(options: {
 		void route(req, res, { config, repository, runtime, runner, scheduler }).catch((err) => handleError(res, err));
 	});
 	server.on('close', () => scheduler.stop());
-	if (options.startScheduler !== false) scheduler.start();
+	if (options.startScheduler !== false && config.schedulerEnabled) scheduler.start();
 	return {
 		server,
 		config,
@@ -271,6 +271,7 @@ function harnessHealth(ctx: {
 		},
 		openai: { configured: Boolean(ctx.config.openAiApiKey) },
 		scheduler: {
+			enabled: ctx.config.schedulerEnabled,
 			running: ctx.scheduler.isRunning(),
 			intervalMs: ctx.config.schedulerIntervalMs,
 			dueJobs,

@@ -32,7 +32,10 @@ export interface ToolRunContext {
 	evidence: EvidenceObject[];
 	budget: ToolBudgetSnapshot;
 	repository?: HarnessRepository;
+	runId?: string;
+	jobId?: string;
 	openAiApiKey?: string;
+	trigger?: 'manual' | 'schedule' | 'test';
 	signal?: AbortSignal;
 }
 

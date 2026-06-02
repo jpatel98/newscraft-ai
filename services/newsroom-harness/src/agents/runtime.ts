@@ -5,7 +5,8 @@ import { AssignmentDesk, type AssignmentDeskDecision } from './assignment-desk.j
 import { roleInstructionsFor, roleLabel, type NewsroomRole } from './roles.js';
 import { DisciplinedNewsroomAgent, type AgentToolEvent, type NewsroomAgentRunResult } from './newsroom-agent.js';
 import type { EvidenceObject } from './evidence.js';
-import type { NewsroomAgentConfig } from './harness-config.js';
+import { createNewsroomAgentConfig, type NewsroomAgentConfig } from './harness-config.js';
+import { resolveModelPolicy, type ModelPolicyDecision, type ModelPolicyTask } from './model-policy.js';
 import { fetchSourceUrl, sourceFromText, type FetchedSource } from '../tools/sources.js';
 import { firstUrl, promptFromChatMessages, splitForStreaming } from '../util/text.js';
 import type { HarnessRepository } from '../db/repository.js';
@@ -26,6 +27,7 @@ export interface RuntimeContext {
 	signal?: AbortSignal;
 	model?: string;
 	reasoningEffort?: ReasoningEffort;
+	trigger?: 'manual' | 'schedule' | 'test';
 }
 
 export type RuntimeProgressEvent =
@@ -57,8 +59,11 @@ export function sourceSnapshotToolParameters() {
 
 export class NewsroomAgentRuntime {
 	private readonly assignmentDesk = new AssignmentDesk();
+	private readonly agentConfig: NewsroomAgentConfig;
 
-	constructor(private controls: RuntimeControls) {}
+	constructor(private controls: RuntimeControls) {
+		this.agentConfig = createNewsroomAgentConfig(controls.agentConfig);
+	}
 
 	async completeChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): Promise<string> {
 		const prompt = promptFromChatMessages(messages);
@@ -90,7 +95,7 @@ export class NewsroomAgentRuntime {
 		const role = assignment.role;
 		const agent = new DisciplinedNewsroomAgent({
 			config: {
-				...this.controls.agentConfig,
+				...this.agentConfig,
 				default_tool_budget: this.defaultToolBudget()
 			},
 			repository: context.repository,
@@ -98,7 +103,10 @@ export class NewsroomAgentRuntime {
 		});
 		const result = await agent.run(prompt, {
 			repository: context.repository,
+			runId: context.runId,
+			jobId: context.jobId,
 			openAiApiKey: this.controls.openAiApiKey,
+			trigger: context.trigger,
 			signal: context.signal,
 			onToolEvent: (event) => {
 				const id = `${context.runId || 'run'}_${event.tool}`;
@@ -129,13 +137,13 @@ export class NewsroomAgentRuntime {
 	private localChat(prompt: string): string {
 		const role = this.assignmentDesk.triage(prompt, { default_tool_budget: this.defaultToolBudget() }).role;
 		const url = firstUrl(prompt);
-			return [
-				`NewsCraft ${roleLabel(role)} ready.`,
-				url
-					? `I can use ${url} as a source and keep provenance in the harness run log.`
-					: 'I can scan, summarize, compare coverage, and prepare source-backed research updates.',
-				'For live model-backed analysis, set OPENAI_API_KEY on the newsroom harness.'
-			].join('\n\n');
+		return [
+			`NewsCraft ${roleLabel(role)} ready.`,
+			url
+				? `I can use ${url} as a source and keep provenance in the harness run log.`
+				: 'I can scan, summarize, compare coverage, and prepare source-backed research updates.',
+			'For live model-backed analysis, set OPENAI_API_KEY on the newsroom harness.'
+		].join('\n\n');
 	}
 
 	private async disciplinedComplete(prompt: string, context: RuntimeContext): Promise<string> {
@@ -147,7 +155,7 @@ export class NewsroomAgentRuntime {
 	private async runDisciplinedAgent(prompt: string, context: RuntimeContext): Promise<NewsroomAgentRunResult> {
 		const agent = new DisciplinedNewsroomAgent({
 			config: {
-				...this.controls.agentConfig,
+				...this.agentConfig,
 				default_tool_budget: this.defaultToolBudget()
 			},
 			repository: context.repository,
@@ -155,7 +163,10 @@ export class NewsroomAgentRuntime {
 		});
 		return agent.run(prompt, {
 			repository: context.repository,
+			runId: context.runId,
+			jobId: context.jobId,
 			openAiApiKey: this.controls.openAiApiKey,
+			trigger: context.trigger,
 			signal: context.signal,
 			outputStyle: 'chat',
 			onToolEvent: (event) => this.forwardDisciplinedProgress(event, context)
@@ -195,33 +206,47 @@ export class NewsroomAgentRuntime {
 		const sdk = await import('@openai/agents');
 		sdk.setTracingDisabled(true);
 		const agent = this.createSdkAgent(sdk, this.sdkRoleForPrompt(prompt, context), context);
-		const result = await (sdk.run as any)(agent, prompt, {
-			maxTurns: this.controls.maxToolCalls + 2,
-			model: context.model,
-			signal: context.signal
-		});
-		return String(result.finalOutput || '').trim() || this.localChat(prompt);
+		const decision = this.requireModel(modelTaskForSdkPrompt(prompt), context);
+		try {
+			const result = await (sdk.run as any)(agent, prompt, {
+				maxTurns: this.controls.maxToolCalls + 2,
+				model: decision.model,
+				signal: context.signal
+			});
+			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
+			return String(result.finalOutput || '').trim() || this.localChat(prompt);
+		} catch (err) {
+			this.emitModelPolicyEvent(decision, context, 'model.call.failed');
+			throw err;
+		}
 	}
 
 	private async *sdkStream(prompt: string, context: RuntimeContext): AsyncGenerator<string> {
 		const sdk = await import('@openai/agents');
 		sdk.setTracingDisabled(true);
 		const agent = this.createSdkAgent(sdk, this.sdkRoleForPrompt(prompt, context), context);
+		const decision = this.requireModel(modelTaskForSdkPrompt(prompt), context);
 		const stream = await (sdk.run as any)(agent, prompt, {
 			stream: true,
 			maxTurns: this.controls.maxToolCalls + 2,
-			model: context.model,
+			model: decision.model,
 			signal: context.signal
 		});
 
-		for await (const event of stream as AsyncIterable<unknown>) {
-			const delta = textDeltaFromSdkEvent(event);
-			if (delta) yield delta;
-			const progress = progressFromSdkEvent(event);
-			if (progress) context.onProgress?.(progress);
-			if (context.signal?.aborted) break;
+		try {
+			for await (const event of stream as AsyncIterable<unknown>) {
+				const delta = textDeltaFromSdkEvent(event);
+				if (delta) yield delta;
+				const progress = progressFromSdkEvent(event);
+				if (progress) context.onProgress?.(progress);
+				if (context.signal?.aborted) break;
+			}
+			await (stream as { completed?: Promise<void> }).completed?.catch(() => undefined);
+			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
+		} catch (err) {
+			this.emitModelPolicyEvent(decision, context, 'model.call.failed');
+			throw err;
 		}
-		await (stream as { completed?: Promise<void> }).completed?.catch(() => undefined);
 	}
 
 	private async synthesizeMissionOutput(
@@ -230,27 +255,33 @@ export class NewsroomAgentRuntime {
 		context: RuntimeContext
 	): Promise<string> {
 		if (!this.controls.openAiApiKey) return result.final_answer;
-			try {
-				const sdk = await import('@openai/agents');
-				sdk.setTracingDisabled(true);
-				const agent = new sdk.Agent({
-					name: 'Research Update Writer',
-					instructions: [
-						'You write the final output for a NewsCraft research update.',
-						'The prompt is the output contract. Follow it exactly.',
-						'Do not add default NewsCraft sections, internal process notes, or boilerplate unless the prompt asks for them.',
-						'Use only the provided evidence. If the evidence is insufficient, say so in the requested format or as plainly as possible.',
-						'Never invent publication dates. If a source says Published: NOT FOUND, write Date: Not found or omit the date; never use the accessed/run time as the publication date.',
-						'Return only the research update.'
-					].join('\n')
-				});
+		const task = context.trigger === 'schedule' ? 'scheduled_research_update' : 'manual_research_update';
+		const decision = this.modelDecision(task, context);
+		this.emitModelPolicyEvent(decision, context);
+		if (!decision.allowed || !decision.model) return result.final_answer;
+		try {
+			const sdk = await import('@openai/agents');
+			sdk.setTracingDisabled(true);
+			const agent = new sdk.Agent({
+				name: 'Research Update Writer',
+				instructions: [
+					'You write the final output for a NewsCraft research update.',
+					'The prompt is the output contract. Follow it exactly.',
+					'Do not add default NewsCraft sections, internal process notes, or boilerplate unless the prompt asks for them.',
+					'Use only the provided evidence. If the evidence is insufficient, say so in the requested format or as plainly as possible.',
+					'Never invent publication dates. If a source says Published: NOT FOUND, write Date: Not found or omit the date; never use the accessed/run time as the publication date.',
+					'Return only the research update.'
+				].join('\n')
+			});
 			const response = await (sdk.run as any)(agent, missionSynthesisInput(prompt, result), {
 				maxTurns: 1,
-				model: context.model,
+				model: decision.model,
 				signal: context.signal
 			});
+			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
 			return String(response.finalOutput || '').trim() || result.final_answer;
 		} catch {
+			this.emitModelPolicyEvent(decision, context, 'model.call.failed');
 			return result.final_answer;
 		}
 	}
@@ -276,12 +307,12 @@ export class NewsroomAgentRuntime {
 						used: source.used,
 						contentText: source.contentText,
 						contentHash: source.contentHash,
-							contentType: source.contentType,
-							statusCode: source.statusCode,
-							metadata: source.metadata ?? null,
-							provenance: source.provenance ?? null
-						});
-					}
+						contentType: source.contentType,
+						statusCode: source.statusCode,
+						metadata: source.metadata ?? null,
+						provenance: source.provenance ?? null
+					});
+				}
 				return sourceToolResult(source);
 			}
 		});
@@ -309,14 +340,14 @@ export class NewsroomAgentRuntime {
 				instructions: roleInstructionsFor('assignment_desk'),
 				tools: [fetchTool, snapshotTool]
 			}),
-				research: new sdk.Agent({
-					name: 'Research Desk',
-					instructions: roleInstructionsFor('research'),
-					tools: [fetchTool, snapshotTool]
-				}),
-				monitoring: new sdk.Agent({
-					name: 'Monitoring Desk',
-					instructions: roleInstructionsFor('monitoring'),
+			research: new sdk.Agent({
+				name: 'Research Desk',
+				instructions: roleInstructionsFor('research'),
+				tools: [fetchTool, snapshotTool]
+			}),
+			monitoring: new sdk.Agent({
+				name: 'Monitoring Desk',
+				instructions: roleInstructionsFor('monitoring'),
 				tools: [fetchTool, snapshotTool]
 			}),
 			assistant: new sdk.Agent({
@@ -338,6 +369,48 @@ export class NewsroomAgentRuntime {
 	private sdkRoleForPrompt(prompt: string, context: RuntimeContext): NewsroomRole {
 		if (isTitlePrompt(prompt)) return 'assistant';
 		return this.triageEditorCommand(prompt, context).role;
+	}
+
+	private requireModel(task: ModelPolicyTask, context: RuntimeContext): ModelPolicyDecision & { allowed: true; model: string } {
+		const decision = this.modelDecision(task, context);
+		this.emitModelPolicyEvent(decision, context);
+		if (!decision.allowed || !decision.model) throw new Error(decision.reason);
+		return { ...decision, allowed: true, model: decision.model };
+	}
+
+	private modelDecision(task: ModelPolicyTask, context: RuntimeContext): ModelPolicyDecision {
+		return resolveModelPolicy(this.agentConfig.model_policy, task, {
+			trigger: context.trigger,
+			requestedModel: context.model
+		});
+	}
+
+	private emitModelPolicyEvent(
+		decision: ModelPolicyDecision,
+		context: RuntimeContext,
+		kind = decision.allowed ? 'model.call.selected' : 'model.call.skipped'
+	): void {
+		context.repository?.appendEvent({
+			jobId: context.jobId,
+			runId: context.runId,
+			agent: 'model_policy',
+			kind,
+			payload: {
+				task: decision.task,
+				tier: decision.tier,
+				model: decision.model,
+				reason: decision.reason,
+				trigger: decision.trigger
+			},
+			costMetadata: decision.model
+				? {
+						provider: 'openai',
+						model: decision.model,
+						task: decision.task,
+						estimated: false
+					}
+				: null
+		});
 	}
 
 	private emitAssignmentDeskDecision(assignment: AssignmentDeskDecision, context: RuntimeContext): void {
@@ -513,6 +586,10 @@ function shouldUseDisciplinedChat(prompt: string): boolean {
 
 function isTitlePrompt(prompt: string): boolean {
 	return /^title for this conversation:?\s*$/i.test(prompt.trim());
+}
+
+function modelTaskForSdkPrompt(prompt: string): ModelPolicyTask {
+	return isTitlePrompt(prompt) ? 'title' : 'interactive_chat';
 }
 
 export function textDeltaFromSdkEvent(event: unknown): string {
