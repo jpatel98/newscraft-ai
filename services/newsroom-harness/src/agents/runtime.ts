@@ -2,6 +2,7 @@ import type { GatewayChatMessage, ReasoningEffort } from '@newscraft/shared';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { AssignmentDesk, type AssignmentDeskDecision } from './assignment-desk.js';
+import { cleanVisibleChatOutput } from './answer.js';
 import { roleInstructionsFor, roleLabel, type NewsroomRole } from './roles.js';
 import { DisciplinedNewsroomAgent, type AgentToolEvent, type NewsroomAgentRunResult } from './newsroom-agent.js';
 import type { EvidenceObject } from './evidence.js';
@@ -214,7 +215,7 @@ export class NewsroomAgentRuntime {
 				signal: context.signal
 			});
 			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
-			return String(result.finalOutput || '').trim() || this.localChat(prompt);
+			return cleanVisibleChatOutput(String(result.finalOutput || '').trim() || this.localChat(prompt), prompt);
 		} catch (err) {
 			this.emitModelPolicyEvent(decision, context, 'model.call.failed');
 			throw err;
@@ -234,15 +235,19 @@ export class NewsroomAgentRuntime {
 		});
 
 		try {
+			let output = '';
 			for await (const event of stream as AsyncIterable<unknown>) {
 				const delta = textDeltaFromSdkEvent(event);
-				if (delta) yield delta;
+				if (delta) output += delta;
 				const progress = progressFromSdkEvent(event);
 				if (progress) context.onProgress?.(progress);
 				if (context.signal?.aborted) break;
 			}
 			await (stream as { completed?: Promise<void> }).completed?.catch(() => undefined);
 			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
+			for (const chunk of splitForStreaming(cleanVisibleChatOutput(output || this.localChat(prompt), prompt))) {
+				yield chunk;
+			}
 		} catch (err) {
 			this.emitModelPolicyEvent(decision, context, 'model.call.failed');
 			throw err;

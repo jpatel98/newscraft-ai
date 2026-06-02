@@ -320,12 +320,11 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat'
 		});
 
-		expect(answer).toContain('published 2026-05-30T13:00:00.000Z');
-		expect(answer).toContain('publication date not found');
+		expect(answer).toContain('The transit agency published a service plan with source-dated information.');
+		expect(answer).not.toContain('published 2026-05-30T13:00:00.000Z');
+		expect(answer).not.toContain('publication date not found');
 		expect(answer).not.toContain('accessed 2026-05-31T22:00:00.000Z');
-		expect(answer.indexOf('Transit agency publishes service plan')).toBeLessThan(
-			answer.indexOf('Feed item without source date')
-		);
+		expect(answer).not.toContain('Feed item without source date');
 	});
 
 	it('uses a compact answer shape for chat source runs', () => {
@@ -350,15 +349,74 @@ describe('disciplined newsroom agent harness', () => {
 			],
 			limitations: [],
 			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
-			toolAnswers: ['GTA pump prices are expected to hold today, according to the CityNews fuel tracker.'],
+			toolAnswers: [
+				'GTA pump prices are expected to hold today, according to the CityNews fuel tracker.\n\nSources:\n- [Toronto & GTA Gas Prices](https://toronto.citynews.ca/toronto-gta-gas-prices) - publication date not found.'
+			],
 			outputStyle: 'chat'
 		});
 
 		expect(answer).toContain('GTA pump prices are expected to hold today');
-		expect(answer).toContain('Sources:');
+		expect(answer).not.toContain('Sources:');
+		expect(answer).not.toContain('publication date not found');
 		expect(answer).not.toContain('## Lead Candidates');
 		expect(answer).not.toContain('## Source Notes');
 		expect(answer).not.toContain('Human Review');
+	});
+
+	it('strips posted-time and source-confirmation chatter from chat tool answers', () => {
+		const decision = routeNewsroomRequest("What was the result of Canada's friendly game last night");
+		const answer = generateFinalAnswer({
+			prompt: "What was the result of Canada's friendly game last night",
+			decision,
+			evidence: [
+				normalizeEvidence({
+					source_name: 'ABC News',
+					source_url: 'https://abcnews.com/amp/Sports/wireStory/osorio-nelson-score-canadas-2-0-friendly-victory-133504062',
+					accessed_at: '2026-06-02T13:00:00.000Z',
+					tool_used: 'openai_web_search',
+					title: "Osorio, Nelson score in Canada's 2-0 friendly victory over Uzbekistan",
+					published_at: '2026-06-01T23:34:00.000Z',
+					extracted_text: 'Canada beat Uzbekistan 2-0 in Edmonton.',
+					summary: 'Canada beat Uzbekistan 2-0 in Edmonton.',
+					confidence: 0.7,
+					limitations: [],
+					source_kind: 'media_report'
+				})
+			],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			toolAnswers: [
+				"Result: Canada beat Uzbekistan 2-0 in an international friendly. Jonathan Osorio scored in the 58th minute and Jayden Nelson added a goal at 90+1'. Posted times: 11:34 p.m. ET (AP/ABC), 11:37 p.m. MT (Global News). (abcnews.com) Additional confirmations: Washington Post match report published June 1, 2026. (washingtonpost.com)\n\nSources:\n- [ABC News](https://abcnews.com/story) - publication date not found."
+			],
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('Canada beat Uzbekistan 2-0');
+		expect(answer).toContain('Jonathan Osorio scored');
+		expect(answer).not.toContain('Posted times');
+		expect(answer).not.toContain('Additional confirmations');
+		expect(answer).not.toContain('Sources:');
+		expect(answer).not.toContain('publication date not found');
+		expect(answer).not.toContain('abcnews.com');
+	});
+
+	it('cleans chat tool answers even when no normalized evidence was extracted', () => {
+		const decision = routeNewsroomRequest("What was the result of Canada's friendly game last night");
+		const answer = generateFinalAnswer({
+			prompt: "What was the result of Canada's friendly game last night",
+			decision,
+			evidence: [],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			toolAnswers: [
+				"Canada beat Uzbekistan 2-0 in a men's international friendly in Edmonton on June 1, 2026. (edmonton.citynews.ca)\n\nSources:\n- [CityNews](https://edmonton.citynews.ca/story) - publication date not found."
+			],
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toBe(
+			"Canada beat Uzbekistan 2-0 in a men's international friendly in Edmonton on June 1, 2026."
+		);
 	});
 
 	it('preserves requested tables in compact chat source runs', () => {

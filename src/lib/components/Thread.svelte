@@ -7,6 +7,8 @@
 		import ToolActivity from './ToolActivity.svelte';
 		import { chat } from '$lib/stores/chat.svelte';
 		import { formatShortTime } from '$lib/utils/time';
+		import { parseToolMetadata, usedSources } from '$lib/utils/tool-metadata';
+		import type { PersistedSource } from '$lib/utils/stream-events';
 
 	interface Props {
 		messages: ChatMessage[];
@@ -39,6 +41,7 @@
 
 	const THREAD_CONTAINMENT_THRESHOLD = 80;
 	const UNCONTAINED_TAIL_COUNT = 12;
+	const SOURCE_TAG_LIMIT = 8;
 	const deferredBeforeIndex = $derived(
 		messages.length >= THREAD_CONTAINMENT_THRESHOLD
 			? Math.max(0, messages.length - UNCONTAINED_TAIL_COUNT)
@@ -54,6 +57,23 @@
 	function partsOf(c: MessageContent): ContentPart[] {
 		if (typeof c === 'string') return [{ type: 'text', text: c }];
 		return c;
+	}
+	function sourceTagsFor(m: ChatMessage): PersistedSource[] {
+		if (m.role !== 'assistant') return [];
+		return usedSources(parseToolMetadata(m.toolCalls).sources).slice(0, SOURCE_TAG_LIMIT);
+	}
+	function sourceDomain(source: PersistedSource): string {
+		if (source.domain) return source.domain;
+		try {
+			return new URL(source.url).hostname.replace(/^www\./, '');
+		} catch {
+			return source.url;
+		}
+	}
+	function sourceTitle(source: PersistedSource): string {
+		const title = source.title.trim();
+		if (!title || title === source.url || title === source.domain) return sourceDomain(source);
+		return title;
 	}
 
 	function isNearBottom(): boolean {
@@ -173,6 +193,7 @@
 			{@const stacked = prev && prev.role === m.role}
 			{@const roleChange = prev && prev.role !== m.role}
 			{@const deferred = shouldDeferMessage(m, i)}
+			{@const sourceTags = sourceTagsFor(m)}
 			<article
 				id={`m-${m.id}`}
 				class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange
@@ -233,6 +254,26 @@
 							{m.content}{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 						{/if}
 					</div>
+
+					{#if sourceTags.length}
+						<div class="msg__sources" aria-label="Sources">
+							<span class="msg__sources__label">Sources</span>
+							<div class="msg__sources__list">
+								{#each sourceTags as source (source.url)}
+									<a
+										class="msg-source"
+										href={source.url}
+										target="_blank"
+										rel="noopener noreferrer"
+										title={source.title}
+									>
+										<span class="msg-source__domain">{sourceDomain(source)}</span>
+										<span class="msg-source__title">{sourceTitle(source)}</span>
+									</a>
+								{/each}
+							</div>
+						</div>
+					{/if}
 
 						{#if m.role === 'assistant' && m.id === lastAssistantId && chat.activityConversationId === conversationId}
 							<ToolActivity activeTurn={true} />

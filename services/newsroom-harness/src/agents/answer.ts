@@ -23,7 +23,8 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		return answerFromMemory(input.prompt);
 	}
 	if (!evidence.length && input.toolAnswers?.length) {
-		return input.toolAnswers.join('\n\n').trim();
+		const answer = input.toolAnswers.filter((item) => item.trim()).join('\n\n');
+		return input.outputStyle === 'chat' ? formatChatToolAnswer(input.prompt, answer) : answer.trim();
 	}
 	if (!evidence.length) {
 		if (input.outputStyle === 'chat') return chatNoLead(unusableEvidence);
@@ -69,36 +70,22 @@ function chatAnswer(
 	const freshest = evidence[0];
 	const rawToolAnswer = toolAnswers.find((item) => item.trim());
 	const answer = rawToolAnswer ? formatChatToolAnswer(prompt, rawToolAnswer) : summaryFor(freshest, 720);
-	const freshness = latestAvailableFraming(prompt, freshest);
-	const sourceContext = chatSourceContext(evidence);
-	const sourceLines = evidence.slice(0, 5).map((item) => {
-		return `- ${formatSourceLink(item)} - ${publicationDateLabel(item)}. ${summaryFor(item, 180)}`;
-	});
-	const caveats = [
-		freshness,
-		sourceContext,
-		unusableEvidence.length ? 'Some candidate sources were unreadable and were not used.' : ''
-	].filter(Boolean);
-
-	return [answer, caveats.join(' '), 'Sources:', sourceLines.join('\n')].filter(Boolean).join('\n\n');
+	const caveat = unusableEvidence.length ? 'Some candidate sources were unreadable and were not used.' : '';
+	return [answer, caveat].filter(Boolean).join('\n\n');
 }
 
 function formatChatToolAnswer(prompt: string, answer: string): string {
-	if (wantsTable(prompt)) return compactMarkdownAnswer(answer, 1400);
-	return compactText(answer, 900);
+	return cleanVisibleChatOutput(answer, prompt);
+}
+
+export function cleanVisibleChatOutput(answer: string, prompt = ''): string {
+	const cleaned = cleanChatToolAnswer(answer);
+	if (wantsTable(prompt)) return compactMarkdownAnswer(cleaned, 1400);
+	return compactText(cleaned, 900);
 }
 
 function wantsTable(prompt: string): boolean {
 	return /\b(table|tabular|rows?|columns?)\b/i.test(prompt);
-}
-
-function chatSourceContext(evidence: EvidenceObject[]): string {
-	const officialCount = evidence.filter((item) => item.source_kind === 'official' || item.source_kind === 'primary').length;
-	const mediaCount = evidence.filter((item) => item.source_kind === 'media_report').length;
-	if (officialCount && mediaCount) return 'It is backed by primary/official material and media coverage.';
-	if (officialCount) return 'It is backed by primary or official material.';
-	if (mediaCount) return 'It is based on media/search results and should be checked against a primary source before publication.';
-	return 'Treat this as preliminary source material.';
 }
 
 function chatNoLead(unusableEvidence: EvidenceObject[]): string {
@@ -331,7 +318,7 @@ function compactText(value: string, maxLength: number): string {
 		.replace(/```[\s\S]*?```/g, ' ')
 		.replace(/^#{1,6}\s+/gm, '')
 		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-		.replace(/[*_~>`#-]+/g, ' ')
+		.replace(/[*_~>`#]+/g, ' ')
 		.replace(/\s+/g, ' ')
 		.trim();
 	if (cleaned.length <= maxLength) return cleaned;
@@ -346,6 +333,39 @@ function compactMarkdownAnswer(value: string, maxLength: number): string {
 		.trim();
 	if (cleaned.length <= maxLength) return cleaned;
 	return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+}
+
+function cleanChatToolAnswer(value: string): string {
+	return normalizeChatAnswerWhitespace(stripCitationChatter(stripSourceSections(value)));
+}
+
+function stripSourceSections(value: string): string {
+	return value
+		.replace(
+			/(?:^|\n)\s*(?:#{1,6}\s*)?(?:sources?|references?|citations?)\s*:?\s*\n[\s\S]*$/i,
+			''
+		)
+		.replace(/(?:^|\n)\s*(?:[-*]\s*)?\[[^\]]+\]\(https?:\/\/[^)]+\)[^\n]*/gi, '');
+}
+
+function stripCitationChatter(value: string): string {
+	return value
+		.replace(/\bPosted times?:\s*[\s\S]*?(?=\s+(?:Additional confirmations?|AP write[- ]?up|Canadian Press version|Sources?:)\b|$)/gi, '')
+		.replace(/\bAdditional confirmations?:\s*[\s\S]*$/i, '')
+		.replace(/\bAP write[- ]?up carried by\s*[\s\S]*$/i, '')
+		.replace(/\bCanadian Press version carried by\s*[\s\S]*$/i, '')
+		.replace(/\bIt is based on media\/search results and should be checked against a primary source before publication\.?/gi, '')
+		.replace(/\bshould be checked against a primary source before publication\.?/gi, '')
+		.replace(/\s+\((?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^)]*)?\)/gi, '');
+}
+
+function normalizeChatAnswerWhitespace(value: string): string {
+	return value
+		.replace(/[ \t]+\n/g, '\n')
+		.replace(/\n{3,}/g, '\n\n')
+		.replace(/[ \t]{2,}/g, ' ')
+		.replace(/\s+([,.;:!?])/g, '$1')
+		.trim();
 }
 
 function noPublishableLeadReport(unusableEvidence: EvidenceObject[]): string {

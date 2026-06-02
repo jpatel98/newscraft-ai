@@ -11,9 +11,10 @@ import {
 } from '@newscraft/shared';
 import type { ServerResponse } from 'node:http';
 import type { NewsroomAgentRuntime, RuntimeProgressEvent } from './agents/runtime.js';
+import { cleanVisibleChatOutput } from './agents/answer.js';
 import { newId } from './util/ids.js';
 import { noStoreSseHeaders } from './util/http.js';
-import { promptFromResponseInput } from './util/text.js';
+import { promptFromChatMessages, promptFromResponseInput, splitForStreaming } from './util/text.js';
 
 export async function writeChatCompletion(
 	res: ServerResponse,
@@ -23,14 +24,20 @@ export async function writeChatCompletion(
 ): Promise<void> {
 	const id = newId('chatcmpl');
 	const model = body.model || 'newsroom-harness';
+	const prompt = promptFromChatMessages(body.messages || []);
 	if (body.stream) {
 		res.writeHead(200, noStoreSseHeaders());
+		let output = '';
 		for await (const delta of runtime.streamChat(body.messages || [], {
 			signal,
 			model,
 			reasoningEffort: body.reasoning_effort,
 			onProgress: (event) => writeProgress(res, event)
 		})) {
+			if (signal.aborted) break;
+			output += delta;
+		}
+		for (const delta of splitForStreaming(cleanVisibleChatOutput(output, prompt))) {
 			if (signal.aborted) break;
 			res.write(chatCompletionDeltaFrame(delta, { id, model }));
 		}
@@ -39,11 +46,14 @@ export async function writeChatCompletion(
 		return;
 	}
 
-	const text = await runtime.completeChat(body.messages || [], {
-		signal,
-		model,
-		reasoningEffort: body.reasoning_effort
-	});
+	const text = cleanVisibleChatOutput(
+		await runtime.completeChat(body.messages || [], {
+			signal,
+			model,
+			reasoningEffort: body.reasoning_effort
+		}),
+		prompt
+	);
 	const response: GatewayChatCompletionResponse = {
 		id,
 		object: 'chat.completion',
@@ -84,6 +94,10 @@ export async function writeResponses(
 		})) {
 			if (signal.aborted) break;
 			output += delta;
+		}
+		output = cleanVisibleChatOutput(output, prompt);
+		for (const delta of splitForStreaming(output)) {
+			if (signal.aborted) break;
 			res.write(sseFrame({ event: 'response.output_text.delta', data: { delta } }));
 		}
 		res.write(
@@ -103,11 +117,14 @@ export async function writeResponses(
 		return;
 	}
 
-	const text = await runtime.completeChat(messages, {
-		signal,
-		model,
-		reasoningEffort: body.reasoning_effort
-	});
+	const text = cleanVisibleChatOutput(
+		await runtime.completeChat(messages, {
+			signal,
+			model,
+			reasoningEffort: body.reasoning_effort
+		}),
+		prompt
+	);
 	res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
 	res.end(
 		JSON.stringify({

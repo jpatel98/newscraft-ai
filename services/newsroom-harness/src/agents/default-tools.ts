@@ -209,10 +209,11 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					include: ['web_search_call.action.sources'],
 					input: [
 						'Search for source material relevant to this newsroom request.',
-						'Summarize the freshest usable result first, with concrete dates or timestamps when available.',
+						'Summarize the freshest usable result first, using concrete event dates or timestamps only when they matter to the answer.',
 						'Prefer primary or official sources and directly relevant local/reputable outlets.',
 						'Avoid forums, social threads, old PDFs, and loosely related background unless the request asks for them.',
 						'Keep the answer concise and newsroom-ready.',
+						'Do not include a Sources/References section, raw URLs, domain parentheticals, or outlet posting-time roundups; source links are captured separately.',
 						'If the request asks for a table, return a compact GitHub-flavored markdown table with pipes and a separator row.',
 						`Request: ${input.query}`
 					].join('\n')
