@@ -264,13 +264,22 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					source_kind: 'media_report'
 				}
 			);
-			return evidence.length
-				? { status: 'ok', evidence, answer: outputText, raw: { output_text: outputText } }
-				: {
-						status: 'unavailable',
-						limitations: ['OpenAI web_search returned no cited sources.'],
-						raw: { output_text: outputText }
-					};
+			const answerText = outputText.trim();
+			if (evidence.length) return { status: 'ok', evidence, answer: outputText, raw: { output_text: outputText } };
+			if (answerText) {
+				return {
+					status: 'ok',
+					evidence,
+					answer: `${answerText}\n\nLink extraction was incomplete for this web search result; verify before relying on it.`,
+					limitations: ['OpenAI web_search returned answer text but no cited sources could be extracted.'],
+					raw: { output_text: outputText }
+				};
+			}
+			return {
+				status: 'unavailable',
+				limitations: ['OpenAI web_search returned no cited sources.'],
+				raw: { output_text: outputText }
+			};
 		}
 	};
 }

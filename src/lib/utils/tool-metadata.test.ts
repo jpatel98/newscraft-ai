@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseToolMetadata, serializeToolMetadata, usedSources } from './tool-metadata';
+import { parseToolMetadata, serializeToolMetadata, sourceContextForFollowup, usedSources } from './tool-metadata';
 
 describe('tool metadata', () => {
 	it('parses legacy tool-call arrays', () => {
@@ -59,6 +59,42 @@ describe('tool metadata', () => {
 					used: true
 				}
 			])
-		).toMatchObject([{ url: 'https://example.com/b' }]);
+			).toMatchObject([{ url: 'https://example.com/b' }]);
+	});
+
+	it('builds compact source context for follow-up questions', () => {
+		const raw = serializeToolMetadata(
+			[],
+			[
+				{
+					id: 'https://investing.test/carney',
+					url: 'https://investing.test/carney',
+					title: 'Carney says some Canadian economic data will be uneven',
+					domain: 'investing.test',
+					status: 'used',
+					detail: 'Reuters reported Carney was pressed on technical recession questions.',
+					firstSeenAt: 1000,
+					lastSeenAt: 1200,
+					used: true
+				},
+				{
+					id: 'https://example.com/skipped',
+					url: 'https://example.com/skipped',
+					title: 'Skipped',
+					domain: 'example.com',
+					status: 'skipped',
+					firstSeenAt: 900,
+					lastSeenAt: 900,
+					used: false
+				}
+			]
+		);
+
+		const context = sourceContextForFollowup(raw);
+
+		expect(context).toContain('NewsCraft source context');
+		expect(context).toContain('Carney says some Canadian economic data will be uneven');
+		expect(context).toContain('investing.test');
+		expect(context).not.toContain('Skipped');
 	});
 });

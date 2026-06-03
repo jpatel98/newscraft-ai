@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AssignmentDesk } from '../src/agents/assignment-desk.js';
 import { cleanVisibleChatOutput, generateFinalAnswer } from '../src/agents/answer.js';
 import { mergeToolBudget, ToolBudgetLedger } from '../src/agents/budget.js';
@@ -8,6 +8,11 @@ import { DisciplinedNewsroomAgent } from '../src/agents/newsroom-agent.js';
 import { routeNewsroomRequest } from '../src/agents/router.js';
 import { ToolRegistry, type NewsroomTool, type ToolCategory } from '../src/agents/tools.js';
 import { assessSourceQuality } from '../src/util/source-quality.js';
+
+afterEach(() => {
+	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
+});
 
 describe('disciplined newsroom agent harness', () => {
 	it('triages newsroom requests through the Assignment Desk stub', () => {
@@ -772,6 +777,39 @@ describe('disciplined newsroom agent harness', () => {
 		expect(result.tool_calls[1]).toMatchObject({ status: 'skipped' });
 		expect(result.budget.usage.total_tool_calls).toBe(1);
 		expect(result.final_answer.length).toBeGreaterThan(0);
+	});
+
+	it('keeps web-search answer text when source-link extraction is thin', async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						output_text:
+							'Carney was referring to lower immigration targets and reduced government spending as the policy shifts now showing up in GDP data.'
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const agent = new DisciplinedNewsroomAgent({
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['openai_web_search']
+			}
+		});
+
+		const result = await agent.run('what are the policy shifts he is referring to?', {
+			openAiApiKey: 'fake-key',
+			outputStyle: 'chat'
+		});
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(result.tool_calls).toEqual([
+			expect.objectContaining({ name: 'openai_web_search', status: 'ok', evidence_count: 0 })
+		]);
+		expect(result.final_answer).toContain('lower immigration targets');
+		expect(result.final_answer).toContain('Link extraction was incomplete');
+		expect(result.final_answer).not.toContain('I could not find readable source material');
 	});
 });
 

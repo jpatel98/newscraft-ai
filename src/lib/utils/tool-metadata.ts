@@ -149,3 +149,24 @@ export function usedSources(sources: PersistedSource[]): PersistedSource[] {
 		.filter((source) => source.used)
 		.sort((a, b) => a.firstSeenAt - b.firstSeenAt);
 }
+
+export function sourceContextForFollowup(raw: string | null | undefined, limit = 6): string {
+	const sources = usedSources(parseToolMetadata(raw).sources).slice(0, limit);
+	if (!sources.length) return '';
+	return [
+		'[NewsCraft source context for follow-up questions]',
+		'Sources used:',
+		...sources.map((source) => {
+			const label = compactSourceContextText(source.title || source.url, 140);
+			const domain = source.domain || domainOf(source.url);
+			const detail = source.detail ? `: ${compactSourceContextText(source.detail, 220)}` : '';
+			return `- ${label} (${domain})${detail}`;
+		})
+	].join('\n');
+}
+
+function compactSourceContextText(value: string, maxLength: number): string {
+	const cleaned = value.replace(/\s+/g, ' ').trim();
+	if (cleaned.length <= maxLength) return cleaned;
+	return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
+}

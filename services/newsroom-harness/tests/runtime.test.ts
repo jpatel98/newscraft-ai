@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
+	buildDisciplinedChatPrompt,
 	NewsroomAgentRuntime,
 	type RuntimeProgressEvent,
 	sourceToolResult,
@@ -95,6 +96,30 @@ describe('newsroom agent runtime', () => {
 				structuredType: 'NewsArticle'
 			}
 		});
+	});
+
+	it('builds a bounded follow-up prompt from recent conversation context', () => {
+		const prompt = buildDisciplinedChatPrompt([
+			{ role: 'system', content: 'System instructions should not become follow-up context.' },
+			{ role: 'user', content: 'What did Mark Carney say about recession in Canada today?' },
+			{
+				role: 'assistant',
+				content: [
+					'Pressed on GDP data showing a technical recession, Mark Carney said the data will be uneven.',
+					'[NewsCraft source context for follow-up questions]',
+					'Sources used:',
+					'- Carney says some Canadian economic data will be uneven (investing.com)'
+				].join('\n')
+			},
+			{ role: 'user', content: 'what are the policy shifts he is referring to?' }
+		]);
+
+		expect(prompt).toContain('Current user question:');
+		expect(prompt).toContain('what are the policy shifts he is referring to?');
+		expect(prompt).toContain('Recent conversation context');
+		expect(prompt).toContain('Mark Carney');
+		expect(prompt).toContain('investing.com');
+		expect(prompt).not.toContain('System instructions should not become follow-up context');
 	});
 
 	it('emits assignment desk triage events before running a mission', async () => {

@@ -50,6 +50,9 @@ const CHAT_VISIBLE_OUTPUT_INSTRUCTIONS = [
 	'Do not write the word "Bold".',
 	'If the user asks for today, lead with today. Put older but relevant items under Latest context only when they are necessary.'
 ].join('\n');
+const MAX_FOLLOWUP_CONTEXT_MESSAGES = 4;
+const MAX_FOLLOWUP_MESSAGE_CHARS = 900;
+const MAX_FOLLOWUP_CONTEXT_CHARS = 2600;
 
 function httpUrlToolParameter(description: string) {
 	return z.string().min(1).describe(description);
@@ -77,9 +80,10 @@ export class NewsroomAgentRuntime {
 
 	async completeChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): Promise<string> {
 		const prompt = promptFromChatMessages(messages);
-		const taskPrompt = latestUserPromptFromChatMessages(messages) || prompt;
+		const latestUserPrompt = latestUserPromptFromChatMessages(messages) || prompt;
+		const taskPrompt = buildDisciplinedChatPrompt(messages);
 		if (!this.controls.openAiApiKey) return this.localChat(prompt);
-		if (shouldUseDisciplinedChat(taskPrompt)) {
+		if (shouldUseDisciplinedChat(latestUserPrompt)) {
 			return this.withTimeout(() => this.disciplinedComplete(taskPrompt, context), context.signal);
 		}
 		return this.withTimeout(() => this.sdkComplete(prompt, context), context.signal);
@@ -87,12 +91,13 @@ export class NewsroomAgentRuntime {
 
 	async *streamChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): AsyncGenerator<string> {
 		const prompt = promptFromChatMessages(messages);
-		const taskPrompt = latestUserPromptFromChatMessages(messages) || prompt;
+		const latestUserPrompt = latestUserPromptFromChatMessages(messages) || prompt;
+		const taskPrompt = buildDisciplinedChatPrompt(messages);
 		if (!this.controls.openAiApiKey) {
 			for (const chunk of splitForStreaming(this.localChat(prompt))) yield chunk;
 			return;
 		}
-		if (shouldUseDisciplinedChat(taskPrompt)) {
+		if (shouldUseDisciplinedChat(latestUserPrompt)) {
 			const text = await this.withTimeout(() => this.disciplinedComplete(taskPrompt, context), context.signal);
 			for (const chunk of splitForStreaming(text)) yield chunk;
 			return;
@@ -584,6 +589,66 @@ function latestUserPromptFromChatMessages(messages: GatewayChatMessage[]): strin
 		if (text.trim()) return text.trim();
 	}
 	return '';
+}
+
+export function buildDisciplinedChatPrompt(messages: GatewayChatMessage[]): string {
+	const latestUserIndex = latestUserIndexFromChatMessages(messages);
+	const latestUserPrompt =
+		latestUserIndex >= 0 ? chatMessageText(messages[latestUserIndex]).trim() : promptFromChatMessages(messages).trim();
+	if (!latestUserPrompt) return promptFromChatMessages(messages);
+
+	const priorContext = recentConversationContext(messages, latestUserIndex);
+	if (!priorContext) return latestUserPrompt;
+
+	return [
+		'Current user question:',
+		latestUserPrompt,
+		'',
+		'Recent conversation context for resolving follow-up references:',
+		priorContext,
+		'',
+		'Use the recent context to resolve pronouns, article references, and source references. Answer the current user question, and do not treat prior assistant wording as fresh evidence unless source details are included.'
+	].join('\n');
+}
+
+function latestUserIndexFromChatMessages(messages: GatewayChatMessage[]): number {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		if (messages[index]?.role === 'user' && chatMessageText(messages[index]).trim()) return index;
+	}
+	return -1;
+}
+
+function recentConversationContext(messages: GatewayChatMessage[], latestUserIndex: number): string {
+	if (latestUserIndex <= 0) return '';
+	const prior = messages
+		.slice(0, latestUserIndex)
+		.filter((message) => message.role === 'user' || message.role === 'assistant')
+		.slice(-MAX_FOLLOWUP_CONTEXT_MESSAGES)
+		.map((message) => {
+			const text = compactChatContextText(chatMessageText(message), MAX_FOLLOWUP_MESSAGE_CHARS);
+			if (!text) return '';
+			return `${message.role === 'user' ? 'User' : 'Assistant'}: ${text}`;
+		})
+		.filter(Boolean)
+		.join('\n\n');
+	return compactChatContextText(prior, MAX_FOLLOWUP_CONTEXT_CHARS);
+}
+
+function chatMessageText(message: GatewayChatMessage): string {
+	if (!message?.content) return '';
+	if (typeof message.content === 'string') return message.content;
+	return message.content
+		.filter((part) => part.type === 'text')
+		.map((part) => part.text)
+		.join('\n');
+}
+
+function compactChatContextText(value: string, maxLength: number): string {
+	const cleaned = value.replace(/\s+/g, ' ').trim();
+	if (cleaned.length <= maxLength) return cleaned;
+	const keepStart = Math.ceil((maxLength - 5) * 0.6);
+	const keepEnd = Math.floor((maxLength - 5) * 0.4);
+	return `${cleaned.slice(0, keepStart).trim()} ... ${cleaned.slice(-keepEnd).trim()}`;
 }
 
 function progressDetailForTool(tool: string): string {

@@ -29,7 +29,7 @@ import { contentText, type ChatCommand, type ContentPart, type AgentCommand, typ
 import { readSSE } from '$lib/utils/sse-client';
 import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
 import { StreamEventState, sseFrame } from '$lib/utils/stream-events';
-import { mergeToolMetadata, serializeToolMetadata } from '$lib/utils/tool-metadata';
+import { mergeToolMetadata, serializeToolMetadata, sourceContextForFollowup } from '$lib/utils/tool-metadata';
 import {
 	getConversationReasoningEffort,
 	parseReasoningEffort,
@@ -94,6 +94,13 @@ function toResponsesContent(c: AgentContent): string | AgentResponseContentPart[
 			? { type: 'input_text', text: p.text }
 			: { type: 'input_image', image_url: p.image_url.url }
 	);
+}
+
+function withFollowupSourceContext(content: AgentContent, toolCalls: string | null): AgentContent {
+	const sourceContext = sourceContextForFollowup(toolCalls);
+	if (!sourceContext) return content;
+	if (typeof content === 'string') return `${content}\n\n${sourceContext}`;
+	return [...content, { type: 'text', text: sourceContext }];
 }
 
 type ResponseHistoryMessage = { role: 'user' | 'assistant'; content: AgentContent };
@@ -335,9 +342,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const messages = await getMessages(convoId);
 	const history = messages.map<AgentMessage>((m) => {
 		const parsed = parseContent(m.content);
+		let content = toAgentContent(parsed);
+		if (m.role === 'assistant') content = withFollowupSourceContext(content, m.toolCalls);
 		return {
 			role: m.role === 'tool' ? 'assistant' : (m.role as 'user' | 'assistant' | 'system'),
-			content: toAgentContent(parsed)
+			content
 		};
 	});
 	if (!isResume && !isRegenerate && body.content) {
