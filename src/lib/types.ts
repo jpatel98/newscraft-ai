@@ -179,36 +179,6 @@ export interface EditorialEvent {
 	createdAt: string;
 }
 
-export interface OperatorFooterStatus {
-	ok: boolean;
-	generatedAt: string;
-	gateway: {
-		ok: boolean;
-		status: number;
-		label: string;
-		detail: string | null;
-	};
-	agent: {
-		available: boolean;
-		label: string;
-		detail: string | null;
-	};
-	lastSuccessfulMissionRun: {
-		at: string | null;
-		label: string;
-		missionName: string | null;
-	};
-	database: {
-		ok: boolean;
-		label: string;
-		detail: string | null;
-	};
-	pendingJobs: {
-		count: number;
-		label: string;
-	};
-}
-
 /** Plain-text projection of a message for callers that don't render parts (copy, recall, etc.). */
 export function contentText(c: MessageContent): string {
 	if (typeof c === 'string') return c;
