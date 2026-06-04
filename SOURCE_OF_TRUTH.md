@@ -209,10 +209,9 @@ The authoritative list lives in `.env.example`. Key groups:
   `NEWSROOM_MODEL_*`, `NEWSROOM_WEB_SEARCH_MODEL`.
 - **Ingest**: `NEWSROOM_UI_INGEST_URL`, `NEWSROOM_UI_INGEST_KEY`.
 
-The `NEWSROOM_EMAIL_DIGEST_WEBHOOK_URL`, `NEWSROOM_DELIVERY_WEBHOOK_URL`,
-`NEWSROOM_SLACK_WEBHOOK_URL`, and `WORDPRESS_*` vars still appear in `.env.example`
-but back **cut** delivery features — treat them as dead until/unless delivery is
-deliberately rebuilt.
+The `NEWSROOM_EMAIL_DIGEST_WEBHOOK_URL` and `NEWSROOM_SLACK_WEBHOOK_URL`
+placeholders still appear in `.env.example`, but point at **cut** delivery
+features. Treat them as inert until/unless delivery is deliberately rebuilt.
 
 ---
 
