@@ -23,6 +23,27 @@ async function signIn(page: Page) {
 	await expect(page).toHaveURL(/\/$/);
 }
 
+async function expectStoryTrackerHome(page: Page) {
+	await expect(page).toHaveTitle(/Stories · NewsCraft/);
+	await expect(page.getByRole('heading', { name: 'Story tracker' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Start with a research prompt' })).toBeVisible();
+	await expect(page.locator('[aria-label="Starter prompts"]')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'No tracked stories yet' })).toBeVisible();
+	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute(
+		'placeholder',
+		'Track a story, topic, region, or source URL...'
+	);
+}
+
+async function expectNoTechnicalLeakage(page: Page) {
+	const text = await page.locator('body').innerText();
+	expect(text).not.toMatch(
+		/Gateway detail|agent gateway|job id|jobId|run id|runId|adapter name|tool trace|tool_call|JSON log/i
+	);
+	expect(text).not.toMatch(/\b(?:job|run|call|tool)[_-][A-Za-z0-9_-]{6,}\b/);
+	expect(text).not.toMatch(/\{\\?"(?:event|tool|job|run|choices|delta)\\?":/);
+}
+
 test.describe.serial('NewsCraft app shell', () => {
 	test('boots a first account, protects routes, and signs back in safely', async ({ page }) => {
 		const problems = await collectPageProblems(page);
@@ -59,8 +80,7 @@ test.describe.serial('NewsCraft app shell', () => {
 		await page.getByLabel('Confirm password').fill(password);
 		await page.getByRole('button', { name: 'Create account' }).click();
 		await expect(page).toHaveURL(/\/$/);
-		await expect(page.getByRole('heading', { name: 'Newsroom overview' })).toBeVisible();
-		await expect(page.getByRole('heading', { name: 'What looks worth chasing' })).toBeVisible();
+		await expectStoryTrackerHome(page);
 
 		await page.request.post('/logout');
 		await page.goto('/settings');
@@ -76,29 +96,33 @@ test.describe.serial('NewsCraft app shell', () => {
 		await page.getByLabel('Password', { exact: true }).fill(password);
 		await page.getByRole('button', { name: 'Sign in' }).click();
 		await expect(page).toHaveURL(/\/$/);
-		await expect(page.getByRole('heading', { name: 'Newsroom overview' })).toBeVisible();
+		await expectStoryTrackerHome(page);
 		expect(problems).toEqual([]);
 	});
 
-	test('creates a thread from the composer and surfaces gateway failure without crashing', async ({
+	test('tracks a starter prompt into chat without exposing internals', async ({
 		page
 	}) => {
 		const problems = await collectPageProblems(page);
 
 		await signIn(page);
+		await expectStoryTrackerHome(page);
 
-		const message = 'Summarize the top newsroom priorities for the morning.';
-		await page.getByLabel('Message NewsCraft').fill(message);
+		const message = 'Track latest Toronto housing stories and summarize the newest reliable coverage.';
+		await page.getByRole('button', { name: message }).click();
+		await expect(page.getByLabel('Message NewsCraft')).toHaveValue(message);
 		await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled();
 		await page.getByRole('button', { name: 'Send message' }).click();
 
 		await expect(page).toHaveURL(/\/c\/[^/]+$/);
 		await expect(page.getByText(message)).toBeVisible();
-		await expect(page.getByText(/couldn't reach the agent gateway/i)).toBeVisible();
+		await expect(page.getByText(/couldn't reach the research service/i)).toBeVisible();
+		await expect(page.getByLabel('Message NewsCraft')).toBeVisible();
 
 		await page.getByRole('button', { name: 'Toggle sidebar' }).click();
 		await expect(page.getByRole('complementary', { name: 'Sidebar' })).toBeVisible();
 		await expect(page.getByText('Untitled thread').first()).toBeVisible();
+		await expectNoTechnicalLeakage(page);
 		expect(problems).toEqual([]);
 	});
 
@@ -107,8 +131,8 @@ test.describe.serial('NewsCraft app shell', () => {
 
 		await page.setViewportSize({ width: 390, height: 844 });
 		await signIn(page);
-		await expect(page.getByRole('heading', { name: 'Newsroom overview' })).toBeVisible();
-		await expect(page.getByRole('heading', { name: 'What looks worth chasing' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Story tracker' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Start with a research prompt' })).toBeVisible();
 		await expect(page.getByLabel('Message NewsCraft')).toBeVisible();
 
 		await page.getByRole('button', { name: 'Toggle sidebar' }).click();
