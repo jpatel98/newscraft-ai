@@ -1,6 +1,6 @@
 # NewsCraft AI — Source of Truth
 
-Last updated: 2026-06-03
+Last updated: 2026-06-06
 
 This is the single canonical document for NewsCraft AI. It describes what the
 product is, how it is built today, and how to work on it. If any other file
@@ -31,26 +31,43 @@ If a real multi-user newsroom product is ever needed, it gets rebuilt for that.
 
 ### UI (SvelteKit, `127.0.0.1:3001`)
 
-Live routes only:
+Tracked routes currently expose:
 
 - `/` — Story Tracker landing (hero + composer). Starter prompts funnel research
   into a chat thread. Title is "Stories · NewsCraft".
 - `/c/[id]` — chat thread. Sidebar lists recent threads (pinned / today /
   yesterday / last 7 days / earlier), rename, search.
 - `/settings` — account + app settings.
-- `/login`, `/logout`, `/signup`, `/setup`, `/account-setup/[token]` — auth.
+- `/login`, `/signup`, `/setup`, `/account-setup/[token]` — auth/setup pages.
+- `/logout` — auth sign-out endpoint.
 
-The route dirs `board/`, `channels/`, `mission-control/`, `missions/`, `reports/`
-are **empty leftovers** from the cut design and can be removed. `ENABLE_MISSIONS`
-no longer exists in the code.
+No tracked page routes exist beyond the routes above. Legacy page route
+directories from the cut design are gone. `ENABLE_MISSIONS` no longer exists in
+the code.
 
-The live API surface is `/api/agent/commands`, `/api/agent/skills`,
-`/api/agent/jobs`, `/api/agent/channel-posts`, plus `/api/gates/[id]` and the
-chat/conversation/settings endpoints. The legacy compatibility routes
-`/api/agent/board`, `/api/agent/channels/[jobId]`, `/api/agent/reports/[id]`, and
-`/api/operator/status` are being stripped (removed in the current working tree).
-`missions` / `jobs` / `runs` survive in the harness DB and `board.ts` as
-**internal** names — they are not surfaced in user-facing UI.
+### App API (SvelteKit)
+
+Tracked API routes currently expose:
+
+- Chat/conversations: `/api/chat/stream`, `/api/conversations`,
+  `/api/conversations/[id]`, `/api/conversations/[id]/assistant-note`,
+  `/api/conversations/[id]/export`, `/api/conversations/[id]/title`,
+  `/api/messages/[id]/clear-partial`, `/api/messages/[id]/onwards`,
+  `/api/search`.
+- Agent bridge / Story Tracker internals: `/api/agent/commands`,
+  `/api/agent/skills`, `/api/agent/skills/[slug]`, `/api/agent/jobs`,
+  `/api/agent/jobs/[id]`, `/api/agent/jobs/[id]/run`,
+  `/api/agent/jobs/[id]/pause`, `/api/agent/jobs/[id]/resume`,
+  `/api/agent/channel-posts`.
+- Health/settings/admin: `/api/health`, `/api/settings/status`,
+  `/api/settings/export`, `/api/settings/password`, `/api/settings/accounts`,
+  `/api/settings/accounts/[id]`, `/api/settings/accounts/[id]/setup-link`,
+  `/api/settings/wipe-db`.
+
+No legacy compatibility API route files from the old board, channel, report,
+operator, gate, crawl-plan, or editor-command surfaces are tracked. `missions`,
+`jobs`, `runs`, `reports`, and `board` survive as **internal** DB/helper names
+for compatibility and diagnostics; they are not surfaced in user-facing UI.
 
 ### Harness (TypeScript HTTP/SSE service, `127.0.0.1:8650`)
 
@@ -88,7 +105,7 @@ Browser
             │    ├─ Social sub-agent (Bluesky)
             │    └─ Source monitor sub-agent (configured URLs)
             ├─ Chat agent
-            └─ SQLite (jobs/runs/sources/reports/events)
+            └─ SQLite (jobs, runs, sources, reports, events)
 ```
 
 The harness owns model execution, source fetching, and research. The app owns UI,
