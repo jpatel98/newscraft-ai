@@ -8,6 +8,9 @@
 	import { onMount } from 'svelte';
 	import { formatThreadUpdated } from '$lib/utils/time';
 	import { persistedThreadMessages, type PersistedThreadMessage } from '$lib/utils/thread-messages';
+	import { parseSlashCommand } from '$lib/utils/slash';
+	import X from 'lucide-svelte/icons/x';
+	import Send from 'lucide-svelte/icons/send-horizontal';
 
 	type ThreadMessage = PersistedThreadMessage;
 
@@ -18,6 +21,11 @@
 	// the persisted versions up. Using append-and-filter (not replace) so
 	// concurrent or back-to-back runs don't trample each other.
 	let overlay = $state<ThreadMessage[]>([]);
+	let feedbackOpen = $state(false);
+	let feedbackComment = $state('');
+	let feedbackSaving = $state(false);
+	let feedbackStatus = $state<string | null>(null);
+	let feedbackError = $state<string | null>(null);
 	// Persisted message ids that are currently being shadowed by an overlay
 	// stream (resume). Hides the partial row while we re-stream into it; on
 	// invalidateAll the partial flag flips and the row reappears finalized.
@@ -169,7 +177,50 @@
 	}
 
 	async function handleSend(content: MessageContent, command?: ChatCommand) {
+		const parsedCommand = typeof content === 'string' ? parseSlashCommand(content) : null;
+		if (command?.slash === '/feedback' || parsedCommand?.slash === '/feedback') {
+			feedbackComment = (command?.raw ?? parsedCommand?.raw ?? '').replace(/^\/feedback\b/i, '').trim();
+			feedbackStatus = null;
+			feedbackError = null;
+			feedbackOpen = true;
+			return;
+		}
 		await runStream({ conversation_id: data.conversation.id, content, command });
+	}
+
+	async function submitFeedback() {
+		const comment = feedbackComment.trim();
+		if (!comment) {
+			feedbackError = 'Add a comment before saving feedback.';
+			return;
+		}
+		feedbackSaving = true;
+		feedbackError = null;
+		feedbackStatus = null;
+		try {
+			const response = await fetch(`/api/conversations/${data.conversation.id}/feedback`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ comment })
+			});
+			if (!response.ok) throw new Error(`feedback ${response.status}`);
+			const result = (await response.json()) as { messageCount: number };
+			feedbackStatus = `Captured ${result.messageCount} message${result.messageCount === 1 ? '' : 's'}.`;
+			setTimeout(() => {
+				if (feedbackStatus) feedbackOpen = false;
+			}, 900);
+		} catch (e) {
+			feedbackError = `Couldn't save feedback. ${String(e)}`;
+		} finally {
+			feedbackSaving = false;
+		}
+	}
+
+	function closeFeedback() {
+		if (feedbackSaving) return;
+		feedbackOpen = false;
+		feedbackStatus = null;
+		feedbackError = null;
 	}
 
 	async function handleRegenerate() {
@@ -247,8 +298,237 @@
 	/>
 {/key}
 
+{#if feedbackOpen}
+	<div class="feedback-backdrop">
+		<button
+			type="button"
+			class="feedback-backdrop__dismiss"
+			aria-label="Dismiss feedback"
+			onclick={closeFeedback}
+			disabled={feedbackSaving}
+		></button>
+		<div
+			class="feedback-dialog"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="feedback-title"
+		>
+		<form
+			onsubmit={(event) => {
+				event.preventDefault();
+				void submitFeedback();
+			}}
+		>
+			<div class="feedback-dialog__head">
+				<div>
+					<div id="feedback-title" class="feedback-dialog__title">Capture feedback</div>
+					<div class="feedback-dialog__meta">
+						{messages.length} message{messages.length === 1 ? '' : 's'} in this thread
+					</div>
+				</div>
+				<button
+					type="button"
+					class="feedback-dialog__icon"
+					aria-label="Close feedback"
+					onclick={closeFeedback}
+					disabled={feedbackSaving}
+				>
+					<X size="16" strokeWidth={1.8} />
+				</button>
+			</div>
+			<textarea
+				class="feedback-dialog__textarea"
+				bind:value={feedbackComment}
+				rows="5"
+				maxlength="4000"
+				placeholder="What should we know about this chat?"
+				aria-label="Feedback comment"
+				disabled={feedbackSaving}
+			></textarea>
+			{#if feedbackError}
+				<div class="feedback-dialog__error" role="alert">{feedbackError}</div>
+			{:else if feedbackStatus}
+				<div class="feedback-dialog__status" role="status">{feedbackStatus}</div>
+			{/if}
+			<div class="feedback-dialog__actions">
+				<button
+					type="button"
+					class="feedback-dialog__btn"
+					onclick={closeFeedback}
+					disabled={feedbackSaving}
+				>
+					Cancel
+				</button>
+				<button
+					type="submit"
+					class="feedback-dialog__btn feedback-dialog__btn--primary"
+					disabled={feedbackSaving || !feedbackComment.trim()}
+				>
+					<Send size="14" strokeWidth={2} />
+					<span>{feedbackSaving ? 'Saving' : 'Save feedback'}</span>
+				</button>
+			</div>
+		</form>
+		</div>
+	</div>
+{/if}
+
 <div class="composer-zone">
 	<div class="composer-zone__inner">
 		<Composer onSend={handleSend} />
 	</div>
 </div>
+
+<style>
+	.feedback-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 80;
+		display: grid;
+		place-items: center;
+		padding: 20px;
+		background: color-mix(in srgb, var(--ink-900) 28%, transparent);
+	}
+	.feedback-backdrop__dismiss {
+		position: absolute;
+		inset: 0;
+		border: 0;
+		background: transparent;
+		padding: 0;
+		cursor: default;
+	}
+	.feedback-dialog {
+		position: relative;
+		width: min(560px, 100%);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		box-shadow: var(--shadow-2);
+		padding: 16px;
+		display: grid;
+		gap: 12px;
+	}
+	.feedback-dialog__head {
+		display: flex;
+		align-items: start;
+		justify-content: space-between;
+		gap: 12px;
+	}
+	.feedback-dialog__title {
+		font-family: var(--font-display);
+		font-size: 17px;
+		font-weight: 650;
+		letter-spacing: 0;
+		color: var(--fg-1);
+	}
+	.feedback-dialog__meta {
+		margin-top: 2px;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--fg-3);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.feedback-dialog__icon {
+		width: 32px;
+		height: 32px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		background: var(--bg-surface);
+		color: var(--fg-2);
+		display: inline-grid;
+		place-items: center;
+		cursor: pointer;
+	}
+	.feedback-dialog__icon:hover:not(:disabled) {
+		background: var(--bg-raised);
+		color: var(--fg-1);
+	}
+	.feedback-dialog__icon:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	.feedback-dialog__textarea {
+		width: 100%;
+		min-height: 120px;
+		resize: vertical;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-2);
+		background: var(--bg-page);
+		color: var(--fg-1);
+		font: inherit;
+		font-size: 14px;
+		line-height: 1.5;
+		padding: 10px 12px;
+		outline: none;
+	}
+	.feedback-dialog__textarea:focus {
+		border-color: var(--border-strong);
+		box-shadow: var(--shadow-focus);
+	}
+	.feedback-dialog__textarea::placeholder {
+		color: var(--fg-4);
+	}
+	.feedback-dialog__error,
+	.feedback-dialog__status {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		letter-spacing: 0;
+	}
+	.feedback-dialog__error {
+		color: var(--danger-fg, #b34040);
+	}
+	.feedback-dialog__status {
+		color: var(--cobalt-700);
+	}
+	.feedback-dialog__actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+	}
+	.feedback-dialog__btn {
+		min-height: 34px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		background: var(--bg-surface);
+		color: var(--fg-2);
+		padding: 0 12px;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 7px;
+	}
+	.feedback-dialog__btn:hover:not(:disabled) {
+		background: var(--bg-raised);
+		color: var(--fg-1);
+	}
+	.feedback-dialog__btn:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	.feedback-dialog__btn--primary {
+		background: var(--ink-900);
+		border-color: var(--ink-900);
+		color: var(--ink-25);
+	}
+	.feedback-dialog__btn--primary:hover:not(:disabled) {
+		background: var(--ink-700);
+		border-color: var(--ink-700);
+		color: var(--ink-25);
+	}
+	@media (max-width: 620px) {
+		.feedback-backdrop {
+			align-items: end;
+			padding: 12px;
+		}
+		.feedback-dialog__actions {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+		}
+	}
+</style>

@@ -36,6 +36,7 @@ import {
 	reasoningEffortLabel,
 	setConversationReasoningEffort
 } from '$lib/server/reasoning';
+import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 
 interface Body {
 	conversation_id?: string;
@@ -149,6 +150,9 @@ function appendSystemInstruction(history: AgentMessage[], instruction: string): 
 }
 
 async function localAssistantResponse(convoId: string, text: string): Promise<Response> {
+	recordChatDiagnostic(convoId, 'chat.local_response', {
+		responseChars: text.length
+	});
 	await addMessage({ conversationId: convoId, role: 'assistant', content: text });
 	return localTextStream(convoId, text);
 }
@@ -185,6 +189,10 @@ function gatewayUnavailableMessage(_detail: string): string {
 }
 
 async function localGatewayFailureResponse(convoId: string, detail: string, resumeMessageId?: string | null): Promise<Response> {
+	recordChatDiagnostic(convoId, 'chat.gateway_failure', {
+		resume: Boolean(resumeMessageId),
+		detail
+	});
 	const text = gatewayUnavailableMessage(detail);
 	if (resumeMessageId) {
 		await appendMessageContent(resumeMessageId, `\n\n${text}`);
@@ -246,6 +254,9 @@ async function builtinResponse(
 		const skillCount = commands.filter((cmd) => cmd.kind === 'skill' && cmd.enabled).length;
 		return `Profile: agent-gateway\nInstalled skills: ${skillCount}`;
 	}
+	if (command.slash === '/feedback') {
+		return 'Use `/feedback` in the chat composer to open the feedback capture form for this thread.';
+	}
 	return 'This command is not available from the web UI yet.';
 }
 
@@ -274,6 +285,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		convo = await createConversation(accountId);
 	}
 	const convoId = convo.id;
+	const requestStartedAt = Date.now();
+	recordChatDiagnostic(convoId, 'chat.request', {
+		contentLength: len,
+		resume: isResume,
+		regenerate: body.regenerate === true,
+		newConversation: isNew
+	});
 
 	const isRegenerate = body.regenerate === true;
 	let resumeMessageId: string | null = null;
@@ -303,6 +321,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			if (parsed) {
 				const commands = await listAgentCommands();
 				const command = findCommand(commands, parsed);
+				recordChatDiagnostic(convoId, 'chat.command', {
+					slash: parsed.slash,
+					recognized: Boolean(command),
+					kind: command?.kind ?? null,
+					enabled: command?.enabled ?? null
+				});
 				if (!command) {
 					return localAssistantResponse(
 						convoId,
@@ -337,7 +361,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 	}
 
+	const reasoningEffort = await getConversationReasoningEffort(convoId);
 	const messages = await getMessages(convoId);
+	recordChatDiagnostic(convoId, 'chat.history_built', {
+		messageCount: messages.length,
+		reasoningEffort
+	});
 	const history = messages.map<AgentMessage>((m) => {
 		const parsed = parseContent(m.content);
 		let content = toAgentContent(parsed);
@@ -366,7 +395,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (request.signal.aborted) upstreamAbort.abort();
 	else request.signal.addEventListener('abort', () => upstreamAbort.abort(), { once: true });
 
-	const reasoningEffort = await getConversationReasoningEffort(convoId);
 	const sessionId = deriveSessionId(history);
 	let upstream: Response;
 	try {
@@ -378,12 +406,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			{ messages: history, stream: true, reasoning_effort: reasoningEffort },
 			{ signal: upstreamAbort.signal, sessionId }
 		);
+		recordChatDiagnostic(convoId, 'chat.upstream_response', {
+			transport: 'chat_completions',
+			status: upstream.status,
+			ok: upstream.ok
+		});
 		if (!isResume && !upstream.ok && [400, 404, 405].includes(upstream.status)) {
 			await upstream.text().catch(() => '');
 			upstream = await streamResponse(
 				{ ...responseInputFromHistory(history), stream: true, store: false, reasoning_effort: reasoningEffort },
 				{ signal: upstreamAbort.signal, sessionId }
 			);
+			recordChatDiagnostic(convoId, 'chat.upstream_response', {
+				transport: 'responses',
+				status: upstream.status,
+				ok: upstream.ok
+			});
 		}
 	} catch (err) {
 		return await localGatewayFailureResponse(convoId, err instanceof Error ? err.message : String(err), resumeMessageId);
@@ -405,6 +443,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	let persisted = false;
 	let sentDone = false;
 	const streamState = new StreamEventState();
+	const streamStats: Record<string, number> = {};
 
 	async function persistAssistant() {
 		if (persisted) return undefined;
@@ -440,6 +479,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 			try {
 				for await (const ev of readSSE(upstreamBody)) {
+					streamStats[ev.event || 'message'] = (streamStats[ev.event || 'message'] ?? 0) + 1;
 					for (const update of streamState.apply(ev.event, ev.data)) {
 						if (update.delta) assistantBuf += update.delta;
 						if (update.done) done = true;
@@ -452,6 +492,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					controller.enqueue(enc.encode(sseFrame(ev.event, ev.data)));
 				}
 			} catch (e) {
+				recordChatDiagnostic(convoId, 'chat.stream_error', {
+					error: e instanceof Error ? e.message : String(e),
+					elapsedMs: Date.now() - requestStartedAt,
+					assistantChars: assistantBuf.length,
+					events: streamStats
+				});
 				await persistAssistant();
 				controller.error(e);
 				return;
@@ -475,13 +521,29 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					}
 				}
 			} catch (err) {
+				recordChatDiagnostic(convoId, 'chat.title_error', {
+					error: err instanceof Error ? err.message : String(err)
+				});
 				console.warn('NewsCraft title generation failed', err);
 			}
 
+			recordChatDiagnostic(convoId, 'chat.stream_complete', {
+				elapsedMs: Date.now() - requestStartedAt,
+				assistantChars: assistantBuf.length,
+				done,
+				persisted: Boolean(assistantRow),
+				toolCount: streamState.toolCalls().length,
+				sourceCount: streamState.sourceList().length,
+				events: streamStats
+			});
 			if (sentDone || done) controller.enqueue(enc.encode('data: [DONE]\n\n'));
 			controller.close();
 		},
 		cancel() {
+			recordChatDiagnostic(convoId, 'chat.stream_cancel', {
+				elapsedMs: Date.now() - requestStartedAt,
+				assistantChars: assistantBuf.length
+			});
 			upstreamAbort.abort();
 			void persistAssistant();
 		}

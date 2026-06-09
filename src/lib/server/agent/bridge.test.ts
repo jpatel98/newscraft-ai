@@ -7,7 +7,7 @@ describe('Agent command registry', () => {
 		const commands = await listAgentCommands();
 
 		expect(commands.map((command) => command.slash)).toEqual(
-			expect.arrayContaining(['/help', '/commands', '/reasoning', '/status', '/profile'])
+			expect.arrayContaining(['/help', '/commands', '/reasoning', '/status', '/profile', '/feedback'])
 		);
 		expect(commands.every((command) => command.enabled)).toBe(true);
 	});

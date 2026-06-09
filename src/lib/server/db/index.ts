@@ -96,6 +96,20 @@ async function ensureSchema(): Promise<void> {
 	await sql`CREATE INDEX IF NOT EXISTS messages_convo_created_idx ON messages (conversation_id, created_at)`;
 
 	await sql`
+		CREATE TABLE IF NOT EXISTS chat_feedback (
+			id text PRIMARY KEY,
+			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+			comment text NOT NULL,
+			snapshot_json text NOT NULL,
+			user_agent text,
+			created_at bigint NOT NULL
+		)
+	`;
+	await sql`CREATE INDEX IF NOT EXISTS chat_feedback_account_created_idx ON chat_feedback (account_id, created_at)`;
+	await sql`CREATE INDEX IF NOT EXISTS chat_feedback_conversation_created_idx ON chat_feedback (conversation_id, created_at)`;
+
+	await sql`
 		CREATE TABLE IF NOT EXISTS settings (
 			key text PRIMARY KEY,
 			value text NOT NULL

@@ -41,6 +41,15 @@ const LOCAL_COMMANDS: AgentCommand[] = [
 		category: 'Chat',
 		kind: 'builtin',
 		enabled: true
+	},
+	{
+		name: 'Feedback',
+		slash: '/feedback',
+		description: 'Capture this thread with a feedback comment.',
+		category: 'Chat',
+		argsHint: 'comment',
+		kind: 'builtin',
+		enabled: true
 	}
 ];
 
