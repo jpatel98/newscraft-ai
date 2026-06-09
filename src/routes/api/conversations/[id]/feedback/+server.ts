@@ -1,7 +1,8 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { getConversation, getMessages } from '$lib/server/db/conversations';
-import { saveChatFeedback } from '$lib/server/db/feedback';
+import { attachLinearIssueToFeedback, saveChatFeedback } from '$lib/server/db/feedback';
 import { recentChatDiagnostics, recordChatDiagnostic } from '$lib/server/chat-diagnostics';
+import { createLinearFeedbackIssue } from '$lib/server/linear-feedback';
 
 const MAX_COMMENT_CHARS = 4000;
 
@@ -29,6 +30,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
 		messageCount: messages.length,
 		commentChars: comment.length
 	});
+	const diagnostics = recentChatDiagnostics(conversation.id);
 	const feedback = await saveChatFeedback({
 		accountId: locals.user.id,
 		conversationId: conversation.id,
@@ -50,16 +52,57 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
 				partial: message.partial,
 				createdAt: message.createdAt
 			})),
-			diagnostics: recentChatDiagnostics(conversation.id),
+			diagnostics,
 			capturedAt,
 			messageCount: messages.length
 		}
 	});
+	let linearIssue:
+		| {
+				id: string;
+				identifier: string;
+				url: string;
+		  }
+		| null = null;
+	let linearError: string | null = null;
+	try {
+		linearIssue = await createLinearFeedbackIssue({
+			feedbackId: feedback.id,
+			conversationId: conversation.id,
+			comment,
+			messageCount: messages.length,
+			diagnosticCount: diagnostics.length,
+			createdAt: feedback.createdAt
+		});
+		if (linearIssue) {
+			await attachLinearIssueToFeedback({
+				feedbackId: feedback.id,
+				linearIssueId: linearIssue.id,
+				linearIssueIdentifier: linearIssue.identifier,
+				linearIssueUrl: linearIssue.url
+			});
+			recordChatDiagnostic(conversation.id, 'feedback.linear.created', {
+				identifier: linearIssue.identifier,
+				url: linearIssue.url
+			});
+		} else {
+			recordChatDiagnostic(conversation.id, 'feedback.linear.skipped', {
+				reason: 'not_configured'
+			});
+		}
+	} catch (err) {
+		linearError = err instanceof Error ? err.message : String(err);
+		recordChatDiagnostic(conversation.id, 'feedback.linear.error', {
+			error: linearError
+		});
+	}
 
 	return json({
 		id: feedback.id,
 		conversationId: feedback.conversationId,
 		messageCount: messages.length,
+		linearIssue,
+		linearError,
 		createdAt: feedback.createdAt
 	});
 };

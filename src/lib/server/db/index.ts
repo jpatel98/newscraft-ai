@@ -102,10 +102,16 @@ async function ensureSchema(): Promise<void> {
 			conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
 			comment text NOT NULL,
 			snapshot_json text NOT NULL,
+			linear_issue_id text,
+			linear_issue_identifier text,
+			linear_issue_url text,
 			user_agent text,
 			created_at bigint NOT NULL
 		)
 	`;
+	await sql`ALTER TABLE chat_feedback ADD COLUMN IF NOT EXISTS linear_issue_id text`;
+	await sql`ALTER TABLE chat_feedback ADD COLUMN IF NOT EXISTS linear_issue_identifier text`;
+	await sql`ALTER TABLE chat_feedback ADD COLUMN IF NOT EXISTS linear_issue_url text`;
 	await sql`CREATE INDEX IF NOT EXISTS chat_feedback_account_created_idx ON chat_feedback (account_id, created_at)`;
 	await sql`CREATE INDEX IF NOT EXISTS chat_feedback_conversation_created_idx ON chat_feedback (conversation_id, created_at)`;
 

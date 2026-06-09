@@ -71,6 +71,9 @@ export const chatFeedback = pgTable(
 			.references(() => conversations.id, { onDelete: 'cascade' }),
 		comment: text('comment').notNull(),
 		snapshotJson: text('snapshot_json').notNull(),
+		linearIssueId: text('linear_issue_id'),
+		linearIssueIdentifier: text('linear_issue_identifier'),
+		linearIssueUrl: text('linear_issue_url'),
 		userAgent: text('user_agent'),
 		createdAt: timestampMs('created_at').notNull()
 	},
