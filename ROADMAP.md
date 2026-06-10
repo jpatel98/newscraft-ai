@@ -1,0 +1,502 @@
+# NewsCraft AI — Source of Truth & Roadmap
+
+Last updated: 2026-06-10
+
+This is the single canonical document for NewsCraft AI: what the product is,
+how it is built today, where it is going, and how to work on it. If any other
+file conflicts with this one, this file wins. There is intentionally only one
+doc — update it as the product changes instead of adding new ones.
+
+---
+
+## 1. What It Is
+
+NewsCraft AI is a **solo news-producer tool**. Not a team editorial system, not
+a publishing pipeline, not a multi-agent verification workflow. It is two
+things:
+
+1. **Story tracker** — give it a topic, region, or story. A research agent
+   gathers what it can find — web search, social, configured source URLs — and
+   you check back to see what's new.
+2. **Newsroom-smart chat** — a general chat agent with the same research tools.
+   Ask it things, get clean formatted answers: a short paragraph and links, not
+   a tool trace or system log.
+
+Everything from the old "newsroom of agents" design — gates, editor decision
+queues, verification/copy/packaging agents, delivery adapters, crawl plans,
+story workspaces, beat-monitor pitching, house memory, citation graph — has
+been **cut**. If a real multi-user newsroom product is ever needed, it gets
+rebuilt for that.
+
+---
+
+## 2. Current State (what actually ships)
+
+### UI (SvelteKit, `127.0.0.1:3001`)
+
+- `/` — Story Tracker landing (hero + composer). Starter prompts funnel
+  research into a chat thread. Title is "Stories · NewsCraft".
+- `/c/[id]` — chat thread. Sidebar lists recent threads (pinned / today /
+  yesterday / last 7 days / earlier), rename, search.
+- `/settings` — account + app settings.
+- `/login`, `/signup`, `/setup`, `/account-setup/[token]` — auth/setup pages.
+- `/logout` — auth sign-out endpoint.
+
+No tracked page routes exist beyond these. `ENABLE_MISSIONS` no longer exists
+in the code.
+
+### App API (SvelteKit)
+
+- Chat/conversations: `/api/chat/stream`, `/api/conversations`,
+  `/api/conversations/[id]`, `/api/conversations/[id]/assistant-note`,
+  `/api/conversations/[id]/export`, `/api/conversations/[id]/title`,
+  `/api/messages/[id]/clear-partial`, `/api/messages/[id]/onwards`,
+  `/api/search`.
+- Agent bridge / Story Tracker internals: `/api/agent/commands`,
+  `/api/agent/skills`, `/api/agent/skills/[slug]`, `/api/agent/jobs`,
+  `/api/agent/jobs/[id]`, `/api/agent/jobs/[id]/run`,
+  `/api/agent/jobs/[id]/pause`, `/api/agent/jobs/[id]/resume`,
+  `/api/agent/channel-posts`.
+- Health/settings/admin: `/api/health`, `/api/settings/status`,
+  `/api/settings/export`, `/api/settings/password`, `/api/settings/accounts`,
+  `/api/settings/accounts/[id]`, `/api/settings/accounts/[id]/setup-link`,
+  `/api/settings/wipe-db`.
+
+`missions`, `jobs`, `runs`, `reports`, and `board` survive as **internal**
+DB/helper names for compatibility and diagnostics; they are not surfaced in
+user-facing UI.
+
+### Harness (TypeScript HTTP/SSE service, `127.0.0.1:8650`)
+
+- Agent runtime: routing, tool budgets, source strategy, reports, scheduler,
+  health. Chat answers **stream end-to-end** (shipped 2026-06-10): the
+  `openai_web_search` tool streams its Responses API call when an answer-delta
+  sink is attached, the disciplined agent forwards deltas from the first
+  answer-producing tool, and the runtime sanitizes them incrementally
+  (re-running the batch cleaner over the growing prefix and emitting the diff)
+  before the gateway passes them through live.
+- Source fetch pipeline + adapters (RSS, Atom, HTML, Bluesky, sitemap, PDF).
+  These stay **backend-only** and are never named in the UI ("From BBC World
+  Service" or a link — never adapter names or fetch metadata).
+- SQLite persistence (`NEWSROOM_HARNESS_DB_PATH`), with Supabase/Postgres
+  mirroring only when `NEWSROOM_HARNESS_DATABASE_URL` is **explicitly** set.
+  The UI `DATABASE_URL` is never the harness mirror.
+- Process-local scheduler (off by default). No Redis/BullMQ.
+- Model-policy controls: `NEWSROOM_MODEL_POLICY_MODE` (`cost_saver` default),
+  with scheduled model calls and scheduled web search gated off by default
+  (`NEWSROOM_ALLOW_SCHEDULED_MODEL_CALLS`,
+  `NEWSROOM_ALLOW_SCHEDULED_WEB_SEARCH`).
+
+### Persistence
+
+- **App DB** — Supabase Postgres via Drizzle (server-only `DATABASE_URL`):
+  accounts, conversations, messages, settings, and the internal missions
+  tables.
+- **Harness DB** — SQLite: jobs (backing store for stories), runs, sources,
+  source snapshots, reports, events.
+
+### Architecture
+
+```
+Browser
+  └─ SvelteKit app (3001)
+       ├─ Supabase Postgres  (accounts, conversations, messages, settings)
+       └─ Newsroom harness (8650)   via AGENT_GATEWAY_URL
+            ├─ Disciplined research/chat agent (router → tools → evidence → answer)
+            └─ SQLite (jobs, runs, sources, reports, events)
+```
+
+The harness owns model execution, source fetching, and research. The app owns
+UI, auth, and persistence of user-facing data. They talk over
+`AGENT_GATEWAY_URL`.
+
+---
+
+## 3. Product Rules (non-negotiable)
+
+- **Dates are publication dates.** Story dates reported to the user must use
+  the article's `publishedAt`, never `fetchedAt`, run start, or accessed time.
+  If `publishedAt` is unavailable, mark it "date unknown" — never substitute a
+  retrieval time. Enforced at normalization in the harness.
+- **No technical leakage.** No tool traces, JSON, job/run IDs, file paths,
+  HTTP status, adapter names, or model internals in user-facing output. A
+  search shows a subtle "Searching…" indicator, not a tool log.
+- **Sources shown once.** Citations are inline markdown links. No source-tag
+  chips plus inline links for the same source.
+- **Cite or stay silent.** Current-events answers need source-backed evidence.
+  Prefer official/primary/configured monitors before broad web search; use
+  search as fallback/broad discovery. Flag conflicts, weak sourcing, paywalls,
+  blocked pages, CAPTCHA, and stale data instead of smoothing them over.
+- **Humans stay in control.** NewsCraft recommends, summarizes, compares,
+  drafts. It does not silently publish.
+- Keep route names, slash commands, buttons, and visible labels stable unless
+  the task is explicitly about changing them.
+
+---
+
+## 4. Where We Are (honest assessment)
+
+### What's solid
+
+- Clean two-process architecture; each side evolves independently.
+- Evidence discipline: provenance-tracked sources, publication-date
+  enforcement, tool budgets, model-policy gating, run events for diagnostics.
+- UI plumbing: SSE pipeline with tool-progress and source events, ToolActivity
+  strip, resumable partial messages, slash commands, diagnostics.
+- **True streaming (M1, shipped 2026-06-10).** Answer text reaches the user
+  while the run is still going; nothing buffers end-to-end.
+
+### What's holding the core experience back
+
+1. **The "multi-step process" isn't agentic.** `router.ts` is a regex keyword
+   router that picks a fixed tool list up front. The agent cannot replan
+   mid-run: it can't see a promising link in a feed and decide to fetch it,
+   refine a search query that returned junk, or split a broad question into
+   sub-questions. The only adaptive behavior is a single web-search fallback.
+2. **Two divergent brains.** Chat runs either the "disciplined" pipeline or a
+   separate OpenAI Agents SDK agent path (now only used for title prompts, but
+   still a second code path with its own tools and instructions).
+3. **The process is invisible.** The UI shows flat tool chips, but the user
+   never sees the *plan*: what the agent decided to do, which step it's on,
+   what each step found. For a news producer, the process *is* the product.
+4. **First-token latency.** With buffering gone, the remaining wait
+   (~20s+ on research prompts) is the web_search model call doing all its
+   searching before it writes. Planner-driven smaller steps (M2) should cut
+   perceived latency further.
+5. **No X / real-time ingestion yet.** Social coverage is Bluesky only; the
+   scheduler is off by default; there is no push channel for "something new
+   just landed on your beat."
+
+---
+
+## 5. Roadmap
+
+### Phase 1 — Nail chat + the multi-step agent (now)
+
+Goal: a producer asks a question and *watches* the agent work — visible plan,
+live steps, sources appearing, answer streaming token-by-token — and the same
+single agent brain handles every chat request.
+
+- **M1. True end-to-end streaming** — *shipped 2026-06-10.* Deltas stream from
+  the web-search model call through an incremental sanitizer
+  (`stream-sanitizer.ts`); the harness no longer buffers; mid-run failures
+  yield an honest interruption note; caveats are reconciled onto the tail.
+- **M2. One agentic loop** — model-driven planner + iterative tool loop
+  replaces the regex router and the parallel SDK path; budgets and evidence
+  discipline retained.
+- **M3. Visible plan UI** — step timeline with human labels, live sources per
+  step, honest failure states.
+- **M4. Eval + latency gates** — golden-prompt suite, streaming assertions in
+  acceptance, time-to-first-token and total-time budgets.
+
+### Phase 2 — Real-time wire (after Phase 1 ships and is used daily)
+
+- **Always-on monitoring.** Scheduler on for tracked stories; change detection
+  on competitor/source pages (snapshots + content hashes already exist).
+- **Social ingestion.** Bluesky first (adapter exists). X/Twitter via the paid
+  API behind an adapter interface — start with curated lists for cost control;
+  one adapter among several, not the foundation.
+- **The Wire view.** A live in-app feed: new items on tracked stories,
+  competitor coverage changes, social spikes — pushed over SSE, each item one
+  click from "research this" in chat.
+- **Alerting rules.** Per-story thresholds ("alert me if an official source
+  publishes", "if 3+ outlets pick this up").
+
+Phase 2 notes so decisions now don't block later:
+
+- **X API reality check.** Real-time filtered streams need the expensive paid
+  tiers (verify current pricing before committing). Plan A: Bluesky + RSS/
+  sitemap competitor monitors + scheduled checks. Plan B: X via curated lists
+  on the cheapest viable tier. Either way it's one more adapter behind
+  `tools/source-adapters/` — nothing in Phase 1 needs to know.
+- **Push channel.** One SSE endpoint fed by the harness scheduler via the
+  existing ingest path (`NEWSROOM_UI_INGEST_URL`); no Redis/WebSocket infra
+  until scale demands it.
+- **Cost control.** Scheduled model calls stay gated by
+  `NEWSROOM_ALLOW_SCHEDULED_MODEL_CALLS`; the Wire should mostly be fetch +
+  diff + heuristics, with model summarization only on user click or explicit
+  alert rules.
+
+### Phase 3 — Producer workflows
+
+- **Story dossiers.** Per-story timeline of evidence, what's-new diffs between
+  checks, coverage comparison across outlets.
+- **Drafting.** Broadcast script / web brief / social-post drafts generated
+  from the evidence in a dossier — always draft, never publish.
+- **Story clustering.** Dedupe the same story across outlets; surface "who had
+  it first" and angle differences.
+
+### Phase 4 — Only if daily-use demand exists
+
+Multi-user/teams, CMS publishing, source-credibility scoring, external API,
+email digests, Slack delivery, paywall handling, distributed scheduler,
+real-time push at scale, mobile app. These stay out of scope until the two
+surfaces are used daily.
+
+---
+
+## 6. PRD — Phase 1: Chat + Agent
+
+### Users & jobs
+
+Solo news producer (radio/TV/digital). Jobs to be done:
+
+1. "What's happening right now on X topic/region?" → sourced brief, fast.
+2. "Verify this claim / what are official sources saying?" →
+   primary-source-first research with honest caveats.
+3. "What are competitors reporting that I'm missing?" → coverage comparison.
+4. Follow-ups that keep context ("what did the police statement actually
+   say?").
+
+### Functional requirements
+
+**F1. Streaming answer** *(shipped — M1)*: first visible token as soon as the
+answer-producing model call starts writing; no buffer-then-burst; tool/plan
+progress visible within 1s of request start.
+
+**F2. Agentic multi-step research** *(M2)*:
+- A planner model turns the request (plus conversation context) into an
+  explicit plan: ordered steps, each bound to a registered tool with a
+  concrete input (query, URL, feed).
+- After each step, the agent observes evidence and decides: continue, add a
+  step (e.g., fetch a specific article found in a feed), refine a query, or
+  stop. Hard caps: existing `ToolBudgetLedger` budgets and `runTimeoutMs`.
+- All product rules hold (§3). No API key → graceful local fallback.
+
+**F3. One brain** *(M2)*: every chat request goes through the same agent loop;
+the separate SDK role-agent path is removed; anything it uniquely provided
+(URL fetch as a tool) becomes a registered tool in the one loop.
+
+**F4. Visible process** *(M3)*:
+- The UI renders the plan as a step timeline: pending → running → done/failed,
+  with human labels ("Checking official sources", "Reading CBC article") —
+  never tool names, IDs, or adapter names.
+- Sources appear under the step that found them, as they arrive.
+- Failures are shown honestly per step and the final answer states what
+  couldn't be verified.
+- The timeline collapses to a one-line summary once the answer starts
+  streaming; expandable afterward.
+
+**F5. Control**: stop button aborts cleanly (abort signal already plumbed);
+partial work is persisted and resumable (existing partial-message machinery).
+
+### Non-functional requirements
+
+- p50 ≤ 30s / p90 ≤ 60s for research answers; simple answers ≤ 8s.
+- Every current-events claim in the answer maps to gathered evidence.
+- No regression on the "no technical leakage" rule.
+
+### Success metrics
+
+- Time-to-first-token and time-to-complete (capturable via
+  `chat-diagnostics`).
+- % of answers with ≥1 cited source on current-events prompts.
+- Golden-prompt eval pass rate (M4).
+- The only metric that really matters: you use it every day.
+
+---
+
+## 7. Implementation Plan — Phase 1 (remaining)
+
+### M1 — True streaming ✅ (shipped 2026-06-10)
+
+As built (differs slightly from the original sketch — the visible chat answer
+comes from the model call *inside* `openai_web_search`, not a separate
+synthesis call):
+
+- `agents/stream-sanitizer.ts` — incremental sanitizer that re-runs the batch
+  `cleanVisibleChatOutput` over the growing raw prefix at safe boundaries and
+  emits the diff, plus tail reconciliation against the final answer.
+- `util/openai-stream.ts` — Responses API SSE reader.
+- `onAnswerDelta` hook through `ToolRunContext` → disciplined agent (first
+  answer-producing tool only) → `runtime.disciplinedStream()` → gateway
+  pass-through in `chat.ts`.
+- Tests in `tests/streaming-chat.test.ts`, including a liveness test proving
+  deltas arrive before the tool finishes.
+
+### M2 — One agentic loop
+
+1. **Planner.** New `agents/planner.ts`: one model call (policy task:
+   `interactive_chat`) producing a structured plan validated with zod — steps
+   of `{ tool, input, label }` constrained to the tool registry. Keep
+   `routeNewsroomRequest()` as the no-API-key/offline fallback and as a sanity
+   check (planner output requesting unregistered tools is rejected and falls
+   back).
+2. **Loop.** Rework `DisciplinedNewsroomAgent.run()`: instead of iterating a
+   fixed `tools_to_use` list, loop plan → act → observe; after each tool, a
+   lightweight decision (rule first: enough usable evidence → stop) may append
+   follow-up steps (e.g., `url_fetch_read` on an article discovered in a
+   feed). `ToolBudgetLedger` and the combined abort signal stay as hard rails.
+3. **New tools in the registry.** Move `url_fetch_read` (currently an SDK tool
+   in `runtime.ts`) into `default-tools.ts` so the loop can follow links.
+4. **Delete the fork.** Remove `shouldUseDisciplinedChat` / `sdkComplete` /
+   `sdkStream` / `createSdkAgent`; title generation becomes a direct cheap
+   model call, not a routing special case.
+5. **Events.** Emit `agent.plan` (steps with labels/status) alongside existing
+   tool/source progress; extend `packages/shared` SSE helpers.
+
+### M3 — Visible plan UI
+
+1. `src/lib/utils/stream-events.ts`: handle `agent.plan` updates; persist plan
+   + per-step sources into the existing `toolCalls` message metadata.
+2. `src/lib/components/ToolActivity.svelte` (or a new `PlanTimeline.svelte`):
+   step list with status, human labels from the plan (sanitized server-side),
+   sources nested under steps, collapse-on-answer behavior.
+3. Playwright: extend `tests/e2e` smoke to assert plan steps render and the
+   answer streams incrementally.
+
+### M4 — Eval + gates
+
+1. Golden prompts (repo-owned, e.g. `services/newsroom-harness/eval/`): ~15
+   prompts covering each job-to-be-done + known traps (ambiguous follow-up,
+   paywalled source, no-evidence topic, "today" recency).
+2. Extend `scripts/producer-acceptance.mjs`: assert time-to-first-token,
+   presence of plan events, citation presence, no leaked tool names/IDs.
+3. Run fixture-mode in CI; full mode manually before tagging milestones.
+
+### Sequencing & risk
+
+- M2 is the risky one: planner quality and loop termination. Mitigations: hard
+  budgets already exist; regex router stays as fallback; build golden prompts
+  early to compare old vs new answers side by side.
+- M3 depends on M2's events but can stub against fixture streams.
+
+---
+
+## 8. Local Development
+
+```sh
+corepack pnpm install          # install
+corepack pnpm dev:all          # start/reuse UI (3001) + harness (8650)
+corepack pnpm dev:stop         # stop stale local listeners
+corepack pnpm health:agent     # UI health
+corepack pnpm health:harness   # harness health
+corepack pnpm agent:ask -- "What are the top stories in Canada right now?"
+```
+
+`dev:all` is the repo-owned one-terminal workflow. If it breaks, fix that
+path — don't ask the user to juggle terminals, and don't embed the harness
+inside the SvelteKit server as a shortcut (the split-process flow is
+intentional).
+
+Env loading: the app reads root `.env.local`; the harness reads
+`services/newsroom-harness/.env.local`, then `.env`, then the root files as
+fallback. See `.env.example`. Keep secrets out of docs, commits, logs, and
+memory.
+
+If `/api/health` fails with `DATABASE_URL is required`, the UI is missing
+Supabase Postgres config. Use the Supabase session-pooler URI when IPv4 is
+required; SQLite-only assumptions for the main UI path are stale.
+
+---
+
+## 9. Validation
+
+Use the narrowest check that proves the change, then broaden at boundaries.
+
+```sh
+corepack pnpm check                  # svelte-check / types
+corepack pnpm test                   # unit (app + shared + harness)
+corepack pnpm test:harness           # harness + shared only
+corepack pnpm build                  # production build
+corepack pnpm smoke:producer:fixture # fixture-mode producer smoke
+corepack pnpm producer:acceptance    # full producer acceptance
+corepack pnpm test:e2e               # Playwright
+```
+
+Use browser-based acceptance (not just backend health) for anything visible:
+chat streaming, the story-tracker surface, report display, login/setup.
+
+Known-broken as of 2026-06-10 (pre-existing, not caused by recent work):
+
+- `smoke:producer:fixture` fails inserting a duplicate `fixture-cbc-politics`
+  row into `mission_sources` in the app DB (leftover rows from earlier runs).
+- `test:e2e`'s Playwright-managed web server does not load `DATABASE_URL`, so
+  it times out at startup.
+
+Inspect ports before changing dev scripts:
+
+```sh
+lsof -nP -iTCP:3001 -sTCP:LISTEN
+lsof -nP -iTCP:8650 -sTCP:LISTEN
+```
+
+---
+
+## 10. Working In This Repo
+
+- Start with `git status --short --branch`; this repo is often dirty.
+- Do not revert user changes. If an update needs discarding local WIP, make a
+  reversible safety step first and discard only after explicit approval.
+- Prefer compatibility-first changes behind the adapter/harness boundary over
+  sweeping UI rewrites.
+- When changing reports or prompts, prefer repo-owned Markdown/config/code so
+  behavior stays inspectable (e.g.
+  `services/newsroom-harness/prompts/newsroom-report.md`).
+- Keep technical metadata available for diagnostics but hidden from the
+  default user-facing experience.
+- Keep this document current: when a milestone ships or the architecture
+  changes, update the relevant sections here instead of creating new docs.
+
+### Known traps
+
+- Simple chat tasks that stall are usually harness/runtime orchestration, not
+  frontend rendering.
+- Current-news prompts need source/search behavior; never answer from static
+  memory.
+- Report-quality bugs span `runtime.runMission()` → `JobRunner` → report
+  wrapping/ingest.
+- Source pages may be blocked, boilerplate-heavy, or stale. Filter low-value
+  pages and fall back to configured search/source paths with clear caveats.
+
+---
+
+## 11. Environment Variables
+
+The authoritative list lives in `.env.example`. Key groups:
+
+- **App**: `APP_SESSION_SECRET`, `APP_PASSWORD_HASH`, `DATABASE_URL`,
+  `AGENT_GATEWAY_URL`, `AGENT_GATEWAY_API_KEY`.
+- **Harness**: `NEWSROOM_HARNESS_HOST/PORT`, `NEWSROOM_HARNESS_DB_PATH`,
+  `NEWSROOM_HARNESS_DATABASE_URL`, `NEWSROOM_HARNESS_API_KEY`, the
+  tool/search/timeout budgets, and `NEWSROOM_HARNESS_SCHEDULER_*`.
+- **AI / model policy**: `OPENAI_API_KEY`, `NEWSROOM_MODEL_POLICY_MODE`,
+  `NEWSROOM_ALLOW_SCHEDULED_MODEL_CALLS`, `NEWSROOM_ALLOW_SCHEDULED_WEB_SEARCH`,
+  `NEWSROOM_MODEL_*`, `NEWSROOM_WEB_SEARCH_MODEL`.
+- **Ingest**: `NEWSROOM_UI_INGEST_URL`, `NEWSROOM_UI_INGEST_KEY`.
+
+The `NEWSROOM_EMAIL_DIGEST_WEBHOOK_URL` and `NEWSROOM_SLACK_WEBHOOK_URL`
+placeholders still appear in `.env.example`, but point at **cut** delivery
+features. Treat them as inert until/unless delivery is deliberately rebuilt.
+
+---
+
+## 12. Repository Layout
+
+```
+newscraft-ai/
+  src/                         SvelteKit web app
+  services/newsroom-harness/   Agent harness service
+  packages/shared/             Shared DTOs and SSE helpers
+  drizzle/                     App DB migrations
+  scripts/                     Utility scripts
+  tests/e2e/                   Playwright smoke tests
+```
+
+### Key files
+
+- Chat / streaming: `src/routes/api/chat/stream/+server.ts`,
+  `src/lib/server/agent/transport.ts` (URL/auth/streaming/health),
+  `src/lib/server/agent/board.ts` (mission/job/run normalization),
+  `src/routes/c/[id]/+page.svelte`.
+- Auth: `src/hooks.server.ts`, `src/lib/server/auth/cookie.ts`,
+  `src/lib/server/db/accounts.ts`.
+- Harness: `services/newsroom-harness/src/agents/runtime.ts`,
+  `services/newsroom-harness/src/agents/newsroom-agent.ts`,
+  `services/newsroom-harness/src/agents/stream-sanitizer.ts`,
+  `services/newsroom-harness/src/util/openai-stream.ts`,
+  `services/newsroom-harness/src/jobs/runner.ts`,
+  `services/newsroom-harness/src/tools/sources.ts`,
+  `services/newsroom-harness/src/tools/article-extraction.ts`,
+  `services/newsroom-harness/src/db/repository.ts`,
+  `services/newsroom-harness/prompts/newsroom-report.md`.
