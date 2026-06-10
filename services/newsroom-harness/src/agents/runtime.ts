@@ -8,6 +8,8 @@ import { DisciplinedNewsroomAgent, type AgentToolEvent, type NewsroomAgentRunRes
 import type { EvidenceObject } from './evidence.js';
 import { createNewsroomAgentConfig, type NewsroomAgentConfig } from './harness-config.js';
 import { resolveModelPolicy, type ModelPolicyDecision, type ModelPolicyTask } from './model-policy.js';
+import { StreamingAnswerSanitizer, streamTailForFinalAnswer } from './stream-sanitizer.js';
+import type { ToolRegistry } from './tools.js';
 import { fetchSourceUrl, sourceFromText, type FetchedSource } from '../tools/sources.js';
 import { firstUrl, promptFromChatMessages, splitForStreaming } from '../util/text.js';
 import type { HarnessRepository } from '../db/repository.js';
@@ -18,6 +20,8 @@ export interface RuntimeControls {
 	retryLimit: number;
 	openAiApiKey: string;
 	agentConfig?: Partial<NewsroomAgentConfig>;
+	/** Tool registry override, mainly for tests. */
+	registry?: ToolRegistry;
 }
 
 export interface RuntimeContext {
@@ -98,8 +102,7 @@ export class NewsroomAgentRuntime {
 			return;
 		}
 		if (shouldUseDisciplinedChat(latestUserPrompt)) {
-			const text = await this.withTimeout(() => this.disciplinedComplete(taskPrompt, context), context.signal);
-			for (const chunk of splitForStreaming(text)) yield chunk;
+			yield* this.disciplinedStream(taskPrompt, context);
 			return;
 		}
 		yield* this.sdkStream(prompt, context);
@@ -113,6 +116,7 @@ export class NewsroomAgentRuntime {
 				...this.agentConfig,
 				default_tool_budget: this.defaultToolBudget()
 			},
+			registry: this.controls.registry,
 			repository: context.repository,
 			openAiApiKey: this.controls.openAiApiKey
 		});
@@ -167,12 +171,17 @@ export class NewsroomAgentRuntime {
 		return result.final_answer.trim() || this.localChat(prompt);
 	}
 
-	private async runDisciplinedAgent(prompt: string, context: RuntimeContext): Promise<NewsroomAgentRunResult> {
+	private async runDisciplinedAgent(
+		prompt: string,
+		context: RuntimeContext,
+		onAnswerDelta?: (delta: string) => void
+	): Promise<NewsroomAgentRunResult> {
 		const agent = new DisciplinedNewsroomAgent({
 			config: {
 				...this.agentConfig,
 				default_tool_budget: this.defaultToolBudget()
 			},
+			registry: this.controls.registry,
 			repository: context.repository,
 			openAiApiKey: this.controls.openAiApiKey
 		});
@@ -184,8 +193,79 @@ export class NewsroomAgentRuntime {
 			trigger: context.trigger,
 			signal: context.signal,
 			outputStyle: 'chat',
-			onToolEvent: (event) => this.forwardDisciplinedProgress(event, context)
+			onToolEvent: (event) => this.forwardDisciplinedProgress(event, context),
+			onAnswerDelta
 		});
+	}
+
+	/**
+	 * Streamed variant of disciplinedComplete: answer-text deltas from the
+	 * answer-producing tool are sanitized incrementally and yielded live, then
+	 * reconciled against the authoritative final answer (which carries notes
+	 * and caveats the live stream has not seen).
+	 */
+	private async *disciplinedStream(prompt: string, context: RuntimeContext): AsyncGenerator<string> {
+		this.triageEditorCommand(prompt, context);
+		const sanitizer = new StreamingAnswerSanitizer({ clean: (raw) => cleanVisibleChatOutput(raw, prompt) });
+		const pending: string[] = [];
+		let wake: (() => void) | null = null;
+		const notify = () => {
+			wake?.();
+			wake = null;
+		};
+		let settled: { result: NewsroomAgentRunResult } | { error: unknown } | null = null;
+		const runPromise = (async () => {
+			try {
+				const result = await this.withTimeout(
+					() =>
+						this.runDisciplinedAgent(prompt, context, (delta) => {
+							const addition = sanitizer.push(delta);
+							if (addition) {
+								pending.push(addition);
+								notify();
+							}
+						}),
+					context.signal
+				);
+				settled = { result };
+			} catch (error) {
+				settled = { error };
+			} finally {
+				notify();
+			}
+		})();
+
+		while (!settled || pending.length) {
+			if (pending.length) {
+				yield pending.shift() as string;
+				continue;
+			}
+			await new Promise<void>((resolve) => {
+				wake = resolve;
+			});
+		}
+		await runPromise;
+
+		const outcome = settled as { result: NewsroomAgentRunResult } | { error: unknown };
+		if ('error' in outcome) {
+			if (!sanitizer.emitted) throw outcome.error;
+			yield '\n\nThe research run was interrupted before it finished; treat the answer above as incomplete.';
+			return;
+		}
+		const finalAnswer = outcome.result.final_answer.trim() || this.localChat(prompt);
+		if (!sanitizer.emitted) {
+			for (const chunk of splitForStreaming(finalAnswer)) yield chunk;
+			return;
+		}
+		const tail = streamTailForFinalAnswer(sanitizer.emitted, finalAnswer);
+		if (tail === null) {
+			// The final answer does not extend the streamed text (interrupted tool
+			// stream or a whole-text rewrite). Emit it after a hard break rather
+			// than silently dropping caveats or replacement content.
+			for (const chunk of splitForStreaming(`\n\n${finalAnswer}`)) yield chunk;
+			return;
+		}
+		for (const chunk of splitForStreaming(tail)) yield chunk;
 	}
 
 	private forwardDisciplinedProgress(event: AgentToolEvent, context: RuntimeContext): void {

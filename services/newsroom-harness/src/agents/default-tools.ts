@@ -4,6 +4,7 @@ import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { evidenceOutputSchema, ToolRegistry, type NewsroomTool, type ToolRunContext, type ToolRunOutput } from './tools.js';
 import { resolveModelPolicy } from './model-policy.js';
 import { fetchSourceUrl, sourceFromText } from '../tools/sources.js';
+import { readOpenAiResponseStream } from '../util/openai-stream.js';
 import { extractUrls, firstUrl } from '../util/text.js';
 import { assessSourceQuality } from '../util/source-quality.js';
 
@@ -195,6 +196,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					estimated: false
 				}
 			});
+			const streamDeltas = Boolean(context.onAnswerDelta);
 			const response = await fetch('https://api.openai.com/v1/responses', {
 				method: 'POST',
 				headers: {
@@ -203,6 +205,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				},
 				body: JSON.stringify({
 					model: modelDecision.model,
+					stream: streamDeltas,
 					reasoning: { effort: 'low' },
 					tools: [{ type: 'web_search' }],
 					tool_choice: 'auto',
@@ -223,12 +226,26 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				}),
 				signal: context.signal
 			});
-			const raw = await response.json().catch(() => ({}));
+			let raw: { error?: { message?: string } } = {};
+			let streamFailure: string | null = null;
+			if (response.ok && streamDeltas && response.body && context.onAnswerDelta) {
+				const streamed = await readOpenAiResponseStream(response.body, context.onAnswerDelta).catch((err) => ({
+					response: null,
+					status: 'interrupted' as const,
+					error: err instanceof Error ? err.message : String(err)
+				}));
+				raw = (streamed.response as typeof raw) || {};
+				if (streamed.status === 'failed' || streamed.status === 'interrupted') {
+					streamFailure = streamed.error || `web search stream ${streamed.status}`;
+				}
+			} else {
+				raw = await response.json().catch(() => ({}));
+			}
 			context.repository?.appendEvent({
 				jobId: context.jobId,
 				runId: context.runId,
 				agent: NEWSROOM_TOOL_NAMES.webSearch,
-				kind: response.ok ? 'model.call.completed' : 'model.call.failed',
+				kind: response.ok && !streamFailure ? 'model.call.completed' : 'model.call.failed',
 				payload: {
 					task: modelDecision.task,
 					tier: modelDecision.tier,
@@ -253,6 +270,13 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				};
 			}
 			const outputText = extractOpenAiOutputText(raw);
+			if (streamFailure && !outputText.trim()) {
+				return {
+					status: 'error',
+					limitations: [`OpenAI web_search stream failed: ${streamFailure}`],
+					raw
+				};
+			}
 			const evidence = normalizeToolEvidence(
 				{ evidence: extractOpenAiWebSources(raw, outputText, input.query) },
 				NEWSROOM_TOOL_NAMES.webSearch,
@@ -265,13 +289,18 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				}
 			);
 			const answerText = outputText.trim();
-			if (evidence.length) return { status: 'ok', evidence, answer: outputText, raw: { output_text: outputText } };
+			const streamLimitations = streamFailure
+				? [`Web search stream ended early: ${streamFailure}. The answer may be incomplete.`]
+				: [];
+			if (evidence.length) {
+				return { status: 'ok', evidence, answer: outputText, limitations: streamLimitations, raw: { output_text: outputText } };
+			}
 			if (answerText) {
 				return {
 					status: 'ok',
 					evidence,
 					answer: `${answerText}\n\nLink extraction was incomplete for this web search result; verify before relying on it.`,
-					limitations: ['OpenAI web_search returned answer text but no cited sources could be extracted.'],
+					limitations: ['OpenAI web_search returned answer text but no cited sources could be extracted.', ...streamLimitations],
 					raw: { output_text: outputText }
 				};
 			}

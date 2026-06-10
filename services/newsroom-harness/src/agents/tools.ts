@@ -37,6 +37,8 @@ export interface ToolRunContext {
 	openAiApiKey?: string;
 	trigger?: 'manual' | 'schedule' | 'test';
 	signal?: AbortSignal;
+	/** Live answer-text deltas for streaming surfaces; tools may ignore it. */
+	onAnswerDelta?: (delta: string) => void;
 }
 
 export interface ToolRunOutput {

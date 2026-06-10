@@ -24,6 +24,8 @@ export interface NewsroomAgentRunContext {
 	signal?: AbortSignal;
 	outputStyle?: 'report' | 'chat';
 	onToolEvent?: (event: AgentToolEvent) => void;
+	/** Live answer-text deltas, forwarded from the first answer-producing tool. */
+	onAnswerDelta?: (delta: string) => void;
 }
 
 interface AgentToolCallRecord {
@@ -83,6 +85,13 @@ export class DisciplinedNewsroomAgent {
 		const toolAnswers: string[] = [];
 		const toolCalls: AgentToolCallRecord[] = [];
 		let stoppedReason = decision.stop_condition;
+		let answerStreamUsed = false;
+		const forwardAnswerDelta = context.onAnswerDelta
+			? (delta: string) => {
+					answerStreamUsed = true;
+					context.onAnswerDelta?.(delta);
+				}
+			: undefined;
 
 		if (decision.selected_mode === 'answer_from_memory' || decision.selected_mode === 'clarification_needed') {
 			const budget = ledger.snapshot();
@@ -133,7 +142,11 @@ export class DisciplinedNewsroomAgent {
 			context.onToolEvent?.({ type: 'tool_started', tool: tool.name, status: 'running' });
 			const output = await this.runTool(tool, prompt, decision, evidence, ledger.snapshot(), {
 				...context,
-				signal
+				signal,
+				// Only one tool may stream answer text: the final answer uses the
+				// first non-empty tool answer, so later answers never reach the user
+				// verbatim, and a second stream after a failed one would garble output.
+				onAnswerDelta: toolAnswers.length === 0 && !answerStreamUsed ? forwardAnswerDelta : undefined
 			});
 			const outputLimitations = output.limitations || [];
 			limitations.push(...outputLimitations);
@@ -206,7 +219,8 @@ export class DisciplinedNewsroomAgent {
 				jobId: context.jobId,
 				openAiApiKey: context.openAiApiKey || this.options.openAiApiKey,
 				trigger: context.trigger,
-				signal: context.signal
+				signal: context.signal,
+				onAnswerDelta: context.onAnswerDelta
 			};
 		try {
 			return await tool.run(inputForTool(tool.name, prompt, evidence), toolContext);

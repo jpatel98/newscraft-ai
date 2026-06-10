@@ -14,7 +14,7 @@ import type { NewsroomAgentRuntime, RuntimeProgressEvent } from './agents/runtim
 import { cleanVisibleChatOutput } from './agents/answer.js';
 import { newId } from './util/ids.js';
 import { noStoreSseHeaders } from './util/http.js';
-import { promptFromChatMessages, promptFromResponseInput, splitForStreaming } from './util/text.js';
+import { promptFromChatMessages, promptFromResponseInput } from './util/text.js';
 
 export async function writeChatCompletion(
 	res: ServerResponse,
@@ -27,7 +27,8 @@ export async function writeChatCompletion(
 	const prompt = promptFromChatMessages(body.messages || []);
 	if (body.stream) {
 		res.writeHead(200, noStoreSseHeaders());
-		let output = '';
+		// Deltas are passed through as they arrive; the runtime owns visible-output
+		// sanitization so the first token reaches the user without buffering.
 		for await (const delta of runtime.streamChat(body.messages || [], {
 			signal,
 			model,
@@ -35,11 +36,7 @@ export async function writeChatCompletion(
 			onProgress: (event) => writeProgress(res, event)
 		})) {
 			if (signal.aborted) break;
-			output += delta;
-		}
-		for (const delta of splitForStreaming(cleanVisibleChatOutput(output, prompt))) {
-			if (signal.aborted) break;
-			res.write(chatCompletionDeltaFrame(delta, { id, model }));
+			if (delta) res.write(chatCompletionDeltaFrame(delta, { id, model }));
 		}
 		res.write(SSE_DONE_FRAME);
 		res.end();
@@ -93,11 +90,8 @@ export async function writeResponses(
 			onProgress: (event) => writeProgress(res, event)
 		})) {
 			if (signal.aborted) break;
+			if (!delta) continue;
 			output += delta;
-		}
-		output = cleanVisibleChatOutput(output, prompt);
-		for (const delta of splitForStreaming(output)) {
-			if (signal.aborted) break;
 			res.write(sseFrame({ event: 'response.output_text.delta', data: { delta } }));
 		}
 		res.write(
