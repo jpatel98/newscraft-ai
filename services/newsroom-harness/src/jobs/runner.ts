@@ -109,6 +109,16 @@ export class JobRunner {
 	}
 
 	private recordProgress(runId: string, jobId: string, event: RuntimeProgressEvent): void {
+		if (event.type === 'plan') {
+			this.repository.appendEvent({
+				runId,
+				jobId,
+				agent: 'planner',
+				kind: 'plan.updated',
+				payload: { source: event.planSource, steps: event.steps }
+			});
+			return;
+		}
 		if (event.type === 'tool') {
 			if (event.status === 'running') {
 				this.repository.recordToolCall({

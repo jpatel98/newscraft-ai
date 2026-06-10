@@ -6,6 +6,7 @@ import type {
 import {
 	SSE_DONE_FRAME,
 	chatCompletionDeltaFrame,
+	agentPlanFrame,
 	agentToolProgressFrame,
 	sseFrame
 } from '@newscraft/shared';
@@ -133,6 +134,10 @@ export async function writeResponses(
 }
 
 function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {
+	if (event.type === 'plan') {
+		res.write(agentPlanFrame({ source: event.planSource, steps: event.steps }));
+		return;
+	}
 	if (event.type === 'tool') {
 		res.write(
 			agentToolProgressFrame({

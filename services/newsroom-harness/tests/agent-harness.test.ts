@@ -874,6 +874,7 @@ function emptyTool(name: string, category: ToolCategory): NewsroomTool {
 function defaultAgentConfig() {
 	return {
 		enabled_tools: [],
+		planner_enabled: false,
 		default_tool_budget: mergeToolBudget(),
 		source_priority: ['official', 'primary', 'source_monitor', 'internal', 'media_report', 'unknown'] as const,
 		routing_rules: {},

@@ -27,6 +27,7 @@ export const NEWSROOM_TOOL_NAMES = {
 	sourceFeedFetcher: 'source_feed_fetcher',
 	researchResultReader: 'saved_research_reader',
 	webSearch: 'openai_web_search',
+	urlFetchRead: 'url_fetch_read',
 	browserAutomation: 'browser_automation_provider',
 	pdfTextExtractor: 'pdf_text_extractor',
 	briefGenerator: 'newsroom_brief_generator'

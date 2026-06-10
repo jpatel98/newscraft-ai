@@ -1,13 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { z } from 'zod';
 import {
 	buildDisciplinedChatPrompt,
 	NewsroomAgentRuntime,
-	type RuntimeProgressEvent,
-	sourceToolResult,
-	sourceSnapshotToolParameters,
-	textDeltaFromSdkEvent,
-	urlFetchToolParameters
+	type RuntimeProgressEvent
 } from '../src/agents/runtime.js';
 import { openDatabase, type HarnessDb } from '../src/db/database.js';
 import { HarnessRepository } from '../src/db/repository.js';
@@ -22,82 +17,6 @@ afterEach(() => {
 });
 
 describe('newsroom agent runtime', () => {
-	it('keeps OpenAI Agents SDK URL tool schemas free of rejected URL formats', () => {
-		for (const parameters of [urlFetchToolParameters(), sourceSnapshotToolParameters()]) {
-			const schema = z.toJSONSchema(parameters);
-			const serialized = JSON.stringify(schema);
-
-			expect(serialized).not.toContain('"format":"uri"');
-			expect(serialized).not.toContain('"format":"url"');
-			expect(serialized).toContain('"url"');
-			expect(serialized).toContain('"type":"string"');
-		}
-	});
-
-	it('does not duplicate raw and normalized SDK text deltas from one stream event', () => {
-		expect(
-			textDeltaFromSdkEvent({
-				type: 'raw_model_stream_event',
-				data: {
-					type: 'output_text_delta',
-					delta: 'Producer brief ready.',
-					choices: [{ delta: { content: 'Producer brief ready.' } }]
-				}
-			})
-		).toBe('Producer brief ready.');
-	});
-
-	it('keeps extraction metadata and provenance in URL fetch tool results', () => {
-		const result = sourceToolResult({
-			url: 'https://example.test/story',
-			title: 'Story title',
-			fetchedAt: '2026-05-25T10:00:00.000Z',
-			snippet: 'Story snippet',
-			summary: 'Story summary',
-			contentText: 'Story body',
-			contentHash: 'hash',
-			contentType: 'text/html',
-			statusCode: 200,
-			used: true,
-			adapter: 'html_article',
-			metadata: {
-				title: 'Story title',
-				publishedAt: '2026-05-25T09:00:00.000Z',
-				structuredType: 'NewsArticle',
-				metadataSources: ['json_ld']
-			},
-			provenance: {
-				adapter: 'html_article',
-				sourceUrl: 'https://example.test/story',
-				discoveredAt: '2026-05-25T10:00:00.000Z',
-				fetchedAt: '2026-05-25T10:00:00.000Z',
-				contentType: 'text/html',
-				statusCode: 200,
-				contentHash: 'hash',
-				extractionMethod: 'json_ld_article_body',
-				metadataSources: ['json_ld'],
-				structuredType: 'NewsArticle',
-				canonicalUrl: 'https://example.test/story'
-			}
-		});
-
-		expect(result).toMatchObject({
-			url: 'https://example.test/story',
-			publishedAt: '2026-05-25T09:00:00.000Z',
-			metadata: {
-				publishedAt: '2026-05-25T09:00:00.000Z',
-				structuredType: 'NewsArticle',
-				metadataSources: ['json_ld']
-			},
-			provenance: {
-				adapter: 'html_article',
-				extractionMethod: 'json_ld_article_body',
-				metadataSources: ['json_ld'],
-				structuredType: 'NewsArticle'
-			}
-		});
-	});
-
 	it('builds a bounded follow-up prompt from recent conversation context', () => {
 		const prompt = buildDisciplinedChatPrompt([
 			{ role: 'system', content: 'System instructions should not become follow-up context.' },

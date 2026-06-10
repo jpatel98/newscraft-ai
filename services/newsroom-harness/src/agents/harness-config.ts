@@ -17,6 +17,8 @@ interface SourceMonitorConfig {
 
 export interface NewsroomAgentConfig {
 	enabled_tools: string[];
+	/** Model-driven step planning; the regex router remains the fallback. */
+	planner_enabled: boolean;
 	default_tool_budget: ToolBudget;
 	source_priority: Array<'official' | 'primary' | 'source_monitor' | 'internal' | 'media_report' | 'unknown'>;
 	routing_rules: Record<string, string>;
@@ -60,10 +62,12 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 				NEWSROOM_TOOL_NAMES.sourceFeedFetcher,
 				NEWSROOM_TOOL_NAMES.researchResultReader,
 				NEWSROOM_TOOL_NAMES.webSearch,
+				NEWSROOM_TOOL_NAMES.urlFetchRead,
 				NEWSROOM_TOOL_NAMES.browserAutomation,
 				NEWSROOM_TOOL_NAMES.pdfTextExtractor,
 				NEWSROOM_TOOL_NAMES.briefGenerator
 			],
+		planner_enabled: overrides.planner_enabled ?? true,
 		default_tool_budget: defaultBudget,
 		source_priority: overrides.source_priority || [
 			'official',
@@ -117,6 +121,7 @@ export function loadNewsroomAgentConfigFromEnv(overrides: Partial<NewsroomAgentC
 		...overrides,
 		default_tool_budget: envBudget,
 		enabled_tools: csv(process.env.NEWSROOM_AGENT_ENABLED_TOOLS) || overrides.enabled_tools,
+		planner_enabled: boolEnv(process.env.NEWSROOM_AGENT_PLANNER_ENABLED) ?? overrides.planner_enabled,
 		source_priority: csv(process.env.NEWSROOM_AGENT_SOURCE_PRIORITY) as NewsroomAgentConfig['source_priority'],
 		source_monitors: monitors || overrides.source_monitors,
 		model_policy: loadModelPolicyConfigFromEnv(overrides.model_policy as ModelPolicyOverrides | undefined),
@@ -125,6 +130,13 @@ export function loadNewsroomAgentConfigFromEnv(overrides: Partial<NewsroomAgentC
 			(overrides.model_policy as ModelPolicyOverrides | undefined)?.models?.web_search ||
 			overrides.web_search_model
 	});
+}
+
+function boolEnv(value: string | undefined): boolean | undefined {
+	if (value === undefined) return undefined;
+	if (/^(1|true|yes|on)$/i.test(value.trim())) return true;
+	if (/^(0|false|no|off)$/i.test(value.trim())) return false;
+	return undefined;
 }
 
 function intFromEnv(value: string | undefined): number | undefined {

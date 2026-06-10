@@ -4,6 +4,7 @@ import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { evidenceOutputSchema, ToolRegistry, type NewsroomTool, type ToolRunContext, type ToolRunOutput } from './tools.js';
 import { resolveModelPolicy } from './model-policy.js';
 import { fetchSourceUrl, sourceFromText } from '../tools/sources.js';
+import { extractOpenAiResponseText } from '../util/openai-complete.js';
 import { readOpenAiResponseStream } from '../util/openai-stream.js';
 import { extractUrls, firstUrl } from '../util/text.js';
 import { assessSourceQuality } from '../util/source-quality.js';
@@ -27,6 +28,7 @@ export function createDefaultToolRegistry(): ToolRegistry {
 		sourceFeedFetcherTool(),
 		savedResearchReaderTool(),
 		openAiWebSearchTool(),
+		urlFetchReadTool(),
 		browserAutomationProviderTool(),
 		pdfTextExtractorTool(),
 		newsroomBriefGeneratorTool()
@@ -269,7 +271,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					raw
 				};
 			}
-			const outputText = extractOpenAiOutputText(raw);
+			const outputText = extractOpenAiResponseText(raw);
 			if (streamFailure && !outputText.trim()) {
 				return {
 					status: 'error',
@@ -309,6 +311,28 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				limitations: ['OpenAI web_search returned no cited sources.'],
 				raw: { output_text: outputText }
 			};
+		}
+	};
+}
+
+function urlFetchReadTool(): NewsroomTool<{ url?: string | null }> {
+	return {
+		name: NEWSROOM_TOOL_NAMES.urlFetchRead,
+		description: 'Fetch a single HTTP/HTTPS page, extract readable article text, and preserve provenance.',
+		when_to_use: 'Use to read one specific page or article URL in depth (full text and publication date).',
+		category: 'custom',
+		input_schema: {
+			type: 'object',
+			properties: { url: { type: ['string', 'null'] } }
+		},
+		output_schema: evidenceOutputSchema,
+		async run(input, context) {
+			const url = input.url?.trim() || firstUrl(context.prompt);
+			if (!url || !/^https?:\/\//i.test(url)) {
+				return { status: 'unavailable', limitations: ['No fetchable HTTP or HTTPS URL was supplied.'] };
+			}
+			const evidence = await fetchEvidenceUrls([url], NEWSROOM_TOOL_NAMES.urlFetchRead, context);
+			return withStatusFromEvidence(evidence, 1);
 		}
 	};
 }
@@ -531,21 +555,6 @@ function selectMonitors(query: string, context: ToolRunContext) {
 			return terms.some((term) => normalized.includes(term));
 		})
 		.sort((left, right) => right.priority - left.priority);
-}
-
-function extractOpenAiOutputText(raw: unknown): string {
-	const response = raw as {
-		output_text?: string;
-		output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
-	};
-	if (typeof response.output_text === 'string') return response.output_text;
-	return (
-		response.output
-			?.flatMap((item) => item.content || [])
-			.map((content) => content.text || '')
-			.join('\n')
-			.trim() || ''
-	);
 }
 
 function openAiUsageMetadata(raw: unknown): Record<string, number> | null {

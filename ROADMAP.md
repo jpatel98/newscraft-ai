@@ -68,13 +68,24 @@ user-facing UI.
 
 ### Harness (TypeScript HTTP/SSE service, `127.0.0.1:8650`)
 
-- Agent runtime: routing, tool budgets, source strategy, reports, scheduler,
-  health. Chat answers **stream end-to-end** (shipped 2026-06-10): the
-  `openai_web_search` tool streams its Responses API call when an answer-delta
-  sink is attached, the disciplined agent forwards deltas from the first
-  answer-producing tool, and the runtime sanitizes them incrementally
-  (re-running the batch cleaner over the growing prefix and emitting the diff)
-  before the gateway passes them through live.
+- Agent runtime: one disciplined agent brain for chat and missions (the old
+  parallel OpenAI Agents SDK path is deleted; titles are a direct cheap model
+  call; the `@openai/agents` dependency is gone).
+- **Agentic loop (M2, shipped 2026-06-10).** A model planner
+  (`agents/planner.ts`, policy task `interactive_chat`, zod-validated JSON,
+  `NEWSROOM_AGENT_PLANNER_ENABLED` to disable) turns each request into explicit
+  steps `{tool, input, label}` constrained to the tool registry; the regex
+  router (`router.ts`) remains the offline/failure fallback and still supplies
+  budgets and answer mode. The loop executes a growable step queue and
+  observes after each step: failed source steps append a web-search fallback,
+  and report-style runs append `url_fetch_read` follow-ups (max 2) to recover
+  publication dates from undated search citations (chat skips these for
+  latency). `agent.plan` SSE snapshots stream every step-status change.
+- **True streaming (M1, shipped 2026-06-10):** the `openai_web_search` tool
+  streams its Responses API call when an answer-delta sink is attached, the
+  agent forwards deltas from the first answer-producing tool, and the runtime
+  sanitizes them incrementally (re-running the batch cleaner over the growing
+  prefix and emitting the diff) before the gateway passes them through live.
 - Source fetch pipeline + adapters (RSS, Atom, HTML, Bluesky, sitemap, PDF).
   These stay **backend-only** and are never named in the UI ("From BBC World
   Service" or a link — never adapter names or fetch metadata).
@@ -148,22 +159,15 @@ UI, auth, and persistence of user-facing data. They talk over
 
 ### What's holding the core experience back
 
-1. **The "multi-step process" isn't agentic.** `router.ts` is a regex keyword
-   router that picks a fixed tool list up front. The agent cannot replan
-   mid-run: it can't see a promising link in a feed and decide to fetch it,
-   refine a search query that returned junk, or split a broad question into
-   sub-questions. The only adaptive behavior is a single web-search fallback.
-2. **Two divergent brains.** Chat runs either the "disciplined" pipeline or a
-   separate OpenAI Agents SDK agent path (now only used for title prompts, but
-   still a second code path with its own tools and instructions).
-3. **The process is invisible.** The UI shows flat tool chips, but the user
-   never sees the *plan*: what the agent decided to do, which step it's on,
-   what each step found. For a news producer, the process *is* the product.
-4. **First-token latency.** With buffering gone, the remaining wait
-   (~20s+ on research prompts) is the web_search model call doing all its
-   searching before it writes. Planner-driven smaller steps (M2) should cut
-   perceived latency further.
-5. **No X / real-time ingestion yet.** Social coverage is Bluesky only; the
+1. **The plan isn't rendered yet (M3).** The harness now emits `agent.plan`
+   step snapshots and planner labels reach the existing tool chips via the
+   detail field, but the UI still shows flat chips rather than a step timeline
+   with per-step sources and failure states.
+2. **Latency (M4).** Research prompts can take 30–60s: configured-source
+   fetches can eat a 20s timeout before web search starts, and the web_search
+   model call searches before it writes. Needs measured budgets, tighter
+   fetch timeouts, and golden-prompt latency gates.
+3. **No X / real-time ingestion yet.** Social coverage is Bluesky only; the
    scheduler is off by default; there is no push channel for "something new
    just landed on your beat."
 
@@ -181,9 +185,10 @@ single agent brain handles every chat request.
   the web-search model call through an incremental sanitizer
   (`stream-sanitizer.ts`); the harness no longer buffers; mid-run failures
   yield an honest interruption note; caveats are reconciled onto the tail.
-- **M2. One agentic loop** — model-driven planner + iterative tool loop
-  replaces the regex router and the parallel SDK path; budgets and evidence
-  discipline retained.
+- **M2. One agentic loop** — *shipped 2026-06-10.* Model planner + plan→act→
+  observe loop with dynamic fallback/follow-up steps; regex router demoted to
+  fallback; SDK fork deleted; `agent.plan` events streaming. Budgets and
+  evidence discipline retained.
 - **M3. Visible plan UI** — step timeline with human labels, live sources per
   step, honest failure states.
 - **M4. Eval + latency gates** — golden-prompt suite, streaming assertions in
@@ -254,7 +259,7 @@ Solo news producer (radio/TV/digital). Jobs to be done:
 answer-producing model call starts writing; no buffer-then-burst; tool/plan
 progress visible within 1s of request start.
 
-**F2. Agentic multi-step research** *(M2)*:
+**F2. Agentic multi-step research** *(shipped — M2)*:
 - A planner model turns the request (plus conversation context) into an
   explicit plan: ordered steps, each bound to a registered tool with a
   concrete input (query, URL, feed).
@@ -263,9 +268,9 @@ progress visible within 1s of request start.
   stop. Hard caps: existing `ToolBudgetLedger` budgets and `runTimeoutMs`.
 - All product rules hold (§3). No API key → graceful local fallback.
 
-**F3. One brain** *(M2)*: every chat request goes through the same agent loop;
-the separate SDK role-agent path is removed; anything it uniquely provided
-(URL fetch as a tool) becomes a registered tool in the one loop.
+**F3. One brain** *(shipped — M2)*: every chat request goes through the same
+agent loop; the separate SDK role-agent path is removed; URL fetching is a
+registered tool in the one loop.
 
 **F4. Visible process** *(M3)*:
 - The UI renders the plan as a step timeline: pending → running → done/failed,
@@ -314,26 +319,28 @@ synthesis call):
 - Tests in `tests/streaming-chat.test.ts`, including a liveness test proving
   deltas arrive before the tool finishes.
 
-### M2 — One agentic loop
+### M2 — One agentic loop ✅ (shipped 2026-06-10)
 
-1. **Planner.** New `agents/planner.ts`: one model call (policy task:
-   `interactive_chat`) producing a structured plan validated with zod — steps
-   of `{ tool, input, label }` constrained to the tool registry. Keep
-   `routeNewsroomRequest()` as the no-API-key/offline fallback and as a sanity
-   check (planner output requesting unregistered tools is rejected and falls
-   back).
-2. **Loop.** Rework `DisciplinedNewsroomAgent.run()`: instead of iterating a
-   fixed `tools_to_use` list, loop plan → act → observe; after each tool, a
-   lightweight decision (rule first: enough usable evidence → stop) may append
-   follow-up steps (e.g., `url_fetch_read` on an article discovered in a
-   feed). `ToolBudgetLedger` and the combined abort signal stay as hard rails.
-3. **New tools in the registry.** Move `url_fetch_read` (currently an SDK tool
-   in `runtime.ts`) into `default-tools.ts` so the loop can follow links.
-4. **Delete the fork.** Remove `shouldUseDisciplinedChat` / `sdkComplete` /
-   `sdkStream` / `createSdkAgent`; title generation becomes a direct cheap
-   model call, not a routing special case.
-5. **Events.** Emit `agent.plan` (steps with labels/status) alongside existing
-   tool/source progress; extend `packages/shared` SSE helpers.
+As built:
+
+- `agents/planner.ts` — model call (policy task `interactive_chat`) returns a
+  zod-validated JSON plan of `{tool, input, label}` steps (max 4) constrained
+  to enabled registry tools; the regex router is the fallback for no-key,
+  policy-denied (e.g. scheduled runs), and invalid-plan cases.
+  `NEWSROOM_AGENT_PLANNER_ENABLED=false` turns it off. The browser stub is
+  excluded from the planner catalog.
+- `DisciplinedNewsroomAgent.run()` executes a growable step queue with
+  observe rules after each step: web-search fallback when a planned source
+  step fails with no usable evidence; report-only `url_fetch_read` follow-ups
+  (max 2) to recover publication dates from undated citations — chat skips
+  these for latency. `ToolBudgetLedger` + abort signal remain the hard rails.
+- `url_fetch_read` is a registry tool in `default-tools.ts`; the SDK fork
+  (`sdkComplete`/`sdkStream`/`createSdkAgent`) is deleted, titles and mission
+  synthesis are direct Responses API calls, the `@openai/agents` dependency
+  and dead `agents/research.ts` are removed.
+- `agent.plan` SSE frames (full step snapshot per status change) flow through
+  chat; mission runs persist them as `plan.updated` events. Planner labels
+  also reach today's tool chips via the progress detail field.
 
 ### M3 — Visible plan UI
 
@@ -356,10 +363,9 @@ synthesis call):
 
 ### Sequencing & risk
 
-- M2 is the risky one: planner quality and loop termination. Mitigations: hard
-  budgets already exist; regex router stays as fallback; build golden prompts
-  early to compare old vs new answers side by side.
-- M3 depends on M2's events but can stub against fixture streams.
+- M3 consumes M2's `agent.plan` events; it can stub against fixture streams.
+- M4 should also watch planner quality (a bad plan now shapes the whole run);
+  golden prompts compare router-fallback vs planner answers side by side.
 
 ---
 
@@ -459,7 +465,8 @@ The authoritative list lives in `.env.example`. Key groups:
   `AGENT_GATEWAY_URL`, `AGENT_GATEWAY_API_KEY`.
 - **Harness**: `NEWSROOM_HARNESS_HOST/PORT`, `NEWSROOM_HARNESS_DB_PATH`,
   `NEWSROOM_HARNESS_DATABASE_URL`, `NEWSROOM_HARNESS_API_KEY`, the
-  tool/search/timeout budgets, and `NEWSROOM_HARNESS_SCHEDULER_*`.
+  tool/search/timeout budgets, `NEWSROOM_AGENT_PLANNER_ENABLED`, and
+  `NEWSROOM_HARNESS_SCHEDULER_*`.
 - **AI / model policy**: `OPENAI_API_KEY`, `NEWSROOM_MODEL_POLICY_MODE`,
   `NEWSROOM_ALLOW_SCHEDULED_MODEL_CALLS`, `NEWSROOM_ALLOW_SCHEDULED_WEB_SEARCH`,
   `NEWSROOM_MODEL_*`, `NEWSROOM_WEB_SEARCH_MODEL`.
@@ -493,6 +500,7 @@ newscraft-ai/
   `src/lib/server/db/accounts.ts`.
 - Harness: `services/newsroom-harness/src/agents/runtime.ts`,
   `services/newsroom-harness/src/agents/newsroom-agent.ts`,
+  `services/newsroom-harness/src/agents/planner.ts`,
   `services/newsroom-harness/src/agents/stream-sanitizer.ts`,
   `services/newsroom-harness/src/util/openai-stream.ts`,
   `services/newsroom-harness/src/jobs/runner.ts`,

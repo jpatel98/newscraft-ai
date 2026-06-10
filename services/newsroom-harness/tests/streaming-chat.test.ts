@@ -285,7 +285,7 @@ describe('runtime streamed chat', () => {
 			runTimeoutMs: 10_000,
 			retryLimit: 0,
 			openAiApiKey: 'test-key',
-			agentConfig: { enabled_tools: ['openai_web_search'] },
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
 			registry
 		});
 
@@ -317,7 +317,7 @@ describe('runtime streamed chat', () => {
 			runTimeoutMs: 10_000,
 			retryLimit: 0,
 			openAiApiKey: 'test-key',
-			agentConfig: { enabled_tools: ['openai_web_search'] },
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
 			registry
 		});
 
