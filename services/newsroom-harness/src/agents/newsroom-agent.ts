@@ -49,6 +49,8 @@ interface AgentToolCallRecord {
 export interface AgentToolEvent {
 	type: 'tool_started' | 'tool_completed' | 'tool_skipped';
 	tool: string;
+	/** The plan step id this event originated from, if any. */
+	stepId?: string;
 	status?: string;
 	detail?: string;
 	evidence?: EvidenceObject[];
@@ -186,7 +188,7 @@ export class DisciplinedNewsroomAgent {
 				const reason = `Tool disabled by harness config: ${step.tool}`;
 				limitations.push(reason);
 				toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
-				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, detail: reason });
+				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: reason });
 				skipStep(step, 'Not available');
 				emitPlan();
 				continue;
@@ -196,7 +198,7 @@ export class DisciplinedNewsroomAgent {
 				const reason = `Tool is not registered: ${step.tool}`;
 				limitations.push(reason);
 				toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
-				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, detail: reason });
+				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: reason });
 				skipStep(step, 'Not available');
 				emitPlan();
 				continue;
@@ -215,7 +217,7 @@ export class DisciplinedNewsroomAgent {
 			ledger.consume(budgetKind);
 			step.status = 'running';
 			emitPlan();
-			context.onToolEvent?.({ type: 'tool_started', tool: tool.name, status: 'running', detail: step.label });
+			context.onToolEvent?.({ type: 'tool_started', tool: tool.name, stepId: step.id, status: 'running', detail: step.label });
 			const output = await this.runTool(tool, prompt, decision, evidence, ledger.snapshot(), {
 				...context,
 				signal,
@@ -240,6 +242,7 @@ export class DisciplinedNewsroomAgent {
 			context.onToolEvent?.({
 				type: 'tool_completed',
 				tool: tool.name,
+				stepId: step.id,
 				status: output.status,
 				detail: outputLimitations.join('; '),
 				evidence: output.evidence || []

@@ -255,10 +255,25 @@ export async function saveMissionConfig(
 
 			await tx.delete(missionSources).where(eq(missionSources.missionId, id));
 
+			const requestedIds = sources.map((s) => s.id.trim()).filter((id) => id.length > 0);
+			const existingIds = new Set<string>();
+			if (requestedIds.length > 0) {
+				const rows = await tx
+					.select({ id: missionSources.id })
+					.from(missionSources)
+					.where(inArray(missionSources.id, requestedIds));
+				for (const row of rows) {
+					existingIds.add(row.id);
+				}
+			}
+
 			const sourceIds = new Set<string>();
 			for (const [index, source] of sources.entries()) {
 				const requestedId = source.id.trim();
-				const sourceId = requestedId && !sourceIds.has(requestedId) ? requestedId : newId();
+				const sourceId =
+					requestedId && !sourceIds.has(requestedId) && !existingIds.has(requestedId)
+						? requestedId
+						: newId();
 				sourceIds.add(sourceId);
 				await tx.insert(missionSources)
 					.values({

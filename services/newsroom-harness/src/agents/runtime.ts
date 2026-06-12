@@ -43,7 +43,7 @@ export interface RuntimeContext {
 
 export type RuntimeProgressEvent =
 	| { type: 'tool'; id: string; name: string; status: string; detail?: string; result?: unknown }
-	| { type: 'source'; source: FetchedSource }
+	| { type: 'source'; source: FetchedSource; stepId?: string }
 	| { type: 'plan'; planSource: AgentPlanEvent['source']; steps: AgentPlanStepEvent[] };
 
 export interface MissionRuntimeResult {
@@ -114,12 +114,19 @@ export class NewsroomAgentRuntime {
 			signal: context.signal,
 			onPlanEvent: (event) => context.onProgress?.({ type: 'plan', planSource: event.source, steps: event.steps }),
 			onToolEvent: (event) => {
-				const id = `${context.runId || 'run'}_${event.tool}`;
+				// Include stepId in the tool-call id so each plan step that uses
+				// the same tool gets a distinct DB row (e.g. web-search fallback
+				// after a failed source-monitor step).
+				const id = event.stepId
+					? `${context.runId || 'run'}_${event.stepId}`
+					: `${context.runId || 'run'}_${event.tool}`;
 				if (event.type === 'tool_started') {
 					context.onProgress?.({ type: 'tool', id, name: event.tool, status: 'running', detail: event.detail });
 				}
 				if (event.type === 'tool_completed') {
-					for (const item of event.evidence || []) context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item) });
+					for (const item of event.evidence || []) {
+						context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item), stepId: event.stepId });
+					}
 					context.onProgress?.({
 						type: 'tool',
 						id,
@@ -286,7 +293,9 @@ export class NewsroomAgentRuntime {
 			return;
 		}
 		if (event.type === 'tool_completed') {
-			for (const item of event.evidence || []) context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item) });
+			for (const item of event.evidence || []) {
+				context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item), stepId: event.stepId });
+			}
 			context.onProgress?.({
 				type: 'tool',
 				id,

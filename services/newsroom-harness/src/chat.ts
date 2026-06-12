@@ -159,7 +159,8 @@ function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {
 				url: event.source.url,
 				title: event.source.title,
 				status: event.source.used ? 'used' : 'skipped',
-				detail: event.source.summary
+				detail: event.source.summary,
+				...(event.stepId ? { stepId: event.stepId } : {})
 			}
 		})
 	);

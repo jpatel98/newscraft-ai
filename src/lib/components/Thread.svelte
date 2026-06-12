@@ -5,6 +5,7 @@
 		import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 		import MessageText from './MessageText.svelte';
 		import ToolActivity from './ToolActivity.svelte';
+		import PlanTimeline from './PlanTimeline.svelte';
 		import { chat } from '$lib/stores/chat.svelte';
 		import { formatShortTime } from '$lib/utils/time';
 
@@ -235,6 +236,7 @@
 					</div>
 
 					{#if m.role === 'assistant' && m.id === lastAssistantId && chat.activityConversationId === conversationId}
+						<PlanTimeline activeTurn={true} />
 						<ToolActivity activeTurn={true} />
 					{/if}
 

@@ -61,6 +61,7 @@ function normalizeSource(value: unknown): PersistedSource | null {
 	const url = stringValue(o?.url);
 	if (!o || !url || !/^https?:\/\//i.test(url)) return null;
 	const now = Date.now();
+	const stepId = stringValue(o.stepId);
 	return {
 		id: stringValue(o.id) ?? url,
 		url,
@@ -70,7 +71,8 @@ function normalizeSource(value: unknown): PersistedSource | null {
 		detail: stringValue(o.detail),
 		firstSeenAt: numberValue(o.firstSeenAt) ?? numberValue(o.updatedAt) ?? now,
 		lastSeenAt: numberValue(o.lastSeenAt) ?? numberValue(o.updatedAt) ?? now,
-		used: o.used === true
+		used: o.used === true,
+		...(stepId ? { stepId } : {})
 	};
 }
 
@@ -128,13 +130,15 @@ export function mergeToolMetadata(
 	for (const source of existing.sources) sourcesByUrl.set(source.url, source);
 	for (const source of nextSources) {
 		const prev = sourcesByUrl.get(source.url);
+		const stepId = source.stepId ?? prev?.stepId;
 		sourcesByUrl.set(source.url, {
 			...prev,
 			...source,
 			id: prev?.id ?? source.id,
 			firstSeenAt: Math.min(prev?.firstSeenAt ?? source.firstSeenAt, source.firstSeenAt),
 			lastSeenAt: Math.max(prev?.lastSeenAt ?? source.lastSeenAt, source.lastSeenAt),
-			used: Boolean(prev?.used || source.used)
+			used: Boolean(prev?.used || source.used),
+			...(stepId ? { stepId } : {})
 		});
 	}
 

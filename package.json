@@ -22,6 +22,7 @@
 		"test:e2e": "playwright test",
 		"producer:acceptance": "node scripts/producer-acceptance.mjs",
 		"smoke:producer:fixture": "PRODUCER_ACCEPTANCE_SOURCE_MODE=fixture PRODUCER_ACCEPTANCE_REQUIRE_OPENAI=0 node scripts/producer-acceptance.mjs",
+		"eval:fixture": "NEWSROOM_EVAL_MODE=fixture node services/newsroom-harness/eval/run-eval.mjs",
 		"test:watch": "vitest",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",

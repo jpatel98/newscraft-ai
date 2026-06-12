@@ -2,6 +2,7 @@ import { readSSE } from '$lib/utils/sse-client';
 import {
 	StreamEventState,
 	type PersistedSource,
+	type StreamPlanUpdate,
 	type StreamToolUpdate
 } from '$lib/utils/stream-events';
 import type { ChatCommand, MessageContent } from '$lib/types';
@@ -32,6 +33,7 @@ export interface StreamCallbacks {
 	}) => void;
 	onToolDone?: (id: string, tool?: StreamToolUpdate) => void;
 	onSource?: (source: PersistedSource) => void;
+	onPlan?: (plan: StreamPlanUpdate) => void;
 	onTitle?: (title: string) => void;
 	signal?: AbortSignal;
 }
@@ -60,6 +62,7 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 			if (update.title) cb.onTitle?.(update.title);
 			if (update.delta) cb.onDelta(update.delta);
 			if (update.source) cb.onSource?.(update.source);
+			if (update.plan) cb.onPlan?.(update.plan);
 			if (update.tool) {
 				if (update.tool.done) cb.onToolDone?.(update.tool.id, update.tool);
 				else cb.onToolProgress?.(update.tool);

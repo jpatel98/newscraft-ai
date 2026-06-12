@@ -779,6 +779,60 @@ describe('disciplined newsroom agent harness', () => {
 		expect(result.final_answer.length).toBeGreaterThan(0);
 	});
 
+	it('includes stepId on tool_completed events when a plan step is executing', async () => {
+		const toolEvents: Array<{ type: string; stepId?: string; tool: string }> = [];
+		const registry = new ToolRegistry();
+		registry.register(stubTool('openai_web_search', 'web_search_provider', 'Test evidence'));
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['openai_web_search']
+			},
+			// Fixed planner so steps have predictable IDs
+			planner: async () => ({
+				source: 'model' as const,
+				reason: 'test',
+				steps: [{ tool: 'openai_web_search', input: '', label: 'Searching test coverage' }]
+			})
+		});
+
+		await agent.run('What is happening in Toronto?', {
+			openAiApiKey: 'fake-key',
+			onToolEvent: (event) => {
+				toolEvents.push({ type: event.type, stepId: event.stepId, tool: event.tool });
+			}
+		});
+
+		const completed = toolEvents.filter((e) => e.type === 'tool_completed');
+		expect(completed).toHaveLength(1);
+		expect(completed[0].stepId).toBe('step_1');
+		expect(completed[0].tool).toBe('openai_web_search');
+
+		const started = toolEvents.filter((e) => e.type === 'tool_started');
+		expect(started).toHaveLength(1);
+		expect(started[0].stepId).toBe('step_1');
+	});
+
+	it('stepId is absent on tool events when no planner step is active (answer_from_memory)', async () => {
+		const toolEvents: Array<{ type: string; stepId?: string }> = [];
+		const agent = new DisciplinedNewsroomAgent({
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: []
+			}
+		});
+
+		await agent.run('What is a nut graf?', {
+			onToolEvent: (event) => {
+				toolEvents.push({ type: event.type, stepId: event.stepId });
+			}
+		});
+
+		// answer_from_memory mode never runs a tool step, so no tool events with stepId
+		expect(toolEvents.filter((e) => e.stepId !== undefined)).toHaveLength(0);
+	});
+
 	it('keeps web-search answer text when source-link extraction is thin', async () => {
 		const fetchMock = vi.fn(
 			async () =>

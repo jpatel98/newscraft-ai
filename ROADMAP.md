@@ -1,6 +1,6 @@
 # NewsCraft AI — Source of Truth & Roadmap
 
-Last updated: 2026-06-10
+Last updated: 2026-06-12
 
 This is the single canonical document for NewsCraft AI: what the product is,
 how it is built today, where it is going, and how to work on it. If any other
@@ -56,7 +56,11 @@ in the code.
   `/api/agent/skills`, `/api/agent/skills/[slug]`, `/api/agent/jobs`,
   `/api/agent/jobs/[id]`, `/api/agent/jobs/[id]/run`,
   `/api/agent/jobs/[id]/pause`, `/api/agent/jobs/[id]/resume`,
-  `/api/agent/channel-posts`.
+  `/api/agent/channel-posts`, `/api/agent/board`, `/api/agent/reports/[id]`
+  (the last two are diagnostics reads over the internal board/report helpers).
+- Test-only (inert unless `E2E_SECRET` is set; 404 otherwise): `/api/e2e/seed`,
+  `/api/e2e/seed-conversation` — used by the Playwright suite to provision the
+  test account and pre-seed conversations.
 - Health/settings/admin: `/api/health`, `/api/settings/status`,
   `/api/settings/export`, `/api/settings/password`, `/api/settings/accounts`,
   `/api/settings/accounts/[id]`, `/api/settings/accounts/[id]/setup-link`,
@@ -156,18 +160,23 @@ UI, auth, and persistence of user-facing data. They talk over
   strip, resumable partial messages, slash commands, diagnostics.
 - **True streaming (M1, shipped 2026-06-10).** Answer text reaches the user
   while the run is still going; nothing buffers end-to-end.
+- **One agentic loop (M2, shipped 2026-06-10).** Model planner + plan→act→
+  observe loop; one agent brain for every chat request.
+- **Visible plan UI (M3, shipped 2026-06-11).** Live step timeline with human
+  labels, per-step sources, honest failure states, collapse-on-answer.
+- **Eval + gates (M4, shipped 2026-06-12, fixture-verified).** 15-prompt
+  golden suite, latency/citation/no-leak assertions in producer acceptance;
+  full-mode (real API) run still pending.
 
 ### What's holding the core experience back
 
-1. **The plan isn't rendered yet (M3).** The harness now emits `agent.plan`
-   step snapshots and planner labels reach the existing tool chips via the
-   detail field, but the UI still shows flat chips rather than a step timeline
-   with per-step sources and failure states.
-2. **Latency (M4).** Research prompts can take 30–60s: configured-source
-   fetches can eat a 20s timeout before web search starts, and the web_search
-   model call searches before it writes. Needs measured budgets, tighter
-   fetch timeouts, and golden-prompt latency gates.
-3. **No X / real-time ingestion yet.** Social coverage is Bluesky only; the
+1. **Latency.** Research prompts can take 30–60s: configured-source fetches
+   can eat a 20s timeout before web search starts, and the web_search model
+   call searches before it writes. The M4 gates (golden-prompt suite,
+   ttft/total-time assertions in producer acceptance) now exist to measure
+   this, but real-API latency hasn't been measured yet (full-mode eval run
+   still pending) and the fetch-timeout tightening itself hasn't been done.
+2. **No X / real-time ingestion yet.** Social coverage is Bluesky only; the
    scheduler is off by default; there is no push channel for "something new
    just landed on your beat."
 
@@ -189,10 +198,13 @@ single agent brain handles every chat request.
   observe loop with dynamic fallback/follow-up steps; regex router demoted to
   fallback; SDK fork deleted; `agent.plan` events streaming. Budgets and
   evidence discipline retained.
-- **M3. Visible plan UI** — step timeline with human labels, live sources per
-  step, honest failure states.
-- **M4. Eval + latency gates** — golden-prompt suite, streaming assertions in
-  acceptance, time-to-first-token and total-time budgets.
+- **M3. Visible plan UI** — *shipped 2026-06-11.* Step timeline with human
+  labels, pending/running/ok/failed/skipped states, collapse-on-answer,
+  re-expandable.
+- **M4. Eval + latency gates** — *shipped 2026-06-12.* Golden-prompt suite
+  (15 prompts, 4 job classes + 6 known traps), fixture runner for CI,
+  streaming/timing/plan/citation/no-leak assertions in producer acceptance,
+  `eval:fixture` package.json script.
 
 ### Phase 2 — Real-time wire (after Phase 1 ships and is used daily)
 
@@ -342,24 +354,83 @@ As built:
   chat; mission runs persist them as `plan.updated` events. Planner labels
   also reach today's tool chips via the progress detail field.
 
-### M3 — Visible plan UI
+### M3 — Visible plan UI ✅ (shipped 2026-06-11)
 
-1. `src/lib/utils/stream-events.ts`: handle `agent.plan` updates; persist plan
-   + per-step sources into the existing `toolCalls` message metadata.
-2. `src/lib/components/ToolActivity.svelte` (or a new `PlanTimeline.svelte`):
-   step list with status, human labels from the plan (sanitized server-side),
-   sources nested under steps, collapse-on-answer behavior.
-3. Playwright: extend `tests/e2e` smoke to assert plan steps render and the
-   answer streams incrementally.
+As built:
 
-### M4 — Eval + gates
+- `src/lib/utils/stream-events.ts`: new `PlanStep`, `StreamPlanUpdate` types
+  and `applyAgentPlan` method on `StreamEventState`; `agent.plan` frames are
+  parsed into `StreamEventUpdate.plan` snapshots. `StreamSourceUpdate` and
+  `PersistedSource` carry an optional `stepId` field parsed from the
+  `agent.source` SSE payload.
+- `src/lib/stores/chat.svelte.ts`: `ActivePlan` / `PlanStep` types, `plan`
+  reactive state, `setPlan()` method; plan is reset on each `startStream`.
+  `PlanStep` carries an optional `sources` array (title + url); `setPlan`
+  preserves per-step sources across snapshot updates; `pushSource` calls
+  `addSourceToStep` when a `stepId` is present so sources are attributed
+  live as they arrive.
+- `src/lib/client/stream.ts`: `onPlan` callback added to `StreamCallbacks`;
+  plan updates forwarded from the SSE loop.
+- `src/routes/c/[id]/+page.svelte`: `onPlan` wired to `chat.setPlan`.
+- `src/lib/components/PlanTimeline.svelte`: new component — step timeline with
+  pending/running/ok/failed/skipped states, spinner animation for running
+  steps, human labels (server-side sanitized, never tool names or IDs),
+  per-step failure detail on failed/skipped steps, per-step source links
+  rendered as they arrive under each step (title as link text, never adapter
+  or tool names), collapses to a one-line summary when the first answer token
+  arrives, expandable afterward, toggle button with `aria-expanded`.
+- `src/lib/components/Thread.svelte`: `PlanTimeline` rendered above
+  `ToolActivity` on the active last assistant message.
+- `src/lib/utils/tool-metadata.ts`: `normalizeSource` and `mergeToolMetadata`
+  preserve `stepId` so per-step source attribution survives in the persisted
+  `tool_calls` message column for future reload rendering.
+- `services/newsroom-harness/src/agents/newsroom-agent.ts`: `AgentToolEvent`
+  carries optional `stepId`; `tool_started`, `tool_completed`, and
+  `tool_skipped` events all include the id of the currently-executing plan step.
+- `services/newsroom-harness/src/agents/runtime.ts`: `RuntimeProgressEvent`
+  source variant carries optional `stepId`; forwarded from `AgentToolEvent`
+  when emitting per-evidence source progress events.
+- `services/newsroom-harness/src/chat.ts`: `agent.source` SSE frame includes
+  `stepId` when the source came from a plan step.
+- `tests/e2e/app.spec.ts`: `plan timeline UI` test suite with SSE fixture
+  interceptor; asserts plan steps render with human labels, no tool names leak,
+  timeline collapses on answer, and is re-expandable.
 
-1. Golden prompts (repo-owned, e.g. `services/newsroom-harness/eval/`): ~15
-   prompts covering each job-to-be-done + known traps (ambiguous follow-up,
-   paywalled source, no-evidence topic, "today" recency).
-2. Extend `scripts/producer-acceptance.mjs`: assert time-to-first-token,
-   presence of plan events, citation presence, no leaked tool names/IDs.
-3. Run fixture-mode in CI; full mode manually before tagging milestones.
+### M4 — Eval + gates ✅ (shipped 2026-06-12)
+
+As built:
+
+- `services/newsroom-harness/eval/golden-prompts.json` — 15 repo-owned prompts
+  covering all four jobs-to-be-done (current events, claim verification,
+  competitor coverage, context follow-up) plus 6 known-trap variants:
+  ambiguous follow-up, "today" recency phrasing, no-evidence/obscure topic,
+  paywalled source, claim with no available evidence, and obscure local council
+  story. Each entry declares: `class`, `latency_class` (`simple` / `research`),
+  and machine-checkable `checks` (requires_citation, requires_plan_events,
+  must_not_leak_tool_names/adapter_names/ids, requires_caveat_on_no_evidence,
+  must_request_clarification, must_flag_paywall_or_blocked).
+- `services/newsroom-harness/eval/run-eval.mjs` — runner with two modes:
+  fixture (no API key, deterministic canned answers, CI-safe) and full (real
+  harness, live latency, planner vs router side-by-side comparison when
+  `NEWSROOM_EVAL_COMPARE_PLANNER=1`). Checks: ttft/total budgets per
+  latency_class, plan events, citation presence, no internal term leakage.
+  Results written to `.tmp/eval/eval-{mode}-{ts}.json`.
+- `scripts/producer-acceptance.mjs` — extended with M4 assertions: captures
+  ttft/totalMs + planEvents + sources on every `streamChat` call; asserts
+  simple-answer timing (≤8s real / ≤20s fixture), research timing (ttft ≤8s /
+  total ≤60s real; ≤60s/120s fixture), plan event presence on research prompts,
+  citation presence when OpenAI is configured, and no internal tool/adapter
+  name leakage. Internal leak term list matches the eval runner.
+- `package.json` `eval:fixture` script runs the golden-prompt suite in fixture
+  mode (no API key, no running servers needed).
+- No CI config file exists in this repo; the `eval:fixture` script is ready to
+  add to one when CI is set up (e.g. `.github/workflows/ci.yml`: run
+  `corepack pnpm eval:fixture` after `corepack pnpm test`).
+- **Still pending (manual):** a full-mode eval run against the real API —
+  including the planner-vs-router side-by-side comparison
+  (`NEWSROOM_EVAL_COMPARE_PLANNER=1`) and real latency measurement. Fixture
+  mode (15/15) is verified; full mode has not been run yet. Run it before
+  treating the latency budgets as validated.
 
 ### Sequencing & risk
 
@@ -406,19 +477,44 @@ corepack pnpm test                   # unit (app + shared + harness)
 corepack pnpm test:harness           # harness + shared only
 corepack pnpm build                  # production build
 corepack pnpm smoke:producer:fixture # fixture-mode producer smoke
+corepack pnpm eval:fixture           # golden-prompt eval suite, fixture mode (CI-safe)
 corepack pnpm producer:acceptance    # full producer acceptance
 corepack pnpm test:e2e               # Playwright
 ```
 
+`eval:fixture` runs the 15-prompt golden suite in deterministic mode — no API
+key or running servers required. For full-mode eval (real API, latency
+measurement, planner comparison), start the harness and run:
+`NEWSROOM_EVAL_MODE=full node services/newsroom-harness/eval/run-eval.mjs`
+
 Use browser-based acceptance (not just backend health) for anything visible:
 chat streaming, the story-tracker surface, report display, login/setup.
 
-Known-broken as of 2026-06-10 (pre-existing, not caused by recent work):
+Known-broken as of 2026-06-10 — **fixed 2026-06-12:**
 
-- `smoke:producer:fixture` fails inserting a duplicate `fixture-cbc-politics`
-  row into `mission_sources` in the app DB (leftover rows from earlier runs).
-- `test:e2e`'s Playwright-managed web server does not load `DATABASE_URL`, so
-  it times out at startup.
+- `smoke:producer:fixture` was failing inserting a duplicate
+  `fixture-cbc-politics` row into `mission_sources`. Fixed in
+  `src/lib/server/db/missions.ts` `saveMissionConfig`: the transaction now
+  checks which of the requested source IDs already exist in the table (post-
+  delete) before deciding whether to use the requested id or generate a fresh
+  one — so re-running the smoke against a pre-seeded DB no longer fails with a
+  unique-constraint violation. `smoke:producer:fixture` passes cleanly.
+
+Fixed 2026-06-12:
+
+- `test:e2e` previously failed when `DATABASE_URL` pointed at a pre-seeded DB
+  because the suite assumed a fresh database. Fixed by: adding an
+  `/api/e2e/seed` endpoint (protected by `E2E_SECRET`) that idempotently
+  provisions the test account; adding `/api/e2e/seed-conversation` to pre-seed
+  conversations with messages for the plan-timeline test; and restructuring the
+  first test to handle both fresh and pre-seeded database paths.
+- `plan timeline UI` Playwright test was unable to observe mid-stream plan
+  steps due to `route.fulfill()` delivering the entire SSE body at once. Fixed
+  by: using `page.addInitScript()` to override `window.fetch` with a
+  browser-side `ReadableStream` that streams in two phases; and fixing a bug in
+  `PlanTimeline.svelte` where the collapse `$effect` tracked `expanded` as a
+  dependency, preventing the user from manually re-expanding after the answer
+  arrived (now uses `untrack()` so only `hasAssistantOutput` is a dependency).
 
 Inspect ports before changing dev scripts:
 

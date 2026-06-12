@@ -125,7 +125,8 @@
 							...source,
 							domain: source.domain || source.url,
 							updatedAt: Date.now()
-						})
+						}),
+					onPlan: (plan) => chat.setPlan(plan)
 				});
 				asstMsg.partial = false;
 				asstMsg.streaming = false;

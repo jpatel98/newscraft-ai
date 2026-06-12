@@ -4,6 +4,27 @@
 // Also holds the ephemeral tool-progress strip + the "edit-last" handoff used
 // by the ↑ keyboard shortcut to recall the previous user message.
 
+export type PlanStepStatus = 'pending' | 'running' | 'ok' | 'failed' | 'skipped';
+
+export interface PlanStepSource {
+	url: string;
+	title: string;
+}
+
+export interface PlanStep {
+	id: string;
+	label: string;
+	status: PlanStepStatus;
+	detail?: string;
+	/** Sources attributed to this step, in arrival order. */
+	sources?: PlanStepSource[];
+}
+
+export interface ActivePlan {
+	source: 'model' | 'router';
+	steps: PlanStep[];
+}
+
 interface ToolProgress {
 	id: string;
 	name: string;
@@ -48,6 +69,8 @@ interface SourceProgress {
 	firstSeenAt?: number;
 	lastSeenAt?: number;
 	used?: boolean;
+	/** The plan step id this source is attributed to, if any. */
+	stepId?: string;
 }
 
 class ChatSession {
@@ -66,6 +89,8 @@ class ChatSession {
 	streaming = $state(false);
 	editRequest = $state<string | null>(null); // populated by ↑; consumed by Composer
 	lastUserContent = $state<string | null>(null); // set by the active conversation page; read by ↑ handler
+	/** Current agent plan. Set when the first agent.plan frame arrives; updated on each step-status change. */
+	plan = $state<ActivePlan | null>(null);
 
 	startStream(conversationId?: string): AbortController {
 		// If a stream is already in flight, abort it so the next one can take
@@ -81,6 +106,7 @@ class ChatSession {
 		this.tools = [];
 		this.sources = [];
 		this.toolHistory = [];
+		this.plan = null;
 		this.streamStartedAt = Date.now();
 		this.toolUpdatedAt = null;
 		this.hasAssistantOutput = false;
@@ -109,6 +135,37 @@ class ChatSession {
 
 	noteAssistantOutput(piece: string) {
 		if (piece.trim()) this.hasAssistantOutput = true;
+	}
+
+	setPlan(plan: ActivePlan) {
+		// Preserve per-step sources accumulated so far when the plan snapshot arrives.
+		if (this.plan) {
+			const existingSources = new Map(this.plan.steps.map((s) => [s.id, s.sources ?? []]));
+			this.plan = {
+				...plan,
+				steps: plan.steps.map((s) => ({
+					...s,
+					sources: existingSources.get(s.id) ?? s.sources ?? []
+				}))
+			};
+		} else {
+			this.plan = plan;
+		}
+	}
+
+	/** Attach a source to a plan step by stepId. Called from pushSource when stepId is present. */
+	private addSourceToStep(stepId: string, source: PlanStepSource) {
+		if (!this.plan) return;
+		this.plan = {
+			...this.plan,
+			steps: this.plan.steps.map((s) => {
+				if (s.id !== stepId) return s;
+				const existing = s.sources ?? [];
+				// Deduplicate by URL.
+				if (existing.some((e) => e.url === source.url)) return s;
+				return { ...s, sources: [...existing, source] };
+			})
+		};
 	}
 
 	pushTool(t: ToolUpdate) {
@@ -202,6 +259,10 @@ class ChatSession {
 					used
 				}
 			].slice(-8);
+		}
+		// Attach source to its plan step if a stepId is present.
+		if (source.stepId) {
+			this.addSourceToStep(source.stepId, { url: source.url, title: source.title });
 		}
 	}
 

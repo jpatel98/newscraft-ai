@@ -24,6 +24,8 @@ export interface StreamSourceUpdate {
 	status: string;
 	domain?: string;
 	detail?: string;
+	/** The plan step id that produced this source, if any. Omitted for sources outside a step. */
+	stepId?: string;
 }
 
 export interface PersistedSource extends StreamSourceUpdate {
@@ -33,6 +35,20 @@ export interface PersistedSource extends StreamSourceUpdate {
 	used: boolean;
 }
 
+export type PlanStepStatus = 'pending' | 'running' | 'ok' | 'failed' | 'skipped';
+
+export interface PlanStep {
+	id: string;
+	label: string;
+	status: PlanStepStatus;
+	detail?: string;
+}
+
+export interface StreamPlanUpdate {
+	source: 'model' | 'router';
+	steps: PlanStep[];
+}
+
 export interface StreamEventUpdate {
 	delta?: string;
 	done?: boolean;
@@ -40,6 +56,7 @@ export interface StreamEventUpdate {
 	title?: string;
 	tool?: StreamToolUpdate;
 	source?: PersistedSource;
+	plan?: StreamPlanUpdate;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -149,6 +166,7 @@ function sourceFromPayload(payload: JsonObject): StreamSourceUpdate | null {
 		stringValue(source.title ?? source.name ?? source.label) ||
 		stringValue(payload.title ?? payload.name) ||
 		url;
+	const stepId = stringValue(payload.stepId ?? source.stepId) ?? undefined;
 	return {
 		id: stringValue(source.id ?? payload.id) || url,
 		url,
@@ -157,7 +175,8 @@ function sourceFromPayload(payload: JsonObject): StreamSourceUpdate | null {
 		domain: stringValue(source.domain ?? payload.domain) ?? domainOf(url),
 		detail:
 			stringValue(source.detail ?? source.summary ?? source.snippet ?? payload.detail ?? payload.message) ??
-			undefined
+			undefined,
+		...(stepId ? { stepId } : {})
 	};
 }
 
@@ -274,6 +293,8 @@ export class StreamEventState {
 			return updates;
 		}
 
+		if (event === 'agent.plan') return this.applyAgentPlan(payload);
+
 		if (event === 'agent.tool.progress') return this.applyAgentTool(payload, now);
 
 		if (event.startsWith('agent.source') || event.startsWith('agent.progress')) {
@@ -300,6 +321,25 @@ export class StreamEventState {
 		return Array.from(this.sources.values())
 			.map((source) => ({ ...source }))
 			.sort((a, b) => a.firstSeenAt - b.firstSeenAt);
+	}
+
+	private applyAgentPlan(payload: JsonObject): StreamEventUpdate[] {
+		const source = (stringValue(payload.source) as StreamPlanUpdate['source']) || 'router';
+		const rawSteps = arrayValue(payload.steps);
+		const steps: PlanStep[] = rawSteps.flatMap((raw) => {
+			const obj = objectValue(raw);
+			if (!obj) return [];
+			const id = stringValue(obj.id) || `step_${Math.random().toString(36).slice(2)}`;
+			const label = stringValue(obj.label) || 'Researching';
+			const rawStatus = stringValue(obj.status) || 'pending';
+			const status: PlanStepStatus = ['pending', 'running', 'ok', 'failed', 'skipped'].includes(rawStatus)
+				? (rawStatus as PlanStepStatus)
+				: 'pending';
+			const detail = stringValue(obj.detail) ?? undefined;
+			return [{ id, label, status, ...(detail ? { detail } : {}) }];
+		});
+		if (!steps.length) return [];
+		return [{ plan: { source, steps } }];
 	}
 
 	private applyAgentTool(payload: JsonObject, now: number): StreamEventUpdate[] {
@@ -528,7 +568,10 @@ export class StreamEventState {
 			domain: source.domain ?? existing?.domain ?? domainOf(source.url) ?? source.url,
 			firstSeenAt: existing?.firstSeenAt ?? now,
 			lastSeenAt: now,
-			used: Boolean(existing?.used || used)
+			used: Boolean(existing?.used || used),
+			// Prefer the stepId from the authoritative source event; keep existing if
+			// the new update doesn't carry one (e.g. a tool-progress side-effect upsert).
+			...(source.stepId ? { stepId: source.stepId } : existing?.stepId ? { stepId: existing.stepId } : {})
 		};
 		this.sources.set(source.url, next);
 		return next;

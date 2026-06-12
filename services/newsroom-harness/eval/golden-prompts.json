@@ -1,0 +1,231 @@
+[
+  {
+    "id": "current-events-canada",
+    "class": "current_events",
+    "description": "Job 1 — What's happening right now on a named topic",
+    "prompt": "What is happening right now with Canadian federal politics?",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false
+    }
+  },
+  {
+    "id": "current-events-today-phrasing",
+    "class": "current_events",
+    "description": "Job 1 — 'today' recency phrasing (known trap: agent must not fabricate a date)",
+    "prompt": "What are the top news stories today?",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false
+    }
+  },
+  {
+    "id": "current-events-regional",
+    "class": "current_events",
+    "description": "Job 1 — Regional current events with named location",
+    "prompt": "What's happening in Toronto this week?",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false
+    }
+  },
+  {
+    "id": "claim-verification-official-source",
+    "class": "claim_verification",
+    "description": "Job 2 — Claim verification preferring primary sources",
+    "prompt": "Verify what official sources are saying about the Bank of Canada interest rate decision.",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": true
+    }
+  },
+  {
+    "id": "claim-verification-no-evidence",
+    "class": "claim_verification",
+    "description": "Job 2 / trap — Obscure topic with no available evidence; must caveat honestly",
+    "prompt": "Verify the claim that the mayor of Wawa, Ontario announced a new transit plan last Tuesday.",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": false,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": true
+    }
+  },
+  {
+    "id": "competitor-coverage-comparison",
+    "class": "competitor_coverage",
+    "description": "Job 3 — Competitor coverage comparison across outlets",
+    "prompt": "What are other outlets reporting about the Ontario housing affordability crisis that we might be missing?",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false
+    }
+  },
+  {
+    "id": "competitor-coverage-named-outlet",
+    "class": "competitor_coverage",
+    "description": "Job 3 — Named competitor outlet comparison",
+    "prompt": "Compare how CBC and CTV are covering the federal election campaign this week.",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false
+    }
+  },
+  {
+    "id": "followup-with-context",
+    "class": "context_followup",
+    "description": "Job 4 — Context-dependent follow-up referencing prior answer",
+    "prompt": "What did the police statement actually say?",
+    "prior_context": "A shooting occurred near downtown Toronto. Police issued a brief statement confirming one victim was transported to hospital.",
+    "latency_class": "simple",
+    "checks": {
+      "requires_citation": false,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false
+    }
+  },
+  {
+    "id": "followup-ambiguous",
+    "class": "context_followup",
+    "description": "Job 4 / trap — Ambiguous follow-up with no prior context; agent must ask for clarification",
+    "prompt": "What did they say about it?",
+    "prior_context": null,
+    "latency_class": "simple",
+    "checks": {
+      "requires_citation": false,
+      "requires_plan_events": false,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false,
+      "must_request_clarification": true
+    }
+  },
+  {
+    "id": "paywalled-source",
+    "class": "paywalled_source",
+    "description": "Trap — Paywalled or blocked source; agent must flag honestly, not fabricate content",
+    "prompt": "Read the full Globe and Mail article about the federal budget and summarize the key points. https://www.theglobeandmail.com/fake-paywall-test",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": false,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": true,
+      "must_flag_paywall_or_blocked": true
+    }
+  },
+  {
+    "id": "simple-answer-from-memory",
+    "class": "simple_answer",
+    "description": "Simple factual question answerable without real-time research",
+    "prompt": "What is a nut graf in broadcast journalism?",
+    "latency_class": "simple",
+    "checks": {
+      "requires_citation": false,
+      "requires_plan_events": false,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false
+    }
+  },
+  {
+    "id": "newsroom-brief-generation",
+    "class": "simple_answer",
+    "description": "Producer brief generation from supplied notes",
+    "prompt": "Use the newsroom brief generator for these notes: Toronto city council approved the 2026 operating budget 20-5 after a six-hour debate. The mayor called it a 'tough but necessary' decision.",
+    "latency_class": "simple",
+    "checks": {
+      "requires_citation": false,
+      "requires_plan_events": false,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false
+    }
+  },
+  {
+    "id": "current-events-ongoing-story",
+    "class": "current_events",
+    "description": "Job 1 — Ongoing named story requiring sourced update",
+    "prompt": "What's the latest on the Ontario teachers' strike negotiations?",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false
+    }
+  },
+  {
+    "id": "claim-verification-primary-source-policy",
+    "class": "claim_verification",
+    "description": "Job 2 — Policy statement requiring primary source first (not just broad web)",
+    "prompt": "Verify what the RCMP officially said about the investigation into the border incident.",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": true
+    }
+  },
+  {
+    "id": "current-events-no-evidence-obscure",
+    "class": "current_events",
+    "description": "Trap — Very obscure/niche topic unlikely to have live web coverage; must caveat",
+    "prompt": "What happened at the Kapuskasing municipal council meeting last night?",
+    "latency_class": "research",
+    "checks": {
+      "requires_citation": false,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": true
+    }
+  }
+]

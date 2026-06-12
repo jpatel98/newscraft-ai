@@ -5,7 +5,9 @@ import { ensureMigrated } from '$lib/server/db';
 import { accountCount, getAccount } from '$lib/server/db/accounts';
 
 const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
-const PUBLIC_PREFIXES = ['/api/health', '/api/agent/channel-posts', '/account-setup'];
+// /api/e2e is only active when E2E_SECRET is set (dev/test only); it self-
+// authenticates via the secret so it must be reachable without a session.
+const PUBLIC_PREFIXES = ['/api/health', '/api/agent/channel-posts', '/account-setup', '/api/e2e'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	await ensureMigrated();
