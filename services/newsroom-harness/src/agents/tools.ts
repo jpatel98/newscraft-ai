@@ -3,6 +3,7 @@ import type { NewsroomAgentConfig } from './harness-config.js';
 import type { EvidenceObject } from './evidence.js';
 import type { RouteDecision } from './router.js';
 import type { ToolBudgetSnapshot } from './budget.js';
+import type { ModelProvider } from '../util/openai-complete.js';
 
 export type ToolCategory =
 	| 'source_feed_fetcher'
@@ -34,6 +35,8 @@ export interface ToolRunContext {
 	repository?: HarnessRepository;
 	runId?: string;
 	jobId?: string;
+	modelProvider?: ModelProvider;
+	modelApiKey?: string;
 	openAiApiKey?: string;
 	trigger?: 'manual' | 'schedule' | 'test';
 	signal?: AbortSignal;

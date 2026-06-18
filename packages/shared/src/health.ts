@@ -13,6 +13,10 @@ export interface GatewayHealthResponse {
 	openai: {
 		configured: boolean;
 	};
+	modelProvider?: {
+		name: 'openai' | 'perplexity';
+		configured: boolean;
+	};
 	scheduler?: {
 		enabled?: boolean;
 		running: boolean;

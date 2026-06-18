@@ -34,6 +34,7 @@ export async function writeChatCompletion(
 			signal,
 			model,
 			reasoningEffort: body.reasoning_effort,
+			plannerEnabled: body.planner_enabled,
 			onProgress: (event) => writeProgress(res, event)
 		})) {
 			if (signal.aborted) break;
@@ -48,7 +49,8 @@ export async function writeChatCompletion(
 		await runtime.completeChat(body.messages || [], {
 			signal,
 			model,
-			reasoningEffort: body.reasoning_effort
+			reasoningEffort: body.reasoning_effort,
+			plannerEnabled: body.planner_enabled
 		}),
 		prompt
 	);

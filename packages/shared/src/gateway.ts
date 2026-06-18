@@ -17,6 +17,8 @@ export interface GatewayChatCompletionRequest {
 	temperature?: number;
 	max_tokens?: number;
 	reasoning_effort?: ReasoningEffort;
+	/** Diagnostics/eval override: false forces the regex-router fallback for this request. */
+	planner_enabled?: boolean;
 }
 
 export interface GatewayChatCompletionChunk {

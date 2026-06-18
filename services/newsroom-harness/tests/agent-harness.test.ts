@@ -52,6 +52,7 @@ describe('disciplined newsroom agent harness', () => {
 			['What happened at city hall this week?', 'web_search'],
 			['What are other outlets reporting about this story?', 'web_search'],
 			['Search the web for broader coverage of Ontario housing policy', 'web_search'],
+			['What did they say about it?', 'clarification_needed'],
 			['Open this dynamic page and click the latest release', 'browser_automation'],
 			[
 				'Verify this police release against official sources and what other outlets are reporting: https://example.com/story',
@@ -419,9 +420,88 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat'
 		});
 
-		expect(answer).toBe(
-			"Canada beat Uzbekistan 2-0 in a men's international friendly in Edmonton on June 1, 2026."
+		expect(answer).toContain("Canada beat Uzbekistan 2-0 in a men's international friendly in Edmonton on June 1, 2026.");
+		expect(answer).toContain('I could not find reliable sources confirming this in the gathered material.');
+	});
+
+	it('adds an explicit caveat when a tool answer has no usable source evidence', () => {
+		const decision = routeNewsroomRequest('Verify the claim that the mayor of Wawa announced a new transit plan last Tuesday.');
+		const answer = generateFinalAnswer({
+			prompt: 'Verify the claim that the mayor of Wawa announced a new transit plan last Tuesday.',
+			decision,
+			evidence: [],
+			limitations: ['Provider returned answer text but no cited sources could be extracted.'],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			toolAnswers: ['The mayor announced a new transit plan last Tuesday.'],
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('The mayor announced a new transit plan last Tuesday.');
+		expect(answer).toContain('I could not find reliable sources confirming this in the gathered material.');
+		expect(answer).not.toContain('Provider returned');
+		expect(answer).not.toContain('tool');
+	});
+
+	it('flags blocked or paywalled sources without exposing technical details', () => {
+		const decision = routeNewsroomRequest(
+			'Read the full Globe and Mail article and summarize it. https://www.theglobeandmail.com/fake-paywall-test'
 		);
+		const answer = generateFinalAnswer({
+			prompt: 'Read the full Globe and Mail article and summarize it. https://www.theglobeandmail.com/fake-paywall-test',
+			decision,
+			evidence: [
+				normalizeEvidence({
+					source_name: 'The Globe and Mail',
+					source_url: 'https://www.theglobeandmail.com/fake-paywall-test',
+					accessed_at: '2026-06-12T12:00:00.000Z',
+					tool_used: 'url_fetch_read',
+					title: 'Subscribe to continue',
+					published_at: null,
+					extracted_text: '',
+					summary: '',
+					confidence: 0,
+					limitations: ['Source is paywalled and could not be read during this run.'],
+					source_kind: 'media_report'
+				})
+			],
+			limitations: ['Source returned HTTP 403'],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('blocked, paywalled, unavailable, or could not be read');
+		expect(answer).not.toContain('HTTP 403');
+		expect(answer).not.toContain('url_fetch_read');
+	});
+
+	it('caveats claim verification when gathered evidence lacks a primary or official source', () => {
+		const decision = routeNewsroomRequest('Verify what official sources are saying about the Bank of Canada decision.');
+		const answer = generateFinalAnswer({
+			prompt: 'Verify what official sources are saying about the Bank of Canada decision.',
+			decision,
+			evidence: [
+				normalizeEvidence({
+					source_name: 'Local News Outlet',
+					source_url: 'https://example.com/bank-of-canada-report',
+					accessed_at: '2026-06-12T12:00:00.000Z',
+					tool_used: 'openai_web_search',
+					title: 'Outlet reports Bank of Canada decision',
+					published_at: '2026-06-12T11:00:00.000Z',
+					extracted_text: 'The outlet reported a Bank of Canada decision and quoted economists.',
+					summary: 'The outlet reported a Bank of Canada decision and quoted economists.',
+					confidence: 0.6,
+					limitations: ['Provider web_search result; cite and verify source page before publication.'],
+					source_kind: 'media_report'
+				})
+			],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			toolAnswers: ['A media report says the Bank of Canada made an interest-rate decision.'],
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('A media report says the Bank of Canada made an interest-rate decision.');
+		expect(answer).toContain('I could not confirm this from a readable official or primary source');
 	});
 
 	it('keeps multi-story chat answers organized instead of flattening and cutting them off', () => {

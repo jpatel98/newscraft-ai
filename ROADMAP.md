@@ -170,13 +170,23 @@ UI, auth, and persistence of user-facing data. They talk over
 
 ### What's holding the core experience back
 
-1. **Latency.** Research prompts can take 30–60s: configured-source fetches
-   can eat a 20s timeout before web search starts, and the web_search model
-   call searches before it writes. The M4 gates (golden-prompt suite,
-   ttft/total-time assertions in producer acceptance) now exist to measure
-   this, but real-API latency hasn't been measured yet (full-mode eval run
-   still pending) and the fetch-timeout tightening itself hasn't been done.
-2. **No X / real-time ingestion yet.** Social coverage is Bluesky only; the
+1. **Latency.** Measured for real on 2026-06-12 (first full-mode eval run):
+   p50 = 30.9s, p90 = 51.7s total; worst ttft 51s. The fetch side is now
+   fixed — configured-source fetches run concurrently (host-grouped so
+   polite-fetch per-host rate limits hold) with a per-fetch timeout cut from
+   20s to a configurable 8s (`NEWSROOM_SOURCE_FETCH_TIMEOUT_MS`). The
+   remaining cost is the `openai_web_search` model call itself, which
+   searches before it writes; the worst eval ttfts were web-search-bound,
+   not fetch-bound.
+2. **Eval behavioral failures (full-mode run, 2026-06-12).** 6/15 golden
+   prompts passed. Beyond latency budgets, the live agent: omits caveats on
+   no-evidence/weak-evidence answers (5 prompts), doesn't flag a paywalled
+   source it couldn't read, answers an ambiguous follow-up instead of asking
+   for clarification, and the planner over-plans simple brief generation
+   (10s vs the router's 3ms local path). Planner vs router is mixed: planner
+   wins big on context follow-ups (1.9s vs 22.9s) but loses on several
+   research prompts.
+3. **No X / real-time ingestion yet.** Social coverage is Bluesky only; the
    scheduler is off by default; there is no push channel for "something new
    just landed on your beat."
 
@@ -423,14 +433,20 @@ As built:
   name leakage. Internal leak term list matches the eval runner.
 - `package.json` `eval:fixture` script runs the golden-prompt suite in fixture
   mode (no API key, no running servers needed).
-- No CI config file exists in this repo; the `eval:fixture` script is ready to
-  add to one when CI is set up (e.g. `.github/workflows/ci.yml`: run
-  `corepack pnpm eval:fixture` after `corepack pnpm test`).
-- **Still pending (manual):** a full-mode eval run against the real API —
-  including the planner-vs-router side-by-side comparison
-  (`NEWSROOM_EVAL_COMPARE_PLANNER=1`) and real latency measurement. Fixture
-  mode (15/15) is verified; full mode has not been run yet. Run it before
-  treating the latency budgets as validated.
+- CI exists as of 2026-06-12: `.github/workflows/ci.yml` runs
+  install → check → test → eval:fixture on pushes to main and PRs. Verified
+  locally to pass with no secrets and no `.env.local` files present.
+- **Full-mode eval run (2026-06-12, with planner comparison):** 6/15 passed.
+  Latency p50 = 30.9s / p90 = 51.7s (budget: p50 ≤ 30s research, ≤ 8s
+  simple). Failures: 5 prompts over latency budget, 5 missing
+  caveat-on-no-evidence, paywall trap not flagged, ambiguous follow-up not
+  met with a clarification request, brief generation over-planned by the
+  planner (10s vs router 3ms). Fixing the full-mode runner itself was part
+  of this run: it had never been executed and was written against a
+  nonexistent API (wrong auth header, wrong route, ignored planner flag) —
+  it now uses `POST /v1/chat/completions` with Bearer auth, and the harness
+  accepts a per-request `planner_enabled` override (gateway DTO →
+  `RuntimeContext` → agent config) so the side-by-side comparison is real.
 
 ### Sequencing & risk
 
@@ -561,8 +577,9 @@ The authoritative list lives in `.env.example`. Key groups:
   `AGENT_GATEWAY_URL`, `AGENT_GATEWAY_API_KEY`.
 - **Harness**: `NEWSROOM_HARNESS_HOST/PORT`, `NEWSROOM_HARNESS_DB_PATH`,
   `NEWSROOM_HARNESS_DATABASE_URL`, `NEWSROOM_HARNESS_API_KEY`, the
-  tool/search/timeout budgets, `NEWSROOM_AGENT_PLANNER_ENABLED`, and
-  `NEWSROOM_HARNESS_SCHEDULER_*`.
+  tool/search/timeout budgets, `NEWSROOM_SOURCE_FETCH_TIMEOUT_MS` (per-URL
+  configured-source fetch timeout, default 8000), `NEWSROOM_AGENT_PLANNER_ENABLED`,
+  and `NEWSROOM_HARNESS_SCHEDULER_*`.
 - **AI / model policy**: `OPENAI_API_KEY`, `NEWSROOM_MODEL_POLICY_MODE`,
   `NEWSROOM_ALLOW_SCHEDULED_MODEL_CALLS`, `NEWSROOM_ALLOW_SCHEDULED_WEB_SEARCH`,
   `NEWSROOM_MODEL_*`, `NEWSROOM_WEB_SEARCH_MODEL`.

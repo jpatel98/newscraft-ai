@@ -154,14 +154,14 @@ async function fullRunAgainstHarness(prompt, priorContext, plannerEnabled) {
   const headers = {
     'content-type': 'application/json',
     accept: 'text/event-stream',
-    ...(harnessApiKey ? { 'x-api-key': harnessApiKey } : {})
+    ...(harnessApiKey ? { authorization: `Bearer ${harnessApiKey}` } : {})
   };
 
-  const body = JSON.stringify({ messages, plannerEnabled });
+  const body = JSON.stringify({ messages, stream: true, planner_enabled: plannerEnabled });
   const startMs = Date.now();
   let ttftMs = null;
 
-  const response = await fetch(`${harnessUrl}/chat/stream`, {
+  const response = await fetch(`${harnessUrl}/v1/chat/completions`, {
     method: 'POST',
     headers,
     body,
@@ -169,7 +169,7 @@ async function fullRunAgainstHarness(prompt, priorContext, plannerEnabled) {
   });
 
   if (!response.ok || !response.body) {
-    throw new Error(`harness /chat/stream responded ${response.status}: ${await response.text()}`);
+    throw new Error(`harness /v1/chat/completions responded ${response.status}: ${await response.text()}`);
   }
 
   const answerChunks = [];

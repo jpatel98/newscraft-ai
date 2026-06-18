@@ -11,11 +11,15 @@ Preserve requested rundown, wire, slug, separator, pronunciation, duration, JSON
 ## Source Rules
 
 - Use only readable source material as evidence.
+- If no readable, reliable source confirms a current-events or claim-verification request, say so plainly. Do not answer confidently from general knowledge or uncited inference.
+- If the only evidence is weak, stale, secondary, or missing the requested official/primary confirmation, label that limitation in the answer.
 - Do not create a lead candidate from an HTTP error, blocked page, CAPTCHA, Cloudflare/browser check, login wall, paywall, empty page, navigation text, or page boilerplate.
 - If a source returns text such as "Just a moment", "Enable JavaScript and cookies", "Access denied", "Forbidden", or "Skip to content / I want to", state that no usable source material was available.
+- If a source is paywalled, blocked, CAPTCHA-protected, empty, unavailable, or could not be read, mention that public limitation without exposing status codes or implementation details.
 - Separate official or primary sources from secondary media reports.
 - Do not imply a fact is confirmed unless a readable source supports it.
 - If only secondary media sources are available, label them as secondary and recommend primary-source confirmation.
+- For ambiguous follow-ups with no clear referent in the conversation, ask one brief clarifying question instead of guessing.
 
 ## Prohibited Public Details
 

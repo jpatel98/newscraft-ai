@@ -44,6 +44,8 @@ export function createHarnessServer(options: {
 			maxToolCalls: config.maxToolCalls,
 			runTimeoutMs: config.runTimeoutMs,
 			retryLimit: config.retryLimit,
+			modelProvider: config.modelProvider,
+			modelApiKey: config.modelApiKey,
 			openAiApiKey: config.openAiApiKey,
 			agentConfig: config.agent
 		});
@@ -270,6 +272,7 @@ function harnessHealth(ctx: {
 			error: dbError
 		},
 		openai: { configured: Boolean(ctx.config.openAiApiKey) },
+		modelProvider: { name: ctx.config.modelProvider, configured: Boolean(ctx.config.modelApiKey) },
 		scheduler: {
 			enabled: ctx.config.schedulerEnabled,
 			running: ctx.scheduler.isRunning(),

@@ -41,6 +41,41 @@ describe('newsroom agent runtime', () => {
 		expect(prompt).not.toContain('System instructions should not become follow-up context');
 	});
 
+	it('formats fixture follow-ups from prior assistant content without rerunning research', async () => {
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: ''
+		});
+
+		const answer = await runtime.completeChat([
+			{ role: 'user', content: 'what fifa games are scheduled for today' },
+			{
+				role: 'assistant',
+				content: [
+					'FIFA World Cup 2026 - Tuesday, June 16, 2026',
+					'',
+					'- Group G - Iran vs New Zealand',
+					' - Kick-off: 2:00 a.m.',
+					' - Venue: Los Angeles / Inglewood area stadium',
+					'',
+					'- Group I - France vs Senegal',
+					' - Kick-off: 3:00 p.m.',
+					' - Venue: New York / New Jersey area stadium'
+				].join('\n')
+			},
+			{ role: 'user', content: 'give it in a proper table' }
+		]);
+
+		expect(answer).toContain('| Group | Match | Kick-off | Venue |');
+		expect(answer).toContain('| Group G | Iran vs New Zealand | 2:00 a.m. | Los Angeles / Inglewood area stadium |');
+		expect(answer).toContain('| Group I | France vs Senegal | 3:00 p.m. | New York / New Jersey area stadium |');
+		expect(answer).not.toContain('This research update found');
+	});
+
 	it('emits assignment desk triage events before running a mission', async () => {
 		db = openDatabase(':memory:');
 		repository = new HarnessRepository(db);

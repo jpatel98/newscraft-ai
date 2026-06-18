@@ -16,7 +16,7 @@ import { resolveModelPolicy, type ModelPolicyDecision, type ModelPolicyTask } fr
 import { StreamingAnswerSanitizer, streamTailForFinalAnswer } from './stream-sanitizer.js';
 import type { ToolRegistry } from './tools.js';
 import type { FetchedSource } from '../tools/sources.js';
-import { completeOpenAiText } from '../util/openai-complete.js';
+import { completeProviderText, type ModelProvider } from '../util/openai-complete.js';
 import { firstUrl, promptFromChatMessages, splitForStreaming } from '../util/text.js';
 import type { HarnessRepository } from '../db/repository.js';
 
@@ -24,6 +24,8 @@ export interface RuntimeControls {
 	maxToolCalls: number;
 	runTimeoutMs: number;
 	retryLimit: number;
+	modelProvider?: ModelProvider;
+	modelApiKey?: string;
 	openAiApiKey: string;
 	agentConfig?: Partial<NewsroomAgentConfig>;
 	/** Tool registry override, mainly for tests. */
@@ -39,6 +41,8 @@ export interface RuntimeContext {
 	model?: string;
 	reasoningEffort?: ReasoningEffort;
 	trigger?: 'manual' | 'schedule' | 'test';
+	/** Diagnostics/eval override: false forces the regex-router fallback for this request. */
+	plannerEnabled?: boolean;
 }
 
 export type RuntimeProgressEvent =
@@ -68,10 +72,12 @@ export class NewsroomAgentRuntime {
 	async completeChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): Promise<string> {
 		const prompt = promptFromChatMessages(messages);
 		const latestUserPrompt = latestUserPromptFromChatMessages(messages) || prompt;
-		if (!this.controls.openAiApiKey) return this.localChat(prompt);
+		if (!this.modelApiKey()) return this.localChat(prompt);
 		if (isTitlePrompt(latestUserPrompt)) {
 			return this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 		}
+		const formatFollowup = formatOnlyFollowupAnswer(messages);
+		if (formatFollowup) return formatFollowup;
 		return this.withTimeout(
 			() => this.disciplinedComplete(buildDisciplinedChatPrompt(messages), context),
 			context.signal
@@ -81,13 +87,18 @@ export class NewsroomAgentRuntime {
 	async *streamChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): AsyncGenerator<string> {
 		const prompt = promptFromChatMessages(messages);
 		const latestUserPrompt = latestUserPromptFromChatMessages(messages) || prompt;
-		if (!this.controls.openAiApiKey) {
+		if (!this.modelApiKey()) {
 			for (const chunk of splitForStreaming(this.localChat(prompt))) yield chunk;
 			return;
 		}
 		if (isTitlePrompt(latestUserPrompt)) {
 			const title = await this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 			for (const chunk of splitForStreaming(title)) yield chunk;
+			return;
+		}
+		const formatFollowup = formatOnlyFollowupAnswer(messages);
+		if (formatFollowup) {
+			for (const chunk of splitForStreaming(formatFollowup)) yield chunk;
 			return;
 		}
 		yield* this.disciplinedStream(buildDisciplinedChatPrompt(messages), context);
@@ -103,13 +114,17 @@ export class NewsroomAgentRuntime {
 			},
 			registry: this.controls.registry,
 			repository: context.repository,
-			openAiApiKey: this.controls.openAiApiKey
+			openAiApiKey: this.controls.openAiApiKey,
+			modelProvider: this.modelProvider(),
+			modelApiKey: this.modelApiKey()
 		});
 		const result = await agent.run(prompt, {
 			repository: context.repository,
 			runId: context.runId,
 			jobId: context.jobId,
 			openAiApiKey: this.controls.openAiApiKey,
+			modelProvider: this.modelProvider(),
+			modelApiKey: this.modelApiKey(),
 			trigger: context.trigger,
 			signal: context.signal,
 			onPlanEvent: (event) => context.onProgress?.({ type: 'plan', planSource: event.source, steps: event.steps }),
@@ -154,7 +169,7 @@ export class NewsroomAgentRuntime {
 			url
 				? `I can use ${url} as a source and keep provenance in the harness run log.`
 				: 'I can scan, summarize, compare coverage, and prepare source-backed research updates.',
-			'For live model-backed analysis, set OPENAI_API_KEY on the newsroom harness.'
+			`For live model-backed analysis, set ${this.modelProvider() === 'openai' ? 'OPENAI_API_KEY' : 'PERPLEXITY_API_KEY'} on the newsroom harness.`
 		].join('\n\n');
 	}
 
@@ -172,17 +187,22 @@ export class NewsroomAgentRuntime {
 		const agent = new DisciplinedNewsroomAgent({
 			config: {
 				...this.agentConfig,
-				default_tool_budget: this.defaultToolBudget()
+				default_tool_budget: this.defaultToolBudget(),
+				...(context.plannerEnabled === false ? { planner_enabled: false } : {})
 			},
 			registry: this.controls.registry,
 			repository: context.repository,
-			openAiApiKey: this.controls.openAiApiKey
+			openAiApiKey: this.controls.openAiApiKey,
+			modelProvider: this.modelProvider(),
+			modelApiKey: this.modelApiKey()
 		});
 		return agent.run(prompt, {
 			repository: context.repository,
 			runId: context.runId,
 			jobId: context.jobId,
 			openAiApiKey: this.controls.openAiApiKey,
+			modelProvider: this.modelProvider(),
+			modelApiKey: this.modelApiKey(),
 			trigger: context.trigger,
 			signal: context.signal,
 			outputStyle: 'chat',
@@ -195,8 +215,9 @@ export class NewsroomAgentRuntime {
 	private async titleCompletion(prompt: string, context: RuntimeContext): Promise<string> {
 		const decision = this.requireModel('title', context);
 		try {
-			const text = await completeOpenAiText({
-				apiKey: this.controls.openAiApiKey,
+			const text = await completeProviderText({
+				provider: this.modelProvider(),
+				apiKey: this.modelApiKey(),
 				model: decision.model,
 				input: prompt,
 				reasoningEffort: decision.reasoningEffort,
@@ -316,20 +337,24 @@ export class NewsroomAgentRuntime {
 		result: NewsroomAgentRunResult,
 		context: RuntimeContext
 	): Promise<string> {
-		if (!this.controls.openAiApiKey) return result.final_answer;
+		if (!this.modelApiKey()) return result.final_answer;
 		const task = context.trigger === 'schedule' ? 'scheduled_research_update' : 'manual_research_update';
 		const decision = this.modelDecision(task, context);
 		this.emitModelPolicyEvent(decision, context);
 		if (!decision.allowed || !decision.model) return result.final_answer;
 		try {
-			const text = await completeOpenAiText({
-				apiKey: this.controls.openAiApiKey,
+			const text = await completeProviderText({
+				provider: this.modelProvider(),
+				apiKey: this.modelApiKey(),
 				model: decision.model,
 				instructions: [
 					'You write the final output for a NewsCraft research update.',
 					'The prompt is the output contract. Follow it exactly.',
 					'Do not add default NewsCraft sections, internal process notes, or boilerplate unless the prompt asks for them.',
 					'Use only the provided evidence. If the evidence is insufficient, say so in the requested format or as plainly as possible.',
+					'For current-events and claim-verification requests, include an honest caveat when no reliable readable source confirms the claim, or when only weak/secondary evidence is available.',
+					'Flag paywalled, blocked, CAPTCHA-protected, empty, unavailable, or unreadable sources in plain public language without exposing status codes or implementation details.',
+					'If the current user request is an ambiguous follow-up and the provided context does not identify the referent, ask one brief clarifying question instead of guessing.',
 					'Never invent publication dates. If a source says Published: NOT FOUND, write Date: Not found or omit the date; never use the accessed/run time as the publication date.',
 					'Return only the research update.'
 				].join('\n'),
@@ -384,7 +409,7 @@ export class NewsroomAgentRuntime {
 			},
 			costMetadata: decision.model
 				? {
-						provider: 'openai',
+						provider: this.modelProvider(),
 						model: decision.model,
 						task: decision.task,
 						estimated: false
@@ -431,6 +456,15 @@ export class NewsroomAgentRuntime {
 			max_browser_tasks: 2,
 			max_runtime_seconds: Math.ceil(this.controls.runTimeoutMs / 1000)
 		};
+	}
+
+	private modelProvider(): ModelProvider {
+		if (!this.controls.modelProvider && !this.controls.modelApiKey && this.controls.openAiApiKey) return 'openai';
+		return this.controls.modelProvider || 'perplexity';
+	}
+
+	private modelApiKey(): string {
+		return this.controls.modelApiKey || (this.modelProvider() === 'openai' ? this.controls.openAiApiKey : '');
 	}
 
 	private async withTimeout<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -524,6 +558,108 @@ function latestUserPromptFromChatMessages(messages: GatewayChatMessage[]): strin
 		if (text.trim()) return text.trim();
 	}
 	return '';
+}
+
+function formatOnlyFollowupAnswer(messages: GatewayChatMessage[]): string | null {
+	const latestUserIndex = latestUserIndexFromChatMessages(messages);
+	if (latestUserIndex < 0) return null;
+	const latestUserPrompt = chatMessageText(messages[latestUserIndex]).trim();
+	if (!isTableFormatFollowup(latestUserPrompt)) return null;
+	const prior = priorAssistantText(messages, latestUserIndex);
+	if (!prior) return null;
+	const table = fixtureTableFromPriorAnswer(prior) || existingMarkdownTable(prior) || bulletTableFromPriorAnswer(prior);
+	if (!table) return null;
+	return cleanVisibleChatOutput(table, latestUserPrompt);
+}
+
+function isTableFormatFollowup(prompt: string): boolean {
+	const normalized = prompt.toLowerCase().replace(/\s+/g, ' ').trim();
+	if (!/\b(table|tabular|rows?|columns?)\b/.test(normalized)) return false;
+	return /\b(give|show|display|format|put|turn|make|convert|present)\b/.test(normalized);
+}
+
+function priorAssistantText(messages: GatewayChatMessage[], beforeIndex: number): string {
+	for (let index = beforeIndex - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role !== 'assistant') continue;
+		const text = chatMessageText(message).trim();
+		if (text) return text;
+	}
+	return '';
+}
+
+function existingMarkdownTable(value: string): string {
+	const lines = value.split('\n').map((line) => line.trim());
+	for (let index = 0; index < lines.length - 1; index += 1) {
+		if (!isMarkdownTableRow(lines[index]) || !/^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[index + 1])) {
+			continue;
+		}
+		const table = [lines[index], lines[index + 1]];
+		for (let row = index + 2; row < lines.length; row += 1) {
+			if (!isMarkdownTableRow(lines[row])) break;
+			table.push(lines[row]);
+		}
+		return table.join('\n');
+	}
+	return '';
+}
+
+function isMarkdownTableRow(value: string): boolean {
+	return value.includes('|') && value.split('|').filter((cell) => cell.trim()).length >= 2;
+}
+
+interface FixtureRow {
+	group: string;
+	match: string;
+	kickoff: string;
+	venue: string;
+}
+
+function fixtureTableFromPriorAnswer(value: string): string {
+	const rows: FixtureRow[] = [];
+	let current: FixtureRow | null = null;
+	for (const rawLine of value.split('\n')) {
+		const line = rawLine.trim().replace(/^[-*]\s*/, '').trim();
+		if (!line) continue;
+		const match = line.match(/^(Group\s+[A-Z0-9]+)\s+[-–—]\s+(.+)$/i);
+		if (match) {
+			current = { group: match[1], match: match[2].trim(), kickoff: '', venue: '' };
+			rows.push(current);
+			continue;
+		}
+		if (!current) continue;
+		const kickoff = line.match(/^Kick[- ]?off:\s*(.+)$/i);
+		if (kickoff) {
+			current.kickoff = kickoff[1].trim();
+			continue;
+		}
+		const venue = line.match(/^Venue:\s*(.+)$/i);
+		if (venue) current.venue = venue[1].trim();
+	}
+	if (!rows.length) return '';
+	return [
+		'| Group | Match | Kick-off | Venue |',
+		'|---|---|---|---|',
+		...rows.map((row) =>
+			`| ${tableCell(row.group)} | ${tableCell(row.match)} | ${tableCell(row.kickoff || 'Not specified')} | ${tableCell(row.venue || 'Not specified')} |`
+		)
+	].join('\n');
+}
+
+function bulletTableFromPriorAnswer(value: string): string {
+	const rows = value
+		.split('\n')
+		.map((line) => line.trim())
+		.filter((line) => /^[-*]\s+/.test(line))
+		.map((line) => line.replace(/^[-*]\s+/, '').trim())
+		.filter(Boolean)
+		.slice(0, 20);
+	if (!rows.length) return '';
+	return ['| Item | Details |', '|---|---|', ...rows.map((row, index) => `| ${index + 1} | ${tableCell(row)} |`)].join('\n');
+}
+
+function tableCell(value: string): string {
+	return value.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
 }
 
 export function buildDisciplinedChatPrompt(messages: GatewayChatMessage[]): string {

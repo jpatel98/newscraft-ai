@@ -179,7 +179,11 @@ function normalize(value: string): string {
 }
 
 function isAmbiguousReference(text: string): boolean {
-	return /^(summarize|check|research|verify|look into|what about|update me|latest)\s*(this|that|it|story)?\??$/.test(text);
+	return (
+		/^(summarize|check|research|verify|look into|what about|update me|latest)\s*(this|that|it|story)?\??$/.test(text) ||
+		/^(what\s+did\s+)?(?:they|he|she|it|that|this)\s+(?:say|mean|do|announce|claim|report)(?:\s+(?:about|on|regarding)\s+(?:it|that|this))?\??$/.test(text) ||
+		/^what\s+(?:did|does|are|is)\s+(?:they|he|she|it|that|this)\s+(?:say|mean|doing|about)\??$/.test(text)
+	);
 }
 
 function mentionsBrowserAutomation(text: string): boolean {

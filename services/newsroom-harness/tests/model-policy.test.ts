@@ -23,7 +23,7 @@ describe('model policy', () => {
 		expect(resolveModelPolicy(policy, 'manual_research_update', { trigger: 'manual' })).toMatchObject({
 			allowed: true,
 			tier: 'mini',
-			model: 'gpt-5.4-mini'
+			model: 'perplexity/sonar'
 		});
 	});
 
@@ -33,7 +33,7 @@ describe('model policy', () => {
 		expect(resolveModelPolicy(policy, 'title', { trigger: 'manual' })).toMatchObject({
 			allowed: true,
 			tier: 'nano',
-			model: 'gpt-5.4-nano'
+			model: 'perplexity/sonar'
 		});
 	});
 
@@ -46,7 +46,7 @@ describe('model policy', () => {
 		expect(resolveModelPolicy(policy, 'scheduled_research_update', { trigger: 'schedule' })).toMatchObject({
 			allowed: true,
 			tier: 'mini',
-			model: 'gpt-5.4-mini'
+			model: 'perplexity/sonar'
 		});
 	});
 

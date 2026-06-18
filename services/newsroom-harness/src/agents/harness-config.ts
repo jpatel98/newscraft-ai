@@ -6,6 +6,7 @@ import {
 	type ModelPolicyOverrides
 } from './model-policy.js';
 import { NEWSROOM_TOOL_NAMES } from './router.js';
+import type { ModelProvider } from '../util/openai-complete.js';
 
 interface SourceMonitorConfig {
 	name: string;
@@ -17,6 +18,7 @@ interface SourceMonitorConfig {
 
 export interface NewsroomAgentConfig {
 	enabled_tools: string[];
+	model_provider: ModelProvider;
 	/** Model-driven step planning; the regex router remains the fallback. */
 	planner_enabled: boolean;
 	default_tool_budget: ToolBudget;
@@ -81,7 +83,7 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 			answer_from_memory: 'Use only for stable newsroom guidance or requests that do not need current facts.',
 			custom_tool: 'Prefer registered internal tools for saved research, supplied URLs, PDFs, briefs, or newsroom-specific tasks.',
 			source_monitor: 'Use configured source monitors and feeds for latest releases or known source checks.',
-			web_search: 'Use OpenAI web_search for broad discovery, other outlets, or related coverage.',
+			web_search: 'Use provider-backed web search for broad discovery, other outlets, or related coverage.',
 			browser_automation: 'Use only for direct page interaction, dynamic pages, niche inspection, or tasks that need clicking.',
 			hybrid_research: 'Combine primary/internal tools with web_search when both source evidence and broader context are needed.',
 			clarification_needed: 'Stop and ask for the missing source, story, or task target.'
@@ -104,7 +106,8 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 		},
 		source_monitors: overrides.source_monitors || DEFAULT_SOURCE_MONITORS,
 		model_policy: createModelPolicyConfig(overrides.model_policy as ModelPolicyOverrides | undefined),
-		web_search_model: overrides.web_search_model || 'gpt-5'
+		model_provider: overrides.model_provider || 'perplexity',
+		web_search_model: overrides.web_search_model || 'perplexity/sonar'
 	};
 }
 
@@ -121,6 +124,7 @@ export function loadNewsroomAgentConfigFromEnv(overrides: Partial<NewsroomAgentC
 		...overrides,
 		default_tool_budget: envBudget,
 		enabled_tools: csv(process.env.NEWSROOM_AGENT_ENABLED_TOOLS) || overrides.enabled_tools,
+		model_provider: modelProviderFromEnv(process.env.NEWSROOM_MODEL_PROVIDER) || overrides.model_provider,
 		planner_enabled: boolEnv(process.env.NEWSROOM_AGENT_PLANNER_ENABLED) ?? overrides.planner_enabled,
 		source_priority: csv(process.env.NEWSROOM_AGENT_SOURCE_PRIORITY) as NewsroomAgentConfig['source_priority'],
 		source_monitors: monitors || overrides.source_monitors,
@@ -130,6 +134,11 @@ export function loadNewsroomAgentConfigFromEnv(overrides: Partial<NewsroomAgentC
 			(overrides.model_policy as ModelPolicyOverrides | undefined)?.models?.web_search ||
 			overrides.web_search_model
 	});
+}
+
+function modelProviderFromEnv(value: string | undefined): ModelProvider | undefined {
+	if (value === 'openai' || value === 'perplexity') return value;
+	return undefined;
 }
 
 function boolEnv(value: string | undefined): boolean | undefined {

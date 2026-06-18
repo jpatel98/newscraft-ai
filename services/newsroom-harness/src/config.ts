@@ -10,6 +10,8 @@ export interface HarnessConfig {
 	dbPath: string;
 	databaseUrl: string;
 	apiKey: string;
+	modelProvider: 'openai' | 'perplexity';
+	modelApiKey: string;
 	openAiApiKey: string;
 	uiIngestUrl: string;
 	uiIngestKey: string;
@@ -37,6 +39,7 @@ function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
 export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfig {
 	const runTimeoutMs = intFromEnv(process.env.NEWSROOM_HARNESS_RUN_TIMEOUT_MS, 90_000);
 	const maxToolCalls = intFromEnv(process.env.NEWSROOM_HARNESS_MAX_TOOL_CALLS, 6);
+	const modelProvider = providerFromEnv(process.env.NEWSROOM_MODEL_PROVIDER) || 'perplexity';
 	const agent = loadNewsroomAgentConfigFromEnv({
 		default_tool_budget: {
 			max_total_tool_calls: maxToolCalls,
@@ -52,6 +55,8 @@ export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfi
 		dbPath: process.env.NEWSROOM_HARNESS_DB_PATH || path.join(process.cwd(), '.data', 'newsroom-harness.db'),
 		databaseUrl: process.env.NEWSROOM_HARNESS_DATABASE_URL || '',
 		apiKey: process.env.NEWSROOM_HARNESS_API_KEY || '',
+		modelProvider,
+		modelApiKey: modelProvider === 'openai' ? process.env.OPENAI_API_KEY || '' : process.env.PERPLEXITY_API_KEY || '',
 		openAiApiKey: process.env.OPENAI_API_KEY || '',
 		uiIngestUrl: process.env.NEWSROOM_UI_INGEST_URL || '',
 		uiIngestKey: process.env.NEWSROOM_UI_INGEST_KEY || '',
@@ -64,4 +69,9 @@ export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfi
 		version: '0.0.1',
 		...overrides
 	};
+}
+
+function providerFromEnv(value: string | undefined): HarnessConfig['modelProvider'] | undefined {
+	if (value === 'openai' || value === 'perplexity') return value;
+	return undefined;
 }

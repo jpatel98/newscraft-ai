@@ -4,7 +4,7 @@ import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { evidenceOutputSchema, ToolRegistry, type NewsroomTool, type ToolRunContext, type ToolRunOutput } from './tools.js';
 import { resolveModelPolicy } from './model-policy.js';
 import { fetchSourceUrl, sourceFromText } from '../tools/sources.js';
-import { extractOpenAiResponseText } from '../util/openai-complete.js';
+import { extractOpenAiResponseText, providerBaseUrl, providerLabel, type ModelProvider } from '../util/openai-complete.js';
 import { readOpenAiResponseStream } from '../util/openai-stream.js';
 import { extractUrls, firstUrl } from '../util/text.js';
 import { assessSourceQuality } from '../util/source-quality.js';
@@ -140,7 +140,7 @@ function savedResearchReaderTool(): NewsroomTool<{ latest?: boolean }> {
 function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 	return {
 		name: NEWSROOM_TOOL_NAMES.webSearch,
-		description: 'Use OpenAI Responses API web_search for broad context and related coverage.',
+		description: 'Use the configured provider web_search tool for broad context and related coverage.',
 		when_to_use: 'Use for broad discovery, related coverage, and what other outlets are reporting.',
 		category: 'web_search_provider',
 		input_schema: {
@@ -150,10 +150,13 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 		},
 		output_schema: evidenceOutputSchema,
 		async run(input, context) {
-			if (!context.openAiApiKey) {
+			const provider = context.modelProvider || context.config.model_provider;
+			const providerName = providerLabel(provider);
+			const apiKey = context.modelApiKey || context.openAiApiKey;
+			if (!apiKey) {
 				return {
 					status: 'unavailable',
-					limitations: ['OpenAI web_search is not configured because OPENAI_API_KEY is missing.']
+					limitations: [`${providerName} web_search is not configured because ${providerEnvName(provider)} is missing.`]
 				};
 			}
 			const modelDecision = resolveModelPolicy(context.config.model_policy, 'web_search', { trigger: context.trigger });
@@ -191,7 +194,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					tool: NEWSROOM_TOOL_NAMES.webSearch
 				},
 				costMetadata: {
-					provider: 'openai',
+					provider,
 					model: modelDecision.model,
 					endpoint: 'responses',
 					tool: NEWSROOM_TOOL_NAMES.webSearch,
@@ -199,33 +202,34 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				}
 			});
 			const streamDeltas = Boolean(context.onAnswerDelta);
-			const response = await fetch('https://api.openai.com/v1/responses', {
+			const response = await fetch(`${providerBaseUrl(provider)}/responses`, {
 				method: 'POST',
 				headers: {
-					authorization: `Bearer ${context.openAiApiKey}`,
+					authorization: `Bearer ${apiKey}`,
 					'content-type': 'application/json'
 				},
-				body: JSON.stringify({
+				body: JSON.stringify(webSearchRequestBody({
+					provider,
 					model: modelDecision.model,
 					stream: streamDeltas,
-					reasoning: { effort: 'low' },
-					tools: [{ type: 'web_search' }],
-					tool_choice: 'auto',
-					include: ['web_search_call.action.sources'],
 					input: [
 						'Search for source material relevant to this newsroom request.',
 						'Summarize the freshest usable result first, using concrete event dates or timestamps only when they matter to the answer.',
 						'Prefer primary or official sources and directly relevant local/reputable outlets.',
+						'If no reliable readable source confirms a current-events or claim-verification request, say that plainly instead of giving a confident unsourced answer.',
+						'If a requested source is paywalled, blocked, CAPTCHA-protected, unavailable, empty, or cannot be read, flag that limitation honestly without technical details.',
+						'If the request is an ambiguous follow-up and there is no clear referent, ask a brief clarifying question instead of guessing.',
 						'Avoid forums, social threads, old PDFs, and loosely related background unless the request asks for them.',
 						'Keep the answer concise, readable, and organized for a normal person scanning local news.',
-						'For multi-story requests, use plain text sections: put Today on its own line, then one story per line as "Counterfeit gear bust: One clean sentence." Use Latest context only if older items matter.',
-						'Do not use markdown markers such as #, **, markdown links, or markdown bullets. Do not write the word "Bold".',
+						'Use clean Markdown when it improves scanning: short headings, bullets, numbered lists, and compact tables are allowed.',
+						'For multi-story requests, use clear sections and bullets. Use Latest context only if older items matter.',
+						'Use bold only for short labels inside prose or table headers. Do not write the literal word "Bold".',
 						'Do not say "ordered by freshness", "source-led", "local outlet reports", or "according to" unless it is essential to avoid overstating a claim.',
 						'Do not include a Sources/References section, raw URLs, domain parentheticals, or outlet posting-time roundups; source links are captured separately.',
-						'If the request asks for a table, return a compact plain-text table or labeled rows. Do not include a markdown separator row unless it is necessary for legibility.',
+						'If the request asks for tables, standings, rows, columns, or tabular output, prefer a valid GitHub-flavored Markdown table with a header separator row.',
 						`Request: ${input.query}`
 					].join('\n')
-				}),
+				})),
 				signal: context.signal
 			});
 			let raw: { error?: { message?: string } } = {};
@@ -256,18 +260,18 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					tool: NEWSROOM_TOOL_NAMES.webSearch
 				},
 				costMetadata: {
-					provider: 'openai',
+					provider,
 					model: modelDecision.model,
 					endpoint: 'responses',
 					tool: NEWSROOM_TOOL_NAMES.webSearch,
-					usage: openAiUsageMetadata(raw),
+					usage: providerUsageMetadata(raw),
 					estimated: false
 				}
 			});
 			if (!response.ok) {
 				return {
 					status: 'error',
-					limitations: [`OpenAI web_search failed with HTTP ${response.status}: ${String(raw?.error?.message || response.statusText)}`],
+					limitations: [`${providerName} web_search failed with HTTP ${response.status}: ${String(raw?.error?.message || response.statusText)}`],
 					raw
 				};
 			}
@@ -275,15 +279,15 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			if (streamFailure && !outputText.trim()) {
 				return {
 					status: 'error',
-					limitations: [`OpenAI web_search stream failed: ${streamFailure}`],
+					limitations: [`${providerName} web_search stream failed: ${streamFailure}`],
 					raw
 				};
 			}
 			const evidence = normalizeToolEvidence(
-				{ evidence: extractOpenAiWebSources(raw, outputText, input.query) },
+				{ evidence: extractProviderWebSources(raw, outputText, input.query) },
 				NEWSROOM_TOOL_NAMES.webSearch,
 				{
-					source_name: 'OpenAI web_search',
+					source_name: `${providerName} web_search`,
 					accessed_at: new Date().toISOString(),
 					confidence: 0.6,
 					limitations: ['Broad web-search evidence; verify important claims against primary sources.'],
@@ -302,13 +306,13 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					status: 'ok',
 					evidence,
 					answer: `${answerText}\n\nLink extraction was incomplete for this web search result; verify before relying on it.`,
-					limitations: ['OpenAI web_search returned answer text but no cited sources could be extracted.', ...streamLimitations],
+					limitations: [`${providerName} web_search returned answer text but no cited sources could be extracted.`, ...streamLimitations],
 					raw: { output_text: outputText }
 				};
 			}
 			return {
 				status: 'unavailable',
-				limitations: ['OpenAI web_search returned no cited sources.'],
+				limitations: [`${providerName} web_search returned no cited sources.`],
 				raw: { output_text: outputText }
 			};
 		}
@@ -455,19 +459,44 @@ function newsroomBriefGeneratorTool(): NewsroomTool<{ prompt: string; evidence?:
 	};
 }
 
-async function fetchEvidenceUrls(
+export function sourceFetchTimeoutMs(): number {
+	const raw = process.env.NEWSROOM_SOURCE_FETCH_TIMEOUT_MS;
+	const parsed = raw ? Number(raw) : NaN;
+	if (!Number.isFinite(parsed)) return 8_000;
+	return Math.max(1_000, parsed);
+}
+
+// polite-fetch rate-limits per host at call time but does not serialize
+// concurrent same-host calls, so fetch hosts in parallel and URLs within a
+// host sequentially.
+export async function fetchEvidenceUrls(
 	urls: string[],
 	toolUsed: string,
 	context: ToolRunContext
 ): Promise<EvidenceObject[]> {
-	const evidence: EvidenceObject[] = [];
-	for (const url of urls) {
+	const byHost = new Map<string, Array<{ url: string; index: number }>>();
+	for (let i = 0; i < urls.length; i++) {
+		const url = urls[i];
+		let host: string;
 		try {
-			const source = await fetchSourceUrl(url, sourceFetchSignal(context.signal));
-			evidence.push(fetchedSourceToEvidence(source, toolUsed));
-		} catch (err) {
-			evidence.push(
-				normalizeEvidence({
+			host = new URL(url).host.toLowerCase();
+		} catch {
+			host = url;
+		}
+		const bucket = byHost.get(host) ?? [];
+		bucket.push({ url, index: i });
+		byHost.set(host, bucket);
+	}
+
+	const results: EvidenceObject[] = new Array(urls.length);
+
+	async function fetchBucket(bucket: Array<{ url: string; index: number }>): Promise<void> {
+		for (const { url, index } of bucket) {
+			try {
+				const source = await fetchSourceUrl(url, sourceFetchSignal(context.signal));
+				results[index] = fetchedSourceToEvidence(source, toolUsed);
+			} catch {
+				results[index] = normalizeEvidence({
 					source_name: sourceNameFromUrl(url),
 					source_url: url,
 					accessed_at: new Date().toISOString(),
@@ -478,15 +507,18 @@ async function fetchEvidenceUrls(
 					summary: '',
 					confidence: 0,
 					limitations: ['Source could not be read during this run.']
-				})
-			);
+				});
+			}
 		}
 	}
-	return evidence;
+
+	await Promise.all([...byHost.values()].map(fetchBucket));
+
+	return results;
 }
 
 function sourceFetchSignal(signal: AbortSignal | undefined): AbortSignal {
-	const timeout = AbortSignal.timeout(20_000);
+	const timeout = AbortSignal.timeout(sourceFetchTimeoutMs());
 	if (signal && typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
 	return timeout;
 }
@@ -557,7 +589,31 @@ function selectMonitors(query: string, context: ToolRunContext) {
 		.sort((left, right) => right.priority - left.priority);
 }
 
-function openAiUsageMetadata(raw: unknown): Record<string, number> | null {
+function webSearchRequestBody(input: {
+	provider: ModelProvider;
+	model: string;
+	stream: boolean;
+	input: string;
+}): Record<string, unknown> {
+	const body: Record<string, unknown> = {
+		model: input.model,
+		stream: input.stream,
+		reasoning: { effort: 'low' },
+		tools: [{ type: 'web_search' }],
+		tool_choice: 'auto',
+		input: input.input
+	};
+	if (input.provider === 'openai') {
+		body.include = ['web_search_call.action.sources'];
+	}
+	return body;
+}
+
+function providerEnvName(provider: ModelProvider): string {
+	return provider === 'openai' ? 'OPENAI_API_KEY' : 'PERPLEXITY_API_KEY';
+}
+
+function providerUsageMetadata(raw: unknown): Record<string, number> | null {
 	const usage = (raw as { usage?: Record<string, unknown> })?.usage;
 	if (!usage || typeof usage !== 'object') return null;
 	const metadata: Record<string, number> = {};
@@ -567,14 +623,21 @@ function openAiUsageMetadata(raw: unknown): Record<string, number> | null {
 	return Object.keys(metadata).length ? metadata : null;
 }
 
-function extractOpenAiWebSources(raw: unknown, outputText: string, query: string) {
+function extractProviderWebSources(raw: unknown, outputText: string, query: string) {
 	const actionSources: WebSourceCandidate[] = [];
 	const citedSources: WebSourceCandidate[] = [];
 	const response = raw as {
+		search_results?: Array<{ url?: string; title?: string; snippet?: string; date?: string; last_updated?: string }>;
+		fetch_url_results?: Array<{ url?: string; title?: string; content?: string; snippet?: string }>;
 		output?: Array<{
 			type?: string;
+			search_results?: Array<{ url?: string; title?: string; snippet?: string }>;
+			fetch_url_results?: Array<{ url?: string; title?: string; content?: string; snippet?: string }>;
 			action?: { sources?: Array<{ url?: string; title?: string; source?: string }> };
 			content?: Array<{
+				type?: string;
+				search_results?: Array<{ url?: string; title?: string; snippet?: string }>;
+				fetch_url_results?: Array<{ url?: string; title?: string; content?: string; snippet?: string }>;
 				annotations?: Array<{
 					type?: string;
 					url?: string;
@@ -585,13 +648,43 @@ function extractOpenAiWebSources(raw: unknown, outputText: string, query: string
 			}>;
 		}>;
 	};
+	for (const source of response.search_results || []) {
+		if (!source.url) continue;
+		if (!shouldKeepWebSource(source.url, query)) continue;
+		actionSources.push(webSource(source.url, source.title || source.url, source.snippet || source.date || source.last_updated || ''));
+	}
+	for (const source of response.fetch_url_results || []) {
+		if (!source.url) continue;
+		if (!shouldKeepWebSource(source.url, query)) continue;
+		actionSources.push(webSource(source.url, source.title || source.url, source.content || source.snippet || ''));
+	}
 	for (const item of response.output || []) {
+		for (const source of item.search_results || []) {
+			if (!source.url) continue;
+			if (!shouldKeepWebSource(source.url, query)) continue;
+			actionSources.push(webSource(source.url, source.title || source.url, source.snippet || ''));
+		}
+		for (const source of item.fetch_url_results || []) {
+			if (!source.url) continue;
+			if (!shouldKeepWebSource(source.url, query)) continue;
+			actionSources.push(webSource(source.url, source.title || source.url, source.content || source.snippet || ''));
+		}
 		for (const source of item.action?.sources || []) {
 			if (!source.url) continue;
 			if (!shouldKeepWebSource(source.url, query)) continue;
 			actionSources.push(webSource(source.url, source.title || source.source || source.url));
 		}
 		for (const content of item.content || []) {
+			for (const source of content.search_results || []) {
+				if (!source.url) continue;
+				if (!shouldKeepWebSource(source.url, query)) continue;
+				actionSources.push(webSource(source.url, source.title || source.url, source.snippet || ''));
+			}
+			for (const source of content.fetch_url_results || []) {
+				if (!source.url) continue;
+				if (!shouldKeepWebSource(source.url, query)) continue;
+				actionSources.push(webSource(source.url, source.title || source.url, source.content || source.snippet || ''));
+			}
 			for (const annotation of content.annotations || []) {
 				if (annotation.type !== 'url_citation' || !annotation.url) continue;
 				if (!shouldKeepWebSource(annotation.url, query)) continue;
@@ -638,7 +731,7 @@ function webSource(url: string, title: string, snippet = ''): WebSourceCandidate
 		title,
 		extracted_text: summary || titleSummary || 'Web search cited this source.',
 		summary: summary || titleSummary || 'Web search cited this source; verify the source page directly before publication.',
-		limitations: ['OpenAI web_search result; cite and verify source page before publication.'],
+		limitations: ['Provider web_search result; cite and verify source page before publication.'],
 		confidence: 0.6
 	};
 }

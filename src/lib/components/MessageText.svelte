@@ -184,7 +184,7 @@
 	}
 
 	function bulletText(line: string): string {
-		const match = line.match(/^[-*•]\s+(.+)$/);
+		const match = line.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/);
 		if (!match) return '';
 		return normalizeStoryItemText(match[1]);
 	}

@@ -16,6 +16,7 @@ async function startHarness(config: Parameters<typeof createHarnessServer>[0]['c
 		config: {
 			dbPath: path.join(tempDir, 'harness.db'),
 			apiKey: 'secret',
+			modelApiKey: '',
 			openAiApiKey: '',
 			schedulerIntervalMs: 100,
 			runTimeoutMs: 5000,

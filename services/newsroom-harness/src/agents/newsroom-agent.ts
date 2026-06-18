@@ -23,11 +23,14 @@ import {
 } from './planner.js';
 import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest, type RouteDecision } from './router.js';
 import type { NewsroomTool, ToolRegistry, ToolRunContext, ToolRunOutput } from './tools.js';
+import type { ModelProvider } from '../util/openai-complete.js';
 
 export interface NewsroomAgentRunContext {
 	repository?: HarnessRepository;
 	runId?: string;
 	jobId?: string;
+	modelProvider?: ModelProvider;
+	modelApiKey?: string;
 	openAiApiKey?: string;
 	trigger?: 'manual' | 'schedule' | 'test';
 	signal?: AbortSignal;
@@ -87,6 +90,8 @@ export interface DisciplinedNewsroomAgentOptions {
 	config?: Partial<NewsroomAgentConfig>;
 	registry?: ToolRegistry;
 	repository?: HarnessRepository;
+	modelProvider?: ModelProvider;
+	modelApiKey?: string;
 	openAiApiKey?: string;
 	/** Planner override, mainly for tests. Defaults to the model planner. */
 	planner?: PlannerFn;
@@ -299,7 +304,11 @@ export class DisciplinedNewsroomAgent {
 		signal: AbortSignal
 	): Promise<ResearchPlan> {
 		const fallback = planFromRoute(decision, prompt);
-		const apiKey = context.openAiApiKey || this.options.openAiApiKey;
+		const provider = this.modelProvider(context);
+		const apiKey =
+			context.modelApiKey ||
+			this.options.modelApiKey ||
+			(provider === 'openai' ? context.openAiApiKey || this.options.openAiApiKey : '');
 		if (!this.config.planner_enabled || !apiKey || !fallback.steps.length) return fallback;
 		const policy = resolveModelPolicy(this.config.model_policy, 'interactive_chat', { trigger: context.trigger });
 		this.appendPlannerEvent(context, policy.allowed ? 'model.call.selected' : 'model.call.skipped', {
@@ -320,6 +329,7 @@ export class DisciplinedNewsroomAgent {
 				sourceMonitors: this.config.source_monitors.map((monitor) => ({ name: monitor.name, tags: monitor.tags })),
 				maxSteps: Math.max(1, Math.min(4, this.config.default_tool_budget.max_total_tool_calls)),
 				apiKey,
+				provider,
 				model: policy.model,
 				reasoningEffort: policy.reasoningEffort,
 				signal: plannerSignal(signal)
@@ -441,7 +451,7 @@ export class DisciplinedNewsroomAgent {
 			costMetadata:
 				policy?.allowed && policy.model
 					? {
-							provider: 'openai',
+							provider: this.modelProvider(context),
 							model: policy.model,
 							task: policy.task,
 							estimated: false
@@ -460,19 +470,24 @@ export class DisciplinedNewsroomAgent {
 		stepInput: string
 	): Promise<ToolRunOutput> {
 		const toolContext: ToolRunContext = {
-				prompt,
-				decision,
-				config: this.config,
-				evidence,
-				budget,
-				repository: context.repository || this.options.repository,
-				runId: context.runId,
-				jobId: context.jobId,
-				openAiApiKey: context.openAiApiKey || this.options.openAiApiKey,
-				trigger: context.trigger,
-				signal: context.signal,
-				onAnswerDelta: context.onAnswerDelta
-			};
+			prompt,
+			decision,
+			config: this.config,
+			evidence,
+			budget,
+			repository: context.repository || this.options.repository,
+			runId: context.runId,
+			jobId: context.jobId,
+			modelProvider: this.modelProvider(context),
+			modelApiKey:
+				context.modelApiKey ||
+				this.options.modelApiKey ||
+				(this.modelProvider(context) === 'openai' ? context.openAiApiKey || this.options.openAiApiKey : ''),
+			openAiApiKey: context.openAiApiKey || this.options.openAiApiKey,
+			trigger: context.trigger,
+			signal: context.signal,
+			onAnswerDelta: context.onAnswerDelta
+		};
 		try {
 			return await tool.run(inputForTool(tool.name, prompt, evidence, stepInput), toolContext);
 		} catch (err) {
@@ -481,6 +496,12 @@ export class DisciplinedNewsroomAgent {
 				limitations: [`${tool.name} failed: ${err instanceof Error ? err.message : String(err)}`]
 			};
 		}
+	}
+
+	private modelProvider(context: NewsroomAgentRunContext): ModelProvider {
+		if (context.modelProvider || this.options.modelProvider) return context.modelProvider || this.options.modelProvider || 'perplexity';
+		if (!context.modelApiKey && !this.options.modelApiKey && (context.openAiApiKey || this.options.openAiApiKey)) return 'openai';
+		return this.config.model_provider;
 	}
 }
 

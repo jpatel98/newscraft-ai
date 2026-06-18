@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { RouteDecision } from './router.js';
 import { NEWSROOM_TOOL_NAMES } from './router.js';
-import { completeOpenAiText } from '../util/openai-complete.js';
+import { completeProviderText, type ModelProvider } from '../util/openai-complete.js';
 
 /**
  * The planner turns a newsroom request into an explicit, bounded list of tool
@@ -40,6 +40,7 @@ export interface PlannerRequest {
 	sourceMonitors: PlannerMonitorInfo[];
 	maxSteps: number;
 	apiKey: string;
+	provider?: ModelProvider;
 	model: string;
 	reasoningEffort?: 'low' | 'medium' | 'high';
 	signal?: AbortSignal;
@@ -59,7 +60,8 @@ const planSchema = z.object({
 });
 
 export async function planResearchSteps(request: PlannerRequest): Promise<ResearchPlan> {
-	const raw = await completeOpenAiText({
+	const raw = await completeProviderText({
+		provider: request.provider,
 		apiKey: request.apiKey,
 		model: request.model,
 		input: plannerInput(request),

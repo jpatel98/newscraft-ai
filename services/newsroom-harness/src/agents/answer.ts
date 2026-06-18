@@ -24,14 +24,18 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 	}
 	if (!evidence.length && input.toolAnswers?.length) {
 		const answer = input.toolAnswers.filter((item) => item.trim()).join('\n\n');
-		return input.outputStyle === 'chat' ? formatChatToolAnswer(input.prompt, answer) : answer.trim();
+		const caveats = publicCaveatsFor(input.prompt, evidence, unusableEvidence, input.limitations, {
+			noUsableEvidence: true
+		});
+		const guarded = appendCaveats(input.outputStyle === 'chat' ? formatChatToolAnswer(input.prompt, answer) : answer.trim(), caveats);
+		return input.outputStyle === 'chat' ? cleanVisibleChatOutput(guarded, input.prompt) : guarded;
 	}
 	if (!evidence.length) {
-		if (input.outputStyle === 'chat') return chatNoLead(unusableEvidence);
-		return noPublishableLeadReport(unusableEvidence);
+		if (input.outputStyle === 'chat') return chatNoLead(unusableEvidence, input.limitations);
+		return noPublishableLeadReport(unusableEvidence, input.limitations);
 	}
 	if (input.outputStyle === 'chat') {
-		return chatAnswer(input.prompt, evidence, unusableEvidence, input.toolAnswers || []);
+		return chatAnswer(input.prompt, evidence, unusableEvidence, input.limitations, input.toolAnswers || []);
 	}
 
 	const briefItems = evidence.slice(0, 5).map((item) => briefItemFor(item));
@@ -45,7 +49,7 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		...(evidence.length > listedSources.length
 			? [`- ${evidence.length - listedSources.length} additional usable sources were recorded and omitted from this compact brief.`]
 			: []),
-		...sourceIssueNotes(unusableEvidence)
+		...sourceIssueNotes(unusableEvidence, input.limitations)
 	];
 	const uncertaintyNotes = uncertaintyNotesFor(input.prompt, evidence, unusableEvidence);
 
@@ -65,13 +69,14 @@ function chatAnswer(
 	prompt: string,
 	evidence: EvidenceObject[],
 	unusableEvidence: EvidenceObject[],
+	limitations: string[],
 	toolAnswers: string[]
 ): string {
 	const freshest = evidence[0];
 	const rawToolAnswer = toolAnswers.find((item) => item.trim());
 	const answer = rawToolAnswer ? formatChatToolAnswer(prompt, rawToolAnswer) : summaryFor(freshest, 720);
-	const caveat = unusableEvidence.length ? 'Some candidate sources were unreadable and were not used.' : '';
-	return [answer, caveat].filter(Boolean).join('\n\n');
+	const caveats = publicCaveatsFor(prompt, evidence, unusableEvidence, limitations, { noUsableEvidence: false });
+	return appendCaveats(answer, caveats);
 }
 
 function formatChatToolAnswer(prompt: string, answer: string): string {
@@ -88,10 +93,11 @@ function wantsTable(prompt: string): boolean {
 	return /\b(table|tabular|rows?|columns?)\b/i.test(prompt);
 }
 
-function chatNoLead(unusableEvidence: EvidenceObject[]): string {
+function chatNoLead(unusableEvidence: EvidenceObject[], limitations: string[] = []): string {
 	const notes = sourceIssueNotes(unusableEvidence).slice(0, 3);
+	const caveats = publicCaveatsFor('', [], unusableEvidence, limitations, { noUsableEvidence: true });
 	return [
-		'I could not find readable source material for this research update.',
+		caveats[0] || 'I could not find reliable sources confirming this.',
 		notes.length ? `Skipped sources: ${notes.join(' ')}` : '',
 		'Try again with a specific outlet/source, or rerun when the source is readable.'
 	]
@@ -358,7 +364,6 @@ function stripCitationChatter(value: string): string {
 		.replace(/\bAP write[- ]?up carried by\s*[\s\S]*$/i, '')
 		.replace(/\bCanadian Press version carried by\s*[\s\S]*$/i, '')
 		.replace(/\bIt is based on media\/search results and should be checked against a primary source before publication\.?/gi, '')
-		.replace(/\bshould be checked against a primary source before publication\.?/gi, '')
 		.replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/gi, '$1')
 		.replace(/https?:\/\/\S+/gi, '')
 		.replace(/\s+\((?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^)]*)?\)/gi, '');
@@ -394,7 +399,6 @@ function polishedChatText(value: string, maxLength: number): string {
 		.replace(/\*\*([^*]+)\*\*/g, '$1')
 		.replace(/__([^_]+)__/g, '$1')
 		.replace(/`([^`]+)`/g, '$1')
-		.replace(/^[-*•]\s+/gm, '')
 		.replace(/^Bold:\s*/gim, '')
 		.replace(/\n{3,}/g, '\n\n')
 		.trim();
@@ -412,11 +416,16 @@ function truncateTextAtBoundary(value: string, maxLength: number): string {
 	return `${trimmed}…`;
 }
 
-function noPublishableLeadReport(unusableEvidence: EvidenceObject[]): string {
-	const sourceNotes = sourceIssueNotes(unusableEvidence);
+function noPublishableLeadReport(unusableEvidence: EvidenceObject[], limitations: string[] = []): string {
+	const sourceNotes = sourceIssueNotes(unusableEvidence, limitations);
 	return [
 		'## Summary',
-		'No research update was saved from this run because no usable source material was available.',
+		[
+			'No research update was saved from this run because no usable source material was available.',
+			publicCaveatsFor('', [], unusableEvidence, limitations, { noUsableEvidence: true })[0]
+		]
+			.filter(Boolean)
+			.join(' '),
 		'',
 		'## Sources',
 		sourceNotes.length ? sourceNotes.join('\n') : '- No readable source material was available from this run.',
@@ -426,7 +435,7 @@ function noPublishableLeadReport(unusableEvidence: EvidenceObject[]): string {
 	].join('\n');
 }
 
-function sourceIssueNotes(evidence: EvidenceObject[]): string[] {
+function sourceIssueNotes(evidence: EvidenceObject[], limitations: string[] = []): string[] {
 	const seen = new Set<string>();
 	const notes: string[] = [];
 	for (const item of evidence) {
@@ -439,7 +448,68 @@ function sourceIssueNotes(evidence: EvidenceObject[]): string[] {
 		seen.add(key);
 		notes.push(`- ${label}: ${note} It was not used as evidence.`);
 	}
+	for (const limitation of limitations) {
+		const note = publicLimitationNote(limitation);
+		if (!note || seen.has(note)) continue;
+		seen.add(note);
+		notes.push(`- ${note}`);
+	}
 	return notes;
+}
+
+function publicCaveatsFor(
+	prompt: string,
+	evidence: EvidenceObject[],
+	unusableEvidence: EvidenceObject[],
+	limitations: string[],
+	options: { noUsableEvidence: boolean }
+): string[] {
+	const caveats: string[] = [];
+	const combinedLimitations = [...limitations, ...unusableEvidence.flatMap((item) => item.limitations)];
+	const blocked = combinedLimitations.some((item) => /paywall|subscription|login|captcha|blocked|unavailable|access denied|forbidden|could not be read/i.test(item));
+	if (options.noUsableEvidence) {
+		caveats.push(
+			blocked
+				? 'I could not find reliable sources confirming this because one or more sources were blocked, paywalled, unavailable, or could not be read.'
+				: 'I could not find reliable sources confirming this in the gathered material.'
+		);
+		return caveats;
+	}
+
+	if (blocked || unusableEvidence.length) {
+		caveats.push('Some candidate sources were blocked, paywalled, unavailable, or could not be read, and were not used as evidence.');
+	}
+	if (needsPrimaryConfirmation(prompt, evidence)) {
+		caveats.push('I could not confirm this from a readable official or primary source in the gathered material; verify before relying on it.');
+	}
+	if (evidence.length && evidence.every((item) => item.confidence < 0.55)) {
+		caveats.push('The available source material is weak; treat this as unconfirmed until stronger sources are available.');
+	}
+	return caveats;
+}
+
+function needsPrimaryConfirmation(prompt: string, evidence: EvidenceObject[]): boolean {
+	if (!/\b(verify|confirm|official|primary|source of truth|what .* officially said)\b/i.test(prompt)) return false;
+	return !evidence.some((item) => item.source_kind === 'official' || item.source_kind === 'primary');
+}
+
+function appendCaveats(answer: string, caveats: string[]): string {
+	const cleaned = answer.trim();
+	const unique = caveats.filter((item, index) => item && caveats.indexOf(item) === index);
+	if (!unique.length) return cleaned;
+	const lower = cleaned.toLowerCase();
+	const missing = unique.filter((item) => !lower.includes(item.toLowerCase()));
+	return [cleaned, ...missing].filter(Boolean).join('\n\n');
+}
+
+function publicLimitationNote(value: string): string {
+	if (/paywall|subscription|login|captcha|blocked|access denied|forbidden|could not be read|unavailable/i.test(value)) {
+		return 'A candidate source was blocked, paywalled, unavailable, or could not be read. It was not used as evidence.';
+	}
+	if (/no usable|no cited sources|no readable|no .*source/i.test(value)) {
+		return 'No usable source material was available from one attempted source.';
+	}
+	return '';
 }
 
 function publicIssueLabel(item: EvidenceObject): string {

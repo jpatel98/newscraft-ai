@@ -25,15 +25,15 @@ async function signIn(page: Page) {
 	await expect(page).toHaveURL(/\/$/);
 }
 
-async function expectStoryTrackerHome(page: Page) {
-	await expect(page).toHaveTitle(/Stories · NewsCraft/);
-	await expect(page.getByRole('heading', { name: 'Story tracker' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Start with a research prompt' })).toBeVisible();
+async function expectChatStartHome(page: Page) {
+	await expect(page).toHaveTitle(/New chat · NewsCraft/);
+	await expect(
+		page.getByRole('heading', { name: 'What should NewsCraft work on?' })
+	).toBeVisible();
 	await expect(page.locator('[aria-label="Starter prompts"]')).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'No tracked stories yet' })).toBeVisible();
 	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute(
 		'placeholder',
-		'Track a story, topic, region, or source URL...'
+		'Ask NewsCraft...'
 	);
 }
 
@@ -242,7 +242,7 @@ test.describe.serial('NewsCraft app shell', () => {
 			await page.getByLabel('Confirm password').fill(password);
 			await page.getByRole('button', { name: 'Create account' }).click();
 			await expect(page).toHaveURL(/\/$/);
-			await expectStoryTrackerHome(page);
+			await expectChatStartHome(page);
 		} else {
 			// ── Pre-seeded-database path ─────────────────────────────────────────
 			// Accounts already exist; the app redirects to / (if logged in) or
@@ -255,7 +255,7 @@ test.describe.serial('NewsCraft app shell', () => {
 				await page.goto('/setup');
 				await expect(page).toHaveURL(/\/(login)?$/);
 			} else {
-				await expectStoryTrackerHome(page);
+				await expectChatStartHome(page);
 			}
 		}
 
@@ -277,7 +277,7 @@ test.describe.serial('NewsCraft app shell', () => {
 		await page.getByLabel('Password', { exact: true }).fill(password);
 		await page.getByRole('button', { name: 'Sign in' }).click();
 		await expect(page).toHaveURL(/\/$/);
-		await expectStoryTrackerHome(page);
+		await expectChatStartHome(page);
 		expect(problems).toEqual([]);
 	});
 
@@ -287,7 +287,7 @@ test.describe.serial('NewsCraft app shell', () => {
 		const problems = await collectPageProblems(page);
 
 		await signIn(page);
-		await expectStoryTrackerHome(page);
+		await expectChatStartHome(page);
 
 		const message = 'Track latest Toronto housing stories and summarize the newest reliable coverage.';
 		await page.getByRole('button', { name: message }).click();
@@ -312,8 +312,9 @@ test.describe.serial('NewsCraft app shell', () => {
 
 		await page.setViewportSize({ width: 390, height: 844 });
 		await signIn(page);
-		await expect(page.getByRole('heading', { name: 'Story tracker' })).toBeVisible();
-		await expect(page.getByRole('heading', { name: 'Start with a research prompt' })).toBeVisible();
+		await expect(
+			page.getByRole('heading', { name: 'What should NewsCraft work on?' })
+		).toBeVisible();
 		await expect(page.getByLabel('Message NewsCraft')).toBeVisible();
 
 		await page.getByRole('button', { name: 'Toggle sidebar' }).click();

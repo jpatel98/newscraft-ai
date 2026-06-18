@@ -1,4 +1,7 @@
-export interface CompleteOpenAiTextOptions {
+export type ModelProvider = 'openai' | 'perplexity';
+
+export interface CompleteProviderTextOptions {
+	provider?: ModelProvider;
 	apiKey: string;
 	model: string;
 	input: string;
@@ -8,9 +11,12 @@ export interface CompleteOpenAiTextOptions {
 	signal?: AbortSignal;
 }
 
-/** One non-streaming Responses API call that returns the output text. */
-export async function completeOpenAiText(options: CompleteOpenAiTextOptions): Promise<string> {
-	const response = await fetch('https://api.openai.com/v1/responses', {
+export interface CompleteOpenAiTextOptions extends CompleteProviderTextOptions {}
+
+/** One non-streaming Responses-compatible API call that returns the output text. */
+export async function completeProviderText(options: CompleteProviderTextOptions): Promise<string> {
+	const provider = options.provider || 'perplexity';
+	const response = await fetch(`${providerBaseUrl(provider)}/responses`, {
 		method: 'POST',
 		headers: {
 			authorization: `Bearer ${options.apiKey}`,
@@ -27,9 +33,14 @@ export async function completeOpenAiText(options: CompleteOpenAiTextOptions): Pr
 	});
 	const raw: { error?: { message?: string } } = await response.json().catch(() => ({}));
 	if (!response.ok) {
-		throw new Error(`OpenAI request failed with HTTP ${response.status}: ${raw?.error?.message || response.statusText}`);
+		throw new Error(`${providerLabel(provider)} request failed with HTTP ${response.status}: ${raw?.error?.message || response.statusText}`);
 	}
 	return extractOpenAiResponseText(raw);
+}
+
+/** Backward-compatible wrapper for older call sites/tests. */
+export async function completeOpenAiText(options: CompleteOpenAiTextOptions): Promise<string> {
+	return completeProviderText({ ...options, provider: options.provider || 'openai' });
 }
 
 /** Output text from a Responses API response object (streaming-terminal or non-streaming). */
@@ -45,5 +56,13 @@ export function extractOpenAiResponseText(raw: unknown): string {
 			.map((content) => content.text || '')
 			.join('\n')
 			.trim() || ''
-	);
+		);
+}
+
+export function providerBaseUrl(provider: ModelProvider): string {
+	return provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.perplexity.ai/v1';
+}
+
+export function providerLabel(provider: ModelProvider): string {
+	return provider === 'openai' ? 'OpenAI' : 'Perplexity';
 }

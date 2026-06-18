@@ -21,12 +21,16 @@ await ready;
 const agent = new DisciplinedNewsroomAgent({
 	config: config.agent,
 	repository,
+	modelProvider: config.modelProvider,
+	modelApiKey: config.modelApiKey,
 	openAiApiKey: config.openAiApiKey
 });
 
 try {
 	const result = await agent.run(prompt, {
 		repository,
+		modelProvider: config.modelProvider,
+		modelApiKey: config.modelApiKey,
 		openAiApiKey: config.openAiApiKey
 	});
 	process.stdout.write(`${result.final_answer.trim()}\n`);
