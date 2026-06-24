@@ -687,6 +687,7 @@ body,
 	color: var(--fg-2);
 	font-size: 13.5px;
 	text-decoration: none;
+	border-bottom: 0;
 	border-radius: var(--radius-2);
 	transition:
 		background var(--dur-fast) var(--ease-std),
