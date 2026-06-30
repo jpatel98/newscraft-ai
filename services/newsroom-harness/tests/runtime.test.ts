@@ -4,6 +4,7 @@ import {
 	NewsroomAgentRuntime,
 	type RuntimeProgressEvent
 } from '../src/agents/runtime.js';
+import { newsroomTimeContext } from '../src/agents/time-context.js';
 import { openDatabase, type HarnessDb } from '../src/db/database.js';
 import { HarnessRepository } from '../src/db/repository.js';
 
@@ -17,6 +18,28 @@ afterEach(() => {
 });
 
 describe('newsroom agent runtime', () => {
+	it('anchors relative dates to Toronto local time instead of UTC', () => {
+		const utcAfterMidnight = new Date(Date.UTC(2026, 5, 24, 3, 10));
+		const context = newsroomTimeContext({
+			now: utcAfterMidnight,
+			timeZone: 'America/Toronto'
+		});
+
+		expect(context).toContain('Tuesday, June 23, 2026');
+		expect(context).toContain('11:10 PM EDT');
+		expect(context).toContain('Newsroom timezone: America/Toronto');
+
+		const prompt = buildDisciplinedChatPrompt(
+			[{ role: 'user', content: 'what are the fifa games played in toronto today' }],
+			{ now: utcAfterMidnight, timeZone: 'America/Toronto' }
+		);
+
+		expect(prompt).toContain('Current local newsroom time: Tuesday, June 23, 2026 at 11:10 PM EDT.');
+		expect(prompt).toContain('Interpret relative date phrases');
+		expect(prompt).toContain('Current user question:');
+		expect(prompt).toContain('what are the fifa games played in toronto today');
+	});
+
 	it('builds a bounded follow-up prompt from recent conversation context', () => {
 		const prompt = buildDisciplinedChatPrompt([
 			{ role: 'system', content: 'System instructions should not become follow-up context.' },

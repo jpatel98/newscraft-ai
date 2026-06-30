@@ -27,7 +27,8 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		const caveats = publicCaveatsFor(input.prompt, evidence, unusableEvidence, input.limitations, {
 			noUsableEvidence: true
 		});
-		const guarded = appendCaveats(input.outputStyle === 'chat' ? formatChatToolAnswer(input.prompt, answer) : answer.trim(), caveats);
+		const visibleCaveats = input.outputStyle === 'chat' ? chatToolAnswerCaveats(input.prompt, caveats) : caveats;
+		const guarded = appendCaveats(input.outputStyle === 'chat' ? formatChatToolAnswer(input.prompt, answer) : answer.trim(), visibleCaveats);
 		return input.outputStyle === 'chat' ? cleanVisibleChatOutput(guarded, input.prompt) : guarded;
 	}
 	if (!evidence.length) {
@@ -81,6 +82,11 @@ function chatAnswer(
 
 function formatChatToolAnswer(prompt: string, answer: string): string {
 	return cleanVisibleChatOutput(answer, prompt);
+}
+
+function chatToolAnswerCaveats(prompt: string, caveats: string[]): string[] {
+	if (needsExplicitVerificationCaveat(prompt)) return caveats;
+	return caveats.filter((item) => !/^I could not find reliable sources confirming this\b/i.test(item));
 }
 
 export function cleanVisibleChatOutput(answer: string, prompt = ''): string {
@@ -359,6 +365,22 @@ function stripSourceSections(value: string): string {
 
 function stripCitationChatter(value: string): string {
 	return value
+		.replace(
+			/(?:^|\n)\s*If you(?:'|’)d like,\s*(?:the )?next step can be[\s\S]*?(?=\n{2,}|$)/gi,
+			''
+		)
+		.replace(
+			/(?:^|\n)\s*(?:Would you like|Do you want) (?:me )?to[\s\S]*?(?=\n{2,}|$)/gi,
+			''
+		)
+		.replace(
+			/(?:^|\n)\s*I could not find reliable\s*$/gi,
+			''
+		)
+		.replace(
+			/(?:^|\n)\s*Link extraction was incomplete for this web search result; verify before relying on it\.\s*/gi,
+			'\n'
+		)
 		.replace(/\bPosted times?:\s*[\s\S]*?(?=\s+(?:Additional confirmations?|AP write[- ]?up|Canadian Press version|Sources?:)\b|$)/gi, '')
 		.replace(/\bAdditional confirmations?:\s*[\s\S]*$/i, '')
 		.replace(/\bAP write[- ]?up carried by\s*[\s\S]*$/i, '')
@@ -489,8 +511,12 @@ function publicCaveatsFor(
 }
 
 function needsPrimaryConfirmation(prompt: string, evidence: EvidenceObject[]): boolean {
-	if (!/\b(verify|confirm|official|primary|source of truth|what .* officially said)\b/i.test(prompt)) return false;
+	if (!needsExplicitVerificationCaveat(prompt)) return false;
 	return !evidence.some((item) => item.source_kind === 'official' || item.source_kind === 'primary');
+}
+
+function needsExplicitVerificationCaveat(prompt: string): boolean {
+	return /\b(verify|confirm|official|primary|source of truth|what .* officially said)\b/i.test(prompt);
 }
 
 function appendCaveats(answer: string, caveats: string[]): string {

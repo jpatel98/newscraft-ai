@@ -19,6 +19,7 @@ import type { FetchedSource } from '../tools/sources.js';
 import { completeProviderText, type ModelProvider } from '../util/openai-complete.js';
 import { firstUrl, promptFromChatMessages, splitForStreaming } from '../util/text.js';
 import type { HarnessRepository } from '../db/repository.js';
+import { newsroomTimeContext, type NewsroomTimeContextOptions } from './time-context.js';
 
 export interface RuntimeControls {
 	maxToolCalls: number;
@@ -662,16 +663,29 @@ function tableCell(value: string): string {
 	return value.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
 }
 
-export function buildDisciplinedChatPrompt(messages: GatewayChatMessage[]): string {
+export function buildDisciplinedChatPrompt(
+	messages: GatewayChatMessage[],
+	timeOptions: NewsroomTimeContextOptions = {}
+): string {
 	const latestUserIndex = latestUserIndexFromChatMessages(messages);
 	const latestUserPrompt =
 		latestUserIndex >= 0 ? chatMessageText(messages[latestUserIndex]).trim() : promptFromChatMessages(messages).trim();
 	if (!latestUserPrompt) return promptFromChatMessages(messages);
 
 	const priorContext = recentConversationContext(messages, latestUserIndex);
-	if (!priorContext) return latestUserPrompt;
+	const dateContext = newsroomTimeContext(timeOptions);
+	if (!priorContext) {
+		return [
+			dateContext,
+			'',
+			'Current user question:',
+			latestUserPrompt
+		].join('\n');
+	}
 
 	return [
+		dateContext,
+		'',
 		'Current user question:',
 		latestUserPrompt,
 		'',

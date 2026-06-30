@@ -421,7 +421,26 @@ describe('disciplined newsroom agent harness', () => {
 		});
 
 		expect(answer).toContain("Canada beat Uzbekistan 2-0 in a men's international friendly in Edmonton on June 1, 2026.");
-		expect(answer).toContain('I could not find reliable sources confirming this in the gathered material.');
+		expect(answer).not.toContain('I could not find reliable sources confirming this in the gathered material.');
+		expect(answer).not.toContain('Sources:');
+		expect(answer).not.toContain('publication date not found');
+	});
+
+	it('removes unsolicited next-step suggestions and partial reliability fragments from chat answers', () => {
+		const answer = cleanVisibleChatOutput(
+			[
+				'Global News: Police are investigating the incident.',
+				'',
+				"If you’d like, the next step can be a tight, promotional-ready summary based on this coverage.",
+				'',
+				'Link extraction was incomplete for this web search result; verify before relying on it.',
+				'',
+				'I could not find reliable'
+			].join('\n'),
+			'Compare the coverage'
+		);
+
+		expect(answer).toBe('Global News: Police are investigating the incident.');
 	});
 
 	it('adds an explicit caveat when a tool answer has no usable source evidence', () => {
@@ -942,7 +961,8 @@ describe('disciplined newsroom agent harness', () => {
 			expect.objectContaining({ name: 'openai_web_search', status: 'ok', evidence_count: 0 })
 		]);
 		expect(result.final_answer).toContain('lower immigration targets');
-		expect(result.final_answer).toContain('Link extraction was incomplete');
+		expect(result.final_answer).not.toContain('Link extraction was incomplete');
+		expect(result.final_answer).not.toContain('I could not find reliable sources confirming this');
 		expect(result.final_answer).not.toContain('I could not find readable source material');
 	});
 });
