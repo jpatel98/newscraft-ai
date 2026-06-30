@@ -374,4 +374,32 @@
 		text-decoration: underline;
 		color: var(--cobalt-700, var(--cobalt-500));
 	}
+
+	@media (max-width: 620px) {
+		.plan-timeline {
+			font-size: 11px;
+		}
+		.plan-timeline__step {
+			gap: 7px;
+			padding: 7px 10px 7px 10px;
+		}
+		.plan-timeline__head {
+			gap: 7px;
+		}
+		.plan-timeline__summary-label,
+		.plan-timeline__head-label {
+			font-size: 11px;
+		}
+		.plan-timeline__summary-count {
+			font-size: 10px;
+		}
+		.plan-timeline__step-label {
+			white-space: normal;
+			line-height: 1.35;
+		}
+		.plan-timeline__step-detail,
+		.plan-timeline__step-source-link {
+			font-size: 10px;
+		}
+	}
 </style>

@@ -42,6 +42,7 @@
 	let drawerOpen = $state(false);
 	let isMobile = $state(false);
 	let drawerToggleButton = $state<HTMLButtonElement | null>(null);
+	let keyboardOpen = $state(false);
 
 	// `now` snapshot for date-bucketing; refreshed on conversation list change so
 	// labels don't drift mid-session without forcing a tight re-eval each tick.
@@ -76,9 +77,34 @@
 
 	onMount(() => {
 		const mq = window.matchMedia('(max-width: 760px)');
-		const apply = () => (isMobile = mq.matches);
-		apply();
-		mq.addEventListener('change', apply);
+		const applyMobile = () => {
+			isMobile = mq.matches;
+			if (!isMobile) keyboardOpen = false;
+		};
+		const applyKeyboardState = () => {
+			if (!isMobile || !window.visualViewport) {
+				keyboardOpen = false;
+				return;
+			}
+			const keyboardHeight = Math.max(0, window.innerHeight - window.visualViewport.height);
+			keyboardOpen = keyboardHeight > 130;
+		};
+		const onMediaChange = () => {
+			applyMobile();
+			applyKeyboardState();
+		};
+		const onViewportChange = () => {
+			if (!window.visualViewport) return;
+			applyKeyboardState();
+		};
+
+		applyMobile();
+		applyKeyboardState();
+		mq.addEventListener('change', onMediaChange);
+		if (window.visualViewport) {
+			window.visualViewport.addEventListener('resize', onViewportChange);
+			window.visualViewport.addEventListener('scroll', onViewportChange);
+		}
 
 		const handler = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
@@ -95,7 +121,11 @@
 		window.addEventListener('keydown', handler);
 		return () => {
 			window.removeEventListener('keydown', handler);
-			mq.removeEventListener('change', apply);
+			mq.removeEventListener('change', onMediaChange);
+			if (window.visualViewport) {
+				window.visualViewport.removeEventListener('resize', onViewportChange);
+				window.visualViewport.removeEventListener('scroll', onViewportChange);
+			}
 		};
 	});
 
@@ -420,7 +450,10 @@
 {#if onAuthPage || !data.user}
 	{@render children()}
 {:else}
-	<div class="shell {drawerOpen ? 'shell--drawer-open' : ''} {isThreadPage ? 'shell--thread' : 'shell--plain'}">
+	<div
+		class="shell {drawerOpen ? 'shell--drawer-open' : ''} {isThreadPage ? 'shell--thread' : 'shell--plain'}"
+		data-keyboard-open={keyboardOpen ? 'true' : 'false'}
+	>
 		<!-- Floating command bar — top-left, fixed, three icon buttons.
 		     Hides when the drawer is open (drawer's own header has the toggle). -->
 		<div class="cmdbar" role="toolbar" aria-label="App actions" data-hidden={drawerOpen}>
@@ -480,7 +513,8 @@
 					<PanelLeft size="15" strokeWidth={1.7} />
 				</button>
 				<a class="drawer__brand" href="/" aria-label="NewsCraft home" onclick={onSelectThread}>
-					<span>NewsCraft</span>
+					<span class="drawer__brand__full">NewsCraft</span>
+					<span class="drawer__brand__compact">NC</span>
 				</a>
 				<span class="drawer__head__btn drawer__head__btn--static" aria-hidden="true">
 					<Sparkles size="15" strokeWidth={1.7} />

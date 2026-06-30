@@ -522,6 +522,35 @@
 		border-color: var(--ink-700);
 		color: var(--ink-25);
 	}
+	@media (max-width: 560px) {
+		.feedback-backdrop {
+			padding: 12px;
+			align-items: end;
+		}
+		.feedback-dialog {
+			max-width: 100%;
+			width: 100%;
+			max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px);
+			overflow: auto;
+		}
+		.feedback-dialog__head {
+			gap: 8px;
+		}
+		.feedback-dialog__btn {
+			width: 100%;
+		}
+		.feedback-dialog__btn,
+		.feedback-dialog__icon {
+			min-height: 44px;
+			height: 44px;
+		}
+		.feedback-dialog__btn--primary {
+			min-height: 44px;
+		}
+		.feedback-dialog__textarea {
+			font-size: 16px;
+		}
+	}
 	@media (max-width: 620px) {
 		.feedback-backdrop {
 			align-items: end;
@@ -530,6 +559,13 @@
 		.feedback-dialog__actions {
 			display: grid;
 			grid-template-columns: 1fr 1fr;
+		}
+		.feedback-dialog__btn {
+			min-height: 44px;
+		}
+		.feedback-dialog__icon {
+			min-width: 44px;
+			width: 44px;
 		}
 	}
 </style>

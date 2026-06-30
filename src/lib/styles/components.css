@@ -183,6 +183,12 @@ body,
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.drawer__brand__compact {
+	display: none;
+}
+.drawer__brand__full {
+	display: inline;
+}
 
 .drawer__quick-actions {
 	padding: 12px 14px 8px;
@@ -763,7 +769,7 @@ body,
 }
 @media (max-width: 760px) {
 	.pane--plain {
-		padding-top: calc(env(safe-area-inset-top, 0px) + 60px);
+		padding-top: calc(env(safe-area-inset-top, 0px) + 48px);
 	}
 	.pane__header {
 		padding: calc(env(safe-area-inset-top, 0px) + 64px) 20px 14px;
@@ -1080,6 +1086,12 @@ body,
 }
 .composer__textarea::placeholder {
 	color: var(--fg-3);
+}
+.composer__textarea:focus {
+	outline: 0;
+}
+.composer__textarea:focus-visible {
+	outline: 0;
 }
 .composer__textarea:disabled {
 	color: var(--fg-2);
@@ -2056,12 +2068,32 @@ body,
 	.settings {
 		padding: 24px 16px 56px;
 	}
+	.btn,
+	.field__input,
+	.settings__stat,
+	.account-row,
+	.setup-link__row button,
+	.skills-list__row,
+	.skill-detail__file-list code {
+		font-size: 13px;
+	}
 	.settings__title {
 		font-size: 28px;
+	}
+	.field__input {
+		font-size: 16px;
 	}
 	.settings__group {
 		grid-template-columns: 1fr;
 		gap: 12px;
+	}
+	.settings__section-body .btn,
+	.settings__confirm-actions .btn {
+		min-height: 44px;
+	}
+	.account-row__actions .btn,
+	.settings__form-actions .btn {
+		width: 100%;
 	}
 	.settings__stats {
 		grid-template-columns: 1fr;
@@ -2388,6 +2420,56 @@ body,
 
 /* ---------- Mobile (≤ 760px) ---------- */
 @media (max-width: 760px) {
+	.shell[data-keyboard-open='true'] .drawer__brand__full {
+		display: none;
+	}
+	.shell[data-keyboard-open='true'] .drawer__brand__compact {
+		display: inline;
+	}
+	.shell[data-keyboard-open='true'] .cmdbar {
+		top: calc(env(safe-area-inset-top, 0px) + 4px);
+		left: calc(env(safe-area-inset-left, 0px) + 8px);
+		z-index: 50;
+	}
+	.shell[data-keyboard-open='true'] .pane--plain {
+		padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+	}
+	.shell[data-keyboard-open='true'] .pane__header {
+		padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 8px;
+		gap: 4px;
+	}
+	.shell[data-keyboard-open='true'] .pane__header__title {
+		font-size: 16px;
+		line-height: 1.2;
+	}
+	.shell[data-keyboard-open='true'] .pane__header__topic {
+		font-size: 9.5px;
+	}
+	.shell[data-keyboard-open='true'] .composer-zone {
+		padding-top: 6px;
+		padding-right: 10px;
+		padding-left: 10px;
+	}
+	.shell[data-keyboard-open='true'] .composer__textarea {
+		font-size: 16px;
+	}
+	.shell[data-keyboard-open='true'] .chat-start {
+		padding-top: calc(env(safe-area-inset-top, 0px) + 6px);
+	}
+	.shell[data-keyboard-open='true'] .chat-start__hero {
+		gap: 4px;
+	}
+	.shell[data-keyboard-open='true'] .chat-start h1 {
+		font-size: 24px;
+		line-height: 1.1;
+	}
+	.shell[data-keyboard-open='true'] .chat-start p {
+		font-size: 13px;
+		line-height: 1.38;
+	}
+	.shell[data-keyboard-open='true'] .chat-start__prompts {
+		grid-template-columns: 1fr;
+	}
 	.cmdbar {
 		top: calc(env(safe-area-inset-top, 0px) + 10px);
 		left: calc(env(safe-area-inset-left, 0px) + 16px);
@@ -2399,8 +2481,8 @@ body,
 		box-shadow: none;
 	}
 	.cmdbar__btn {
-		width: 36px;
-		height: 36px;
+		width: 44px;
+		height: 44px;
 		background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
 		border: 1px solid var(--border-soft);
 		box-shadow: var(--shadow-1);
@@ -2450,6 +2532,16 @@ body,
 	}
 	.msg__actions {
 		opacity: 1;
+		gap: 6px;
+	}
+	.msg__action {
+		min-height: 44px;
+		padding: 0 10px;
+		border-radius: var(--radius-2);
+	}
+	.msg__action svg {
+		width: 15px;
+		height: 15px;
 	}
 	.composer-zone {
 		padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
@@ -2460,12 +2552,19 @@ body,
 	}
 	.composer__icon-btn,
 	.composer__send {
-		width: 34px;
-		min-width: 34px;
+		width: 44px;
+		height: 44px;
+		min-width: 44px;
+		min-height: 44px;
 		padding: 0;
 	}
+	.composer__textarea {
+		font-size: 16px;
+		line-height: 1.44;
+		padding: 10px 2px;
+	}
 	.composer__send span {
-		display: none;
+		font-size: 0;
 	}
 	.composer__hint {
 		display: none;
@@ -2489,5 +2588,28 @@ body,
 	}
 	.empty__prompts button {
 		text-align: left;
+	}
+	.sidebar__row {
+		min-height: 44px;
+	}
+	.sidebar__row-menu-btn {
+		opacity: 1;
+		width: 44px;
+		height: 44px;
+		min-width: 44px;
+		min-height: 44px;
+		right: 2px;
+	}
+	.sidebar__footer-link {
+		min-height: 44px;
+	}
+}
+
+@media (max-width: 390px) {
+	.drawer__brand__full {
+		display: none;
+	}
+	.drawer__brand__compact {
+		display: inline;
 	}
 }
