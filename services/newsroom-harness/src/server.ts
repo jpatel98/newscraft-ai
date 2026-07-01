@@ -23,6 +23,7 @@ export interface HarnessServer {
 	runner: JobRunner;
 	scheduler: JobScheduler;
 	ready: Promise<void>;
+	handle(req: IncomingMessage, res: ServerResponse): Promise<void>;
 	url(): string;
 	close(): Promise<void>;
 }
@@ -51,8 +52,10 @@ export function createHarnessServer(options: {
 		});
 	const runner = new JobRunner(repository, runtime, config);
 	const scheduler = new JobScheduler(repository, runner, config);
+	const handle = (req: IncomingMessage, res: ServerResponse) =>
+		route(req, res, { config, repository, runtime, runner, scheduler });
 	const server = createServer((req, res) => {
-		void route(req, res, { config, repository, runtime, runner, scheduler }).catch((err) => handleError(res, err));
+		void handle(req, res).catch((err) => handleError(res, err));
 	});
 	server.on('close', () => scheduler.stop());
 	if (options.startScheduler !== false && config.schedulerEnabled) scheduler.start();
@@ -63,6 +66,9 @@ export function createHarnessServer(options: {
 		runner,
 		scheduler,
 		ready,
+		handle(req, res) {
+			return handle(req, res).catch((err) => handleError(res, err));
+		},
 		url() {
 			const address = server.address() as AddressInfo | null;
 			const port = address?.port ?? config.port;
