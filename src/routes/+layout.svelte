@@ -43,6 +43,7 @@
 	let isMobile = $state(false);
 	let drawerToggleButton = $state<HTMLButtonElement | null>(null);
 	let keyboardOpen = $state(false);
+	let visualViewportHeight = $state('100dvh');
 
 	// `now` snapshot for date-bucketing; refreshed on conversation list change so
 	// labels don't drift mid-session without forcing a tight re-eval each tick.
@@ -82,12 +83,19 @@
 			if (!isMobile) keyboardOpen = false;
 		};
 		const applyKeyboardState = () => {
-			if (!isMobile || !window.visualViewport) {
+			if (!isMobile) {
 				keyboardOpen = false;
+				visualViewportHeight = '100dvh';
+				return;
+			}
+			if (!window.visualViewport) {
+				keyboardOpen = false;
+				visualViewportHeight = `${window.innerHeight}px`;
 				return;
 			}
 			const keyboardHeight = Math.max(0, window.innerHeight - window.visualViewport.height);
 			keyboardOpen = keyboardHeight > 130;
+			visualViewportHeight = `${Math.round(window.visualViewport.height)}px`;
 		};
 		const onMediaChange = () => {
 			applyMobile();
@@ -453,6 +461,7 @@
 	<div
 		class="shell {drawerOpen ? 'shell--drawer-open' : ''} {isThreadPage ? 'shell--thread' : 'shell--plain'}"
 		data-keyboard-open={keyboardOpen ? 'true' : 'false'}
+		style={`--visual-vh: ${visualViewportHeight};`}
 	>
 		<!-- Floating command bar — top-left, fixed, three icon buttons.
 		     Hides when the drawer is open (drawer's own header has the toggle). -->
