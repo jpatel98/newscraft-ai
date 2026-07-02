@@ -1,8 +1,7 @@
-import { createHarnessServer } from '../dist/server.js';
+import { createVercelHarnessHandler } from '../dist/serverless.js';
 
-const harness = createHarnessServer({ startScheduler: false });
+const harness = createVercelHarnessHandler();
 
 export default async function handler(req, res) {
-	await harness.ready;
-	await harness.handle(req, res);
+	await harness(req, res);
 }

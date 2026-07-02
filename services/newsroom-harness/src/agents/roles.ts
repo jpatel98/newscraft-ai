@@ -2,10 +2,22 @@ import { readFileSync } from 'node:fs';
 
 export type NewsroomRole = 'assignment_desk' | 'research' | 'monitoring' | 'assistant';
 
-export const NEWSROOM_REPORT_INSTRUCTIONS = readFileSync(
-	new URL('../../prompts/newsroom-report.md', import.meta.url),
-	'utf8'
-).trim();
+export const NEWSROOM_REPORT_INSTRUCTIONS = readPrompt('newsroom-report.md');
+
+function readPrompt(name: string): string {
+	const candidates = [
+		new URL(`../../prompts/${name}`, import.meta.url),
+		new URL(`../prompts/${name}`, import.meta.url)
+	];
+	for (const url of candidates) {
+		try {
+			return readFileSync(url, 'utf8').trim();
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+		}
+	}
+	throw new Error(`Missing newsroom prompt: ${name}`);
+}
 
 export const ROLE_INSTRUCTIONS: Record<NewsroomRole, string> = {
 	assignment_desk:

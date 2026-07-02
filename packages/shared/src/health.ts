@@ -7,7 +7,7 @@ export interface GatewayHealthResponse {
 	db: {
 		ok: boolean;
 		path: string;
-		backend?: 'sqlite' | 'sqlite+supabase';
+		backend?: 'sqlite' | 'sqlite+supabase' | 'stateless';
 		error?: string;
 	};
 	openai: {
