@@ -17,12 +17,28 @@ export interface GatewayHealthResponse {
 		name: 'openai' | 'perplexity';
 		configured: boolean;
 	};
+	config?: {
+		ok: boolean;
+		errors: string[];
+		warnings: string[];
+	};
 	scheduler?: {
 		enabled?: boolean;
 		running: boolean;
 		intervalMs: number;
 		dueJobs: number | null;
 		activeRuns: number | null;
+	};
+	capabilities?: {
+		chat: boolean;
+		responses: boolean;
+		jobs: boolean;
+		runs: boolean;
+		reports: boolean;
+		memory: boolean;
+		savedResearch: boolean;
+		scheduler: boolean;
+		persistence: 'sqlite' | 'sqlite+supabase' | 'stateless';
 	};
 	ingest?: {
 		configured: boolean;

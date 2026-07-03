@@ -4,8 +4,15 @@ import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { evidenceOutputSchema, ToolRegistry, type NewsroomTool, type ToolRunContext, type ToolRunOutput } from './tools.js';
 import { resolveModelPolicy } from './model-policy.js';
 import { fetchSourceUrl, sourceFromText } from '../tools/sources.js';
-import { extractOpenAiResponseText, providerBaseUrl, providerLabel, type ModelProvider } from '../util/openai-complete.js';
-import { readOpenAiResponseStream } from '../util/openai-stream.js';
+import {
+	extractProviderResponseText,
+	normalizeProviderModel,
+	providerLabel,
+	providerTextEndpoint,
+	providerTextUrl,
+	type ModelProvider
+} from '../util/openai-complete.js';
+import { readChatCompletionStream, readOpenAiResponseStream } from '../util/openai-stream.js';
 import { extractUrls, firstUrl } from '../util/text.js';
 import { assessSourceQuality } from '../util/source-quality.js';
 import { newsroomTimeContext } from './time-context.js';
@@ -153,7 +160,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 		async run(input, context) {
 			const provider = context.modelProvider || context.config.model_provider;
 			const providerName = providerLabel(provider);
-			const apiKey = context.modelApiKey || context.openAiApiKey;
+			const apiKey = context.modelApiKey || (provider === 'openai' ? context.openAiApiKey : '');
 			if (!apiKey) {
 				return {
 					status: 'unavailable',
@@ -181,6 +188,16 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					limitations: [modelDecision.reason]
 				};
 			}
+			let requestModel: string;
+			try {
+				requestModel = normalizeProviderModel(provider, modelDecision.model);
+			} catch (err) {
+				return {
+					status: 'unavailable',
+					limitations: [err instanceof Error ? err.message : String(err)]
+				};
+			}
+			const endpoint = providerTextEndpoint(provider);
 			context.repository?.appendEvent({
 				jobId: context.jobId,
 				runId: context.runId,
@@ -196,14 +213,14 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				},
 				costMetadata: {
 					provider,
-					model: modelDecision.model,
-					endpoint: 'responses',
+					model: requestModel,
+					endpoint,
 					tool: NEWSROOM_TOOL_NAMES.webSearch,
 					estimated: false
 				}
 			});
 			const streamDeltas = Boolean(context.onAnswerDelta);
-			const response = await fetch(`${providerBaseUrl(provider)}/responses`, {
+			const response = await fetch(providerTextUrl(provider), {
 				method: 'POST',
 				headers: {
 					authorization: `Bearer ${apiKey}`,
@@ -211,7 +228,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				},
 				body: JSON.stringify(webSearchRequestBody({
 					provider,
-					model: modelDecision.model,
+					model: requestModel,
 					stream: streamDeltas,
 					input: [
 						newsroomTimeContext(),
@@ -238,7 +255,11 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			let raw: { error?: { message?: string } } = {};
 			let streamFailure: string | null = null;
 			if (response.ok && streamDeltas && response.body && context.onAnswerDelta) {
-				const streamed = await readOpenAiResponseStream(response.body, context.onAnswerDelta).catch((err) => ({
+				const streamed = await (
+					provider === 'openai'
+						? readOpenAiResponseStream(response.body, context.onAnswerDelta)
+						: readChatCompletionStream(response.body, context.onAnswerDelta)
+				).catch((err) => ({
 					response: null,
 					status: 'interrupted' as const,
 					error: err instanceof Error ? err.message : String(err)
@@ -258,14 +279,14 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				payload: {
 					task: modelDecision.task,
 					tier: modelDecision.tier,
-					model: modelDecision.model,
+					model: requestModel,
 					status: response.status,
 					tool: NEWSROOM_TOOL_NAMES.webSearch
 				},
 				costMetadata: {
 					provider,
-					model: modelDecision.model,
-					endpoint: 'responses',
+					model: requestModel,
+					endpoint,
 					tool: NEWSROOM_TOOL_NAMES.webSearch,
 					usage: providerUsageMetadata(raw),
 					estimated: false
@@ -278,7 +299,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					raw
 				};
 			}
-			const outputText = extractOpenAiResponseText(raw);
+			const outputText = extractProviderResponseText(provider, raw);
 			if (streamFailure && !outputText.trim()) {
 				return {
 					status: 'error',
@@ -598,18 +619,33 @@ function webSearchRequestBody(input: {
 	stream: boolean;
 	input: string;
 }): Record<string, unknown> {
-	const body: Record<string, unknown> = {
+	if (input.provider === 'openai') {
+		const body: Record<string, unknown> = {
+			model: input.model,
+			stream: input.stream,
+			reasoning: { effort: 'low' },
+			tools: [{ type: 'web_search' }],
+			tool_choice: 'auto',
+			input: input.input
+		};
+		body.include = ['web_search_call.action.sources'];
+		return body;
+	}
+	return {
 		model: input.model,
 		stream: input.stream,
-		reasoning: { effort: 'low' },
-		tools: [{ type: 'web_search' }],
-		tool_choice: 'auto',
-		input: input.input
+		messages: [
+			{
+				role: 'system',
+				content: [
+					'You are NewsCraft AI, a newsroom research assistant.',
+					'Use Perplexity Sonar web grounding to answer with concise, source-backed current information.',
+					'Do not invent sources. If reliable results are missing, say so plainly.'
+				].join(' ')
+			},
+			{ role: 'user', content: input.input }
+		]
 	};
-	if (input.provider === 'openai') {
-		body.include = ['web_search_call.action.sources'];
-	}
-	return body;
 }
 
 function providerEnvName(provider: ModelProvider): string {
@@ -630,6 +666,7 @@ function extractProviderWebSources(raw: unknown, outputText: string, query: stri
 	const actionSources: WebSourceCandidate[] = [];
 	const citedSources: WebSourceCandidate[] = [];
 	const response = raw as {
+		citations?: Array<string | { url?: string; title?: string; snippet?: string }>;
 		search_results?: Array<{ url?: string; title?: string; snippet?: string; date?: string; last_updated?: string }>;
 		fetch_url_results?: Array<{ url?: string; title?: string; content?: string; snippet?: string }>;
 		output?: Array<{
@@ -651,6 +688,14 @@ function extractProviderWebSources(raw: unknown, outputText: string, query: stri
 			}>;
 		}>;
 	};
+	for (const citation of response.citations || []) {
+		const url = typeof citation === 'string' ? citation : citation.url;
+		if (!url) continue;
+		if (!shouldKeepWebSource(url, query)) continue;
+		const title = typeof citation === 'string' ? url : citation.title || url;
+		const snippet = typeof citation === 'string' ? '' : citation.snippet || '';
+		citedSources.push(webSource(url, title, snippet));
+	}
 	for (const source of response.search_results || []) {
 		if (!source.url) continue;
 		if (!shouldKeepWebSource(source.url, query)) continue;

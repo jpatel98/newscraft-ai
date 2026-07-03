@@ -61,7 +61,11 @@ describe('newsroom agent runtime', () => {
 		expect(prompt).toContain('Recent conversation context');
 		expect(prompt).toContain('Mark Carney');
 		expect(prompt).toContain('investing.com');
-		expect(prompt).not.toContain('System instructions should not become follow-up context');
+		expect(prompt).toContain('System and newsroom instructions:');
+		expect(prompt).toContain('System instructions should not become follow-up context.');
+		expect(prompt.indexOf('System instructions should not become follow-up context.')).toBeLessThan(
+			prompt.indexOf('Recent conversation context')
+		);
 	});
 
 	it('formats fixture follow-ups from prior assistant content without rerunning research', async () => {

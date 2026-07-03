@@ -947,7 +947,17 @@ describe('disciplined newsroom agent harness', () => {
 		const agent = new DisciplinedNewsroomAgent({
 			config: {
 				...defaultAgentConfig(),
-				enabled_tools: ['openai_web_search']
+				enabled_tools: ['openai_web_search'],
+				model_provider: 'openai',
+				web_search_model: 'openai/gpt-5-mini',
+				model_policy: createModelPolicyConfig({
+					models: {
+						nano: 'openai/gpt-5-mini',
+						mini: 'openai/gpt-5-mini',
+						standard: 'openai/gpt-5-mini',
+						web_search: 'openai/gpt-5-mini'
+					}
+				})
 			}
 		});
 

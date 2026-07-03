@@ -131,8 +131,8 @@ export class DisciplinedNewsroomAgent {
 		});
 		const ledger = new ToolBudgetLedger(
 			mergeToolBudget({
-				...decision.tool_budget,
-				...this.config.default_tool_budget
+				...this.config.default_tool_budget,
+				...decision.tool_budget
 			})
 		);
 		const evidence: EvidenceObject[] = [];

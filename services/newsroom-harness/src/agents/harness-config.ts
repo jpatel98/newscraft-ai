@@ -120,18 +120,36 @@ export function loadNewsroomAgentConfigFromEnv(overrides: Partial<NewsroomAgentC
 		max_runtime_seconds: intFromEnv(process.env.NEWSROOM_HARNESS_RUN_TIMEOUT_SECONDS)
 	});
 	const monitors = parseSourceMonitors(process.env.NEWSROOM_AGENT_SOURCE_MONITORS_JSON);
+	const modelProvider = modelProviderFromEnv(process.env.NEWSROOM_MODEL_PROVIDER) || overrides.model_provider;
+	const defaultModel = modelProvider === 'openai' ? 'openai/gpt-5-mini' : undefined;
+	const modelPolicyOverrides = overrides.model_policy as ModelPolicyOverrides | undefined;
+	const providerModelDefaults = defaultModel
+		? {
+				nano: defaultModel,
+				mini: defaultModel,
+				standard: defaultModel,
+				web_search: defaultModel
+			}
+		: undefined;
 	return createNewsroomAgentConfig({
 		...overrides,
 		default_tool_budget: envBudget,
 		enabled_tools: csv(process.env.NEWSROOM_AGENT_ENABLED_TOOLS) || overrides.enabled_tools,
-		model_provider: modelProviderFromEnv(process.env.NEWSROOM_MODEL_PROVIDER) || overrides.model_provider,
+		model_provider: modelProvider,
 		planner_enabled: boolEnv(process.env.NEWSROOM_AGENT_PLANNER_ENABLED) ?? overrides.planner_enabled,
 		source_priority: csv(process.env.NEWSROOM_AGENT_SOURCE_PRIORITY) as NewsroomAgentConfig['source_priority'],
 		source_monitors: monitors || overrides.source_monitors,
-		model_policy: loadModelPolicyConfigFromEnv(overrides.model_policy as ModelPolicyOverrides | undefined),
+		model_policy: loadModelPolicyConfigFromEnv({
+			...modelPolicyOverrides,
+			models: {
+				...providerModelDefaults,
+				...modelPolicyOverrides?.models
+			}
+		}),
 		web_search_model:
 			process.env.NEWSROOM_WEB_SEARCH_MODEL ||
-			(overrides.model_policy as ModelPolicyOverrides | undefined)?.models?.web_search ||
+			modelPolicyOverrides?.models?.web_search ||
+			defaultModel ||
 			overrides.web_search_model
 	});
 }

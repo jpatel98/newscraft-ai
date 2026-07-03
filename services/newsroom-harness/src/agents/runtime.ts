@@ -673,10 +673,12 @@ export function buildDisciplinedChatPrompt(
 	if (!latestUserPrompt) return promptFromChatMessages(messages);
 
 	const priorContext = recentConversationContext(messages, latestUserIndex);
+	const systemInstructions = systemInstructionsFromChatMessages(messages);
 	const dateContext = newsroomTimeContext(timeOptions);
 	if (!priorContext) {
 		return [
 			dateContext,
+			...(systemInstructions ? ['', 'System and newsroom instructions:', systemInstructions] : []),
 			'',
 			'Current user question:',
 			latestUserPrompt
@@ -685,6 +687,7 @@ export function buildDisciplinedChatPrompt(
 
 	return [
 		dateContext,
+		...(systemInstructions ? ['', 'System and newsroom instructions:', systemInstructions] : []),
 		'',
 		'Current user question:',
 		latestUserPrompt,
@@ -717,6 +720,15 @@ function recentConversationContext(messages: GatewayChatMessage[], latestUserInd
 		.filter(Boolean)
 		.join('\n\n');
 	return compactChatContextText(prior, MAX_FOLLOWUP_CONTEXT_CHARS);
+}
+
+function systemInstructionsFromChatMessages(messages: GatewayChatMessage[]): string {
+	const instructions = messages
+		.filter((message) => message.role === 'system')
+		.map((message) => compactChatContextText(chatMessageText(message), MAX_FOLLOWUP_MESSAGE_CHARS))
+		.filter(Boolean)
+		.join('\n\n');
+	return compactChatContextText(instructions, MAX_FOLLOWUP_CONTEXT_CHARS);
 }
 
 function chatMessageText(message: GatewayChatMessage): string {

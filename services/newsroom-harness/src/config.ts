@@ -3,6 +3,7 @@ import {
 	loadNewsroomAgentConfigFromEnv,
 	type NewsroomAgentConfig
 } from './agents/harness-config.js';
+import { providerModelIssue } from './util/openai-complete.js';
 
 export interface HarnessConfig {
 	host: string;
@@ -24,6 +25,12 @@ export interface HarnessConfig {
 	version: string;
 }
 
+export interface HarnessConfigValidation {
+	ok: boolean;
+	errors: string[];
+	warnings: string[];
+}
+
 function intFromEnv(value: string | undefined, fallback: number): number {
 	const parsed = Number(value);
 	return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
@@ -39,8 +46,13 @@ function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
 export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfig {
 	const runTimeoutMs = intFromEnv(process.env.NEWSROOM_HARNESS_RUN_TIMEOUT_MS, 90_000);
 	const maxToolCalls = intFromEnv(process.env.NEWSROOM_HARNESS_MAX_TOOL_CALLS, 6);
-	const modelProvider = providerFromEnv(process.env.NEWSROOM_MODEL_PROVIDER) || 'perplexity';
+	const modelProvider =
+		overrides.modelProvider ||
+		providerFromEnv(process.env.NEWSROOM_MODEL_PROVIDER) ||
+		(!process.env.PERPLEXITY_API_KEY && process.env.OPENAI_API_KEY ? 'openai' : 'perplexity');
 	const agent = loadNewsroomAgentConfigFromEnv({
+		...(overrides.agent || {}),
+		model_provider: modelProvider,
 		default_tool_budget: {
 			max_total_tool_calls: maxToolCalls,
 			max_custom_tool_calls: intFromEnv(process.env.NEWSROOM_HARNESS_MAX_CUSTOM_TOOL_CALLS, 4),
@@ -74,4 +86,34 @@ export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfi
 function providerFromEnv(value: string | undefined): HarnessConfig['modelProvider'] | undefined {
 	if (value === 'openai' || value === 'perplexity') return value;
 	return undefined;
+}
+
+export function validateHarnessConfig(config: HarnessConfig): HarnessConfigValidation {
+	const errors: string[] = [];
+	const warnings: string[] = [];
+
+	if (!config.apiKey) {
+		warnings.push('NEWSROOM_HARNESS_API_KEY is not configured; private endpoints will accept unauthenticated requests.');
+	}
+	if (!config.modelApiKey) {
+		warnings.push(`${config.modelProvider === 'openai' ? 'OPENAI_API_KEY' : 'PERPLEXITY_API_KEY'} is not configured; live model calls will be unavailable.`);
+	}
+	const activeModelEntries = new Map<string, string>();
+	for (const task of Object.values(config.agent.model_policy.tasks)) {
+		if (task.tier === 'none') continue;
+		activeModelEntries.set(task.tier, config.agent.model_policy.models[task.tier]);
+	}
+	activeModelEntries.set('web_search', config.agent.model_policy.models.web_search);
+	for (const [label, model] of activeModelEntries) {
+		const issue = providerModelIssue(config.modelProvider, model);
+		if (issue) errors.push(`Model policy ${label}: ${issue}`);
+	}
+	const webSearchIssue = providerModelIssue(config.modelProvider, config.agent.web_search_model);
+	if (webSearchIssue) errors.push(`NEWSROOM_WEB_SEARCH_MODEL: ${webSearchIssue}`);
+
+	return {
+		ok: errors.length === 0,
+		errors,
+		warnings
+	};
 }

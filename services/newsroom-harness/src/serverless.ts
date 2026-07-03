@@ -5,7 +5,7 @@ import type {
 	GatewayResponsesRequest
 } from '@newscraft/shared';
 import { writeChatCompletion, writeResponses } from './chat.js';
-import { loadConfig } from './config.js';
+import { loadConfig, validateHarnessConfig } from './config.js';
 import { NewsroomAgentRuntime } from './agents/runtime.js';
 import { bearerToken, HttpError, readJson, tokenMatches, writeJson, writeText } from './util/http.js';
 
@@ -55,8 +55,9 @@ export function createVercelHarnessHandler() {
 }
 
 function serverlessHealth(config: ReturnType<typeof loadConfig>): GatewayHealthResponse {
+	const configStatus = validateHarnessConfig(config);
 	return {
-		ok: true,
+		ok: configStatus.ok,
 		service: 'newsroom-harness',
 		version: config.version,
 		time: new Date().toISOString(),
@@ -68,12 +69,24 @@ function serverlessHealth(config: ReturnType<typeof loadConfig>): GatewayHealthR
 		},
 		openai: { configured: Boolean(config.openAiApiKey) },
 		modelProvider: { name: config.modelProvider, configured: Boolean(config.modelApiKey) },
+		config: configStatus,
 		scheduler: {
 			enabled: false,
 			running: false,
 			intervalMs: config.schedulerIntervalMs,
 			dueJobs: null,
 			activeRuns: null
+		},
+		capabilities: {
+			chat: true,
+			responses: true,
+			jobs: false,
+			runs: false,
+			reports: false,
+			memory: false,
+			savedResearch: false,
+			scheduler: false,
+			persistence: 'stateless'
 		},
 		ingest: {
 			configured: Boolean(config.uiIngestUrl && config.uiIngestKey),
@@ -106,5 +119,6 @@ function handleError(res: ServerResponse, err: unknown): void {
 		writeText(res, err.status, err.message);
 		return;
 	}
-	writeText(res, 500, err instanceof Error ? err.message : String(err));
+	console.error('NewsCraft serverless harness request failed', err instanceof Error ? err.message : String(err));
+	writeText(res, 500, 'internal server error');
 }

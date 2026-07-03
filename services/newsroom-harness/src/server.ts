@@ -8,7 +8,7 @@ import type {
 	UpdateJobInput
 } from '@newscraft/shared';
 import { writeChatCompletion, writeResponses } from './chat.js';
-import { loadConfig, type HarnessConfig } from './config.js';
+import { loadConfig, validateHarnessConfig, type HarnessConfig } from './config.js';
 import { createHarnessRepository } from './db/factory.js';
 import { HarnessRepository } from './db/repository.js';
 import { NewsroomAgentRuntime } from './agents/runtime.js';
@@ -257,6 +257,7 @@ function harnessHealth(ctx: {
 	let dbError: string | undefined;
 	let dueJobs: number | null = null;
 	let activeRuns: number | null = null;
+	const configStatus = validateHarnessConfig(ctx.config);
 	try {
 		dbOk = ctx.repository.healthcheck();
 		dueJobs = ctx.repository.dueJobs().length;
@@ -266,7 +267,7 @@ function harnessHealth(ctx: {
 	}
 
 	return {
-		ok: dbOk,
+		ok: dbOk && configStatus.ok,
 		service: 'newsroom-harness',
 		version: ctx.config.version,
 		time: new Date().toISOString(),
@@ -279,12 +280,24 @@ function harnessHealth(ctx: {
 		},
 		openai: { configured: Boolean(ctx.config.openAiApiKey) },
 		modelProvider: { name: ctx.config.modelProvider, configured: Boolean(ctx.config.modelApiKey) },
+		config: configStatus,
 		scheduler: {
 			enabled: ctx.config.schedulerEnabled,
 			running: ctx.scheduler.isRunning(),
 			intervalMs: ctx.config.schedulerIntervalMs,
 			dueJobs,
 			activeRuns
+		},
+		capabilities: {
+			chat: true,
+			responses: true,
+			jobs: true,
+			runs: true,
+			reports: true,
+			memory: true,
+			savedResearch: true,
+			scheduler: ctx.config.schedulerEnabled,
+			persistence: ctx.config.databaseUrl ? 'sqlite+supabase' : 'sqlite'
 		},
 		ingest: {
 			configured: Boolean(ctx.config.uiIngestUrl && ctx.config.uiIngestKey),
@@ -317,5 +330,6 @@ function handleError(res: ServerResponse, err: unknown): void {
 		writeText(res, err.status, err.message);
 		return;
 	}
-	writeText(res, 500, err instanceof Error ? err.message : String(err));
+	console.error('NewsCraft harness request failed', publicError(err));
+	writeText(res, 500, 'internal server error');
 }
