@@ -1,19 +1,13 @@
 {
 	"version": 2,
-	"buildCommand": "pnpm --filter @newscraft/shared build && pnpm --filter @newscraft/newsroom-harness build && node scripts/bundle-vercel.mjs",
-	"builds": [
-		{
-			"src": "api/vercel-entry.js",
-			"use": "@vercel/node",
-			"config": {
-				"includeFiles": ["prompts/**"]
-			}
+	"framework": null,
+	"buildCommand": "pnpm --filter @newscraft/shared build && pnpm --filter @newscraft/newsroom-harness build",
+	"outputDirectory": "public",
+	"functions": {
+		"api/index.js": {
+			"includeFiles": "prompts/**",
+			"excludeFiles": ".data/**"
 		}
-	],
-	"routes": [
-		{
-			"src": "/(.*)",
-			"dest": "api/vercel-entry.js"
-		}
-	]
+	},
+	"rewrites": [{ "source": "/(.*)", "destination": "/api/index.js" }]
 }

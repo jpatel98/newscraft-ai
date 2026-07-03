@@ -1,6 +1,6 @@
 # NewsCraft AI — Source of Truth & Roadmap
 
-Last updated: 2026-06-12
+Last updated: 2026-07-03
 
 This is the single canonical document for NewsCraft AI: what the product is,
 how it is built today, where it is going, and how to work on it. If any other
@@ -11,16 +11,25 @@ doc — update it as the product changes instead of adding new ones.
 
 ## 1. What It Is
 
-NewsCraft AI is a **solo news-producer tool**. Not a team editorial system, not
-a publishing pipeline, not a multi-agent verification workflow. It is two
-things:
+NewsCraft AI is a **newsroom-smart chat tool for a solo news producer**. Not a
+team editorial system, not a publishing pipeline, not a multi-agent
+verification workflow.
 
-1. **Story tracker** — give it a topic, region, or story. A research agent
-   gathers what it can find — web search, social, configured source URLs — and
-   you check back to see what's new.
-2. **Newsroom-smart chat** — a general chat agent with the same research tools.
-   Ask it things, get clean formatted answers: a short paragraph and links, not
-   a tool trace or system log.
+**Decision (2026-07-03): chat-first, tracker frozen.** The product ships one
+surface until it is excellent:
+
+1. **Newsroom-smart chat** — a research chat agent with source-backed answers:
+   web search, configured source URLs, honest publication dates, honest
+   caveats. Clean formatted answers — a short paragraph and links, not a tool
+   trace or system log. This is the entire product until it clears the chat
+   quality gate (§5).
+2. **Story tracker — FROZEN.** The jobs/runs/reports/scheduler skeleton stays
+   in the repo but gets **no new work** and is not surfaced as product. The
+   product thesis is that tracking ("watch this story, tell me what changed")
+   is the long-term differentiator — but a tracker built on a research engine
+   that fails its own eval just delivers wrong answers on a schedule. The
+   tracker unfreezes only when the chat quality gate passes **and** daily chat
+   use shows the pull signal (re-asking the same story every morning).
 
 Everything from the old "newsroom of agents" design — gates, editor decision
 queues, verification/copy/packaging agents, delivery adapters, crawl plans,
@@ -90,17 +99,54 @@ user-facing UI.
   agent forwards deltas from the first answer-producing tool, and the runtime
   sanitizes them incrementally (re-running the batch cleaner over the growing
   prefix and emitting the diff) before the gateway passes them through live.
+- **Provider separation (shipped 2026-07-02).** OpenAI and Perplexity are
+  distinct request shapes behind one call site: OpenAI uses the Responses API
+  (`/v1/responses`, `input`/`instructions`/`reasoning`), Perplexity uses the
+  Sonar API (`https://api.perplexity.ai/v1/sonar`, `messages`, plain model ids
+  like `sonar`). `normalizeProviderModel` strips `openai/`/`perplexity/`
+  prefixes and hard-rejects cross-provider model/provider mismatches with
+  actionable messages (`util/openai-complete.ts`). `validateHarnessConfig`
+  (`config.ts`) surfaces errors/warnings in `/health` — missing keys warn,
+  provider/model mismatches are errors and flip health `ok:false`. Provider is
+  inferred from available keys when `NEWSROOM_MODEL_PROVIDER` is unset.
+- **Health capabilities (shipped 2026-07-02).** `GatewayHealthResponse.capabilities`
+  reports what each deployment shape actually supports (`chat`, `jobs`,
+  `memory`, `savedResearch`, `scheduler`, `persistence:
+  'sqlite'|'sqlite+supabase'|'stateless'`). The UI can gate surfaces on it.
 - Source fetch pipeline + adapters (RSS, Atom, HTML, Bluesky, sitemap, PDF).
   These stay **backend-only** and are never named in the UI ("From BBC World
   Service" or a link — never adapter names or fetch metadata).
 - SQLite persistence (`NEWSROOM_HARNESS_DB_PATH`), with Supabase/Postgres
   mirroring only when `NEWSROOM_HARNESS_DATABASE_URL` is **explicitly** set.
-  The UI `DATABASE_URL` is never the harness mirror.
-- Process-local scheduler (off by default). No Redis/BullMQ.
+  The UI `DATABASE_URL` is never the harness mirror. (The mirror is slated for
+  deletion — see §5 Phase C.)
+- Process-local scheduler (off by default). No Redis/BullMQ. (Frozen with the
+  tracker — see §1.)
 - Model-policy controls: `NEWSROOM_MODEL_POLICY_MODE` (`cost_saver` default),
   with scheduled model calls and scheduled web search gated off by default
   (`NEWSROOM_ALLOW_SCHEDULED_MODEL_CALLS`,
   `NEWSROOM_ALLOW_SCHEDULED_WEB_SEARCH`).
+
+### Production (Vercel, as of 2026-07-03)
+
+- **UI** — `agent.newscraftai.com`, SvelteKit on `@sveltejs/adapter-vercel`
+  (`nodejs24.x`), Supabase Postgres app DB. Chat resume claims are DB-backed
+  (`messages.resume_claimed_at`, atomic conditional claim with a 5-minute TTL
+  in `src/lib/server/db/conversations.ts`) so concurrent serverless instances
+  cannot double-resume. Public `/api/health` returns only `{ok, service,
+  time}` unauthenticated; app/gateway detail requires a session.
+- **Harness** — separate Vercel project (`newscraft-harness`), **stateless
+  chat-only** serverless function: `api/index.js` → `dist/serverless.js`.
+  `vercel.json` uses `framework: null` + `functions` + `rewrites` (the legacy
+  `builds` config and the committed esbuild bundle are gone).
+  `excludeFiles: ".data/**"` keeps local SQLite data out of deploys; `public/`
+  exists only because Vercel requires a static output directory. **This
+  stateless shape is the intended production topology for the chat-first
+  product** — no jobs, no scheduler, no harness persistence in prod. Health
+  reports `persistence: 'stateless'` honestly.
+- The UI talks to the harness over `AGENT_GATEWAY_URL` + bearer key. A remote
+  gateway URL without a key is a hard error; loopback dev gateways may run
+  keyless (`src/lib/server/agent/transport.ts`).
 
 ### Persistence
 
@@ -194,11 +240,56 @@ UI, auth, and persistence of user-facing data. They talk over
 
 ## 5. Roadmap
 
-### Phase 1 — Nail chat + the multi-step agent (now)
+**Sequencing decision (2026-07-03):** chat excellence first; the tracker/Wire
+is frozen behind an explicit quality gate. The middle path — half-built
+tracker in the repo while chat is below its own eval bar — is the one outcome
+this roadmap rules out.
 
-Goal: a producer asks a question and *watches* the agent work — visible plan,
-live steps, sources appearing, answer streaming token-by-token — and the same
-single agent brain handles every chat request.
+### Phase A — Chat excellence (NOW)
+
+Goal: a producer asks a newsroom question and gets a fast, honest,
+source-backed answer that they would defend to an editor. Nothing else ships
+until this holds.
+
+1. **Latency attack.** Make the single provider search-and-answer call
+   (Perplexity Sonar, or OpenAI Responses + `web_search`) the *default* chat
+   path; the planner/multi-step loop runs only for requests that demonstrably
+   need it (supplied URLs, PDFs, multi-part questions, report mode). Today the
+   plan→search→synthesize chain is serial and web-search-bound (§4).
+2. **Model-owned synthesis.** One synthesis contract owns the final answer —
+   evidence + conversation + output rules in, prose with citations and honest
+   caveats out. Delete the template/regex special cases as it lands
+   (`runtime.ts` format-followup + fixture-table interceptors, the
+   hand-templated caveat assembly in `answer.ts` stays only as the
+   no-API-key fallback). The eval failures (missing caveats, unflagged
+   paywall, answered-instead-of-clarified) are judgment behaviors and belong
+   to the model contract, not to string templates.
+3. **Provenance receipts.** Persist a per-answer evidence bundle (evidence
+   list, plan, budget, model calls, stop reason) in the app Postgres at
+   stream-complete, and surface a "Sources" panel per answer plus export.
+   Auditability is the differentiator against generic chat tools; today the
+   receipts are dropped in prod.
+4. **Security hardening.** Session revocation (DB-backed session ids), hard-
+   fail harness auth when deployed, SSRF/private-IP guard in `polite-fetch.ts`,
+   basic rate limits on chat + login.
+5. **Cost + observability.** Usage-ledger rows (model, tokens, task, ms) on
+   every model call in app Postgres; chat diagnostics persisted instead of
+   in-memory; one error tracker across app + harness.
+
+**Chat quality gate (all must hold before anything unfreezes):**
+
+- Golden-prompt eval (full mode, live API): **≥ 12/15 passing**, including
+  every caveat/clarification/paywall trap.
+- Latency: **TTFT ≤ 3s, p50 ≤ 12s, p90 ≤ 25s** for chat-class prompts.
+- Provenance: every source-backed answer has a stored evidence bundle.
+- Used on real shifts for **2+ weeks** after the above hold.
+
+### Phase 1 — Chat + the multi-step agent (shipped 2026-06, historical record)
+
+Goal was: a producer asks a question and *watches* the agent work — visible
+plan, live steps, sources appearing, answer streaming token-by-token — and the
+same single agent brain handles every chat request. All four milestones
+shipped; the full-mode eval results (§4) are what Phase A now fixes.
 
 - **M1. True end-to-end streaming** — *shipped 2026-06-10.* Deltas stream from
   the web-search model call through an incremental sanitizer
@@ -216,7 +307,12 @@ single agent brain handles every chat request.
   streaming/timing/plan/citation/no-leak assertions in producer acceptance,
   `eval:fixture` package.json script.
 
-### Phase 2 — Real-time wire (after Phase 1 ships and is used daily)
+### Phase B — Story tracker / real-time wire (FROZEN)
+
+**Frozen 2026-07-03.** No new work here until the Phase A quality gate passes
+*and* daily use shows the pull signal (§1). The jobs/runs/reports/scheduler
+code stays in the repo as a skeleton; it is not product. Kept as planning
+notes so decisions made now don't block later:
 
 - **Always-on monitoring.** Scheduler on for tracked stories; change detection
   on competitor/source pages (snapshots + content hashes already exist).
@@ -229,13 +325,13 @@ single agent brain handles every chat request.
 - **Alerting rules.** Per-story thresholds ("alert me if an official source
   publishes", "if 3+ outlets pick this up").
 
-Phase 2 notes so decisions now don't block later:
+Implementation notes:
 
 - **X API reality check.** Real-time filtered streams need the expensive paid
   tiers (verify current pricing before committing). Plan A: Bluesky + RSS/
   sitemap competitor monitors + scheduled checks. Plan B: X via curated lists
   on the cheapest viable tier. Either way it's one more adapter behind
-  `tools/source-adapters/` — nothing in Phase 1 needs to know.
+  `tools/source-adapters/` — nothing in the chat product needs to know.
 - **Push channel.** One SSE endpoint fed by the harness scheduler via the
   existing ingest path (`NEWSROOM_UI_INGEST_URL`); no Redis/WebSocket infra
   until scale demands it.
@@ -244,7 +340,25 @@ Phase 2 notes so decisions now don't block later:
   diff + heuristics, with model summarization only on user click or explicit
   alert rules.
 
-### Phase 3 — Producer workflows
+### Phase C — Cleanup & consolidation (opportunistic, alongside Phase A)
+
+- **Delete the Supabase mirror** (`db/supabase-mirror.ts` + the
+  `NEWSROOM_HARNESS_DATABASE_URL` path). It mirrors tracker state that is
+  frozen; if the tracker unfreezes it gets a proper Postgres repository, not
+  a mirror.
+- **Target architecture: merge at the deployment level, keep the module
+  boundary.** Package the harness as `@newscraft/agent`, imported in-process
+  by the SvelteKit chat route and streamed directly — one Vercel project, one
+  deploy, one health check, no gateway hop, and the transport/auth/contract
+  layer between app and harness stops existing. Keep a thin standalone
+  entrypoint for `agent:ask`, the eval runner, and local dev. If the tracker
+  ever unfreezes, the same package gets a `worker.ts` entrypoint on a small
+  always-on host. Do this as part of a deletion pass, not before Phase A
+  items 1–3 land — the split deploy works today.
+- Retire duplicated app-DB tracker tables (`missions*`, `agent_channel_*`)
+  when the merge pass touches them.
+
+### Phase D — Producer workflows (was Phase 3)
 
 - **Story dossiers.** Per-story timeline of evidence, what's-new diffs between
   checks, coverage comparison across outlets.
@@ -253,16 +367,22 @@ Phase 2 notes so decisions now don't block later:
 - **Story clustering.** Dedupe the same story across outlets; surface "who had
   it first" and angle differences.
 
-### Phase 4 — Only if daily-use demand exists
+### Phase E — Only if daily-use demand exists (was Phase 4)
 
-Multi-user/teams, CMS publishing, source-credibility scoring, external API,
-email digests, Slack delivery, paywall handling, distributed scheduler,
-real-time push at scale, mobile app. These stay out of scope until the two
-surfaces are used daily.
+Multi-user/teams (orgs, seats, quotas, billing), CMS publishing,
+source-credibility scoring, external API, email digests, Slack delivery,
+paywall handling, distributed scheduler, real-time push at scale, mobile app.
+These stay out of scope until chat is used daily. One exception pulled
+forward: **new durable tables should carry an `org_id` column from creation**
+(even with a single org row) — tenancy is the one thing that cannot be bolted
+on later without migrating every row of customer content.
 
 ---
 
-## 6. PRD — Phase 1: Chat + Agent
+## 6. PRD — Phase 1: Chat + Agent (historical)
+
+Phase A supersedes this PRD's latency targets — the quality gate in §5 is the
+current bar.
 
 ### Users & jobs
 
@@ -323,7 +443,7 @@ partial work is persisted and resumable (existing partial-message machinery).
 
 ---
 
-## 7. Implementation Plan — Phase 1 (remaining)
+## 7. Implementation Plan — Phase 1 (shipped; historical record)
 
 ### M1 — True streaming ✅ (shipped 2026-06-10)
 
@@ -468,9 +588,10 @@ corepack pnpm agent:ask -- "What are the top stories in Canada right now?"
 ```
 
 `dev:all` is the repo-owned one-terminal workflow. If it breaks, fix that
-path — don't ask the user to juggle terminals, and don't embed the harness
-inside the SvelteKit server as a shortcut (the split-process flow is
-intentional).
+path — don't ask the user to juggle terminals. Don't embed the harness inside
+the SvelteKit server *as an ad-hoc shortcut*; the sanctioned merge is the
+deliberate `@newscraft/agent` package refactor described in §5 Phase C, done
+as its own pass with the module boundary kept.
 
 Env loading: the app reads root `.env.local`; the harness reads
 `services/newsroom-harness/.env.local`, then `.env`, then the root files as

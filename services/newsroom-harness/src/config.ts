@@ -23,6 +23,7 @@ export interface HarnessConfig {
 	schedulerIntervalMs: number;
 	agent: NewsroomAgentConfig;
 	version: string;
+	production: boolean;
 }
 
 export interface HarnessConfigValidation {
@@ -79,6 +80,7 @@ export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfi
 		schedulerIntervalMs: intFromEnv(process.env.NEWSROOM_HARNESS_SCHEDULER_INTERVAL_MS, 30_000),
 		agent,
 		version: '0.0.1',
+		production: isProductionEnv(),
 		...overrides
 	};
 }
@@ -93,7 +95,9 @@ export function validateHarnessConfig(config: HarnessConfig): HarnessConfigValid
 	const warnings: string[] = [];
 
 	if (!config.apiKey) {
-		warnings.push('NEWSROOM_HARNESS_API_KEY is not configured; private endpoints will accept unauthenticated requests.');
+		const message = 'NEWSROOM_HARNESS_API_KEY is required for deployed harness private endpoints.';
+		if (config.production) errors.push(message);
+		else warnings.push('NEWSROOM_HARNESS_API_KEY is not configured; private endpoints will accept unauthenticated requests.');
 	}
 	if (!config.modelApiKey) {
 		warnings.push(`${config.modelProvider === 'openai' ? 'OPENAI_API_KEY' : 'PERPLEXITY_API_KEY'} is not configured; live model calls will be unavailable.`);
@@ -116,4 +120,8 @@ export function validateHarnessConfig(config: HarnessConfig): HarnessConfigValid
 		errors,
 		warnings
 	};
+}
+
+function isProductionEnv(): boolean {
+	return process.env.NODE_ENV === 'production' || process.env.VERCEL === '1' || process.env.NEWSROOM_HARNESS_DEPLOYED === '1';
 }

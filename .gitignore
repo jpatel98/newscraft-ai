@@ -28,6 +28,10 @@ services/*/.tmp
 /.tmp
 /playwright-report
 /test-results
+services/newsroom-harness/api/vercel-entry.js
+
+# Agent session scratch
+/.workflow
 
 # Vite
 vite.config.js.timestamp-*

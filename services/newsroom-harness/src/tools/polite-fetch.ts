@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 import { nowIso } from '../util/ids.js';
 
@@ -109,6 +111,11 @@ export interface PoliteFetchOptions {
 		webArchive?: boolean;
 		fetchImpl?: typeof fetch;
 	};
+	ssrf?: {
+		protect?: boolean;
+		allowPrivateNetwork?: boolean;
+		resolveHost?: (hostname: string) => Promise<string[]>;
+	};
 }
 
 export interface PoliteFetchResult {
@@ -167,6 +174,7 @@ export function resetPoliteFetchStateForTests(): void {
 
 export async function politeFetch(url: string, options: PoliteFetchOptions = {}): Promise<PoliteFetchResult> {
 	const parsed = new URL(url);
+	await assertSafeFetchTarget(parsed, options);
 	const fetchImpl = options.fetchImpl ?? fetch;
 	const cacheStore = options.cache?.store;
 	const cachedEntry = options.cache?.read === false || !cacheStore ? null : await cacheStore.read(url);
@@ -434,6 +442,7 @@ function noArchiveSnapshot(): PoliteFetchArchiveResult {
 
 async function checkRobots(url: string, options: PoliteFetchOptions): Promise<PoliteFetchRobotsResult> {
 	const parsed = new URL(url);
+	await assertSafeFetchTarget(parsed, options);
 	const robotsUrl = new URL('/robots.txt', parsed.origin).toString();
 	const respectRobots = options.robots?.respect !== false;
 	const override = options.robots?.override === true;
@@ -488,6 +497,71 @@ async function checkRobots(url: string, options: PoliteFetchOptions): Promise<Po
 			error: error instanceof Error ? error.message : 'robots.txt fetch failed',
 		};
 	}
+}
+
+async function assertSafeFetchTarget(parsed: URL, options: PoliteFetchOptions): Promise<void> {
+	if (options.ssrf?.protect === false) return;
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+		throw new Error(`Blocked URL scheme: ${parsed.protocol.replace(':', '')}`);
+	}
+
+	const hostname = parsed.hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+	if (isUnsafeHostname(hostname)) throw new Error(`Blocked private fetch target: ${hostname}`);
+
+	const literalKind = net.isIP(hostname);
+	if (literalKind) {
+		if (!options.ssrf?.allowPrivateNetwork && isPrivateIp(hostname)) {
+			throw new Error(`Blocked private fetch target: ${hostname}`);
+		}
+		return;
+	}
+
+	const resolveHost = options.ssrf?.resolveHost;
+	if (!resolveHost && options.fetchImpl) return;
+	const addresses = resolveHost ? await resolveHost(hostname) : await lookup(hostname, { all: true }).then((items) => items.map((item) => item.address));
+	if (!options.ssrf?.allowPrivateNetwork && addresses.some(isPrivateIp)) {
+		throw new Error(`Blocked private fetch target: ${hostname}`);
+	}
+}
+
+function isUnsafeHostname(hostname: string): boolean {
+	return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '0';
+}
+
+function isPrivateIp(address: string): boolean {
+	const kind = net.isIP(address);
+	if (kind === 4) return isPrivateIpv4(address);
+	if (kind === 6) return isPrivateIpv6(address);
+	return false;
+}
+
+function isPrivateIpv4(address: string): boolean {
+	const parts = address.split('.').map((part) => Number(part));
+	if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+	const [a, b] = parts;
+	return (
+		a === 0 ||
+		a === 10 ||
+		a === 127 ||
+		(a === 169 && b === 254) ||
+		(a === 172 && b >= 16 && b <= 31) ||
+		(a === 192 && b === 168) ||
+		a >= 224
+	);
+}
+
+function isPrivateIpv6(address: string): boolean {
+	const normalized = address.toLowerCase();
+	return (
+		normalized === '::' ||
+		normalized === '::1' ||
+		normalized.startsWith('fc') ||
+		normalized.startsWith('fd') ||
+		normalized.startsWith('fe80:') ||
+		normalized.startsWith('::ffff:127.') ||
+		normalized.startsWith('::ffff:10.') ||
+		normalized.startsWith('::ffff:192.168.')
+	);
 }
 
 interface RobotsRule {

@@ -1,0 +1,1 @@
+NewsCraft newsroom harness. All routes are served by the serverless function.

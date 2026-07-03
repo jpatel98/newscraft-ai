@@ -109,6 +109,10 @@ async function route(
 		return;
 	}
 
+	const configStatus = validateHarnessConfig(ctx.config);
+	if (!configStatus.ok) {
+		throw new HttpError(503, 'harness is not configured for private requests');
+	}
 	if (ctx.config.apiKey && !tokenMatches(bearerToken(req), ctx.config.apiKey)) {
 		throw new HttpError(401, 'unauthorized');
 	}
