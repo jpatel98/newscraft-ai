@@ -12,6 +12,9 @@ importers:
 
   .:
     dependencies:
+      '@newscraft/shared':
+        specifier: workspace:*
+        version: link:packages/shared
       '@node-rs/argon2':
         specifier: ^2.0.2
         version: 2.0.2

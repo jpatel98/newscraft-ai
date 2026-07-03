@@ -22,17 +22,16 @@ async function appHealth() {
 	}
 }
 
-export const GET = async () => {
+export const GET = async ({ locals }) => {
 	const [gateway, app] = await Promise.all([gatewayHealth(), appHealth()]);
 	const ok = app.ok && gateway.ok;
+	const base = {
+		ok,
+		service: 'newscraft-ui',
+		time: new Date().toISOString()
+	};
 	return json(
-		{
-			ok,
-			service: 'newscraft-ui',
-			time: new Date().toISOString(),
-			app,
-			gateway
-		},
+		locals.user ? { ...base, app, gateway } : base,
 		{
 			status: ok ? 200 : 503,
 			headers: { 'Cache-Control': 'no-store' }

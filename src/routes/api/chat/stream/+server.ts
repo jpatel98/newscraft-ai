@@ -14,6 +14,7 @@ import { expandAgentSkill, listAgentCommands } from '$lib/server/agent/bridge';
 import {
 	addMessage,
 	appendMessageContent,
+	claimPartialAssistantMessage,
 	createConversation,
 	deleteMessagesFrom,
 	finalizeMessage,
@@ -22,6 +23,7 @@ import {
 	getMessages,
 	lastAssistantMessage,
 	parseContent,
+	releasePartialAssistantMessageClaim,
 	setMessageToolCalls
 } from '$lib/server/db/conversations';
 import { generateConversationTitle } from '$lib/server/conversation-title';
@@ -46,10 +48,6 @@ interface Body {
 	message_id?: string;
 	command?: ChatCommand;
 }
-
-// In-memory guard against rapid double-resume of the same partial row.
-// Cleared on stream completion or cancellation.
-const resumingIds = new Set<string>();
 
 // Agent caps the request body around 1 MB; keep some headroom for the
 // surrounding JSON envelope, system prompt, and prior turns.
@@ -197,7 +195,6 @@ async function localGatewayFailureResponse(convoId: string, detail: string, resu
 	if (resumeMessageId) {
 		await appendMessageContent(resumeMessageId, `\n\n${text}`);
 		await finalizeMessage(resumeMessageId);
-		resumingIds.delete(resumeMessageId);
 		return localTextStream(convoId, `\n\n${text}`);
 	}
 	return localAssistantResponse(convoId, text);
@@ -303,8 +300,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		if (!target || target.conversationId !== convoId) throw error(404, 'message not found');
 		if (target.role !== 'assistant') throw error(400, 'can only resume assistant messages');
 		if (target.partial !== 1) throw error(400, 'message is not partial');
-		if (resumingIds.has(messageId)) throw error(409, 'already resuming');
-		resumingIds.add(messageId);
+		if (!(await claimPartialAssistantMessage(messageId, convoId))) throw error(409, 'already resuming');
 		resumeMessageId = messageId;
 	} else if (isRegenerate) {
 		const lastA = await lastAssistantMessage(convoId);
@@ -395,7 +391,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (request.signal.aborted) upstreamAbort.abort();
 	else request.signal.addEventListener('abort', () => upstreamAbort.abort(), { once: true });
 
-	const sessionId = deriveSessionId(history);
+	const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);
 	let upstream: Response;
 	try {
 		// Prefer chat completions for the live app: Agent emits rich
@@ -428,7 +424,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	if (!upstream.ok || !upstream.body) {
-		if (resumeMessageId) resumingIds.delete(resumeMessageId);
 		const text = await upstream.text().catch(() => '');
 		return await localGatewayFailureResponse(
 			convoId,
@@ -458,7 +453,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				await setMessageToolCalls(resumeMessageId, serializeToolMetadata(merged.tools, merged.sources));
 			}
 			if (done) await finalizeMessage(resumeMessageId);
-			resumingIds.delete(resumeMessageId);
+			else await releasePartialAssistantMessageClaim(resumeMessageId);
 			return getMessageById(resumeMessageId);
 		}
 		if (!assistantBuf && capturedToolCalls.length === 0) return undefined;

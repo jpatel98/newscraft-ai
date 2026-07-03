@@ -6,9 +6,10 @@ import * as schema from './schema';
 import { settings } from './schema';
 
 const databaseUrl = env.DATABASE_URL || 'postgres://invalid:invalid@127.0.0.1:1/invalid';
+const poolMax = Number.parseInt(env.DATABASE_POOL_MAX || '', 10);
 
 export const sql = postgres(databaseUrl, {
-	max: 1,
+	max: Number.isFinite(poolMax) && poolMax > 0 ? poolMax : 5,
 	prepare: false,
 	onnotice: () => {}
 });
@@ -90,10 +91,13 @@ async function ensureSchema(): Promise<void> {
 			content text NOT NULL,
 			tool_calls text,
 			partial integer NOT NULL DEFAULT 0,
+			resume_claimed_at bigint,
 			created_at bigint NOT NULL
 		)
 	`;
+	await sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS resume_claimed_at bigint`;
 	await sql`CREATE INDEX IF NOT EXISTS messages_convo_created_idx ON messages (conversation_id, created_at)`;
+	await sql`CREATE INDEX IF NOT EXISTS messages_partial_claim_idx ON messages (partial, resume_claimed_at)`;
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS chat_feedback (

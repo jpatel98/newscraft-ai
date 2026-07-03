@@ -52,6 +52,7 @@ export const messages = pgTable(
 		content: text('content').notNull(),
 		toolCalls: text('tool_calls'),
 		partial: integer('partial').notNull().default(0),
+		resumeClaimedAt: timestampMs('resume_claimed_at'),
 		createdAt: timestampMs('created_at').notNull()
 	},
 	(t) => ({

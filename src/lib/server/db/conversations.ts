@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lt, or } from 'drizzle-orm';
 import { db } from './index';
 import { conversations, messages } from './schema';
 import { newId } from '$lib/utils/id';
@@ -41,6 +41,7 @@ export interface MessageRow {
 	content: string;
 	toolCalls: string | null;
 	partial: number;
+	resumeClaimedAt: number | null;
 	createdAt: number;
 }
 
@@ -100,6 +101,7 @@ export async function addMessage(input: {
 		content: serializeContent(input.content),
 		toolCalls: input.toolCalls ?? null,
 		partial: input.partial ? 1 : 0,
+		resumeClaimedAt: null,
 		createdAt: now
 	};
 	await db.insert(messages).values(row);
@@ -200,7 +202,7 @@ export async function appendMessageContent(id: string, chunk: string): Promise<v
 }
 
 export async function finalizeMessage(id: string): Promise<void> {
-	await db.update(messages).set({ partial: 0 }).where(eq(messages.id, id));
+	await db.update(messages).set({ partial: 0, resumeClaimedAt: null }).where(eq(messages.id, id));
 }
 
 export async function setMessageToolCalls(id: string, toolCalls: string | null): Promise<void> {
@@ -208,8 +210,36 @@ export async function setMessageToolCalls(id: string, toolCalls: string | null):
 }
 
 export async function clearMessagePartial(id: string): Promise<MessageRow | undefined> {
-	await db.update(messages).set({ partial: 0 }).where(eq(messages.id, id));
+	await db.update(messages).set({ partial: 0, resumeClaimedAt: null }).where(eq(messages.id, id));
 	return getMessageById(id);
+}
+
+const RESUME_CLAIM_TTL_MS = 5 * 60 * 1000;
+
+export async function claimPartialAssistantMessage(id: string, conversationId: string): Promise<boolean> {
+	const now = Date.now();
+	const cutoff = now - RESUME_CLAIM_TTL_MS;
+	const claimed = await db
+		.update(messages)
+		.set({ resumeClaimedAt: now })
+		.where(
+			and(
+				eq(messages.id, id),
+				eq(messages.conversationId, conversationId),
+				eq(messages.role, 'assistant'),
+				eq(messages.partial, 1),
+				or(isNull(messages.resumeClaimedAt), lt(messages.resumeClaimedAt, cutoff))
+			)
+		)
+		.returning({ id: messages.id });
+	return claimed.length > 0;
+}
+
+export async function releasePartialAssistantMessageClaim(id: string): Promise<void> {
+	await db
+		.update(messages)
+		.set({ resumeClaimedAt: null })
+		.where(and(eq(messages.id, id), eq(messages.partial, 1)));
 }
 
 export async function lastAssistantMessage(conversationId: string): Promise<MessageRow | undefined> {

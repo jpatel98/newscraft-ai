@@ -1,44 +1,22 @@
 import { env } from '$env/dynamic/private';
 import { createHash } from 'node:crypto';
+import type {
+	GatewayChatCompletionRequest,
+	GatewayChatMessage,
+	GatewayContent,
+	GatewayContentPart,
+	GatewayResponseContentPart,
+	GatewayResponseInputMessage,
+	GatewayResponsesRequest
+} from '@newscraft/shared';
 
-export type AgentContentPart =
-	| { type: 'text'; text: string }
-	| { type: 'image_url'; image_url: { url: string } };
-
-export type AgentContent = string | AgentContentPart[];
-
-export type AgentMessage =
-	| { role: 'system' | 'user' | 'assistant'; content: AgentContent }
-	| { role: 'tool'; content: string; tool_call_id?: string };
-
-export interface AgentChatRequest {
-	messages: AgentMessage[];
-	model?: string;
-	stream?: boolean;
-	temperature?: number;
-	max_tokens?: number;
-	reasoning_effort?: 'low' | 'medium' | 'high';
-}
-
-export type AgentResponseContentPart =
-	| { type: 'input_text'; text: string }
-	| { type: 'input_image'; image_url: string };
-
-export interface AgentResponseInputMessage {
-	role: 'user' | 'assistant' | 'system';
-	content: string | AgentResponseContentPart[];
-}
-
-export interface AgentResponsesRequest {
-	input: string | AgentResponseInputMessage[];
-	model?: string;
-	instructions?: string;
-	reasoning_effort?: 'low' | 'medium' | 'high';
-	stream?: boolean;
-	store?: boolean;
-	conversation?: string;
-	previous_response_id?: string;
-}
+export type AgentContentPart = GatewayContentPart;
+export type AgentContent = GatewayContent;
+export type AgentMessage = GatewayChatMessage;
+export type AgentChatRequest = GatewayChatCompletionRequest;
+export type AgentResponseContentPart = GatewayResponseContentPart;
+export type AgentResponseInputMessage = GatewayResponseInputMessage;
+export type AgentResponsesRequest = GatewayResponsesRequest;
 
 export interface GatewayHealth {
 	ok: boolean;
@@ -89,12 +67,24 @@ function parseJson(value: string): unknown | null {
 	}
 }
 
+function isLoopbackUrl(value: string): boolean {
+	try {
+		const { hostname } = new URL(value);
+		return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1' || hostname === '[::1]';
+	} catch {
+		return false;
+	}
+}
+
 function apiKey(): string | null {
 	const k = env.AGENT_GATEWAY_API_KEY || env.NEWSROOM_HARNESS_API_KEY;
-	if (!k && !env.AGENT_GATEWAY_URL) {
-		throw new Error('AGENT_GATEWAY_API_KEY or NEWSROOM_HARNESS_API_KEY not configured');
+	if (k) return k;
+	// A remote gateway without a key is always a misconfiguration; a loopback
+	// dev gateway may legitimately run without auth (.env.example default).
+	if (env.AGENT_GATEWAY_URL && !isLoopbackUrl(env.AGENT_GATEWAY_URL)) {
+		throw new Error('AGENT_GATEWAY_URL is configured but AGENT_GATEWAY_API_KEY or NEWSROOM_HARNESS_API_KEY is missing');
 	}
-	return k ?? null;
+	return null;
 }
 
 export async function agentFetch(path: string, init: RequestInit = {}): Promise<Response> {
@@ -112,10 +102,17 @@ export async function agentFetch(path: string, init: RequestInit = {}): Promise<
  * Lets Agent pin the agent across turns without exposing the key choice
  * to the browser. Capped at 32 hex chars.
  */
-export function deriveSessionId(messages: AgentMessage[]): string {
+export function deriveSessionId(messages: AgentMessage[], scope = ''): string {
 	const system = flattenContent(messages.find((m) => m.role === 'system')?.content);
 	const firstUser = flattenContent(messages.find((m) => m.role === 'user')?.content);
-	return createHash('sha256').update(system).update('\0').update(firstUser).digest('hex').slice(0, 32);
+	return createHash('sha256')
+		.update(scope)
+		.update('\0')
+		.update(system)
+		.update('\0')
+		.update(firstUser)
+		.digest('hex')
+		.slice(0, 32);
 }
 
 function flattenContent(c: AgentContent | undefined): string {
@@ -138,13 +135,14 @@ export async function streamChatCompletion(
 ): Promise<Response> {
 	const sessionId = opts.sessionId ?? deriveSessionId(body.messages);
 	const payload: AgentChatRequest = { model: DEFAULT_MODEL, stream: true, ...body };
+	const key = apiKey();
 
 	return fetch(`${gatewayUrl()}/v1/chat/completions`, {
 		method: 'POST',
 		headers: {
 			'content-type': 'application/json',
 			accept: 'text/event-stream',
-			...(apiKey() ? { authorization: `Bearer ${apiKey()}` } : {}),
+			...(key ? { authorization: `Bearer ${key}` } : {}),
 			'x-agent-session-id': sessionId
 		},
 		body: JSON.stringify(payload),

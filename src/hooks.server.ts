@@ -8,6 +8,7 @@ const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
 // /api/e2e is only active when E2E_SECRET is set (dev/test only); it self-
 // authenticates via the secret so it must be reachable without a session.
 const PUBLIC_PREFIXES = ['/api/health', '/api/agent/channel-posts', '/account-setup', '/api/e2e'];
+let knownHasAccounts = false;
 
 export const handle: Handle = async ({ event, resolve }) => {
 	await ensureMigrated();
@@ -20,7 +21,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	const path = event.url.pathname;
 	const isPublic = PUBLIC_PATHS.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
-	const hasAccounts = (await accountCount()) > 0;
+	const hasAccounts = knownHasAccounts || (await accountCount()) > 0;
+	if (hasAccounts) knownHasAccounts = true;
 
 	if (
 		!hasAccounts &&

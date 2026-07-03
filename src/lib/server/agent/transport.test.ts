@@ -11,8 +11,15 @@ import {
 	type AgentMessage
 } from './transport';
 
-function expectedSessionId(system: string, firstUser: string): string {
-	return createHash('sha256').update(system).update('\0').update(firstUser).digest('hex').slice(0, 32);
+function expectedSessionId(system: string, firstUser: string, scope = ''): string {
+	return createHash('sha256')
+		.update(scope)
+		.update('\0')
+		.update(system)
+		.update('\0')
+		.update(firstUser)
+		.digest('hex')
+		.slice(0, 32);
 }
 
 describe('Agent transport', () => {
@@ -81,6 +88,14 @@ describe('Agent transport', () => {
 				{ role: 'user', content: 'Different later turn.' }
 			])
 		).toBe(expected);
+		expect(deriveSessionId(messages, 'account-a:conversation-a')).toBe(
+			expectedSessionId(
+				'Follow Agent policy.\nPrefer concise answers.',
+				'Summarize this.\nKeep the source names.',
+				'account-a:conversation-a'
+			)
+		);
+		expect(deriveSessionId(messages, 'account-a:conversation-a')).not.toBe(deriveSessionId(messages));
 	});
 
 	it('sends a derived session id unless the caller provides one', async () => {
@@ -145,8 +160,17 @@ describe('Agent transport', () => {
 		expect(init.headers.authorization).toBe('Bearer harness-key');
 	});
 
-	it('allows unauthenticated requests when only AGENT_GATEWAY_URL is configured', async () => {
+	it('rejects a configured remote gateway URL without an API key', async () => {
 		process.env.AGENT_GATEWAY_URL = 'https://harness.test';
+		delete process.env.AGENT_GATEWAY_API_KEY;
+
+		await expect(streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] })).rejects.toThrow(
+			'AGENT_GATEWAY_URL is configured but AGENT_GATEWAY_API_KEY or NEWSROOM_HARNESS_API_KEY is missing'
+		);
+	});
+
+	it('allows unauthenticated requests to the local default gateway', async () => {
+		delete process.env.AGENT_GATEWAY_URL;
 		delete process.env.AGENT_GATEWAY_API_KEY;
 		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
 		vi.stubGlobal('fetch', fetchMock);
@@ -155,6 +179,20 @@ describe('Agent transport', () => {
 
 		const init = fetchMock.mock.calls[0]?.[1] as RequestInit & { headers: Record<string, string> };
 		expect(init.headers.authorization).toBeUndefined();
+		expect(fetchMock.mock.calls[0]?.[0]).toBe('http://127.0.0.1:8650/v1/chat/completions');
+	});
+
+	it('allows unauthenticated requests to an explicitly configured loopback gateway', async () => {
+		process.env.AGENT_GATEWAY_URL = 'http://127.0.0.1:8650';
+		delete process.env.AGENT_GATEWAY_API_KEY;
+		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] });
+
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit & { headers: Record<string, string> };
+		expect(init.headers.authorization).toBeUndefined();
+		expect(fetchMock.mock.calls[0]?.[0]).toBe('http://127.0.0.1:8650/v1/chat/completions');
 	});
 
 	it('reports gateway health from non-OK responses', async () => {
