@@ -106,6 +106,23 @@ interface EventRow {
 	created_at: string;
 }
 
+interface UsageLedgerRow {
+	id: string;
+	created_at: string;
+	workspace_id: string;
+	job_id: string | null;
+	run_id: string | null;
+	event_id: string | null;
+	task: string;
+	provider: string;
+	model: string;
+	endpoint: string | null;
+	status: string;
+	latency_ms: number | null;
+	usage_metadata_json: string;
+	cost_metadata_json: string;
+}
+
 type MemoryTier = 'story';
 
 interface MemoryEntryRow {
@@ -163,6 +180,48 @@ export interface ListEventsOptions {
 	limit?: number;
 }
 
+export interface AppendUsageRecordInput {
+	workspaceId?: string;
+	jobId?: string | null;
+	runId?: string | null;
+	eventId?: string | null;
+	task: string;
+	provider: string;
+	model: string;
+	endpoint?: string | null;
+	status: string;
+	latencyMs?: number | null;
+	usageMetadata?: unknown;
+	costMetadata?: unknown;
+	createdAt?: string;
+}
+
+export interface ListUsageRecordsOptions {
+	workspaceId?: string;
+	jobId?: string | null;
+	runId?: string | null;
+	provider?: string;
+	model?: string;
+	limit?: number;
+}
+
+export interface UsageLedgerDto {
+	id: string;
+	created_at: string;
+	workspace_id: string;
+	job_id: string | null;
+	run_id: string | null;
+	event_id: string | null;
+	task: string;
+	provider: string;
+	model: string;
+	endpoint: string | null;
+	status: string;
+	latency_ms: number | null;
+	usage_metadata: NewsroomEventJson;
+	cost_metadata: NewsroomEventJson;
+}
+
 export interface MemoryEntryDto {
 	id: string;
 	workspace_id: string;
@@ -217,6 +276,8 @@ export class HarnessRepository {
 		const agent = requiredText(input.agent, 'agent');
 		const kind = requiredText(input.kind, 'kind');
 		const createdAt = input.createdAt || nowIso();
+		const costMetadata =
+			input.costMetadata === undefined || input.costMetadata === null ? null : input.costMetadata;
 		this.db
 			.prepare(
 				`INSERT INTO events (
@@ -235,12 +296,128 @@ export class HarnessRepository {
 				stringifyJson(input.payload ?? {}),
 				stringifyJson(input.sources ?? []),
 				optionalText(input.parentEventId),
-				input.costMetadata === undefined || input.costMetadata === null
-					? null
-					: stringifyJson(input.costMetadata),
+				costMetadata === null ? null : stringifyJson(costMetadata),
 				createdAt
 			);
+		this.appendUsageRecordFromEvent({
+			id,
+			workspaceId,
+			jobId: optionalText(input.jobId),
+			runId: optionalText(input.runId),
+			kind,
+			agent,
+			payload: input.payload,
+			costMetadata,
+			createdAt
+		});
 		return this.requireEvent(id);
+	}
+
+	appendUsageRecord(input: AppendUsageRecordInput): UsageLedgerDto {
+		const id = newId('usage');
+		const createdAt = input.createdAt || nowIso();
+		const workspaceId = requiredText(input.workspaceId || DEFAULT_WORKSPACE_ID, 'workspace_id');
+		const provider = requiredText(input.provider, 'provider');
+		const model = requiredText(input.model, 'model');
+		this.db
+			.prepare(
+				`INSERT INTO usage_ledger (
+					id, created_at, workspace_id, job_id, run_id, event_id, task, provider, model, endpoint,
+					status, latency_ms, usage_metadata_json, cost_metadata_json
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			)
+			.run(
+				id,
+				createdAt,
+				workspaceId,
+				optionalText(input.jobId),
+				optionalText(input.runId),
+				optionalText(input.eventId),
+				requiredText(input.task, 'task'),
+				provider,
+				model,
+				optionalText(input.endpoint),
+				requiredText(input.status, 'status'),
+				integerOrNull(input.latencyMs),
+				stringifyJson(input.usageMetadata ?? {}),
+				stringifyJson(input.costMetadata ?? {})
+			);
+		return this.requireUsageRecord(id);
+	}
+
+	getUsageRecord(id: string): UsageLedgerDto | null {
+		const row = this.db.prepare('SELECT * FROM usage_ledger WHERE id = ?').get(id) as UsageLedgerRow | undefined;
+		return row ? usageLedgerDto(row) : null;
+	}
+
+	requireUsageRecord(id: string): UsageLedgerDto {
+		const record = this.getUsageRecord(id);
+		if (!record) throw new Error('Usage ledger record not found');
+		return record;
+	}
+
+	listUsageRecords(options: ListUsageRecordsOptions = {}): UsageLedgerDto[] {
+		const conditions: string[] = ['workspace_id = ?'];
+		const params: unknown[] = [requiredText(options.workspaceId || DEFAULT_WORKSPACE_ID, 'workspace_id')];
+		addNullableFilter(conditions, params, 'job_id', options.jobId);
+		addNullableFilter(conditions, params, 'run_id', options.runId);
+		if (options.provider) {
+			conditions.push('provider = ?');
+			params.push(requiredText(options.provider, 'provider'));
+		}
+		if (options.model) {
+			conditions.push('model = ?');
+			params.push(requiredText(options.model, 'model'));
+		}
+		params.push(clampUsageLimit(options.limit));
+		const rows = this.db
+			.prepare(
+				`SELECT * FROM usage_ledger
+				 WHERE ${conditions.join(' AND ')}
+				 ORDER BY created_at DESC, rowid DESC
+				 LIMIT ?`
+			)
+			.all(...params) as UsageLedgerRow[];
+		return rows.map(usageLedgerDto);
+	}
+
+	private appendUsageRecordFromEvent(input: {
+		id: string;
+		workspaceId: string;
+		jobId: string | null;
+		runId: string | null;
+		kind: string;
+		agent: string;
+		payload?: unknown;
+		costMetadata: unknown | null;
+		createdAt: string;
+	}): void {
+		if (input.kind !== 'model.call.completed' && input.kind !== 'model.call.failed') return;
+		const costMetadata = objectValue(input.costMetadata);
+		if (!costMetadata) return;
+		const provider = stringValue(costMetadata.provider);
+		const model = stringValue(costMetadata.model);
+		if (!provider || !model) return;
+		const payload = objectValue(input.payload) || {};
+		this.appendUsageRecord({
+			workspaceId: input.workspaceId,
+			jobId: input.jobId,
+			runId: input.runId,
+			eventId: input.id,
+			task:
+				stringValue(costMetadata.task) ||
+				stringValue(costMetadata.tool) ||
+				stringValue(payload.task) ||
+				input.agent,
+			provider,
+			model,
+			endpoint: stringValue(costMetadata.endpoint),
+			status: usageStatusFromEventKind(input.kind),
+			latencyMs: numberValue(costMetadata.latency_ms ?? costMetadata.latencyMs),
+			usageMetadata: objectValue(costMetadata.usage) || {},
+			costMetadata,
+			createdAt: input.createdAt
+		});
 	}
 
 	getEvent(id: string): NewsroomEventDto | null {
@@ -1026,6 +1203,20 @@ function clampEventLimit(value: number | undefined): number {
 	return Math.max(1, Math.min(500, Math.trunc(value as number)));
 }
 
+function clampUsageLimit(value: number | undefined): number {
+	if (!Number.isFinite(value)) return 100;
+	return Math.max(1, Math.min(1000, Math.trunc(value as number)));
+}
+
+function integerOrNull(value: unknown): number | null {
+	const numeric = numberValue(value);
+	return numeric === null ? null : Math.max(0, Math.trunc(numeric));
+}
+
+function usageStatusFromEventKind(kind: string): string {
+	return kind === 'model.call.failed' ? 'failed' : 'completed';
+}
+
 function stringifyJson(value: unknown): string {
 	const encoded = JSON.stringify(value);
 	return encoded === undefined ? 'null' : encoded;
@@ -1151,6 +1342,25 @@ function eventDto(row: EventRow): NewsroomEventDto {
 		parent_event_id: row.parent_event_id,
 		cost_metadata: parseEventJson(row.cost_metadata_json, null),
 		created_at: row.created_at
+	};
+}
+
+function usageLedgerDto(row: UsageLedgerRow): UsageLedgerDto {
+	return {
+		id: row.id,
+		created_at: row.created_at,
+		workspace_id: row.workspace_id,
+		job_id: row.job_id,
+		run_id: row.run_id,
+		event_id: row.event_id,
+		task: row.task,
+		provider: row.provider,
+		model: row.model,
+		endpoint: row.endpoint,
+		status: row.status,
+		latency_ms: row.latency_ms,
+		usage_metadata: parseEventJson(row.usage_metadata_json, {}),
+		cost_metadata: parseEventJson(row.cost_metadata_json, {})
 	};
 }
 

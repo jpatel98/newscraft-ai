@@ -7,6 +7,7 @@ import {
 	getAccountBySetupToken,
 	touchAccountLogin
 } from '$lib/server/db/accounts';
+import { createSession } from '$lib/server/db/sessions';
 
 export const load: PageServerLoad = async ({ params }) => {
 	const account = await getAccountBySetupToken(params.token);
@@ -30,7 +31,8 @@ export const actions: Actions = {
 		if (!account) return fail(400, { error: 'invalid or expired account setup link' });
 
 		await touchAccountLogin(account.id);
-		const c = mintSessionCookie(account.id);
+		const session = await createSession(account.id);
+		const c = mintSessionCookie(account.id, session.id);
 		cookies.set(c.name, c.value, c.opts);
 		throw redirect(303, '/');
 	}

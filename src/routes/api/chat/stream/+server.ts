@@ -30,8 +30,13 @@ import { generateConversationTitle } from '$lib/server/conversation-title';
 import { contentText, type ChatCommand, type ContentPart, type AgentCommand, type MessageContent } from '$lib/types';
 import { readSSE } from '$lib/utils/sse-client';
 import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
-import { StreamEventState, sseFrame } from '$lib/utils/stream-events';
-import { mergeToolMetadata, serializeToolMetadata, sourceContextForFollowup } from '$lib/utils/tool-metadata';
+import { StreamEventState, sseFrame, type PersistedSource, type StreamToolCall } from '$lib/utils/stream-events';
+import {
+	mergeToolMetadata,
+	serializeAnswerProvenance,
+	serializeToolMetadata,
+	sourceContextForFollowup
+} from '$lib/utils/tool-metadata';
 import {
 	getConversationReasoningEffort,
 	parseReasoningEffort,
@@ -40,6 +45,7 @@ import {
 } from '$lib/server/reasoning';
 import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import { checkRateLimit } from '$lib/server/rate-limit';
+import { saveMessageProvenance } from '$lib/server/db/message-provenance';
 
 interface Body {
 	conversation_id?: string;
@@ -148,11 +154,66 @@ function appendSystemInstruction(history: AgentMessage[], instruction: string): 
 	}
 }
 
+async function persistAnswerProvenance(input: {
+	conversationId: string;
+	messageId: string;
+	tools?: StreamToolCall[];
+	sources?: PersistedSource[];
+	startedAt: number;
+	endedAt?: number;
+	assistantChars: number;
+	done: boolean;
+	finishStatus?: 'completed' | 'partial' | 'failed' | 'cancelled';
+	events?: Record<string, number>;
+	transport?: string;
+	reasoningEffort?: string;
+	model?: string;
+}): Promise<void> {
+	try {
+		const endedAt = input.endedAt ?? Date.now();
+		await saveMessageProvenance({
+			messageId: input.messageId,
+			conversationId: input.conversationId,
+			now: endedAt,
+			provenanceJson: serializeAnswerProvenance({
+				messageId: input.messageId,
+				conversationId: input.conversationId,
+				tools: input.tools ?? [],
+				sources: input.sources ?? [],
+				startedAt: input.startedAt,
+				endedAt,
+				assistantChars: input.assistantChars,
+				done: input.done,
+				finishStatus: input.finishStatus,
+				events: input.events,
+				transport: input.transport,
+				reasoningEffort: input.reasoningEffort,
+				model: input.model
+			})
+		});
+	} catch (err) {
+		recordChatDiagnostic(input.conversationId, 'chat.provenance_error', {
+			messageId: input.messageId,
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+}
+
 async function localAssistantResponse(convoId: string, text: string): Promise<Response> {
+	const startedAt = Date.now();
 	recordChatDiagnostic(convoId, 'chat.local_response', {
 		responseChars: text.length
 	});
-	await addMessage({ conversationId: convoId, role: 'assistant', content: text });
+	const row = await addMessage({ conversationId: convoId, role: 'assistant', content: text });
+	await persistAnswerProvenance({
+		conversationId: convoId,
+		messageId: row.id,
+		startedAt,
+		assistantChars: text.length,
+		done: true,
+		finishStatus: 'completed',
+		transport: 'local'
+	});
 	return localTextStream(convoId, text);
 }
 
@@ -188,6 +249,7 @@ function gatewayUnavailableMessage(_detail: string): string {
 }
 
 async function localGatewayFailureResponse(convoId: string, detail: string, resumeMessageId?: string | null): Promise<Response> {
+	const startedAt = Date.now();
 	recordChatDiagnostic(convoId, 'chat.gateway_failure', {
 		resume: Boolean(resumeMessageId),
 		detail
@@ -196,6 +258,16 @@ async function localGatewayFailureResponse(convoId: string, detail: string, resu
 	if (resumeMessageId) {
 		await appendMessageContent(resumeMessageId, `\n\n${text}`);
 		await finalizeMessage(resumeMessageId);
+		const row = await getMessageById(resumeMessageId);
+		await persistAnswerProvenance({
+			conversationId: convoId,
+			messageId: resumeMessageId,
+			startedAt,
+			assistantChars: row ? contentText(parseContent(row.content)).length : text.length,
+			done: true,
+			finishStatus: 'failed',
+			transport: 'local_gateway_failure'
+		});
 		return localTextStream(convoId, `\n\n${text}`);
 	}
 	return localAssistantResponse(convoId, text);
@@ -203,6 +275,18 @@ async function localGatewayFailureResponse(convoId: string, detail: string, resu
 
 function findCommand(commands: AgentCommand[], parsed: SlashParseResult): AgentCommand | undefined {
 	return commands.find((cmd) => cmd.slash.toLowerCase() === parsed.slash);
+}
+
+function modelFromSseData(data: string): string | undefined {
+	if (!data || data === '[DONE]') return undefined;
+	try {
+		const parsed = JSON.parse(data) as unknown;
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+		const value = (parsed as Record<string, unknown>).model;
+		return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 function commandsHelp(commands: AgentCommand[]): string {
@@ -400,6 +484,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);
 	let upstream: Response;
+	let transport = 'chat_completions';
 	try {
 		// Prefer chat completions for the live app: Agent emits rich
 		// agent.tool.progress/source events there, which power the visible
@@ -409,6 +494,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			{ messages: history, stream: true, reasoning_effort: reasoningEffort },
 			{ signal: upstreamAbort.signal, sessionId }
 		);
+		transport = 'chat_completions';
 		recordChatDiagnostic(convoId, 'chat.upstream_response', {
 			transport: 'chat_completions',
 			status: upstream.status,
@@ -420,6 +506,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				{ ...responseInputFromHistory(history), stream: true, store: false, reasoning_effort: reasoningEffort },
 				{ signal: upstreamAbort.signal, sessionId }
 			);
+			transport = 'responses';
 			recordChatDiagnostic(convoId, 'chat.upstream_response', {
 				transport: 'responses',
 				status: upstream.status,
@@ -446,31 +533,68 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	let sentDone = false;
 	const streamState = new StreamEventState();
 	const streamStats: Record<string, number> = {};
+	let upstreamModel: string | undefined;
 
-	async function persistAssistant() {
+	async function persistAssistant(finishStatus?: 'completed' | 'partial' | 'failed' | 'cancelled') {
 		if (persisted) return undefined;
 		persisted = true;
 		const capturedToolCalls = streamState.toolCalls();
 		const capturedSources = streamState.sourceList();
 		if (resumeMessageId) {
+			let provenanceTools = capturedToolCalls;
+			let provenanceSources = capturedSources;
 			if (assistantBuf) await appendMessageContent(resumeMessageId, assistantBuf);
 			if (capturedToolCalls.length || capturedSources.length) {
 				const row = await getMessageById(resumeMessageId);
 				const merged = mergeToolMetadata(row?.toolCalls ?? null, capturedToolCalls, capturedSources);
 				await setMessageToolCalls(resumeMessageId, serializeToolMetadata(merged.tools, merged.sources));
+				provenanceTools = merged.tools;
+				provenanceSources = merged.sources;
 			}
 			if (done) await finalizeMessage(resumeMessageId);
 			else await releasePartialAssistantMessageClaim(resumeMessageId);
-			return getMessageById(resumeMessageId);
+			const row = await getMessageById(resumeMessageId);
+			if (row) {
+				await persistAnswerProvenance({
+					conversationId: convoId,
+					messageId: row.id,
+					tools: provenanceTools,
+					sources: provenanceSources,
+					startedAt: requestStartedAt,
+					assistantChars: contentText(parseContent(row.content)).length,
+					done,
+					finishStatus,
+					events: streamStats,
+					transport,
+					reasoningEffort,
+					model: upstreamModel
+				});
+			}
+			return row;
 		}
 		if (!assistantBuf && capturedToolCalls.length === 0) return undefined;
-		return await addMessage({
+		const row = await addMessage({
 			conversationId: convoId,
 			role: 'assistant',
 			content: assistantBuf,
 			partial: !done,
 			toolCalls: serializeToolMetadata(capturedToolCalls, capturedSources)
 		});
+		await persistAnswerProvenance({
+			conversationId: convoId,
+			messageId: row.id,
+			tools: capturedToolCalls,
+			sources: capturedSources,
+			startedAt: requestStartedAt,
+			assistantChars: assistantBuf.length,
+			done,
+			finishStatus,
+			events: streamStats,
+			transport,
+			reasoningEffort,
+			model: upstreamModel
+		});
+		return row;
 	}
 
 	const stream = new ReadableStream<Uint8Array>({
@@ -482,6 +606,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			try {
 				for await (const ev of readSSE(upstreamBody)) {
 					streamStats[ev.event || 'message'] = (streamStats[ev.event || 'message'] ?? 0) + 1;
+					upstreamModel ??= modelFromSseData(ev.data);
 					for (const update of streamState.apply(ev.event, ev.data)) {
 						if (update.delta) assistantBuf += update.delta;
 						if (update.done) done = true;
@@ -500,12 +625,12 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					assistantChars: assistantBuf.length,
 					events: streamStats
 				});
-				await persistAssistant();
+				await persistAssistant('failed');
 				controller.error(e);
 				return;
 			}
 
-			const assistantRow = await persistAssistant();
+			const assistantRow = await persistAssistant(done ? 'completed' : 'partial');
 
 			// Title auto-summarization: first turn only, fire-and-await briefly so
 			// the client gets the title before the stream closes (and before its
@@ -547,7 +672,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				assistantChars: assistantBuf.length
 			});
 			upstreamAbort.abort();
-			void persistAssistant();
+			void persistAssistant('cancelled');
 		}
 	});
 

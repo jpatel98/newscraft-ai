@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parseToolMetadata, serializeToolMetadata, sourceContextForFollowup, usedSources } from './tool-metadata';
+import {
+	buildAnswerProvenanceBundle,
+	parseToolMetadata,
+	serializeAnswerProvenance,
+	serializeToolMetadata,
+	sourceContextForFollowup,
+	usedSources
+} from './tool-metadata';
 
 describe('tool metadata', () => {
 	it('parses legacy tool-call arrays', () => {
@@ -96,5 +103,112 @@ describe('tool metadata', () => {
 		expect(context).toContain('Carney says some Canadian economic data will be uneven');
 		expect(context).toContain('investing.test');
 		expect(context).not.toContain('Skipped');
+	});
+
+	it('serializes provenance with deduped tools and sources', () => {
+		const bundle = buildAnswerProvenanceBundle({
+			messageId: 'msg_1',
+			conversationId: 'convo_1',
+			startedAt: 1000,
+			endedAt: 1500,
+			assistantChars: 42,
+			done: true,
+			events: { message: 3, 'agent.source': 2 },
+			transport: 'chat_completions',
+			reasoningEffort: 'medium',
+			model: 'gpt-test',
+			tools: [
+				{ id: 'search-1', name: 'web_search', status: 'running', startedAt: 1010 },
+				{ id: 'search-1', name: 'web_search', status: 'ok', endedAt: 1200, result: { count: 2 } }
+			],
+			sources: [
+				{
+					id: 'result-1',
+					url: 'https://example.com/story',
+					title: 'Story',
+					domain: 'example.com',
+					status: 'queued',
+					firstSeenAt: 1010,
+					lastSeenAt: 1010,
+					used: false
+				},
+				{
+					id: 'result-1',
+					url: 'https://example.com/story',
+					title: 'Story',
+					domain: 'example.com',
+					status: 'read',
+					firstSeenAt: 1010,
+					lastSeenAt: 1300,
+					used: true
+				}
+			]
+		});
+
+		expect(bundle.tools).toMatchObject([{ id: 'search-1', name: 'web_search', status: 'ok' }]);
+		expect(bundle.tools).toHaveLength(1);
+		expect(bundle.sources).toMatchObject([
+			{
+				url: 'https://example.com/story',
+				firstSeenAt: 1010,
+				lastSeenAt: 1300,
+				used: true
+			}
+		]);
+		expect(bundle.metadata).toMatchObject({
+			transport: 'chat_completions',
+			reasoningEffort: 'medium',
+			model: 'gpt-test',
+			toolCount: 1,
+			sourceCount: 1,
+			usedSourceCount: 1
+		});
+		expect(bundle.stream).toMatchObject({
+			elapsedMs: 500,
+			finishStatus: 'completed',
+			events: { message: 3, 'agent.source': 2 }
+		});
+	});
+
+	it('redacts sensitive tool payloads without removing source urls', () => {
+		const raw = serializeAnswerProvenance({
+			messageId: 'msg_1',
+			conversationId: 'convo_1',
+			startedAt: 1000,
+			endedAt: 1100,
+			assistantChars: 12,
+			done: true,
+			tools: [
+				{
+					id: 'tool-1',
+					name: 'fetch',
+					arguments: {
+						url: 'https://example.com/story',
+						apiKey: 'sk-testsecret123',
+						headers: { authorization: 'Bearer abc123' }
+					},
+					result: 'connected to postgresql://user:pass@example.com/db'
+				}
+			],
+			sources: [
+				{
+					id: 'https://example.com/story',
+					url: 'https://example.com/story',
+					title: 'Story',
+					domain: 'example.com',
+					status: 'used',
+					firstSeenAt: 1000,
+					lastSeenAt: 1100,
+					used: true
+				}
+			]
+		});
+
+		expect(raw).toContain('https://example.com/story');
+		expect(raw).toContain('[redacted]');
+		expect(raw).toContain('[redacted-database-url]');
+		expect(raw).not.toContain('sk-testsecret123');
+		expect(raw).not.toContain('Bearer abc123');
+		expect(raw).not.toContain('user:pass');
 	});
 });

@@ -1,4 +1,4 @@
-import { saveChatDiagnostic } from '$lib/server/db/chat-diagnostics';
+import { listPersistedChatDiagnostics, saveChatDiagnostic } from '$lib/server/db/chat-diagnostics';
 
 export interface ChatDiagnosticEvent {
 	id: string;
@@ -54,6 +54,18 @@ export function recentChatDiagnostics(conversationId: string): ChatDiagnosticEve
 	}));
 }
 
+export async function recentChatDiagnosticsWithPersisted(conversationId: string): Promise<ChatDiagnosticEvent[]> {
+	const memoryEvents = recentChatDiagnostics(conversationId);
+	let persistedEvents: ChatDiagnosticEvent[] = [];
+	try {
+		persistedEvents = await listPersistedChatDiagnostics(conversationId);
+	} catch {
+		return memoryEvents;
+	}
+
+	return mergeDiagnosticEvents(persistedEvents, memoryEvents).slice(-MAX_EVENTS_PER_CONVERSATION);
+}
+
 export function sanitizeDiagnosticValue(key: string, value: unknown): unknown {
 	if (SENSITIVE_KEY_RE.test(key)) return '[redacted]';
 	if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
@@ -77,4 +89,15 @@ function sanitizeDetails(details: Record<string, unknown>): Record<string, unkno
 		sanitized[key] = sanitizeDiagnosticValue(key, value);
 	}
 	return sanitized;
+}
+
+function mergeDiagnosticEvents(...eventGroups: ChatDiagnosticEvent[][]): ChatDiagnosticEvent[] {
+	const byId = new Map<string, ChatDiagnosticEvent>();
+	for (const event of eventGroups.flat()) {
+		byId.set(event.id, {
+			...event,
+			details: { ...event.details }
+		});
+	}
+	return [...byId.values()].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
 }

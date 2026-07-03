@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gte, isNull, lt, or } from 'drizzle-orm';
-import { db } from './index';
+import { db, ensureDefaultOrganizationForAccount } from './index';
 import { conversations, messages } from './schema';
 import { newId } from '$lib/utils/id';
 import type { ContentPart, MessageContent } from '$lib/types';
@@ -27,6 +27,7 @@ export function parseContent(stored: string): MessageContent {
 export interface ConversationRow {
 	id: string;
 	accountId: string;
+	orgId: string | null;
 	title: string;
 	systemPrompt: string | null;
 	createdAt: number;
@@ -73,9 +74,11 @@ export async function getMessages(conversationId: string): Promise<MessageRow[]>
 
 export async function createConversation(accountId: string, systemPrompt?: string): Promise<ConversationRow> {
 	const now = Date.now();
+	const orgId = await ensureDefaultOrganizationForAccount(accountId);
 	const row: ConversationRow = {
 		id: newId(),
 		accountId,
+		orgId,
 		title: '',
 		systemPrompt: systemPrompt ?? null,
 		createdAt: now,

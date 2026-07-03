@@ -3,6 +3,7 @@ import { redirect } from '@sveltejs/kit';
 import { verifySessionCookie, SESSION_COOKIE_NAME } from '$lib/server/auth/cookie';
 import { ensureMigrated } from '$lib/server/db';
 import { accountCount, getAccount } from '$lib/server/db/accounts';
+import { getActiveSession } from '$lib/server/db/sessions';
 
 const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
 // /api/e2e is only active when E2E_SECRET is set (dev/test only); it self-
@@ -14,7 +15,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 	await ensureMigrated();
 	const cookie = event.cookies.get(SESSION_COOKIE_NAME);
 	const session = verifySessionCookie(cookie);
-	const account = session ? await getAccount(session.accountId) : undefined;
+	const activeSession = session
+		? await getActiveSession(session.sessionId, session.accountId)
+		: null;
+	if (cookie && !activeSession) {
+		event.cookies.delete(SESSION_COOKIE_NAME, { path: '/' });
+	}
+	const account = activeSession ? await getAccount(activeSession.accountId) : undefined;
 	event.locals.user = account
 		? { id: account.id, email: account.email, name: account.name, role: account.role }
 		: null;

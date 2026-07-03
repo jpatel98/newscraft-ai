@@ -1,8 +1,8 @@
-import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 
 const COOKIE = 'agent_sess';
-const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+export const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 interface Payload {
 	v: 2;
@@ -13,6 +13,7 @@ interface Payload {
 
 export interface SessionUser {
 	accountId: string;
+	sessionId: string;
 	issuedAt: number;
 }
 
@@ -28,11 +29,14 @@ function b64u(buf: Buffer): string {
 	return buf.toString('base64url');
 }
 
-export function mintSessionCookie(accountId: string): { name: string; value: string; opts: CookieOpts } {
+export function mintSessionCookie(
+	accountId: string,
+	sessionId: string
+): { name: string; value: string; opts: CookieOpts } {
 	const payload: Payload = {
 		v: 2,
 		iat: Math.floor(Date.now() / 1000),
-		jti: b64u(randomBytes(12)),
+		jti: sessionId,
 		sub: accountId
 	};
 	const data = b64u(Buffer.from(JSON.stringify(payload)));
@@ -45,7 +49,7 @@ export function mintSessionCookie(accountId: string): { name: string; value: str
 			sameSite: 'lax',
 			secure: env.NODE_ENV === 'production',
 			path: '/',
-			maxAge: MAX_AGE
+			maxAge: SESSION_COOKIE_MAX_AGE
 		}
 	};
 }
@@ -68,10 +72,11 @@ export function verifySessionCookie(value: string | undefined): SessionUser | nu
 	try {
 		const payload = JSON.parse(Buffer.from(data, 'base64url').toString('utf8')) as Payload;
 		const ageSec = Math.floor(Date.now() / 1000) - payload.iat;
-		if (ageSec > MAX_AGE) return null;
+		if (ageSec > SESSION_COOKIE_MAX_AGE) return null;
 		if (payload.v !== 2) return null;
 		if (!payload.sub) return null;
-		return { accountId: payload.sub, issuedAt: payload.iat };
+		if (!payload.jti) return null;
+		return { accountId: payload.sub, sessionId: payload.jti, issuedAt: payload.iat };
 	} catch {
 		return null;
 	}

@@ -220,6 +220,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				}
 			});
 			const streamDeltas = Boolean(context.onAnswerDelta);
+			const startedAtMs = Date.now();
 			const response = await fetch(providerTextUrl(provider), {
 				method: 'POST',
 				headers: {
@@ -271,6 +272,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			} else {
 				raw = await response.json().catch(() => ({}));
 			}
+			const latencyMs = Math.max(0, Date.now() - startedAtMs);
 			context.repository?.appendEvent({
 				jobId: context.jobId,
 				runId: context.runId,
@@ -288,6 +290,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					model: requestModel,
 					endpoint,
 					tool: NEWSROOM_TOOL_NAMES.webSearch,
+					latency_ms: latencyMs,
 					usage: providerUsageMetadata(raw),
 					estimated: false
 				}

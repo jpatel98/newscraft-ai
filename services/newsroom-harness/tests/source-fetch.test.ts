@@ -1,4 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:dns/promises', () => ({
+	lookup: vi.fn(async (hostname: string) => {
+		if (hostname === 'metadata.example') return [{ address: '169.254.169.254' }];
+		return [{ address: '93.184.216.34' }];
+	})
+}));
+
 import { fetchSourceUrl, extractSourceText, sourceFromText } from '../src/tools/sources.js';
 import { NEWSCRAFT_USER_AGENT, politeFetch, resetPoliteFetchStateForTests } from '../src/tools/polite-fetch.js';
 

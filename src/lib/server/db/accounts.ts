@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { count, desc, eq, isNull } from 'drizzle-orm';
 import { hashPassword, verifyHash } from '$lib/server/auth/password';
 import { newId } from '$lib/utils/id';
-import { db } from './index';
+import { db, ensureDefaultOrganizationForAccount } from './index';
 import { accounts, conversations, agentChannelConfigs, agentChannelPosts, missionReports, missions } from './schema';
 
 const SETUP_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
@@ -73,6 +73,7 @@ export async function createPasswordOnlyAccount(password: string): Promise<Accou
 	};
 	await db.insert(accounts).values(row);
 	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
+	await ensureDefaultOrganizationForAccount(row.id, firstAccount ? 'owner' : 'member');
 	if (firstAccount) await claimOrphanAccountData(row.id);
 	return row;
 }
@@ -102,6 +103,7 @@ export async function createPasswordOnlyInvite(): Promise<{
 	};
 	await db.insert(accounts).values(row);
 	cachedAccountCount = cachedAccountCount === null ? null : cachedAccountCount + 1;
+	await ensureDefaultOrganizationForAccount(row.id, firstAccount ? 'owner' : 'member');
 	if (firstAccount) await claimOrphanAccountData(row.id);
 	return { account: row, token, expiresAt };
 }
@@ -196,10 +198,11 @@ function randomToken(): string {
 }
 
 async function claimOrphanAccountData(accountId: string): Promise<void> {
+	const orgId = await ensureDefaultOrganizationForAccount(accountId, 'owner');
 	await db.transaction(async (tx: any) => {
-		await tx.update(conversations).set({ accountId }).where(isNull(conversations.accountId));
-		await tx.update(missions).set({ accountId }).where(isNull(missions.accountId));
-		await tx.update(missionReports).set({ accountId }).where(isNull(missionReports.accountId));
+		await tx.update(conversations).set({ accountId, orgId }).where(isNull(conversations.accountId));
+		await tx.update(missions).set({ accountId, orgId }).where(isNull(missions.accountId));
+		await tx.update(missionReports).set({ accountId, orgId }).where(isNull(missionReports.accountId));
 		await tx.update(agentChannelConfigs)
 			.set({ accountId })
 			.where(isNull(agentChannelConfigs.accountId));

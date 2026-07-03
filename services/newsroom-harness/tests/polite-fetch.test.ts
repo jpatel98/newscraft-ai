@@ -41,6 +41,7 @@ describe('politeFetch', () => {
 			lastModified: 'Sat, 23 May 2026 12:00:00 GMT',
 			rateLimit: { hostDelayMs: 0 },
 			robots: { respect: false },
+			ssrf: { resolveHost: async () => ['93.184.216.34'] },
 			archive: { snapshot: archiveSnapshot }
 		});
 
@@ -76,7 +77,8 @@ describe('politeFetch', () => {
 
 		const blocked = await politeFetch('https://example.test/blocked/story', {
 			fetchImpl: fetchMock as typeof fetch,
-			rateLimit: { hostDelayMs: 0 }
+			rateLimit: { hostDelayMs: 0 },
+			ssrf: { resolveHost: async () => ['93.184.216.34'] }
 		});
 		expect(blocked.statusCode).toBe(451);
 		expect(blocked.ok).toBe(false);
@@ -90,7 +92,8 @@ describe('politeFetch', () => {
 		const override = await politeFetch('https://example.test/blocked/story', {
 			fetchImpl: fetchMock as typeof fetch,
 			rateLimit: { hostDelayMs: 0 },
-			robots: { override: true }
+			robots: { override: true },
+			ssrf: { resolveHost: async () => ['93.184.216.34'] }
 		});
 		expect(override.statusCode).toBe(200);
 		expect(override.robots).toMatchObject({ checked: true, allowed: true, override: true });
@@ -119,12 +122,14 @@ describe('politeFetch', () => {
 			fetchImpl: fetchMock as typeof fetch,
 			rateLimit: { hostDelayMs: 0 },
 			robots: { respect: false },
+			ssrf: { resolveHost: async () => ['93.184.216.34'] },
 			cache: { store: cache }
 		});
 		const second = await politeFetch('https://example.test/cache-me', {
 			fetchImpl: fetchMock as typeof fetch,
 			rateLimit: { hostDelayMs: 0 },
 			robots: { respect: false },
+			ssrf: { resolveHost: async () => ['93.184.216.34'] },
 			cache: { store: cache }
 		});
 		const secondHeaders = new Headers(fetchMock.mock.calls[1]?.[1]?.headers);
@@ -150,6 +155,7 @@ describe('politeFetch', () => {
 			fetchImpl: fetchMock as typeof fetch,
 			rateLimit: { hostDelayMs: 0 },
 			robots: { respect: false },
+			ssrf: { resolveHost: async () => ['93.184.216.34'] },
 			archive: { webArchive: true, fetchImpl: archiveFetch as typeof fetch }
 		});
 
@@ -180,7 +186,8 @@ describe('politeFetch', () => {
 				hostDelayMs: 100,
 				wait
 			},
-			robots: { respect: false }
+			robots: { respect: false },
+			ssrf: { resolveHost: async () => ['93.184.216.34'] }
 		};
 
 		await politeFetch('https://example.test/one', options);
@@ -189,5 +196,19 @@ describe('politeFetch', () => {
 
 		expect(wait).toHaveBeenNthCalledWith(1, 100);
 		expect(wait).toHaveBeenNthCalledWith(2, 2000);
+	});
+
+	it('checks resolved host addresses even when a fetch implementation is supplied', async () => {
+		const fetchMock = vi.fn(async () => new Response('should not fetch'));
+
+		await expect(
+			politeFetch('https://metadata.example/story', {
+				fetchImpl: fetchMock as typeof fetch,
+				robots: { respect: false },
+				ssrf: { resolveHost: async () => ['169.254.169.254'] }
+			})
+		).rejects.toThrow(/Blocked private fetch target/);
+
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

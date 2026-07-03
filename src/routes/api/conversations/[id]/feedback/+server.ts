@@ -1,7 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { getConversation, getMessages } from '$lib/server/db/conversations';
 import { attachLinearIssueToFeedback, saveChatFeedback } from '$lib/server/db/feedback';
-import { recentChatDiagnostics, recordChatDiagnostic } from '$lib/server/chat-diagnostics';
+import { recentChatDiagnosticsWithPersisted, recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import { createLinearFeedbackIssue } from '$lib/server/linear-feedback';
 
 const MAX_COMMENT_CHARS = 4000;
@@ -30,7 +30,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
 		messageCount: messages.length,
 		commentChars: comment.length
 	});
-	const diagnostics = recentChatDiagnostics(conversation.id);
+	const diagnostics = await recentChatDiagnosticsWithPersisted(conversation.id);
 	const feedback = await saveChatFeedback({
 		accountId: locals.user.id,
 		conversationId: conversation.id,

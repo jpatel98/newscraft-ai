@@ -1,4 +1,4 @@
-import { db } from './index';
+import { db, ensureDefaultOrganizationForAccount } from './index';
 import { chatFeedback } from './schema';
 import { newId } from '$lib/utils/id';
 import type { ConversationRow, MessageRow } from './conversations';
@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 export interface ChatFeedbackRow {
 	id: string;
 	accountId: string;
+	orgId: string | null;
 	conversationId: string;
 	comment: string;
 	snapshotJson: string;
@@ -36,9 +37,11 @@ export async function saveChatFeedback(input: {
 	userAgent?: string | null;
 }): Promise<ChatFeedbackRow> {
 	const now = Date.now();
+	const orgId = await ensureDefaultOrganizationForAccount(input.accountId);
 	const row: ChatFeedbackRow = {
 		id: newId(),
 		accountId: input.accountId,
+		orgId,
 		conversationId: input.conversationId,
 		comment: input.comment,
 		snapshotJson: JSON.stringify(input.snapshot),

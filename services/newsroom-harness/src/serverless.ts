@@ -27,10 +27,15 @@ export function createVercelHarnessHandler() {
 		try {
 			const url = new URL(req.url || '/', `https://${req.headers.host || 'newscraft-harness.vercel.app'}`);
 			if (req.method === 'GET' && url.pathname === '/health') {
-				writeJson(res, 200, serverlessHealth(config));
+				const body = serverlessHealth(config);
+				writeJson(res, body.ok ? 200 : 503, body);
 				return;
 			}
 
+			const configStatus = validateHarnessConfig(config);
+			if (!configStatus.ok) {
+				throw new HttpError(503, 'harness is not configured for private requests');
+			}
 			if (config.apiKey && !tokenMatches(bearerToken(req), config.apiKey)) {
 				throw new HttpError(401, 'unauthorized');
 			}

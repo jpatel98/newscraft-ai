@@ -120,6 +120,23 @@ CREATE TABLE IF NOT EXISTS events (
 	created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS usage_ledger (
+	id TEXT PRIMARY KEY,
+	created_at TEXT NOT NULL,
+	workspace_id TEXT NOT NULL DEFAULT 'default',
+	job_id TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+	run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+	event_id TEXT REFERENCES events(id) ON DELETE SET NULL,
+	task TEXT NOT NULL,
+	provider TEXT NOT NULL,
+	model TEXT NOT NULL,
+	endpoint TEXT,
+	status TEXT NOT NULL,
+	latency_ms INTEGER,
+	usage_metadata_json TEXT NOT NULL DEFAULT '{}',
+	cost_metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+
 CREATE TABLE IF NOT EXISTS memory_entries (
 	id TEXT PRIMARY KEY,
 	workspace_id TEXT NOT NULL DEFAULT 'default',
@@ -167,6 +184,10 @@ CREATE INDEX IF NOT EXISTS events_workspace_created_idx ON events(workspace_id, 
 CREATE INDEX IF NOT EXISTS events_story_idx ON events(story_id, created_at, id);
 CREATE INDEX IF NOT EXISTS events_job_idx ON events(job_id, created_at, id);
 CREATE INDEX IF NOT EXISTS events_run_idx ON events(run_id, created_at, id);
+CREATE INDEX IF NOT EXISTS usage_ledger_workspace_created_idx ON usage_ledger(workspace_id, created_at, id);
+CREATE INDEX IF NOT EXISTS usage_ledger_job_idx ON usage_ledger(job_id, created_at, id);
+CREATE INDEX IF NOT EXISTS usage_ledger_run_idx ON usage_ledger(run_id, created_at, id);
+CREATE INDEX IF NOT EXISTS usage_ledger_provider_model_idx ON usage_ledger(provider, model, created_at);
 CREATE INDEX IF NOT EXISTS memory_entries_scope_idx ON memory_entries(tier, scope_id, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_key_idx ON memory_entries(tier, scope_id, key, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_workspace_scope_idx ON memory_entries(workspace_id, tier, scope_id, created_at, id);

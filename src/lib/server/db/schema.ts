@@ -22,11 +22,58 @@ export const accounts = pgTable(
 	})
 );
 
+export const sessions = pgTable(
+	'sessions',
+	{
+		id: text('id').primaryKey(),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		createdAt: timestampMs('created_at').notNull(),
+		expiresAt: timestampMs('expires_at').notNull(),
+		revokedAt: timestampMs('revoked_at'),
+		lastSeenAt: timestampMs('last_seen_at')
+	},
+	(t) => ({
+		accountIdx: index('sessions_account_idx').on(t.accountId),
+		expiresIdx: index('sessions_expires_idx').on(t.expiresAt)
+	})
+);
+
+export const organizations = pgTable('organizations', {
+	id: text('id').primaryKey(),
+	name: text('name').notNull().default('Newsroom'),
+	createdAt: timestampMs('created_at').notNull(),
+	updatedAt: timestampMs('updated_at').notNull()
+});
+
+export const organizationMembers = pgTable(
+	'organization_members',
+	{
+		id: text('id').primaryKey(),
+		orgId: text('org_id')
+			.notNull()
+			.references(() => organizations.id, { onDelete: 'cascade' }),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: ['owner', 'admin', 'member'] }).notNull().default('member'),
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
+	},
+	(t) => ({
+		accountOrgUnique: uniqueIndex('organization_members_account_org_unique').on(t.accountId, t.orgId),
+		orgIdx: index('organization_members_org_idx').on(t.orgId),
+		accountIdx: index('organization_members_account_idx').on(t.accountId)
+	})
+);
+
 export const conversations = pgTable('conversations', {
 	id: text('id').primaryKey(),
 	accountId: text('account_id')
 		.notNull()
 		.references(() => accounts.id, { onDelete: 'cascade' }),
+	orgId: text('org_id').references(() => organizations.id, { onDelete: 'set null' }),
 	title: text('title').notNull().default(''),
 	systemPrompt: text('system_prompt'),
 	createdAt: timestampMs('created_at').notNull(),
@@ -34,6 +81,7 @@ export const conversations = pgTable('conversations', {
 	pinned: integer('pinned').notNull().default(0)
 }, (t) => ({
 	accountUpdatedIdx: index('conversations_account_updated_idx').on(t.accountId, t.updatedAt),
+	orgUpdatedIdx: index('conversations_org_updated_idx').on(t.orgId, t.updatedAt),
 	accountPinnedUpdatedIdx: index('conversations_account_pinned_updated_idx').on(
 		t.accountId,
 		t.pinned,
@@ -60,6 +108,27 @@ export const messages = pgTable(
 	})
 );
 
+export const messageProvenance = pgTable(
+	'message_provenance',
+	{
+		messageId: text('message_id')
+			.primaryKey()
+			.references(() => messages.id, { onDelete: 'cascade' }),
+		conversationId: text('conversation_id')
+			.notNull()
+			.references(() => conversations.id, { onDelete: 'cascade' }),
+		provenanceJson: text('provenance_json').notNull(),
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
+	},
+	(t) => ({
+		conversationUpdatedIdx: index('message_provenance_conversation_updated_idx').on(
+			t.conversationId,
+			t.updatedAt
+		)
+	})
+);
+
 export const chatFeedback = pgTable(
 	'chat_feedback',
 	{
@@ -67,6 +136,7 @@ export const chatFeedback = pgTable(
 		accountId: text('account_id')
 			.notNull()
 			.references(() => accounts.id, { onDelete: 'cascade' }),
+		orgId: text('org_id').references(() => organizations.id, { onDelete: 'set null' }),
 		conversationId: text('conversation_id')
 			.notNull()
 			.references(() => conversations.id, { onDelete: 'cascade' }),
@@ -80,6 +150,7 @@ export const chatFeedback = pgTable(
 	},
 	(t) => ({
 		accountCreatedIdx: index('chat_feedback_account_created_idx').on(t.accountId, t.createdAt),
+		orgCreatedIdx: index('chat_feedback_org_created_idx').on(t.orgId, t.createdAt),
 		conversationCreatedIdx: index('chat_feedback_conversation_created_idx').on(
 			t.conversationId,
 			t.createdAt
@@ -143,6 +214,7 @@ export const missions = pgTable('missions', {
 	accountId: text('account_id')
 		.notNull()
 		.references(() => accounts.id, { onDelete: 'cascade' }),
+	orgId: text('org_id').references(() => organizations.id, { onDelete: 'set null' }),
 	name: text('name').notNull(),
 	description: text('description').notNull().default(''),
 	prompt: text('prompt').notNull(),
@@ -154,7 +226,8 @@ export const missions = pgTable('missions', {
 	createdAt: timestampMs('created_at').notNull(),
 	updatedAt: timestampMs('updated_at').notNull()
 }, (t) => ({
-	accountIdx: index('missions_account_idx').on(t.accountId)
+	accountIdx: index('missions_account_idx').on(t.accountId),
+	orgIdx: index('missions_org_idx').on(t.orgId)
 }));
 
 export const missionSources = pgTable(
@@ -205,6 +278,7 @@ export const missionReports = pgTable(
 		accountId: text('account_id')
 			.notNull()
 			.references(() => accounts.id, { onDelete: 'cascade' }),
+		orgId: text('org_id').references(() => organizations.id, { onDelete: 'set null' }),
 		missionId: text('mission_id').notNull(),
 		missionName: text('mission_name').notNull(),
 		runTime: text('run_time'),
@@ -222,6 +296,7 @@ export const missionReports = pgTable(
 	(t) => ({
 		accountMissionIdx: index('mission_reports_account_mission_idx').on(t.accountId, t.missionId),
 		accountUpdatedIdx: index('mission_reports_account_updated_idx').on(t.accountId, t.updatedAt),
+		orgUpdatedIdx: index('mission_reports_org_updated_idx').on(t.orgId, t.updatedAt),
 		missionRunIdx: index('mission_reports_mission_run_idx').on(t.missionId, t.runTime),
 		pathIdx: index('mission_reports_path_idx').on(t.filePathDisplay),
 		legacyIdx: index('mission_reports_legacy_post_idx').on(t.legacyChannelPostId)

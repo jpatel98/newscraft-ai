@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { db } from './index';
+import { db, ensureDefaultOrganizationForAccount } from './index';
 import { agentChannelPosts, missionReports } from './schema';
 
 export interface MissionReportUpsertInput {
@@ -21,6 +21,7 @@ export interface MissionReportUpsertInput {
 export interface MissionReportRow {
 	id: string;
 	accountId: string;
+	orgId: string | null;
 	missionId: string;
 	missionName: string;
 	runTime: string | null;
@@ -58,6 +59,7 @@ async function legacyReportRows(accountId: string): Promise<MissionReportRow[]> 
 		return rows.map((row: typeof agentChannelPosts.$inferSelect) => ({
 				id: row.id,
 				accountId: row.accountId,
+				orgId: null,
 				missionId: row.jobId,
 				missionName: row.channel,
 				runTime: row.runTime,
@@ -81,11 +83,13 @@ async function legacyReportRows(accountId: string): Promise<MissionReportRow[]> 
 export async function upsertMissionReport(input: MissionReportUpsertInput): Promise<void> {
 	const now = Date.now();
 	const sourceMtimeMs = Math.max(0, Math.round(input.sourceMtimeMs));
+	const orgId = await ensureDefaultOrganizationForAccount(input.accountId);
 	try {
 		await db.insert(missionReports)
 			.values({
 				id: input.id,
 				accountId: input.accountId,
+				orgId,
 				missionId: input.missionId,
 				missionName: input.missionName,
 				runTime: input.runTime,
@@ -105,6 +109,7 @@ export async function upsertMissionReport(input: MissionReportUpsertInput): Prom
 				set: {
 					missionId: input.missionId,
 					accountId: input.accountId,
+					orgId,
 					missionName: input.missionName,
 					runTime: input.runTime,
 					schedule: input.schedule,

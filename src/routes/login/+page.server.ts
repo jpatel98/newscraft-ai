@@ -3,6 +3,7 @@ import type { Actions } from './$types';
 import { mintSessionCookie } from '$lib/server/auth/cookie';
 import { lockedOut, recordFailure, recordSuccess } from '$lib/server/auth/password';
 import { findAccountByPassword, touchAccountLogin } from '$lib/server/db/accounts';
+import { createSession } from '$lib/server/db/sessions';
 import { checkRateLimit } from '$lib/server/rate-limit';
 
 export const actions: Actions = {
@@ -29,7 +30,8 @@ export const actions: Actions = {
 
 		recordSuccess(key);
 		await touchAccountLogin(account.id);
-		const c = mintSessionCookie(account.id);
+		const session = await createSession(account.id);
+		const c = mintSessionCookie(account.id, session.id);
 		cookies.set(c.name, c.value, c.opts);
 
 		const safeNext = next.startsWith('/') && !/^\/[/\\]/.test(next) ? next : '/';

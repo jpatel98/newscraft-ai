@@ -517,7 +517,6 @@ async function assertSafeFetchTarget(parsed: URL, options: PoliteFetchOptions): 
 	}
 
 	const resolveHost = options.ssrf?.resolveHost;
-	if (!resolveHost && options.fetchImpl) return;
 	const addresses = resolveHost
 		? await resolveHost(hostname)
 		: await lookup(hostname, { all: true })

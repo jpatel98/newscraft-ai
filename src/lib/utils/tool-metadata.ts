@@ -6,10 +6,63 @@ interface ToolMetadataEnvelope {
 	sources: PersistedSource[];
 }
 
+export interface AnswerProvenanceBundle {
+	version: 1;
+	messageId: string;
+	conversationId: string;
+	createdAt: number;
+	tools: StreamToolCall[];
+	sources: PersistedSource[];
+	stream: {
+		startedAt: number;
+		endedAt: number;
+		elapsedMs: number;
+		assistantChars: number;
+		done: boolean;
+		finishStatus: 'completed' | 'partial' | 'failed' | 'cancelled';
+		events: Record<string, number>;
+	};
+	metadata: {
+		transport?: string;
+		reasoningEffort?: string;
+		model?: string;
+		toolCount: number;
+		sourceCount: number;
+		usedSourceCount: number;
+	};
+}
+
+export interface BuildAnswerProvenanceInput {
+	messageId: string;
+	conversationId: string;
+	tools: StreamToolCall[];
+	sources: PersistedSource[];
+	startedAt: number;
+	endedAt?: number;
+	assistantChars: number;
+	done: boolean;
+	finishStatus?: AnswerProvenanceBundle['stream']['finishStatus'];
+	events?: Record<string, number>;
+	transport?: string;
+	reasoningEffort?: string;
+	model?: string;
+}
+
 export interface ParsedToolMetadata {
 	tools: StreamToolCall[];
 	sources: PersistedSource[];
 }
+
+const SENSITIVE_KEY_RE = /authorization|cookie|token|secret|password|credential|api[_-]?key|database[_-]?url|session/i;
+const REDACT_TEXT_PATTERNS: Array<[RegExp, string]> = [
+	[/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]'],
+	[/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[redacted-api-key]'],
+	[/\bpostgres(?:ql)?:\/\/[^\s"'<>]+/gi, '[redacted-database-url]'],
+	[/\b[A-Za-z0-9._%+-]+:[^@\s]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[redacted-credential]']
+];
+const MAX_PROVENANCE_STRING = 4000;
+const MAX_PROVENANCE_ARRAY = 50;
+const MAX_PROVENANCE_DEPTH = 6;
 
 function objectValue(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === 'object' && !Array.isArray(value)
@@ -25,6 +78,60 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
 	return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function sanitizeProvenanceValue(key: string, value: unknown, depth = 0): unknown {
+	if (SENSITIVE_KEY_RE.test(key)) return '[redacted]';
+	if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+	if (typeof value === 'string') return compactProvenanceString(redactSensitiveText(value));
+	if (depth >= MAX_PROVENANCE_DEPTH) return '[truncated]';
+	if (Array.isArray(value)) {
+		return value
+			.slice(0, MAX_PROVENANCE_ARRAY)
+			.map((item, index) => sanitizeProvenanceValue(`${key}.${index}`, item, depth + 1));
+	}
+	if (typeof value === 'object') {
+		const sanitized: Record<string, unknown> = {};
+		for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+			sanitized[childKey] = sanitizeProvenanceValue(childKey, childValue, depth + 1);
+		}
+		return sanitized;
+	}
+	return compactProvenanceString(String(value));
+}
+
+function redactSensitiveText(value: string): string {
+	return REDACT_TEXT_PATTERNS.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value);
+}
+
+function compactProvenanceString(value: string): string {
+	return value.length > MAX_PROVENANCE_STRING ? `${value.slice(0, MAX_PROVENANCE_STRING)}...` : value;
+}
+
+function sanitizeTool(tool: StreamToolCall): StreamToolCall {
+	const sanitized: StreamToolCall = {
+		id: tool.id,
+		name: tool.name,
+		status: tool.status,
+		startedAt: tool.startedAt,
+		endedAt: tool.endedAt,
+		durationMs: tool.durationMs,
+		transcript: typeof tool.transcript === 'string' ? compactProvenanceString(redactSensitiveText(tool.transcript)) : undefined,
+		detail: typeof tool.detail === 'string' ? compactProvenanceString(redactSensitiveText(tool.detail)) : undefined,
+		url: tool.url,
+		title: tool.title
+	};
+	if (tool.arguments !== undefined) sanitized.arguments = sanitizeProvenanceValue('arguments', tool.arguments);
+	if (tool.result !== undefined) sanitized.result = sanitizeProvenanceValue('result', tool.result);
+	return Object.fromEntries(Object.entries(sanitized).filter(([, value]) => value !== undefined)) as StreamToolCall;
+}
+
+function sanitizeSource(source: PersistedSource): PersistedSource {
+	return {
+		...source,
+		title: compactProvenanceString(redactSensitiveText(source.title)),
+		detail: source.detail ? compactProvenanceString(redactSensitiveText(source.detail)) : undefined
+	};
 }
 
 function domainOf(url: string): string {
@@ -114,6 +221,43 @@ export function serializeToolMetadata(
 ): string | null {
 	if (tools.length === 0 && sources.length === 0) return null;
 	return JSON.stringify({ version: 1, tools, sources } satisfies ToolMetadataEnvelope);
+}
+
+export function buildAnswerProvenanceBundle(input: BuildAnswerProvenanceInput): AnswerProvenanceBundle {
+	const merged = mergeToolMetadata(null, input.tools, input.sources);
+	const endedAt = input.endedAt ?? Date.now();
+	const finishStatus = input.finishStatus ?? (input.done ? 'completed' : 'partial');
+	const tools = merged.tools.map(sanitizeTool);
+	const sources = merged.sources.map(sanitizeSource);
+	return {
+		version: 1,
+		messageId: input.messageId,
+		conversationId: input.conversationId,
+		createdAt: endedAt,
+		tools,
+		sources,
+		stream: {
+			startedAt: input.startedAt,
+			endedAt,
+			elapsedMs: Math.max(0, endedAt - input.startedAt),
+			assistantChars: input.assistantChars,
+			done: input.done,
+			finishStatus,
+			events: { ...(input.events ?? {}) }
+		},
+		metadata: {
+			transport: input.transport,
+			reasoningEffort: input.reasoningEffort,
+			model: input.model,
+			toolCount: tools.length,
+			sourceCount: sources.length,
+			usedSourceCount: sources.filter((source) => source.used).length
+		}
+	};
+}
+
+export function serializeAnswerProvenance(input: BuildAnswerProvenanceInput): string {
+	return JSON.stringify(buildAnswerProvenanceBundle(input));
 }
 
 export function mergeToolMetadata(

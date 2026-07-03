@@ -13,6 +13,7 @@ import {
 	createPasswordOnlyAccount,
 	touchAccountLogin,
 } from '$lib/server/db/accounts';
+import { createSession } from '$lib/server/db/sessions';
 
 export const load: PageServerLoad = async () => {
 	if ((await accountCount()) > 0) throw redirect(303, '/login');
@@ -54,7 +55,8 @@ export const actions: Actions = {
 		try {
 			const account = await createPasswordOnlyAccount(password);
 			await touchAccountLogin(account.id);
-			const c = mintSessionCookie(account.id);
+			const session = await createSession(account.id);
+			const c = mintSessionCookie(account.id, session.id);
 			cookies.set(c.name, c.value, c.opts);
 		} catch {
 			return fail(409, { error: 'account could not be created' });

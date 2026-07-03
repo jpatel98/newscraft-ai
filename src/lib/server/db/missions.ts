@@ -2,7 +2,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { ChannelSource, AgentJob } from '$lib/types';
 import { newId } from '$lib/utils/id';
 import { normalizeChannelSource, overlayChannelSourceConfigs } from '$lib/utils/channel-sources';
-import { db } from './index';
+import { db, ensureDefaultOrganizationForAccount } from './index';
 import { agentChannelConfigs, agentChannelSources, missions, missionSources } from './schema';
 
 export interface MissionConfig {
@@ -221,12 +221,14 @@ export async function saveMissionConfig(
 	const id = missionId.trim();
 	if (!id) return;
 	const now = Date.now();
+	const orgId = await ensureDefaultOrganizationForAccount(accountId);
 	try {
 		await db.transaction(async (tx: any) => {
 			await tx.insert(missions)
 				.values({
 					id,
 					accountId,
+					orgId,
 					name: options.name?.trim() || id,
 					description: options.description?.trim() || '',
 					prompt: basePrompt,
@@ -243,6 +245,7 @@ export async function saveMissionConfig(
 					set: {
 						name: options.name?.trim() || id,
 						accountId,
+						orgId,
 						description: options.description?.trim() || '',
 						prompt: basePrompt,
 						schedule: options.schedule?.trim() || '',

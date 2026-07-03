@@ -7,6 +7,8 @@ import { settings } from './schema';
 
 const databaseUrl = env.DATABASE_URL || 'postgres://invalid:invalid@127.0.0.1:1/invalid';
 const poolMax = Number.parseInt(env.DATABASE_POOL_MAX || '', 10);
+export const DEFAULT_ORGANIZATION_ID = 'org_default';
+const DEFAULT_ORGANIZATION_NAME = 'Newsroom';
 
 export const sql = postgres(databaseUrl, {
 	max: Number.isFinite(poolMax) && poolMax > 0 ? poolMax : 5,
@@ -26,6 +28,38 @@ export async function setSetting(key: string, value: string): Promise<void> {
 		.onConflictDoUpdate({ target: settings.key, set: { value } });
 }
 
+export async function ensureDefaultOrganization(): Promise<string> {
+	const now = Date.now();
+	await sql`
+		INSERT INTO organizations (id, name, created_at, updated_at)
+		VALUES (${DEFAULT_ORGANIZATION_ID}, ${DEFAULT_ORGANIZATION_NAME}, ${now}, ${now})
+		ON CONFLICT (id) DO NOTHING
+	`;
+	return DEFAULT_ORGANIZATION_ID;
+}
+
+export async function ensureDefaultOrganizationForAccount(
+	accountId: string,
+	role: 'owner' | 'admin' | 'member' = 'member'
+): Promise<string> {
+	if (!accountId) return ensureDefaultOrganization();
+	const orgId = await ensureDefaultOrganization();
+	const now = Date.now();
+	await sql`
+		INSERT INTO organization_members (id, org_id, account_id, role, created_at, updated_at)
+		VALUES (${`${orgId}:${accountId}`}, ${orgId}, ${accountId}, ${role}, ${now}, ${now})
+		ON CONFLICT (account_id, org_id) DO UPDATE
+		SET
+			role = CASE
+				WHEN organization_members.role = 'owner' THEN organization_members.role
+				ELSE EXCLUDED.role
+			END,
+			updated_at = EXCLUDED.updated_at
+	`;
+	await backfillAccountOrganizationData(accountId, orgId);
+	return orgId;
+}
+
 let migrated: Promise<void> | null = null;
 export async function ensureMigrated(): Promise<void> {
 	if (!env.DATABASE_URL) {
@@ -35,6 +69,7 @@ export async function ensureMigrated(): Promise<void> {
 	migrated = (async () => {
 		await ensureSchema();
 		await ensurePerformanceIndexes();
+		await ensureDefaultOrganizationData();
 		// One-time migration: copy APP_PASSWORD_HASH from env into settings so a
 		// running process can rotate the password without a redeploy.
 		if (!(await getSetting('auth.password_hash')) && env.APP_PASSWORD_HASH) {
@@ -45,6 +80,15 @@ export async function ensureMigrated(): Promise<void> {
 }
 
 async function ensureSchema(): Promise<void> {
+	await sql`
+		CREATE TABLE IF NOT EXISTS organizations (
+			id text PRIMARY KEY,
+			name text NOT NULL DEFAULT 'Newsroom',
+			created_at bigint NOT NULL,
+			updated_at bigint NOT NULL
+		)
+	`;
+
 	await sql`
 		CREATE TABLE IF NOT EXISTS accounts (
 			id text PRIMARY KEY,
@@ -71,9 +115,40 @@ async function ensureSchema(): Promise<void> {
 	await sql`CREATE INDEX IF NOT EXISTS accounts_setup_token_idx ON accounts (setup_token_hash)`;
 
 	await sql`
+		CREATE TABLE IF NOT EXISTS organization_members (
+			id text PRIMARY KEY,
+			org_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			role text NOT NULL DEFAULT 'member',
+			created_at bigint NOT NULL,
+			updated_at bigint NOT NULL
+		)
+	`;
+	await sql`
+		CREATE UNIQUE INDEX IF NOT EXISTS organization_members_account_org_unique
+			ON organization_members (account_id, org_id)
+	`;
+	await sql`CREATE INDEX IF NOT EXISTS organization_members_org_idx ON organization_members (org_id)`;
+	await sql`CREATE INDEX IF NOT EXISTS organization_members_account_idx ON organization_members (account_id)`;
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS sessions (
+			id text PRIMARY KEY,
+			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			created_at bigint NOT NULL,
+			expires_at bigint NOT NULL,
+			revoked_at bigint,
+			last_seen_at bigint
+		)
+	`;
+	await sql`CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions (account_id)`;
+	await sql`CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions (expires_at)`;
+
+	await sql`
 		CREATE TABLE IF NOT EXISTS conversations (
 			id text PRIMARY KEY,
 			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			org_id text REFERENCES organizations(id) ON DELETE SET NULL,
 			title text NOT NULL DEFAULT '',
 			system_prompt text,
 			created_at bigint NOT NULL,
@@ -81,7 +156,9 @@ async function ensureSchema(): Promise<void> {
 			pinned integer NOT NULL DEFAULT 0
 		)
 	`;
+	await sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS org_id text REFERENCES organizations(id) ON DELETE SET NULL`;
 	await sql`CREATE INDEX IF NOT EXISTS conversations_account_updated_idx ON conversations (account_id, updated_at)`;
+	await sql`CREATE INDEX IF NOT EXISTS conversations_org_updated_idx ON conversations (org_id, updated_at)`;
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS messages (
@@ -100,9 +177,21 @@ async function ensureSchema(): Promise<void> {
 	await sql`CREATE INDEX IF NOT EXISTS messages_partial_claim_idx ON messages (partial, resume_claimed_at)`;
 
 	await sql`
+		CREATE TABLE IF NOT EXISTS message_provenance (
+			message_id text PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+			conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+			provenance_json text NOT NULL,
+			created_at bigint NOT NULL,
+			updated_at bigint NOT NULL
+		)
+	`;
+	await sql`CREATE INDEX IF NOT EXISTS message_provenance_conversation_updated_idx ON message_provenance (conversation_id, updated_at)`;
+
+	await sql`
 		CREATE TABLE IF NOT EXISTS chat_feedback (
 			id text PRIMARY KEY,
 			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			org_id text REFERENCES organizations(id) ON DELETE SET NULL,
 			conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
 			comment text NOT NULL,
 			snapshot_json text NOT NULL,
@@ -113,10 +202,12 @@ async function ensureSchema(): Promise<void> {
 			created_at bigint NOT NULL
 		)
 	`;
+	await sql`ALTER TABLE chat_feedback ADD COLUMN IF NOT EXISTS org_id text REFERENCES organizations(id) ON DELETE SET NULL`;
 	await sql`ALTER TABLE chat_feedback ADD COLUMN IF NOT EXISTS linear_issue_id text`;
 	await sql`ALTER TABLE chat_feedback ADD COLUMN IF NOT EXISTS linear_issue_identifier text`;
 	await sql`ALTER TABLE chat_feedback ADD COLUMN IF NOT EXISTS linear_issue_url text`;
 	await sql`CREATE INDEX IF NOT EXISTS chat_feedback_account_created_idx ON chat_feedback (account_id, created_at)`;
+	await sql`CREATE INDEX IF NOT EXISTS chat_feedback_org_created_idx ON chat_feedback (org_id, created_at)`;
 	await sql`CREATE INDEX IF NOT EXISTS chat_feedback_conversation_created_idx ON chat_feedback (conversation_id, created_at)`;
 
 	await sql`
@@ -189,6 +280,7 @@ async function ensureSchema(): Promise<void> {
 		CREATE TABLE IF NOT EXISTS missions (
 			id text PRIMARY KEY,
 			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			org_id text REFERENCES organizations(id) ON DELETE SET NULL,
 			name text NOT NULL,
 			description text NOT NULL DEFAULT '',
 			prompt text NOT NULL,
@@ -201,7 +293,9 @@ async function ensureSchema(): Promise<void> {
 			updated_at bigint NOT NULL
 		)
 	`;
+	await sql`ALTER TABLE missions ADD COLUMN IF NOT EXISTS org_id text REFERENCES organizations(id) ON DELETE SET NULL`;
 	await sql`CREATE INDEX IF NOT EXISTS missions_account_idx ON missions (account_id)`;
+	await sql`CREATE INDEX IF NOT EXISTS missions_org_idx ON missions (org_id)`;
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS mission_sources (
@@ -238,6 +332,7 @@ async function ensureSchema(): Promise<void> {
 		CREATE TABLE IF NOT EXISTS mission_reports (
 			id text PRIMARY KEY,
 			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			org_id text REFERENCES organizations(id) ON DELETE SET NULL,
 			mission_id text NOT NULL,
 			mission_name text NOT NULL,
 			run_time text,
@@ -253,7 +348,9 @@ async function ensureSchema(): Promise<void> {
 			updated_at bigint NOT NULL
 		)
 	`;
+	await sql`ALTER TABLE mission_reports ADD COLUMN IF NOT EXISTS org_id text REFERENCES organizations(id) ON DELETE SET NULL`;
 	await sql`CREATE INDEX IF NOT EXISTS mission_reports_account_mission_idx ON mission_reports (account_id, mission_id)`;
+	await sql`CREATE INDEX IF NOT EXISTS mission_reports_org_updated_idx ON mission_reports (org_id, updated_at)`;
 	await sql`CREATE INDEX IF NOT EXISTS mission_reports_mission_run_idx ON mission_reports (mission_id, run_time)`;
 	await sql`CREATE INDEX IF NOT EXISTS mission_reports_path_idx ON mission_reports (file_path_display)`;
 	await sql`CREATE INDEX IF NOT EXISTS mission_reports_legacy_post_idx ON mission_reports (legacy_channel_post_id)`;
@@ -268,4 +365,56 @@ async function ensurePerformanceIndexes(): Promise<void> {
 		CREATE INDEX IF NOT EXISTS mission_reports_account_updated_idx
 			ON mission_reports (account_id, updated_at)
 	`;
+}
+
+async function ensureDefaultOrganizationData(): Promise<void> {
+	const orgId = await ensureDefaultOrganization();
+	const now = Date.now();
+	await sql`
+		INSERT INTO organization_members (id, org_id, account_id, role, created_at, updated_at)
+		SELECT ${`${orgId}:`} || accounts.id, ${orgId}, accounts.id,
+			CASE WHEN accounts.role = 'admin' THEN 'owner' ELSE 'member' END,
+			${now}, ${now}
+		FROM accounts
+		ON CONFLICT (account_id, org_id) DO NOTHING
+	`;
+	await backfillOrganizationData(orgId);
+}
+
+async function backfillOrganizationData(orgId: string): Promise<void> {
+	await sql`
+		UPDATE conversations
+		SET org_id = ${orgId}
+		WHERE org_id IS NULL AND account_id IN (
+			SELECT account_id FROM organization_members WHERE org_id = ${orgId}
+		)
+	`;
+	await sql`
+		UPDATE missions
+		SET org_id = ${orgId}
+		WHERE org_id IS NULL AND account_id IN (
+			SELECT account_id FROM organization_members WHERE org_id = ${orgId}
+		)
+	`;
+	await sql`
+		UPDATE mission_reports
+		SET org_id = ${orgId}
+		WHERE org_id IS NULL AND account_id IN (
+			SELECT account_id FROM organization_members WHERE org_id = ${orgId}
+		)
+	`;
+	await sql`
+		UPDATE chat_feedback
+		SET org_id = ${orgId}
+		WHERE org_id IS NULL AND account_id IN (
+			SELECT account_id FROM organization_members WHERE org_id = ${orgId}
+		)
+	`;
+}
+
+async function backfillAccountOrganizationData(accountId: string, orgId: string): Promise<void> {
+	await sql`UPDATE conversations SET org_id = ${orgId} WHERE org_id IS NULL AND account_id = ${accountId}`;
+	await sql`UPDATE missions SET org_id = ${orgId} WHERE org_id IS NULL AND account_id = ${accountId}`;
+	await sql`UPDATE mission_reports SET org_id = ${orgId} WHERE org_id IS NULL AND account_id = ${accountId}`;
+	await sql`UPDATE chat_feedback SET org_id = ${orgId} WHERE org_id IS NULL AND account_id = ${accountId}`;
 }
