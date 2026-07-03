@@ -70,6 +70,16 @@ describe('newsroom harness server', () => {
 		await expect(authorized.json()).resolves.toMatchObject({ jobs: [] });
 	});
 
+	it('refuses private endpoints when deployed without harness auth', async () => {
+		const base = await startHarness({ apiKey: '', production: true });
+		const health = await fetch(`${base}/health`);
+		const privateEndpoint = await fetch(`${base}/api/jobs`);
+
+		expect(health.status).toBe(503);
+		expect(privateEndpoint.status).toBe(503);
+		expect(await privateEndpoint.text()).toContain('harness is not configured');
+	});
+
 	it('serves the authenticated event feed', async () => {
 		await startHarness();
 		const event = harness.repository.appendEvent({

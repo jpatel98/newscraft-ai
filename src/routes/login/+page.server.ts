@@ -3,6 +3,7 @@ import type { Actions } from './$types';
 import { mintSessionCookie } from '$lib/server/auth/cookie';
 import { lockedOut, recordFailure, recordSuccess } from '$lib/server/auth/password';
 import { findAccountByPassword, touchAccountLogin } from '$lib/server/db/accounts';
+import { checkRateLimit } from '$lib/server/rate-limit';
 
 export const actions: Actions = {
 	default: async ({ request, cookies, getClientAddress, url }) => {
@@ -11,6 +12,10 @@ export const actions: Actions = {
 		const next = String(data.get('next') ?? url.searchParams.get('next') ?? '/');
 
 		const key = getClientAddress();
+		const rate = checkRateLimit(`login:${key}`, { limit: 20, windowMs: 10 * 60 * 1000 });
+		if (!rate.allowed) {
+			return fail(429, { error: `too many attempts; try again in ${Math.ceil(rate.retryAfterMs / 1000)}s` });
+		}
 		const lock = lockedOut(key);
 		if (lock > 0) {
 			return fail(429, { error: `too many attempts; try again in ${Math.ceil(lock / 1000)}s` });

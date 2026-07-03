@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchSourceUrl, extractSourceText, sourceFromText } from '../src/tools/sources.js';
-import { NEWSCRAFT_USER_AGENT, resetPoliteFetchStateForTests } from '../src/tools/polite-fetch.js';
+import { NEWSCRAFT_USER_AGENT, politeFetch, resetPoliteFetchStateForTests } from '../src/tools/polite-fetch.js';
 
 afterEach(() => {
 	resetPoliteFetchStateForTests();
@@ -173,6 +173,32 @@ describe('source extraction', () => {
 		expect(source.contentText).toContain('Council approved urgent water system repairs');
 		expect(source.snippet.length).toBeLessThanOrEqual(600);
 		expect(source.contentHash).toMatch(/^[a-f0-9]{64}$/);
+	});
+
+	it('blocks localhost and private network fetch targets before fetching', async () => {
+		const fetchMock = vi.fn(async () => new Response('should not fetch'));
+
+		await expect(politeFetch('http://127.0.0.1/admin', { fetchImpl: fetchMock })).rejects.toThrow(
+			/Blocked private fetch target/
+		);
+		await expect(politeFetch('http://localhost/admin', { fetchImpl: fetchMock })).rejects.toThrow(
+			/Blocked private fetch target/
+		);
+
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('blocks hostnames that resolve to private addresses', async () => {
+		const fetchMock = vi.fn(async () => new Response('should not fetch'));
+
+		await expect(
+			politeFetch('https://metadata.example/story', {
+				fetchImpl: fetchMock,
+				ssrf: { resolveHost: async () => ['169.254.169.254'] }
+			})
+		).rejects.toThrow(/Blocked private fetch target/);
+
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('preserves structured article metadata and extraction provenance on fetched sources', async () => {

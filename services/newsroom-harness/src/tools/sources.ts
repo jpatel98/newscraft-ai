@@ -49,6 +49,8 @@ const DEFAULT_SOURCE_CACHE = process.env.VITEST === 'true'
 	? undefined
 	: createFilePoliteFetchCache(process.env.NEWSROOM_SOURCE_CACHE_DIR);
 const DEFAULT_ARCHIVE_ENABLED = process.env.NEWSROOM_ARCHIVE_SNAPSHOT !== '0' && process.env.VITEST !== 'true';
+const ALLOW_PRIVATE_SOURCE_FETCH =
+	process.env.NEWSROOM_ALLOW_PRIVATE_SOURCE_FETCH === '1' || process.env.VITEST === 'true';
 
 export interface FetchedSource {
 	url: string;
@@ -73,7 +75,8 @@ export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise
 	const fetched = await politeFetch(url, {
 		signal,
 		cache: DEFAULT_SOURCE_CACHE ? { store: DEFAULT_SOURCE_CACHE } : undefined,
-		archive: { webArchive: DEFAULT_ARCHIVE_ENABLED }
+		archive: { webArchive: DEFAULT_ARCHIVE_ENABLED },
+		ssrf: { allowPrivateNetwork: ALLOW_PRIVATE_SOURCE_FETCH }
 	});
 	const contentType = fetched.contentType;
 	const body = fetched.body;

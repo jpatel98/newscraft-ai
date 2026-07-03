@@ -39,6 +39,7 @@ import {
 	setConversationReasoningEffort
 } from '$lib/server/reasoning';
 import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
+import { checkRateLimit } from '$lib/server/rate-limit';
 
 interface Body {
 	conversation_id?: string;
@@ -257,8 +258,14 @@ async function builtinResponse(
 	return 'This command is not available from the web UI yet.';
 }
 
-export const POST: RequestHandler = async ({ request, locals }) => {
+export const POST: RequestHandler = async ({ request, locals, getClientAddress }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
+	const clientAddress = getClientAddress();
+	const rate = checkRateLimit(`chat:${locals.user.id}:${clientAddress}`, {
+		limit: 60,
+		windowMs: 10 * 60 * 1000
+	});
+	if (!rate.allowed) throw error(429, `too many chat requests; try again in ${Math.ceil(rate.retryAfterMs / 1000)}s`);
 
 	const len = Number(request.headers.get('content-length') ?? '0');
 	if (len > MAX_REQUEST_BYTES) {

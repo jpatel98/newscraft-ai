@@ -1,3 +1,5 @@
+import { saveChatDiagnostic } from '$lib/server/db/chat-diagnostics';
+
 export interface ChatDiagnosticEvent {
 	id: string;
 	conversationId: string;
@@ -25,18 +27,19 @@ export function recordChatDiagnostic(
 	details: Record<string, unknown> = {}
 ): void {
 	const now = Date.now();
+	const event = {
+		id: `diag-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+		conversationId,
+		type,
+		createdAt: now,
+		details: sanitizeDetails(details)
+	};
 	const existing = eventsByConversation.get(conversationId) ?? [];
-	const next = [
-		...existing.filter((event) => now - event.createdAt <= EVENT_TTL_MS),
-		{
-			id: `diag-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-			conversationId,
-			type,
-			createdAt: now,
-			details: sanitizeDetails(details)
-		}
-	].slice(-MAX_EVENTS_PER_CONVERSATION);
+	const next = [...existing.filter((event) => now - event.createdAt <= EVENT_TTL_MS), event].slice(
+		-MAX_EVENTS_PER_CONVERSATION
+	);
 	eventsByConversation.set(conversationId, next);
+	void saveChatDiagnostic(event).catch(() => {});
 }
 
 export function recentChatDiagnostics(conversationId: string): ChatDiagnosticEvent[] {

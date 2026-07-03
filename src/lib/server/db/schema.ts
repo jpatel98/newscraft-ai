@@ -87,6 +87,26 @@ export const chatFeedback = pgTable(
 	})
 );
 
+export const chatDiagnostics = pgTable(
+	'chat_diagnostics',
+	{
+		id: text('id').primaryKey(),
+		conversationId: text('conversation_id')
+			.notNull()
+			.references(() => conversations.id, { onDelete: 'cascade' }),
+		type: text('type').notNull(),
+		detailsJson: text('details_json').notNull(),
+		createdAt: timestampMs('created_at').notNull()
+	},
+	(t) => ({
+		conversationCreatedIdx: index('chat_diagnostics_conversation_created_idx').on(
+			t.conversationId,
+			t.createdAt
+		),
+		typeCreatedIdx: index('chat_diagnostics_type_created_idx').on(t.type, t.createdAt)
+	})
+);
+
 export const settings = pgTable('settings', {
 	key: text('key').primaryKey(),
 	value: text('value').notNull()

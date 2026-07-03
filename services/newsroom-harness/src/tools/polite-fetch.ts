@@ -518,7 +518,11 @@ async function assertSafeFetchTarget(parsed: URL, options: PoliteFetchOptions): 
 
 	const resolveHost = options.ssrf?.resolveHost;
 	if (!resolveHost && options.fetchImpl) return;
-	const addresses = resolveHost ? await resolveHost(hostname) : await lookup(hostname, { all: true }).then((items) => items.map((item) => item.address));
+	const addresses = resolveHost
+		? await resolveHost(hostname)
+		: await lookup(hostname, { all: true })
+				.then((items) => items.map((item) => item.address))
+				.catch(() => []);
 	if (!options.ssrf?.allowPrivateNetwork && addresses.some(isPrivateIp)) {
 		throw new Error(`Blocked private fetch target: ${hostname}`);
 	}

@@ -11,6 +11,10 @@ const ORIGINAL_WEB_SEARCH_MODEL = process.env.NEWSROOM_WEB_SEARCH_MODEL;
 const ORIGINAL_MODEL_NANO = process.env.NEWSROOM_MODEL_NANO;
 const ORIGINAL_MODEL_MINI = process.env.NEWSROOM_MODEL_MINI;
 const ORIGINAL_MODEL_STANDARD = process.env.NEWSROOM_MODEL_STANDARD;
+const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+const ORIGINAL_VERCEL = process.env.VERCEL;
+const ORIGINAL_DEPLOYED = process.env.NEWSROOM_HARNESS_DEPLOYED;
+const ORIGINAL_API_KEY = process.env.NEWSROOM_HARNESS_API_KEY;
 
 afterEach(() => {
 	restoreEnv('DATABASE_URL', ORIGINAL_DATABASE_URL);
@@ -23,6 +27,10 @@ afterEach(() => {
 	restoreEnv('NEWSROOM_MODEL_NANO', ORIGINAL_MODEL_NANO);
 	restoreEnv('NEWSROOM_MODEL_MINI', ORIGINAL_MODEL_MINI);
 	restoreEnv('NEWSROOM_MODEL_STANDARD', ORIGINAL_MODEL_STANDARD);
+	restoreEnv('NODE_ENV', ORIGINAL_NODE_ENV);
+	restoreEnv('VERCEL', ORIGINAL_VERCEL);
+	restoreEnv('NEWSROOM_HARNESS_DEPLOYED', ORIGINAL_DEPLOYED);
+	restoreEnv('NEWSROOM_HARNESS_API_KEY', ORIGINAL_API_KEY);
 });
 
 describe('harness config', () => {
@@ -96,6 +104,19 @@ describe('harness config', () => {
 		expect(validateHarnessConfig(loadConfig()).errors).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining('NEWSROOM_MODEL_PROVIDER=perplexity cannot use apparent OpenAI model "gpt-5-mini"')
+			])
+		);
+	});
+
+	it('hard-fails missing harness auth when deployed', () => {
+		process.env.NEWSROOM_HARNESS_DEPLOYED = '1';
+		delete process.env.NEWSROOM_HARNESS_API_KEY;
+
+		const validation = validateHarnessConfig(loadConfig());
+
+		expect(validation.errors).toEqual(
+			expect.arrayContaining([
+				'NEWSROOM_HARNESS_API_KEY is required for deployed harness private endpoints.'
 			])
 		);
 	});
