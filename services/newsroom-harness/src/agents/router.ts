@@ -48,6 +48,17 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		);
 	}
 
+	if (isGreeting(text)) {
+		return decision(
+			'answer_from_memory',
+			'The request is a greeting and does not require source retrieval.',
+			[],
+			budget,
+			'stop without calling tools',
+			'a brief friendly greeting asking what newsroom task to work on'
+		);
+	}
+
 	if (mentionsBrowserAutomation(text)) {
 		return decision(
 			'browser_automation',
@@ -184,6 +195,11 @@ function isAmbiguousReference(text: string): boolean {
 		/^(what\s+did\s+)?(?:they|he|she|it|that|this)\s+(?:say|mean|do|announce|claim|report)(?:\s+(?:about|on|regarding)\s+(?:it|that|this))?\??$/.test(text) ||
 		/^what\s+(?:did|does|are|is)\s+(?:they|he|she|it|that|this)\s+(?:say|mean|doing|about)\??$/.test(text)
 	);
+}
+
+function isGreeting(text: string): boolean {
+	const stripped = text.replace(/^(?:user|assistant|system):\s*/, '').trim();
+	return /^(hi|hello|hey|yo|sup|good morning|good afternoon|good evening|howdy|hiya)[!.? ]*$/.test(stripped);
 }
 
 function mentionsBrowserAutomation(text: string): boolean {

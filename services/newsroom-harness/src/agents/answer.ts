@@ -112,7 +112,10 @@ function chatNoLead(unusableEvidence: EvidenceObject[], limitations: string[] = 
 }
 
 function answerFromMemory(prompt: string): string {
-	const normalized = prompt.toLowerCase();
+	const normalized = prompt.toLowerCase().replace(/^(?:user|assistant|system):\s*/, '').trim();
+	if (/^(hi|hello|hey|yo|sup|good morning|good afternoon|good evening|howdy|hiya)[!.? ]*$/.test(normalized)) {
+		return 'Hi. What should NewsCraft work on?';
+	}
 	if (/\bnut graf\b/.test(normalized)) {
 		return 'A nut graf is the early paragraph that tells the audience what the story is really about and why it matters. It should clarify the stakes, context, and reason to keep reading without overstating facts.';
 	}

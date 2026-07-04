@@ -77,6 +77,7 @@ export class NewsroomAgentRuntime {
 		if (isTitlePrompt(latestUserPrompt)) {
 			return this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 		}
+		if (isSimpleGreeting(latestUserPrompt)) return 'Hi. What should NewsCraft work on?';
 		const formatFollowup = formatOnlyFollowupAnswer(messages);
 		if (formatFollowup) return formatFollowup;
 		return this.withTimeout(
@@ -95,6 +96,10 @@ export class NewsroomAgentRuntime {
 		if (isTitlePrompt(latestUserPrompt)) {
 			const title = await this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 			for (const chunk of splitForStreaming(title)) yield chunk;
+			return;
+		}
+		if (isSimpleGreeting(latestUserPrompt)) {
+			for (const chunk of splitForStreaming('Hi. What should NewsCraft work on?')) yield chunk;
 			return;
 		}
 		const formatFollowup = formatOnlyFollowupAnswer(messages);
@@ -505,6 +510,12 @@ function evidenceToFetchedSource(evidence: EvidenceObject): FetchedSource {
 		used: evidence.confidence > 0,
 		metadata: evidence.published_at ? { publishedAt: evidence.published_at } : null
 	};
+}
+
+function isSimpleGreeting(prompt: string): boolean {
+	return /^(hi|hello|hey|yo|sup|good morning|good afternoon|good evening|howdy|hiya)[!.? ]*$/i.test(
+		prompt.trim()
+	);
 }
 
 function missionSynthesisInput(prompt: string, result: NewsroomAgentRunResult): string {

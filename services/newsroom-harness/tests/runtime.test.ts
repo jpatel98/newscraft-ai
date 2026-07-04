@@ -18,6 +18,21 @@ afterEach(() => {
 });
 
 describe('newsroom agent runtime', () => {
+	it('answers simple greetings without running disciplined research', async () => {
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: ''
+		});
+
+		await expect(runtime.completeChat([{ role: 'user', content: 'hi' }])).resolves.toBe(
+			'Hi. What should NewsCraft work on?'
+		);
+	});
+
 	it('anchors relative dates to Toronto local time instead of UTC', () => {
 		const utcAfterMidnight = new Date(Date.UTC(2026, 5, 24, 3, 10));
 		const context = newsroomTimeContext({

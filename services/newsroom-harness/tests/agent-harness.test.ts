@@ -40,6 +40,8 @@ describe('disciplined newsroom agent harness', () => {
 
 	it('routes sample prompts to expected modes with at least 80% accuracy', () => {
 		const samples = [
+			['hi', 'answer_from_memory'],
+			['user: hi', 'answer_from_memory'],
 			['What is a nut graf?', 'answer_from_memory'],
 			['Use the newsroom brief generator for these notes: council approved a pilot.', 'custom_tool'],
 			['Summarize the latest research update', 'custom_tool'],
