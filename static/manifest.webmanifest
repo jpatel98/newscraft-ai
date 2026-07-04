@@ -1,0 +1,25 @@
+{
+	"name": "NewsCraft",
+	"short_name": "NewsCraft",
+	"description": "NewsCraft mobile chat and newsroom field workflow.",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"background_color": "#FBFAF7",
+	"theme_color": "#FBFAF7",
+	"lang": "en",
+	"icons": [
+		{
+			"src": "/brand/logo-mark.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any"
+		},
+		{
+			"src": "/brand/logo-mark.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "maskable"
+		}
+	]
+}

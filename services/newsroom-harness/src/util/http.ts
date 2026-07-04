@@ -38,6 +38,30 @@ export function writeText(res: ServerResponse, status: number, body: string): vo
 	res.end(body);
 }
 
+export function headerValue(requestHeader: string | string[] | undefined): string {
+	return Array.isArray(requestHeader) ? requestHeader[0] || '' : requestHeader || '';
+}
+
+const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
+
+export function sanitizeTraceId(value: string | undefined): string | undefined {
+	const normalized = (value || '').trim();
+	if (TRACE_ID_RE.test(normalized)) return normalized;
+	return undefined;
+}
+
+export function requestTraceId(
+	headers: { [key: string]: string | string[] | undefined },
+	bodyTraceId?: string
+): string | undefined {
+	return (
+		sanitizeTraceId(bodyTraceId) ||
+		sanitizeTraceId(headerValue(headers['x-request-id'])) ||
+		sanitizeTraceId(headerValue(headers['x-trace-id'])) ||
+		sanitizeTraceId(headerValue(headers['x-vercel-trace-id']))
+	);
+}
+
 export function bearerToken(req: IncomingMessage): string {
 	const header = req.headers.authorization || '';
 	if (Array.isArray(header)) return '';

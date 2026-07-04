@@ -8,6 +8,7 @@ import {
 	deriveSessionId,
 	gatewayHealth,
 	streamChatCompletion,
+	streamResponse,
 	type AgentMessage
 } from './transport';
 
@@ -145,6 +146,56 @@ describe('Agent transport', () => {
 			messages,
 			reasoning_effort: 'high'
 		});
+	});
+
+	it('injects valid trace ids into chat completion requests', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await streamChatCompletion(
+			{ messages: [{ role: 'user', content: 'hello' }] },
+			{ traceId: 'trace_12345678-abc' }
+		);
+
+		const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+		const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>;
+		expect(headers).toMatchObject({
+			'x-request-id': 'trace_12345678-abc',
+			'x-trace-id': 'trace_12345678-abc'
+		});
+		expect(body.trace_id).toBe('trace_12345678-abc');
+	});
+
+	it('does not inject invalid trace ids for chat completion requests', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] }, { traceId: 'bad trace!' });
+
+		const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+		const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>;
+		expect(headers['x-request-id']).toBeUndefined();
+		expect(headers['x-trace-id']).toBeUndefined();
+		expect(body.trace_id).toBeUndefined();
+	});
+
+	it('injects valid trace ids into response requests', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+		const input = [{ role: 'user' as const, content: 'hello' }];
+
+		await streamResponse(
+			{ input, model: 'newsroom-agent', stream: true },
+			{ traceId: 'trace_response_12345678' }
+		);
+
+		const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+		const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>;
+		expect(headers).toMatchObject({
+			'x-request-id': 'trace_response_12345678',
+			'x-trace-id': 'trace_response_12345678'
+		});
+		expect(body.trace_id).toBe('trace_response_12345678');
 	});
 
 	it('prefers the NewsCraft agent gateway URL and API key when configured', async () => {

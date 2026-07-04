@@ -28,6 +28,7 @@ export interface GatewayHealth {
 }
 
 const DEFAULT_MODEL = 'newsroom-agent';
+const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
 
 function gatewayUrl(): string {
 	const u = (env.AGENT_GATEWAY_URL || '').replace(/\/$/, '');
@@ -56,6 +57,22 @@ function objectValue(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === 'object' && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: null;
+}
+
+function toTraceHeader(value: string | undefined): string | undefined {
+	const sanitized = (value || '').trim();
+	if (!sanitized) return undefined;
+	if (!TRACE_ID_RE.test(sanitized)) return undefined;
+	return sanitized;
+}
+
+function addTraceId<T extends GatewayChatCompletionRequest | GatewayResponsesRequest>(
+	body: T,
+	traceId?: string
+): T {
+	const requestTraceId = toTraceHeader(traceId);
+	if (!requestTraceId) return body;
+	return { ...body, trace_id: requestTraceId } as T;
 }
 
 function parseJson(value: string): unknown | null {
@@ -131,10 +148,15 @@ function flattenContent(c: AgentContent | undefined): string {
  */
 export async function streamChatCompletion(
 	body: AgentChatRequest,
-	opts: { signal?: AbortSignal; sessionId?: string } = {}
+	opts: { signal?: AbortSignal; sessionId?: string; traceId?: string } = {}
 ): Promise<Response> {
 	const sessionId = opts.sessionId ?? deriveSessionId(body.messages);
-	const payload: AgentChatRequest = { model: DEFAULT_MODEL, stream: true, ...body };
+	const payload: AgentChatRequest = {
+		model: DEFAULT_MODEL,
+		stream: true,
+		...addTraceId(body, opts.traceId)
+	};
+	const requestTraceId = toTraceHeader(opts.traceId);
 	const key = apiKey();
 
 	return fetch(`${gatewayUrl()}/v1/chat/completions`, {
@@ -143,7 +165,8 @@ export async function streamChatCompletion(
 			'content-type': 'application/json',
 			accept: 'text/event-stream',
 			...(key ? { authorization: `Bearer ${key}` } : {}),
-			'x-agent-session-id': sessionId
+			'x-agent-session-id': sessionId,
+			...(requestTraceId ? { 'x-request-id': requestTraceId, 'x-trace-id': requestTraceId } : {})
 		},
 		body: JSON.stringify(payload),
 		signal: opts.signal
@@ -152,12 +175,19 @@ export async function streamChatCompletion(
 
 export async function streamResponse(
 	body: AgentResponsesRequest,
-	opts: { signal?: AbortSignal; sessionId?: string } = {}
+	opts: { signal?: AbortSignal; sessionId?: string; traceId?: string } = {}
 ): Promise<Response> {
-	const payload: AgentResponsesRequest = { model: DEFAULT_MODEL, stream: true, store: false, ...body };
+	const payload: AgentResponsesRequest = {
+		model: DEFAULT_MODEL,
+		stream: true,
+		store: false,
+		...addTraceId(body, opts.traceId)
+	};
+	const requestTraceId = toTraceHeader(opts.traceId);
 	const headers: Record<string, string> = {
 		'content-type': 'application/json',
-		accept: 'text/event-stream'
+		accept: 'text/event-stream',
+		...(requestTraceId ? { 'x-request-id': requestTraceId, 'x-trace-id': requestTraceId } : {})
 	};
 	const key = apiKey();
 	if (key) headers.authorization = `Bearer ${key}`;

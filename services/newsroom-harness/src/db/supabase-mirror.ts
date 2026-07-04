@@ -23,7 +23,7 @@ interface TableSpec {
 	orderBy?: string;
 }
 
-const TABLES: TableSpec[] = [
+export const HARNESS_POSTGRES_TABLES: TableSpec[] = [
 	{
 		name: 'jobs',
 		primaryKey: 'id',
@@ -119,6 +119,28 @@ const TABLES: TableSpec[] = [
 		primaryKey: 'id',
 		appendOnly: true,
 		columns: ['id', 'workspace_id', 'tier', 'scope_id', 'key', 'kind', 'value_json', 'actor', 'created_at'],
+		orderBy: 'created_at ASC, id ASC'
+	},
+	{
+		name: 'usage_ledger',
+		primaryKey: 'id',
+		appendOnly: true,
+		columns: [
+			'id',
+			'created_at',
+			'workspace_id',
+			'job_id',
+			'run_id',
+			'event_id',
+			'task',
+			'provider',
+			'model',
+			'endpoint',
+			'status',
+			'latency_ms',
+			'usage_metadata_json',
+			'cost_metadata_json'
+		],
 		orderBy: 'created_at ASC, id ASC'
 	}
 ];
@@ -246,6 +268,12 @@ export class SupabaseMirroredHarnessRepository extends HarnessRepository {
 	}
 }
 
+export class PostgresMirroredHarnessRepository extends SupabaseMirroredHarnessRepository {
+	constructor(db: HarnessDb, mirror: PostgresHarnessMirror) {
+		super(db, mirror);
+	}
+}
+
 export class SupabaseHarnessMirror {
 	private sql: Sql;
 	private syncTimer: NodeJS.Timeout | null = null;
@@ -269,7 +297,7 @@ export class SupabaseHarnessMirror {
 		this.syncTimer = setTimeout(() => {
 			this.syncTimer = null;
 			this.syncPromise = this.syncPromise.then(() => this.syncAllFromLocal()).catch((err) => {
-				process.stderr.write(`newsroom-harness Supabase sync failed: ${publicSyncError(err)}\n`);
+				process.stderr.write(`newsroom-harness postgres sync failed: ${publicSyncError(err)}\n`);
 			});
 		}, 250);
 		this.syncTimer.unref?.();
@@ -280,7 +308,7 @@ export class SupabaseHarnessMirror {
 			clearTimeout(this.syncTimer);
 			this.syncTimer = null;
 			this.syncPromise = this.syncPromise.then(() => this.syncAllFromLocal()).catch((err) => {
-				process.stderr.write(`newsroom-harness Supabase sync failed: ${publicSyncError(err)}\n`);
+				process.stderr.write(`newsroom-harness postgres sync failed: ${publicSyncError(err)}\n`);
 			});
 		}
 		await this.syncPromise;
@@ -294,7 +322,7 @@ export class SupabaseHarnessMirror {
 				await this.sql.unsafe('DELETE FROM harness.jobs WHERE id = $1', [id]);
 			})
 			.catch((err) => {
-				process.stderr.write(`newsroom-harness Supabase sync failed: ${publicSyncError(err)}\n`);
+				process.stderr.write(`newsroom-harness postgres sync failed: ${publicSyncError(err)}\n`);
 			});
 	}
 
@@ -304,7 +332,7 @@ export class SupabaseHarnessMirror {
 
 	private async syncAllFromLocal(): Promise<void> {
 		await this.ensureStarted();
-		for (const table of TABLES) {
+		for (const table of HARNESS_POSTGRES_TABLES) {
 			const rows = this.db
 				.prepare(`SELECT ${table.columns.join(', ')} FROM ${table.name} ORDER BY ${table.orderBy || table.primaryKey}`)
 				.all() as Record<string, unknown>[];
@@ -313,7 +341,7 @@ export class SupabaseHarnessMirror {
 	}
 
 	private async pullRemoteIntoLocal(): Promise<void> {
-		for (const table of TABLES) {
+		for (const table of HARNESS_POSTGRES_TABLES) {
 			const rows = (await this.sql.unsafe(
 				`SELECT ${table.columns.join(', ')} FROM harness.${table.name} ORDER BY ${table.orderBy || table.primaryKey}`
 			)) as Record<string, unknown>[];
@@ -463,6 +491,24 @@ CREATE TABLE IF NOT EXISTS harness.memory_entries (
 );
 ALTER TABLE harness.memory_entries ADD COLUMN IF NOT EXISTS workspace_id text NOT NULL DEFAULT 'default';
 
+CREATE TABLE IF NOT EXISTS harness.usage_ledger (
+	id text PRIMARY KEY,
+	created_at text NOT NULL,
+	workspace_id text NOT NULL DEFAULT 'default',
+	job_id text REFERENCES harness.jobs(id) ON DELETE SET NULL,
+	run_id text REFERENCES harness.runs(id) ON DELETE SET NULL,
+	event_id text REFERENCES harness.events(id) ON DELETE SET NULL,
+	task text NOT NULL,
+	provider text NOT NULL,
+	model text NOT NULL,
+	endpoint text,
+	status text NOT NULL,
+	latency_ms integer,
+	usage_metadata_json text NOT NULL DEFAULT '{}',
+	cost_metadata_json text NOT NULL DEFAULT '{}'
+);
+ALTER TABLE harness.usage_ledger ADD COLUMN IF NOT EXISTS workspace_id text NOT NULL DEFAULT 'default';
+
 CREATE OR REPLACE FUNCTION harness.raise_append_only() RETURNS trigger AS $$
 BEGIN
 	RAISE EXCEPTION '% is append-only', TG_TABLE_NAME;
@@ -479,6 +525,11 @@ DROP TRIGGER IF EXISTS memory_entries_no_delete ON harness.memory_entries;
 CREATE TRIGGER memory_entries_no_update BEFORE UPDATE ON harness.memory_entries FOR EACH ROW EXECUTE FUNCTION harness.raise_append_only();
 CREATE TRIGGER memory_entries_no_delete BEFORE DELETE ON harness.memory_entries FOR EACH ROW EXECUTE FUNCTION harness.raise_append_only();
 
+DROP TRIGGER IF EXISTS usage_ledger_no_update ON harness.usage_ledger;
+DROP TRIGGER IF EXISTS usage_ledger_no_delete ON harness.usage_ledger;
+CREATE TRIGGER usage_ledger_no_update BEFORE UPDATE ON harness.usage_ledger FOR EACH ROW EXECUTE FUNCTION harness.raise_append_only();
+CREATE TRIGGER usage_ledger_no_delete BEFORE DELETE ON harness.usage_ledger FOR EACH ROW EXECUTE FUNCTION harness.raise_append_only();
+
 CREATE INDEX IF NOT EXISTS runs_job_idx ON harness.runs(job_id, updated_at);
 CREATE INDEX IF NOT EXISTS jobs_next_run_idx ON harness.jobs(enabled, next_run_at);
 CREATE INDEX IF NOT EXISTS sources_run_idx ON harness.sources(run_id);
@@ -490,9 +541,16 @@ CREATE INDEX IF NOT EXISTS events_run_idx ON harness.events(run_id, created_at, 
 CREATE INDEX IF NOT EXISTS memory_entries_scope_idx ON harness.memory_entries(tier, scope_id, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_key_idx ON harness.memory_entries(tier, scope_id, key, created_at, id);
 CREATE INDEX IF NOT EXISTS memory_entries_workspace_scope_idx ON harness.memory_entries(workspace_id, tier, scope_id, created_at, id);
+CREATE INDEX IF NOT EXISTS usage_ledger_workspace_created_idx ON harness.usage_ledger(workspace_id, created_at, id);
+CREATE INDEX IF NOT EXISTS usage_ledger_job_idx ON harness.usage_ledger(job_id, created_at, id);
+CREATE INDEX IF NOT EXISTS usage_ledger_run_idx ON harness.usage_ledger(run_id, created_at, id);
+CREATE INDEX IF NOT EXISTS usage_ledger_provider_model_idx ON harness.usage_ledger(provider, model, created_at);
+CREATE INDEX IF NOT EXISTS usage_ledger_event_idx ON harness.usage_ledger(event_id, created_at, id);
 `);
 	}
 }
+
+export class PostgresHarnessMirror extends SupabaseHarnessMirror {}
 
 function localUpsertSql(table: TableSpec): string {
 	const placeholders = table.columns.map(() => '?').join(', ');

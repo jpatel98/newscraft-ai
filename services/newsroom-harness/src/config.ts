@@ -3,15 +3,16 @@ import {
 	loadNewsroomAgentConfigFromEnv,
 	type NewsroomAgentConfig
 } from './agents/harness-config.js';
-import { providerModelIssue } from './util/openai-complete.js';
+import { providerLabel, providerModelIssue, type ModelProvider } from './util/openai-complete.js';
 
 export interface HarnessConfig {
 	host: string;
 	port: number;
 	dbPath: string;
 	databaseUrl: string;
+	databaseMode: HarnessDatabaseMode;
 	apiKey: string;
-	modelProvider: 'openai' | 'perplexity';
+	modelProvider: ModelProvider;
 	modelApiKey: string;
 	openAiApiKey: string;
 	uiIngestUrl: string;
@@ -24,12 +25,31 @@ export interface HarnessConfig {
 	agent: NewsroomAgentConfig;
 	version: string;
 	production: boolean;
+	providerSelection: ModelProviderSelection;
 }
+
+export type HarnessDatabaseMode = 'sqlite' | 'sqlite+postgres';
 
 export interface HarnessConfigValidation {
 	ok: boolean;
 	errors: string[];
 	warnings: string[];
+}
+
+export type ModelProviderSelectionMode = 'explicit' | 'fallback' | 'disabled';
+
+export interface ModelProviderSelection {
+	mode: ModelProviderSelectionMode;
+	source: 'override' | 'env' | 'default';
+	selected: ModelProvider;
+	requested: ModelProvider | null;
+	reason: string;
+}
+
+export interface ResolvedModelProvider {
+	provider: ModelProvider;
+	modelApiKey: string;
+	selection: ModelProviderSelection;
 }
 
 function intFromEnv(value: string | undefined, fallback: number): number {
@@ -47,10 +67,14 @@ function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
 export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfig {
 	const runTimeoutMs = intFromEnv(process.env.NEWSROOM_HARNESS_RUN_TIMEOUT_MS, 90_000);
 	const maxToolCalls = intFromEnv(process.env.NEWSROOM_HARNESS_MAX_TOOL_CALLS, 6);
-	const modelProvider =
-		overrides.modelProvider ||
-		providerFromEnv(process.env.NEWSROOM_MODEL_PROVIDER) ||
-		(!process.env.PERPLEXITY_API_KEY && process.env.OPENAI_API_KEY ? 'openai' : 'perplexity');
+	const requestedModelProvider = overrides.modelProvider || providerFromEnv(process.env.NEWSROOM_MODEL_PROVIDER);
+	const providerResolution = resolveModelProvider({
+		requested: requestedModelProvider,
+		requestedSource: requestedModelProvider ? (overrides.modelProvider ? 'override' : 'env') : 'default',
+		openAiApiKey: process.env.OPENAI_API_KEY,
+		perplexityApiKey: process.env.PERPLEXITY_API_KEY
+	});
+	const { provider: modelProvider, selection: providerSelection, modelApiKey } = providerResolution;
 	const agent = loadNewsroomAgentConfigFromEnv({
 		...(overrides.agent || {}),
 		model_provider: modelProvider,
@@ -62,14 +86,16 @@ export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfi
 			max_runtime_seconds: Math.ceil(runTimeoutMs / 1000)
 		}
 	});
+	const databaseUrl = process.env.NEWSROOM_HARNESS_DATABASE_URL || '';
 	return {
 		host: process.env.NEWSROOM_HARNESS_HOST || '127.0.0.1',
 		port: intFromEnv(process.env.NEWSROOM_HARNESS_PORT, 8650),
 		dbPath: process.env.NEWSROOM_HARNESS_DB_PATH || path.join(process.cwd(), '.data', 'newsroom-harness.db'),
-		databaseUrl: process.env.NEWSROOM_HARNESS_DATABASE_URL || '',
+		databaseUrl,
+		databaseMode: databaseUrl ? 'sqlite+postgres' : 'sqlite',
 		apiKey: process.env.NEWSROOM_HARNESS_API_KEY || '',
 		modelProvider,
-		modelApiKey: modelProvider === 'openai' ? process.env.OPENAI_API_KEY || '' : process.env.PERPLEXITY_API_KEY || '',
+		modelApiKey,
 		openAiApiKey: process.env.OPENAI_API_KEY || '',
 		uiIngestUrl: process.env.NEWSROOM_UI_INGEST_URL || '',
 		uiIngestKey: process.env.NEWSROOM_UI_INGEST_KEY || '',
@@ -81,13 +107,95 @@ export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfi
 		agent,
 		version: '0.0.1',
 		production: isProductionEnv(),
+		providerSelection,
 		...overrides
 	};
 }
 
-function providerFromEnv(value: string | undefined): HarnessConfig['modelProvider'] | undefined {
+function providerFromEnv(value: string | undefined): ModelProvider | undefined {
 	if (value === 'openai' || value === 'perplexity') return value;
 	return undefined;
+}
+
+function resolveModelProvider(params: {
+	requested: ModelProvider | null | undefined;
+	requestedSource: 'override' | 'env' | 'default';
+	openAiApiKey?: string;
+	perplexityApiKey?: string;
+}): ResolvedModelProvider {
+	const openAiEnabled = Boolean(params.openAiApiKey);
+	const perplexityEnabled = Boolean(params.perplexityApiKey);
+
+	if (params.requested) {
+		const requested = params.requested;
+		const keyConfigured = requested === 'openai' ? openAiEnabled : perplexityEnabled;
+		if (keyConfigured) {
+			return {
+				provider: requested,
+				modelApiKey: requested === 'openai' ? (params.openAiApiKey || '') : (params.perplexityApiKey || ''),
+				selection: {
+					mode: 'explicit',
+					source: params.requestedSource,
+					selected: requested,
+					requested,
+					reason: `${providerLabel(requested)} was explicitly selected via ${
+						params.requestedSource === 'override' ? 'runtime override' : 'NEWSROOM_MODEL_PROVIDER'
+					}.`
+				}
+			};
+		}
+		return {
+			provider: requested,
+			modelApiKey: '',
+			selection: {
+				mode: 'disabled',
+				source: params.requestedSource,
+				selected: requested,
+				requested,
+				reason: `${providerLabel(requested)} was selected but its key is not configured.`
+			}
+		};
+	}
+
+	if (perplexityEnabled) {
+		return {
+			provider: 'perplexity',
+			modelApiKey: params.perplexityApiKey || '',
+			selection: {
+				mode: 'fallback',
+				source: 'default',
+				selected: 'perplexity',
+				requested: null,
+				reason: 'Using Perplexity by default (Sonar-first) because its API key is available.'
+			}
+		};
+	}
+
+	if (openAiEnabled) {
+		return {
+			provider: 'openai',
+			modelApiKey: params.openAiApiKey || '',
+			selection: {
+				mode: 'fallback',
+				source: 'default',
+				selected: 'openai',
+				requested: null,
+				reason: 'Falling back to OpenAI for research because Perplexity is not configured.'
+			}
+		};
+	}
+
+	return {
+		provider: 'perplexity',
+		modelApiKey: '',
+		selection: {
+			mode: 'disabled',
+			source: 'default',
+			selected: 'perplexity',
+			requested: null,
+			reason: 'No provider keys are configured.'
+		}
+	};
 }
 
 export function validateHarnessConfig(config: HarnessConfig): HarnessConfigValidation {
@@ -100,7 +208,11 @@ export function validateHarnessConfig(config: HarnessConfig): HarnessConfigValid
 		else warnings.push('NEWSROOM_HARNESS_API_KEY is not configured; private endpoints will accept unauthenticated requests.');
 	}
 	if (!config.modelApiKey) {
-		warnings.push(`${config.modelProvider === 'openai' ? 'OPENAI_API_KEY' : 'PERPLEXITY_API_KEY'} is not configured; live model calls will be unavailable.`);
+		warnings.push(
+			config.providerSelection.mode === 'disabled'
+				? `Research model provider "${providerLabel(config.modelProvider)}" is unavailable: ${config.providerSelection.reason}`
+				: `${providerLabel(config.modelProvider)} key is not configured; live model calls will be unavailable.`
+		);
 	}
 	const activeModelEntries = new Map<string, string>();
 	for (const task of Object.values(config.agent.model_policy.tasks)) {

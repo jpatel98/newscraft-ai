@@ -4,15 +4,30 @@ import { verifySessionCookie, SESSION_COOKIE_NAME } from '$lib/server/auth/cooki
 import { ensureMigrated } from '$lib/server/db';
 import { accountCount, getAccount } from '$lib/server/db/accounts';
 import { getActiveSession } from '$lib/server/db/sessions';
+import { newId } from '$lib/utils/id';
 
 const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
 // /api/e2e is only active when E2E_SECRET is set (dev/test only); it self-
 // authenticates via the secret so it must be reachable without a session.
 const PUBLIC_PREFIXES = ['/api/health', '/api/agent/channel-posts', '/account-setup', '/api/e2e'];
 let knownHasAccounts = false;
+const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
+
+function readRequestTraceId(headers: Headers): string {
+	const candidate =
+		headers.get('x-request-id') ||
+		headers.get('x-trace-id') ||
+		headers.get('x-vercel-trace-id') ||
+		'';
+	const normalized = candidate.trim();
+	if (TRACE_ID_RE.test(normalized)) return normalized;
+	return newId();
+}
 
 export const handle: Handle = async ({ event, resolve }) => {
 	await ensureMigrated();
+	const traceId = readRequestTraceId(event.request.headers);
+	event.locals.traceId = traceId;
 	const cookie = event.cookies.get(SESSION_COOKIE_NAME);
 	const session = verifySessionCookie(cookie);
 	const activeSession = session
@@ -51,5 +66,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		throw redirect(303, '/');
 	}
 
-	return resolve(event);
+	const response = await resolve(event);
+	response.headers.set('x-trace-id', traceId);
+	return response;
 };

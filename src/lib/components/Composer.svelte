@@ -420,6 +420,10 @@
 				class="composer__textarea"
 				{placeholder}
 				rows="1"
+				inputmode="text"
+				enterkeyhint="send"
+				autocomplete="off"
+				autocapitalize="sentences"
 				disabled={busy}
 				aria-label="Message NewsCraft"
 			></textarea>

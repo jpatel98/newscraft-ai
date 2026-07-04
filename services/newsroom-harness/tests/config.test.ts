@@ -15,6 +15,8 @@ const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 const ORIGINAL_VERCEL = process.env.VERCEL;
 const ORIGINAL_DEPLOYED = process.env.NEWSROOM_HARNESS_DEPLOYED;
 const ORIGINAL_API_KEY = process.env.NEWSROOM_HARNESS_API_KEY;
+const ORIGINAL_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const ORIGINAL_PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 
 afterEach(() => {
 	restoreEnv('DATABASE_URL', ORIGINAL_DATABASE_URL);
@@ -31,6 +33,8 @@ afterEach(() => {
 	restoreEnv('VERCEL', ORIGINAL_VERCEL);
 	restoreEnv('NEWSROOM_HARNESS_DEPLOYED', ORIGINAL_DEPLOYED);
 	restoreEnv('NEWSROOM_HARNESS_API_KEY', ORIGINAL_API_KEY);
+	restoreEnv('OPENAI_API_KEY', ORIGINAL_OPENAI_API_KEY);
+	restoreEnv('PERPLEXITY_API_KEY', ORIGINAL_PERPLEXITY_API_KEY);
 });
 
 describe('harness config', () => {
@@ -46,6 +50,13 @@ describe('harness config', () => {
 		process.env.NEWSROOM_HARNESS_DATABASE_URL = 'postgres://harness-db.example/postgres';
 
 		expect(loadConfig().databaseUrl).toBe('postgres://harness-db.example/postgres');
+		expect(loadConfig().databaseMode).toBe('sqlite+postgres');
+	});
+
+	it('defaults harness persistence mode to sqlite when no harness DB URL is set', () => {
+		delete process.env.DATABASE_URL;
+		delete process.env.NEWSROOM_HARNESS_DATABASE_URL;
+		expect(loadConfig().databaseMode).toBe('sqlite');
 	});
 
 	it('keeps the scheduler off unless explicitly enabled', () => {
@@ -84,6 +95,57 @@ describe('harness config', () => {
 		expect(config.agent.model_policy.models.standard).toBe('openai/gpt-5-mini');
 		expect(config.agent.web_search_model).toBe('openai/gpt-5-mini');
 		expect(validateHarnessConfig(config).errors).toEqual([]);
+	});
+
+	it('uses Perplexity by default when both keys are available and keeps Perplexity-first routing', () => {
+		process.env.OPENAI_API_KEY = 'openai-key';
+		process.env.PERPLEXITY_API_KEY = 'perplexity-key';
+		delete process.env.NEWSROOM_MODEL_PROVIDER;
+
+		const config = loadConfig();
+
+		expect(config.modelProvider).toBe('perplexity');
+		expect(config.modelApiKey).toBe('perplexity-key');
+		expect(config.providerSelection).toMatchObject({
+			mode: 'fallback',
+			source: 'default',
+			selected: 'perplexity',
+			requested: null
+		});
+	});
+
+	it('falls back to OpenAI when Perplexity is not configured and no provider override is set', () => {
+		delete process.env.PERPLEXITY_API_KEY;
+		process.env.OPENAI_API_KEY = 'openai-key';
+		delete process.env.NEWSROOM_MODEL_PROVIDER;
+
+		const config = loadConfig();
+
+		expect(config.modelProvider).toBe('openai');
+		expect(config.modelApiKey).toBe('openai-key');
+		expect(config.providerSelection).toMatchObject({
+			mode: 'fallback',
+			source: 'default',
+			selected: 'openai',
+			requested: null
+		});
+	});
+
+	it('marks provider selection disabled when the selected provider is explicitly requested without a key', () => {
+		process.env.NEWSROOM_MODEL_PROVIDER = 'perplexity';
+		process.env.PERPLEXITY_API_KEY = '';
+		process.env.OPENAI_API_KEY = '';
+
+		const config = loadConfig();
+
+		expect(config.modelProvider).toBe('perplexity');
+		expect(config.modelApiKey).toBe('');
+		expect(config.providerSelection).toMatchObject({
+			mode: 'disabled',
+			source: 'env',
+			selected: 'perplexity',
+			requested: 'perplexity'
+		});
 	});
 
 	it('reports active provider/model mismatches in config validation', () => {

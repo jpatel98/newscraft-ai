@@ -153,12 +153,12 @@
 		}
 
 		.chat-start h1 {
-			font-size: 30px;
-			line-height: 1.06;
+			font-size: 28px;
+			line-height: 1.1;
 		}
 
 		.chat-start p {
-			font-size: var(--fs-body);
+			font-size: 13px;
 		}
 		.chat-start__prompts {
 			grid-template-columns: 1fr;

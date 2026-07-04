@@ -7,7 +7,7 @@ import type {
 import { writeChatCompletion, writeResponses } from './chat.js';
 import { loadConfig, validateHarnessConfig } from './config.js';
 import { NewsroomAgentRuntime } from './agents/runtime.js';
-import { bearerToken, HttpError, readJson, tokenMatches, writeJson, writeText } from './util/http.js';
+import { bearerToken, requestTraceId, HttpError, readJson, tokenMatches, writeJson, writeText } from './util/http.js';
 
 export function createVercelHarnessHandler() {
 	const config = loadConfig({
@@ -42,13 +42,15 @@ export function createVercelHarnessHandler() {
 
 			if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
 				const body = await readJson<GatewayChatCompletionRequest>(req);
-				await writeChatCompletion(res, body, runtime, requestAbortSignal(req, res).signal);
+				const traceId = requestTraceId(req.headers, body.trace_id);
+				await writeChatCompletion(res, body, runtime, requestAbortSignal(req, res).signal, traceId);
 				return;
 			}
 
 			if (req.method === 'POST' && url.pathname === '/v1/responses') {
 				const body = await readJson<GatewayResponsesRequest>(req);
-				await writeResponses(res, body, runtime, requestAbortSignal(req, res).signal);
+				const traceId = requestTraceId(req.headers, body.trace_id);
+				await writeResponses(res, body, runtime, requestAbortSignal(req, res).signal, traceId);
 				return;
 			}
 

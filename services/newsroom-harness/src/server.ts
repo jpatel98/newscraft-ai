@@ -15,11 +15,13 @@ import { NewsroomAgentRuntime } from './agents/runtime.js';
 import { JobRunner } from './jobs/runner.js';
 import { JobScheduler } from './jobs/scheduler.js';
 import { bearerToken, HttpError, readJson, tokenMatches, writeJson, writeText } from './util/http.js';
+import { requestTraceId } from './util/http.js';
 
 export interface HarnessServer {
 	server: Server;
 	config: HarnessConfig;
 	repository: HarnessRepository;
+	repositoryBackend: HarnessConfig['databaseMode'];
 	runner: JobRunner;
 	scheduler: JobScheduler;
 	ready: Promise<void>;
@@ -36,9 +38,14 @@ export function createHarnessServer(options: {
 } = {}): HarnessServer {
 	const config = loadConfig(options.config);
 	const repositoryBundle = options.repository
-		? { repository: options.repository, ready: Promise.resolve() }
+		? {
+			repository: options.repository,
+			ready: Promise.resolve(),
+			backend: config.databaseMode
+		}
 		: createHarnessRepository(config);
 	const { repository, ready } = repositoryBundle;
+	const repositoryBackend = repositoryBundle.backend;
 	const runtime =
 		options.runtime ||
 		new NewsroomAgentRuntime({
@@ -53,7 +60,7 @@ export function createHarnessServer(options: {
 	const runner = new JobRunner(repository, runtime, config);
 	const scheduler = new JobScheduler(repository, runner, config);
 	const handle = (req: IncomingMessage, res: ServerResponse) =>
-		route(req, res, { config, repository, runtime, runner, scheduler });
+		route(req, res, { config, repository, repositoryBackend, runtime, runner, scheduler });
 	const server = createServer((req, res) => {
 		void handle(req, res).catch((err) => handleError(res, err));
 	});
@@ -63,6 +70,7 @@ export function createHarnessServer(options: {
 		server,
 		config,
 		repository,
+		repositoryBackend,
 		runner,
 		scheduler,
 		ready,
@@ -96,6 +104,7 @@ async function route(
 	res: ServerResponse,
 	ctx: {
 		config: HarnessConfig;
+		repositoryBackend: HarnessConfig['databaseMode'];
 		repository: HarnessRepository;
 		runtime: NewsroomAgentRuntime;
 		runner: JobRunner;
@@ -119,15 +128,17 @@ async function route(
 
 	if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
 		const body = await readJson<GatewayChatCompletionRequest>(req);
+		const traceId = requestTraceId(req.headers, body.trace_id);
 		const abort = requestAbortSignal(req, res);
-		await writeChatCompletion(res, body, ctx.runtime, abort.signal);
+		await writeChatCompletion(res, body, ctx.runtime, abort.signal, traceId);
 		return;
 	}
 
 	if (req.method === 'POST' && url.pathname === '/v1/responses') {
 		const body = await readJson<GatewayResponsesRequest>(req);
+		const traceId = requestTraceId(req.headers, body.trace_id);
 		const abort = requestAbortSignal(req, res);
-		await writeResponses(res, body, ctx.runtime, abort.signal);
+		await writeResponses(res, body, ctx.runtime, abort.signal, traceId);
 		return;
 	}
 
@@ -254,6 +265,7 @@ function queryLimit(url: URL): number | undefined {
 
 function harnessHealth(ctx: {
 	config: HarnessConfig;
+	repositoryBackend: HarnessConfig['databaseMode'];
 	repository: HarnessRepository;
 	scheduler: JobScheduler;
 }): GatewayHealthResponse {
@@ -279,7 +291,7 @@ function harnessHealth(ctx: {
 		db: {
 			ok: dbOk,
 			path: ctx.config.dbPath,
-			backend: ctx.config.databaseUrl ? 'sqlite+supabase' : 'sqlite',
+			backend: ctx.repositoryBackend,
 			error: dbError
 		},
 		openai: { configured: Boolean(ctx.config.openAiApiKey) },
@@ -301,7 +313,7 @@ function harnessHealth(ctx: {
 			memory: true,
 			savedResearch: true,
 			scheduler: ctx.config.schedulerEnabled,
-			persistence: ctx.config.databaseUrl ? 'sqlite+supabase' : 'sqlite'
+			persistence: ctx.repositoryBackend
 		},
 		ingest: {
 			configured: Boolean(ctx.config.uiIngestUrl && ctx.config.uiIngestKey),

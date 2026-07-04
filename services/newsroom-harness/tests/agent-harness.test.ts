@@ -461,6 +461,25 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).not.toContain('tool');
 	});
 
+	it('exposes provider-configuration misconfiguration as an explicit chat diagnostic', async () => {
+		const result = await new DisciplinedNewsroomAgent({
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['openai_web_search']
+			},
+			modelProvider: 'perplexity'
+		}).run('Latest Mark Carney news', {
+			modelProvider: 'perplexity',
+			modelApiKey: '',
+			outputStyle: 'chat'
+		});
+
+		expect(result.tool_calls).toEqual([expect.objectContaining({ name: 'openai_web_search', status: 'unavailable' })]);
+		expect(result.final_answer).toContain('The configured research provider (Perplexity) is unavailable');
+		expect(result.final_answer).toContain('because PERPLEXITY_API_KEY is not configured');
+		expect(result.final_answer).not.toContain('I could not find reliable sources confirming this in the gathered material.');
+	});
+
 	it('flags blocked or paywalled sources without exposing technical details', () => {
 		const decision = routeNewsroomRequest(
 			'Read the full Globe and Mail article and summarize it. https://www.theglobeandmail.com/fake-paywall-test'

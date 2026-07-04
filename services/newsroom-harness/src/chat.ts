@@ -21,7 +21,8 @@ export async function writeChatCompletion(
 	res: ServerResponse,
 	body: GatewayChatCompletionRequest,
 	runtime: NewsroomAgentRuntime,
-	signal: AbortSignal
+	signal: AbortSignal,
+	traceId?: string
 ): Promise<void> {
 	const id = newId('chatcmpl');
 	const model = body.model || 'newsroom-harness';
@@ -32,6 +33,7 @@ export async function writeChatCompletion(
 		// sanitization so the first token reaches the user without buffering.
 		for await (const delta of runtime.streamChat(body.messages || [], {
 			signal,
+			runId: traceId,
 			model,
 			reasoningEffort: body.reasoning_effort,
 			plannerEnabled: body.planner_enabled,
@@ -45,13 +47,14 @@ export async function writeChatCompletion(
 		return;
 	}
 
-	const text = cleanVisibleChatOutput(
-		await runtime.completeChat(body.messages || [], {
-			signal,
-			model,
-			reasoningEffort: body.reasoning_effort,
-			plannerEnabled: body.planner_enabled
-		}),
+		const text = cleanVisibleChatOutput(
+			await runtime.completeChat(body.messages || [], {
+				signal,
+				runId: traceId,
+				model,
+				reasoningEffort: body.reasoning_effort,
+				plannerEnabled: body.planner_enabled
+			}),
 		prompt
 	);
 	const response: GatewayChatCompletionResponse = {
@@ -75,7 +78,8 @@ export async function writeResponses(
 	res: ServerResponse,
 	body: GatewayResponsesRequest,
 	runtime: NewsroomAgentRuntime,
-	signal: AbortSignal
+	signal: AbortSignal,
+	traceId?: string
 ): Promise<void> {
 	const id = newId('resp');
 	const model = body.model || 'newsroom-harness';
@@ -88,6 +92,7 @@ export async function writeResponses(
 		let output = '';
 		for await (const delta of runtime.streamChat(messages, {
 			signal,
+			runId: traceId,
 			model,
 			reasoningEffort: body.reasoning_effort,
 			onProgress: (event) => writeProgress(res, event)
@@ -114,12 +119,13 @@ export async function writeResponses(
 		return;
 	}
 
-	const text = cleanVisibleChatOutput(
-		await runtime.completeChat(messages, {
-			signal,
-			model,
-			reasoningEffort: body.reasoning_effort
-		}),
+		const text = cleanVisibleChatOutput(
+			await runtime.completeChat(messages, {
+				signal,
+				runId: traceId,
+				model,
+				reasoningEffort: body.reasoning_effort
+			}),
 		prompt
 	);
 	res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });

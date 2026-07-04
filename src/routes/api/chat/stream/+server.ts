@@ -46,6 +46,7 @@ import {
 import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import { checkRateLimit } from '$lib/server/rate-limit';
 import { saveMessageProvenance } from '$lib/server/db/message-provenance';
+import { newId } from '$lib/utils/id';
 
 interface Body {
 	conversation_id?: string;
@@ -54,11 +55,28 @@ interface Body {
 	resume?: boolean;
 	message_id?: string;
 	command?: ChatCommand;
+	trace_id?: string;
 }
 
 // Agent caps the request body around 1 MB; keep some headroom for the
 // surrounding JSON envelope, system prompt, and prior turns.
 const MAX_REQUEST_BYTES = 950 * 1024;
+const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
+
+function sanitizeTraceId(value: string | undefined | null): string | null {
+	const normalized = (value || '').trim();
+	if (!TRACE_ID_RE.test(normalized)) return null;
+	return normalized;
+}
+
+function resolveTraceId(request: Request, supplied?: string): string {
+	return (
+		sanitizeTraceId(supplied) ||
+		sanitizeTraceId(request.headers.get('x-trace-id')) ||
+		sanitizeTraceId(request.headers.get('x-request-id')) ||
+		newId()
+	);
+}
 
 function sanitizeContent(c: MessageContent | undefined): MessageContent | null {
 	if (c == null) return null;
@@ -154,6 +172,13 @@ function appendSystemInstruction(history: AgentMessage[], instruction: string): 
 	}
 }
 
+function withTraceDetails(details: Record<string, unknown>, traceId: string): Record<string, unknown> {
+	return {
+		...details,
+		trace_id: traceId
+	};
+}
+
 async function persistAnswerProvenance(input: {
 	conversationId: string;
 	messageId: string;
@@ -168,6 +193,7 @@ async function persistAnswerProvenance(input: {
 	transport?: string;
 	reasoningEffort?: string;
 	model?: string;
+	traceId?: string;
 }): Promise<void> {
 	try {
 		const endedAt = input.endedAt ?? Date.now();
@@ -194,15 +220,17 @@ async function persistAnswerProvenance(input: {
 	} catch (err) {
 		recordChatDiagnostic(input.conversationId, 'chat.provenance_error', {
 			messageId: input.messageId,
-			error: err instanceof Error ? err.message : String(err)
+			error: err instanceof Error ? err.message : String(err),
+			...(input.traceId ? { trace_id: input.traceId } : {})
 		});
 	}
 }
 
-async function localAssistantResponse(convoId: string, text: string): Promise<Response> {
+async function localAssistantResponse(convoId: string, text: string, traceId: string): Promise<Response> {
 	const startedAt = Date.now();
 	recordChatDiagnostic(convoId, 'chat.local_response', {
-		responseChars: text.length
+		responseChars: text.length,
+		trace_id: traceId
 	});
 	const row = await addMessage({ conversationId: convoId, role: 'assistant', content: text });
 	await persistAnswerProvenance({
@@ -212,16 +240,22 @@ async function localAssistantResponse(convoId: string, text: string): Promise<Re
 		assistantChars: text.length,
 		done: true,
 		finishStatus: 'completed',
-		transport: 'local'
+		transport: 'local',
+		traceId
 	});
-	return localTextStream(convoId, text);
+	return localTextStream(convoId, text, traceId);
 }
 
-function localTextStream(convoId: string, text: string): Response {
+function localTextStream(convoId: string, text: string, traceId: string): Response {
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
 			controller.enqueue(
-				enc.encode(`event: agent.meta\ndata: ${JSON.stringify({ conversation_id: convoId })}\n\n`)
+				enc.encode(
+					`event: agent.meta\ndata: ${JSON.stringify({
+						conversation_id: convoId,
+						trace_id: traceId
+					})}\n\n`
+				)
 			);
 			controller.enqueue(enc.encode(textFrame(text)));
 			controller.enqueue(enc.encode('data: [DONE]\n\n'));
@@ -248,12 +282,24 @@ function gatewayUnavailableMessage(_detail: string): string {
 		.join('\n\n');
 }
 
-async function localGatewayFailureResponse(convoId: string, detail: string, resumeMessageId?: string | null): Promise<Response> {
+async function localGatewayFailureResponse(
+	convoId: string,
+	detail: string,
+	resumeMessageId: string | null | undefined,
+	traceId: string
+): Promise<Response> {
 	const startedAt = Date.now();
-	recordChatDiagnostic(convoId, 'chat.gateway_failure', {
-		resume: Boolean(resumeMessageId),
-		detail
-	});
+	recordChatDiagnostic(
+		convoId,
+		'chat.gateway_failure',
+		withTraceDetails(
+			{
+				resume: Boolean(resumeMessageId),
+				detail
+			},
+			traceId
+		)
+	);
 	const text = gatewayUnavailableMessage(detail);
 	if (resumeMessageId) {
 		await appendMessageContent(resumeMessageId, `\n\n${text}`);
@@ -266,11 +312,12 @@ async function localGatewayFailureResponse(convoId: string, detail: string, resu
 			assistantChars: row ? contentText(parseContent(row.content)).length : text.length,
 			done: true,
 			finishStatus: 'failed',
-			transport: 'local_gateway_failure'
+			transport: 'local_gateway_failure',
+			traceId
 		});
-		return localTextStream(convoId, `\n\n${text}`);
+		return localTextStream(convoId, `\n\n${text}`, traceId);
 	}
-	return localAssistantResponse(convoId, text);
+	return localAssistantResponse(convoId, text, traceId);
 }
 
 function findCommand(commands: AgentCommand[], parsed: SlashParseResult): AgentCommand | undefined {
@@ -362,6 +409,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	} catch {
 		throw error(400, 'invalid json');
 	}
+	const traceId = resolveTraceId(request, body.trace_id || locals.traceId);
 
 	// --- Resolve conversation + decide what to stream ---
 	const isResume = body.resume === true;
@@ -375,6 +423,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	const convoId = convo.id;
 	const requestStartedAt = Date.now();
 	recordChatDiagnostic(convoId, 'chat.request', {
+		trace_id: traceId,
 		contentLength: len,
 		resume: isResume,
 		regenerate: body.regenerate === true,
@@ -409,6 +458,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				const commands = await listAgentCommands();
 				const command = findCommand(commands, parsed);
 				recordChatDiagnostic(convoId, 'chat.command', {
+					trace_id: traceId,
 					slash: parsed.slash,
 					recognized: Boolean(command),
 					kind: command?.kind ?? null,
@@ -417,26 +467,30 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				if (!command) {
 					return localAssistantResponse(
 						convoId,
-						`I don't recognize ${parsed.slash}. Use /commands to browse available commands, or remove the slash to send it as normal text.`
+						`I don't recognize ${parsed.slash}. Use /commands to browse available commands, or remove the slash to send it as normal text.`,
+						traceId
 					);
 				}
 				if (command.kind === 'builtin') {
 					return localAssistantResponse(
 						convoId,
-						await builtinResponse(command, commands, parsed.args, convoId)
+						await builtinResponse(command, commands, parsed.args, convoId),
+						traceId
 					);
 				}
 				if (!command.enabled) {
 					return localAssistantResponse(
 						convoId,
-						command.blockedReason || 'This command is not available from the web UI yet.'
+						command.blockedReason || 'This command is not available from the web UI yet.',
+						traceId
 					);
 				}
 				const expanded = await expandAgentSkill(command.slash, parsed.args, convoId);
 				if (!expanded.trim()) {
 					return localAssistantResponse(
 						convoId,
-						`I found ${command.slash}, but it did not produce a usable skill prompt.`
+						`I found ${command.slash}, but it did not produce a usable skill prompt.`,
+						traceId
 					);
 				}
 				upstreamContent = expanded;
@@ -451,6 +505,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	const reasoningEffort = await getConversationReasoningEffort(convoId);
 	const messages = await getMessages(convoId);
 	recordChatDiagnostic(convoId, 'chat.history_built', {
+		trace_id: traceId,
 		messageCount: messages.length,
 		reasoningEffort
 	});
@@ -492,10 +547,11 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		// gateways that only expose the newer endpoint shape.
 		upstream = await streamChatCompletion(
 			{ messages: history, stream: true, reasoning_effort: reasoningEffort },
-			{ signal: upstreamAbort.signal, sessionId }
+			{ signal: upstreamAbort.signal, sessionId, traceId }
 		);
 		transport = 'chat_completions';
 		recordChatDiagnostic(convoId, 'chat.upstream_response', {
+			trace_id: traceId,
 			transport: 'chat_completions',
 			status: upstream.status,
 			ok: upstream.ok
@@ -504,17 +560,23 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			await upstream.text().catch(() => '');
 			upstream = await streamResponse(
 				{ ...responseInputFromHistory(history), stream: true, store: false, reasoning_effort: reasoningEffort },
-				{ signal: upstreamAbort.signal, sessionId }
+				{ signal: upstreamAbort.signal, sessionId, traceId }
 			);
 			transport = 'responses';
 			recordChatDiagnostic(convoId, 'chat.upstream_response', {
+				trace_id: traceId,
 				transport: 'responses',
 				status: upstream.status,
 				ok: upstream.ok
 			});
 		}
 	} catch (err) {
-		return await localGatewayFailureResponse(convoId, err instanceof Error ? err.message : String(err), resumeMessageId);
+		return await localGatewayFailureResponse(
+			convoId,
+			err instanceof Error ? err.message : String(err),
+			resumeMessageId,
+			traceId
+		);
 	}
 
 	if (!upstream.ok || !upstream.body) {
@@ -522,7 +584,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		return await localGatewayFailureResponse(
 			convoId,
 			`Agent ${upstream.status || 502}: ${text || upstream.statusText}`,
-			resumeMessageId
+			resumeMessageId,
+			traceId
 		);
 	}
 	const upstreamBody = upstream.body;
@@ -564,14 +627,15 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					assistantChars: contentText(parseContent(row.content)).length,
 					done,
 					finishStatus,
-					events: streamStats,
-					transport,
-					reasoningEffort,
-					model: upstreamModel
-				});
+						events: streamStats,
+						transport,
+						reasoningEffort,
+						model: upstreamModel,
+						traceId
+					});
+				}
+				return row;
 			}
-			return row;
-		}
 		if (!assistantBuf && capturedToolCalls.length === 0) return undefined;
 		const row = await addMessage({
 			conversationId: convoId,
@@ -592,7 +656,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			events: streamStats,
 			transport,
 			reasoningEffort,
-			model: upstreamModel
+			model: upstreamModel,
+			traceId
 		});
 		return row;
 	}
@@ -600,7 +665,12 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	const stream = new ReadableStream<Uint8Array>({
 		async start(controller) {
 			controller.enqueue(
-				enc.encode(`event: agent.meta\ndata: ${JSON.stringify({ conversation_id: convoId })}\n\n`)
+				enc.encode(
+					`event: agent.meta\ndata: ${JSON.stringify({
+						conversation_id: convoId,
+						trace_id: traceId
+					})}\n\n`
+				)
 			);
 
 			try {
@@ -620,6 +690,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				}
 			} catch (e) {
 				recordChatDiagnostic(convoId, 'chat.stream_error', {
+					trace_id: traceId,
 					error: e instanceof Error ? e.message : String(e),
 					elapsedMs: Date.now() - requestStartedAt,
 					assistantChars: assistantBuf.length,
@@ -649,12 +720,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				}
 			} catch (err) {
 				recordChatDiagnostic(convoId, 'chat.title_error', {
+					trace_id: traceId,
 					error: err instanceof Error ? err.message : String(err)
 				});
 				console.warn('NewsCraft title generation failed', err);
 			}
 
 			recordChatDiagnostic(convoId, 'chat.stream_complete', {
+				trace_id: traceId,
 				elapsedMs: Date.now() - requestStartedAt,
 				assistantChars: assistantBuf.length,
 				done,
@@ -668,6 +741,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		},
 		cancel() {
 			recordChatDiagnostic(convoId, 'chat.stream_cancel', {
+				trace_id: traceId,
 				elapsedMs: Date.now() - requestStartedAt,
 				assistantChars: assistantBuf.length
 			});

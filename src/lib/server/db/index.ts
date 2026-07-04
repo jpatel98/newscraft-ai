@@ -354,6 +354,23 @@ async function ensureSchema(): Promise<void> {
 	await sql`CREATE INDEX IF NOT EXISTS mission_reports_mission_run_idx ON mission_reports (mission_id, run_time)`;
 	await sql`CREATE INDEX IF NOT EXISTS mission_reports_path_idx ON mission_reports (file_path_display)`;
 	await sql`CREATE INDEX IF NOT EXISTS mission_reports_legacy_post_idx ON mission_reports (legacy_channel_post_id)`;
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS agent_jobs (
+			id text PRIMARY KEY,
+			account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			org_id text REFERENCES organizations(id) ON DELETE SET NULL,
+			state text NOT NULL DEFAULT 'queued',
+			last_run_id text,
+			last_run_at bigint,
+			last_error text,
+			created_at bigint NOT NULL,
+			updated_at bigint NOT NULL
+		)
+	`;
+	await sql`CREATE INDEX IF NOT EXISTS agent_jobs_account_job_idx ON agent_jobs (account_id, id)`;
+	await sql`CREATE INDEX IF NOT EXISTS agent_jobs_state_idx ON agent_jobs (state)`;
+	await sql`CREATE INDEX IF NOT EXISTS agent_jobs_org_idx ON agent_jobs (org_id)`;
 }
 
 async function ensurePerformanceIndexes(): Promise<void> {
@@ -404,6 +421,13 @@ async function backfillOrganizationData(orgId: string): Promise<void> {
 		)
 	`;
 	await sql`
+		UPDATE agent_jobs
+		SET org_id = ${orgId}
+		WHERE org_id IS NULL AND account_id IN (
+			SELECT account_id FROM organization_members WHERE org_id = ${orgId}
+		)
+	`;
+	await sql`
 		UPDATE chat_feedback
 		SET org_id = ${orgId}
 		WHERE org_id IS NULL AND account_id IN (
@@ -416,5 +440,6 @@ async function backfillAccountOrganizationData(accountId: string, orgId: string)
 	await sql`UPDATE conversations SET org_id = ${orgId} WHERE org_id IS NULL AND account_id = ${accountId}`;
 	await sql`UPDATE missions SET org_id = ${orgId} WHERE org_id IS NULL AND account_id = ${accountId}`;
 	await sql`UPDATE mission_reports SET org_id = ${orgId} WHERE org_id IS NULL AND account_id = ${accountId}`;
+	await sql`UPDATE agent_jobs SET org_id = ${orgId} WHERE org_id IS NULL AND account_id = ${accountId}`;
 	await sql`UPDATE chat_feedback SET org_id = ${orgId} WHERE org_id IS NULL AND account_id = ${accountId}`;
 }

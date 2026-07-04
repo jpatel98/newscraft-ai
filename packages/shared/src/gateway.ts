@@ -19,6 +19,8 @@ export interface GatewayChatCompletionRequest {
 	reasoning_effort?: ReasoningEffort;
 	/** Diagnostics/eval override: false forces the regex-router fallback for this request. */
 	planner_enabled?: boolean;
+	/** Correlation id propagated from the app request for observability/log joins. */
+	trace_id?: string;
 }
 
 export interface GatewayChatCompletionChunk {
@@ -63,4 +65,6 @@ export interface GatewayResponsesRequest {
 	store?: boolean;
 	conversation?: string;
 	previous_response_id?: string;
+	/** Correlation id propagated from the app request for observability/log joins. */
+	trace_id?: string;
 }

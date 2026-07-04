@@ -1,12 +1,26 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import type { ChannelSource } from '$lib/types';
 import { createAgentJob, deleteAllAgentJobs, listAgentJobs } from '$lib/server/agent/board';
+import {
+	applyPersistedStateToJob,
+	clearAgentJobStates,
+	listAgentJobStates,
+	stateForAgentJobAction,
+	upsertAgentJobState
+} from '$lib/server/db/agent-jobs';
 import { saveMissionConfig } from '$lib/server/db/missions';
 import { compileChannelPrompt, normalizeChannelSources } from '$lib/utils/channel-sources';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
-	return json({ jobs: await listAgentJobs(locals.user.id) });
+	const [jobs, agentJobStates] = await Promise.all([
+		listAgentJobs(locals.user.id),
+		listAgentJobStates(locals.user.id)
+	]);
+	const runtimeById = new Map(agentJobStates.map((runtime) => [runtime.id, runtime]));
+	return json({
+		jobs: jobs.map((job) => applyPersistedStateToJob(job, runtimeById.get(job.id)))
+	});
 };
 
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -44,6 +58,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				deliveryTarget: 'database',
 				outputFormat: outputFormat || 'markdown'
 			});
+			await upsertAgentJobState(locals.user.id, job.id, {
+				state: stateForAgentJobAction('create', job)
+			});
 			return json({ ok: true, job: { ...job, description, prompt, sources, outputFormat: outputFormat || 'markdown' } });
 		}
 		return json({ ok: true, job });
@@ -56,6 +73,7 @@ export const DELETE: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	try {
 		const result = await deleteAllAgentJobs(locals.user.id);
+		if (result.failed.length === 0) await clearAgentJobStates(locals.user.id);
 		return json({ ok: true, ...result });
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));

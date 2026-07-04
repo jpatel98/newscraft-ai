@@ -78,6 +78,7 @@
 
 	onMount(() => {
 		const mq = window.matchMedia('(max-width: 760px)');
+
 		const applyMobile = () => {
 			isMobile = mq.matches;
 			if (!isMobile) keyboardOpen = false;
@@ -114,6 +115,20 @@
 			window.visualViewport.addEventListener('scroll', onViewportChange);
 		}
 
+		const onOrientationChange = () => {
+			applyMobile();
+			applyKeyboardState();
+		};
+		window.addEventListener('orientationchange', onOrientationChange);
+		void (async () => {
+			if (!('serviceWorker' in navigator)) return;
+			try {
+				await navigator.serviceWorker.register('/service-worker.js');
+			} catch {
+				/* allow first-time registration failures without breaking runtime */
+			}
+		})();
+
 		const handler = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
 				e.preventDefault();
@@ -127,9 +142,11 @@
 			}
 		};
 		window.addEventListener('keydown', handler);
+
 		return () => {
 			window.removeEventListener('keydown', handler);
 			mq.removeEventListener('change', onMediaChange);
+			window.removeEventListener('orientationchange', onOrientationChange);
 			if (window.visualViewport) {
 				window.visualViewport.removeEventListener('resize', onViewportChange);
 				window.visualViewport.removeEventListener('scroll', onViewportChange);

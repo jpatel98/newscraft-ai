@@ -18,7 +18,7 @@ export interface StreamArgs {
 
 export interface StreamCallbacks {
 	onDelta: (piece: string) => void;
-	onMeta?: (meta: { conversation_id: string }) => void;
+	onMeta?: (meta: { conversation_id: string; trace_id?: string }) => void;
 	onToolProgress?: (t: {
 		id: string;
 		name: string;

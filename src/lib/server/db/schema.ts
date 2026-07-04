@@ -303,6 +303,30 @@ export const missionReports = pgTable(
 	})
 );
 
+export const agentJobs = pgTable(
+	'agent_jobs',
+	{
+		id: text('id').primaryKey(),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		orgId: text('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+		state: text('state', { enum: ['queued', 'running', 'succeeded', 'failed', 'paused'] })
+			.notNull()
+			.default('queued'),
+		lastRunId: text('last_run_id'),
+		lastRunAt: timestampMs('last_run_at'),
+		lastError: text('last_error'),
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
+	},
+	(t) => ({
+		accountJobIdx: index('agent_jobs_account_job_idx').on(t.accountId, t.id),
+		stateIdx: index('agent_jobs_state_idx').on(t.state),
+		orgIdx: index('agent_jobs_org_idx').on(t.orgId)
+	})
+);
+
 export const agentChannelConfigs = pgTable('agent_channel_configs', {
 	jobId: text('job_id').primaryKey(),
 	accountId: text('account_id')

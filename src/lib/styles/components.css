@@ -2425,67 +2425,98 @@ body,
 		min-height: 0;
 		overflow: hidden;
 	}
-	.shell[data-keyboard-open='true'] .drawer__brand__full {
+	.drawer__brand__full {
 		display: none;
 	}
-	.shell[data-keyboard-open='true'] .drawer__brand__compact {
+	.drawer__brand__compact {
 		display: inline;
+	}
+	.drawer__head {
+		padding: 11px 12px 10px;
+	}
+	.drawer__quick-actions {
+		padding: 8px 12px 6px;
+	}
+	.drawer__divider {
+		margin-inline: 10px;
+	}
+	.sidebar__section {
+		padding-left: 12px;
+		padding-right: 12px;
+	}
+	.sidebar__list {
+		padding: 0 6px 10px;
 	}
 	.shell[data-keyboard-open='true'] .cmdbar {
 		top: calc(env(safe-area-inset-top, 0px) + 4px);
 		left: calc(env(safe-area-inset-left, 0px) + 8px);
 		z-index: 50;
 	}
-	.shell[data-keyboard-open='true'] .pane--plain {
-		padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+	.pane--plain {
+		padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
 	}
-	.shell[data-keyboard-open='true'] .pane__header {
-		padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 8px;
+	.pane__header {
+		padding: calc(env(safe-area-inset-top, 0px) + 52px) 14px 10px;
 		gap: 4px;
+		align-items: start;
 	}
-	.shell[data-keyboard-open='true'] .pane__header__title {
-		font-size: 16px;
-		line-height: 1.2;
+	.shell--drawer-open .pane__header {
+		padding-top: 12px;
 	}
-	.shell[data-keyboard-open='true'] .pane__header__topic {
+	.pane__header__title {
+		font-size: 18px;
+		line-height: 1.12;
+	}
+	.pane__header__topic {
 		font-size: 9.5px;
 	}
-	.shell[data-keyboard-open='true'] .composer-zone {
-		padding: 6px 10px calc(env(safe-area-inset-bottom, 0px) + 6px);
+	.composer-zone {
+		padding: 8px 10px calc(env(safe-area-inset-bottom, 0px) + 10px);
 		background: color-mix(in srgb, var(--bg-page) 96%, transparent);
 	}
-	.shell[data-keyboard-open='true'] .composer {
+	.composer {
+		gap: 6px;
+		padding: 6px;
 		border-color: var(--border-strong);
 		box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
 	}
-	.shell[data-keyboard-open='true'] .composer__textarea {
+	.composer__icon-btn,
+	.composer__send {
+		width: 44px;
+		height: 44px;
+		min-width: 44px;
+		min-height: 44px;
+		padding: 0;
+	}
+	.composer__send {
+		font-size: 13px;
+		gap: 0;
+	}
+	.composer__send span {
+		font-size: 0;
+	}
+	.composer__textarea {
 		font-size: 16px;
-		min-height: 34px;
-		max-height: 96px;
-		padding-block: 7px;
+		line-height: 1.44;
+		min-height: 40px;
+		max-height: 110px;
+		padding: 10px 2px;
 	}
-	.shell[data-keyboard-open='true'] .composer__icon-btn,
-	.shell[data-keyboard-open='true'] .composer__send {
-		width: 38px;
-		height: 38px;
-		min-width: 38px;
-		min-height: 38px;
+	.chat-start {
+		padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
 	}
-	.shell[data-keyboard-open='true'] .chat-start {
-		padding-top: calc(env(safe-area-inset-top, 0px) + 6px);
-	}
-	.shell[data-keyboard-open='true'] .chat-start__hero {
+	.chat-start__hero {
 		gap: 4px;
 	}
-	.shell[data-keyboard-open='true'] .chat-start h1 {
-		font-size: 24px;
+	.chat-start h1 {
+		font-size: 28px;
 		line-height: 1.1;
 	}
-	.shell[data-keyboard-open='true'] .chat-start p {
+	.chat-start p {
 		font-size: 13px;
 		line-height: 1.38;
 	}
-	.shell[data-keyboard-open='true'] .chat-start__prompts {
+	.chat-start__prompts {
 		grid-template-columns: 1fr;
 	}
 	.cmdbar {
@@ -2561,32 +2592,9 @@ body,
 		width: 15px;
 		height: 15px;
 	}
-	.composer-zone {
-		padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
-	}
-	.composer {
-		gap: 6px;
-		padding: 6px;
-	}
 	.composer:focus-within {
 		border-color: var(--cobalt-500);
 		box-shadow: 0 0 0 1px color-mix(in srgb, var(--cobalt-500) 54%, transparent);
-	}
-	.composer__icon-btn,
-	.composer__send {
-		width: 44px;
-		height: 44px;
-		min-width: 44px;
-		min-height: 44px;
-		padding: 0;
-	}
-	.composer__textarea {
-		font-size: 16px;
-		line-height: 1.44;
-		padding: 10px 2px;
-	}
-	.composer__send span {
-		font-size: 0;
 	}
 	.composer__hint {
 		display: none;
@@ -2624,14 +2632,5 @@ body,
 	}
 	.sidebar__footer-link {
 		min-height: 44px;
-	}
-}
-
-@media (max-width: 390px) {
-	.drawer__brand__full {
-		display: none;
-	}
-	.drawer__brand__compact {
-		display: inline;
 	}
 }

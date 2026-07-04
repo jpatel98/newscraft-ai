@@ -2,6 +2,11 @@ import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { hideChannelJobId } from '$lib/server/db/hidden-channels';
 import type { ChannelSource } from '$lib/types';
 import {
+	clearAgentJobState,
+	stateForAgentJobAction,
+	upsertAgentJobState
+} from '$lib/server/db/agent-jobs';
+import {
 	deleteMissionConfig,
 	getMissionConfig,
 	saveMissionConfig
@@ -47,12 +52,14 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 			schedule !== undefined ||
 			enabled !== undefined
 		) {
-				const existingJob = prompt === undefined ? (await listAgentJobs(locals.user.id)).find((job) => job.id === id) : null;
-				const basePrompt = prompt ?? existingConfig?.basePrompt ?? existingJob?.prompt ?? '';
-				const nextSources = sources ?? existingConfig?.sources ?? [];
-				if (prompt !== undefined || sources !== undefined) {
-					promptForAgent = compileChannelPrompt(basePrompt, nextSources);
-				}
+			const existingJob = prompt === undefined
+				? (await listAgentJobs(locals.user.id)).find((job) => job.id === id)
+				: null;
+			const basePrompt = prompt ?? existingConfig?.basePrompt ?? existingJob?.prompt ?? '';
+			const nextSources = sources ?? existingConfig?.sources ?? [];
+			if (prompt !== undefined || sources !== undefined) {
+				promptForAgent = compileChannelPrompt(basePrompt, nextSources);
+			}
 			configToSave = { basePrompt, sources: nextSources };
 		}
 
@@ -62,6 +69,11 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 			prompt: promptForAgent,
 			enabled
 		});
+		if (job) {
+			await upsertAgentJobState(locals.user.id, job.id, {
+				state: stateForAgentJobAction('update', job, enabled)
+			});
+		}
 		if (job && configToSave) {
 			await saveMissionConfig(locals.user.id, job.id, configToSave.basePrompt, configToSave.sources, {
 				name: name ?? job.name,
@@ -82,6 +94,11 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 				}
 			});
 		}
+		if (enabled === true || enabled === false) {
+			await upsertAgentJobState(locals.user.id, id, {
+				state: stateForAgentJobAction('update', job, enabled)
+			});
+		}
 		return json({ ok: true, job });
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));
@@ -96,6 +113,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 	try {
 		await deleteAgentJob(locals.user.id, id);
 		await deleteMissionConfig(locals.user.id, id);
+		await clearAgentJobState(locals.user.id, id);
 		return json({ ok: true });
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));

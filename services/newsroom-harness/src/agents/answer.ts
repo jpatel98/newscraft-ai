@@ -488,15 +488,22 @@ function publicCaveatsFor(
 ): string[] {
 	const caveats: string[] = [];
 	const combinedLimitations = [...limitations, ...unusableEvidence.flatMap((item) => item.limitations)];
+	const providerConfigurationLimitation = combinedLimitations
+		.map(providerUnavailableLimitation)
+		.find((item): item is string => Boolean(item));
 	const blocked = combinedLimitations.some((item) => /paywall|subscription|login|captcha|blocked|unavailable|access denied|forbidden|could not be read/i.test(item));
 	if (options.noUsableEvidence) {
-		caveats.push(
-			blocked
-				? 'I could not find reliable sources confirming this because one or more sources were blocked, paywalled, unavailable, or could not be read.'
-				: 'I could not find reliable sources confirming this in the gathered material.'
-		);
+		if (providerConfigurationLimitation) caveats.push(providerConfigurationLimitation);
+		else {
+			caveats.push(
+				blocked
+					? 'I could not find reliable sources confirming this because one or more sources were blocked, paywalled, unavailable, or could not be read.'
+					: 'I could not find reliable sources confirming this in the gathered material.'
+			);
+		}
 		return caveats;
 	}
+	if (providerConfigurationLimitation) caveats.push(providerConfigurationLimitation);
 
 	if (blocked || unusableEvidence.length) {
 		caveats.push('Some candidate sources were blocked, paywalled, unavailable, or could not be read, and were not used as evidence.');
@@ -529,6 +536,8 @@ function appendCaveats(answer: string, caveats: string[]): string {
 }
 
 function publicLimitationNote(value: string): string {
+	const providerUnavailable = providerUnavailableLimitation(value);
+	if (providerUnavailable) return providerUnavailable;
 	if (/paywall|subscription|login|captcha|blocked|access denied|forbidden|could not be read|unavailable/i.test(value)) {
 		return 'A candidate source was blocked, paywalled, unavailable, or could not be read. It was not used as evidence.';
 	}
@@ -536,6 +545,17 @@ function publicLimitationNote(value: string): string {
 		return 'No usable source material was available from one attempted source.';
 	}
 	return '';
+}
+
+function providerUnavailableLimitation(value: string): string | null {
+	const match = value.match(
+		/^\s*(openai|perplexity)\s+web_search is not configured because\s+([A-Z_]+)\s+is missing\.?$/i
+	);
+	if (!match) return null;
+	const normalizedProvider = match[1].toLowerCase() === 'openai' ? 'OpenAI' : 'Perplexity';
+	const apiKeyName = match[2].toUpperCase();
+	if (!/OPENAI_API_KEY|PERPLEXITY_API_KEY/.test(apiKeyName)) return null;
+	return `The configured research provider (${normalizedProvider}) is unavailable because ${apiKeyName} is not configured.`;
 }
 
 function publicIssueLabel(item: EvidenceObject): string {
