@@ -9,7 +9,7 @@ import {
 	agentPlanFrame,
 	agentToolProgressFrame,
 	sseFrame
-} from '@newscraft/shared';
+} from './util/sse.js';
 import type { ServerResponse } from 'node:http';
 import type { NewsroomAgentRuntime, RuntimeProgressEvent } from './agents/runtime.js';
 import { cleanVisibleChatOutput } from './agents/answer.js';

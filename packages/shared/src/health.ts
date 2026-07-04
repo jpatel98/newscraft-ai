@@ -7,7 +7,7 @@ export interface GatewayHealthResponse {
 	db: {
 		ok: boolean;
 		path: string;
-		backend?: 'sqlite' | 'sqlite+supabase' | 'stateless';
+		backend?: 'sqlite' | 'sqlite+postgres' | 'sqlite+supabase' | 'stateless';
 		error?: string;
 	};
 	openai: {
@@ -38,7 +38,7 @@ export interface GatewayHealthResponse {
 		memory: boolean;
 		savedResearch: boolean;
 		scheduler: boolean;
-		persistence: 'sqlite' | 'sqlite+supabase' | 'stateless';
+		persistence: 'sqlite' | 'sqlite+postgres' | 'sqlite+supabase' | 'stateless';
 	};
 	ingest?: {
 		configured: boolean;

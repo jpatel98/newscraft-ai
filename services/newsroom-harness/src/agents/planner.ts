@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import type { RouteDecision } from './router.js';
 import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { completeProviderText, type ModelProvider } from '../util/openai-complete.js';
@@ -49,15 +48,6 @@ export interface PlannerRequest {
 export type PlannerFn = (request: PlannerRequest) => Promise<ResearchPlan>;
 
 const MAX_PLAN_STEPS = 4;
-const plannedStepSchema = z.object({
-	tool: z.string().min(1),
-	input: z.string().min(1).max(600),
-	label: z.string().min(1).max(120)
-});
-const planSchema = z.object({
-	reason: z.string().optional(),
-	steps: z.array(plannedStepSchema).min(1).max(MAX_PLAN_STEPS)
-});
 
 export async function planResearchSteps(request: PlannerRequest): Promise<ResearchPlan> {
 	const raw = await completeProviderText({
@@ -73,7 +63,7 @@ export async function planResearchSteps(request: PlannerRequest): Promise<Resear
 }
 
 export function parseResearchPlan(raw: string, request: Pick<PlannerRequest, 'tools' | 'maxSteps'>): ResearchPlan {
-	const parsed = planSchema.parse(JSON.parse(extractJsonObject(raw)));
+	const parsed = parsePlannerJson(JSON.parse(extractJsonObject(raw)));
 	const allowed = new Set(request.tools.map((tool) => tool.name));
 	const maxSteps = Math.max(1, Math.min(MAX_PLAN_STEPS, request.maxSteps));
 	const steps = parsed.steps.slice(0, maxSteps).map((step) => {
@@ -166,4 +156,36 @@ function extractJsonObject(raw: string): string {
 	const end = text.lastIndexOf('}');
 	if (start < 0 || end <= start) throw new Error('planner reply contained no JSON object');
 	return text.slice(start, end + 1);
+}
+
+function parsePlannerJson(value: unknown): { reason?: string; steps: PlannedStep[] } {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw new Error('planner reply must be a JSON object');
+	}
+	const record = value as Record<string, unknown>;
+	if (!Array.isArray(record.steps) || record.steps.length < 1) {
+		throw new Error('planner reply must include at least one step');
+	}
+	const steps = record.steps.slice(0, MAX_PLAN_STEPS).map((step) => {
+		if (!step || typeof step !== 'object' || Array.isArray(step)) {
+			throw new Error('planner step must be an object');
+		}
+		const item = step as Record<string, unknown>;
+		const tool = boundedString(item.tool, 'planner step tool', 1, 120);
+		const input = boundedString(item.input, 'planner step input', 1, 600);
+		const label = boundedString(item.label, 'planner step label', 1, 120);
+		return { tool, input, label };
+	});
+	return {
+		reason: typeof record.reason === 'string' ? record.reason : undefined,
+		steps
+	};
+}
+
+function boundedString(value: unknown, label: string, min: number, max: number): string {
+	if (typeof value !== 'string') throw new Error(`${label} must be a string`);
+	const trimmed = value.trim();
+	if (trimmed.length < min) throw new Error(`${label} is required`);
+	if (trimmed.length > max) throw new Error(`${label} is too long`);
+	return trimmed;
 }

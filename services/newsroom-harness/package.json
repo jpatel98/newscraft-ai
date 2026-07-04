@@ -9,7 +9,7 @@
 	"scripts": {
 		"dev": "pnpm --filter @newscraft/shared build && tsx watch src/index.ts",
 		"agent:ask": "tsx src/agent-ask.ts",
-		"build": "tsc -b tsconfig.json",
+		"build": "tsc -b tsconfig.json && rm -rf dist/prompts && cp -R prompts dist/prompts",
 		"start": "node dist/index.js",
 		"test": "pnpm --filter @newscraft/shared build && vitest run --config vitest.config.ts"
 	},
