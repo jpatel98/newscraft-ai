@@ -22,6 +22,9 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 	if (input.decision.selected_mode === 'answer_from_memory') {
 		return answerFromMemory(input.prompt);
 	}
+	if (input.decision.selected_mode === 'direct_answer') {
+		return directAnswerFallback(input.prompt);
+	}
 	if (!evidence.length && input.toolAnswers?.length) {
 		const answer = input.toolAnswers.filter((item) => item.trim()).join('\n\n');
 		const caveats = publicCaveatsFor(input.prompt, evidence, unusableEvidence, input.limitations, {
@@ -123,6 +126,33 @@ function answerFromMemory(prompt: string): string {
 		return 'A producer-ready brief should state what happened, what is new, why it matters, what is confirmed, what still needs checking, and which sources support each point.';
 	}
 	return 'This appears to be stable newsroom guidance rather than a live-source request. I would answer from established practice, and I would not claim to have checked current sources unless a tool run is routed.';
+}
+
+function directAnswerFallback(prompt: string): string {
+	const normalized = prompt.toLowerCase().replace(/\s+/g, ' ').trim();
+	if (/\b(headline|hed)\b/.test(normalized)) {
+		return [
+			'Here are a few newsroom-safe headline directions:',
+			'- Lead with the clearest confirmed action or decision.',
+			'- Keep attribution visible if the claim is not independently verified.',
+			'- Avoid implying certainty beyond the material provided.'
+		].join('\n');
+	}
+	if (/\b(plan|outline|brainstorm|pitch)\b/.test(normalized)) {
+		return [
+			'Here is a compact way to structure it:',
+			'1. Define the audience and the decision they need to make.',
+			'2. Separate confirmed facts, open questions, and assumptions.',
+			'3. Pick the strongest angle, then list the reporting or production steps needed to support it.'
+		].join('\n');
+	}
+	if (/\b(rewrite|edit|polish|tighten|make this clearer)\b/.test(normalized)) {
+		return 'I can help rewrite it. Send the text and the target tone, length, and audience.';
+	}
+	return [
+		'I can help with that directly.',
+		'For anything factual, current, or source-backed, ask me to check sources and I will route it through research.'
+	].join('\n\n');
 }
 
 interface BriefItem {

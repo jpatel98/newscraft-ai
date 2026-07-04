@@ -249,7 +249,7 @@ describe('planned agent loop', () => {
 
 	it('marks steps beyond the budget as skipped in the final plan', async () => {
 		const registry = new ToolRegistry();
-		registry.register(stubTool('configured_source_monitor', 'source_monitor', () => ({
+		registry.register(stubTool('source_feed_fetcher', 'source_feed_fetcher', () => ({
 			status: 'ok',
 			evidence: [evidenceItem('https://official.example/release', LONG_TEXT, '2026-06-09')]
 		})));
@@ -260,7 +260,7 @@ describe('planned agent loop', () => {
 		const agent = new DisciplinedNewsroomAgent({
 			registry,
 			config: {
-				enabled_tools: ['configured_source_monitor', 'openai_web_search'],
+				enabled_tools: ['source_feed_fetcher', 'openai_web_search'],
 				planner_enabled: false,
 				default_tool_budget: {
 					max_total_tool_calls: 1,

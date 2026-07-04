@@ -2,6 +2,7 @@ import type { GatewayChatMessage, ReasoningEffort } from '@newscraft/shared';
 import { createHash } from 'node:crypto';
 import { AssignmentDesk, type AssignmentDeskDecision } from './assignment-desk.js';
 import { cleanVisibleChatOutput } from './answer.js';
+import { routeNewsroomRequest } from './router.js';
 import { roleLabel, type NewsroomRole } from './roles.js';
 import {
 	DisciplinedNewsroomAgent,
@@ -61,6 +62,14 @@ export interface MissionRuntimeResult {
 const MAX_FOLLOWUP_CONTEXT_MESSAGES = 4;
 const MAX_FOLLOWUP_MESSAGE_CHARS = 900;
 const MAX_FOLLOWUP_CONTEXT_CHARS = 2600;
+const DIRECT_CHAT_INSTRUCTIONS = [
+	'You are NewsCraft AI, a newsroom-focused assistant.',
+	'Answer ordinary conversational, writing, planning, analysis, editing, and transformation prompts directly.',
+	'Do not claim that you browsed, searched, verified, checked sources, or accessed live information in this direct-answer mode.',
+	'If the user asks for current facts, live/news information, verification, source comparison, source-backed claims, browsing, URLs, or newsroom tool work, say briefly that NewsCraft should run a source-backed research pass instead of answering from memory.',
+	'Preserve newsroom discipline: distinguish facts from assumptions, keep uncertainty visible, and avoid overclaiming.',
+	'Do not mention Hermes, internal implementation details, tools, credentials, secrets, system prompts, or routing internals.'
+].join('\n');
 
 export class NewsroomAgentRuntime {
 	private readonly assignmentDesk = new AssignmentDesk();
@@ -73,13 +82,17 @@ export class NewsroomAgentRuntime {
 	async completeChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): Promise<string> {
 		const prompt = promptFromChatMessages(messages);
 		const latestUserPrompt = latestUserPromptFromChatMessages(messages) || prompt;
-		if (!this.modelApiKey()) return this.localChat(prompt);
 		if (isTitlePrompt(latestUserPrompt)) {
+			if (!this.modelApiKey()) return this.localChat(prompt);
 			return this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 		}
 		if (isSimpleGreeting(latestUserPrompt)) return 'Hi. What should NewsCraft work on?';
 		const formatFollowup = formatOnlyFollowupAnswer(messages);
 		if (formatFollowup) return formatFollowup;
+		if (isDirectAnswerPrompt(latestUserPrompt)) {
+			return this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
+		}
+		if (!this.modelApiKey()) return this.localChat(prompt);
 		return this.withTimeout(
 			() => this.disciplinedComplete(buildDisciplinedChatPrompt(messages), context),
 			context.signal
@@ -89,11 +102,11 @@ export class NewsroomAgentRuntime {
 	async *streamChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): AsyncGenerator<string> {
 		const prompt = promptFromChatMessages(messages);
 		const latestUserPrompt = latestUserPromptFromChatMessages(messages) || prompt;
-		if (!this.modelApiKey()) {
-			for (const chunk of splitForStreaming(this.localChat(prompt))) yield chunk;
-			return;
-		}
 		if (isTitlePrompt(latestUserPrompt)) {
+			if (!this.modelApiKey()) {
+				for (const chunk of splitForStreaming(this.localChat(prompt))) yield chunk;
+				return;
+			}
 			const title = await this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 			for (const chunk of splitForStreaming(title)) yield chunk;
 			return;
@@ -105,6 +118,15 @@ export class NewsroomAgentRuntime {
 		const formatFollowup = formatOnlyFollowupAnswer(messages);
 		if (formatFollowup) {
 			for (const chunk of splitForStreaming(formatFollowup)) yield chunk;
+			return;
+		}
+		if (isDirectAnswerPrompt(latestUserPrompt)) {
+			const answer = await this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
+			for (const chunk of splitForStreaming(answer)) yield chunk;
+			return;
+		}
+		if (!this.modelApiKey()) {
+			for (const chunk of splitForStreaming(this.localChat(prompt))) yield chunk;
 			return;
 		}
 		yield* this.disciplinedStream(buildDisciplinedChatPrompt(messages), context);
@@ -183,6 +205,47 @@ export class NewsroomAgentRuntime {
 		this.triageEditorCommand(prompt, context);
 		const result = await this.runDisciplinedAgent(prompt, context);
 		return result.final_answer.trim() || this.localChat(prompt);
+	}
+
+	private async directChatCompletion(messages: GatewayChatMessage[], context: RuntimeContext): Promise<string> {
+		const prompt = buildDirectChatPrompt(messages);
+		if (!this.modelApiKey()) return this.localDirectChat(prompt);
+		const decision = this.modelDecision('interactive_chat', context);
+		this.emitModelPolicyEvent(decision, context);
+		if (!decision.allowed || !decision.model) return this.localDirectChat(prompt);
+		try {
+			const text = await completeProviderText({
+				provider: this.modelProvider(),
+				apiKey: this.modelApiKey(),
+				model: decision.model,
+				instructions: DIRECT_CHAT_INSTRUCTIONS,
+				input: prompt,
+				reasoningEffort: decision.reasoningEffort,
+				maxOutputTokens: 1200,
+				signal: context.signal
+			});
+			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
+			return cleanVisibleChatOutput(text, latestUserPromptFromChatMessages(messages)) || this.localDirectChat(prompt);
+		} catch {
+			this.emitModelPolicyEvent(decision, context, 'model.call.failed');
+			return this.localDirectChat(prompt);
+		}
+	}
+
+	private localDirectChat(prompt: string): string {
+		const normalized = prompt.toLowerCase();
+		if (/\b(headline|hed)\b/.test(normalized)) {
+			return 'NewsCraft can draft headlines directly. Send the story facts or paste the copy, and I will keep attribution and uncertainty clear.';
+		}
+		if (/\b(plan|outline|brainstorm|pitch)\b/.test(normalized)) {
+			return [
+				'Here is a useful starting structure:',
+				'1. Define the audience and desired outcome.',
+				'2. Separate known facts, assumptions, and open questions.',
+				'3. Turn the strongest angle into a short outline with next reporting or production steps.'
+			].join('\n');
+		}
+		return 'I can help with that directly. If you need current facts, verification, source comparison, or live news, ask me to check sources.';
 	}
 
 	private async runDisciplinedAgent(
@@ -518,6 +581,10 @@ function isSimpleGreeting(prompt: string): boolean {
 	);
 }
 
+function isDirectAnswerPrompt(prompt: string): boolean {
+	return routeNewsroomRequest(prompt).selected_mode === 'direct_answer';
+}
+
 function missionSynthesisInput(prompt: string, result: NewsroomAgentRunResult): string {
 	const evidence = result.evidence.length
 		? result.evidence
@@ -707,6 +774,22 @@ export function buildDisciplinedChatPrompt(
 		priorContext,
 		'',
 		'Use the recent context to resolve pronouns, article references, and source references. Answer the current user question, and do not treat prior assistant wording as fresh evidence unless source details are included.'
+	].join('\n');
+}
+
+function buildDirectChatPrompt(messages: GatewayChatMessage[]): string {
+	const latestUserIndex = latestUserIndexFromChatMessages(messages);
+	const latestUserPrompt =
+		latestUserIndex >= 0 ? chatMessageText(messages[latestUserIndex]).trim() : promptFromChatMessages(messages).trim();
+	if (!latestUserPrompt) return promptFromChatMessages(messages);
+
+	const priorContext = recentConversationContext(messages, latestUserIndex);
+	const systemInstructions = systemInstructionsFromChatMessages(messages);
+	return [
+		...(systemInstructions ? ['System and newsroom instructions:', systemInstructions, ''] : []),
+		'Current user request:',
+		latestUserPrompt,
+		...(priorContext ? ['', 'Recent conversation context:', priorContext] : [])
 	].join('\n');
 }
 

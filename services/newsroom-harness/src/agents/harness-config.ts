@@ -81,6 +81,7 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 		],
 		routing_rules: {
 			answer_from_memory: 'Use only for stable newsroom guidance or requests that do not need current facts.',
+			direct_answer: 'Answer conversational, writing, planning, analysis, and transformation requests directly without tools.',
 			custom_tool: 'Prefer registered internal tools for saved research, supplied URLs, PDFs, briefs, or newsroom-specific tasks.',
 			source_monitor: 'Use configured source monitors and feeds for latest releases or known source checks.',
 			web_search: 'Use provider-backed web search for broad discovery, other outlets, or related coverage.',

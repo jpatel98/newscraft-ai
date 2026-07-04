@@ -1,9 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	buildDisciplinedChatPrompt,
 	NewsroomAgentRuntime,
 	type RuntimeProgressEvent
 } from '../src/agents/runtime.js';
+import { normalizeEvidence } from '../src/agents/evidence.js';
+import { createModelPolicyConfig } from '../src/agents/model-policy.js';
+import { ToolRegistry, type NewsroomTool, type ToolCategory } from '../src/agents/tools.js';
 import { newsroomTimeContext } from '../src/agents/time-context.js';
 import { openDatabase, type HarnessDb } from '../src/db/database.js';
 import { HarnessRepository } from '../src/db/repository.js';
@@ -15,6 +18,8 @@ afterEach(() => {
 	repository?.close();
 	repository = null;
 	db = null;
+	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 });
 
 describe('newsroom agent runtime', () => {
@@ -31,6 +36,102 @@ describe('newsroom agent runtime', () => {
 		await expect(runtime.completeChat([{ role: 'user', content: 'hi' }])).resolves.toBe(
 			'Hi. What should NewsCraft work on?'
 		);
+	});
+
+	it('answers general writing and planning prompts directly without research progress', async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						output_text:
+							'Package it as three recurring segments: the reported scene, the stakes for families, and a practical next-step sidebar.'
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const progress: RuntimeProgressEvent[] = [];
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'openai',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			agentConfig: {
+				model_policy: createModelPolicyConfig({
+					models: {
+						nano: 'openai/gpt-5-mini',
+						mini: 'openai/gpt-5-mini',
+						standard: 'openai/gpt-5-mini',
+						web_search: 'openai/gpt-5-mini'
+					}
+				})
+			}
+		});
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: 'Help me plan a three-part feature package about youth sports.' }],
+			{ onProgress: (event) => progress.push(event) }
+		);
+
+		expect(answer).toContain('three recurring segments');
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(progress).toEqual([]);
+	});
+
+	it('keeps current newsroom prompts on the research tool path', async () => {
+		const registry = new ToolRegistry();
+		registry.register(stubRuntimeTool('openai_web_search', 'web_search_provider', 'Latest Canada story from a readable source.'));
+		const progress: RuntimeProgressEvent[] = [];
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			registry
+		});
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: 'What are the latest Canada stories today?' }],
+			{
+				plannerEnabled: false,
+				onProgress: (event) => progress.push(event)
+			}
+		);
+
+		expect(answer).toContain('Latest Canada story');
+		expect(progress.some((event) => event.type === 'tool' && event.name === 'openai_web_search')).toBe(true);
+	});
+
+	it('runs direct URL summaries through the source fetcher path', async () => {
+		const registry = new ToolRegistry();
+		registry.register(stubRuntimeTool('source_feed_fetcher', 'source_feed_fetcher', 'Fetcher handled the supplied URL.'));
+		registry.register(stubRuntimeTool('openai_web_search', 'web_search_provider', 'Web search should not run for direct URLs.'));
+		const progress: RuntimeProgressEvent[] = [];
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 2,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			registry
+		});
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: 'summarize http://127.0.0.1/latest' }],
+			{
+				plannerEnabled: false,
+				onProgress: (event) => progress.push(event)
+			}
+		);
+
+		expect(answer).toContain('Fetcher handled');
+		expect(progress.some((event) => event.type === 'tool' && event.name === 'source_feed_fetcher')).toBe(true);
+		expect(progress.some((event) => event.type === 'tool' && event.name === 'openai_web_search')).toBe(false);
 	});
 
 	it('anchors relative dates to Toronto local time instead of UTC', () => {
@@ -223,3 +324,35 @@ describe('newsroom agent runtime', () => {
 		expect(chunks.some((chunk, index) => chunk && index > 0 && chunks[index - 1] === chunk)).toBe(false);
 	});
 });
+
+function stubRuntimeTool(name: string, category: ToolCategory, text: string): NewsroomTool {
+	return {
+		name,
+		description: `${name} stub`,
+		when_to_use: 'test only',
+		category,
+		input_schema: { type: 'object' },
+		output_schema: { type: 'object' },
+		async run() {
+			return {
+				status: 'ok',
+				answer: text,
+				evidence: [
+					normalizeEvidence({
+						source_name: `${name} fixture`,
+						source_url: name === 'source_feed_fetcher' ? 'http://127.0.0.1/latest' : 'https://example.com/story',
+						accessed_at: '2026-07-04T12:00:00.000Z',
+						tool_used: name,
+						title: `${name} result`,
+						published_at: '2026-07-04T11:00:00.000Z',
+						extracted_text: text,
+						summary: text,
+						confidence: 0.8,
+						limitations: [],
+						source_kind: name === 'source_feed_fetcher' ? 'primary' : 'media_report'
+					})
+				]
+			};
+		}
+	};
+}

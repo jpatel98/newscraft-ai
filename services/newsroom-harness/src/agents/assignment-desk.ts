@@ -79,6 +79,7 @@ function roleForRoute(route: RouteDecision): NewsroomRole {
 			return 'research';
 		case 'clarification_needed':
 		case 'answer_from_memory':
+		case 'direct_answer':
 			return 'assignment_desk';
 	}
 }

@@ -2,6 +2,7 @@ import { mergeToolBudget, type ToolBudget } from './budget.js';
 
 type ToolMode =
 	| 'answer_from_memory'
+	| 'direct_answer'
 	| 'custom_tool'
 	| 'source_monitor'
 	| 'web_search'
@@ -40,7 +41,7 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 	if (!text || isAmbiguousReference(text)) {
 		return decision(
 			'clarification_needed',
-				'The request does not identify a source, story, saved update, or concrete newsroom task.',
+			'The request does not identify a source, story, saved update, or concrete newsroom task.',
 			[],
 			budget,
 			'stop immediately and ask for the missing source or story target',
@@ -56,6 +57,28 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 			budget,
 			'stop without calling tools',
 			'a brief friendly greeting asking what newsroom task to work on'
+		);
+	}
+
+	if (mentionsNamedOutletCoverageComparison(text)) {
+		return decision(
+			'web_search',
+			'The request compares named outlet coverage, which requires source-backed reporting evidence.',
+			[NEWSROOM_TOOL_NAMES.webSearch],
+			budget,
+			'stop when enough outlet/source evidence exists or the web search budget/provider is unavailable',
+			'a sourced comparison of outlet coverage and uncertainty'
+		);
+	}
+
+	if (isDirectGeneralRequest(text)) {
+		return decision(
+			'direct_answer',
+			'The request is conversational, editorial, analytical, planning, writing, or transformation work that does not require fresh source retrieval.',
+			[],
+			budget,
+			'stop without calling research tools',
+			'a direct NewsCraft answer without claiming live source checks'
 		);
 	}
 
@@ -96,16 +119,32 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 	const wantsConfiguredSources = mentionsConfiguredSource(text);
 	const wantsCurrentSources = mentionsCurrentSourceCheck(text);
 	const wantsOfficialOnly = mentionsOfficialOnly(text);
+	const wantsExplicitSearch = mentionsExplicitSearch(text);
+	const wantsFreshFacts = mentionsFreshFacts(text);
+	const wantsVerification = mentionsVerification(text);
 	const hasUrl = /https?:\/\//i.test(text);
 
 	if ((wantsCurrentSources || hasUrl) && wantsOtherOutlets) {
 		return decision(
 			'hybrid_research',
-			'The request needs both primary/source evidence and broader coverage context.',
-			[NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.webSearch],
+			hasUrl
+				? 'The request supplies a direct source URL and asks for broader coverage context.'
+				: 'The request needs both primary/source evidence and broader coverage context.',
+			[hasUrl ? NEWSROOM_TOOL_NAMES.sourceFeedFetcher : NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.webSearch],
 			budget,
 			'stop after primary/source evidence and broader coverage evidence exist, or a budget/availability limit is hit',
 			'a producer-ready answer separating official or primary sources from media reports'
+		);
+	}
+
+	if (hasUrl) {
+		return decision(
+			'custom_tool',
+			'The request supplies a direct URL, so route through the explicit source fetch path.',
+			[NEWSROOM_TOOL_NAMES.sourceFeedFetcher],
+			budget,
+			'stop after the URL/source fetch returns evidence or a clear limitation',
+			'an answer grounded in direct source-fetch evidence'
 		);
 	}
 
@@ -123,7 +162,7 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 	if (wantsConfiguredSources || wantsCurrentSources) {
 		return decision(
 			'hybrid_research',
-				'The request targets current newsroom research; default to broad discovery plus configured-source checks.',
+			'The request targets current newsroom research; default to broad discovery plus configured-source checks.',
 			[NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.webSearch],
 			budget,
 			'stop after configured/source evidence and broader coverage evidence exist, or a budget/availability limit is hit',
@@ -131,7 +170,7 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		);
 	}
 
-	if (wantsOtherOutlets) {
+	if (wantsOtherOutlets || wantsExplicitSearch || wantsFreshFacts || wantsVerification) {
 		return decision(
 			'web_search',
 			'The request asks for broad discovery, related coverage, or what other outlets are reporting.',
@@ -153,11 +192,11 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		);
 	}
 
-	if (hasUrl || mentionsCustomTool(text)) {
+	if (mentionsCustomTool(text)) {
 		return decision(
 			'custom_tool',
 			'The request can be handled by an internal newsroom tool rather than broad search.',
-			[hasUrl ? NEWSROOM_TOOL_NAMES.sourceFeedFetcher : NEWSROOM_TOOL_NAMES.briefGenerator],
+			[NEWSROOM_TOOL_NAMES.briefGenerator],
 			budget,
 			'stop after the internal tool returns evidence or a clear limitation',
 			'an answer grounded in custom-tool evidence'
@@ -165,12 +204,12 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 	}
 
 	return decision(
-		'web_search',
-		'No local-only newsroom handler matched; producer chat defaults to broad source lookup.',
-		[NEWSROOM_TOOL_NAMES.webSearch],
+		'direct_answer',
+		'No research trigger matched; producer chat defaults to a direct assistant answer.',
+		[],
 		budget,
-		'stop when enough web-search evidence exists or the web search budget/provider is unavailable',
-		'a sourced answer with clear caveats when evidence is incomplete'
+		'stop without calling research tools',
+		'a direct NewsCraft answer without claiming live source checks'
 	);
 }
 
@@ -217,7 +256,7 @@ function mentionsPdfOrDocument(text: string): boolean {
 }
 
 function mentionsOtherOutlets(text: string): boolean {
-	return /\b(other outlets|media reports|what outlets|coverage elsewhere|related coverage|reporting about|who else is reporting|broader coverage)\b/.test(
+	return /\b(other outlets|media reports|what outlets|coverage elsewhere|related coverage|competitor coverage|reporting about|who else is reporting|broader coverage)\b/.test(
 		text
 	);
 }
@@ -227,7 +266,7 @@ function mentionsConfiguredSource(text: string): boolean {
 }
 
 function mentionsCurrentSourceCheck(text: string): boolean {
-	return /\b(check|scan|monitor|release|releases|press release|police|public safety)\b/.test(text);
+	return /\b(scan|monitor|release|releases|press release|police|public safety)\b/.test(text);
 }
 
 function mentionsOfficialOnly(text: string): boolean {
@@ -244,6 +283,54 @@ function mentionsCustomTool(text: string): boolean {
 
 function mentionsStableNewsroomGuidance(text: string): boolean {
 	return /\b(what is|what's|define|explain|how do i|how should i|best practice|style guidance)\b.*\b(nut graf|lede|inverted pyramid|byline|dateline|embargo|off the record|on background|attribution)\b/.test(
+		text
+	);
+}
+
+function isDirectGeneralRequest(text: string): boolean {
+	if (mentionsResearchOutput(text) || mentionsPdfOrDocument(text) || mentionsBrowserAutomation(text)) return false;
+	if (mentionsNamedOutletCoverageComparison(text)) return false;
+	if (mentionsOtherOutlets(text) || mentionsConfiguredSource(text) || mentionsCurrentSourceCheck(text)) return false;
+	if (mentionsOfficialOnly(text) || mentionsCustomTool(text) || /https?:\/\//i.test(text)) return false;
+	if (mentionsFreshFacts(text) || mentionsVerification(text) || mentionsExplicitSearch(text)) return false;
+	return mentionsConversationalHelp(text) || mentionsWritingPlanningAnalysisOrTransform(text);
+}
+
+function mentionsNamedOutletCoverageComparison(text: string): boolean {
+	const comparableText = text.replace(/https?:\/\/[^\s)>\]]+/gi, ' ');
+	if (!/\b(compare|contrast|analy[sz]e|summari[sz]e|review|break down)\b/.test(comparableText)) return false;
+	if (!/\b(coverage|reporting|stories|story|article|articles|outlets?)\b/.test(comparableText)) return false;
+	const outletMatches = comparableText.match(/\b(cbc|ctv|global(?: news)?|cp24|citynews|toronto star|the star|globe and mail|national post|reuters|ap|associated press|bbc|cnn|fox news|new york times|washington post|guardian|al jazeera)\b/g);
+	if ((outletMatches?.length || 0) >= 2) return true;
+	return /\b[a-z0-9.-]+\.(?:com|ca|org|net|news)\b/.test(comparableText);
+}
+
+function mentionsConversationalHelp(text: string): boolean {
+	return /\b(help me understand|can you explain|explain|teach me|walk me through|brainstorm|think through|give me feedback|what do you think)\b/.test(
+		text
+	);
+}
+
+function mentionsWritingPlanningAnalysisOrTransform(text: string): boolean {
+	return /\b(write|draft|rewrite|edit|polish|tighten|turn this into|convert|format|outline|plan|brainstorm|summarize these notes|summarise these notes|analyze this text|analyse this text|compare these|make this clearer|headline|script|email|memo|pitch|rundown|questions to ask|interview questions)\b/.test(
+		text
+	);
+}
+
+function mentionsFreshFacts(text: string): boolean {
+	return /\b(latest|current|currently|today|tonight|tomorrow|yesterday|this week|this month|recent|breaking|live|now|update|updates|news|what happened|what's happening|what is happening|who is|who's|who are|when is|where is|result|score|price|prices|weather|schedule|what (?:is|are|was|were) .+ referring to)\b/.test(
+		text
+	);
+}
+
+function mentionsVerification(text: string): boolean {
+	return /\b(verify|fact[- ]?check|confirm|source-backed|source backed|with sources|cite|citation|citations|provenance|evidence|reliable sources|according to|is it true|did .* actually)\b/.test(
+		text
+	);
+}
+
+function mentionsExplicitSearch(text: string): boolean {
+	return /\b(search|research|look up|look into|find out|browse|google|web|internet|source|sources|outlet|outlets|reporting)\b/.test(
 		text
 	);
 }

@@ -147,7 +147,11 @@ export class DisciplinedNewsroomAgent {
 				}
 			: undefined;
 
-		if (decision.selected_mode === 'answer_from_memory' || decision.selected_mode === 'clarification_needed') {
+		if (
+			decision.selected_mode === 'answer_from_memory' ||
+			decision.selected_mode === 'clarification_needed' ||
+			decision.selected_mode === 'direct_answer'
+		) {
 			const budget = ledger.snapshot();
 			return {
 				prompt,

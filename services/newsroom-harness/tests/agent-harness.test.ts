@@ -33,7 +33,7 @@ describe('disciplined newsroom agent harness', () => {
 
 	it('routes monitor requests separately and keeps other newsroom tasks in research', () => {
 		const desk = new AssignmentDesk();
-		expect(desk.triage('Draft a headline for this story').role).toBe('research');
+		expect(desk.triage('Draft a headline for this story').role).toBe('assignment_desk');
 		expect(desk.triage('Verify this claim against sources').role).toBe('research');
 		expect(desk.triage('Monitor the police feed for changes').role).toBe('monitoring');
 	});
@@ -43,6 +43,8 @@ describe('disciplined newsroom agent harness', () => {
 			['hi', 'answer_from_memory'],
 			['user: hi', 'answer_from_memory'],
 			['What is a nut graf?', 'answer_from_memory'],
+			['Help me plan a three-part feature package about youth sports.', 'direct_answer'],
+			['Rewrite this intro to be sharper and less promotional.', 'direct_answer'],
 			['Use the newsroom brief generator for these notes: council approved a pilot.', 'custom_tool'],
 			['Summarize the latest research update', 'custom_tool'],
 			['Check the latest Toronto Police releases and summarize anything newsworthy', 'hybrid_research'],
@@ -54,6 +56,10 @@ describe('disciplined newsroom agent harness', () => {
 			['What happened at city hall this week?', 'web_search'],
 			['What are other outlets reporting about this story?', 'web_search'],
 			['Search the web for broader coverage of Ontario housing policy', 'web_search'],
+			['summarize http://127.0.0.1/latest', 'custom_tool'],
+			['summarize http://example.com/latest-news', 'custom_tool'],
+			['compare CBC and CTV coverage of the mayor', 'web_search'],
+			['compare Reuters and AP coverage', 'web_search'],
 			['What did they say about it?', 'clarification_needed'],
 			['Open this dynamic page and click the latest release', 'browser_automation'],
 			[
@@ -70,7 +76,54 @@ describe('disciplined newsroom agent harness', () => {
 			routeNewsroomRequest(
 				'Verify this police release against official sources and what other outlets are reporting: https://example.com/story'
 			).tools_to_use
-		).toEqual(['configured_source_monitor', 'openai_web_search']);
+		).toEqual(['source_feed_fetcher', 'openai_web_search']);
+	});
+
+	it('routes direct URL summaries through the explicit source fetcher path', () => {
+		for (const prompt of [
+			'summarize http://127.0.0.1/latest',
+			'summarize http://127.0.0.1/news',
+			'summarize http://localhost/police-release',
+			'summarize http://example.com/latest-news'
+		]) {
+			expect(routeNewsroomRequest(prompt)).toMatchObject({
+				selected_mode: 'custom_tool',
+				tools_to_use: ['source_feed_fetcher']
+			});
+		}
+
+		expect(
+			routeNewsroomRequest('summarize http://example.com/latest-news and compare what other outlets are reporting')
+		).toMatchObject({
+			selected_mode: 'hybrid_research',
+			tools_to_use: ['source_feed_fetcher', 'openai_web_search']
+		});
+	});
+
+	it('routes named outlet coverage comparisons as source-backed research', () => {
+		for (const prompt of [
+			'compare CBC and CTV coverage of the mayor',
+			'compare CBC and CTV coverage',
+			'contrast Global News and Toronto Star reporting about the mayor',
+			'analyze Reuters and AP articles about the decision'
+		]) {
+			expect(routeNewsroomRequest(prompt)).toMatchObject({
+				selected_mode: 'web_search',
+				tools_to_use: ['openai_web_search']
+			});
+		}
+	});
+
+	it('answers direct general prompts without running research tools', async () => {
+		const result = await new DisciplinedNewsroomAgent().run(
+			'Help me plan a newsroom onboarding checklist for new producers.'
+		);
+
+		expect(result.decision.selected_mode).toBe('direct_answer');
+		expect(result.plan.steps).toEqual([]);
+		expect(result.tool_calls).toEqual([]);
+		expect(result.stopped_reason).toBe('direct_answer');
+		expect(result.final_answer).toContain('structure');
 	});
 
 	it('enforces hard budget counters before tool calls', () => {
