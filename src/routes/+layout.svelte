@@ -120,15 +120,6 @@
 			applyKeyboardState();
 		};
 		window.addEventListener('orientationchange', onOrientationChange);
-		void (async () => {
-			if (!('serviceWorker' in navigator)) return;
-			try {
-				await navigator.serviceWorker.register('/service-worker.js');
-			} catch {
-				/* allow first-time registration failures without breaking runtime */
-			}
-		})();
-
 		const handler = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
 				e.preventDefault();

@@ -1,41 +1,21 @@
-const CACHE_NAME = 'newscraft-mobile-v1';
-const PRECACHE_URLS = ['/', '/manifest.webmanifest', '/brand/logo-mark.svg', '/brand/logo-wordmark.svg'];
+const CACHE_PREFIX = 'newscraft-';
 
 self.addEventListener('install', (event) => {
-	event.waitUntil(
-		(async () => {
-			const cache = await caches.open(CACHE_NAME);
-			await cache.addAll(PRECACHE_URLS);
-			await self.skipWaiting();
-		})()
-	);
+	event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', (event) => {
-	event.waitUntil(self.clients.claim());
-});
-
-self.addEventListener('fetch', (event) => {
-	const request = event.request;
-	if (request.method !== 'GET' || !request.url.startsWith(self.location.origin)) {
-		return;
-	}
-
-	event.respondWith(
+	event.waitUntil(
 		(async () => {
-			const cache = await caches.open(CACHE_NAME);
-			const cached = await cache.match(request);
-			if (cached) return cached;
-
-			try {
-				const response = await fetch(request);
-				if (response && response.ok) {
-					await cache.put(request, response.clone());
-				}
-				return response;
-			} catch (error) {
-				throw error;
-			}
+			const cacheNames = await caches.keys();
+			await Promise.all(
+				cacheNames
+					.filter((name) => name.startsWith(CACHE_PREFIX))
+					.map((name) => caches.delete(name))
+			);
+			const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+			await Promise.all(clientsList.map((client) => client.navigate(client.url)));
+			await self.registration.unregister();
 		})()
 	);
 });
