@@ -472,7 +472,7 @@
 	<title>NewsCraft</title>
 </svelte:head>
 
-{#if onAuthPage || !data.user}
+{#if onAuthPage || data.isMarketingHost || !data.user}
 	{@render children()}
 {:else}
 	<div

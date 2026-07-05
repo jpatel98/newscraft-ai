@@ -12,6 +12,15 @@ const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
 const PUBLIC_PREFIXES = ['/api/health', '/api/agent/channel-posts', '/account-setup', '/api/e2e'];
 let knownHasAccounts = false;
 const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
+const MARKETING_HOSTS = new Set(['newscraftai.com', 'www.newscraftai.com']);
+
+function hostnameWithoutPort(host: string): string {
+	return host.toLowerCase().replace(/:\d+$/, '');
+}
+
+function isMarketingHost(host: string): boolean {
+	return MARKETING_HOSTS.has(hostnameWithoutPort(host));
+}
 
 function readRequestTraceId(headers: Headers): string {
 	const candidate =
@@ -28,6 +37,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	await ensureMigrated();
 	const traceId = readRequestTraceId(event.request.headers);
 	event.locals.traceId = traceId;
+	event.locals.isMarketingHost = isMarketingHost(event.url.host);
 	const cookie = event.cookies.get(SESSION_COOKIE_NAME);
 	const session = verifySessionCookie(cookie);
 	const activeSession = session
@@ -42,12 +52,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 		: null;
 
 	const path = event.url.pathname;
-	const isPublic = PUBLIC_PATHS.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
+	const isMarketingHome = event.locals.isMarketingHost && path === '/';
+	const isPublic = isMarketingHome || PUBLIC_PATHS.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
 	const hasAccounts = knownHasAccounts || (await accountCount()) > 0;
 	if (hasAccounts) knownHasAccounts = true;
 
 	if (
 		!hasAccounts &&
+		!isMarketingHome &&
 		path !== '/setup' &&
 		path !== '/signup' &&
 		!PUBLIC_PREFIXES.some((p) => path.startsWith(p))
