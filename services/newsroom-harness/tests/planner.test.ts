@@ -147,7 +147,7 @@ describe('planned agent loop', () => {
 		expect(result.plan.steps[0].status).toBe('ok');
 	});
 
-	it('uses the router plan for one-call web search chats', async () => {
+	it('uses the router plan for one-step chat research', async () => {
 		const registry = new ToolRegistry();
 		const searchInputs: string[] = [];
 		registry.register(

@@ -221,7 +221,11 @@ async function fullRunAgainstHarness(prompt, priorContext, plannerEnabled) {
     ...(harnessApiKey ? { authorization: `Bearer ${harnessApiKey}` } : {})
   };
 
-  const body = JSON.stringify({ messages, stream: true, planner_enabled: plannerEnabled });
+  const body = JSON.stringify({
+    messages,
+    stream: true,
+    ...(typeof plannerEnabled === 'boolean' ? { planner_enabled: plannerEnabled } : {})
+  });
   const startMs = Date.now();
   let ttftMs = null;
 
@@ -324,7 +328,8 @@ function evalResult(promptEntry, run, budget) {
 
   // Caveat on no-evidence answers
   if (checks.requires_caveat_on_no_evidence) {
-    const hasCaveat = /\b(could not|unable to|no (specific|confirmed|available)|not found|unverified|verify|before publishing|paywall|blocked|caveat)\b/i.test(run.answer);
+    const hasCaveat =
+      /\b(could not|unable to|no (specific|confirmed|available|reliable sources?|evidence)|not found|unverified|verify|before publishing|paywall|blocked|caveat)\b/i.test(run.answer);
     results.push({
       name: 'caveat_on_no_evidence',
       pass: hasCaveat,
@@ -429,11 +434,12 @@ async function main() {
       if (mode === 'fixture') {
         run = fixtureRunResult(promptEntry.prompt, promptEntry);
       } else {
-        run = await fullRunAgainstHarness(promptEntry.prompt, promptEntry.prior_context ?? null, true);
+        run = await fullRunAgainstHarness(promptEntry.prompt, promptEntry.prior_context ?? null, undefined);
 
         if (comparePlanner) {
-          // Run with planner disabled for comparison
-          runPlanner = run;
+          // Explicit overrides keep the planner-vs-router diagnostic separate
+          // from the production-default run evaluated above.
+          runPlanner = await fullRunAgainstHarness(promptEntry.prompt, promptEntry.prior_context ?? null, true);
           runRouter = await fullRunAgainstHarness(promptEntry.prompt, promptEntry.prior_context ?? null, false);
         }
       }

@@ -319,7 +319,7 @@ export class DisciplinedNewsroomAgent {
 			!this.config.planner_enabled ||
 			!apiKey ||
 			!fallback.steps.length ||
-			(!context.forcePlanner && usesSingleCallChatPlan(decision, context))
+			(!context.forcePlanner && usesSingleCallChatPlan(fallback, context))
 		) {
 			return fallback;
 		}
@@ -592,10 +592,10 @@ function combinedSignal(signal: AbortSignal | undefined, maxRuntimeSeconds: numb
 }
 
 function usesSingleCallChatPlan(
-	decision: RouteDecision,
+	plan: ResearchPlan,
 	context: NewsroomAgentRunContext
 ): boolean {
-	return context.outputStyle === 'chat' && decision.selected_mode === 'web_search';
+	return context.outputStyle === 'chat' && plan.steps.length === 1;
 }
 
 function firstUrlFromText(text: string): string | null {
