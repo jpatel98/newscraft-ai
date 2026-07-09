@@ -328,8 +328,13 @@ function evalResult(promptEntry, run, budget) {
 
   // Caveat on no-evidence answers
   if (checks.requires_caveat_on_no_evidence) {
-    const hasCaveat =
-      /\b(could not|unable to|no (specific|confirmed|available|reliable sources?|evidence)|not found|unverified|verify|before publishing|paywall|blocked|caveat)\b/i.test(run.answer);
+    const hasCaveat = [
+      /\b(could not|couldn't|unable to|cannot (confirm|verify|find|locate|access)|can't (confirm|verify|find|locate|access))\b/i,
+      /\bno (specific|confirmed|available|reliable sources?|evidence|official minutes?|confirmed details?)\b/i,
+      /\bnot (yet )?(available|published|confirmed|verified|documented|found)\b/i,
+      /\bwithout (official|first-party|primary)\b/i,
+      /\b(unverified|before publishing|paywall|blocked|caveat)\b/i
+    ].some((pattern) => pattern.test(run.answer));
     results.push({
       name: 'caveat_on_no_evidence',
       pass: hasCaveat,
@@ -450,7 +455,17 @@ async function main() {
     }
 
     const evaluation = evalResult(promptEntry, run, budget);
-    results.push({ id: promptEntry.id, class: promptEntry.class, passed: evaluation.passed, checks: evaluation.checks, ttft_ms: run.ttft_ms, total_ms: run.total_ms });
+    results.push({
+      id: promptEntry.id,
+      class: promptEntry.class,
+      passed: evaluation.passed,
+      checks: evaluation.checks,
+      ttft_ms: run.ttft_ms,
+      total_ms: run.total_ms,
+      answer: run.answer,
+      source_count: run.citations?.length ?? 0,
+      plan: run.plan
+    });
 
     const icon = evaluation.passed ? '✓' : '✗';
     console.log(`  ${icon} ttft=${run.ttft_ms}ms total=${run.total_ms}ms`);

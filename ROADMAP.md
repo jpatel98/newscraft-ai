@@ -232,19 +232,21 @@ UI, auth, and persistence of user-facing data. They talk over
 
 ### What's holding the core experience back
 
-1. **TTFT.** The 2026-07-09 production Perplexity run passed 15/15 with total
-   p50 = 5.8s and p90 = 14.8s, both inside the Phase A gate. TTFT still misses:
-   median = 3.5s, p90 = 10.9s, worst = 11.5s, against a ≤3s target. Research
-   requests still wait on provider search before useful answer text appears.
+1. **Latency reliability.** The final 2026-07-09 production-default Perplexity
+   run passed 15/15 with TTFT median = 1.57s, p90 = 1.81s, worst = 1.81s and
+   total p50 = 3.65s / p90 = 4.35s. That clears the automated latency gate.
+   Sonar still showed occasional multi-second variance in earlier repeated
+   runs, so shift monitoring remains necessary even though local orchestration
+   is no longer serial for ordinary one-step chat research.
 2. **Production provenance acceptance.** Per-message receipts are implemented
    and persisted at stream completion, including sources, tool metadata,
    timing, completion state, model, and transport metadata. The remaining gate
    is an authenticated production acceptance check proving that every
    source-backed answer creates a readable receipt through the real app path.
-3. **Real-shift evidence.** Correctness now clears the automated gate, but the
-   product still needs 2+ weeks of daily newsroom use after TTFT and production
-   provenance acceptance hold. Tracker, scheduler, and real-time ingestion
-   remain frozen until then.
+3. **Real-shift evidence.** Correctness and latency now clear the automated
+   gate, but the product still needs 2+ weeks of daily newsroom use after
+   production provenance acceptance holds. Tracker, scheduler, and real-time
+   ingestion remain frozen until then.
 
 ---
 
@@ -261,11 +263,12 @@ Goal: a producer asks a newsroom question and gets a fast, honest,
 source-backed answer that they would defend to an editor. Nothing else ships
 until this holds.
 
-1. **Latency attack.** Make the single provider search-and-answer call
-   (Perplexity Sonar, or OpenAI Responses + `web_search`) the *default* chat
-   path; the planner/multi-step loop runs only for requests that demonstrably
-   need it (supplied URLs, PDFs, multi-part questions, report mode). Today the
-   plan→search→synthesize chain is serial and web-search-bound (§4).
+1. **Latency attack (fast path shipped 2026-07-09).** One-step chat research
+   now uses the deterministic router plan and makes one provider
+   search-and-answer call. Context follow-ups without explicit source
+   requirements use the same path. Multi-step research, explicit source
+   requirements, reports, and `planner_enabled: true` diagnostics retain the
+   model planner.
 2. **Model-owned synthesis.** One synthesis contract owns the final answer —
    evidence + conversation + output rules in, prose with citations and honest
    caveats out. Delete the template/regex special cases as it lands
@@ -552,9 +555,12 @@ As built:
 - `services/newsroom-harness/eval/run-eval.mjs` — runner with two modes:
   fixture (no API key, deterministic canned answers, CI-safe) and full (real
   harness, live latency, planner vs router side-by-side comparison when
-  `NEWSROOM_EVAL_COMPARE_PLANNER=1`). Checks: ttft/total budgets per
-  latency_class, plan events, citation presence, no internal term leakage.
-  Results written to `.tmp/eval/eval-{mode}-{ts}.json`.
+  `NEWSROOM_EVAL_COMPARE_PLANNER=1`). Normal full mode omits planner overrides
+  so it measures the production-default route; comparison mode explicitly
+  runs both `true` and `false`. Checks cover ttft/total budgets, plan events,
+  citation presence, no internal term leakage, and known traps. Results,
+  including answer text, source count, and final plan, are written to
+  `.tmp/eval/eval-{mode}-{ts}.json`.
 - `scripts/producer-acceptance.mjs` — extended with M4 assertions: captures
   ttft/totalMs + planEvents + sources on every `streamChat` call; asserts
   simple-answer timing (≤8s real / ≤20s fixture), research timing (ttft ≤8s /
@@ -571,10 +577,10 @@ As built:
   install, check, build, test, fixture eval, and GitHub Actions run all pass.
 - **Current full-mode eval (2026-07-09, production Perplexity):** 15/15 passed,
   including every caveat, clarification, and paywall trap; citation and
-  no-internal-leak checks passed. Total latency was p50 = 5.8s / p90 = 14.8s.
-  TTFT was median = 3.5s / p90 = 10.9s / worst = 11.5s, so the separate Phase A
-  ≤3s TTFT gate remains open even though the runner's legacy per-prompt budgets
-  passed.
+  no-internal-leak checks passed. TTFT was median = 1.57s / p90 = 1.81s /
+  worst = 1.81s; total latency was p50 = 3.65s / p90 = 4.35s. This run clears
+  the automated correctness and latency gates; production provenance
+  acceptance and 2+ weeks of shift use remain open.
 - **Historical baseline (2026-06-12, with planner comparison):** 6/15 passed.
   Latency p50 = 30.9s / p90 = 51.7s (budget: p50 ≤ 30s research, ≤ 8s
   simple). Failures: 5 prompts over latency budget, 5 missing
