@@ -1,6 +1,6 @@
 # NewsCraft AI — Source of Truth & Roadmap
 
-Last updated: 2026-07-03
+Last updated: 2026-07-09
 
 This is the single canonical document for NewsCraft AI: what the product is,
 how it is built today, where it is going, and how to work on it. If any other
@@ -43,8 +43,9 @@ rebuilt for that.
 
 ### UI (SvelteKit, `127.0.0.1:3001`)
 
-- `/` — Story Tracker landing (hero + composer). Starter prompts funnel
-  research into a chat thread. Title is "Stories · NewsCraft".
+- `/` — chat-first start screen (hero + composer). Starter prompts cover
+  current updates, coverage comparison, sourced discovery, and beat research.
+  Title is "New chat · NewsCraft".
 - `/c/[id]` — chat thread. Sidebar lists recent threads (pinned / today /
   yesterday / last 7 days / earlier), rename, search.
 - `/settings` — account + app settings.
@@ -127,34 +128,45 @@ user-facing UI.
   (`NEWSROOM_ALLOW_SCHEDULED_MODEL_CALLS`,
   `NEWSROOM_ALLOW_SCHEDULED_WEB_SEARCH`).
 
-### Production (Vercel, as of 2026-07-03)
+### Production (Vercel, as of 2026-07-09)
 
 - **UI** — `agent.newscraftai.com`, SvelteKit on `@sveltejs/adapter-vercel`
   (`nodejs24.x`), Supabase Postgres app DB. Chat resume claims are DB-backed
   (`messages.resume_claimed_at`, atomic conditional claim with a 5-minute TTL
   in `src/lib/server/db/conversations.ts`) so concurrent serverless instances
   cannot double-resume. Public `/api/health` returns only `{ok, service,
-  time}` unauthenticated; app/gateway detail requires a session.
+  time}` unauthenticated; app/gateway detail requires a session. The
+  `newscraft-ai` Vercel project is linked to `jpatel98/newscraft-ai`; pushes to
+  `main` auto-deploy it.
 - **Harness** — separate Vercel project (`newscraft-harness`), **stateless
   chat-only** serverless function: `api/index.js` → `dist/serverless.js`.
   `vercel.json` uses `framework: null` + `functions` + `rewrites` (the legacy
   `builds` config and the committed esbuild bundle are gone).
-  `excludeFiles: ".data/**"` keeps local SQLite data out of deploys; `public/`
-  exists only because Vercel requires a static output directory. **This
-  stateless shape is the intended production topology for the chat-first
-  product** — no jobs, no scheduler, no harness persistence in prod. Health
-  reports `persistence: 'stateless'` honestly.
+  `includeFiles: "dist/**"` packages the compiled runtime and copied prompts;
+  `excludeFiles: ".data/**"` keeps local SQLite data out of deploys. `public/`
+  exists only because Vercel requires a static output directory. The project
+  is linked to the same GitHub repo with `services/newsroom-harness` as its
+  root, so pushes to `main` auto-deploy it. Production explicitly selects
+  Perplexity with `perplexity/sonar`; `/health` reports a configured provider
+  and no config errors. **This stateless shape is the intended production
+  topology for the chat-first product** — no jobs, no scheduler, no harness
+  persistence in prod. Health reports `persistence: 'stateless'` honestly.
 - The UI talks to the harness over `AGENT_GATEWAY_URL` + bearer key. A remote
   gateway URL without a key is a hard error; loopback dev gateways may run
   keyless (`src/lib/server/agent/transport.ts`).
+- **Public site** — `newscraftai.com` and `www.newscraftai.com` remain on the
+  separate `newscraft-ai-landing` Vercel project. Do not move those domains to
+  the app project unless the deployment architecture is explicitly changed.
 
 ### Persistence
 
 - **App DB** — Supabase Postgres via Drizzle (server-only `DATABASE_URL`):
-  accounts, conversations, messages, settings, and the internal missions
-  tables.
-- **Harness DB** — SQLite: jobs (backing store for stories), runs, sources,
-  source snapshots, reports, events.
+  accounts, conversations, messages, settings, per-message provenance,
+  persisted diagnostics, revocable sessions, organization foundations, and
+  frozen internal agent-job state.
+- **Harness DB (local only)** — SQLite: jobs (backing store for stories), runs,
+  sources, source snapshots, reports, events. The production harness is
+  stateless and does not use this database.
 
 ### Architecture
 
@@ -210,31 +222,29 @@ UI, auth, and persistence of user-facing data. They talk over
   observe loop; one agent brain for every chat request.
 - **Visible plan UI (M3, shipped 2026-06-11).** Live step timeline with human
   labels, per-step sources, honest failure states, collapse-on-answer.
-- **Eval + gates (M4, shipped 2026-06-12, fixture-verified).** 15-prompt
-  golden suite, latency/citation/no-leak assertions in producer acceptance;
-  full-mode (real API) run still pending.
+- **Eval + gates (M4, shipped 2026-06-12, live-verified 2026-07-09).** The
+  15-prompt golden suite covers latency, citations, clarification, caveats,
+  paywalls, and no-leak behavior. The latest production Perplexity run passed
+  15/15.
+- **Durable app hardening (shipped through 2026-07-03).** Chat diagnostics,
+  per-message provenance receipts, revocable sessions, organization ids, and
+  internal agent-job state are persisted in Postgres (migrations 0007–0011).
 
 ### What's holding the core experience back
 
-1. **Latency.** Measured for real on 2026-06-12 (first full-mode eval run):
-   p50 = 30.9s, p90 = 51.7s total; worst ttft 51s. The fetch side is now
-   fixed — configured-source fetches run concurrently (host-grouped so
-   polite-fetch per-host rate limits hold) with a per-fetch timeout cut from
-   20s to a configurable 8s (`NEWSROOM_SOURCE_FETCH_TIMEOUT_MS`). The
-   remaining cost is the `openai_web_search` model call itself, which
-   searches before it writes; the worst eval ttfts were web-search-bound,
-   not fetch-bound.
-2. **Eval behavioral failures (full-mode run, 2026-06-12).** 6/15 golden
-   prompts passed. Beyond latency budgets, the live agent: omits caveats on
-   no-evidence/weak-evidence answers (5 prompts), doesn't flag a paywalled
-   source it couldn't read, answers an ambiguous follow-up instead of asking
-   for clarification, and the planner over-plans simple brief generation
-   (10s vs the router's 3ms local path). Planner vs router is mixed: planner
-   wins big on context follow-ups (1.9s vs 22.9s) but loses on several
-   research prompts.
-3. **No X / real-time ingestion yet.** Social coverage is Bluesky only; the
-   scheduler is off by default; there is no push channel for "something new
-   just landed on your beat."
+1. **TTFT.** The 2026-07-09 production Perplexity run passed 15/15 with total
+   p50 = 5.8s and p90 = 14.8s, both inside the Phase A gate. TTFT still misses:
+   median = 3.5s, p90 = 10.9s, worst = 11.5s, against a ≤3s target. Research
+   requests still wait on provider search before useful answer text appears.
+2. **Production provenance acceptance.** Per-message receipts are implemented
+   and persisted at stream completion, including sources, tool metadata,
+   timing, completion state, model, and transport metadata. The remaining gate
+   is an authenticated production acceptance check proving that every
+   source-backed answer creates a readable receipt through the real app path.
+3. **Real-shift evidence.** Correctness now clears the automated gate, but the
+   product still needs 2+ weeks of daily newsroom use after TTFT and production
+   provenance acceptance hold. Tracker, scheduler, and real-time ingestion
+   remain frozen until then.
 
 ---
 
@@ -264,11 +274,11 @@ until this holds.
    no-API-key fallback). The eval failures (missing caveats, unflagged
    paywall, answered-instead-of-clarified) are judgment behaviors and belong
    to the model contract, not to string templates.
-3. **Provenance receipts.** Persist a per-answer evidence bundle (evidence
-   list, plan, budget, model calls, stop reason) in the app Postgres at
-   stream-complete, and surface a "Sources" panel per answer plus export.
-   Auditability is the differentiator against generic chat tools; today the
-   receipts are dropped in prod.
+3. **Provenance receipts (implementation shipped).** Persist a sanitized
+   per-answer evidence bundle in app Postgres at stream-complete and keep
+   sources available with the answer. The storage path is live; authenticated
+   production acceptance and the every-source-backed-answer invariant remain
+   part of the quality gate.
 4. **Security hardening.** Session revocation (DB-backed session ids), hard-
    fail harness auth when deployed, SSRF/private-IP guard in `polite-fetch.ts`,
    basic rate limits on chat + login.
@@ -554,9 +564,18 @@ As built:
 - `package.json` `eval:fixture` script runs the golden-prompt suite in fixture
   mode (no API key, no running servers needed).
 - CI exists as of 2026-06-12: `.github/workflows/ci.yml` runs
-  install → check → test → eval:fixture on pushes to main and PRs. Verified
-  locally to pass with no secrets and no `.env.local` files present.
-- **Full-mode eval run (2026-06-12, with planner comparison):** 6/15 passed.
+  install → check → test → eval:fixture on pushes to main and PRs. As of
+  2026-07-09, `package.json` pins pnpm 9.15.9, `check` builds
+  `@newscraft/shared` before Svelte type-checking, and supported architectures
+  install the Linux Argon2 binding needed by Vercel tracing. A clean isolated
+  install, check, build, test, fixture eval, and GitHub Actions run all pass.
+- **Current full-mode eval (2026-07-09, production Perplexity):** 15/15 passed,
+  including every caveat, clarification, and paywall trap; citation and
+  no-internal-leak checks passed. Total latency was p50 = 5.8s / p90 = 14.8s.
+  TTFT was median = 3.5s / p90 = 10.9s / worst = 11.5s, so the separate Phase A
+  ≤3s TTFT gate remains open even though the runner's legacy per-prompt budgets
+  passed.
+- **Historical baseline (2026-06-12, with planner comparison):** 6/15 passed.
   Latency p50 = 30.9s / p90 = 51.7s (budget: p50 ≤ 30s research, ≤ 8s
   simple). Failures: 5 prompts over latency budget, 5 missing
   caveat-on-no-evidence, paywall trap not flagged, ambiguous follow-up not
@@ -625,7 +644,7 @@ measurement, planner comparison), start the harness and run:
 `NEWSROOM_EVAL_MODE=full node services/newsroom-harness/eval/run-eval.mjs`
 
 Use browser-based acceptance (not just backend health) for anything visible:
-chat streaming, the story-tracker surface, report display, login/setup.
+chat streaming, the chat-start surface, source display, login/setup.
 
 Known-broken as of 2026-06-10 — **fixed 2026-06-12:**
 
@@ -701,7 +720,8 @@ The authoritative list lives in `.env.example`. Key groups:
   tool/search/timeout budgets, `NEWSROOM_SOURCE_FETCH_TIMEOUT_MS` (per-URL
   configured-source fetch timeout, default 8000), `NEWSROOM_AGENT_PLANNER_ENABLED`,
   and `NEWSROOM_HARNESS_SCHEDULER_*`.
-- **AI / model policy**: `OPENAI_API_KEY`, `NEWSROOM_MODEL_POLICY_MODE`,
+- **AI / model policy**: `NEWSROOM_MODEL_PROVIDER`, `PERPLEXITY_API_KEY`,
+  `OPENAI_API_KEY`, `NEWSROOM_MODEL_POLICY_MODE`,
   `NEWSROOM_ALLOW_SCHEDULED_MODEL_CALLS`, `NEWSROOM_ALLOW_SCHEDULED_WEB_SEARCH`,
   `NEWSROOM_MODEL_*`, `NEWSROOM_WEB_SEARCH_MODEL`.
 - **Ingest**: `NEWSROOM_UI_INGEST_URL`, `NEWSROOM_UI_INGEST_KEY`.

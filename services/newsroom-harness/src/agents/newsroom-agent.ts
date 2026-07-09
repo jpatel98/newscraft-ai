@@ -35,6 +35,8 @@ export interface NewsroomAgentRunContext {
 	trigger?: 'manual' | 'schedule' | 'test';
 	signal?: AbortSignal;
 	outputStyle?: 'report' | 'chat';
+	/** Force the model planner for diagnostics/eval comparisons. */
+	forcePlanner?: boolean;
 	onToolEvent?: (event: AgentToolEvent) => void;
 	/** Live answer-text deltas, forwarded from the first answer-producing tool. */
 	onAnswerDelta?: (delta: string) => void;
@@ -313,7 +315,14 @@ export class DisciplinedNewsroomAgent {
 			context.modelApiKey ||
 			this.options.modelApiKey ||
 			(provider === 'openai' ? context.openAiApiKey || this.options.openAiApiKey : '');
-		if (!this.config.planner_enabled || !apiKey || !fallback.steps.length) return fallback;
+		if (
+			!this.config.planner_enabled ||
+			!apiKey ||
+			!fallback.steps.length ||
+			(!context.forcePlanner && usesSingleCallChatPlan(decision, context))
+		) {
+			return fallback;
+		}
 		const policy = resolveModelPolicy(this.config.model_policy, 'interactive_chat', { trigger: context.trigger });
 		this.appendPlannerEvent(context, policy.allowed ? 'model.call.selected' : 'model.call.skipped', {
 			task: policy.task,
@@ -580,6 +589,13 @@ function combinedSignal(signal: AbortSignal | undefined, maxRuntimeSeconds: numb
 	const timeout = AbortSignal.timeout(Math.max(1, maxRuntimeSeconds) * 1000);
 	if (signal && typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
 	return timeout;
+}
+
+function usesSingleCallChatPlan(
+	decision: RouteDecision,
+	context: NewsroomAgentRunContext
+): boolean {
+	return context.outputStyle === 'chat' && decision.selected_mode === 'web_search';
 }
 
 function firstUrlFromText(text: string): string | null {

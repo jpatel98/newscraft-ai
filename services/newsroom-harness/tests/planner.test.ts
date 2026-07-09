@@ -113,7 +113,11 @@ describe('planned agent loop', () => {
 		registry.register(
 			stubTool('openai_web_search', 'web_search_provider', (input) => {
 				searchInputs.push((input as { query: string }).query);
-				return { status: 'ok', evidence: [evidenceItem('https://example.com/a', LONG_TEXT, '2026-06-09')], answer: LONG_TEXT };
+				return {
+					status: 'ok',
+					evidence: [evidenceItem('https://example.com/a', LONG_TEXT, '2026-06-09')],
+					answer: LONG_TEXT
+				};
 			})
 		);
 		const planEvents: AgentPlanEvent[] = [];
@@ -141,6 +145,77 @@ describe('planned agent loop', () => {
 		expect(statuses).toContain('running');
 		expect(statuses[statuses.length - 1]).toBe('ok');
 		expect(result.plan.steps[0].status).toBe('ok');
+	});
+
+	it('uses the router plan for one-call web search chats', async () => {
+		const registry = new ToolRegistry();
+		const searchInputs: string[] = [];
+		registry.register(
+			stubTool('openai_web_search', 'web_search_provider', (input) => {
+				searchInputs.push((input as { query: string }).query);
+				return { status: 'ok', evidence: [evidenceItem('https://example.com/a', LONG_TEXT, '2026-06-09')], answer: LONG_TEXT };
+			})
+		);
+		let plannerCalls = 0;
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: { enabled_tools: ['openai_web_search'], planner_enabled: true },
+			planner: async () => {
+				plannerCalls += 1;
+				return {
+					source: 'model',
+					reason: 'One focused search.',
+					steps: [
+						{ tool: 'openai_web_search', input: 'planned query', label: 'Searching planned coverage' }
+					]
+				};
+			}
+		});
+		const prompt = 'What are the top news stories today?';
+
+		const result = await agent.run(prompt, {
+			openAiApiKey: 'test-key',
+			outputStyle: 'chat'
+		});
+
+		expect(plannerCalls).toBe(0);
+		expect(result.plan.source).toBe('router');
+		expect(searchInputs).toEqual([prompt]);
+	});
+
+	it('allows eval requests to force the model planner for web search chats', async () => {
+		const registry = new ToolRegistry();
+		registry.register(
+			stubTool('openai_web_search', 'web_search_provider', () => ({
+				status: 'ok',
+				evidence: [evidenceItem('https://example.com/a', LONG_TEXT, '2026-06-09')],
+				answer: LONG_TEXT
+			}))
+		);
+		let plannerCalls = 0;
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: { enabled_tools: ['openai_web_search'], planner_enabled: true },
+			planner: async () => {
+				plannerCalls += 1;
+				return {
+					source: 'model',
+					reason: 'Forced comparison.',
+					steps: [
+						{ tool: 'openai_web_search', input: 'planned query', label: 'Searching planned coverage' }
+					]
+				};
+			}
+		});
+
+		const result = await agent.run('What are the top news stories today?', {
+			openAiApiKey: 'test-key',
+			outputStyle: 'chat',
+			forcePlanner: true
+		});
+
+		expect(plannerCalls).toBe(1);
+		expect(result.plan.source).toBe('model');
 	});
 
 	it('falls back to the router plan when the planner fails', async () => {

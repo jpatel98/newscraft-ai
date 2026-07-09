@@ -9,14 +9,14 @@
 		'What are the newest reliable updates on this story?',
 		'Compare how major outlets are covering this topic: ',
 		'Find recent Canadian politics stories with publication dates and source links.',
-		'Track latest Toronto housing stories and summarize the newest reliable coverage.'
+		'Find the latest Toronto housing stories and summarize the newest reliable coverage.'
 	] as const;
 
 	const suggestionChips = [
 		{ label: 'Latest on a story', icon: Radio, prompt: starterPrompts[0] },
 		{ label: 'Compare coverage', icon: GitCompareArrows, prompt: starterPrompts[1] },
 		{ label: 'Find with sources', icon: BadgeCheck, prompt: starterPrompts[2] },
-		{ label: 'Track a beat', icon: Newspaper, prompt: starterPrompts[3] }
+		{ label: 'Research a beat', icon: Newspaper, prompt: starterPrompts[3] }
 	] as const;
 </script>
 
@@ -84,7 +84,7 @@
 			<div>
 				<Newspaper size="18" strokeWidth={1.8} />
 				<h2>Newsroom workflows</h2>
-				<p>Draft briefs, track beats, compare outlets, and turn notes into usable editorial output.</p>
+				<p>Draft briefs, research beats, compare outlets, and turn notes into usable editorial output.</p>
 			</div>
 			<div>
 				<ShieldCheck size="18" strokeWidth={1.8} />
@@ -97,7 +97,7 @@
 	<main class="chat-start" aria-labelledby="chat-start-title">
 		<section class="chat-start__content">
 			<header class="chat-start__hero">
-				<p class="chat-start__eyebrow">Story tracker</p>
+				<p class="chat-start__eyebrow">Newsroom research</p>
 				<h1 id="chat-start-title">What should NewsCraft work on?</h1>
 				<p>Ask about a story, source, topic, or newsroom task.</p>
 			</header>

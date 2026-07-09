@@ -280,6 +280,7 @@ export class NewsroomAgentRuntime {
 			trigger: context.trigger,
 			signal: context.signal,
 			outputStyle: 'chat',
+			forcePlanner: context.plannerEnabled === true,
 			onPlanEvent: (event) => context.onProgress?.({ type: 'plan', planSource: event.source, steps: event.steps }),
 			onToolEvent: (event) => this.forwardDisciplinedProgress(event, context),
 			onAnswerDelta
