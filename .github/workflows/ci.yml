@@ -12,11 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No packageManager field in package.json; lockfileVersion 9.0 requires pnpm v9.
+      # package.json pins the pnpm release used locally and in CI.
       - name: Enable pnpm via corepack
-        run: |
-          corepack enable
-          corepack prepare pnpm@9 --activate
+        run: corepack enable
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -28,6 +26,7 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
+      # The check script builds @newscraft/shared before Svelte resolves its types.
       - name: Type-check
         run: corepack pnpm check
 
