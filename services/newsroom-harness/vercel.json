@@ -5,7 +5,7 @@
 	"outputDirectory": "public",
 	"functions": {
 		"api/index.js": {
-			"includeFiles": "prompts/**",
+			"includeFiles": "dist/**",
 			"excludeFiles": ".data/**"
 		}
 	},
