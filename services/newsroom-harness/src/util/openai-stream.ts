@@ -18,6 +18,7 @@ export async function readOpenAiResponseStream(
 	const decoder = new TextDecoder();
 	const result: OpenAiResponseStreamResult = { response: null, status: 'interrupted' };
 	let buffer = '';
+	const outputItems: unknown[] = [];
 
 	const handleFrame = (frame: string) => {
 		const payload = frame
@@ -30,6 +31,7 @@ export async function readOpenAiResponseStream(
 			type?: string;
 			delta?: unknown;
 			response?: unknown;
+			item?: unknown;
 			error?: { message?: string };
 			message?: string;
 		};
@@ -42,13 +44,17 @@ export async function readOpenAiResponseStream(
 			onTextDelta(event.delta);
 			return;
 		}
+		if (event.type === 'response.output_item.done' && event.item) {
+			outputItems.push(event.item);
+			return;
+		}
 		if (event.type === 'response.completed' && event.response) {
-			result.response = event.response;
+			result.response = mergeStreamedOutputItems(event.response, outputItems);
 			result.status = 'completed';
 			return;
 		}
 		if (event.type === 'response.incomplete' && event.response) {
-			result.response = event.response;
+			result.response = mergeStreamedOutputItems(event.response, outputItems);
 			result.status = 'incomplete';
 			return;
 		}
@@ -81,6 +87,31 @@ export async function readOpenAiResponseStream(
 		reader.releaseLock();
 	}
 	return result;
+}
+
+function mergeStreamedOutputItems(response: unknown, streamedItems: unknown[]): unknown {
+	if (!streamedItems.length || !response || typeof response !== 'object' || Array.isArray(response)) return response;
+	const record = response as Record<string, unknown>;
+	const existingOutput = Array.isArray(record.output) ? record.output : [];
+	const output = uniqueOutputItems([...existingOutput, ...streamedItems]);
+	return output.length ? { ...record, output } : response;
+}
+
+function uniqueOutputItems(items: unknown[]): unknown[] {
+	const seen = new Set<string>();
+	const unique: unknown[] = [];
+	for (const item of items) {
+		if (!item || typeof item !== 'object') continue;
+		const record = item as { id?: unknown; type?: unknown };
+		const key =
+			typeof record.id === 'string'
+				? `id:${record.id}`
+				: `shape:${String(record.type || 'unknown')}:${JSON.stringify(item)}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		unique.push(item);
+	}
+	return unique;
 }
 
 export interface ChatCompletionStreamResult {

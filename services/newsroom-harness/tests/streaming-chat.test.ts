@@ -131,6 +131,55 @@ describe('readOpenAiResponseStream', () => {
 		expect(result.response).toMatchObject({ output_text: 'Hello world.', usage: { total_tokens: 12 } });
 	});
 
+	it('preserves streamed output-item source metadata for web-search evidence extraction', async () => {
+		const deltas: string[] = [];
+		const result = await readOpenAiResponseStream(
+			sseBody([
+				`data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'Sourced answer.' })}\n\n`,
+				`data: ${JSON.stringify({
+					type: 'response.output_item.done',
+					item: {
+						id: 'ws_1',
+						type: 'web_search_call',
+						action: {
+							sources: [
+								{
+									url: 'https://www.cbc.ca/news/politics/example',
+									title: 'CBC example source'
+								}
+							]
+						}
+					}
+				})}\n\n`,
+				`data: ${JSON.stringify({
+					type: 'response.completed',
+					response: { output_text: 'Sourced answer.', usage: { total_tokens: 18 } }
+				})}\n\n`,
+				'data: [DONE]\n\n'
+			]),
+			(delta) => deltas.push(delta)
+		);
+
+		expect(deltas).toEqual(['Sourced answer.']);
+		expect(result.status).toBe('completed');
+		expect(result.response).toMatchObject({
+			output_text: 'Sourced answer.',
+			output: [
+				{
+					type: 'web_search_call',
+					action: {
+						sources: [
+							{
+								url: 'https://www.cbc.ca/news/politics/example',
+								title: 'CBC example source'
+							}
+						]
+					}
+				}
+			]
+		});
+	});
+
 	it('reports stream errors and interruptions', async () => {
 		const failed = await readOpenAiResponseStream(
 			sseBody([`data: ${JSON.stringify({ type: 'error', error: { message: 'rate limited' } })}\n\n`]),

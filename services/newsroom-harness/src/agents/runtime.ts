@@ -87,6 +87,7 @@ export class NewsroomAgentRuntime {
 			return this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 		}
 		if (isSimpleGreeting(latestUserPrompt)) return 'Hi. What should NewsCraft work on?';
+		if (shouldAskForClarification(messages, latestUserPrompt)) return clarificationAnswer(latestUserPrompt);
 		const formatFollowup = formatOnlyFollowupAnswer(messages);
 		if (formatFollowup) return formatFollowup;
 		if (isDirectAnswerPrompt(latestUserPrompt)) {
@@ -113,6 +114,10 @@ export class NewsroomAgentRuntime {
 		}
 		if (isSimpleGreeting(latestUserPrompt)) {
 			for (const chunk of splitForStreaming('Hi. What should NewsCraft work on?')) yield chunk;
+			return;
+		}
+		if (shouldAskForClarification(messages, latestUserPrompt)) {
+			for (const chunk of splitForStreaming(clarificationAnswer(latestUserPrompt))) yield chunk;
 			return;
 		}
 		const formatFollowup = formatOnlyFollowupAnswer(messages);
@@ -583,6 +588,19 @@ function isSimpleGreeting(prompt: string): boolean {
 
 function isDirectAnswerPrompt(prompt: string): boolean {
 	return routeNewsroomRequest(prompt).selected_mode === 'direct_answer';
+}
+
+function shouldAskForClarification(messages: GatewayChatMessage[], latestUserPrompt: string): boolean {
+	if (routeNewsroomRequest(latestUserPrompt).selected_mode !== 'clarification_needed') return false;
+	const latestUserIndex = latestUserIndexFromChatMessages(messages);
+	return !recentConversationContext(messages, latestUserIndex);
+}
+
+function clarificationAnswer(prompt: string): string {
+	if (/\b(?:they|he|she|it|that|this)\b/i.test(prompt)) {
+		return 'Could you clarify what story, source, or statement you mean? I need that context before I can answer cleanly.';
+	}
+	return 'Could you clarify the story, source, or newsroom task you want me to work on?';
 }
 
 function missionSynthesisInput(prompt: string, result: NewsroomAgentRunResult): string {

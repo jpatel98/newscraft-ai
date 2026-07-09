@@ -102,11 +102,43 @@ describe('newsroom agent runtime', () => {
 			}
 		);
 
-		expect(answer).toContain('Latest Canada story');
-		expect(progress.some((event) => event.type === 'tool' && event.name === 'openai_web_search')).toBe(true);
-	});
+			expect(answer).toContain('Latest Canada story');
+			expect(progress.some((event) => event.type === 'tool' && event.name === 'openai_web_search')).toBe(true);
+			expect(
+				progress.some(
+					(event) =>
+						event.type === 'source' &&
+						event.source.url === 'https://example.com/story' &&
+						event.source.used
+				)
+			).toBe(true);
+		});
 
-	it('runs direct URL summaries through the source fetcher path', async () => {
+		it('asks for clarification on ambiguous follow-ups without prior context', async () => {
+			const fetchMock = vi.fn();
+			vi.stubGlobal('fetch', fetchMock);
+			const progress: RuntimeProgressEvent[] = [];
+			const runtime = new NewsroomAgentRuntime({
+				maxToolCalls: 1,
+				runTimeoutMs: 5000,
+				retryLimit: 0,
+				modelProvider: 'openai',
+				modelApiKey: 'fake-key',
+				openAiApiKey: ''
+			});
+
+			const answer = await runtime.completeChat(
+				[{ role: 'user', content: 'What did they say about it?' }],
+				{ onProgress: (event) => progress.push(event) }
+			);
+
+			expect(answer).toContain('Could you clarify');
+			expect(answer).toContain('story, source, or statement');
+			expect(fetchMock).not.toHaveBeenCalled();
+			expect(progress).toEqual([]);
+		});
+
+		it('runs direct URL summaries through the source fetcher path', async () => {
 		const registry = new ToolRegistry();
 		registry.register(stubRuntimeTool('source_feed_fetcher', 'source_feed_fetcher', 'Fetcher handled the supplied URL.'));
 		registry.register(stubRuntimeTool('openai_web_search', 'web_search_provider', 'Web search should not run for direct URLs.'));

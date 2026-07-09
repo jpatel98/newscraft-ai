@@ -295,13 +295,13 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					estimated: false
 				}
 			});
-			if (!response.ok) {
-				return {
-					status: 'error',
-					limitations: [`${providerName} web_search failed with HTTP ${response.status}: ${String(raw?.error?.message || response.statusText)}`],
-					raw
-				};
-			}
+				if (!response.ok) {
+					return {
+						status: 'error',
+						limitations: [publicProviderFailure(providerName, response.status)],
+						raw
+					};
+				}
 			const outputText = extractProviderResponseText(provider, raw);
 			if (streamFailure && !outputText.trim()) {
 				return {
@@ -653,6 +653,16 @@ function webSearchRequestBody(input: {
 
 function providerEnvName(provider: ModelProvider): string {
 	return provider === 'openai' ? 'OPENAI_API_KEY' : 'PERPLEXITY_API_KEY';
+}
+
+function publicProviderFailure(providerName: string, status: number): string {
+	if (status === 401 || status === 403) {
+		return `The configured research provider (${providerName}) rejected the request. Check the provider key and model configuration.`;
+	}
+	if (status === 429) {
+		return `The configured research provider (${providerName}) is rate limited. Try again once quota is available.`;
+	}
+	return `The configured research provider (${providerName}) could not complete web search right now.`;
 }
 
 function providerUsageMetadata(raw: unknown): Record<string, number> | null {

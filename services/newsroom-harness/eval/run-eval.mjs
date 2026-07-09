@@ -6,11 +6,12 @@
  *   fixture  — No API key required. Uses a stubbed harness (no real HTTP) to
  *              verify routing, plan events, no-leak invariants, and latency
  *              envelope shape. Safe for CI. NEWSROOM_EVAL_MODE=fixture (default
- *              when OPENAI_API_KEY is absent).
+ *              when no selected provider key is configured).
  *
- *   full     — Requires OPENAI_API_KEY. Runs against a live harness and
- *              records real latency, citation presence, and answer quality.
- *              Also runs router-fallback vs planner side-by-side when
+ *   full     — Requires the selected provider key (PERPLEXITY_API_KEY or
+ *              OPENAI_API_KEY). Runs against a live harness and records real
+ *              latency, citation presence, and answer quality. Also runs
+ *              router-fallback vs planner side-by-side when
  *              NEWSROOM_EVAL_COMPARE_PLANNER is set.
  *
  * Usage:
@@ -23,13 +24,25 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { config as loadEnv } from 'dotenv';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..', '..', '..');
+const harnessRoot = path.resolve(__dirname, '..');
+
+loadEnv({ path: path.join(harnessRoot, '.env.local'), override: false, quiet: true });
+loadEnv({ path: path.join(harnessRoot, '.env'), override: false, quiet: true });
+loadEnv({ path: path.join(root, '.env.local'), override: false, quiet: true });
+loadEnv({ path: path.join(root, '.env'), override: false, quiet: true });
 
 // ─── Config ────────────────────────────────────────────────────────────────────
 
-const mode = process.env.NEWSROOM_EVAL_MODE || (process.env.OPENAI_API_KEY ? 'full' : 'fixture');
+const providerResolution = resolveModelProvider({
+  requested: providerFromEnv(process.env.NEWSROOM_MODEL_PROVIDER),
+  openAiApiKey: process.env.OPENAI_API_KEY,
+  perplexityApiKey: process.env.PERPLEXITY_API_KEY
+});
+const mode = process.env.NEWSROOM_EVAL_MODE || (providerResolution.configured ? 'full' : 'fixture');
 const comparePlanner = process.env.NEWSROOM_EVAL_COMPARE_PLANNER === '1';
 const harnessUrl = process.env.NEWSROOM_HARNESS_URL || 'http://127.0.0.1:8650';
 const harnessApiKey = process.env.NEWSROOM_HARNESS_API_KEY || process.env.AGENT_GATEWAY_API_KEY || '';
@@ -42,6 +55,57 @@ const BUDGETS = {
   /** research: p50 ≤30s / p90 ≤60s real; ≤120s fixture (spawns no network) */
   research: { ttft: mode === 'fixture' ? 120_000 : 30_000, total: mode === 'fixture' ? 120_000 : 60_000 }
 };
+
+function providerFromEnv(value) {
+  return value === 'openai' || value === 'perplexity' ? value : undefined;
+}
+
+function providerLabel(provider) {
+  return provider === 'openai' ? 'OpenAI' : 'Perplexity';
+}
+
+function providerKeyName(provider) {
+  return provider === 'openai' ? 'OPENAI_API_KEY' : 'PERPLEXITY_API_KEY';
+}
+
+function resolveModelProvider({ requested, openAiApiKey, perplexityApiKey }) {
+  const openAiEnabled = Boolean(openAiApiKey);
+  const perplexityEnabled = Boolean(perplexityApiKey);
+
+  if (requested) {
+    return {
+      provider: requested,
+      configured: requested === 'openai' ? openAiEnabled : perplexityEnabled,
+      selection: 'explicit',
+      reason: `${providerLabel(requested)} was explicitly selected via NEWSROOM_MODEL_PROVIDER.`
+    };
+  }
+
+  if (perplexityEnabled) {
+    return {
+      provider: 'perplexity',
+      configured: true,
+      selection: 'fallback',
+      reason: 'Using Perplexity by default because PERPLEXITY_API_KEY is available.'
+    };
+  }
+
+  if (openAiEnabled) {
+    return {
+      provider: 'openai',
+      configured: true,
+      selection: 'fallback',
+      reason: 'Falling back to OpenAI because PERPLEXITY_API_KEY is not configured.'
+    };
+  }
+
+  return {
+    provider: 'perplexity',
+    configured: false,
+    selection: 'disabled',
+    reason: 'No provider keys are configured.'
+  };
+}
 
 // ─── Tool-name / adapter-name leak detection ──────────────────────────────────
 
@@ -307,18 +371,45 @@ async function main() {
 
   console.log(`\nNewsCraft AI — Golden-prompt eval suite`);
   console.log(`Mode: ${mode}${comparePlanner ? ' + planner comparison' : ''}`);
+  console.log(
+    `Provider: ${providerResolution.provider} (${providerResolution.configured ? 'configured' : 'not configured'}; ${providerResolution.selection})`
+  );
   console.log(`Prompts: ${filtered.length} of ${prompts.length}`);
   console.log('─'.repeat(60));
 
   if (mode === 'full') {
+    if (!providerResolution.configured) {
+      console.error(
+        `Full-mode eval requires ${providerKeyName(providerResolution.provider)} for selected provider ${providerResolution.provider}.`
+      );
+      console.error(providerResolution.reason);
+      console.error('Set the selected provider key or use NEWSROOM_EVAL_MODE=fixture.');
+      process.exitCode = 1;
+      return;
+    }
     // Warm-up check — confirm harness is reachable
     try {
       const health = await fetch(`${harnessUrl}/health`, { signal: AbortSignal.timeout(5_000) });
-      if (!health.ok) throw new Error(`health returned ${health.status}`);
+      const healthBody = await health.json().catch(() => null);
+      if (!health.ok) {
+        const configErrors = Array.isArray(healthBody?.config?.errors) ? `: ${healthBody.config.errors.join('; ')}` : '';
+        throw new Error(`health returned ${health.status}${configErrors}`);
+      }
       console.log('Harness reachable at', harnessUrl);
+      const harnessProvider = healthBody?.modelProvider;
+      if (harnessProvider?.name) {
+        console.log(
+          `Harness provider: ${harnessProvider.name} (${harnessProvider.configured ? 'configured' : 'not configured'})`
+        );
+        if (harnessProvider.name !== providerResolution.provider) {
+          console.warn(
+            `WARNING: eval resolved ${providerResolution.provider}, but the running harness reports ${harnessProvider.name}. Check NEWSROOM_MODEL_PROVIDER and env files.`
+          );
+        }
+      }
     } catch (err) {
       console.error(`Cannot reach harness at ${harnessUrl}: ${err.message}`);
-      console.error('Start the harness first (corepack pnpm dev:harness) or use NEWSROOM_EVAL_MODE=fixture');
+      console.error('Start the harness first (pnpm dev:harness) or use NEWSROOM_EVAL_MODE=fixture');
       process.exitCode = 1;
       return;
     }
@@ -392,7 +483,21 @@ async function main() {
   const outDir = path.join(root, '.tmp', 'eval');
   await mkdir(outDir, { recursive: true });
   const outPath = path.join(outDir, `eval-${mode}-${Date.now()}.json`);
-  await writeFile(outPath, JSON.stringify({ mode, results }, null, 2));
+  await writeFile(
+    outPath,
+    JSON.stringify(
+      {
+        mode,
+        provider: providerResolution,
+        harnessUrl,
+        comparePlanner,
+        promptFilter,
+        results
+      },
+      null,
+      2
+    )
+  );
   console.log(`Results written to ${outPath}`);
 
   if (failCount > 0) {
