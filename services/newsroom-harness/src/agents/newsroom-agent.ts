@@ -309,7 +309,10 @@ export class DisciplinedNewsroomAgent {
 		context: NewsroomAgentRunContext,
 		signal: AbortSignal
 	): Promise<ResearchPlan> {
-		const fallback = planFromRoute(decision, prompt);
+		const routedPlan = planFromRoute(decision, prompt);
+		const fallback = context.forcePlanner
+			? routedPlan
+			: singleCallChatFollowupPlan(routedPlan, prompt, decision, context);
 		const provider = this.modelProvider(context);
 		const apiKey =
 			context.modelApiKey ||
@@ -596,6 +599,24 @@ function usesSingleCallChatPlan(
 	context: NewsroomAgentRunContext
 ): boolean {
 	return context.outputStyle === 'chat' && plan.steps.length === 1;
+}
+
+function singleCallChatFollowupPlan(
+	plan: ResearchPlan,
+	prompt: string,
+	decision: RouteDecision,
+	context: NewsroomAgentRunContext
+): ResearchPlan {
+	if (
+		context.outputStyle !== 'chat' ||
+		decision.selected_mode !== 'hybrid_research' ||
+		!prompt.includes('Recent conversation context for resolving follow-up references:') ||
+		/https?:\/\//i.test(prompt)
+	) {
+		return plan;
+	}
+	const webSearch = plan.steps.find((step) => step.tool === NEWSROOM_TOOL_NAMES.webSearch);
+	return webSearch ? { ...plan, steps: [webSearch] } : plan;
 }
 
 function firstUrlFromText(text: string): string | null {

@@ -183,6 +183,67 @@ describe('planned agent loop', () => {
 		expect(searchInputs).toEqual([prompt]);
 	});
 
+	it('uses one web search for context follow-ups without explicit source requirements', async () => {
+		const registry = new ToolRegistry();
+		let plannerCalls = 0;
+		let sourceMonitorCalls = 0;
+		let webSearchCalls = 0;
+		registry.register(
+			stubTool('configured_source_monitor', 'source_monitor', () => {
+				sourceMonitorCalls += 1;
+				return { status: 'unavailable', limitations: ['No matching source monitor'] };
+			})
+		);
+		registry.register(
+			stubTool('openai_web_search', 'web_search_provider', () => {
+				webSearchCalls += 1;
+				return {
+					status: 'ok',
+					evidence: [evidenceItem('https://example.com/police', LONG_TEXT, '2026-06-09')],
+					answer: LONG_TEXT
+				};
+			})
+		);
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: {
+				enabled_tools: ['configured_source_monitor', 'openai_web_search'],
+				planner_enabled: true
+			},
+			planner: async () => {
+				plannerCalls += 1;
+				return {
+					source: 'model',
+					reason: 'Check two sources.',
+					steps: [
+						{ tool: 'configured_source_monitor', input: 'Toronto police', label: 'Checking police releases' },
+						{ tool: 'openai_web_search', input: 'Toronto police statement', label: 'Searching coverage' }
+					]
+				};
+			}
+		});
+		const prompt = [
+			'Current user question:',
+			'What did the police statement actually say?',
+			'',
+			'Recent conversation context for resolving follow-up references:',
+			'A shooting occurred near downtown Toronto.'
+		].join('\n');
+
+		const result = await agent.run(prompt, {
+			openAiApiKey: 'test-key',
+			outputStyle: 'chat'
+		});
+
+		expect(plannerCalls).toBe(0);
+		expect(sourceMonitorCalls).toBe(0);
+		expect(webSearchCalls).toBe(1);
+		expect(result.plan).toMatchObject({
+			source: 'router',
+			steps: [{ tool: 'openai_web_search', status: 'ok' }]
+		});
+	});
+
 	it('allows eval requests to force the model planner for web search chats', async () => {
 		const registry = new ToolRegistry();
 		registry.register(

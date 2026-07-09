@@ -237,6 +237,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 						'Summarize the freshest usable result first, using concrete event dates or timestamps only when they matter to the answer.',
 						'Prefer primary or official sources and directly relevant local/reputable outlets.',
 						'If no reliable readable source confirms a current-events or claim-verification request, say that plainly instead of giving a confident unsourced answer.',
+						'For local meetings or other obscure events, distinguish agendas and previews from confirmed outcomes; if no official minutes or first-party account confirms what happened, state that limitation explicitly.',
 						'If a requested source is paywalled, blocked, CAPTCHA-protected, unavailable, empty, or cannot be read, flag that limitation honestly without technical details.',
 						'If the request is an ambiguous follow-up and there is no clear referent, ask a brief clarifying question instead of guessing.',
 						'Avoid forums, social threads, old PDFs, and loosely related background unless the request asks for them.',
