@@ -376,7 +376,7 @@
 
 <div class="composer-zone">
 	<div class="composer-zone__inner">
-		<Composer onSend={handleSend} />
+		<Composer onSend={handleSend} draftKey={data.conversation.id} />
 	</div>
 </div>
 

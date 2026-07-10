@@ -103,7 +103,7 @@
 			</header>
 
 			<section class="chat-start__composer" aria-label="Start a new chat">
-				<Composer bind:this={composer} placeholder="Ask NewsCraft..." />
+				<Composer bind:this={composer} placeholder="Ask NewsCraft..." draftKey="new" />
 			</section>
 
 			<section class="chat-start__prompts" aria-label="Starter prompts">

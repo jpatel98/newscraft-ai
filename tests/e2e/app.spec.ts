@@ -441,6 +441,108 @@ test.describe('plan timeline UI', () => {
 		await expectNoTechnicalLeakage(page);
 		expect(problems).toEqual([]);
 	});
+
+	test('keeps thread drafts isolated and reports clipboard denial visibly', async ({
+		page
+	}) => {
+		const problems = await collectPageProblems(page);
+		await page.addInitScript(() => {
+			Object.defineProperty(navigator, 'clipboard', {
+				configurable: true,
+				value: {
+					writeText: async () => {
+						throw new Error('denied');
+					}
+				}
+			});
+		});
+
+		await signIn(page);
+		const first = await page.request.post('/api/e2e/seed-conversation', {
+			data: {
+				secret: e2eSecret,
+				password,
+				userMessage: 'first seed',
+				assistantMessage: 'first answer'
+			},
+			headers: { 'content-type': 'application/json' }
+		});
+		const second = await page.request.post('/api/e2e/seed-conversation', {
+			data: {
+				secret: e2eSecret,
+				password,
+				userMessage: 'second seed',
+				assistantMessage: 'second answer'
+			},
+			headers: { 'content-type': 'application/json' }
+		});
+		if (!first.ok()) throw new Error(`seed first: ${first.status()} ${await first.text()}`);
+		if (!second.ok()) throw new Error(`seed second: ${second.status()} ${await second.text()}`);
+		const { id: firstId } = (await first.json()) as { id: string };
+		const { id: secondId } = (await second.json()) as { id: string };
+
+		await page.goto(`/c/${firstId}`);
+		await page.getByLabel('Message NewsCraft').fill('draft for first thread');
+		await page.waitForTimeout(100);
+		await page.reload();
+		await expect(page.getByLabel('Message NewsCraft')).toHaveValue('draft for first thread');
+
+		await page.goto(`/c/${secondId}`);
+		await expect(page.getByLabel('Message NewsCraft')).toHaveValue('');
+		await page.getByLabel('Message NewsCraft').fill('draft for second thread');
+		await page.waitForTimeout(100);
+
+		await page.goto(`/c/${firstId}`);
+		await expect(page.getByLabel('Message NewsCraft')).toHaveValue('draft for first thread');
+
+		await page.getByRole('button', { name: 'Copy message' }).first().click();
+		await expect(page.getByRole('button', { name: 'Copy failed' })).toBeVisible();
+
+		expect(problems).toEqual([]);
+	});
+
+	test('shows a jump-to-latest recovery control when streaming while scrolled away', async ({
+		page
+	}) => {
+		const problems = await collectPageProblems(page);
+
+		await signIn(page);
+		const longAnswer = Array.from(
+			{ length: 90 },
+			(_, i) => `Seeded context line ${i + 1} for a long thread.`
+		).join('\n');
+		const seedRes = await page.request.post('/api/e2e/seed-conversation', {
+			data: {
+				secret: e2eSecret,
+				password,
+				userMessage: 'long seed',
+				assistantMessage: longAnswer
+			},
+			headers: { 'content-type': 'application/json' }
+		});
+		if (!seedRes.ok()) throw new Error(`seed-conversation: ${seedRes.status()} ${await seedRes.text()}`);
+		const { id: convId } = (await seedRes.json()) as { id: string };
+		const releaseStream = await interceptChatStreamWithPlanFixture(page);
+
+		await page.goto(`/c/${convId}`);
+		await page.waitForTimeout(150);
+		const scroller = page.locator('.thread');
+		await scroller.evaluate((el) => {
+			el.scrollTop = 0;
+			el.dispatchEvent(new Event('scroll'));
+		});
+
+		await page.getByLabel('Message NewsCraft').fill('Any newer update?');
+		await page.getByRole('button', { name: 'Send message' }).click();
+		const jump = page.getByRole('button', { name: 'Jump to latest message' });
+		await expect(jump).toBeVisible();
+
+		await jump.click();
+		await expect(jump).toHaveCount(0);
+		await releaseStream();
+
+		expect(problems).toEqual([]);
+	});
 });
 
 test.describe('persisted answer sources', () => {
