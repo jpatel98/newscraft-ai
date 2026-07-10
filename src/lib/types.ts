@@ -12,6 +12,10 @@ export type ContentPart = TextPart | ImageUrlPart;
 
 export type MessageContent = string | ContentPart[];
 
+export interface ChatFailureState {
+	retryable?: boolean;
+}
+
 export interface ChatMessage {
 	id: string;
 	role: Role;
@@ -23,6 +27,8 @@ export interface ChatMessage {
 	/** True only for the message currently being streamed in the live overlay.
 	 * Persisted partial messages have partial=1 but streaming=false. */
 	streaming?: boolean;
+	/** Ephemeral client-side send failure metadata. Not persisted. */
+	failure?: ChatFailureState;
 }
 
 type AgentCommandKind = 'builtin' | 'skill';

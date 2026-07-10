@@ -22,6 +22,9 @@
 	}
 	let { onSend, disabled = false, placeholder = 'Message NewsCraft' }: Props = $props();
 
+	const SEND_FAILURE_MESSAGE = "Couldn't send. Your draft is still here.";
+	const CREATE_FAILURE_MESSAGE = "Couldn't start a new chat. Your draft is still here.";
+
 	interface Attachment {
 		id: string;
 		name: string;
@@ -120,6 +123,20 @@
 		return 'att-' + Math.random().toString(36).slice(2, 9);
 	}
 
+	function snapshotAttachments(): Attachment[] {
+		return attachments.map((a) => ({ ...a, image: a.image ? { ...a.image } : undefined }));
+	}
+
+	function restoreFailedSend(sentValue: string, sentAttachments: Attachment[]) {
+		value = sentValue;
+		attachments = sentAttachments;
+		attachError = SEND_FAILURE_MESSAGE;
+		queueMicrotask(() => {
+			textarea?.focus();
+			autosize();
+		});
+	}
+
 	async function ingestFiles(files: File[]) {
 		attachError = null;
 		const accepted = files.filter((f) => f.type.startsWith('image/'));
@@ -216,6 +233,8 @@
 		}
 
 		if (onSend) {
+			const sentValue = value;
+			const sentAttachments = snapshotAttachments();
 			const parsed = typeof content === 'string' ? parseSlashCommand(content) : null;
 			const matched = parsed
 				? commands.find((cmd) => cmd.slash.toLowerCase() === parsed.slash)
@@ -226,7 +245,13 @@
 			value = '';
 			attachments = [];
 			attachError = null;
-			void onSend(content, command);
+			try {
+				void Promise.resolve(onSend(content, command)).catch(() => {
+					restoreFailedSend(sentValue, sentAttachments);
+				});
+			} catch {
+				restoreFailedSend(sentValue, sentAttachments);
+			}
 			queueMicrotask(() => textarea?.focus());
 			return;
 		}
@@ -238,11 +263,11 @@
 				headers: { 'content-type': 'application/json' },
 				body: '{}'
 			});
-			if (!r.ok) throw new Error(`create-conv ${r.status}`);
+			if (!r.ok) throw new Error('create conversation failed');
 			const { id } = (await r.json()) as { id: string };
-			value = '';
 			if (typeof content === 'string') {
 				await goto(`/c/${id}#p=${encodeURIComponent(content)}`);
+				value = '';
 			} else {
 				// Stash multimodal content for the destination page to pick up; the
 				// hash-fragment handoff only carries strings.
@@ -251,9 +276,16 @@
 				} catch {
 					/* sessionStorage full or disabled — fall back to text only */
 				}
-				attachments = [];
 				await goto(`/c/${id}#p=`);
+				value = '';
+				attachments = [];
 			}
+		} catch {
+			attachError = CREATE_FAILURE_MESSAGE;
+			queueMicrotask(() => {
+				textarea?.focus();
+				autosize();
+			});
 		} finally {
 			busy = false;
 		}

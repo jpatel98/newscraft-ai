@@ -9,22 +9,24 @@
 		import { chat } from '$lib/stores/chat.svelte';
 		import { formatShortTime } from '$lib/utils/time';
 
-	interface Props {
-		messages: ChatMessage[];
-		conversationId?: string | null;
-		userInitials?: string;
-		onRegenerate?: () => void;
-		onResume?: (messageId: string) => void;
-		onDiscard?: (messageId: string) => void;
-	}
-	let {
-		messages,
-		conversationId = null,
-		userInitials = 'YOU',
-		onRegenerate,
-		onResume,
-		onDiscard
-	}: Props = $props();
+		interface Props {
+			messages: ChatMessage[];
+			conversationId?: string | null;
+			userInitials?: string;
+			onRegenerate?: () => void;
+			onResume?: (messageId: string) => void;
+			onDiscard?: (messageId: string) => void;
+			onRetryFailure?: () => void;
+		}
+		let {
+			messages,
+			conversationId = null,
+			userInitials = 'YOU',
+			onRegenerate,
+			onResume,
+			onDiscard,
+			onRetryFailure
+		}: Props = $props();
 
 	let scroller: HTMLDivElement | undefined = $state();
 	let copied = $state<string | null>(null);
@@ -168,16 +170,17 @@
 	bind:this={scroller}
 	onscroll={onScroll}
 >
-	<div class="thread__inner">
-		{#each messages as m, i (m.id)}
-			{@const prev = messages[i - 1]}
-			{@const stacked = prev && prev.role === m.role}
-			{@const roleChange = prev && prev.role !== m.role}
-			{@const deferred = shouldDeferMessage(m, i)}
-			<article
-				id={`m-${m.id}`}
-				class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange
-					? 'msg--role-change'
+		<div class="thread__inner">
+			{#each messages as m, i (m.id)}
+				{@const prev = messages[i - 1]}
+				{@const stacked = prev && prev.role === m.role}
+				{@const roleChange = prev && prev.role !== m.role}
+				{@const deferred = shouldDeferMessage(m, i)}
+				{@const failure = m.failure}
+				<article
+					id={`m-${m.id}`}
+					class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange
+						? 'msg--role-change'
 					: ''} {deferred ? 'msg--deferred' : ''}"
 			>
 				{#if m.role === 'assistant'}
@@ -240,12 +243,12 @@
 						<ToolActivity activeTurn={true} />
 					{/if}
 
-					{#if m.role === 'assistant' && m.partial && !m.streaming && !m.id.startsWith('tmp-')}
-						<div class="msg__resume" role="status">
-							<span class="msg__resume__label">Stream interrupted</span>
-							{#if onResume}
-								<button
-									type="button"
+						{#if m.role === 'assistant' && m.partial && !m.streaming && !m.id.startsWith('tmp-')}
+							<div class="msg__resume" role="status">
+								<span class="msg__resume__label">Stream interrupted</span>
+								{#if onResume}
+									<button
+										type="button"
 									class="msg__resume__btn msg__resume__btn--primary"
 									onclick={() => onResume?.(m.id)}
 								>
@@ -258,17 +261,32 @@
 									class="msg__resume__btn"
 									onclick={() => onDiscard?.(m.id)}
 								>
-									Discard
-								</button>
-							{/if}
-						</div>
-					{/if}
+										Discard
+									</button>
+								{/if}
+							</div>
+						{/if}
 
-					{#if !m.partial && (m.role === 'assistant' || m.role === 'user')}
-						<div class="msg__actions">
-							<button
-								type="button"
-								class="msg__action {copied === m.id ? 'msg__action--success' : ''}"
+						{#if m.role === 'assistant' && failure?.retryable}
+							<div class="msg__resume" role="status">
+								<span class="msg__resume__label">Send failed</span>
+								{#if onRetryFailure}
+									<button
+										type="button"
+										class="msg__resume__btn msg__resume__btn--primary"
+										onclick={() => onRetryFailure?.()}
+									>
+										Retry
+									</button>
+								{/if}
+							</div>
+						{/if}
+
+						{#if !m.partial && !failure && (m.role === 'assistant' || m.role === 'user')}
+							<div class="msg__actions">
+								<button
+									type="button"
+									class="msg__action {copied === m.id ? 'msg__action--success' : ''}"
 								onclick={() => copy(m)}
 								aria-label={copied === m.id ? 'Message copied' : 'Copy message'}
 							>

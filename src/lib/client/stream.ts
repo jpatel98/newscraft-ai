@@ -7,6 +7,41 @@ import {
 } from '$lib/utils/stream-events';
 import type { ChatCommand, MessageContent } from '$lib/types';
 
+export const CHAT_STREAM_FAILURE_MESSAGE =
+	"I couldn't start that reply. Your message is still here. Try again.";
+
+export class ChatStreamError extends Error {
+	public readonly publicMessage: string;
+	public readonly diagnosticMessage: string;
+	public readonly retryable = true;
+
+	constructor(diagnosticMessage: string, options?: { cause?: unknown; publicMessage?: string }) {
+		super(options?.publicMessage ?? CHAT_STREAM_FAILURE_MESSAGE, { cause: options?.cause });
+		this.name = 'ChatStreamError';
+		this.publicMessage = options?.publicMessage ?? CHAT_STREAM_FAILURE_MESSAGE;
+		this.diagnosticMessage = diagnosticMessage;
+	}
+}
+
+export function streamFailureMessage(error: unknown): string {
+	return error instanceof ChatStreamError ? error.publicMessage : CHAT_STREAM_FAILURE_MESSAGE;
+}
+
+export function streamFailureDiagnostic(error: unknown): string {
+	if (error instanceof ChatStreamError) return error.diagnosticMessage;
+	if (error instanceof Error) return `${error.name}: ${error.message}`;
+	return String(error);
+}
+
+function isAbortError(error: unknown): boolean {
+	return (error as { name?: string } | null)?.name === 'AbortError';
+}
+
+function toDiagnostic(error: unknown): string {
+	if (error instanceof Error) return `${error.name}: ${error.message}`;
+	return String(error);
+}
+
 export interface StreamArgs {
 	conversation_id?: string;
 	content?: MessageContent;
@@ -39,35 +74,49 @@ export interface StreamCallbacks {
 }
 
 export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise<void> {
-	const r = await fetch('/api/chat/stream', {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify(args),
-		signal: cb.signal
-	});
-	if (!r.ok) throw new Error(`stream ${r.status}: ${await r.text().catch(() => '')}`);
-	if (!r.body) throw new Error('no stream body');
+	let r: Response;
+	try {
+		r = await fetch('/api/chat/stream', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(args),
+			signal: cb.signal
+		});
+	} catch (error) {
+		if (isAbortError(error)) throw error;
+		throw new ChatStreamError(`stream fetch failed: ${toDiagnostic(error)}`, { cause: error });
+	}
+	if (!r.ok) {
+		const body = await r.text().catch(() => '');
+		throw new ChatStreamError(`stream ${r.status}: ${body || r.statusText}`);
+	}
+	if (!r.body) throw new ChatStreamError('stream response body missing');
 
 	const streamState = new StreamEventState();
-	for await (const ev of readSSE(r.body)) {
-		if (ev.event === 'agent.meta') {
-			try {
-				cb.onMeta?.(JSON.parse(ev.data) as { conversation_id: string });
-			} catch {
-				/* ignore */
+	try {
+		for await (const ev of readSSE(r.body)) {
+			if (ev.event === 'agent.meta') {
+				try {
+					cb.onMeta?.(JSON.parse(ev.data) as { conversation_id: string });
+				} catch {
+					/* ignore */
+				}
+				continue;
 			}
-			continue;
-		}
-		for (const update of streamState.apply(ev.event, ev.data)) {
-			if (update.title) cb.onTitle?.(update.title);
-			if (update.delta) cb.onDelta(update.delta);
-			if (update.source) cb.onSource?.(update.source);
-			if (update.plan) cb.onPlan?.(update.plan);
-			if (update.tool) {
-				if (update.tool.done) cb.onToolDone?.(update.tool.id, update.tool);
-				else cb.onToolProgress?.(update.tool);
+			for (const update of streamState.apply(ev.event, ev.data)) {
+				if (update.title) cb.onTitle?.(update.title);
+				if (update.delta) cb.onDelta(update.delta);
+				if (update.source) cb.onSource?.(update.source);
+				if (update.plan) cb.onPlan?.(update.plan);
+				if (update.tool) {
+					if (update.tool.done) cb.onToolDone?.(update.tool.id, update.tool);
+					else cb.onToolProgress?.(update.tool);
+				}
+				if (update.failed) throw new ChatStreamError(`stream event failed: ${update.failed}`);
 			}
-			if (update.failed) throw new Error(update.failed);
 		}
+	} catch (error) {
+		if (isAbortError(error) || error instanceof ChatStreamError) throw error;
+		throw new ChatStreamError(`stream read failed: ${toDiagnostic(error)}`, { cause: error });
 	}
 }
