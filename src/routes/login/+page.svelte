@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	let { form } = $props<{ form?: { error?: string } }>();
 	const next = $derived(page.url.searchParams.get('next') ?? '/');
+	const hasError = $derived(Boolean(form?.error));
 	let pwInput: HTMLInputElement | undefined;
 	$effect(() => {
 		pwInput?.focus();
@@ -16,6 +17,9 @@
 	<form method="post" class="card" autocomplete="off">
 		<div class="card__eyebrow">NewsCraft · Sign in</div>
 		<h1 class="card__title">Welcome back.</h1>
+		<p class="card__copy" id="login-access-note">
+			Use the password set for your account. New access is created by an admin setup link.
+		</p>
 
 		<input type="hidden" name="next" value={next} />
 
@@ -29,6 +33,8 @@
 				autocomplete="current-password"
 				bind:this={pwInput}
 				required
+				aria-invalid={hasError ? 'true' : undefined}
+				aria-describedby={hasError ? 'login-error' : 'login-access-note'}
 			/>
 		</div>
 
@@ -36,10 +42,10 @@
 			Sign in
 		</button>
 
-		<a class="auth-link" href="/signup">No account yet? Create one</a>
-
 		{#if form?.error}
-			<div class="field__error">{form.error}</div>
+			<div id="login-error" class="field__error" role="alert" aria-live="assertive">
+				{form.error}
+			</div>
 		{/if}
 	</form>
 </div>

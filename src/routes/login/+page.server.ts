@@ -15,17 +15,21 @@ export const actions: Actions = {
 		const key = getClientAddress();
 		const rate = checkRateLimit(`login:${key}`, { limit: 20, windowMs: 10 * 60 * 1000 });
 		if (!rate.allowed) {
-			return fail(429, { error: `too many attempts; try again in ${Math.ceil(rate.retryAfterMs / 1000)}s` });
+			return fail(429, {
+				error: `Too many sign-in attempts. Try again in ${Math.ceil(rate.retryAfterMs / 1000)}s.`
+			});
 		}
 		const lock = lockedOut(key);
 		if (lock > 0) {
-			return fail(429, { error: `too many attempts; try again in ${Math.ceil(lock / 1000)}s` });
+			return fail(429, {
+				error: `Too many sign-in attempts. Try again in ${Math.ceil(lock / 1000)}s.`
+			});
 		}
 
 		const account = await findAccountByPassword(password);
 		if (!account) {
 			recordFailure(key);
-			return fail(401, { error: 'invalid password' });
+			return fail(401, { error: 'That password did not match an active account.' });
 		}
 
 		recordSuccess(key);

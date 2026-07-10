@@ -250,7 +250,13 @@ test.describe.serial('NewsCraft app shell', () => {
 			if (/\/login/.test(landingURL)) {
 				await expect(page).toHaveTitle(/Sign in/i);
 				await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
+				await expect(
+					page.getByText('New access is created by an admin setup link.')
+				).toBeVisible();
+				await expect(page.getByRole('link', { name: /create account/i })).toHaveCount(0);
 				await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
+				await page.goto('/signup');
+				await expect(page).toHaveURL(/\/login$/);
 				// /setup must not be accessible when accounts exist
 				await page.goto('/setup');
 				await expect(page).toHaveURL(/\/(login)?$/);
@@ -270,7 +276,8 @@ test.describe.serial('NewsCraft app shell', () => {
 		// Wrong-password rejection
 		await page.getByLabel('Password', { exact: true }).fill('wrong password');
 		await page.getByRole('button', { name: 'Sign in' }).click();
-		await expect(page.getByText('invalid password')).toBeVisible();
+		await expect(page.getByRole('alert')).toHaveText('That password did not match an active account.');
+		await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute('aria-invalid', 'true');
 
 		// Open-redirect protection
 		await page.goto('/login?next=https://evil.test/phish');
@@ -289,7 +296,8 @@ test.describe.serial('NewsCraft app shell', () => {
 		await signIn(page);
 		await expectChatStartHome(page);
 
-		const message = 'Track latest Toronto housing stories and summarize the newest reliable coverage.';
+		const message =
+			'Toronto housing: find the newest reliable updates from the past 24 hours, cite source links, and flag anything unconfirmed.';
 		await page.getByRole('button', { name: message }).click();
 		await expect(page.getByLabel('Message NewsCraft')).toHaveValue(message);
 		await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled();

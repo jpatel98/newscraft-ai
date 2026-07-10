@@ -6,10 +6,10 @@
 	let composer: Composer | undefined = $state();
 
 	const starterPrompts = [
-		'What are the newest reliable updates on this story?',
-		'Compare how major outlets are covering this topic: ',
-		'Find recent Canadian politics stories with publication dates and source links.',
-		'Find the latest Toronto housing stories and summarize the newest reliable coverage.'
+		'Toronto housing: find the newest reliable updates from the past 24 hours, cite source links, and flag anything unconfirmed.',
+		'Toronto mayoral race: compare how CBC, CTV, and Global News are covering it today, including what each outlet emphasizes and leaves out.',
+		'Ontario health care: find recent official and reputable media sources with publication dates, then summarize the three most newsworthy developments.',
+		'Canadian immigration policy: build a producer brief with the latest official updates, major reactions, and unanswered questions.'
 	] as const;
 
 	const suggestionChips = [
