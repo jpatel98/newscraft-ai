@@ -1,70 +1,7 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
-	import { onMount } from 'svelte';
-	import Markdown from '$lib/components/Markdown.svelte';
-	import type { AgentSkillDetail, AgentSkillSummary } from '$lib/types';
 
 	let { data } = $props();
-
-	let skills = $state<AgentSkillSummary[]>([]);
-	let skillsQuery = $state('');
-	let skillsBusy = $state(false);
-	let skillsError = $state<string | null>(null);
-	let selectedSkill = $state<AgentSkillSummary | null>(null);
-	let skillDetail = $state<AgentSkillDetail | null>(null);
-	let skillDetailBusy = $state(false);
-
-	const filteredSkills = $derived.by(() => {
-		const q = skillsQuery.trim().toLowerCase();
-		if (!q) return skills;
-		return skills.filter((skill) =>
-			`${skill.name} ${skill.slash} ${skill.description} ${skill.category ?? ''}`
-				.toLowerCase()
-				.includes(q)
-		);
-	});
-
-	onMount(() => {
-		void loadSkills();
-	});
-
-	async function loadSkills() {
-		skillsBusy = true;
-		skillsError = null;
-		try {
-			const r = await fetch('/api/agent/skills');
-			if (!r.ok) throw new Error(`skills ${r.status}`);
-			const j = (await r.json()) as { skills?: AgentSkillSummary[] };
-			skills = j.skills ?? [];
-			selectedSkill = skills[0] ?? null;
-			if (selectedSkill) await selectSkill(selectedSkill);
-		} catch (err) {
-			skillsError = err instanceof Error ? err.message : String(err);
-		} finally {
-			skillsBusy = false;
-		}
-	}
-
-	async function selectSkill(skill: AgentSkillSummary) {
-		selectedSkill = skill;
-		skillDetail = null;
-		skillDetailBusy = true;
-		try {
-			const slug = skill.slash.replace(/^\//, '');
-			const r = await fetch(`/api/agent/skills/${encodeURIComponent(slug)}`);
-			if (!r.ok) throw new Error(`skill ${r.status}`);
-			const j = (await r.json()) as { skill?: AgentSkillDetail };
-			skillDetail = j.skill ?? null;
-		} catch {
-			skillDetail = null;
-		} finally {
-			skillDetailBusy = false;
-		}
-	}
-
-	function useSkill(skill: AgentSkillSummary) {
-		goto(`/?draft=${encodeURIComponent(skill.slash + ' ')}`);
-	}
 
 	// --- Accounts ---
 	let accountBusy = $state(false);
@@ -83,16 +20,15 @@
 				method: 'POST'
 			});
 			if (!r.ok) {
-				const t = await r.text();
-				accountMsg = { kind: 'err', text: t || `error ${r.status}` };
+				accountMsg = { kind: 'err', text: 'Could not create the setup link.' };
 				return;
 			}
 			const j = (await r.json()) as { setupUrl: string };
 			setupUrl = j.setupUrl;
-			accountMsg = { kind: 'ok', text: 'setup link created' };
+			accountMsg = { kind: 'ok', text: 'Setup link created.' };
 			await invalidateAll();
-		} catch (err) {
-			accountMsg = { kind: 'err', text: (err as Error).message };
+		} catch {
+			accountMsg = { kind: 'err', text: 'Could not create the setup link.' };
 		} finally {
 			accountBusy = false;
 		}
@@ -107,15 +43,14 @@
 				method: 'POST'
 			});
 			if (!r.ok) {
-				const t = await r.text();
-				accountMsg = { kind: 'err', text: t || `error ${r.status}` };
+				accountMsg = { kind: 'err', text: 'Could not create the setup link.' };
 				return;
 			}
 			const j = (await r.json()) as { setupUrl: string };
 			setupUrl = j.setupUrl;
-			accountMsg = { kind: 'ok', text: 'setup link created' };
-		} catch (err) {
-			accountMsg = { kind: 'err', text: (err as Error).message };
+			accountMsg = { kind: 'ok', text: 'Setup link created.' };
+		} catch {
+			accountMsg = { kind: 'err', text: 'Could not create the setup link.' };
 		} finally {
 			setupLinkBusyId = null;
 		}
@@ -125,9 +60,9 @@
 		if (!setupUrl) return;
 		try {
 			await navigator.clipboard.writeText(setupUrl);
-			accountMsg = { kind: 'ok', text: 'setup link copied' };
+			accountMsg = { kind: 'ok', text: 'Setup link copied.' };
 		} catch {
-			accountMsg = { kind: 'err', text: 'copy failed' };
+			accountMsg = { kind: 'err', text: 'Could not copy the setup link.' };
 		}
 	}
 
@@ -140,15 +75,14 @@
 				method: 'DELETE'
 			});
 			if (!r.ok) {
-				const t = await r.text();
-				accountMsg = { kind: 'err', text: t || `error ${r.status}` };
+				accountMsg = { kind: 'err', text: 'Could not remove the account.' };
 				return;
 			}
 			setupUrl = '';
-			accountMsg = { kind: 'ok', text: 'account removed' };
+			accountMsg = { kind: 'ok', text: 'Account removed.' };
 			await invalidateAll();
-		} catch (err) {
-			accountMsg = { kind: 'err', text: (err as Error).message };
+		} catch {
+			accountMsg = { kind: 'err', text: 'Could not remove the account.' };
 		} finally {
 			deleteBusyId = null;
 		}
@@ -162,8 +96,8 @@
 		}).format(new Date(ms));
 	}
 
-	function accountLabel(id: string) {
-		return `Account ${id.slice(-6).toUpperCase()}`;
+	function accountLabel(account: { isCurrent?: boolean }, index: number) {
+		return account.isCurrent ? 'Current account' : `Account ${index + 1}`;
 	}
 
 	// --- Change password ---
@@ -177,15 +111,15 @@
 		e.preventDefault();
 		pwMsg = null;
 		if (pwNew.length < 8) {
-			pwMsg = { kind: 'err', text: 'new password must be at least 8 characters' };
+			pwMsg = { kind: 'err', text: 'New password must be at least 8 characters.' };
 			return;
 		}
 		if (pwNew !== pwConfirm) {
-			pwMsg = { kind: 'err', text: 'new password and confirmation do not match' };
+			pwMsg = { kind: 'err', text: 'New password and confirmation do not match.' };
 			return;
 		}
 		if (pwNew === pwCurrent) {
-			pwMsg = { kind: 'err', text: 'new password must differ from current' };
+			pwMsg = { kind: 'err', text: 'New password must differ from current.' };
 			return;
 		}
 		pwBusy = true;
@@ -196,16 +130,15 @@
 				body: JSON.stringify({ current: pwCurrent, new: pwNew })
 			});
 			if (!r.ok) {
-				const t = await r.text();
-				pwMsg = { kind: 'err', text: t || `error ${r.status}` };
+				pwMsg = { kind: 'err', text: 'Could not update the password.' };
 				return;
 			}
-			pwMsg = { kind: 'ok', text: 'password updated' };
+			pwMsg = { kind: 'ok', text: 'Password updated.' };
 			pwCurrent = '';
 			pwNew = '';
 			pwConfirm = '';
-		} catch (err) {
-			pwMsg = { kind: 'err', text: (err as Error).message };
+		} catch {
+			pwMsg = { kind: 'err', text: 'Could not update the password.' };
 		} finally {
 			pwBusy = false;
 		}
@@ -237,15 +170,14 @@
 				body: JSON.stringify({ confirm: PHRASE })
 			});
 			if (!r.ok) {
-				const t = await r.text();
-				wipeMsg = { kind: 'err', text: t || `error ${r.status}` };
+				wipeMsg = { kind: 'err', text: 'Could not wipe conversations.' };
 				wipeShowConfirm = false;
 				return;
 			}
 			await invalidateAll();
 			goto('/');
-		} catch (err) {
-			wipeMsg = { kind: 'err', text: (err as Error).message };
+		} catch {
+			wipeMsg = { kind: 'err', text: 'Could not wipe conversations.' };
 			wipeShowConfirm = false;
 		} finally {
 			wipeBusy = false;
@@ -260,43 +192,33 @@
 <div class="page">
 	<div class="settings">
 		<header class="settings__masthead">
-			<div class="settings__eyebrow">Settings · v0.1</div>
+			<div class="settings__eyebrow">Settings</div>
 			<h1 class="settings__title">Account &amp; preferences</h1>
-			<p class="settings__intro">Manage your account, exports, and local conversation data.</p>
+			<p class="settings__intro">
+				Manage account access, conversation data, password, and signed-in sessions.
+			</p>
 		</header>
 
-		<section class="settings__group" aria-labelledby="settings-overview">
+		<section class="settings__group" aria-labelledby="settings-account">
 			<div class="settings__group__head">
-				<h2 id="settings-overview" class="settings__group__title">Overview</h2>
-				<p class="settings__group__copy">Current workspace state.</p>
-			</div>
-			<div class="settings__stats">
-				<div class="settings__stat">
-					<div class="settings__stat__label">Account</div>
-					<div class="settings__stat__value">{data.user ? 'Signed in' : 'Signed out'}</div>
-				</div>
-				<div class="settings__stat">
-					<div class="settings__stat__label">Threads</div>
-					<div class="settings__stat__value">{data.conversations.length}</div>
-				</div>
-				<div class="settings__stat">
-					<div class="settings__stat__label">Accounts</div>
-					<div class="settings__stat__value">{data.accounts.length}</div>
-				</div>
-			</div>
-			<div class="settings__meta-row">
-				<span>Agent</span>
-				<strong>NewsCraft</strong>
-				<code>newsroom-agent</code>
-			</div>
-		</section>
-
-		<section class="settings__group" aria-labelledby="settings-accounts">
-			<div class="settings__group__head">
-				<h2 id="settings-accounts" class="settings__group__title">Accounts</h2>
-				<p class="settings__group__copy">Create password setup links for new people.</p>
+				<h2 id="settings-account" class="settings__group__title">Account</h2>
+				<p class="settings__group__copy">Manage sign-in state and account access.</p>
 			</div>
 			<div class="settings__section-body">
+				<div class="settings__stats" aria-label="Account summary">
+					<div class="settings__stat">
+						<div class="settings__stat__label">Status</div>
+						<div class="settings__stat__value">{data.user ? 'Signed in' : 'Signed out'}</div>
+					</div>
+					<div class="settings__stat">
+						<div class="settings__stat__label">Conversations</div>
+						<div class="settings__stat__value">{data.conversations.length}</div>
+					</div>
+					<div class="settings__stat">
+						<div class="settings__stat__label">Accounts</div>
+						<div class="settings__stat__value">{data.accounts.length}</div>
+					</div>
+				</div>
 				<div class="accounts-panel">
 					<form class="settings__form accounts-create" onsubmit={submitAccount} autocomplete="off">
 						<div class="settings__section-title">New account link</div>
@@ -336,11 +258,11 @@
 					{/if}
 
 					<div class="accounts-list" aria-label="Accounts">
-						{#each data.accounts as account (account.id)}
+						{#each data.accounts as account, i (account.id)}
 							<div class="account-row">
 								<div class="account-row__main">
 									<div class="account-row__name">
-										{accountLabel(account.id)}
+										{accountLabel(account, i)}
 										{#if account.isCurrent}
 											<span>Current</span>
 										{/if}
@@ -369,7 +291,7 @@
 										type="button"
 										class="btn btn--ghost"
 										disabled={account.isCurrent || deleteBusyId === account.id}
-										onclick={() => removeAccount(account.id, accountLabel(account.id))}
+										onclick={() => removeAccount(account.id, accountLabel(account, i))}
 									>
 										{deleteBusyId === account.id ? 'Removing…' : 'Remove'}
 									</button>
@@ -381,91 +303,19 @@
 			</div>
 		</section>
 
-		<section class="settings__group" aria-labelledby="settings-skills">
+		<section class="settings__group" aria-labelledby="settings-data">
 			<div class="settings__group__head">
-				<h2 id="settings-skills" class="settings__group__title">Skills</h2>
-				<p class="settings__group__copy">Browse installed Agent skills and start with a slash command.</p>
+				<h2 id="settings-data" class="settings__group__title">Data</h2>
+				<p class="settings__group__copy">Download or remove conversation records.</p>
 			</div>
 			<div class="settings__section-body">
-				<div class="skills-panel">
-					<div class="skills-panel__list">
-						<div class="field">
-							<label class="field__label" for="skills-search">Installed skills</label>
-							<input
-								id="skills-search"
-								class="field__input"
-								type="search"
-								placeholder="Search skills"
-								bind:value={skillsQuery}
-							/>
-						</div>
-						<div class="skills-panel__count">
-							{#if skillsBusy}
-								Loading skills…
-							{:else}
-								{filteredSkills.length} of {skills.length} shown
-							{/if}
-						</div>
-						{#if skillsError}
-							<div class="field__error">{skillsError}</div>
-						{/if}
-						<div class="skills-list" role="listbox" aria-label="Installed Agent skills">
-							{#each filteredSkills as skill (skill.slash)}
-								<button
-									type="button"
-									class="skills-list__row"
-									class:skills-list__row--active={selectedSkill?.slash === skill.slash}
-									onclick={() => selectSkill(skill)}
-								>
-									<span class="skills-list__slash">{skill.slash}</span>
-									<span class="skills-list__name">{skill.name}</span>
-									<span class="skills-list__desc">{skill.description}</span>
-								</button>
-							{:else}
-								<div class="skills-list__empty">No skills found.</div>
-							{/each}
-						</div>
-					</div>
-					<div class="skills-panel__detail">
-						{#if selectedSkill}
-							<div class="skill-detail__head">
-								<div>
-									<div class="skill-detail__slash">{selectedSkill.slash}</div>
-									<div class="skill-detail__title">{selectedSkill.name}</div>
-								</div>
-								<button type="button" class="btn btn--primary" onclick={() => useSkill(selectedSkill!)}>
-									Use in chat
-								</button>
-							</div>
-							<p class="settings__section-copy">{selectedSkill.description}</p>
-							<div class="skill-detail__meta">
-								<span>{selectedSkill.category || 'Skill'}</span>
-								<code>{selectedSkill.path}</code>
-							</div>
-							{#if skillDetailBusy}
-								<div class="skills-list__empty">Loading detail…</div>
-							{:else if skillDetail}
-								{#if skillDetail.supportingFiles.length > 0}
-									<div class="skill-detail__files">
-										<div class="settings__section-title">Supporting files</div>
-										<div class="skill-detail__file-list">
-											{#each skillDetail.supportingFiles.slice(0, 24) as file}
-												<code>{file}</code>
-											{/each}
-										</div>
-									</div>
-								{/if}
-								<div class="skill-detail__content">
-									<Markdown content={skillDetail.content || '_No preview content._'} />
-								</div>
-							{:else}
-								<div class="skills-list__empty">Skill detail is unavailable.</div>
-							{/if}
-						{:else}
-							<div class="skills-list__empty">Select a skill to preview it.</div>
-						{/if}
-					</div>
-				</div>
+				<div class="settings__section-title">Export conversations</div>
+				<p class="settings__section-copy">
+					Download a copy of every conversation, newest conversations first.
+				</p>
+				<a class="btn btn--ghost" href="/api/settings/export" download>
+					Download conversations
+				</a>
 			</div>
 		</section>
 
@@ -525,22 +375,19 @@
 			</div>
 		</section>
 
-		<section class="settings__group" aria-labelledby="settings-data">
+		<section class="settings__group" aria-labelledby="settings-session">
 			<div class="settings__group__head">
-				<h2 id="settings-data" class="settings__group__title">Data</h2>
-				<p class="settings__group__copy">Download or remove conversation records.</p>
+				<h2 id="settings-session" class="settings__group__title">Sessions</h2>
+				<p class="settings__group__copy">End the current browser session.</p>
 			</div>
-			<div class="settings__section-body">
-				<div class="settings__section-title">Export conversations</div>
-				<p class="settings__section-copy">
-					Download every conversation as JSONL, newest conversations first.
-				</p>
-				<a class="btn btn--ghost" href="/api/settings/export" download>
-					Download all conversations (JSONL)
-				</a>
-				<div class="settings__hint">
-					One record per line. Messages remain chronological inside each conversation.
+			<div class="settings__section-body settings__session">
+				<div>
+					<div class="settings__section-title">Signed in session</div>
+					<p class="settings__section-copy">Sign out of this device.</p>
 				</div>
+				<form method="post" action="/logout">
+					<button type="submit" class="btn btn--ghost">Sign out</button>
+				</form>
 			</div>
 		</section>
 
@@ -584,22 +431,6 @@
 						</div>
 					{/if}
 				</div>
-			</div>
-		</section>
-
-		<section class="settings__group" aria-labelledby="settings-session">
-			<div class="settings__group__head">
-				<h2 id="settings-session" class="settings__group__title">Session</h2>
-				<p class="settings__group__copy">End the current browser session.</p>
-			</div>
-			<div class="settings__section-body settings__session">
-				<div>
-					<div class="settings__section-title">Signed in session</div>
-					<p class="settings__section-copy">Sign out of this device.</p>
-				</div>
-				<form method="post" action="/logout">
-					<button type="submit" class="btn btn--ghost">Sign out</button>
-				</form>
 			</div>
 		</section>
 	</div>
@@ -735,133 +566,6 @@
 		justify-content: flex-end;
 		gap: 8px;
 	}
-	.skills-panel {
-		display: grid;
-		grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
-		gap: 16px;
-		align-items: start;
-	}
-	.skills-panel__list,
-	.skills-panel__detail {
-		min-width: 0;
-	}
-	.skills-panel__count {
-		margin: 7px 0;
-		font-family: var(--font-mono);
-		font-size: 10.5px;
-		color: var(--fg-3);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
-	.skills-list {
-		border: 1px solid var(--border-soft);
-		border-radius: var(--radius-2);
-		background: var(--bg-surface);
-		max-height: 430px;
-		overflow-y: auto;
-		padding: 4px;
-	}
-	.skills-list__row {
-		width: 100%;
-		border: 0;
-		border-radius: var(--radius-1);
-		background: transparent;
-		color: var(--fg-1);
-		text-align: left;
-		padding: 9px;
-		cursor: pointer;
-		display: grid;
-		gap: 2px;
-	}
-	.skills-list__row:hover,
-	.skills-list__row--active {
-		background: var(--bg-raised);
-	}
-	.skills-list__slash {
-		font-family: var(--font-mono);
-		font-size: 11px;
-		color: var(--accent-fg);
-	}
-	.skills-list__name {
-		font-family: var(--font-display);
-		font-size: 13.5px;
-		font-weight: 700;
-		color: var(--fg-1);
-		letter-spacing: 0;
-	}
-	.skills-list__desc {
-		font-size: 12px;
-		line-height: 1.35;
-		color: var(--fg-3);
-		overflow: hidden;
-		display: -webkit-box;
-		line-clamp: 2;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-	}
-	.skills-list__empty {
-		padding: 14px;
-		color: var(--fg-3);
-		font-size: 13px;
-	}
-	.skill-detail__head {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 12px;
-		margin-bottom: 8px;
-	}
-	.skill-detail__slash {
-		font-family: var(--font-mono);
-		font-size: 12px;
-		color: var(--accent-fg);
-	}
-	.skill-detail__title {
-		font-family: var(--font-display);
-		font-size: 20px;
-		font-weight: 700;
-		letter-spacing: 0;
-		color: var(--fg-1);
-	}
-	.skill-detail__meta {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 8px;
-		margin-bottom: 14px;
-		font-size: 12px;
-		color: var(--fg-3);
-	}
-	.skill-detail__meta span {
-		font-family: var(--font-mono);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
-	.skill-detail__meta code,
-	.skill-detail__file-list code {
-		font-family: var(--font-mono);
-		font-size: 11px;
-		color: var(--fg-2);
-		background: var(--bg-raised);
-		border: 1px solid var(--border-soft);
-		border-radius: var(--radius-1);
-		padding: 2px 5px;
-	}
-	.skill-detail__files {
-		margin: 14px 0;
-	}
-	.skill-detail__file-list {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 5px;
-	}
-	.skill-detail__content {
-		border-top: 1px solid var(--border-soft);
-		margin-top: 14px;
-		padding-top: 14px;
-		max-height: 620px;
-		overflow-y: auto;
-	}
 	.settings__danger {
 		border: 1px solid var(--flag-700);
 		border-radius: var(--radius-2);
@@ -930,18 +634,12 @@
 		outline: none;
 	}
 	@media (max-width: 520px) {
-		.skills-panel {
-			grid-template-columns: 1fr;
-		}
 		.account-row,
 		.setup-link__row {
 			grid-template-columns: 1fr;
 		}
 		.account-row__actions {
 			justify-content: flex-start;
-		}
-		.skill-detail__head {
-			flex-direction: column;
 		}
 		.settings__confirm-actions {
 			flex-direction: column-reverse;
