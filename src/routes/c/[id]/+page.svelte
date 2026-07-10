@@ -9,10 +9,12 @@
 	import { formatThreadUpdated } from '$lib/utils/time';
 	import { persistedThreadMessages, type PersistedThreadMessage } from '$lib/utils/thread-messages';
 	import { parseSlashCommand } from '$lib/utils/slash';
+	import { streamFailureMessage } from '$lib/client/stream';
 	import X from 'lucide-svelte/icons/x';
 	import Send from 'lucide-svelte/icons/send-horizontal';
 
 	type ThreadMessage = PersistedThreadMessage;
+	type FailedSend = { content: MessageContent; command?: ChatCommand };
 
 	let { data } = $props();
 
@@ -26,6 +28,7 @@
 	let feedbackSaving = $state(false);
 	let feedbackStatus = $state<string | null>(null);
 	let feedbackError = $state<string | null>(null);
+	let failedRetry = $state<FailedSend | null>(null);
 	// Persisted message ids that are currently being shadowed by an overlay
 	// stream (resume). Hides the partial row while we re-stream into it; on
 	// invalidateAll the partial flag flips and the row reappears finalized.
@@ -56,6 +59,10 @@
 	// race the previous run's finally block.
 	let activeStream: Promise<void> = Promise.resolve();
 
+	function clearFailureOverlays() {
+		overlay = overlay.filter((m) => !m.failure);
+	}
+
 	async function runStream(args: {
 		conversation_id: string;
 		content?: MessageContent;
@@ -71,17 +78,20 @@
 		await prior.catch(() => {});
 
 		const isResume = args.resume === true && !!args.message_id;
+		const isRetryableSend = Boolean(args.content && !args.regenerate && !isResume);
+		if (isRetryableSend) clearFailureOverlays();
 		const resumingId = isResume ? (args.message_id as string) : null;
 
-		const userMsg: ThreadMessage | null = args.regenerate || isResume
-			? null
-			: {
-					id: 'tmp-u-' + Math.random().toString(36).slice(2),
-					role: 'user',
-					content: args.content ?? '',
-					partial: false,
-					createdAt: Date.now()
-				};
+		const userMsg: ThreadMessage | null =
+			args.regenerate || isResume
+				? null
+				: {
+						id: 'tmp-u-' + Math.random().toString(36).slice(2),
+						role: 'user',
+						content: args.content ?? '',
+						partial: false,
+						createdAt: Date.now()
+					};
 
 		// Resume: seed the overlay with the partial's existing content so
 		// streaming visually continues from where it left off, and hide the
@@ -102,6 +112,13 @@
 			createdAt: Date.now()
 		};
 		let asstText = seedContent;
+		let streamEstablished = false;
+		let keepFailureAssistant = false;
+		let failureToRethrow: unknown = null;
+		const noteStreamEstablished = () => {
+			streamEstablished = true;
+		};
+
 		overlay = [...overlay, ...(userMsg ? [userMsg] : []), asstMsg];
 		if (resumingId) {
 			hiddenIds = new Set([...hiddenIds, resumingId]);
@@ -112,22 +129,36 @@
 				const { streamChat } = await import('$lib/client/stream');
 				await streamChat(args, {
 					signal: controller.signal,
+					onMeta: noteStreamEstablished,
 					onDelta: (s) => {
+						noteStreamEstablished();
 						chat.noteAssistantOutput(s);
 						asstText += s;
 						asstMsg.content = asstText;
 						overlay = [...overlay];
 					},
-					onToolProgress: (t) => chat.pushTool(t),
-					onToolDone: (id, tool) => chat.clearTool(id, tool),
-					onSource: (source) =>
+					onToolProgress: (t) => {
+						noteStreamEstablished();
+						chat.pushTool(t);
+					},
+					onToolDone: (id, tool) => {
+						noteStreamEstablished();
+						chat.clearTool(id, tool);
+					},
+					onSource: (source) => {
+						noteStreamEstablished();
 						chat.pushSource({
 							...source,
 							domain: source.domain || source.url,
 							updatedAt: Date.now()
-						}),
-					onPlan: (plan) => chat.setPlan(plan)
+						});
+					},
+					onPlan: (plan) => {
+						noteStreamEstablished();
+						chat.setPlan(plan);
+					}
 				});
+				if (isRetryableSend) failedRetry = null;
 				asstMsg.partial = false;
 				asstMsg.streaming = false;
 				overlay = [...overlay];
@@ -151,8 +182,15 @@
 						/* the local overlay still tells the user what happened */
 					}
 				} else if (!aborted) {
-					asstText += `\n\nCouldn't reach the agent. ${String(e)}`;
+					const message = streamFailureMessage(e);
+					asstText = asstText.trim() ? `${asstText}\n\n${message}` : message;
 					asstMsg.content = asstText;
+					if (isRetryableSend && args.content) {
+						asstMsg.failure = { retryable: true };
+						failedRetry = { content: args.content, command: args.command };
+					}
+					keepFailureAssistant = true;
+					if (isRetryableSend && !streamEstablished) failureToRethrow = e;
 				}
 				overlay = [...overlay];
 			} finally {
@@ -163,7 +201,8 @@
 				}
 				// Drop only this run's items from the overlay (other runs may have
 				// added their own).
-				const ids = new Set([asstMsg.id, ...(userMsg ? [userMsg.id] : [])]);
+				const ids = new Set([...(userMsg ? [userMsg.id] : [])]);
+				if (!keepFailureAssistant) ids.add(asstMsg.id);
 				overlay = overlay.filter((m) => !ids.has(m.id));
 				if (resumingId) {
 					const next = new Set(hiddenIds);
@@ -171,6 +210,7 @@
 					hiddenIds = next;
 				}
 				if (chat.abort === controller) chat.endStream();
+				if (failureToRethrow) throw failureToRethrow;
 			}
 		})();
 		activeStream = run;
@@ -210,8 +250,8 @@
 			setTimeout(() => {
 				if (feedbackStatus) feedbackOpen = false;
 			}, 900);
-		} catch (e) {
-			feedbackError = `Couldn't save feedback. ${String(e)}`;
+		} catch {
+			feedbackError = "Couldn't save feedback. Try again.";
 		} finally {
 			feedbackSaving = false;
 		}
@@ -234,6 +274,22 @@
 			resume: true,
 			message_id: messageId
 		});
+	}
+
+	async function handleRetryFailure() {
+		const retry = failedRetry;
+		if (!retry) return;
+		clearFailureOverlays();
+		failedRetry = null;
+		try {
+			await runStream({
+				conversation_id: data.conversation.id,
+				content: retry.content,
+				command: retry.command
+			});
+		} catch {
+			/* runStream already leaves the safe retry state visible */
+		}
 	}
 
 	async function handleDiscard(messageId: string) {
@@ -290,13 +346,14 @@
 </header>
 
 {#key data.conversation.id}
-	<Thread
-		{messages}
-		conversationId={data.conversation.id}
-		onRegenerate={handleRegenerate}
-		onResume={handleResume}
-		onDiscard={handleDiscard}
-	/>
+		<Thread
+			{messages}
+			conversationId={data.conversation.id}
+			onRegenerate={handleRegenerate}
+			onResume={handleResume}
+			onDiscard={handleDiscard}
+			onRetryFailure={handleRetryFailure}
+		/>
 {/key}
 
 {#if feedbackOpen}

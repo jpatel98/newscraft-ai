@@ -19,6 +19,7 @@
 		onRegenerate?: () => void;
 		onResume?: (messageId: string) => void;
 		onDiscard?: (messageId: string) => void;
+		onRetryFailure?: () => void;
 	}
 	let {
 		messages,
@@ -26,7 +27,8 @@
 		userInitials = 'YOU',
 		onRegenerate,
 		onResume,
-		onDiscard
+		onDiscard,
+		onRetryFailure
 	}: Props = $props();
 
 	let scroller: HTMLDivElement | undefined = $state();
@@ -211,6 +213,7 @@
 								activeAssistant ? chat.sources : []
 							)
 						: []}
+				{@const failure = m.failure}
 				<article
 					id={`m-${m.id}`}
 					class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange
@@ -305,7 +308,22 @@
 							</div>
 						{/if}
 
-						{#if !m.partial && (m.role === 'assistant' || m.role === 'user')}
+						{#if m.role === 'assistant' && failure?.retryable}
+							<div class="msg__resume" role="status">
+								<span class="msg__resume__label">Send failed</span>
+								{#if onRetryFailure}
+									<button
+										type="button"
+										class="msg__resume__btn msg__resume__btn--primary"
+										onclick={() => onRetryFailure?.()}
+									>
+										Retry
+									</button>
+								{/if}
+							</div>
+						{/if}
+
+						{#if !m.partial && !failure && (m.role === 'assistant' || m.role === 'user')}
 							<div class="msg__actions">
 								<button
 									type="button"
