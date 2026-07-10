@@ -1343,6 +1343,12 @@ body,
 	color: var(--fg-1);
 	margin: 0 0 18px;
 }
+.card__copy {
+	margin: -8px 0 18px;
+	color: var(--fg-3);
+	font-size: var(--fs-body-sm);
+	line-height: var(--lh-body-sm);
+}
 .auth-link {
 	display: block;
 	margin-top: 12px;
