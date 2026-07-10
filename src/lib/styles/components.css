@@ -627,9 +627,14 @@ body,
 	transition: background var(--dur-fast) var(--ease-std);
 }
 .sidebar__hit:hover,
-.sidebar__hit:focus-visible {
+.sidebar__hit:focus-visible,
+.sidebar__hit--active {
 	background: var(--bg-raised);
 	outline: none;
+}
+.sidebar__hit--active .sidebar__hit__title,
+.sidebar__hit--active .sidebar__hit__snippet {
+	color: var(--fg-1);
 }
 .sidebar__hit__head {
 	display: flex;

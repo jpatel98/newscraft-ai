@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { chat } from '$lib/stores/chat.svelte';
+	import { activeHTMLElement, focusDialog, restoreFocus, trapTabKey } from '$lib/utils/focus';
 
 	interface Props {
 		conversations: Array<{ id: string }>;
@@ -10,6 +11,9 @@
 	let { conversations }: Props = $props();
 
 	let helpOpen = $state(false);
+	let helpDialog = $state<HTMLDivElement | null>(null);
+	let helpOpener = $state<HTMLElement | null>(null);
+	let wasHelpOpen = false;
 
 	function isMod(e: KeyboardEvent): boolean {
 		return e.metaKey || e.ctrlKey;
@@ -88,24 +92,45 @@
 		window.addEventListener('keydown', handle);
 		return () => window.removeEventListener('keydown', handle);
 	});
+
+	$effect(() => {
+		if (helpOpen && !wasHelpOpen) {
+			helpOpener = activeHTMLElement();
+			void tick().then(() => {
+				if (helpOpen) focusDialog(helpDialog);
+			});
+		} else if (!helpOpen && wasHelpOpen) {
+			const restoreTarget = helpOpener;
+			helpOpener = null;
+			void tick().then(() => restoreFocus(restoreTarget));
+		}
+		wasHelpOpen = helpOpen;
+	});
 </script>
 
 {#if helpOpen}
 	<div
+		bind:this={helpDialog}
 		class="kbd-help"
 		role="dialog"
-		aria-label="Keyboard shortcuts"
+		aria-modal="true"
+		aria-labelledby="kbd-help-title"
 		tabindex="-1"
 		onclick={(e) => {
 			if (e.target === e.currentTarget) helpOpen = false;
 		}}
 		onkeydown={(e) => {
-			if (e.key === 'Escape') helpOpen = false;
+			if (trapTabKey(e, helpDialog)) return;
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				e.stopPropagation();
+				helpOpen = false;
+			}
 		}}
 	>
-		<div class="kbd-help__panel">
+		<div class="kbd-help__panel" role="document">
 			<div class="kbd-help__sub">Keyboard · NewsCraft</div>
-			<div class="kbd-help__title">Shortcuts</div>
+			<div id="kbd-help-title" class="kbd-help__title">Shortcuts</div>
 			<dl>
 				<dt>Send message</dt>
 				<dd><kbd>Enter</kbd></dd>

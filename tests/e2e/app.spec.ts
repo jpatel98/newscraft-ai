@@ -62,6 +62,31 @@ async function ensureTestAccount(request: import('@playwright/test').APIRequestC
 	}
 }
 
+async function seedConversation(
+	page: Page,
+	input: { userMessage: string; assistantMessage: string; title?: string }
+): Promise<string> {
+	const res = await page.request.post('/api/e2e/seed-conversation', {
+		data: {
+			secret: e2eSecret,
+			password,
+			userMessage: input.userMessage,
+			assistantMessage: input.assistantMessage
+		},
+		headers: { 'content-type': 'application/json' }
+	});
+	if (!res.ok()) throw new Error(`seed-conversation: ${res.status()} ${await res.text()}`);
+	const { id } = (await res.json()) as { id: string };
+	if (input.title) {
+		const patch = await page.request.patch(`/api/conversations/${id}`, {
+			data: { title: input.title },
+			headers: { 'content-type': 'application/json' }
+		});
+		if (!patch.ok()) throw new Error(`rename conversation: ${patch.status()} ${await patch.text()}`);
+	}
+	return id;
+}
+
 // ── SSE fixture content ──────────────────────────────────────────────────────
 
 function sseFrame(event: string, data: unknown): string {
@@ -332,6 +357,130 @@ test.describe.serial('NewsCraft app shell', () => {
 
 		await sidebar.getByRole('button', { name: 'Close sidebar' }).click();
 		await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
+		expect(problems).toEqual([]);
+	});
+});
+
+test.describe('keyboard navigation and dialog focus', () => {
+	test.beforeAll(async ({ request }) => {
+		await ensureTestAccount(request);
+	});
+
+	test('traps focus and restores the opener for command dialogs', async ({ page }) => {
+		const problems = await collectPageProblems(page);
+
+		await signIn(page);
+		const composer = page.getByLabel('Message NewsCraft');
+		await composer.focus();
+
+		await page.keyboard.press('Control+K');
+		const palette = page.getByRole('dialog', { name: 'Command palette' });
+		await expect(palette).toBeVisible();
+		const paletteInput = page.getByLabel('Command palette search');
+		await expect(paletteInput).toBeFocused();
+		await expect(paletteInput).toHaveAttribute('aria-activedescendant', /command-palette-option-0/);
+
+		await page.keyboard.press('Tab');
+		await expect(paletteInput).toBeFocused();
+		await page.keyboard.press('Escape');
+		await expect(palette).toBeHidden();
+		await expect(composer).toBeFocused();
+
+		await page.keyboard.down('Control');
+		await page.keyboard.press('/');
+		await page.keyboard.up('Control');
+		const help = page.getByRole('dialog', { name: 'Shortcuts' });
+		await expect(help).toBeVisible();
+		await expect(help).toBeFocused();
+
+		await page.keyboard.press('Tab');
+		await expect(help).toBeFocused();
+		await page.keyboard.press('Escape');
+		await expect(help).toBeHidden();
+		await expect(composer).toBeFocused();
+
+		expect(problems).toEqual([]);
+	});
+
+	test('keeps feedback dialog focus contained and closes with Escape', async ({ page }) => {
+		const problems = await collectPageProblems(page);
+
+		await signIn(page);
+		const convId = await seedConversation(page, {
+			userMessage: 'Seed feedback thread',
+			assistantMessage: 'Ready for feedback.',
+			title: `Feedback a11y ${Date.now().toString(36)}`
+		});
+		await page.goto(`/c/${convId}`);
+
+		const composer = page.getByLabel('Message NewsCraft');
+		await composer.fill('/feedback initial note');
+		await page.keyboard.press('Enter');
+
+		const dialog = page.getByRole('dialog', { name: 'Capture feedback' });
+		await expect(dialog).toBeVisible();
+		const textarea = page.getByLabel('Feedback comment');
+		await expect(textarea).toBeFocused();
+		await expect(textarea).toHaveValue('initial note');
+
+		await page.keyboard.press('Shift+Tab');
+		await expect(dialog.getByRole('button', { name: 'Close feedback' })).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(textarea).toBeFocused();
+
+		await page.keyboard.press('Escape');
+		await expect(dialog).toBeHidden();
+		await expect(composer).toBeFocused();
+		expect(problems).toEqual([]);
+	});
+
+	test('supports Arrow, Enter, and Escape in sidebar search results', async ({ page }) => {
+		const problems = await collectPageProblems(page);
+
+		await signIn(page);
+		const suffix = Date.now().toString(36);
+		const titleA = `A11y ${suffix} alpha thread`;
+		const titleB = `A11y ${suffix} beta thread`;
+		const alphaId = await seedConversation(page, {
+			userMessage: 'Alpha search seed',
+			assistantMessage: 'Alpha search result.',
+			title: titleA
+		});
+		const betaId = await seedConversation(page, {
+			userMessage: 'Beta search seed',
+			assistantMessage: 'Beta search result.',
+			title: titleB
+		});
+
+		await page.goto('/');
+		await page.getByRole('button', { name: 'Search threads' }).click();
+		const sidebar = page.getByRole('complementary', { name: 'Sidebar' });
+		const search = sidebar.getByRole('combobox', { name: 'Search your threads' });
+		await expect(search).toBeFocused();
+
+		const query = `A11y ${suffix}`;
+		await search.fill(query);
+		const options = sidebar.locator('[role="option"]');
+		await expect(options).toHaveCount(2);
+		await expect(search).toHaveAttribute('aria-activedescendant', /sidebar-search-result-0/);
+		await expect(options.first()).toHaveAttribute('aria-selected', 'true');
+
+		await search.press('Escape');
+		await expect(search).toHaveValue('');
+		await expect(sidebar.getByRole('listbox', { name: 'Search results' })).toHaveCount(0);
+		await expect(search).toBeFocused();
+
+		await search.fill(query);
+		await expect(options).toHaveCount(2);
+		await search.press('ArrowDown');
+		await expect(search).toHaveAttribute('aria-activedescendant', /sidebar-search-result-1/);
+		const selected = sidebar.locator('[role="option"][aria-selected="true"]');
+		await expect(selected).toHaveCount(1);
+		const selectedText = await selected.innerText();
+		const expectedId = selectedText.includes(titleA) ? alphaId : betaId;
+
+		await search.press('Enter');
+		await expect(page).toHaveURL(new RegExp(`/c/${expectedId}$`));
 		expect(problems).toEqual([]);
 	});
 });
