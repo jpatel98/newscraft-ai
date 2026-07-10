@@ -19,13 +19,20 @@ export const POST: RequestHandler = async ({ request }) => {
 	const secret = env.E2E_SECRET ?? '';
 	if (!secret) throw error(404, 'not found');
 
-	let body: { secret?: string; password?: string; userMessage?: string; assistantMessage?: string };
+	let body: {
+		secret?: string;
+		password?: string;
+		userMessage?: string;
+		assistantMessage?: string;
+		assistantToolCalls?: unknown;
+	};
 	try {
 		body = (await request.json()) as {
 			secret?: string;
 			password?: string;
 			userMessage?: string;
 			assistantMessage?: string;
+			assistantToolCalls?: unknown;
 		};
 	} catch {
 		throw error(400, 'invalid json');
@@ -47,6 +54,15 @@ export const POST: RequestHandler = async ({ request }) => {
 	// persisted messages ensure lastAssistantId stays non-null.
 	const userMessage = body.userMessage ?? 'seed user message';
 	const assistantMessage = body.assistantMessage ?? 'seed assistant message';
+	const assistantToolCalls =
+		typeof body.assistantToolCalls === 'string'
+			? body.assistantToolCalls
+			: body.assistantToolCalls
+				? JSON.stringify(body.assistantToolCalls)
+				: null;
+	if (assistantToolCalls && assistantToolCalls.length > 20_000) {
+		throw error(400, 'tool metadata too large');
+	}
 
 	await addMessage({
 		conversationId: conversation.id,
@@ -56,7 +72,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	await addMessage({
 		conversationId: conversation.id,
 		role: 'assistant',
-		content: assistantMessage
+		content: assistantMessage,
+		toolCalls: assistantToolCalls
 	});
 
 	return json({ ok: true, id: conversation.id });

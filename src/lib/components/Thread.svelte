@@ -6,8 +6,10 @@
 		import Markdown from './Markdown.svelte';
 		import ToolActivity from './ToolActivity.svelte';
 		import PlanTimeline from './PlanTimeline.svelte';
+		import SourceDisclosure from './SourceDisclosure.svelte';
 		import { chat } from '$lib/stores/chat.svelte';
 		import { formatShortTime } from '$lib/utils/time';
+		import { sourceReceiptsForAnswer } from '$lib/utils/tool-metadata';
 
 	interface Props {
 		messages: ChatMessage[];
@@ -174,6 +176,13 @@
 			{@const stacked = prev && prev.role === m.role}
 			{@const roleChange = prev && prev.role !== m.role}
 			{@const deferred = shouldDeferMessage(m, i)}
+			{@const messageText = textOf(m.content)}
+			{@const activeAssistant =
+				m.role === 'assistant' && m.id === lastAssistantId && chat.activityConversationId === conversationId}
+			{@const sourceReceipts =
+				m.role === 'assistant'
+					? sourceReceiptsForAnswer(m.toolCalls, messageText, activeAssistant ? chat.sources : [])
+					: []}
 			<article
 				id={`m-${m.id}`}
 				class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange
@@ -205,7 +214,7 @@
 							   ToolActivity card below shows the live "Drafting answer" pulse.
 							   That avoids two pulses competing for the same moment. -->
 						{:else if m.role === 'assistant'}
-							<Markdown content={textOf(m.content)} partial={m.streaming} assistant />
+							<Markdown content={messageText} partial={m.streaming} assistant />
 							{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 							{#if m.partial && !m.streaming}
 								<span
@@ -235,7 +244,11 @@
 						{/if}
 					</div>
 
-					{#if m.role === 'assistant' && m.id === lastAssistantId && chat.activityConversationId === conversationId}
+					{#if sourceReceipts.length > 0}
+						<SourceDisclosure sources={sourceReceipts} />
+					{/if}
+
+					{#if activeAssistant}
 						<PlanTimeline activeTurn={true} />
 						<ToolActivity activeTurn={true} />
 					{/if}

@@ -4,6 +4,7 @@ import {
 	parseToolMetadata,
 	serializeAnswerProvenance,
 	serializeToolMetadata,
+	sourceReceiptsForAnswer,
 	sourceContextForFollowup,
 	usedSources
 } from './tool-metadata';
@@ -38,6 +39,30 @@ describe('tool metadata', () => {
 		});
 	});
 
+	it('sanitizes persisted source urls and infers used receipts from source status', () => {
+		const raw = JSON.stringify({
+			version: 1,
+			tools: [],
+			sources: [
+				{
+					id: 'source_123456',
+					url: 'https://user:pass@example.com/story?token=secret&utm_source=test#section',
+					title: 'Story',
+					status: 'read',
+					firstSeenAt: 1000,
+					lastSeenAt: 1200
+				}
+			]
+		});
+
+		expect(parseToolMetadata(raw).sources).toMatchObject([
+			{
+				url: 'https://example.com/story',
+				used: true
+			}
+		]);
+	});
+
 	it('returns empty metadata for malformed json', () => {
 		expect(parseToolMetadata('{nope')).toEqual({ tools: [], sources: [] });
 	});
@@ -67,6 +92,80 @@ describe('tool metadata', () => {
 				}
 			])
 			).toMatchObject([{ url: 'https://example.com/b' }]);
+	});
+
+	it('builds display source receipts without duplicating inline links', () => {
+		const raw = serializeToolMetadata(
+			[{ id: 'call_internal_123', name: 'openai_web_search', status: 'ok' }],
+			[
+				{
+					id: 'already-linked',
+					url: 'https://example.com/already-linked',
+					title: 'Already linked',
+					domain: 'example.com',
+					status: 'used',
+					firstSeenAt: 1000,
+					lastSeenAt: 1100,
+					used: true
+				},
+				{
+					id: 'visible-source',
+					url: 'https://news.example.com/story?token=secret&utm_source=test#fragment',
+					title: 'Reuters Canada update',
+					domain: 'news.example.com',
+					status: 'used',
+					firstSeenAt: 1200,
+					lastSeenAt: 1300,
+					used: true
+				},
+				{
+					id: 'search-result',
+					url: 'https://search.example.com/result',
+					title: 'Search result only',
+					domain: 'search.example.com',
+					status: 'search_result',
+					firstSeenAt: 900,
+					lastSeenAt: 900,
+					used: false
+				}
+			]
+		);
+
+		const receipts = sourceReceiptsForAnswer(
+			raw,
+			'The main citation is already inline [Already linked](https://example.com/already-linked).'
+		);
+
+		expect(receipts).toEqual([
+			{
+				url: 'https://news.example.com/story',
+				label: 'Reuters Canada update',
+				domain: 'news.example.com'
+			}
+		]);
+	});
+
+	it('falls back to domains for technical source labels and includes live sources', () => {
+		const receipts = sourceReceiptsForAnswer(null, 'Live answer without inline source links.', [
+			{
+				id: 'src_internal_123456',
+				url: 'https://example.com/live',
+				title: 'openai_web_search',
+				domain: 'example.com',
+				status: 'used',
+				firstSeenAt: 1000,
+				lastSeenAt: 1100,
+				used: true
+			}
+		]);
+
+		expect(receipts).toEqual([
+			{
+				url: 'https://example.com/live',
+				label: 'example.com',
+				domain: 'example.com'
+			}
+		]);
 	});
 
 	it('builds compact source context for follow-up questions', () => {
