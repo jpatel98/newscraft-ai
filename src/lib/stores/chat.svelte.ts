@@ -1,7 +1,7 @@
 // Cross-component chat session state. Holds the in-flight AbortController so
 // keyboard shortcuts (Esc) can cancel a stream the composer started.
 //
-// Also holds the ephemeral tool-progress strip + the "edit-last" handoff used
+// Also holds the ephemeral tool-progress strip + the prompt-reuse handoff used
 // by the ↑ keyboard shortcut to recall the previous user message.
 
 export type PlanStepStatus = 'pending' | 'running' | 'ok' | 'failed' | 'skipped';
@@ -87,7 +87,7 @@ class ChatSession {
 	hasAssistantOutput = $state(false);
 	activityConversationId = $state<string | null>(null);
 	streaming = $state(false);
-	editRequest = $state<string | null>(null); // populated by ↑; consumed by Composer
+	editRequest = $state<string | null>(null); // populated by ↑; consumed by Composer as prompt reuse
 	lastUserContent = $state<string | null>(null); // set by the active conversation page; read by ↑ handler
 	/** Current agent plan. Set when the first agent.plan frame arrives; updated on each step-status change. */
 	plan = $state<ActivePlan | null>(null);

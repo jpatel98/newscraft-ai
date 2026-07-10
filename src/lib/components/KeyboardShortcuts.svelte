@@ -56,7 +56,7 @@
 			return;
 		}
 
-		// ↑ on empty composer-textfield — edit-last
+		// ↑ on empty composer-textfield — reuse the last prompt
 		if (e.key === 'ArrowUp' && !e.shiftKey && !e.altKey && !isMod(e)) {
 			const el = document.activeElement as HTMLTextAreaElement | null;
 			if (el && el.tagName === 'TEXTAREA' && (el.value ?? '').length === 0) {
@@ -116,7 +116,7 @@
 				<dt>New thread</dt>
 				<dd><kbd>⌘</kbd> <kbd>Shift</kbd> <kbd>O</kbd></dd>
 
-				<dt>Edit last message</dt>
+				<dt>Reuse last prompt</dt>
 				<dd><kbd>↑</kbd></dd>
 
 				<dt>Previous / next thread</dt>

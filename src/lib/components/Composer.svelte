@@ -7,6 +7,11 @@
 	import { chat } from '$lib/stores/chat.svelte';
 	import { filterSlashCommands, parseSlashCommand } from '$lib/utils/slash';
 	import {
+		composerDraftStorageKey,
+		readComposerDraft,
+		writeComposerDraft
+	} from '$lib/utils/composer-drafts';
+	import {
 		resizeImage,
 		MAX_TOTAL_BYTES,
 		ImageTooLargeError,
@@ -19,8 +24,14 @@
 		onSend?: (content: MessageContent, command?: ChatCommand) => Promise<void> | void;
 		disabled?: boolean;
 		placeholder?: string;
+		draftKey?: string | null;
 	}
-	let { onSend, disabled = false, placeholder = 'Message NewsCraft' }: Props = $props();
+	let {
+		onSend,
+		disabled = false,
+		placeholder = 'Message NewsCraft',
+		draftKey = 'new'
+	}: Props = $props();
 
 	interface Attachment {
 		id: string;
@@ -41,6 +52,10 @@
 	let commandsLoaded = $state(false);
 	let slashIndex = $state(0);
 	let slashMenu: HTMLDivElement | undefined = $state();
+	let mounted = $state(false);
+	let hydratedDraftStorageKey = $state<string | null | undefined>(undefined);
+
+	const draftStorageKey = $derived(composerDraftStorageKey(draftKey));
 
 	const slashToken = $derived.by(() => {
 		if (attachments.length > 0) return null;
@@ -58,12 +73,33 @@
 		textarea.style.height = textarea.scrollHeight + 'px';
 	}
 
+	function draftStorage(): Storage | null {
+		if (typeof window === 'undefined') return null;
+		try {
+			return window.localStorage;
+		} catch {
+			return null;
+		}
+	}
+
+	function hydrateDraft() {
+		const key = draftStorageKey;
+		if (!mounted || hydratedDraftStorageKey === key) return;
+		hydratedDraftStorageKey = key;
+		value = readComposerDraft(draftStorage(), key);
+		attachments = [];
+		attachError = null;
+		queueMicrotask(autosize);
+	}
+
 	$effect(() => {
 		value;
 		queueMicrotask(autosize);
 	});
 
 	onMount(() => {
+		mounted = true;
+		hydrateDraft();
 		autosize();
 		fetch('/api/agent/commands')
 			.then((r) => (r.ok ? r.json() : { commands: [] }))
@@ -74,6 +110,17 @@
 			.catch(() => {
 				commandsLoaded = true;
 			});
+	});
+
+	$effect(() => {
+		void draftStorageKey;
+		hydrateDraft();
+	});
+
+	$effect(() => {
+		value;
+		if (!mounted || hydratedDraftStorageKey !== draftStorageKey) return;
+		writeComposerDraft(draftStorage(), draftStorageKey, value);
 	});
 
 	$effect(() => {
@@ -145,6 +192,38 @@
 			}
 			attachments = [...attachments];
 		}
+	}
+
+	function clipboardImageFiles(data: DataTransfer | null): File[] {
+		if (!data) return [];
+		const directFiles = Array.from(data.files).filter((f) => f.type.startsWith('image/'));
+		if (directFiles.length > 0) return directFiles;
+		return Array.from(data.items)
+			.filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+			.map((item) => item.getAsFile())
+			.filter((file): file is File => !!file && file.type.startsWith('image/'));
+	}
+
+	function insertPastedText(text: string) {
+		if (!textarea || !text) return;
+		const start = textarea.selectionStart ?? value.length;
+		const end = textarea.selectionEnd ?? value.length;
+		value = value.slice(0, start) + text + value.slice(end);
+		const cursor = start + text.length;
+		queueMicrotask(() => {
+			textarea?.focus();
+			textarea?.setSelectionRange(cursor, cursor);
+			autosize();
+		});
+	}
+
+	function onPaste(e: ClipboardEvent) {
+		const files = clipboardImageFiles(e.clipboardData);
+		if (files.length === 0) return;
+		const pastedText = e.clipboardData?.getData('text/plain') ?? '';
+		e.preventDefault();
+		insertPastedText(pastedText);
+		void ingestFiles(files);
 	}
 
 	function onFilePick(e: Event) {
@@ -417,6 +496,7 @@
 				bind:this={textarea}
 				bind:value
 				onkeydown={onKey}
+				onpaste={onPaste}
 				class="composer__textarea"
 				{placeholder}
 				rows="1"
@@ -444,7 +524,7 @@
 		{:else}
 			<span
 				><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline · <kbd>Esc</kbd>
-				to abort · <kbd>↑</kbd> to edit last</span
+				to abort · <kbd>↑</kbd> to reuse last prompt</span
 			>
 		{/if}
 	</div>
