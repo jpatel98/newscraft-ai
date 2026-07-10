@@ -45,10 +45,9 @@
 	const topic = $derived.by(() => {
 		const n = messages.length;
 		if (n === 0) return '0 messages';
-		const last = messages[n - 1];
-		return `${n} message${n === 1 ? '' : 's'} · updated ${formatThreadUpdated(
+		return `${n} message${n === 1 ? '' : 's'} · Updated ${formatThreadUpdated(
 			data.conversation.updatedAt
-		)} · ${last.role}`;
+		)}`;
 	});
 
 	$effect(() => {
@@ -296,11 +295,29 @@
 		clearFailureOverlays();
 		failedRetry = null;
 		try {
-			await runStream({
-				conversation_id: data.conversation.id,
-				content: retry.content,
-				command: retry.command
-			});
+			const wanted = contentText(retry.content);
+			const lastUserIndex = data.messages.findLastIndex((message) => message.role === 'user');
+			const lastUser = lastUserIndex >= 0 ? data.messages[lastUserIndex] : null;
+			const resumable =
+				lastUser && contentText(lastUser.content) === wanted
+					? data.messages
+							.slice(lastUserIndex + 1)
+							.findLast((message) => message.role === 'assistant' && message.partial)
+					: null;
+
+			if (resumable) {
+				await runStream({
+					conversation_id: data.conversation.id,
+					resume: true,
+					message_id: resumable.id
+				});
+			} else {
+				await runStream({
+					conversation_id: data.conversation.id,
+					content: retry.content,
+					command: retry.command
+				});
+			}
 		} catch {
 			/* runStream already leaves the safe retry state visible */
 		}

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
+	import { tick } from 'svelte';
+	import { activeHTMLElement, focusDialog, restoreFocus, trapTabKey } from '$lib/utils/focus';
 
 	let { data } = $props();
 
@@ -149,6 +151,10 @@
 	let wipeBusy = $state(false);
 	let wipeShowConfirm = $state(false);
 	let wipeMsg = $state<{ kind: 'ok' | 'err'; text: string } | null>(null);
+	let wipeDialog = $state<HTMLDivElement | null>(null);
+	let wipeCancelButton = $state<HTMLButtonElement | null>(null);
+	let wipeOpener = $state<HTMLElement | null>(null);
+	let wasWipeConfirmOpen = false;
 	const PHRASE = 'WIPE-EVERYTHING';
 	const wipeArmed = $derived(wipePhrase === PHRASE);
 
@@ -157,8 +163,32 @@
 		wipeShowConfirm = true;
 	}
 	function cancelWipe() {
+		if (wipeBusy) return;
 		wipeShowConfirm = false;
 	}
+
+	function onWipeKeydown(event: KeyboardEvent) {
+		if (trapTabKey(event, wipeDialog)) return;
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopPropagation();
+			cancelWipe();
+		}
+	}
+
+	$effect(() => {
+		if (wipeShowConfirm && !wasWipeConfirmOpen) {
+			wipeOpener = activeHTMLElement();
+			void tick().then(() => {
+				if (wipeShowConfirm) focusDialog(wipeDialog, wipeCancelButton);
+			});
+		} else if (!wipeShowConfirm && wasWipeConfirmOpen) {
+			const restoreTarget = wipeOpener;
+			wipeOpener = null;
+			void tick().then(() => restoreFocus(restoreTarget));
+		}
+		wasWipeConfirmOpen = wipeShowConfirm;
+	});
 
 	async function confirmWipe() {
 		wipeBusy = true;
@@ -438,30 +468,38 @@
 
 {#if wipeShowConfirm}
 	<div
+		bind:this={wipeDialog}
 		class="kbd-help"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="wipe-confirm-title"
+		aria-describedby="wipe-confirm-copy"
 		tabindex="-1"
-		onkeydown={(e) => {
-			if (e.key === 'Escape') cancelWipe();
-		}}
+		onkeydown={onWipeKeydown}
 	>
 		<button
 			type="button"
 			class="modal-backdrop"
 			aria-label="Close dialog"
+			aria-hidden="true"
+			tabindex="-1"
 			onclick={cancelWipe}
 		></button>
 		<div class="kbd-help__panel" role="document">
 			<div id="wipe-confirm-title" class="kbd-help__title">Wipe everything?</div>
 			<div class="kbd-help__sub">This cannot be undone</div>
-			<p class="settings__confirm-copy">
+			<p id="wipe-confirm-copy" class="settings__confirm-copy">
 				All {data.conversations.length} conversation{data.conversations.length === 1 ? '' : 's'}
 				and every message will be deleted. Accounts and passwords stay.
 			</p>
 			<div class="settings__confirm-actions">
-				<button type="button" class="btn btn--ghost" onclick={cancelWipe} disabled={wipeBusy}>
+				<button
+					bind:this={wipeCancelButton}
+					type="button"
+					class="btn btn--ghost"
+					onclick={cancelWipe}
+					disabled={wipeBusy}
+				>
 					Cancel
 				</button>
 				<button

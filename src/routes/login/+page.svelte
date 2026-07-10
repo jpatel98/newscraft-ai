@@ -14,7 +14,7 @@
 </svelte:head>
 
 <div class="page page--centered">
-	<form method="post" class="card" autocomplete="off">
+	<form method="post" class="card">
 		<div class="card__eyebrow">NewsCraft · Sign in</div>
 		<h1 class="card__title">Welcome back.</h1>
 		<p class="card__copy" id="login-access-note">

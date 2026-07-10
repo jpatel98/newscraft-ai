@@ -60,7 +60,7 @@ describe('markdown rendering', () => {
 		expect(html).toContain('href="https://example.com"');
 	});
 
-	it('removes generated implementation tails without stripping body citations or caveats', () => {
+	it('preserves source sections while removing generated implementation tails', () => {
 		const prepared = prepareAssistantMarkdown(
 			[
 				'The mayor confirmed the vote [CTV News](https://www.ctvnews.ca/politics/story).',
@@ -68,7 +68,9 @@ describe('markdown rendering', () => {
 				'Caveat: The official minutes were not posted yet.',
 				'',
 				'## Sources',
-				'- [Debug source](https://example.com/internal)',
+				'- [City minutes](https://example.com/minutes)',
+				'',
+				'## Debug details',
 				'Unique tail marker should not surface.'
 			].join('\n')
 		);
@@ -76,6 +78,8 @@ describe('markdown rendering', () => {
 
 		expect(prepared).not.toContain('Unique tail marker should not surface');
 		expect(html).toContain('href="https://www.ctvnews.ca/politics/story"');
+		expect(html).toContain('<h2>Sources</h2>');
+		expect(html).toContain('href="https://example.com/minutes"');
 		expect(html).toContain('Caveat: The official minutes were not posted yet.');
 	});
 });

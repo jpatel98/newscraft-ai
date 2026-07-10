@@ -4,8 +4,8 @@ const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 const SAFE_IMAGE_PROTOCOLS = new Set(['http:', 'https:']);
 
 const GENERATED_TAIL_PATTERNS = [
-	/(?:^|\n)\s*(?:#{1,6}\s*)?(?:sources?|references?|citations?)\b\s*:?\s*(?:\n|$)[\s\S]*$/i,
 	/(?:^|\n)\s*(?:#{1,6}\s*)?(?:implementation details?|debug details?|tool trace|json log)\b\s*:?\s*(?:\n|$)[\s\S]*$/i,
+	/(?:^|\n)\s*Link extraction was incomplete[^\n]*(?:\n[\s\S]*)?$/i,
 	/(?:^|\n)\s*If you(?:'|’)d like,\s*(?:the )?next step can be[\s\S]*$/i,
 	/(?:^|\n)\s*(?:Would you like|Do you want) (?:me )?to[\s\S]*$/i
 ];

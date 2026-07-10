@@ -19,6 +19,9 @@ describe('chat failure retry UI', () => {
 	it('keeps a retry target and wires the Retry action', () => {
 		expect(pageSource).toContain('failedRetry = { content: args.content, command: args.command };');
 		expect(pageSource).toContain('async function handleRetryFailure()');
+		expect(pageSource).toContain("message.role === 'assistant' && message.partial");
+		expect(pageSource).toContain('resume: true');
+		expect(pageSource).toContain('message_id: resumable.id');
 		expect(pageSource).toContain('content: retry.content');
 		expect(pageSource).toContain('command: retry.command');
 		expect(pageSource).toContain('onRetryFailure={handleRetryFailure}');

@@ -1,8 +1,6 @@
 <script lang="ts">
 	import DOMPurify from 'dompurify';
 	import { onMount } from 'svelte';
-	import Copy from 'lucide-svelte/icons/copy';
-	import Check from 'lucide-svelte/icons/check';
 	import { highlight } from '$lib/utils/highlight';
 	import { prepareAssistantMarkdown, renderMarkdownToHtml } from '$lib/utils/markdown-render';
 
