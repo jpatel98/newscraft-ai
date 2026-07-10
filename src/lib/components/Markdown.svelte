@@ -1,81 +1,23 @@
 <script lang="ts">
-	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';
 	import { onMount } from 'svelte';
 	import Copy from 'lucide-svelte/icons/copy';
 	import Check from 'lucide-svelte/icons/check';
 	import { highlight } from '$lib/utils/highlight';
+	import { prepareAssistantMarkdown, renderMarkdownToHtml } from '$lib/utils/markdown-render';
 
 	interface Props {
 		content: string;
 		partial?: boolean;
+		assistant?: boolean;
 	}
-	let { content, partial = false }: Props = $props();
+	let { content, partial = false, assistant = false }: Props = $props();
 
-	const renderer = new marked.Renderer();
-	const defaultLinkRenderer = renderer.link.bind(renderer);
-	const defaultImageRenderer = renderer.image.bind(renderer);
-
-	function escapeHtml(s: string): string {
-		return s
-			.replace(/&/g, '&amp;')
-			.replace(/</g, '&lt;')
-			.replace(/>/g, '&gt;')
-			.replace(/"/g, '&quot;')
-			.replace(/'/g, '&#39;');
-	}
-
-	function safeUrl(raw: string): URL | null {
-		try {
-			return new URL(raw, 'https://newscraft.local');
-		} catch {
-			return null;
-		}
-	}
-
-	function isSafeHref(raw: string): boolean {
-		const url = safeUrl(raw);
-		return !!url && ['http:', 'https:', 'mailto:', 'tel:'].includes(url.protocol);
-	}
-
-	renderer.link = (token) => {
-		const text = token.tokens
-			.map((t) => ('text' in t && typeof t.text === 'string' ? t.text : ''))
-			.join('');
-		if (!isSafeHref(token.href)) return escapeHtml(text || token.href);
-		const rendered = defaultLinkRenderer(token);
-		try {
-			const url = new URL(token.href);
-			const isTextUrl =
-				text === token.href ||
-				text.replace(/^https?:\/\//, '') === token.href.replace(/^https?:\/\//, '');
-			if (!isTextUrl) return rendered;
-			const host = url.hostname.replace(/^www\./, '');
-			const path = url.pathname === '/' ? '' : url.pathname;
-			const full = `${host}${path}`;
-			const label = full.length > 56 ? full.slice(0, 56) + '…' : full;
-			const html = defaultLinkRenderer({
-				...token,
-				tokens: [{ type: 'text', raw: label, text: label }]
-			});
-			// Inject a class so the host-only rendering can be styled compactly
-			// (smaller, mono-ish) without competing with body prose.
-			return html.replace(/^<a /, '<a class="md-source-link" ');
-		} catch {
-			return rendered;
-		}
-	};
-	renderer.image = (token) => {
-		if (!isSafeHref(token.href)) return escapeHtml(token.text || token.href);
-		return defaultImageRenderer(token);
-	};
-	renderer.html = (token) => escapeHtml(token.text);
-
-	marked.setOptions({ gfm: true, breaks: true, renderer });
+	const markdown = $derived(assistant ? prepareAssistantMarkdown(content) : content);
 
 	const html = $derived.by(() => {
 		try {
-			const raw = marked.parse(content, { async: false }) as string;
+			const raw = renderMarkdownToHtml(markdown);
 			if (typeof window === 'undefined') return raw; // Renderer escapes raw HTML before SSR.
 			return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
 		} catch {
