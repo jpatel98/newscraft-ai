@@ -342,8 +342,33 @@
 	let searchActive = $state(false);
 	let searchLoading = $state(false);
 	let searchInput = $state<HTMLInputElement | null>(null);
+	let searchList = $state<HTMLDivElement | null>(null);
+	let searchActiveIndex = $state(-1);
 	let searchSeq = 0;
 	let searchTimer: ReturnType<typeof setTimeout> | null = null;
+	const searchListboxId = 'sidebar-search-results';
+
+	function searchOptionId(i: number): string {
+		return `sidebar-search-result-${i}`;
+	}
+
+	function setSearchResults(next: SearchResult[]) {
+		searchResults = next;
+		searchActiveIndex = next.length > 0 ? 0 : -1;
+	}
+
+	function clearSearch() {
+		if (searchTimer) {
+			clearTimeout(searchTimer);
+			searchTimer = null;
+		}
+		searchQ = '';
+		searchActive = false;
+		searchResults = [];
+		searchActiveIndex = -1;
+		searchSeq++;
+		searchLoading = false;
+	}
 
 	function escapeHtml(s: string): string {
 		return s
@@ -401,16 +426,16 @@
 			if (seq !== searchSeq) return;
 			searchLoading = false;
 			if (!res.ok) {
-				searchResults = localTitleResults(q);
+				setSearchResults(localTitleResults(q));
 				return;
 			}
 			const data = (await res.json()) as { results: SearchResult[] };
 			if (seq !== searchSeq) return;
-			searchResults = data.results?.length ? data.results : localTitleResults(q);
+			setSearchResults(data.results?.length ? data.results : localTitleResults(q));
 		} catch {
 			if (seq !== searchSeq) return;
 			searchLoading = false;
-			searchResults = localTitleResults(q);
+			setSearchResults(localTitleResults(q));
 		}
 	}
 
@@ -420,11 +445,12 @@
 		if (searchTimer) clearTimeout(searchTimer);
 		if (!q) {
 			searchResults = [];
+			searchActiveIndex = -1;
 			searchSeq++;
 			searchLoading = false;
 			return;
 		}
-		searchResults = localTitleResults(q);
+		setSearchResults(localTitleResults(q));
 		searchLoading = true;
 		searchTimer = setTimeout(() => {
 			void runSearch(q);
@@ -434,12 +460,31 @@
 	function onSearchKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
 			e.preventDefault();
-			searchQ = '';
-			searchActive = false;
-			searchResults = [];
-			searchSeq++;
-			searchLoading = false;
+			clearSearch();
 			searchInput?.focus();
+			return;
+		}
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			if (searchResults.length > 0) {
+				searchActiveIndex = (searchActiveIndex + 1) % searchResults.length;
+			}
+			return;
+		}
+		if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			if (searchResults.length > 0) {
+				searchActiveIndex =
+					searchActiveIndex <= 0 ? searchResults.length - 1 : searchActiveIndex - 1;
+			}
+			return;
+		}
+		if (e.key === 'Enter') {
+			const activeResult = searchResults[searchActiveIndex >= 0 ? searchActiveIndex : 0];
+			if (activeResult) {
+				e.preventDefault();
+				void openResult(activeResult);
+			}
 		}
 	}
 
@@ -448,6 +493,7 @@
 		searchQ = '';
 		searchActive = false;
 		searchResults = [];
+		searchActiveIndex = -1;
 		searchLoading = false;
 		await goto(target);
 		await tick();
@@ -457,6 +503,13 @@
 		}
 		onSelectThread();
 	}
+
+	$effect(() => {
+		if (!searchList || searchActiveIndex < 0) return;
+		searchList
+			.querySelector<HTMLElement>(`[data-search-i="${searchActiveIndex}"]`)
+			?.scrollIntoView({ block: 'nearest' });
+	});
 </script>
 
 <svelte:head>
@@ -564,6 +617,13 @@
 					autocomplete="off"
 					spellcheck="false"
 					aria-label="Search your threads"
+					role="combobox"
+					aria-autocomplete="list"
+					aria-expanded={searchActive}
+					aria-controls={searchActive ? searchListboxId : undefined}
+					aria-activedescendant={searchActive && searchActiveIndex >= 0
+						? searchOptionId(searchActiveIndex)
+						: undefined}
 				/>
 			</div>
 
@@ -571,7 +631,13 @@
 
 			{#if searchActive}
 				<div class="sidebar__section">Results</div>
-				<div class="sidebar__list" role="listbox" aria-label="Search results">
+				<div
+					id={searchListboxId}
+					bind:this={searchList}
+					class="sidebar__list"
+					role="listbox"
+					aria-label="Search results"
+				>
 					{#if searchResults.length === 0 && searchLoading}
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
 							<span class="sidebar__row__name">Searching…</span>
@@ -581,13 +647,16 @@
 							<span class="sidebar__row__name">No matches</span>
 						</div>
 					{/if}
-					{#each searchResults as r (`${r.conversationId}:${r.messageId || 'thread'}:${r.role}`)}
+					{#each searchResults as r, i (`${r.conversationId}:${r.messageId || 'thread'}:${r.role}`)}
 						<button
+							id={searchOptionId(i)}
 							type="button"
-							class="sidebar__hit"
+							class="sidebar__hit {i === searchActiveIndex ? 'sidebar__hit--active' : ''}"
+							data-search-i={i}
 							onclick={() => openResult(r)}
+							onmousemove={() => (searchActiveIndex = i)}
 							role="option"
-							aria-selected="false"
+							aria-selected={i === searchActiveIndex}
 						>
 							<div class="sidebar__hit__head">
 								<span class="sidebar__hit__role">{r.role === 'thread' ? 'thread' : r.role}</span>

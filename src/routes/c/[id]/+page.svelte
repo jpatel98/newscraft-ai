@@ -5,10 +5,11 @@
 	import { contentText } from '$lib/types';
 	import { invalidateAll, replaceState } from '$app/navigation';
 	import { chat } from '$lib/stores/chat.svelte';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { formatThreadUpdated } from '$lib/utils/time';
 	import { persistedThreadMessages, type PersistedThreadMessage } from '$lib/utils/thread-messages';
 	import { parseSlashCommand } from '$lib/utils/slash';
+	import { activeHTMLElement, focusDialog, restoreFocus, trapTabKey } from '$lib/utils/focus';
 	import X from 'lucide-svelte/icons/x';
 	import Send from 'lucide-svelte/icons/send-horizontal';
 
@@ -26,6 +27,10 @@
 	let feedbackSaving = $state(false);
 	let feedbackStatus = $state<string | null>(null);
 	let feedbackError = $state<string | null>(null);
+	let feedbackDialog = $state<HTMLDivElement | null>(null);
+	let feedbackTextarea = $state<HTMLTextAreaElement | null>(null);
+	let feedbackOpener = $state<HTMLElement | null>(null);
+	let wasFeedbackOpen = false;
 	// Persisted message ids that are currently being shadowed by an overlay
 	// stream (resume). Hides the partial row while we re-stream into it; on
 	// invalidateAll the partial flag flips and the row reappears finalized.
@@ -211,7 +216,8 @@
 				if (feedbackStatus) feedbackOpen = false;
 			}, 900);
 		} catch (e) {
-			feedbackError = `Couldn't save feedback. ${String(e)}`;
+			console.warn('NewsCraft feedback save failed', e);
+			feedbackError = "Couldn't save feedback. Try again.";
 		} finally {
 			feedbackSaving = false;
 		}
@@ -222,6 +228,15 @@
 		feedbackOpen = false;
 		feedbackStatus = null;
 		feedbackError = null;
+	}
+
+	function onFeedbackKeydown(e: KeyboardEvent) {
+		if (trapTabKey(e, feedbackDialog)) return;
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			e.stopPropagation();
+			closeFeedback();
+		}
 	}
 
 	async function handleRegenerate() {
@@ -278,6 +293,20 @@
 		if (stashed) void handleSend(stashed);
 		else if (pending) void handleSend(pending);
 	});
+
+	$effect(() => {
+		if (feedbackOpen && !wasFeedbackOpen) {
+			feedbackOpener = activeHTMLElement();
+			void tick().then(() => {
+				if (feedbackOpen) focusDialog(feedbackDialog, feedbackTextarea);
+			});
+		} else if (!feedbackOpen && wasFeedbackOpen) {
+			const restoreTarget = feedbackOpener;
+			feedbackOpener = null;
+			void tick().then(() => restoreFocus(restoreTarget));
+		}
+		wasFeedbackOpen = feedbackOpen;
+	});
 </script>
 
 <header class="pane__header">
@@ -305,14 +334,20 @@
 			type="button"
 			class="feedback-backdrop__dismiss"
 			aria-label="Dismiss feedback"
+			aria-hidden="true"
+			tabindex="-1"
 			onclick={closeFeedback}
 			disabled={feedbackSaving}
 		></button>
 		<div
+			bind:this={feedbackDialog}
 			class="feedback-dialog"
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="feedback-title"
+			aria-describedby="feedback-desc"
+			tabindex="-1"
+			onkeydown={onFeedbackKeydown}
 		>
 		<form
 			onsubmit={(event) => {
@@ -323,7 +358,7 @@
 			<div class="feedback-dialog__head">
 				<div>
 					<div id="feedback-title" class="feedback-dialog__title">Capture feedback</div>
-					<div class="feedback-dialog__meta">
+					<div id="feedback-desc" class="feedback-dialog__meta">
 						{messages.length} message{messages.length === 1 ? '' : 's'} in this thread
 					</div>
 				</div>
@@ -338,6 +373,7 @@
 				</button>
 			</div>
 			<textarea
+				bind:this={feedbackTextarea}
 				class="feedback-dialog__textarea"
 				bind:value={feedbackComment}
 				rows="5"

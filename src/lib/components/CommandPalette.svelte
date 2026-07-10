@@ -3,6 +3,7 @@
 	import { tick } from 'svelte';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { fuzzyRank } from '$lib/utils/fuzzy';
+	import { activeHTMLElement, focusDialog, restoreFocus, trapTabKey } from '$lib/utils/focus';
 
 	interface Conversation { id: string; title: string; updatedAt: number; }
 	interface Cmd { id: string; label: string; hint?: string; enabled: boolean; run: () => void | Promise<void>; }
@@ -32,8 +33,16 @@
 
 	let query = $state('');
 	let active = $state(0);
+	let dialogEl = $state<HTMLDivElement | null>(null);
 	let inputEl = $state<HTMLInputElement | null>(null);
 	let listEl = $state<HTMLDivElement | null>(null);
+	let opener = $state<HTMLElement | null>(null);
+	let wasOpen = false;
+
+	const listboxId = 'command-palette-listbox';
+	function optionId(i: number): string {
+		return `command-palette-option-${i}`;
+	}
 
 	type Row =
 		| { kind: 'cmd'; item: Cmd; section: 'COMMANDS' }
@@ -53,11 +62,19 @@
 	$effect(() => { void rows; void query; active = 0; });
 
 	$effect(() => {
-		if (open) {
+		if (open && !wasOpen) {
+			opener = activeHTMLElement();
 			query = '';
 			active = 0;
-			tick().then(() => inputEl?.focus());
+			void tick().then(() => {
+				if (open) focusDialog(dialogEl, inputEl);
+			});
+		} else if (!open && wasOpen) {
+			const restoreTarget = opener;
+			opener = null;
+			void tick().then(() => restoreFocus(restoreTarget));
 		}
+		wasOpen = open;
 	});
 
 	$effect(() => {
@@ -74,18 +91,21 @@
 	}
 
 	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
+		if (trapTabKey(e, dialogEl)) return;
+		if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); return; }
 		if (e.key === 'ArrowDown') {
 			e.preventDefault();
+			e.stopPropagation();
 			if (rows.length) active = (active + 1) % rows.length;
 			return;
 		}
 		if (e.key === 'ArrowUp') {
 			e.preventDefault();
+			e.stopPropagation();
 			if (rows.length) active = (active - 1 + rows.length) % rows.length;
 			return;
 		}
-		if (e.key === 'Enter') { e.preventDefault(); activate(active); }
+		if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); activate(active); }
 	}
 
 	function sectionHead(i: number): string | null {
@@ -96,6 +116,7 @@
 
 {#if open}
 	<div
+		bind:this={dialogEl}
 		class="cmdk"
 		role="dialog"
 		aria-label="Command palette"
@@ -114,8 +135,13 @@
 				autocomplete="off"
 				spellcheck="false"
 				aria-label="Command palette search"
+				role="combobox"
+				aria-autocomplete="list"
+				aria-expanded="true"
+				aria-controls={listboxId}
+				aria-activedescendant={rows[active] ? optionId(active) : undefined}
 			/>
-			<div class="cmdk__list" bind:this={listEl} role="listbox">
+			<div id={listboxId} class="cmdk__list" bind:this={listEl} role="listbox" aria-label="Command palette results">
 				{#if rows.length === 0}
 					<div class="cmdk__empty">No matches</div>
 				{/if}
@@ -123,6 +149,7 @@
 					{@const head = sectionHead(i)}
 					{#if head}<div class="cmdk__section">{head}</div>{/if}
 					<div
+						id={optionId(i)}
 						class="cmdk__row {i === active ? 'cmdk__row--active' : ''}"
 						role="option"
 						aria-selected={i === active}
