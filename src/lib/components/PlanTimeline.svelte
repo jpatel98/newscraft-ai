@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { chat } from '$lib/stores/chat.svelte';
+	import { publicPlanStepDetail } from '$lib/utils/tool-labels';
 
 	interface Props {
 		/** True when attached to the current in-flight assistant turn. */
@@ -116,8 +117,8 @@
 						</span>
 						<span class="plan-timeline__step-body">
 							<span class="plan-timeline__step-label">{step.label}</span>
-							{#if step.detail && (step.status === 'failed' || step.status === 'skipped')}
-								<span class="plan-timeline__step-detail">{step.detail}</span>
+							{#if publicPlanStepDetail(step.detail) && (step.status === 'failed' || step.status === 'skipped')}
+								<span class="plan-timeline__step-detail">{publicPlanStepDetail(step.detail)}</span>
 							{/if}
 							{#if step.sources && step.sources.length > 0}
 								<ul class="plan-timeline__step-sources" aria-label="Sources found">

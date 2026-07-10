@@ -108,6 +108,28 @@ export function formatElapsed(ms: number): string {
 	return `${Math.floor(s / 60)}m${(s % 60).toString().padStart(2, '0')}s`;
 }
 
+export function publicPlanStepDetail(value: string | undefined): string {
+	const detail = cleanDetail(value);
+	if (!detail) return '';
+	if (/timeout|timed out|interrupted|stream ended early/i.test(detail)) {
+		return 'The source check ended before it completed.';
+	}
+	if (/paywall|subscription|login|captcha|blocked|access denied|forbidden/i.test(detail)) {
+		return 'A source could not be read because access was restricted.';
+	}
+	if (/no usable|no cited sources|no readable|returned no .*sources?|empty source/i.test(detail)) {
+		return 'No usable sources were found for this step.';
+	}
+	if (
+		/provider|adapter|gateway|harness|register|configured|credential|api[_ -]?key|http\s*\d{3}|json|stack|traceback|exception/i.test(
+			detail
+		)
+	) {
+		return 'This research step is not available.';
+	}
+	return detail;
+}
+
 export function toolStepDetail(tool: ToolStep): string {
 	const explicit = cleanDetail(tool.detail);
 	if (explicit && explicit.toLowerCase() !== tool.name.toLowerCase()) return explicit;

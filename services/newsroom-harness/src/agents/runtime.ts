@@ -95,7 +95,7 @@ export class NewsroomAgentRuntime {
 		}
 		if (!this.modelApiKey()) return this.localChat(prompt);
 		return this.withTimeout(
-			() => this.disciplinedComplete(buildDisciplinedChatPrompt(messages), context),
+			() => this.disciplinedComplete(buildDisciplinedChatPrompt(messages), latestUserPrompt, context),
 			context.signal
 		);
 	}
@@ -134,7 +134,7 @@ export class NewsroomAgentRuntime {
 			for (const chunk of splitForStreaming(this.localChat(prompt))) yield chunk;
 			return;
 		}
-		yield* this.disciplinedStream(buildDisciplinedChatPrompt(messages), context);
+		yield* this.disciplinedStream(buildDisciplinedChatPrompt(messages), latestUserPrompt, context);
 	}
 
 	async runMission(prompt: string, context: RuntimeContext): Promise<MissionRuntimeResult> {
@@ -206,9 +206,9 @@ export class NewsroomAgentRuntime {
 		].join('\n\n');
 	}
 
-	private async disciplinedComplete(prompt: string, context: RuntimeContext): Promise<string> {
-		this.triageEditorCommand(prompt, context);
-		const result = await this.runDisciplinedAgent(prompt, context);
+	private async disciplinedComplete(prompt: string, routingPrompt: string, context: RuntimeContext): Promise<string> {
+		this.triageEditorCommand(routingPrompt, context);
+		const result = await this.runDisciplinedAgent(prompt, routingPrompt, context);
 		return result.final_answer.trim() || this.localChat(prompt);
 	}
 
@@ -255,6 +255,7 @@ export class NewsroomAgentRuntime {
 
 	private async runDisciplinedAgent(
 		prompt: string,
+		routingPrompt: string,
 		context: RuntimeContext,
 		onAnswerDelta?: (delta: string) => void
 	): Promise<NewsroomAgentRunResult> {
@@ -280,6 +281,7 @@ export class NewsroomAgentRuntime {
 			trigger: context.trigger,
 			signal: context.signal,
 			outputStyle: 'chat',
+			routingPrompt,
 			forcePlanner: context.plannerEnabled === true,
 			onPlanEvent: (event) => context.onProgress?.({ type: 'plan', planSource: event.source, steps: event.steps }),
 			onToolEvent: (event) => this.forwardDisciplinedProgress(event, context),
@@ -312,8 +314,12 @@ export class NewsroomAgentRuntime {
 	 * reconciled against the authoritative final answer (which carries notes
 	 * and caveats the live stream has not seen).
 	 */
-	private async *disciplinedStream(prompt: string, context: RuntimeContext): AsyncGenerator<string> {
-		this.triageEditorCommand(prompt, context);
+	private async *disciplinedStream(
+		prompt: string,
+		routingPrompt: string,
+		context: RuntimeContext
+	): AsyncGenerator<string> {
+		this.triageEditorCommand(routingPrompt, context);
 		const sanitizer = new StreamingAnswerSanitizer({ clean: (raw) => cleanVisibleChatOutput(raw, prompt) });
 		const pending: string[] = [];
 		let wake: (() => void) | null = null;
@@ -326,7 +332,7 @@ export class NewsroomAgentRuntime {
 			try {
 				const result = await this.withTimeout(
 					() =>
-						this.runDisciplinedAgent(prompt, context, (delta) => {
+						this.runDisciplinedAgent(prompt, routingPrompt, context, (delta) => {
 							const addition = sanitizer.push(delta);
 							if (addition) {
 								pending.push(addition);

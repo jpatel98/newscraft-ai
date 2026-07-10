@@ -35,6 +35,8 @@ export interface NewsroomAgentRunContext {
 	trigger?: 'manual' | 'schedule' | 'test';
 	signal?: AbortSignal;
 	outputStyle?: 'report' | 'chat';
+	/** Current user request used for routing when prompt also carries system/time/context text. */
+	routingPrompt?: string;
 	/** Force the model planner for diagnostics/eval comparisons. */
 	forcePlanner?: boolean;
 	onToolEvent?: (event: AgentToolEvent) => void;
@@ -128,7 +130,8 @@ export class DisciplinedNewsroomAgent {
 	}
 
 	async run(prompt: string, context: NewsroomAgentRunContext = {}): Promise<NewsroomAgentRunResult> {
-		const decision = routeNewsroomRequest(prompt, {
+		const routingPrompt = context.routingPrompt?.trim() || prompt;
+		const decision = routeNewsroomRequest(routingPrompt, {
 			default_tool_budget: this.config.default_tool_budget
 		});
 		const ledger = new ToolBudgetLedger(
@@ -160,7 +163,14 @@ export class DisciplinedNewsroomAgent {
 				decision,
 				plan: { source: 'router', steps: [] },
 				evidence,
-				final_answer: generateFinalAnswer({ prompt, decision, evidence, limitations, budget, outputStyle: context.outputStyle }),
+				final_answer: generateFinalAnswer({
+					prompt: routingPrompt,
+					decision,
+					evidence,
+					limitations,
+					budget,
+					outputStyle: context.outputStyle
+				}),
 				limitations,
 				tool_calls: toolCalls,
 				budget,
@@ -190,27 +200,29 @@ export class DisciplinedNewsroomAgent {
 			if (signal.aborted || ledger.isRuntimeExhausted()) {
 				stoppedReason = 'max_runtime_seconds exhausted';
 				limitations.push(stoppedReason);
-				skipStep(step, 'run stopped');
-				skipRemaining(queue, index, 'run stopped');
+				skipStep(step, 'Research stopped before completion.');
+				skipRemaining(queue, index, 'Research stopped before completion.');
 				emitPlan();
 				break;
 			}
 			if (!this.config.enabled_tools.includes(step.tool)) {
 				const reason = `Tool disabled by harness config: ${step.tool}`;
+				const publicReason = 'This research step is not available.';
 				limitations.push(reason);
 				toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
-				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: reason });
-				skipStep(step, 'Not available');
+				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: publicReason });
+				skipStep(step, publicReason);
 				emitPlan();
 				continue;
 			}
 			const tool = this.registry.get(step.tool);
 			if (!tool) {
 				const reason = `Tool is not registered: ${step.tool}`;
+				const publicReason = 'This research step is not available.';
 				limitations.push(reason);
 				toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
-				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: reason });
-				skipStep(step, 'Not available');
+				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: publicReason });
+				skipStep(step, publicReason);
 				emitPlan();
 				continue;
 			}
@@ -219,8 +231,8 @@ export class DisciplinedNewsroomAgent {
 			if (!allowed.ok) {
 				stoppedReason = allowed.reason;
 				limitations.push(allowed.reason);
-				skipStep(step, 'Budget reached');
-				skipRemaining(queue, index, 'Budget reached');
+				skipStep(step, 'Research limit reached.');
+				skipRemaining(queue, index, 'Research limit reached.');
 				emitPlan();
 				break;
 			}
@@ -239,6 +251,7 @@ export class DisciplinedNewsroomAgent {
 			}, step.input);
 			lastOutput = output;
 			const outputLimitations = output.limitations || [];
+			const publicDetail = output.status === 'ok' ? undefined : publicStepFailureDetail(outputLimitations);
 			limitations.push(...outputLimitations);
 			if (output.answer) toolAnswers.push(output.answer);
 			evidence.splice(0, evidence.length, ...dedupeEvidence([...evidence, ...(output.evidence || [])]));
@@ -249,13 +262,13 @@ export class DisciplinedNewsroomAgent {
 				evidence_count: output.evidence?.length || 0
 			});
 			step.status = output.status === 'ok' ? 'ok' : 'failed';
-			step.detail = outputLimitations[0];
+			step.detail = publicDetail;
 			context.onToolEvent?.({
 				type: 'tool_completed',
 				tool: tool.name,
 				stepId: step.id,
 				status: output.status,
-				detail: outputLimitations.join('; '),
+				detail: publicDetail,
 				evidence: output.evidence || []
 			});
 
@@ -283,7 +296,7 @@ export class DisciplinedNewsroomAgent {
 			plan: planEvent(plan.source, queue),
 			evidence,
 			final_answer: generateFinalAnswer({
-				prompt,
+				prompt: routingPrompt,
 				decision,
 				evidence,
 				limitations,
@@ -586,6 +599,28 @@ function plannerSignal(signal: AbortSignal): AbortSignal {
 	const timeout = AbortSignal.timeout(PLANNER_TIMEOUT_MS);
 	if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
 	return timeout;
+}
+
+function publicStepFailureDetail(limitations: string[]): string | undefined {
+	const value = limitations.find((item) => item.trim())?.trim();
+	if (!value) return undefined;
+	if (/timeout|timed out|interrupted|stream ended early/i.test(value)) {
+		return 'The source check ended before it completed.';
+	}
+	if (/paywall|subscription|login|captcha|blocked|access denied|forbidden/i.test(value)) {
+		return 'A source could not be read because access was restricted.';
+	}
+	if (/no usable|no cited sources|no readable|returned no .*sources?|empty source/i.test(value)) {
+		return 'No usable sources were found for this step.';
+	}
+	if (
+		/unavailable|not configured|missing|disabled|not registered|provider|harness|register|api[_ -]?key|http\s*\d{3}|failed|error/i.test(
+			value
+		)
+	) {
+		return 'This research step is not available.';
+	}
+	return undefined;
 }
 
 function combinedSignal(signal: AbortSignal | undefined, maxRuntimeSeconds: number): AbortSignal {

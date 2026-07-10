@@ -5,6 +5,7 @@ import {
 	doneLabel,
 	formatElapsed,
 	liveLabel,
+	publicPlanStepDetail,
 	showToolRawName,
 	toolStepDetail,
 	toolStepLabel,
@@ -62,6 +63,17 @@ describe('tool labels', () => {
 		expect(formatElapsed(0)).toBe('0s');
 		expect(formatElapsed(7_500)).toBe('7s');
 		expect(formatElapsed(65_000)).toBe('1m05s');
+	});
+
+	it('keeps failed plan details free of provider and harness internals', () => {
+		expect(
+			publicPlanStepDetail(
+				'No browser automation provider is configured inside this harness; register one when direct page interaction is needed.'
+			)
+		).toBe('This research step is not available.');
+		expect(publicPlanStepDetail('The source check timed out after 30 seconds.')).toBe(
+			'The source check ended before it completed.'
+		);
 	});
 
 	it('adds concise step details from common tool arguments', () => {

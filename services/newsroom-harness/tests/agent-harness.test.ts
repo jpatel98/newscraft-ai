@@ -511,12 +511,12 @@ describe('disciplined newsroom agent harness', () => {
 		});
 
 		expect(answer).toContain('The mayor announced a new transit plan last Tuesday.');
-		expect(answer).toContain('I could not find reliable sources confirming this in the gathered material.');
+		expect(answer).toContain("I couldn't verify this from readable sources right now.");
 		expect(answer).not.toContain('Provider returned');
 		expect(answer).not.toContain('tool');
 	});
 
-	it('exposes provider-configuration misconfiguration as an explicit chat diagnostic', async () => {
+	it('reports provider-configuration failures without exposing implementation details', async () => {
 		const result = await new DisciplinedNewsroomAgent({
 			config: {
 				...defaultAgentConfig(),
@@ -530,9 +530,42 @@ describe('disciplined newsroom agent harness', () => {
 		});
 
 		expect(result.tool_calls).toEqual([expect.objectContaining({ name: 'openai_web_search', status: 'unavailable' })]);
-		expect(result.final_answer).toContain('The configured research provider (Perplexity) is unavailable');
-		expect(result.final_answer).toContain('because PERPLEXITY_API_KEY is not configured');
+		expect(result.final_answer).toBe('Live research is temporarily unavailable.');
+		expect(result.final_answer).not.toMatch(/Perplexity|provider|PERPLEXITY_API_KEY/i);
 		expect(result.final_answer).not.toContain('I could not find reliable sources confirming this in the gathered material.');
+	});
+
+	it('keeps failed plan-step details free of internal capability language', async () => {
+		const result = await new DisciplinedNewsroomAgent({
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['browser_automation_provider']
+			}
+		}).run('Open this dynamic page and click the latest release', { outputStyle: 'chat' });
+
+		expect(result.plan.steps).toEqual([
+			expect.objectContaining({
+				tool: 'browser_automation_provider',
+				status: 'failed',
+				detail: 'This research step is not available.'
+			})
+		]);
+		expect(result.plan.steps[0]?.detail).not.toMatch(/provider|harness|register|credential|api[_ -]?key/i);
+	});
+
+	it('uses a concise no-evidence chat caveat without generic retry instructions', () => {
+		const prompt = 'what fifa games are being played today';
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence: [],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toBe("I couldn't verify this from readable sources right now.");
+		expect(answer).not.toContain('Try again');
 	});
 
 	it('flags blocked or paywalled sources without exposing technical details', () => {
@@ -562,7 +595,7 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat'
 		});
 
-		expect(answer).toContain('blocked, paywalled, unavailable, or could not be read');
+		expect(answer).toContain('blocked, paywalled, unavailable, or unreadable');
 		expect(answer).not.toContain('HTTP 403');
 		expect(answer).not.toContain('url_fetch_read');
 	});

@@ -114,6 +114,54 @@ describe('newsroom agent runtime', () => {
 			).toBe(true);
 		});
 
+	it('routes the current user question without letting system tool guidance hijack it', async () => {
+		const registry = new ToolRegistry();
+		registry.register(
+			stubRuntimeTool(
+				'openai_web_search',
+				'web_search_provider',
+				'Spain vs Belgium is scheduled for 3:00 PM EDT today.'
+			)
+		);
+		registry.register(
+			stubRuntimeTool(
+				'browser_automation_provider',
+				'browser_automation_provider',
+				'Browser automation should not run for a schedule lookup.'
+			)
+		);
+		const progress: RuntimeProgressEvent[] = [];
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			registry
+		});
+
+		const answer = await runtime.completeChat(
+			[
+				{
+					role: 'system',
+					content: 'Use available browser, search, file, and terminal tools when the user requests them.'
+				},
+				{ role: 'user', content: 'what fifa games are being played today' }
+			],
+			{
+				plannerEnabled: false,
+				onProgress: (event) => progress.push(event)
+			}
+		);
+
+		expect(answer).toContain('Spain vs Belgium');
+		expect(progress.some((event) => event.type === 'tool' && event.name === 'openai_web_search')).toBe(true);
+		expect(
+			progress.some((event) => event.type === 'tool' && event.name === 'browser_automation_provider')
+		).toBe(false);
+	});
+
 		it('asks for clarification on ambiguous follow-ups without prior context', async () => {
 			const fetchMock = vi.fn();
 			vi.stubGlobal('fetch', fetchMock);

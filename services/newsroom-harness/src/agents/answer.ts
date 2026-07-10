@@ -89,7 +89,11 @@ function formatChatToolAnswer(prompt: string, answer: string): string {
 
 function chatToolAnswerCaveats(prompt: string, caveats: string[]): string[] {
 	if (needsExplicitVerificationCaveat(prompt)) return caveats;
-	return caveats.filter((item) => !/^I could not find reliable sources confirming this\b/i.test(item));
+	return caveats.filter(
+		(item) =>
+			!/^I could not find reliable sources confirming this\b/i.test(item) &&
+			!/^I couldn't verify this from readable sources\b/i.test(item)
+	);
 }
 
 export function cleanVisibleChatOutput(answer: string, prompt = ''): string {
@@ -105,13 +109,9 @@ function wantsTable(prompt: string): boolean {
 function chatNoLead(unusableEvidence: EvidenceObject[], limitations: string[] = []): string {
 	const notes = sourceIssueNotes(unusableEvidence).slice(0, 3);
 	const caveats = publicCaveatsFor('', [], unusableEvidence, limitations, { noUsableEvidence: true });
-	return [
-		caveats[0] || 'I could not find reliable sources confirming this.',
-		notes.length ? `Skipped sources: ${notes.join(' ')}` : '',
-		'Try again with a specific outlet/source, or rerun when the source is readable.'
-	]
+	return [caveats[0] || "I couldn't verify this from readable sources right now.", ...notes]
 		.filter(Boolean)
-		.join('\n\n');
+		.join('\n');
 }
 
 function answerFromMemory(prompt: string): string {
@@ -530,8 +530,8 @@ function publicCaveatsFor(
 		else {
 			caveats.push(
 				blocked
-					? 'I could not find reliable sources confirming this because one or more sources were blocked, paywalled, unavailable, or could not be read.'
-					: 'I could not find reliable sources confirming this in the gathered material.'
+					? "I couldn't verify this because the available sources were blocked, paywalled, unavailable, or unreadable."
+					: "I couldn't verify this from readable sources right now."
 			);
 		}
 		return caveats;
@@ -585,10 +585,9 @@ function providerUnavailableLimitation(value: string): string | null {
 		/^\s*(openai|perplexity)\s+web_search is not configured because\s+([A-Z_]+)\s+is missing\.?$/i
 	);
 	if (!match) return null;
-	const normalizedProvider = match[1].toLowerCase() === 'openai' ? 'OpenAI' : 'Perplexity';
 	const apiKeyName = match[2].toUpperCase();
 	if (!/OPENAI_API_KEY|PERPLEXITY_API_KEY/.test(apiKeyName)) return null;
-	return `The configured research provider (${normalizedProvider}) is unavailable because ${apiKeyName} is not configured.`;
+	return 'Live research is temporarily unavailable.';
 }
 
 function publicIssueLabel(item: EvidenceObject): string {
