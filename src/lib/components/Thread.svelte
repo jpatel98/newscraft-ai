@@ -3,7 +3,7 @@
 		import { contentText } from '$lib/types';
 		import Copy from 'lucide-svelte/icons/copy';
 		import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
-		import MessageText from './MessageText.svelte';
+		import Markdown from './Markdown.svelte';
 		import ToolActivity from './ToolActivity.svelte';
 		import PlanTimeline from './PlanTimeline.svelte';
 		import { chat } from '$lib/stores/chat.svelte';
@@ -205,7 +205,7 @@
 							   ToolActivity card below shows the live "Drafting answer" pulse.
 							   That avoids two pulses competing for the same moment. -->
 						{:else if m.role === 'assistant'}
-							<MessageText content={textOf(m.content)} />
+							<Markdown content={textOf(m.content)} partial={m.streaming} assistant />
 							{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 							{#if m.partial && !m.streaming}
 								<span
