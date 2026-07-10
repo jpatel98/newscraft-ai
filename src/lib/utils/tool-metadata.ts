@@ -53,6 +53,24 @@ export interface ParsedToolMetadata {
 	sources: PersistedSource[];
 }
 
+export interface DisplaySourceReceipt {
+	url: string;
+	label: string;
+	domain: string;
+}
+
+export interface SourceReceiptInput {
+	id?: string;
+	url?: string;
+	title?: string;
+	status?: string;
+	domain?: string;
+	detail?: string;
+	firstSeenAt?: number;
+	lastSeenAt?: number;
+	used?: boolean;
+}
+
 const SENSITIVE_KEY_RE = /authorization|cookie|token|secret|password|credential|api[_-]?key|database[_-]?url|session/i;
 const REDACT_TEXT_PATTERNS: Array<[RegExp, string]> = [
 	[/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]'],
@@ -63,6 +81,13 @@ const REDACT_TEXT_PATTERNS: Array<[RegExp, string]> = [
 const MAX_PROVENANCE_STRING = 4000;
 const MAX_PROVENANCE_ARRAY = 50;
 const MAX_PROVENANCE_DEPTH = 6;
+const MAX_SOURCE_LABEL = 120;
+const SOURCE_LINK_RE = /\[[^\]]*?\]\(([^)\s]+)(?:\s+['"][^'"]*['"])?\)|<((?:https?:\/\/)[^>\s]+)>|((?:https?:\/\/)[^\s<>)\]]+)/gi;
+const SENSITIVE_QUERY_RE = /token|secret|password|credential|session|auth|api[_-]?key|access[_-]?key|signature|sig/i;
+const TRACKING_QUERY_RE = /^(utm_|fbclid$|gclid$|mc_[a-z_]+$)/i;
+const TECHNICAL_LABEL_RE =
+	/(?:^|[_\s-])(?:openai|perplexity|sonar|model|provider|tool|call|adapter|gateway|response|metadata|json|http|fetch|browse|search|url_fetch|web_search)(?:$|[_\s-])/i;
+const ID_LIKE_LABEL_RE = /^(?:src|source|tool|call|run|job|msg|message|step)[_-]?[a-z0-9_-]{4,}$/i;
 
 function objectValue(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === 'object' && !Array.isArray(value)
@@ -127,9 +152,12 @@ function sanitizeTool(tool: StreamToolCall): StreamToolCall {
 }
 
 function sanitizeSource(source: PersistedSource): PersistedSource {
+	const url = sanitizeSourceUrl(source.url) ?? source.url;
 	return {
 		...source,
+		url,
 		title: compactProvenanceString(redactSensitiveText(source.title)),
+		domain: domainOf(url),
 		detail: source.detail ? compactProvenanceString(redactSensitiveText(source.detail)) : undefined
 	};
 }
@@ -140,6 +168,58 @@ function domainOf(url: string): string {
 	} catch {
 		return url;
 	}
+}
+
+function sanitizeSourceUrl(value: string): string | null {
+	try {
+		const url = new URL(value.trim());
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+		url.username = '';
+		url.password = '';
+		url.hash = '';
+		for (const key of Array.from(url.searchParams.keys())) {
+			if (SENSITIVE_QUERY_RE.test(key) || TRACKING_QUERY_RE.test(key)) {
+				url.searchParams.delete(key);
+			}
+		}
+		return url.toString();
+	} catch {
+		return null;
+	}
+}
+
+function sourceUrlKey(value: string): string | null {
+	const sanitized = sanitizeSourceUrl(value);
+	if (!sanitized) return null;
+	try {
+		const url = new URL(sanitized);
+		const pathname = url.pathname.replace(/\/$/, '') || '/';
+		const search = url.searchParams.toString();
+		return `${url.protocol}//${url.hostname.toLowerCase()}${url.port ? `:${url.port}` : ''}${pathname}${search ? `?${search}` : ''}`;
+	} catch {
+		return sanitized.toLowerCase();
+	}
+}
+
+function sourceStatusIsUsed(status: string | undefined): boolean {
+	const value = (status || '').toLowerCase();
+	if (['queued', 'pending', 'discovered', 'result', 'search_result', 'skipped', 'error'].includes(value)) {
+		return false;
+	}
+	return [
+		'open',
+		'opened',
+		'fetch',
+		'fetched',
+		'reading',
+		'read',
+		'used',
+		'done',
+		'ok',
+		'complete',
+		'completed',
+		'success'
+	].includes(value);
 }
 
 function normalizeTool(value: unknown, fallbackId: string): StreamToolCall | null {
@@ -166,19 +246,21 @@ function normalizeTool(value: unknown, fallbackId: string): StreamToolCall | nul
 function normalizeSource(value: unknown): PersistedSource | null {
 	const o = objectValue(value);
 	const url = stringValue(o?.url);
-	if (!o || !url || !/^https?:\/\//i.test(url)) return null;
+	const sanitizedUrl = url ? sanitizeSourceUrl(url) : null;
+	if (!o || !sanitizedUrl) return null;
 	const now = Date.now();
 	const stepId = stringValue(o.stepId);
+	const status = stringValue(o.status) ?? 'used';
 	return {
-		id: stringValue(o.id) ?? url,
-		url,
-		title: stringValue(o.title) ?? url,
-		status: stringValue(o.status) ?? 'used',
-		domain: stringValue(o.domain) ?? domainOf(url),
+		id: stringValue(o.id) ?? sanitizedUrl,
+		url: sanitizedUrl,
+		title: stringValue(o.title) ?? sanitizedUrl,
+		status,
+		domain: domainOf(sanitizedUrl),
 		detail: stringValue(o.detail),
 		firstSeenAt: numberValue(o.firstSeenAt) ?? numberValue(o.updatedAt) ?? now,
 		lastSeenAt: numberValue(o.lastSeenAt) ?? numberValue(o.updatedAt) ?? now,
-		used: o.used === true,
+		used: o.used === true || (o.used !== false && sourceStatusIsUsed(status)),
 		...(stepId ? { stepId } : {})
 	};
 }
@@ -298,6 +380,35 @@ export function usedSources(sources: PersistedSource[]): PersistedSource[] {
 		.sort((a, b) => a.firstSeenAt - b.firstSeenAt);
 }
 
+export function sourceReceiptsForAnswer(
+	raw: string | null | undefined,
+	answerText: string,
+	liveSources: ReadonlyArray<SourceReceiptInput> = []
+): DisplaySourceReceipt[] {
+	if (!answerText.trim()) return [];
+	const linked = linkedUrlKeys(answerText);
+	const parsedSources = usedSources(parseToolMetadata(raw).sources);
+	const live = liveSources
+		.map((source) => normalizeSource(source))
+		.filter((source): source is PersistedSource => Boolean(source))
+		.filter((source) => source.used);
+	const receipts = new Map<string, DisplaySourceReceipt>();
+
+	for (const source of [...parsedSources, ...live]) {
+		const key = sourceUrlKey(source.url);
+		if (!key || linked.has(key) || receipts.has(key)) continue;
+		const url = sanitizeSourceUrl(source.url);
+		if (!url) continue;
+		receipts.set(key, {
+			url,
+			label: humanSourceLabel(source),
+			domain: domainOf(url)
+		});
+	}
+
+	return Array.from(receipts.values());
+}
+
 export function sourceContextForFollowup(raw: string | null | undefined, limit = 6): string {
 	const sources = usedSources(parseToolMetadata(raw).sources).slice(0, limit);
 	if (!sources.length) return '';
@@ -317,4 +428,50 @@ function compactSourceContextText(value: string, maxLength: number): string {
 	const cleaned = value.replace(/\s+/g, ' ').trim();
 	if (cleaned.length <= maxLength) return cleaned;
 	return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
+}
+
+function linkedUrlKeys(text: string): Set<string> {
+	const keys = new Set<string>();
+	for (const match of text.matchAll(SOURCE_LINK_RE)) {
+		const raw = match[1] || match[2] || match[3] || '';
+		const key = sourceUrlKey(stripTrailingUrlPunctuation(raw));
+		if (key) keys.add(key);
+	}
+	return keys;
+}
+
+function stripTrailingUrlPunctuation(value: string): string {
+	return value.replace(/[.,;:!?]+$/g, '');
+}
+
+function humanSourceLabel(source: PersistedSource): string {
+	const title = cleanSourceLabel(source.title);
+	if (title && !labelLooksTechnical(title) && !labelLooksLikeUrl(title)) return title;
+	const domain = cleanSourceLabel(source.domain) || domainOf(source.url);
+	return domain || 'Source';
+}
+
+function cleanSourceLabel(value: string | undefined): string {
+	if (!value) return '';
+	return compactSourceContextText(
+		redactSensitiveText(value)
+			.replace(/<[^>]*>/g, ' ')
+			.replace(/[`*_#[\](){}]/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim(),
+		MAX_SOURCE_LABEL
+	);
+}
+
+function labelLooksLikeUrl(value: string): boolean {
+	return /^https?:\/\//i.test(value) || /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+}
+
+function labelLooksTechnical(value: string): boolean {
+	const compact = value.trim();
+	if (!compact) return true;
+	if (ID_LIKE_LABEL_RE.test(compact)) return true;
+	if (TECHNICAL_LABEL_RE.test(` ${compact} `)) return true;
+	if (/^[{[]/.test(compact)) return true;
+	return false;
 }

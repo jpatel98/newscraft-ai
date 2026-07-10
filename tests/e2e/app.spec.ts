@@ -434,3 +434,106 @@ test.describe('plan timeline UI', () => {
 		expect(problems).toEqual([]);
 	});
 });
+
+test.describe('persisted answer sources', () => {
+	test.beforeAll(async ({ request }) => {
+		await ensureTestAccount(request);
+	});
+
+	test('renders sanitized source receipts after reloading a conversation', async ({ page }) => {
+		const problems = await collectPageProblems(page);
+
+		await signIn(page);
+
+		const seedRes = await page.request.post('/api/e2e/seed-conversation', {
+			data: {
+				secret: e2eSecret,
+				password,
+				userMessage: 'What is the latest on the Bank of Canada?',
+				assistantMessage:
+					'The Bank of Canada held its policy rate steady according to an inline citation [already linked](https://example.com/already-linked).',
+				assistantToolCalls: {
+					version: 1,
+					tools: [{ id: 'call_internal_123456', name: 'openai_web_search', status: 'ok' }],
+					sources: [
+						{
+							id: 'source_internal_1',
+							url: 'https://example.com/already-linked',
+							title: 'Already linked source',
+							domain: 'example.com',
+							status: 'used',
+							firstSeenAt: 1000,
+							lastSeenAt: 1100,
+							used: true
+						},
+						{
+							id: 'source_internal_2',
+							url: 'https://user:pass@news.example.com/story?token=private&utm_source=e2e#section',
+							title: 'Reuters Canada update',
+							domain: 'news.example.com',
+							status: 'read',
+							firstSeenAt: 1200,
+							lastSeenAt: 1300,
+							used: true
+						},
+						{
+							id: 'source_internal_3',
+							url: 'https://internal.example.com/source',
+							title: 'openai_web_search',
+							domain: 'internal.example.com',
+							status: 'used',
+							firstSeenAt: 1300,
+							lastSeenAt: 1400,
+							used: true
+						},
+						{
+							id: 'source_internal_4',
+							url: 'javascript:alert(1)',
+							title: 'Invalid source',
+							domain: 'bad.example',
+							status: 'used',
+							firstSeenAt: 1400,
+							lastSeenAt: 1500,
+							used: true
+						}
+					]
+				}
+			},
+			headers: { 'content-type': 'application/json' }
+		});
+		if (!seedRes.ok()) throw new Error(`seed-conversation: ${seedRes.status()} ${await seedRes.text()}`);
+		const { id: convId } = (await seedRes.json()) as { id: string };
+
+		await page.goto(`/c/${convId}`);
+		await expect(page.getByText('The Bank of Canada held its policy rate steady')).toBeVisible();
+
+		const disclosure = page.locator('[data-testid="message-sources"]').first();
+		await expect(disclosure).toBeVisible();
+		await disclosure.locator('summary').click();
+		await expect(disclosure.getByRole('link', { name: 'Reuters Canada update' })).toHaveAttribute(
+			'href',
+			'https://news.example.com/story'
+		);
+		await expect(disclosure.getByRole('link', { name: 'internal.example.com' })).toBeVisible();
+		await expect(disclosure.getByRole('link', { name: 'Already linked source' })).toHaveCount(0);
+
+		let disclosureText = await disclosure.innerText();
+		expect(disclosureText).not.toMatch(/openai_web_search|call_internal|source_internal|javascript|token=|user:pass/i);
+
+		await page.reload();
+		await expect(page.getByText('The Bank of Canada held its policy rate steady')).toBeVisible();
+		const reloadedDisclosure = page.locator('[data-testid="message-sources"]').first();
+		await expect(reloadedDisclosure).toBeVisible();
+		await reloadedDisclosure.locator('summary').click();
+		await expect(reloadedDisclosure.getByRole('link', { name: 'Reuters Canada update' })).toHaveAttribute(
+			'href',
+			'https://news.example.com/story'
+		);
+
+		disclosureText = await reloadedDisclosure.innerText();
+		expect(disclosureText).not.toMatch(/openai_web_search|call_internal|source_internal|javascript|token=|user:pass/i);
+
+		await expectNoTechnicalLeakage(page);
+		expect(problems).toEqual([]);
+	});
+});
