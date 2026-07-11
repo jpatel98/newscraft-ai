@@ -54,17 +54,31 @@ export async function getAccount(id: string): Promise<AccountRow | undefined> {
 	return row;
 }
 
-export async function createPasswordOnlyAccount(password: string): Promise<AccountRow> {
+export async function getAccountByEmail(email: string): Promise<AccountRow | undefined> {
+	const [row] = (await db.select().from(accounts).where(eq(accounts.email, email)).limit(1)) as AccountRow[];
+	return row;
+}
+
+export async function createAccount(input: {
+	email: string;
+	name: string;
+	password: string;
+}): Promise<AccountRow> {
+	return insertAccount(input);
+}
+
+async function insertAccount(
+	input: { email: string; name: string; password: string },
+	id = newId()
+): Promise<AccountRow> {
 	const firstAccount = (await accountCount()) === 0;
-	const id = newId();
-	const email = generatedAccountEmail(id);
 	const now = Date.now();
 	const row: AccountRow = {
 		id,
-		email,
-		name: generatedAccountLabel(email),
+		email: input.email,
+		name: input.name,
 		role: firstAccount ? 'admin' : 'member',
-		passwordHash: await hashPassword(password),
+		passwordHash: await hashPassword(input.password),
 		setupTokenHash: null,
 		setupTokenExpiresAt: null,
 		createdAt: now,
@@ -76,6 +90,12 @@ export async function createPasswordOnlyAccount(password: string): Promise<Accou
 	await ensureDefaultOrganizationForAccount(row.id, firstAccount ? 'owner' : 'member');
 	if (firstAccount) await claimOrphanAccountData(row.id);
 	return row;
+}
+
+export async function createPasswordOnlyAccount(password: string): Promise<AccountRow> {
+	const id = newId();
+	const email = generatedAccountEmail(id);
+	return insertAccount({ email, name: generatedAccountLabel(email), password }, id);
 }
 
 export async function createPasswordOnlyInvite(): Promise<{
@@ -157,6 +177,16 @@ export async function findAccountByPassword(password: string): Promise<AccountRo
 		if (await verifyHash(account.passwordHash, password)) return account;
 	}
 	return undefined;
+}
+
+export async function findAccountByEmailAndPassword(
+	email: string,
+	password: string
+): Promise<AccountRow | undefined> {
+	if (!email || !password) return undefined;
+	const account = await getAccountByEmail(email);
+	if (!account?.passwordHash || !(await verifyHash(account.passwordHash, password))) return undefined;
+	return account;
 }
 
 export async function updateAccountPassword(accountId: string, password: string): Promise<void> {

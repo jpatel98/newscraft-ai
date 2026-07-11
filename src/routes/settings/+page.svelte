@@ -98,8 +98,8 @@
 		}).format(new Date(ms));
 	}
 
-	function accountLabel(account: { isCurrent?: boolean }, index: number) {
-		return account.isCurrent ? 'Current account' : `Account ${index + 1}`;
+	function accountLabel(account: { isCurrent?: boolean; name: string }, index: number) {
+		return account.name || (account.isCurrent ? 'Current account' : `Account ${index + 1}`);
 	}
 
 	// --- Newsroom context ---
@@ -356,6 +356,7 @@
 										{/if}
 									</div>
 									<div class="account-row__meta">
+										<span>{account.email}</span>
 										<span>{account.status === 'active' ? 'Active' : 'Pending setup'}</span>
 										<span>Last login: {formatDate(account.lastLoginAt)}</span>
 									</div>

@@ -353,12 +353,22 @@ test.describe.serial('NewsCraft app shell', () => {
 				await expect(page).toHaveTitle(/Sign in/i);
 				await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
 				await expect(
-					page.getByText('New access is created by an admin setup link.')
+					page.getByText('Sign in to continue your newsroom research.')
 				).toBeVisible();
-				await expect(page.getByRole('link', { name: /create account/i })).toHaveCount(0);
+				await expect(page.getByRole('link', { name: /create an account/i })).toBeVisible();
 				await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
 				await page.goto('/signup');
-				await expect(page).toHaveURL(/\/login$/);
+				await expect(page).toHaveURL(/\/signup$/);
+				await expect(page.getByRole('heading', { name: 'Create your account.' })).toBeVisible();
+				await expect(page.getByLabel('Full name')).toBeVisible();
+				await expect(page.getByLabel('Email')).toBeVisible();
+				await page.getByLabel('Full name').fill('Friend Reporter');
+				await page.getByLabel('Email').fill(`friend-${Date.now()}@example.test`);
+				await page.getByLabel('Password', { exact: true }).fill('friend password 123');
+				await page.getByLabel('Confirm password').fill('friend password 123');
+				await page.getByRole('button', { name: 'Create account' }).click();
+				await expect(page).toHaveURL(/\/$/);
+				await expectChatStartHome(page);
 				// /setup must not be accessible when accounts exist
 				await page.goto('/setup');
 				await expect(page).toHaveURL(/\/(login)?$/);

@@ -54,6 +54,10 @@ rebuilt for that.
 - `/settings` — account + app settings, including organization-scoped newsroom
   timezone, home market, and preferred domains.
 - `/login`, `/signup`, `/setup`, `/account-setup/[token]` — auth/setup pages.
+  `/signup` is public once the first account exists: users create a name,
+  email, and password, then receive a session immediately. Login accepts
+  email plus password for new accounts and retains password-only compatibility
+  for older setup-link accounts.
 - `/logout` — auth sign-out endpoint.
 
 No tracked page routes exist beyond these. `ENABLE_MISSIONS` no longer exists
