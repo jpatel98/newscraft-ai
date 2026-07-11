@@ -37,6 +37,7 @@ export interface GatewayHealthResponse {
 		reports: boolean;
 		memory: boolean;
 		savedResearch: boolean;
+		documents?: boolean;
 		scheduler: boolean;
 		persistence: 'sqlite' | 'sqlite+postgres' | 'sqlite+supabase' | 'stateless';
 	};

@@ -137,6 +137,22 @@ export class JobRunner {
 			}
 			return;
 		}
+		if (event.type === 'citations') {
+			this.repository.appendEvent({
+				runId,
+				jobId,
+				agent: 'citation_integrity',
+				kind: 'citations.resolved',
+				payload: {
+					count: event.citations.length,
+					primaryCount: event.citations.filter((citation) =>
+						['official', 'primary', 'user_document'].includes(citation.sourceType)
+					).length,
+					unknownDateCount: event.citations.filter((citation) => !citation.publicationDate).length
+				}
+			});
+			return;
+		}
 		const source = event.source;
 		this.repository.storeSource({
 			runId,

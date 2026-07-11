@@ -553,6 +553,27 @@ describe('StreamEventState', () => {
 		).toEqual([{ done: true }]);
 	});
 
+	it('collects ordered structured citation events without truncation', () => {
+		const state = new StreamEventState();
+		const citations = Array.from({ length: 10 }, (_, index) => ({
+			citationNumber: index + 1,
+			title: `Evidence ${index + 1}`,
+			url: `https://example.com/${index + 1}`,
+			domain: 'example.com',
+			publicationDate: index === 9 ? null : '2026-07-10',
+			sourceType: index === 0 ? 'official' : 'news_report',
+			supportingExcerpt: `Excerpt ${index + 1}`
+		}));
+
+		const updates = state.apply('agent.citations', JSON.stringify({ citations }));
+
+		expect(updates).toHaveLength(1);
+		expect(updates[0].citations).toHaveLength(10);
+		expect(state.citationList().map((citation) => citation.citationNumber)).toEqual([
+			1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+		]);
+	});
+
 	it('formats SSE frames without changing event names', () => {
 		expect(sseFrame('agent.tool.progress', '{"ok":true}')).toBe(
 			'event: agent.tool.progress\ndata: {"ok":true}\n\n'

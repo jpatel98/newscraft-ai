@@ -77,7 +77,44 @@ describe('newsroom agent runtime', () => {
 
 		expect(answer).toContain('three recurring segments');
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+		const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+		expect(body).not.toHaveProperty('disable_search');
 		expect(progress).toEqual([]);
+	});
+
+	it('disables Sonar search for direct answer transformations', async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: 'Producer brief: confirmed facts remain attributed [1].' } }]
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: ''
+		});
+
+		const answer = await runtime.completeChat([
+			{
+				role: 'user',
+				content: 'Turn the previous answer into a producer brief without researching again.'
+			}
+		]);
+
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+		const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+		expect(answer).toContain('Producer brief');
+		expect(body.disable_search).toBe(true);
+		expect(body).not.toHaveProperty('tools');
 	});
 
 	it('keeps current newsroom prompts on the research tool path', async () => {
@@ -102,17 +139,72 @@ describe('newsroom agent runtime', () => {
 			}
 		);
 
-			expect(answer).toContain('Latest Canada story');
-			expect(progress.some((event) => event.type === 'tool' && event.name === 'openai_web_search')).toBe(true);
-			expect(
-				progress.some(
-					(event) =>
-						event.type === 'source' &&
-						event.source.url === 'https://example.com/story' &&
-						event.source.used
-				)
-			).toBe(true);
+		expect(answer).toContain('Latest Canada story');
+		expect(progress.some((event) => event.type === 'tool' && event.name === 'openai_web_search')).toBe(true);
+		expect(
+			progress.some(
+				(event) =>
+					event.type === 'source' &&
+					event.source.url === 'https://example.com/story' &&
+					event.source.used
+			)
+		).toBe(true);
+	});
+
+	it('keeps structured newsroom context out of the routed tool query', async () => {
+		let receivedQuery = '';
+		const registry = new ToolRegistry();
+		registry.register({
+			name: 'openai_web_search',
+			description: 'web fixture',
+			when_to_use: 'test only',
+			category: 'web_search_provider',
+			input_schema: { type: 'object' },
+			output_schema: { type: 'object' },
+			async run(input) {
+				receivedQuery = String((input as { query?: string }).query || '');
+				return {
+					status: 'ok',
+					answer: 'The transit agency posted an update [1].',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'Transit agency',
+							source_url: 'https://transit.example.gov/update',
+							tool_used: 'openai_web_search',
+							title: 'Service update',
+							extracted_text: 'Service changes begin tonight.',
+							summary: 'Service changes begin tonight.',
+							confidence: 0.9,
+							limitations: [],
+							source_kind: 'official',
+							citation_number: 1
+						})
+					]
+				};
+			}
 		});
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			registry
+		});
+		const question = 'What is the latest transit update today?';
+
+		await runtime.completeChat([{ role: 'user', content: question }], {
+			plannerEnabled: false,
+			newsroomContext: {
+				timezone: 'America/Vancouver',
+				homeMarket: 'Vancouver',
+				preferredDomains: ['transit.example.gov']
+			}
+		});
+
+		expect(receivedQuery).toBe(question);
+	});
 
 	it('routes the current user question without letting system tool guidance hijack it', async () => {
 		const registry = new ToolRegistry();
@@ -160,6 +252,179 @@ describe('newsroom agent runtime', () => {
 		expect(
 			progress.some((event) => event.type === 'tool' && event.name === 'browser_automation_provider')
 		).toBe(false);
+	});
+
+	it('treats attached pages as document evidence and emits resolvable page citations', async () => {
+		const registry = new ToolRegistry();
+		registry.register({
+			name: 'pdf_text_extractor',
+			description: 'document fixture',
+			when_to_use: 'test only',
+			category: 'pdf_text_extractor',
+			input_schema: { type: 'object' },
+			output_schema: { type: 'object' },
+			async run(_input, context) {
+				const document = context.documents?.[0];
+				const page = document?.pages[0];
+				return {
+					status: 'ok',
+					evidence: [
+						normalizeEvidence({
+							source_name: document?.filename || 'memo.pdf',
+							source_url: `${document?.downloadUrl || '/api/document'}#page=${page?.pageNumber || 1}`,
+							tool_used: 'pdf_text_extractor',
+							title: `${document?.filename || 'memo.pdf'}, page ${page?.pageNumber || 1}`,
+							extracted_text: page?.text || '',
+							summary: page?.text || '',
+							confidence: 0.9,
+							limitations: ['User-provided document; not independently verified.'],
+							source_kind: 'user_document',
+							citation_number: 1,
+							document_page: page?.pageNumber || 1
+						})
+					]
+				};
+			}
+		});
+		const progress: RuntimeProgressEvent[] = [];
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			registry
+		});
+
+		const answer = await runtime.completeChat([{ role: 'user', content: 'Summarize this.' }], {
+			plannerEnabled: false,
+			documents: [
+				{
+					id: 'doc_1',
+					filename: 'memo.pdf',
+					downloadUrl: '/api/conversations/convo/documents/doc_1/download',
+					pageCount: 2,
+					pages: [{ pageNumber: 2, text: 'The memo allocates $4 million to transit safety.' }]
+				}
+			],
+			onProgress: (event) => progress.push(event)
+		});
+
+		expect(answer).toContain('allocates $4 million');
+		expect(answer).toContain('[1]');
+		expect(
+			progress.find((event) => event.type === 'citations')
+		).toMatchObject({
+			type: 'citations',
+			citations: [
+				{
+					citationNumber: 1,
+					sourceType: 'user_document',
+					documentPage: 2
+				}
+			]
+		});
+	});
+
+	it('keeps web and attached-document citation numbers distinct during corroboration', async () => {
+		const registry = new ToolRegistry();
+		registry.register({
+			name: 'pdf_text_extractor',
+			description: 'document fixture',
+			when_to_use: 'test only',
+			category: 'pdf_text_extractor',
+			input_schema: { type: 'object' },
+			output_schema: { type: 'object' },
+			async run() {
+				return {
+					status: 'ok',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'memo.pdf',
+							source_url: '/api/conversations/convo/documents/doc_1/download#page=1',
+							tool_used: 'pdf_text_extractor',
+							title: 'memo.pdf, page 1',
+							extracted_text: 'The memo says the program begins Monday.',
+							summary: 'The memo says the program begins Monday.',
+							confidence: 0.9,
+							limitations: [],
+							source_kind: 'user_document',
+							citation_number: 1,
+							document_page: 1
+						})
+					]
+				};
+			}
+		});
+		registry.register({
+			name: 'openai_web_search',
+			description: 'official web fixture',
+			when_to_use: 'test only',
+			category: 'web_search_provider',
+			input_schema: { type: 'object' },
+			output_schema: { type: 'object' },
+			async run() {
+				return {
+					status: 'ok',
+					answer: 'The official notice confirms the Monday start. [1]',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'City notice',
+							source_url: 'https://city.example.gov/notice',
+							tool_used: 'openai_web_search',
+							title: 'Official notice',
+							extracted_text: 'The program begins Monday.',
+							summary: 'The program begins Monday.',
+							confidence: 0.9,
+							limitations: [],
+							source_kind: 'official',
+							citation_number: 1
+						})
+					]
+				};
+			}
+		});
+		const progress: RuntimeProgressEvent[] = [];
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 2,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			registry
+		});
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: 'Verify this attached document against external sources.' }],
+			{
+				plannerEnabled: false,
+				documents: [
+					{
+						id: 'doc_1',
+						filename: 'memo.pdf',
+						downloadUrl: '/api/conversations/convo/documents/doc_1/download',
+						pageCount: 1,
+						pages: [{ pageNumber: 1, text: 'The memo says the program begins Monday.' }]
+					}
+				],
+				onProgress: (event) => progress.push(event)
+			}
+		);
+
+		expect(answer).toContain('official notice confirms');
+		expect(answer).toContain('[1]');
+		expect(answer).toContain('Attached document evidence');
+		expect(answer).toContain('[2]');
+		const citations = progress.find((event) => event.type === 'citations');
+		expect(citations).toMatchObject({
+			type: 'citations',
+			citations: [
+				{ citationNumber: 1, sourceType: 'official' },
+				{ citationNumber: 2, sourceType: 'user_document', documentPage: 1 }
+			]
+		});
 	});
 
 		it('asks for clarification on ambiguous follow-ups without prior context', async () => {
@@ -234,6 +499,40 @@ describe('newsroom agent runtime', () => {
 		expect(prompt).toContain('Interpret relative date phrases');
 		expect(prompt).toContain('Current user question:');
 		expect(prompt).toContain('what are the fifa games played in toronto today');
+	});
+
+	it('enforces one local Current as of label on current-event answers', async () => {
+		const registry = new ToolRegistry();
+		registry.register(
+			stubRuntimeTool(
+				'openai_web_search',
+				'web_search_provider',
+				'The fixture answer reports the latest confirmed development [1].'
+			)
+		);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			registry
+		});
+		const messages = [{ role: 'user' as const, content: 'What are the latest confirmed stories today?' }];
+		const context = {
+			plannerEnabled: false,
+			newsroomContext: { timezone: 'America/Vancouver' }
+		};
+
+		const answer = await runtime.completeChat(messages, context);
+		expect(answer).toMatch(/^\*\*Current as of:\*\*/);
+		expect(answer.match(/Current as of/g)).toHaveLength(1);
+
+		let streamed = '';
+		for await (const delta of runtime.streamChat(messages, context)) streamed += delta;
+		expect(streamed).toMatch(/^\*\*Current as of:\*\*/);
+		expect(streamed.match(/Current as of/g)).toHaveLength(1);
 	});
 
 	it('builds a bounded follow-up prompt from recent conversation context', () => {

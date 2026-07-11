@@ -6,6 +6,7 @@ import type {
 import {
 	SSE_DONE_FRAME,
 	chatCompletionDeltaFrame,
+	agentCitationsFrame,
 	agentPlanFrame,
 	agentToolProgressFrame,
 	sseFrame
@@ -37,6 +38,8 @@ export async function writeChatCompletion(
 			model,
 			reasoningEffort: body.reasoning_effort,
 			plannerEnabled: body.planner_enabled,
+			newsroomContext: body.newsroom_context,
+			documents: body.documents,
 			onProgress: (event) => writeProgress(res, event)
 		})) {
 			if (signal.aborted) break;
@@ -47,14 +50,16 @@ export async function writeChatCompletion(
 		return;
 	}
 
-		const text = cleanVisibleChatOutput(
-			await runtime.completeChat(body.messages || [], {
-				signal,
-				runId: traceId,
-				model,
-				reasoningEffort: body.reasoning_effort,
-				plannerEnabled: body.planner_enabled
-			}),
+	const text = cleanVisibleChatOutput(
+		await runtime.completeChat(body.messages || [], {
+			signal,
+			runId: traceId,
+			model,
+			reasoningEffort: body.reasoning_effort,
+			plannerEnabled: body.planner_enabled,
+			newsroomContext: body.newsroom_context,
+			documents: body.documents
+		}),
 		prompt
 	);
 	const response: GatewayChatCompletionResponse = {
@@ -95,6 +100,8 @@ export async function writeResponses(
 			runId: traceId,
 			model,
 			reasoningEffort: body.reasoning_effort,
+			newsroomContext: body.newsroom_context,
+			documents: body.documents,
 			onProgress: (event) => writeProgress(res, event)
 		})) {
 			if (signal.aborted) break;
@@ -119,13 +126,15 @@ export async function writeResponses(
 		return;
 	}
 
-		const text = cleanVisibleChatOutput(
-			await runtime.completeChat(messages, {
-				signal,
-				runId: traceId,
-				model,
-				reasoningEffort: body.reasoning_effort
-			}),
+	const text = cleanVisibleChatOutput(
+		await runtime.completeChat(messages, {
+			signal,
+			runId: traceId,
+			model,
+			reasoningEffort: body.reasoning_effort,
+			newsroomContext: body.newsroom_context,
+			documents: body.documents
+		}),
 		prompt
 	);
 	res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -142,6 +151,10 @@ export async function writeResponses(
 }
 
 function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {
+	if (event.type === 'citations') {
+		res.write(agentCitationsFrame({ citations: event.citations }));
+		return;
+	}
 	if (event.type === 'plan') {
 		res.write(agentPlanFrame({ source: event.planSource, steps: event.steps }));
 		return;

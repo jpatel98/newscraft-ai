@@ -13,7 +13,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { findAccountByPassword } from '$lib/server/db/accounts';
-import { createConversation, addMessage } from '$lib/server/db/conversations';
+import { createConversation, addMessage, getConversation } from '$lib/server/db/conversations';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const secret = env.E2E_SECRET ?? '';
@@ -25,6 +25,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		userMessage?: string;
 		assistantMessage?: string;
 		assistantToolCalls?: unknown;
+		conversationId?: string;
 	};
 	try {
 		body = (await request.json()) as {
@@ -33,6 +34,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			userMessage?: string;
 			assistantMessage?: string;
 			assistantToolCalls?: unknown;
+			conversationId?: string;
 		};
 	} catch {
 		throw error(400, 'invalid json');
@@ -46,8 +48,10 @@ export const POST: RequestHandler = async ({ request }) => {
 	const account = await findAccountByPassword(password);
 	if (!account) throw error(404, 'account not found');
 
-	// Create a new conversation for the test account
-	const conversation = await createConversation(account.id);
+	const conversation = body.conversationId
+		? await getConversation(account.id, body.conversationId)
+		: await createConversation(account.id);
+	if (!conversation) throw error(404, 'conversation not found');
 
 	// Seed a prior user + assistant exchange so the thread is not empty.
 	// After the intercepted stream ends and invalidateAll() re-fetches, these

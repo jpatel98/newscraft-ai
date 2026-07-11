@@ -1,0 +1,9 @@
+export const DOCUMENT_BUCKET = 'newsroom-documents';
+export const PDF_MIME_TYPE = 'application/pdf';
+export const MAX_DOCUMENTS_PER_UPLOAD = 3;
+export const MAX_PDF_BYTES = 20 * 1024 * 1024;
+export const MAX_PDF_PAGES = 250;
+export const FULL_DOCUMENT_PAGE_LIMIT = 25;
+export const DOCUMENT_CONTEXT_CHAR_LIMIT = 24_000;
+export const DOCUMENT_CONTEXT_MATCH_LIMIT = 6;
+export const SIGNED_DOWNLOAD_TTL_SECONDS = 60;

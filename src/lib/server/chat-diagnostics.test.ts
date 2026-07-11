@@ -21,16 +21,17 @@ describe('chat diagnostics', () => {
 		dbMocks.saveChatDiagnostic.mockResolvedValue(undefined);
 	});
 
-	it('redacts sensitive fields and sensitive-looking text', () => {
+	it('redacts sensitive fields, raw errors, and content-like diagnostic values', () => {
 		expect(sanitizeDiagnosticValue('authorization', 'Bearer abc123')).toBe('[redacted]');
+		expect(sanitizeDiagnosticValue('error', 'private PDF page text')).toBe('[redacted]');
+		expect(sanitizeDiagnosticValue('detail', 'private PDF page text')).toBe('[redacted]');
+		expect(sanitizeDiagnosticValue('document_text', 'private PDF page text')).toBe('[redacted]');
 		expect(
 			sanitizeDiagnosticValue(
-				'detail',
+				'status_message',
 				'failed with Bearer abc123 and postgres://user:pass@example.com/db and sk-test12345678'
 			)
-		).toBe(
-			'failed with Bearer [redacted] and [redacted-database-url] and [redacted-api-key]'
-		);
+		).toBe('failed with Bearer [redacted] and [redacted-database-url] and [redacted-api-key]');
 	});
 
 	it('keeps recent events scoped by conversation', () => {

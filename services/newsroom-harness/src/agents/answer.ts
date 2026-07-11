@@ -1,5 +1,10 @@
 import type { ToolBudgetSnapshot } from './budget.js';
-import { assessEvidenceQuality, isUsableEvidence, type EvidenceObject } from './evidence.js';
+import {
+	assessEvidenceQuality,
+	isUsableEvidence,
+	type EvidenceObject,
+	type EvidenceSourceKind
+} from './evidence.js';
 import type { RouteDecision } from './router.js';
 
 export interface AnswerGenerationInput {
@@ -13,7 +18,9 @@ export interface AnswerGenerationInput {
 }
 
 export function generateFinalAnswer(input: AnswerGenerationInput): string {
-	const sortedEvidence = sortEvidenceForPrompt(input.prompt, input.evidence);
+	const answerEvidence =
+		input.outputStyle === 'chat' ? withImplicitCitationNumbers(input.evidence) : input.evidence;
+	const sortedEvidence = sortEvidenceForPrompt(input.prompt, answerEvidence);
 	const evidence = sortedEvidence.filter(isUsableEvidence);
 	const unusableEvidence = sortedEvidence.filter((item) => !isUsableEvidence(item));
 	if (input.decision.selected_mode === 'clarification_needed') {
@@ -42,17 +49,13 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		return chatAnswer(input.prompt, evidence, unusableEvidence, input.limitations, input.toolAnswers || []);
 	}
 
-	const briefItems = evidence.slice(0, 5).map((item) => briefItemFor(item));
+	const briefItems = evidence.map((item) => briefItemFor(item));
 	const lead = leadParagraph(input.prompt, evidence, briefItems);
-	const listedSources = evidence.slice(0, 12);
 	const sourceNotes = [
-		...listedSources.map((item) => {
+		...evidence.map((item) => {
 			const note = sourceNoteFor(item);
 			return `- ${formatSourceLink(item)} - ${kindLabel(item)}; ${publicationDateLabel(item)}.${note ? ` ${note}` : ''}`;
 		}),
-		...(evidence.length > listedSources.length
-			? [`- ${evidence.length - listedSources.length} additional usable sources were recorded and omitted from this compact brief.`]
-			: []),
 		...sourceIssueNotes(unusableEvidence, input.limitations)
 	];
 	const uncertaintyNotes = uncertaintyNotesFor(input.prompt, evidence, unusableEvidence);
@@ -78,9 +81,28 @@ function chatAnswer(
 ): string {
 	const freshest = evidence[0];
 	const rawToolAnswer = toolAnswers.find((item) => item.trim());
-	const answer = rawToolAnswer ? formatChatToolAnswer(prompt, rawToolAnswer) : summaryFor(freshest, 720);
+	const documentEvidence = evidence.filter((item) => item.source_kind === 'user_document');
+	const answer = rawToolAnswer
+		? formatChatToolAnswer(prompt, rawToolAnswer)
+		: documentEvidence.length
+			? documentChatAnswer(documentEvidence)
+			: `${summaryFor(freshest, 720)}${freshest.citation_number ? ` [${freshest.citation_number}]` : ''}`;
 	const caveats = publicCaveatsFor(prompt, evidence, unusableEvidence, limitations, { noUsableEvidence: false });
 	return appendCaveats(answer, caveats);
+}
+
+function withImplicitCitationNumbers(evidence: EvidenceObject[]): EvidenceObject[] {
+	if (evidence.some((item) => item.citation_number != null)) return evidence;
+	return evidence.map((item, index) => ({ ...item, citation_number: index + 1 }));
+}
+
+function documentChatAnswer(evidence: EvidenceObject[]): string {
+	const statements = evidence.slice(0, 6).map((item, index) => {
+		const citationNumber = item.citation_number ?? index + 1;
+		return `${summaryFor(item, 420)} [${citationNumber}]`;
+	});
+	if (statements.length === 1) return statements[0];
+	return ['**Document summary**', '', ...statements.map((statement) => `- ${statement}`)].join('\n');
 }
 
 function formatChatToolAnswer(prompt: string, answer: string): string {
@@ -164,7 +186,9 @@ interface BriefItem {
 
 function leadParagraph(prompt: string, evidence: EvidenceObject[], briefItems: BriefItem[]): string {
 	const official = evidence.filter((item) => item.source_kind === 'official' || item.source_kind === 'primary');
-	const media = evidence.filter((item) => item.source_kind === 'media_report');
+	const media = evidence.filter(
+		(item) => item.source_kind === 'media_report' || item.source_kind === 'news_report'
+	);
 	const newest = evidence[0];
 	const itemCount = briefItems.length;
 	const base =
@@ -189,7 +213,9 @@ function leadParagraph(prompt: string, evidence: EvidenceObject[], briefItems: B
 function uncertaintyNotesFor(prompt: string, evidence: EvidenceObject[], unusableEvidence: EvidenceObject[]): string[] {
 	const notes: string[] = [];
 	const officialCount = evidence.filter((item) => item.source_kind === 'official' || item.source_kind === 'primary').length;
-	const mediaCount = evidence.filter((item) => item.source_kind === 'media_report').length;
+	const mediaCount = evidence.filter(
+		(item) => item.source_kind === 'media_report' || item.source_kind === 'news_report'
+	).length;
 	if (officialCount) notes.push(`- Official or primary source material is available: ${officialCount}.`);
 	if (mediaCount) notes.push(`- Secondary or media source material is available: ${mediaCount}; attribute outlet reporting separately from official statements.`);
 	if (detectPoliceLegalTask(prompt)) {
@@ -243,7 +269,17 @@ function compareEvidencePriority(left: EvidenceObject, right: EvidenceObject): n
 }
 
 function sourcePriority(item: EvidenceObject): number {
-	const priority = { official: 0, primary: 1, internal: 2, media_report: 3, unknown: 4 };
+	const priority: Record<EvidenceSourceKind, number> = {
+		official: 0,
+		primary: 1,
+		user_document: 2,
+		internal: 3,
+		news_report: 4,
+		media_report: 4,
+		commercial: 5,
+		social_post: 6,
+		unknown: 7
+	};
 	return priority[item.source_kind || 'unknown'];
 }
 
@@ -255,7 +291,10 @@ function evidenceTimeMs(item: EvidenceObject): number {
 function kindLabel(item: EvidenceObject): string {
 	if (item.source_kind === 'official') return 'official source';
 	if (item.source_kind === 'primary') return 'primary source';
-	if (item.source_kind === 'media_report') return 'media report';
+	if (item.source_kind === 'media_report' || item.source_kind === 'news_report') return 'news report';
+	if (item.source_kind === 'user_document') return 'user document';
+	if (item.source_kind === 'social_post') return 'social post';
+	if (item.source_kind === 'commercial') return 'commercial source';
 	if (item.source_kind === 'internal') return 'internal NewsCraft source';
 	return 'source';
 }
@@ -556,7 +595,9 @@ function needsPrimaryConfirmation(prompt: string, evidence: EvidenceObject[]): b
 }
 
 function needsExplicitVerificationCaveat(prompt: string): boolean {
-	return /\b(verify|confirm|official|primary|source of truth|what .* officially said)\b/i.test(prompt);
+	return /\b(verify|verification|confirm|official|primary|source of truth|what .* officially said|government|parliament|minister|ministry|department|agency|police|sheriff|court|legal|lawsuit|charges?|arrest|elections?|ballot|vote count|schedule|fixtures?|kick[- ]?off|tip[- ]?off)\b/i.test(
+		prompt
+	);
 }
 
 function appendCaveats(answer: string, caveats: string[]): string {

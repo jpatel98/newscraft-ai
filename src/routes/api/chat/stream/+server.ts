@@ -33,6 +33,9 @@ import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
 import { StreamEventState, sseFrame, type PersistedSource, type StreamToolCall } from '$lib/utils/stream-events';
 import {
 	mergeToolMetadata,
+	citationNumbersInText,
+	parseToolMetadata,
+	resolvedCitationNumbersForAnswer,
 	serializeAnswerProvenance,
 	serializeToolMetadata,
 	sourceContextForFollowup
@@ -47,6 +50,10 @@ import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import { checkRateLimit } from '$lib/server/rate-limit';
 import { saveMessageProvenance } from '$lib/server/db/message-provenance';
 import { newId } from '$lib/utils/id';
+import type { CitationRecord, DocumentContext, NewsroomContext } from '@newscraft/shared';
+import { getNewsroomProfile } from '$lib/server/documents/profiles';
+import { getConversationDocumentService } from '$lib/server/documents/runtime';
+import type { ConversationDocumentService } from '$lib/server/documents/service';
 
 interface Body {
 	conversation_id?: string;
@@ -56,12 +63,31 @@ interface Body {
 	message_id?: string;
 	command?: ChatCommand;
 	trace_id?: string;
+	document_ids?: string[];
+	output_action?: 'producer_brief' | 'thirty_second_script' | 'interview_questions' | 'copy_with_citations';
+	source_message_id?: string;
 }
 
 // Agent caps the request body around 1 MB; keep some headroom for the
 // surrounding JSON envelope, system prompt, and prior turns.
 const MAX_REQUEST_BYTES = 950 * 1024;
 const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
+const OUTPUT_ACTION_PROMPTS: Record<NonNullable<Body['output_action']>, string> = {
+	producer_brief:
+		'Turn the previous answer into a concise producer brief. Preserve confirmed facts, uncertainty, and every citation marker. Do not search for new information.',
+	thirty_second_script:
+		'Turn the previous answer into a broadcast-ready 30-second script. Preserve attribution, uncertainty, and citation markers. Do not search for new information.',
+	interview_questions:
+		'Using only the previous answer, draft focused interview questions that probe the known facts, gaps, and disagreements. Keep relevant citation markers. Do not search for new information.',
+	copy_with_citations:
+		'Rewrite the previous answer as clean publication-ready copy with its existing citation markers intact. Do not add facts or search for new information.'
+};
+const OUTPUT_ACTION_VISIBLE_REQUESTS: Record<NonNullable<Body['output_action']>, string> = {
+	producer_brief: 'Create a producer brief from this answer.',
+	thirty_second_script: 'Turn this answer into a 30-second script.',
+	interview_questions: 'Draft interview questions from this answer.',
+	copy_with_citations: 'Turn this answer into clean copy with citations.'
+};
 
 function sanitizeTraceId(value: string | undefined | null): string | null {
 	const normalized = (value || '').trim();
@@ -179,11 +205,114 @@ function withTraceDetails(details: Record<string, unknown>, traceId: string): Re
 	};
 }
 
+class NewsroomContextUnavailableError extends Error {
+	constructor() {
+		super('newsroom context unavailable');
+		this.name = 'NewsroomContextUnavailableError';
+	}
+}
+
+async function requestResearchContext(input: {
+	conversationId: string;
+	orgId: string | null;
+	accountId: string;
+	documentIds: string[];
+	query: string;
+	traceId: string;
+}): Promise<{ newsroomContext: NewsroomContext; documents: DocumentContext[] }> {
+	let newsroomContext: NewsroomContext = { timezone: 'America/Toronto' };
+	if (input.orgId) {
+		try {
+			const profile = await getNewsroomProfile(input.orgId);
+			if (profile) {
+				newsroomContext = {
+					timezone: profile.timezone,
+					...(profile.homeMarket ? { homeMarket: profile.homeMarket } : {}),
+					...(profile.preferredDomains.length
+						? { preferredDomains: profile.preferredDomains }
+						: {})
+				};
+			}
+		} catch (cause) {
+			recordChatDiagnostic(input.conversationId, 'chat.newsroom_context_error', {
+				trace_id: input.traceId,
+				errorName: cause instanceof Error ? cause.name : 'Error'
+			});
+			throw new NewsroomContextUnavailableError();
+		}
+	}
+	if (!input.documentIds.length) return { newsroomContext, documents: [] };
+
+	const service = getConversationDocumentService();
+	let available: Awaited<ReturnType<typeof service.listDocuments>>;
+	try {
+		available = await service.listDocuments(input.accountId, input.conversationId);
+	} catch {
+		throw error(503, 'PDF research is unavailable right now.');
+	}
+	const requested = input.documentIds.map((id) => available.find((document) => document.id === id));
+	if (requested.some((document) => !document)) throw error(404, 'PDF not found');
+	if (requested.some((document) => document?.state !== 'ready')) {
+		throw error(409, 'PDFs must finish processing before sending');
+	}
+	const pageCounts = new Map(
+		requested.flatMap((document) =>
+			document ? [[document.id, document.pageCount ?? 0] as const] : []
+		)
+	);
+	let context: Awaited<ReturnType<typeof service.buildContext>>;
+	try {
+		context = await service.buildContext({
+			accountId: input.accountId,
+			conversationId: input.conversationId,
+			documentIds: input.documentIds,
+			query: input.query
+		});
+	} catch {
+		throw error(503, 'PDF research is unavailable right now.');
+	}
+	if (!context.pages.length) throw error(409, 'PDFs must finish processing before sending');
+	const grouped = new Map<string, DocumentContext>();
+	for (const page of context.pages) {
+		const existing = grouped.get(page.documentId);
+		const next: DocumentContext = existing ?? {
+			id: page.documentId,
+			filename: page.filename,
+			downloadUrl: `/api/conversations/${input.conversationId}/documents/${page.documentId}/download`,
+			pageCount: pageCounts.get(page.documentId) || page.pageNumber,
+			pages: []
+		};
+		next.pages.push({ pageNumber: page.pageNumber, text: page.text });
+		grouped.set(page.documentId, next);
+	}
+	return { newsroomContext, documents: Array.from(grouped.values()) };
+}
+
+async function validateRequestedDocuments(
+	accountId: string,
+	conversationId: string,
+	documentIds: string[]
+): Promise<void> {
+	let available: Awaited<ReturnType<ConversationDocumentService['listDocuments']>>;
+	try {
+		available = await getConversationDocumentService().listDocuments(accountId, conversationId);
+	} catch {
+		throw error(503, 'PDF research is unavailable right now.');
+	}
+	const requested = documentIds.map((id) => available.find((document) => document.id === id));
+	if (requested.some((document) => !document)) throw error(404, 'PDF not found');
+	if (requested.some((document) => document?.state !== 'ready')) {
+		throw error(409, 'PDFs must finish processing before sending');
+	}
+}
+
 async function persistAnswerProvenance(input: {
 	conversationId: string;
 	messageId: string;
 	tools?: StreamToolCall[];
 	sources?: PersistedSource[];
+	citations?: CitationRecord[];
+	answerText?: string;
 	startedAt: number;
 	endedAt?: number;
 	assistantChars: number;
@@ -206,6 +335,8 @@ async function persistAnswerProvenance(input: {
 				conversationId: input.conversationId,
 				tools: input.tools ?? [],
 				sources: input.sources ?? [],
+				citations: input.citations ?? [],
+				answerText: input.answerText,
 				startedAt: input.startedAt,
 				endedAt,
 				assistantChars: input.assistantChars,
@@ -220,7 +351,7 @@ async function persistAnswerProvenance(input: {
 	} catch (err) {
 		recordChatDiagnostic(input.conversationId, 'chat.provenance_error', {
 			messageId: input.messageId,
-			error: err instanceof Error ? err.message : String(err),
+			errorName: err instanceof Error ? err.name : 'Error',
 			...(input.traceId ? { trace_id: input.traceId } : {})
 		});
 	}
@@ -238,6 +369,7 @@ async function localAssistantResponse(convoId: string, text: string, traceId: st
 		messageId: row.id,
 		startedAt,
 		assistantChars: text.length,
+		answerText: text,
 		done: true,
 		finishStatus: 'completed',
 		transport: 'local',
@@ -282,6 +414,15 @@ function gatewayUnavailableMessage(_detail: string): string {
 		.join('\n\n');
 }
 
+function gatewayFailureKind(detail: string): string {
+	if (/\b(?:400|401|403|404|405|409|422|429|500|502|503|504)\b/.test(detail)) {
+		return 'http';
+	}
+	if (/abort|timeout/i.test(detail)) return 'timeout';
+	if (/fetch|network|connect|dns|socket/i.test(detail)) return 'network';
+	return 'unavailable';
+}
+
 async function localGatewayFailureResponse(
 	convoId: string,
 	detail: string,
@@ -295,7 +436,7 @@ async function localGatewayFailureResponse(
 		withTraceDetails(
 			{
 				resume: Boolean(resumeMessageId),
-				detail
+				failureKind: gatewayFailureKind(detail)
 			},
 			traceId
 		)
@@ -305,11 +446,16 @@ async function localGatewayFailureResponse(
 		await appendMessageContent(resumeMessageId, `\n\n${text}`);
 		await finalizeMessage(resumeMessageId);
 		const row = await getMessageById(resumeMessageId);
+		const metadata = parseToolMetadata(row?.toolCalls);
 		await persistAnswerProvenance({
 			conversationId: convoId,
 			messageId: resumeMessageId,
+			tools: metadata.tools,
+			sources: metadata.sources,
+			citations: metadata.citations,
 			startedAt,
 			assistantChars: row ? contentText(parseContent(row.content)).length : text.length,
+			answerText: row ? contentText(parseContent(row.content)) : text,
 			done: true,
 			finishStatus: 'failed',
 			transport: 'local_gateway_failure',
@@ -421,6 +567,22 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		convo = await createConversation(accountId);
 	}
 	const convoId = convo.id;
+	const documentIds = Array.isArray(body.document_ids)
+		? Array.from(
+				new Set(
+					body.document_ids.filter(
+						(value): value is string => typeof value === 'string' && value.trim().length > 0
+					)
+				)
+			)
+		: [];
+	if (Array.isArray(body.document_ids) && body.document_ids.length > 3) {
+		throw error(400, 'attach no more than three PDFs');
+	}
+	if (documentIds.length > 3) throw error(400, 'attach no more than three PDFs');
+	if (documentIds.length) {
+		await validateRequestedDocuments(accountId, convoId, documentIds);
+	}
 	const requestStartedAt = Date.now();
 	recordChatDiagnostic(convoId, 'chat.request', {
 		trace_id: traceId,
@@ -432,6 +594,27 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	const isRegenerate = body.regenerate === true;
 	let resumeMessageId: string | null = null;
+	let outputActionSource:
+		| Awaited<ReturnType<typeof getMessageById>>
+		| undefined;
+	let outputActionUpstreamContent: string | undefined;
+	if (body.output_action) {
+		if (!OUTPUT_ACTION_PROMPTS[body.output_action]) throw error(400, 'invalid output action');
+		if (!body.source_message_id) throw error(400, 'source answer required');
+		outputActionSource = await getMessageById(body.source_message_id);
+		if (
+			!outputActionSource ||
+			outputActionSource.conversationId !== convoId ||
+			outputActionSource.role !== 'assistant' ||
+			outputActionSource.partial === 1
+		) {
+			throw error(404, 'source answer not found');
+		}
+		outputActionUpstreamContent = `${OUTPUT_ACTION_PROMPTS[body.output_action]}\n\nAnswer to transform:\n\n${contentText(
+			parseContent(outputActionSource.content)
+		)}`;
+		if (isResume) body = { ...body, content: outputActionUpstreamContent };
+	}
 
 	if (isResume) {
 		const messageId = body.message_id;
@@ -446,11 +629,21 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		const lastA = await lastAssistantMessage(convoId);
 		if (lastA) await deleteMessagesFrom(convoId, lastA.id);
 	} else {
-		const cleaned = sanitizeContent(body.content);
+		const outputActionPrompt = body.output_action ? OUTPUT_ACTION_PROMPTS[body.output_action] : undefined;
+		const requestedContent = body.output_action
+			? OUTPUT_ACTION_VISIBLE_REQUESTS[body.output_action]
+			: body.content;
+		const cleaned = sanitizeContent(requestedContent);
 		if (cleaned == null) throw error(400, 'content required');
 		if (typeof cleaned === 'string' && !cleaned.trim()) throw error(400, 'content required');
-		let upstreamContent = cleaned;
+		let upstreamContent: MessageContent = outputActionUpstreamContent ?? cleaned;
 		await addMessage({ conversationId: convoId, role: 'user', content: cleaned });
+		if (body.output_action) {
+			recordChatDiagnostic(convoId, 'chat.output_action', {
+				trace_id: traceId,
+				action: body.output_action
+			});
+		}
 
 		if (typeof cleaned === 'string') {
 			const parsed = parseSlashCommand(cleaned);
@@ -497,13 +690,16 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			}
 		}
 
-		if (upstreamContent !== cleaned) {
+		if (upstreamContent !== cleaned || outputActionPrompt) {
 			body = { ...body, content: upstreamContent };
 		}
 	}
 
 	const reasoningEffort = await getConversationReasoningEffort(convoId);
 	const messages = await getMessages(convoId);
+	const inheritedMetadata = body.output_action
+		? parseToolMetadata(outputActionSource?.toolCalls)
+		: null;
 	recordChatDiagnostic(convoId, 'chat.history_built', {
 		trace_id: traceId,
 		messageCount: messages.length,
@@ -518,7 +714,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			content
 		};
 	});
-	if (!isResume && !isRegenerate && body.content) {
+	if ((!isResume && !isRegenerate && body.content) || (isResume && body.output_action && body.content)) {
 		const lastUser = [...history].reverse().find((m) => m.role === 'user');
 		if (lastUser) lastUser.content = toAgentContent(body.content);
 	}
@@ -533,6 +729,27 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	appendSystemInstruction(history, INTERACTIVE_WEB_SYSTEM);
 	appendSystemInstruction(history, FAST_SOURCE_SYSTEM);
 
+	let researchContext: Awaited<ReturnType<typeof requestResearchContext>>;
+	try {
+		researchContext = await requestResearchContext({
+			conversationId: convoId,
+			orgId: convo.orgId,
+			accountId,
+			documentIds,
+			query: body.content ? contentText(body.content) : '',
+			traceId
+		});
+	} catch (cause) {
+		if (cause instanceof NewsroomContextUnavailableError) {
+			return localAssistantResponse(
+				convoId,
+				"I couldn't load your newsroom timezone, so I stopped before interpreting relative dates. Try again in a moment.",
+				traceId
+			);
+		}
+		throw cause;
+	}
+
 	const upstreamAbort = new AbortController();
 	if (request.signal.aborted) upstreamAbort.abort();
 	else request.signal.addEventListener('abort', () => upstreamAbort.abort(), { once: true });
@@ -546,7 +763,13 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		// browser/search/tool activity strip. Keep Responses as a fallback for
 		// gateways that only expose the newer endpoint shape.
 		upstream = await streamChatCompletion(
-			{ messages: history, stream: true, reasoning_effort: reasoningEffort },
+			{
+				messages: history,
+				stream: true,
+				reasoning_effort: reasoningEffort,
+				newsroom_context: researchContext.newsroomContext,
+				documents: researchContext.documents
+			},
 			{ signal: upstreamAbort.signal, sessionId, traceId }
 		);
 		transport = 'chat_completions';
@@ -559,7 +782,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (!isResume && !upstream.ok && [400, 404, 405].includes(upstream.status)) {
 			await upstream.text().catch(() => '');
 			upstream = await streamResponse(
-				{ ...responseInputFromHistory(history), stream: true, store: false, reasoning_effort: reasoningEffort },
+				{
+					...responseInputFromHistory(history),
+					stream: true,
+					store: false,
+					reasoning_effort: reasoningEffort,
+					newsroom_context: researchContext.newsroomContext,
+					documents: researchContext.documents
+				},
 				{ signal: upstreamAbort.signal, sessionId, traceId }
 			);
 			transport = 'responses';
@@ -602,17 +832,33 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (persisted) return undefined;
 		persisted = true;
 		const capturedToolCalls = streamState.toolCalls();
-		const capturedSources = streamState.sourceList();
+		const captured = mergeToolMetadata(
+			inheritedMetadata
+				? serializeToolMetadata([], inheritedMetadata.sources, inheritedMetadata.citations)
+				: null,
+			capturedToolCalls,
+			streamState.sourceList(),
+			streamState.citationList()
+		);
+		const capturedSources = captured.sources;
+		const capturedCitations = captured.citations;
 		if (resumeMessageId) {
-			let provenanceTools = capturedToolCalls;
-			let provenanceSources = capturedSources;
+			const existingRow = await getMessageById(resumeMessageId);
+			const merged = mergeToolMetadata(
+				existingRow?.toolCalls ?? null,
+				capturedToolCalls,
+				capturedSources,
+				capturedCitations
+			);
+			const provenanceTools = merged.tools;
+			const provenanceSources = merged.sources;
+			const provenanceCitations = merged.citations;
 			if (assistantBuf) await appendMessageContent(resumeMessageId, assistantBuf);
-			if (capturedToolCalls.length || capturedSources.length) {
-				const row = await getMessageById(resumeMessageId);
-				const merged = mergeToolMetadata(row?.toolCalls ?? null, capturedToolCalls, capturedSources);
-				await setMessageToolCalls(resumeMessageId, serializeToolMetadata(merged.tools, merged.sources));
-				provenanceTools = merged.tools;
-				provenanceSources = merged.sources;
+			if (capturedToolCalls.length || capturedSources.length || capturedCitations.length) {
+				await setMessageToolCalls(
+					resumeMessageId,
+					serializeToolMetadata(merged.tools, merged.sources, merged.citations)
+				);
 			}
 			if (done) await finalizeMessage(resumeMessageId);
 			else await releasePartialAssistantMessageClaim(resumeMessageId);
@@ -623,8 +869,10 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					messageId: row.id,
 					tools: provenanceTools,
 					sources: provenanceSources,
+					citations: provenanceCitations,
 					startedAt: requestStartedAt,
 					assistantChars: contentText(parseContent(row.content)).length,
+					answerText: contentText(parseContent(row.content)),
 					done,
 					finishStatus,
 						events: streamStats,
@@ -636,21 +884,23 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				}
 				return row;
 			}
-		if (!assistantBuf && capturedToolCalls.length === 0) return undefined;
+		if (!assistantBuf && capturedToolCalls.length === 0 && capturedCitations.length === 0) return undefined;
 		const row = await addMessage({
 			conversationId: convoId,
 			role: 'assistant',
 			content: assistantBuf,
 			partial: !done,
-			toolCalls: serializeToolMetadata(capturedToolCalls, capturedSources)
+			toolCalls: serializeToolMetadata(capturedToolCalls, capturedSources, capturedCitations)
 		});
 		await persistAnswerProvenance({
 			conversationId: convoId,
 			messageId: row.id,
 			tools: capturedToolCalls,
 			sources: capturedSources,
+			citations: capturedCitations,
 			startedAt: requestStartedAt,
 			assistantChars: assistantBuf.length,
+			answerText: assistantBuf,
 			done,
 			finishStatus,
 			events: streamStats,
@@ -691,7 +941,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			} catch (e) {
 				recordChatDiagnostic(convoId, 'chat.stream_error', {
 					trace_id: traceId,
-					error: e instanceof Error ? e.message : String(e),
+					errorName: e instanceof Error ? e.name : 'Error',
 					elapsedMs: Date.now() - requestStartedAt,
 					assistantChars: assistantBuf.length,
 					events: streamStats
@@ -702,6 +952,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			}
 
 			const assistantRow = await persistAssistant(done ? 'completed' : 'partial');
+			const citationMarkers = citationNumbersInText(assistantBuf);
+			const citationRecords = assistantRow
+				? parseToolMetadata(assistantRow.toolCalls).citations
+				: streamState.citationList();
+			const resolvedCitationCount = resolvedCitationNumbersForAnswer(
+				assistantBuf,
+				citationRecords
+			).length;
 
 			// Title auto-summarization: first turn only, fire-and-await briefly so
 			// the client gets the title before the stream closes (and before its
@@ -721,7 +979,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			} catch (err) {
 				recordChatDiagnostic(convoId, 'chat.title_error', {
 					trace_id: traceId,
-					error: err instanceof Error ? err.message : String(err)
+					errorName: err instanceof Error ? err.name : 'Error'
 				});
 				console.warn('NewsCraft title generation failed', err);
 			}
@@ -734,6 +992,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				persisted: Boolean(assistantRow),
 				toolCount: streamState.toolCalls().length,
 				sourceCount: streamState.sourceList().length,
+				citationCount: citationRecords.length,
+				citationMarkerCount: citationMarkers.length,
+				resolvedCitationCount,
+				danglingCitationCount: Math.max(0, citationMarkers.length - resolvedCitationCount),
+				primarySourceCount: citationRecords.filter((citation) =>
+					['official', 'primary', 'user_document'].includes(citation.sourceType)
+				).length,
+				unknownDateCount: citationRecords.filter((citation) => !citation.publicationDate).length,
 				events: streamStats
 			});
 			if (sentDone || done) controller.enqueue(enc.encode('data: [DONE]\n\n'));

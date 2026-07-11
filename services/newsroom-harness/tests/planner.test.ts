@@ -279,6 +279,83 @@ describe('planned agent loop', () => {
 		expect(result.plan.source).toBe('model');
 	});
 
+	it('rejects external planner tools for document-only requests', async () => {
+		const registry = new ToolRegistry();
+		let externalRuns = 0;
+		let documentRuns = 0;
+		registry.register(
+			stubTool('pdf_text_extractor', 'pdf_text_extractor', () => {
+				documentRuns += 1;
+				return {
+					status: 'ok',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'memo.pdf',
+							source_url: '/api/conversations/convo/documents/doc-1/download',
+							accessed_at: '2026-07-10T12:00:00.000Z',
+							tool_used: 'pdf_text_extractor',
+							title: 'memo.pdf, page 1',
+							published_at: null,
+							extracted_text: LONG_TEXT,
+							summary: LONG_TEXT,
+							confidence: 0.9,
+							limitations: [],
+							source_kind: 'user_document',
+							citation_number: 1,
+							document_page: 1
+						})
+					]
+				};
+			})
+		);
+		for (const [name, category] of [
+			['openai_web_search', 'web_search_provider'],
+			['url_fetch_read', 'custom'],
+			['source_feed_fetcher', 'custom']
+		] as const) {
+			registry.register(
+				stubTool(name, category, () => {
+					externalRuns += 1;
+					return { status: 'ok', evidence: [] };
+				})
+			);
+		}
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: {
+				enabled_tools: [
+					'pdf_text_extractor',
+					'openai_web_search',
+					'url_fetch_read',
+					'source_feed_fetcher'
+				],
+				planner_enabled: true
+			},
+			planner: async () => ({
+				source: 'model',
+				reason: 'Attempt external research.',
+				steps: [{ tool: 'openai_web_search', input: 'private memo', label: 'Searching coverage' }]
+			})
+		});
+
+		const result = await agent.run('Summarize the attached PDF.', {
+			openAiApiKey: 'test-key',
+			forcePlanner: true,
+			documents: [
+				{
+					id: 'doc-1',
+					filename: 'memo.pdf',
+					pageCount: 1,
+					pages: [{ pageNumber: 1, text: LONG_TEXT }]
+				}
+			]
+		});
+
+		expect(result.plan).toMatchObject({ source: 'router', steps: [{ tool: 'pdf_text_extractor' }] });
+		expect(documentRuns).toBe(1);
+		expect(externalRuns).toBe(0);
+	});
+
 	it('falls back to the router plan when the planner fails', async () => {
 		const registry = new ToolRegistry();
 		registry.register(stubTool('openai_web_search', 'web_search_provider', () => ({

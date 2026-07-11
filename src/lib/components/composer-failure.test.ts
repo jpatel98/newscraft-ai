@@ -9,9 +9,24 @@ describe('Composer failure preservation', () => {
 		expect(source).toContain('function snapshotAttachments(): Attachment[]');
 		expect(source).toContain('const sentValue = value;');
 		expect(source).toContain('const sentAttachments = snapshotAttachments();');
+		expect(source).toContain('const sentDocuments = snapshotDocuments();');
 		expect(source).toContain('attachments = sentAttachments;');
-		expect(source).toContain('restoreFailedSend(sentValue, sentAttachments);');
+		expect(source).toContain('documentAttachments = sentDocuments;');
+		expect(source).toContain('const sentDocumentIds = readyDocumentIds(sentDocuments);');
+		expect(source).toContain('onSend(content, command, sentDocumentIds)');
+		expect(source).toContain('restoreFailedSend(sentValue, sentAttachments, sentDocuments);');
 		expect(source).not.toContain('void onSend(content, command);');
+	});
+
+	it('gates PDF controls and blocks send until every attached document is ready', () => {
+		expect(source).toContain("documentsEnabled = false");
+		expect(source).toContain("accept={documentsEnabled ? 'image/*,application/pdf,.pdf' : 'image/*'}");
+		expect(source).toContain("document.state === 'uploading' || document.state === 'processing'");
+		expect(source).toContain(
+			"documentAttachments.some((document) => document.state !== 'ready')"
+		);
+		expect(source).toContain('pdfSelectionError(pdfs, documentAttachments.length)');
+		expect(source).toContain('PDF_UPLOAD_FAILURE_MESSAGE');
 	});
 
 	it('does not clear create-conversation drafts before navigation succeeds', () => {

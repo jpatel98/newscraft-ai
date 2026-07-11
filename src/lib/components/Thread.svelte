@@ -1,16 +1,26 @@
 <script lang="ts">
+	import type { CitationRecord } from '@newscraft/shared';
 	import type { ChatMessage, ContentPart, MessageContent } from '$lib/types';
 	import { contentText } from '$lib/types';
 	import ArrowDown from 'lucide-svelte/icons/arrow-down';
 	import Copy from 'lucide-svelte/icons/copy';
+	import Download from 'lucide-svelte/icons/download';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
+	import AnswerActions from './AnswerActions.svelte';
+	import EvidencePreview from './EvidencePreview.svelte';
 	import Markdown from './Markdown.svelte';
 	import ToolActivity from './ToolActivity.svelte';
 	import PlanTimeline from './PlanTimeline.svelte';
 	import SourceDisclosure from './SourceDisclosure.svelte';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { formatShortTime } from '$lib/utils/time';
-	import { sourceReceiptsForAnswer } from '$lib/utils/tool-metadata';
+	import { parseToolMetadata, sourceReceiptsForAnswer } from '$lib/utils/tool-metadata';
+	import {
+		answerExportUrl,
+		citationResolution,
+		mergeCitationRecords,
+		type AnswerUseAction
+	} from './journalist-ui';
 
 	interface Props {
 		messages: ChatMessage[];
@@ -20,6 +30,8 @@
 		onResume?: (messageId: string) => void;
 		onDiscard?: (messageId: string) => void;
 		onRetryFailure?: () => void;
+		onUseAnswer?: (action: AnswerUseAction, messageId: string) => Promise<void> | void;
+		onExportAnswer?: (messageId: string, url: string) => Promise<void> | void;
 	}
 	let {
 		messages,
@@ -28,12 +40,15 @@
 		onRegenerate,
 		onResume,
 		onDiscard,
-		onRetryFailure
+		onRetryFailure,
+		onUseAnswer,
+		onExportAnswer
 	}: Props = $props();
 
 	let scroller: HTMLDivElement | undefined = $state();
 	let copyFeedback = $state<{ id: string; state: 'success' | 'error' } | null>(null);
 	let copyFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+	let selectedEvidence = $state<{ citation: CitationRecord; trigger: HTMLElement } | null>(null);
 	let scrolledToHash = $state(false);
 	// Track conversation by the first message id; switching threads resets
 	// the initial-scroll machinery so a fresh open always lands deterministically.
@@ -186,6 +201,21 @@
 			setCopyFeedback(m.id, 'error');
 		}
 	}
+
+	function citationsOf(message: ChatMessage, activeAssistant: boolean): CitationRecord[] {
+		const persisted = parseToolMetadata(message.toolCalls).citations;
+		const live = activeAssistant ? chat.citations : [];
+		return mergeCitationRecords(persisted, live);
+	}
+
+	function openEvidence(citation: CitationRecord, trigger: HTMLElement) {
+		selectedEvidence = { citation, trigger };
+	}
+
+	function closeEvidence() {
+		selectedEvidence = null;
+	}
+
 </script>
 
 <div class="thread-shell">
@@ -205,6 +235,14 @@
 					m.role === 'assistant' &&
 					m.id === lastAssistantId &&
 					chat.activityConversationId === conversationId}
+				{@const citationRecords =
+					m.role === 'assistant' ? citationsOf(m, activeAssistant) : []}
+				{@const citationState =
+					m.role === 'assistant'
+						? citationResolution(messageText, citationRecords)
+						: { markers: [], resolved: [], dangling: [], allResolved: false }}
+				{@const exportUrl =
+					m.role === 'assistant' ? answerExportUrl(conversationId, m.id) : null}
 				{@const sourceReceipts =
 					m.role === 'assistant'
 						? sourceReceiptsForAnswer(
@@ -245,7 +283,13 @@
 							   ToolActivity card below shows the live "Drafting answer" pulse.
 							   That avoids two pulses competing for the same moment. -->
 							{:else if m.role === 'assistant'}
-								<Markdown content={messageText} partial={m.streaming} assistant />
+								<Markdown
+									content={messageText}
+									partial={m.streaming}
+									assistant
+									citations={citationRecords}
+									onCitationSelect={openEvidence}
+								/>
 								{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
 								{#if m.partial && !m.streaming}
 									<span
@@ -276,7 +320,10 @@
 						</div>
 
 						{#if sourceReceipts.length > 0}
-							<SourceDisclosure sources={sourceReceipts} />
+							<SourceDisclosure
+								sources={sourceReceipts}
+								resolvedInline={citationState.allResolved}
+							/>
 						{/if}
 
 						{#if activeAssistant}
@@ -338,6 +385,27 @@
 									<Copy size="11" strokeWidth={1.5} />
 									<span aria-live="polite">{copyButtonLabel(m)}</span>
 								</button>
+								{#if m.role === 'assistant'}
+									{#if exportUrl}
+										<a
+										class="msg__action"
+										href={exportUrl}
+										download
+										onclick={() => void onExportAnswer?.(m.id, exportUrl)}
+										aria-label="Export answer as Markdown"
+										title="Export answer as Markdown"
+									>
+										<Download size="11" strokeWidth={1.5} aria-hidden="true" />
+										<span>Markdown</span>
+									</a>
+									{/if}
+									{#if onUseAnswer}
+										<AnswerActions
+											messageId={m.id}
+											onSelect={(action) => onUseAnswer?.(action, m.id)}
+										/>
+									{/if}
+								{/if}
 								{#if m.role === 'assistant' && m.id === lastAssistantId && onRegenerate}
 									<button
 										type="button"
@@ -369,6 +437,14 @@
 		</button>
 	{/if}
 </div>
+
+{#if selectedEvidence}
+	<EvidencePreview
+		citation={selectedEvidence.citation}
+		returnFocus={selectedEvidence.trigger}
+		onClose={closeEvidence}
+	/>
+{/if}
 
 <style>
 	.thread-shell {
@@ -436,6 +512,9 @@
 	}
 	:global(.msg__action--error) {
 		color: var(--danger-fg, #b34040);
+	}
+	:global(a.msg__action) {
+		text-decoration: none;
 	}
 	@media (max-width: 620px) {
 		.thread__jump {

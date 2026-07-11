@@ -3,7 +3,7 @@ import { isUsableEvidence, normalizeEvidence, normalizeToolEvidence, type Eviden
 import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { evidenceOutputSchema, ToolRegistry, type NewsroomTool, type ToolRunContext, type ToolRunOutput } from './tools.js';
 import { resolveModelPolicy } from './model-policy.js';
-import { fetchSourceUrl, sourceFromText } from '../tools/sources.js';
+import { fetchSourceUrl } from '../tools/sources.js';
 import {
 	extractProviderResponseText,
 	normalizeProviderModel,
@@ -15,7 +15,11 @@ import {
 import { readChatCompletionStream, readOpenAiResponseStream } from '../util/openai-stream.js';
 import { extractUrls, firstUrl } from '../util/text.js';
 import { assessSourceQuality } from '../util/source-quality.js';
-import { newsroomTimeContext } from './time-context.js';
+import {
+	isCurrentEventQuery,
+	newsroomTimeContext,
+	newsroomTimeZone
+} from './time-context.js';
 
 const GENERIC_MONITOR_NAME_TERMS = new Set([
 	'media',
@@ -27,7 +31,18 @@ const GENERIC_MONITOR_NAME_TERMS = new Set([
 	'resources',
 	'latest'
 ]);
-const MAX_WEB_SEARCH_SOURCES = 8;
+const NAMED_SOURCE_DOMAINS: Array<{ pattern: RegExp; domain: string }> = [
+	{ pattern: /\bCBC(?: News)?\b/i, domain: 'cbc.ca' },
+	{ pattern: /\bCTV(?: News)?\b/i, domain: 'ctvnews.ca' },
+	{ pattern: /\bReuters\b/i, domain: 'reuters.com' },
+	{ pattern: /\b(?:AP|Associated Press|AP News)\b/i, domain: 'apnews.com' },
+	{ pattern: /\bToronto Star\b/i, domain: 'thestar.com' },
+	{ pattern: /\b(?:The )?Globe and Mail\b/i, domain: 'theglobeandmail.com' },
+	{ pattern: /\bGlobal News\b/i, domain: 'globalnews.ca' },
+	{ pattern: /\bCityNews\b/i, domain: 'citynews.ca' },
+	{ pattern: /\bBBC(?: News)?\b/i, domain: 'bbc.com' },
+	{ pattern: /\b(?:The )?Guardian\b/i, domain: 'theguardian.com' }
+];
 
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
@@ -158,6 +173,9 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 		},
 		output_schema: evidenceOutputSchema,
 		async run(input, context) {
+			if (context.documents?.length && !requestsExternalCorroboration(input.query)) {
+				return { status: 'ok', evidence: [] };
+			}
 			const provider = context.modelProvider || context.config.model_provider;
 			const providerName = providerLabel(provider);
 			const apiKey = context.modelApiKey || (provider === 'openai' ? context.openAiApiKey : '');
@@ -219,91 +237,54 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					estimated: false
 				}
 			});
-			const streamDeltas = Boolean(context.onAnswerDelta);
-			const startedAtMs = Date.now();
-			const response = await fetch(providerTextUrl(provider), {
-				method: 'POST',
-				headers: {
-					authorization: `Bearer ${apiKey}`,
-					'content-type': 'application/json'
-				},
-				body: JSON.stringify(webSearchRequestBody({
-					provider,
-					model: requestModel,
-					stream: streamDeltas,
-					input: [
-						newsroomTimeContext(),
-						'Search for source material relevant to this newsroom request.',
-						'Summarize the freshest usable result first, using concrete event dates or timestamps only when they matter to the answer.',
-						'Prefer primary or official sources and directly relevant local/reputable outlets.',
-						'If no reliable readable source confirms a current-events or claim-verification request, say that plainly instead of giving a confident unsourced answer.',
-						'For local meetings or other obscure events, distinguish agendas and previews from confirmed outcomes; if no official minutes or first-party account confirms what happened, state that limitation explicitly.',
-						'If a requested source is paywalled, blocked, CAPTCHA-protected, unavailable, empty, or cannot be read, flag that limitation honestly without technical details.',
-						'If the request is an ambiguous follow-up and there is no clear referent, ask a brief clarifying question instead of guessing.',
-						'Avoid forums, social threads, old PDFs, and loosely related background unless the request asks for them.',
-						'Keep the answer concise, readable, and organized for a normal person scanning local news.',
-						'Use clean Markdown when it improves scanning: short headings, bullets, numbered lists, and compact tables are allowed.',
-						'For multi-story requests, use clear sections and bullets. Use Latest context only if older items matter.',
-						'Use bold only for short labels inside prose or table headers. Do not write the literal word "Bold".',
-						'Do not say "ordered by freshness", "source-led", "local outlet reports", or "according to" unless it is essential to avoid overstating a claim.',
-						'Do not end with unsolicited offers, next-step suggestions, or phrases like "If you’d like..." unless the user explicitly asks for options.',
-						'Do not include a Sources/References section, raw URLs, domain parentheticals, or outlet posting-time roundups; source links are captured separately.',
-						'If the request asks for tables, standings, rows, columns, or tabular output, prefer a valid GitHub-flavored Markdown table with a header separator row.',
-						`Request: ${input.query}`
-					].join('\n')
-				})),
-				signal: context.signal
+			const highRiskVerification = provider === 'perplexity' && needsOfficialSourceRetry(input.query);
+			const streamDeltas = Boolean(context.onAnswerDelta) && !highRiskVerification;
+			const recordAttempt = (attempt: ProviderSearchAttempt, kind: 'initial' | 'official_source') => {
+				context.repository?.appendEvent({
+					jobId: context.jobId,
+					runId: context.runId,
+					agent: NEWSROOM_TOOL_NAMES.webSearch,
+					kind: attempt.response.ok && !attempt.streamFailure ? 'model.call.completed' : 'model.call.failed',
+					payload: {
+						task: modelDecision.task,
+						tier: modelDecision.tier,
+						model: requestModel,
+						status: attempt.response.status,
+						tool: NEWSROOM_TOOL_NAMES.webSearch,
+						attempt: kind
+					},
+					costMetadata: {
+						provider,
+						model: requestModel,
+						endpoint,
+						tool: NEWSROOM_TOOL_NAMES.webSearch,
+						latency_ms: attempt.latencyMs,
+						usage: providerUsageMetadata(attempt.raw),
+						estimated: false
+					}
+				});
+			};
+			const attempt = await performProviderWebSearch({
+				provider,
+				apiKey,
+				model: requestModel,
+				query: input.query,
+				stream: streamDeltas,
+				newsroomContext: context.newsroomContext,
+				signal: context.signal,
+				onAnswerDelta: streamDeltas ? context.onAnswerDelta : undefined
 			});
-			let raw: { error?: { message?: string } } = {};
-			let streamFailure: string | null = null;
-			if (response.ok && streamDeltas && response.body && context.onAnswerDelta) {
-				const streamed = await (
-					provider === 'openai'
-						? readOpenAiResponseStream(response.body, context.onAnswerDelta)
-						: readChatCompletionStream(response.body, context.onAnswerDelta)
-				).catch((err) => ({
-					response: null,
-					status: 'interrupted' as const,
-					error: err instanceof Error ? err.message : String(err)
-				}));
-				raw = (streamed.response as typeof raw) || {};
-				if (streamed.status === 'failed' || streamed.status === 'interrupted') {
-					streamFailure = streamed.error || `web search stream ${streamed.status}`;
-				}
-			} else {
-				raw = await response.json().catch(() => ({}));
+			recordAttempt(attempt, 'initial');
+			if (!attempt.response.ok) {
+				return {
+					status: 'error',
+					limitations: [publicProviderFailure(providerName, attempt.response.status)],
+					raw: attempt.raw
+				};
 			}
-			const latencyMs = Math.max(0, Date.now() - startedAtMs);
-			context.repository?.appendEvent({
-				jobId: context.jobId,
-				runId: context.runId,
-				agent: NEWSROOM_TOOL_NAMES.webSearch,
-				kind: response.ok && !streamFailure ? 'model.call.completed' : 'model.call.failed',
-				payload: {
-					task: modelDecision.task,
-					tier: modelDecision.tier,
-					model: requestModel,
-					status: response.status,
-					tool: NEWSROOM_TOOL_NAMES.webSearch
-				},
-				costMetadata: {
-					provider,
-					model: requestModel,
-					endpoint,
-					tool: NEWSROOM_TOOL_NAMES.webSearch,
-					latency_ms: latencyMs,
-					usage: providerUsageMetadata(raw),
-					estimated: false
-				}
-			});
-				if (!response.ok) {
-					return {
-						status: 'error',
-						limitations: [publicProviderFailure(providerName, response.status)],
-						raw
-					};
-				}
-			const outputText = extractProviderResponseText(provider, raw);
+			let raw = attempt.raw;
+			let streamFailure = attempt.streamFailure;
+			let outputText = extractProviderResponseText(provider, raw);
 			if (streamFailure && !outputText.trim()) {
 				return {
 					status: 'error',
@@ -311,17 +292,57 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					raw
 				};
 			}
-			const evidence = normalizeToolEvidence(
-				{ evidence: extractProviderWebSources(raw, outputText, input.query) },
+			let evidence = normalizeToolEvidence(
+				{ evidence: extractProviderWebSources(raw, outputText) },
 				NEWSROOM_TOOL_NAMES.webSearch,
 				{
 					source_name: `${providerName} web_search`,
 					accessed_at: new Date().toISOString(),
 					confidence: 0.6,
-					limitations: ['Broad web-search evidence; verify important claims against primary sources.'],
-					source_kind: 'media_report'
+					limitations: ['Broad web-search evidence; verify important claims against primary sources.']
 				}
 			);
+			if (highRiskVerification && !hasPrimaryEvidence(evidence)) {
+				const retry = await performProviderWebSearch({
+					provider,
+					apiKey,
+					model: requestModel,
+					query: input.query,
+					stream: false,
+					newsroomContext: context.newsroomContext,
+					signal: context.signal,
+					officialSourceOnly: true
+				});
+				recordAttempt(retry, 'official_source');
+				if (retry.response.ok) {
+					const retryText = extractProviderResponseText(provider, retry.raw);
+					const retryEvidence = normalizeToolEvidence(
+						{ evidence: extractProviderWebSources(retry.raw, retryText) },
+						NEWSROOM_TOOL_NAMES.webSearch,
+						{
+							source_name: `${providerName} web_search`,
+							accessed_at: new Date().toISOString(),
+							confidence: 0.65,
+							limitations: ['Broad web-search evidence; verify important claims against primary sources.']
+						}
+					);
+					if (hasPrimaryEvidence(retryEvidence)) {
+						if (retryText.trim()) {
+							raw = retry.raw;
+							streamFailure = retry.streamFailure;
+							outputText = retryText;
+							evidence = retryEvidence;
+						} else {
+							evidence = appendUniqueEvidence(evidence, retryEvidence);
+						}
+					}
+				}
+			}
+			if (highRiskVerification && !hasPrimaryEvidence(evidence)) {
+				const primaryStatus =
+					'**Primary-source status:** I did not find readable official or direct evidence in this search, so treat the attributed reporting as provisional.';
+				outputText = outputText.trim() ? `${outputText.trim()}\n\n${primaryStatus}` : primaryStatus;
+			}
 			const answerText = outputText.trim();
 			const streamLimitations = streamFailure
 				? [`Web search stream ended early: ${streamFailure}. The answer may be incomplete.`]
@@ -396,7 +417,7 @@ function browserAutomationProviderTool(): NewsroomTool<{ task: string; url?: str
 function pdfTextExtractorTool(): NewsroomTool<{ url?: string | null; text?: string | null }> {
 	return {
 		name: NEWSROOM_TOOL_NAMES.pdfTextExtractor,
-		description: 'Extract text from supplied source text or fetchable non-PDF documents; reports limitations for PDFs without a parser.',
+		description: 'Read bounded page text from attached documents or supplied source text and preserve page-level provenance.',
 		when_to_use: 'Use for PDFs, filings, source documents, pasted text, and document extraction tasks.',
 		category: 'pdf_text_extractor',
 		input_schema: {
@@ -408,11 +429,31 @@ function pdfTextExtractorTool(): NewsroomTool<{ url?: string | null; text?: stri
 		},
 		output_schema: evidenceOutputSchema,
 		async run(input, context) {
+			if (context.documents?.length) {
+				const evidence = documentContextEvidence(context.documents);
+				if (evidence.length) return { status: 'ok', evidence };
+				return { status: 'unavailable', limitations: ['The attached PDF has no readable text.'] };
+			}
 			if (input.text?.trim()) {
-				const source = sourceFromText(input.url || 'newsroom://provided-document', input.text, 'Provided source document');
 				return {
 					status: 'ok',
-					evidence: [fetchedSourceToEvidence(source, NEWSROOM_TOOL_NAMES.pdfTextExtractor, ['Provided text, not independently fetched.'])]
+					evidence: [
+						normalizeEvidence({
+							source_name: 'Provided source document',
+							source_url: input.url || 'document://provided-source',
+							accessed_at: new Date().toISOString(),
+							tool_used: NEWSROOM_TOOL_NAMES.pdfTextExtractor,
+							title: 'Provided source document, page 1',
+							published_at: null,
+							extracted_text: input.text,
+							summary: compactToolText(input.text, 320),
+							confidence: 0.9,
+							limitations: ['User-provided document; not independently verified.'],
+							source_kind: 'user_document',
+							citation_number: 1,
+							document_page: 1
+						})
+					]
 				};
 			}
 			const url = input.url || firstUrl(context.prompt);
@@ -427,6 +468,37 @@ function pdfTextExtractorTool(): NewsroomTool<{ url?: string | null; text?: stri
 			return withStatusFromEvidence(evidence, 1);
 		}
 	};
+}
+
+function documentContextEvidence(documents: NonNullable<ToolRunContext['documents']>): EvidenceObject[] {
+	let citationNumber = 0;
+	const evidence: EvidenceObject[] = [];
+	for (const document of documents) {
+		for (const page of document.pages) {
+			const text = page.text.trim();
+			if (!text) continue;
+			citationNumber += 1;
+			const pageUrl = `${document.downloadUrl || `document://${encodeURIComponent(document.id)}`}#page=${page.pageNumber}`;
+			evidence.push(
+				normalizeEvidence({
+					source_name: document.filename,
+					source_url: pageUrl,
+					accessed_at: new Date().toISOString(),
+					tool_used: NEWSROOM_TOOL_NAMES.pdfTextExtractor,
+					title: `${document.filename}, page ${page.pageNumber}`,
+					published_at: null,
+					extracted_text: text,
+					summary: compactToolText(text, 320),
+					confidence: 0.9,
+					limitations: ['User-provided document; not independently verified.'],
+					source_kind: 'user_document',
+					citation_number: citationNumber,
+					document_page: page.pageNumber
+				})
+			);
+		}
+	}
+	return evidence;
 }
 
 function newsroomBriefGeneratorTool(): NewsroomTool<{ prompt: string; evidence?: EvidenceObject[] }> {
@@ -617,11 +689,79 @@ function selectMonitors(query: string, context: ToolRunContext) {
 		.sort((left, right) => right.priority - left.priority);
 }
 
+type ProviderSearchRaw = { error?: { message?: string }; [key: string]: unknown };
+
+type ProviderSearchAttempt = {
+	response: Response;
+	raw: ProviderSearchRaw;
+	streamFailure: string | null;
+	latencyMs: number;
+};
+
+async function performProviderWebSearch(input: {
+	provider: ModelProvider;
+	apiKey: string;
+	model: string;
+	query: string;
+	stream: boolean;
+	newsroomContext?: ToolRunContext['newsroomContext'];
+	officialSourceOnly?: boolean;
+	signal?: AbortSignal;
+	onAnswerDelta?: (delta: string) => void;
+}): Promise<ProviderSearchAttempt> {
+	const startedAtMs = Date.now();
+	const response = await fetch(providerTextUrl(input.provider), {
+		method: 'POST',
+		headers: {
+			authorization: `Bearer ${input.apiKey}`,
+			'content-type': 'application/json'
+		},
+		body: JSON.stringify(
+			webSearchRequestBody({
+				provider: input.provider,
+				model: input.model,
+				stream: input.stream,
+				query: input.query,
+				officialSourceOnly: input.officialSourceOnly,
+				input: webSearchPrompt(input.query, input.newsroomContext, input.officialSourceOnly)
+			})
+		),
+		signal: input.signal
+	});
+	let raw: ProviderSearchRaw = {};
+	let streamFailure: string | null = null;
+	if (response.ok && input.stream && response.body && input.onAnswerDelta) {
+		const streamed = await (
+			input.provider === 'openai'
+				? readOpenAiResponseStream(response.body, input.onAnswerDelta)
+				: readChatCompletionStream(response.body, input.onAnswerDelta)
+		).catch((err) => ({
+			response: null,
+			status: 'interrupted' as const,
+			error: err instanceof Error ? err.message : String(err)
+		}));
+		raw = (streamed.response as ProviderSearchRaw) || {};
+		if (streamed.status === 'failed' || streamed.status === 'interrupted') {
+			streamFailure = streamed.error || `web search stream ${streamed.status}`;
+		}
+	} else {
+		raw = (await response.json().catch(() => ({}))) as ProviderSearchRaw;
+	}
+	return {
+		response,
+		raw,
+		streamFailure,
+		latencyMs: Math.max(0, Date.now() - startedAtMs)
+	};
+}
+
 function webSearchRequestBody(input: {
 	provider: ModelProvider;
 	model: string;
 	stream: boolean;
 	input: string;
+	query: string;
+	officialSourceOnly?: boolean;
 }): Record<string, unknown> {
 	if (input.provider === 'openai') {
 		const body: Record<string, unknown> = {
@@ -648,8 +788,130 @@ function webSearchRequestBody(input: {
 				].join(' ')
 			},
 			{ role: 'user', content: input.input }
-		]
+		],
+		...sonarSearchFilters(input.query, input.officialSourceOnly)
 	};
+}
+
+function webSearchPrompt(
+	query: string,
+	newsroomContext?: ToolRunContext['newsroomContext'],
+	officialSourceOnly = false
+): string {
+	const resolvedTimeZone = validTimeZone(newsroomContext?.timezone) || newsroomTimeZone();
+	const timeContext = newsroomTimeContext({ timeZone: resolvedTimeZone });
+	return [
+		timeContext,
+		...(newsroomContext?.homeMarket
+			? [`Prioritize locally relevant evidence for ${newsroomContext.homeMarket} when the request is local.`]
+			: []),
+		...(newsroomContext?.preferredDomains?.length
+			? [
+					`Prefer useful evidence from these newsroom domains when relevant, without excluding stronger official or direct evidence: ${newsroomContext.preferredDomains.join(', ')}.`
+				]
+			: []),
+		'Search for source material relevant to this newsroom request.',
+		'Lead with the direct answer. Add confirmed facts, disagreement, uncertainty, or a comparison table only when each is relevant; do not emit empty boilerplate sections.',
+		isCurrentEventQuery(query)
+			? `Do not add a Current as of label; NewsCraft adds the local label outside the provider response.`
+			: 'Do not add a Current as of label unless the answer depends on changing or time-sensitive facts.',
+		'Current-as-of and source-access times are context only. Never present either as a source publication date; use each source\'s actual publication date or state that the date is unknown.',
+		'Summarize the freshest usable result first, using concrete event dates or timestamps only when they matter to the answer.',
+		'Prefer primary or official sources and directly relevant local/reputable outlets.',
+		officialSourceOnly
+			? 'Use official or direct first-party sources for the answer. If none are readable, state that primary confirmation was not found.'
+			: 'Attribute reputable reporting when direct evidence is unavailable and state material uncertainty.',
+		'If no reliable readable source confirms a current-events or claim-verification request, say that plainly instead of giving a confident unsourced answer.',
+		'For local meetings or other obscure events, distinguish agendas and previews from confirmed outcomes; if no official minutes or first-party account confirms what happened, state that limitation explicitly.',
+		'If a requested source is paywalled, blocked, CAPTCHA-protected, unavailable, empty, or cannot be read, flag that limitation honestly without technical details.',
+		'If the request is an ambiguous follow-up and there is no clear referent, ask a brief clarifying question instead of guessing.',
+		'Avoid forums, social threads, old PDFs, and loosely related background unless the request asks for them.',
+		'Keep the answer concise, readable, and organized for a normal person scanning local news.',
+		'Use clean Markdown when it improves scanning: short headings, bullets, numbered lists, and compact tables are allowed.',
+		'For multi-story requests, use clear sections and bullets. Use Latest context only if older items matter.',
+		'Use bold only for short labels inside prose or table headers. Do not write the literal word "Bold".',
+		'Do not say "ordered by freshness", "source-led", "local outlet reports", or "according to" unless it is essential to avoid overstating a claim.',
+		'Do not end with unsolicited offers, next-step suggestions, or phrases like "If you’d like..." unless the user explicitly asks for options.',
+		'Do not include a Sources/References section, raw URLs, domain parentheticals, or outlet posting-time roundups; source links are captured separately.',
+		'If the request asks for tables, standings, rows, columns, or tabular output, prefer a valid GitHub-flavored Markdown table with a header separator row.',
+		`Request: ${query}`
+	].join('\n');
+}
+
+function sonarSearchFilters(query: string, officialSourceOnly = false): Record<string, unknown> {
+	const domains = officialSourceOnly ? officialDomainsForQuery(query) : namedDomainsForQuery(query);
+	const recency = sonarRecencyForQuery(query);
+	return {
+		...(domains.length ? { search_domain_filter: domains } : {}),
+		...(recency ? { search_recency_filter: recency } : {})
+	};
+}
+
+function namedDomainsForQuery(query: string): string[] {
+	const named = NAMED_SOURCE_DOMAINS.filter((entry) => entry.pattern.test(query)).map((entry) => entry.domain);
+	const explicit = [...query.matchAll(/\b(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|ca|org|net|news))\b/gi)].map(
+		(match) => match[1].toLowerCase()
+	);
+	return [...new Set([...named, ...explicit])].slice(0, 20);
+}
+
+function officialDomainsForQuery(query: string): string[] {
+	const domains: string[] = [];
+	if (/\bfifa\b/i.test(query)) domains.push('fifa.com');
+	if (/\b(bank of canada|boc)\b/i.test(query)) domains.push('bankofcanada.ca');
+	if (/\b(elections? canada|federal election)\b/i.test(query)) domains.push('elections.ca');
+	if (/\b(rcmp|royal canadian mounted police)\b/i.test(query)) domains.push('rcmp-grc.gc.ca');
+	if (/\b(toronto police|tps)\b/i.test(query)) domains.push('tps.ca');
+	if (/\b(toronto|city hall|city council|mayor)\b/i.test(query)) domains.push('toronto.ca');
+	if (/\bontario\b/i.test(query)) domains.push('ontario.ca');
+	if (/\b(canada|federal government|parliament)\b/i.test(query)) domains.push('canada.ca');
+	return [...new Set(domains)].slice(0, 20);
+}
+
+function sonarRecencyForQuery(query: string): 'day' | 'week' | undefined {
+	if (/\b(today|tonight|right now|past 24 hours?|last 24 hours?)\b/i.test(query)) return 'day';
+	if (/\b(this week|past week|last week|past 7 days?|last 7 days?)\b/i.test(query)) return 'week';
+	return undefined;
+}
+
+function needsOfficialSourceRetry(query: string): boolean {
+	if (/\b(verify|verification|confirm|fact[- ]?check|official sources?|primary sources?)\b/i.test(query)) return true;
+	if (/\b(government|parliament|minister|ministry|department|agency|police|sheriff|court|legal|lawsuit|charges?|arrest|elections?|ballot|vote count)\b/i.test(query)) return true;
+	if (/\b(schedule|fixtures?|kick[- ]?off|tip[- ]?off)\b/i.test(query)) return true;
+	return /\b(games?|matches?)\b[\s\S]*\b(today|tonight|tomorrow|this week)\b/i.test(query);
+}
+
+function requestsExternalCorroboration(query: string): boolean {
+	return /\b(verify|corroborate|fact[- ]?check|search (?:the )?web|search externally|external sources?|other outlets?|broader coverage)\b/i.test(
+		query
+	);
+}
+
+function validTimeZone(value?: string): string | null {
+	if (!value) return null;
+	try {
+		new Intl.DateTimeFormat('en', { timeZone: value }).format();
+		return value;
+	} catch {
+		return null;
+	}
+}
+
+function hasPrimaryEvidence(evidence: EvidenceObject[]): boolean {
+	return evidence.some((item) => item.source_kind === 'official' || item.source_kind === 'primary');
+}
+
+function appendUniqueEvidence(evidence: EvidenceObject[], additions: EvidenceObject[]): EvidenceObject[] {
+	const seen = new Set(evidence.map((item) => item.source_url.toLowerCase()));
+	return [
+		...evidence,
+		...additions.filter((item) => {
+			const key = item.source_url.toLowerCase();
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		})
+	];
 }
 
 function providerEnvName(provider: ModelProvider): string {
@@ -676,22 +938,31 @@ function providerUsageMetadata(raw: unknown): Record<string, number> | null {
 	return Object.keys(metadata).length ? metadata : null;
 }
 
-function extractProviderWebSources(raw: unknown, outputText: string, query: string) {
+type ProviderSearchResult = {
+	url?: string;
+	title?: string;
+	snippet?: string;
+	content?: string;
+	date?: string;
+	last_updated?: string;
+};
+
+function extractProviderWebSources(raw: unknown, outputText: string) {
 	const actionSources: WebSourceCandidate[] = [];
 	const citedSources: WebSourceCandidate[] = [];
 	const response = raw as {
-		citations?: Array<string | { url?: string; title?: string; snippet?: string }>;
-		search_results?: Array<{ url?: string; title?: string; snippet?: string; date?: string; last_updated?: string }>;
-		fetch_url_results?: Array<{ url?: string; title?: string; content?: string; snippet?: string }>;
+		citations?: Array<string | ProviderSearchResult>;
+		search_results?: ProviderSearchResult[];
+		fetch_url_results?: ProviderSearchResult[];
 		output?: Array<{
 			type?: string;
-			search_results?: Array<{ url?: string; title?: string; snippet?: string }>;
-			fetch_url_results?: Array<{ url?: string; title?: string; content?: string; snippet?: string }>;
+			search_results?: ProviderSearchResult[];
+			fetch_url_results?: ProviderSearchResult[];
 			action?: { sources?: Array<{ url?: string; title?: string; source?: string }> };
 			content?: Array<{
 				type?: string;
-				search_results?: Array<{ url?: string; title?: string; snippet?: string }>;
-				fetch_url_results?: Array<{ url?: string; title?: string; content?: string; snippet?: string }>;
+				search_results?: ProviderSearchResult[];
+				fetch_url_results?: ProviderSearchResult[];
 				annotations?: Array<{
 					type?: string;
 					url?: string;
@@ -702,54 +973,79 @@ function extractProviderWebSources(raw: unknown, outputText: string, query: stri
 			}>;
 		}>;
 	};
-	for (const citation of response.citations || []) {
-		const url = typeof citation === 'string' ? citation : citation.url;
+	const searchResultByUrl = new Map<string, ProviderSearchResult>();
+	for (const source of response.search_results || []) {
+		if (source.url) searchResultByUrl.set(normalizedWebSourceUrl(source.url), source);
+	}
+	for (const [index, citation] of (response.citations || []).entries()) {
+		const url = (typeof citation === 'string' ? citation : citation.url) || response.search_results?.[index]?.url;
 		if (!url) continue;
-		if (!shouldKeepWebSource(url, query)) continue;
-		const title = typeof citation === 'string' ? url : citation.title || url;
-		const snippet = typeof citation === 'string' ? '' : citation.snippet || '';
-		citedSources.push(webSource(url, title, snippet));
+		const matchingResult = searchResultByUrl.get(normalizedWebSourceUrl(url));
+		const title = (typeof citation === 'string' ? '' : citation.title) || matchingResult?.title || url;
+		const snippet = (typeof citation === 'string' ? '' : citation.snippet) || matchingResult?.snippet || '';
+		const publishedAt =
+			(typeof citation === 'string' ? null : citation.date || citation.last_updated) ||
+			matchingResult?.date ||
+			matchingResult?.last_updated ||
+			null;
+		citedSources.push(webSource(url, title, snippet, { citationNumber: index + 1, publishedAt }));
 	}
 	for (const source of response.search_results || []) {
 		if (!source.url) continue;
-		if (!shouldKeepWebSource(source.url, query)) continue;
-		actionSources.push(webSource(source.url, source.title || source.url, source.snippet || source.date || source.last_updated || ''));
+		actionSources.push(
+			webSource(source.url, source.title || source.url, source.snippet || '', {
+				publishedAt: source.date || source.last_updated || null
+			})
+		);
 	}
 	for (const source of response.fetch_url_results || []) {
 		if (!source.url) continue;
-		if (!shouldKeepWebSource(source.url, query)) continue;
-		actionSources.push(webSource(source.url, source.title || source.url, source.content || source.snippet || ''));
+		actionSources.push(
+			webSource(source.url, source.title || source.url, source.content || source.snippet || '', {
+				publishedAt: source.date || source.last_updated || null
+			})
+		);
 	}
 	for (const item of response.output || []) {
 		for (const source of item.search_results || []) {
 			if (!source.url) continue;
-			if (!shouldKeepWebSource(source.url, query)) continue;
-			actionSources.push(webSource(source.url, source.title || source.url, source.snippet || ''));
+			actionSources.push(
+				webSource(source.url, source.title || source.url, source.snippet || '', {
+					publishedAt: source.date || source.last_updated || null
+				})
+			);
 		}
 		for (const source of item.fetch_url_results || []) {
 			if (!source.url) continue;
-			if (!shouldKeepWebSource(source.url, query)) continue;
-			actionSources.push(webSource(source.url, source.title || source.url, source.content || source.snippet || ''));
+			actionSources.push(
+				webSource(source.url, source.title || source.url, source.content || source.snippet || '', {
+					publishedAt: source.date || source.last_updated || null
+				})
+			);
 		}
 		for (const source of item.action?.sources || []) {
 			if (!source.url) continue;
-			if (!shouldKeepWebSource(source.url, query)) continue;
 			actionSources.push(webSource(source.url, source.title || source.source || source.url));
 		}
 		for (const content of item.content || []) {
 			for (const source of content.search_results || []) {
 				if (!source.url) continue;
-				if (!shouldKeepWebSource(source.url, query)) continue;
-				actionSources.push(webSource(source.url, source.title || source.url, source.snippet || ''));
+				actionSources.push(
+					webSource(source.url, source.title || source.url, source.snippet || '', {
+						publishedAt: source.date || source.last_updated || null
+					})
+				);
 			}
 			for (const source of content.fetch_url_results || []) {
 				if (!source.url) continue;
-				if (!shouldKeepWebSource(source.url, query)) continue;
-				actionSources.push(webSource(source.url, source.title || source.url, source.content || source.snippet || ''));
+				actionSources.push(
+					webSource(source.url, source.title || source.url, source.content || source.snippet || '', {
+						publishedAt: source.date || source.last_updated || null
+					})
+				);
 			}
 			for (const annotation of content.annotations || []) {
 				if (annotation.type !== 'url_citation' || !annotation.url) continue;
-				if (!shouldKeepWebSource(annotation.url, query)) continue;
 				citedSources.push(
 					webSource(
 						annotation.url,
@@ -760,7 +1056,7 @@ function extractProviderWebSources(raw: unknown, outputText: string, query: stri
 			}
 		}
 	}
-	return uniqueWebSources([...citedSources, ...actionSources]).slice(0, MAX_WEB_SEARCH_SOURCES);
+	return uniqueWebSources([...citedSources, ...actionSources]);
 }
 
 type WebSourceCandidate = {
@@ -771,19 +1067,33 @@ type WebSourceCandidate = {
 	summary: string;
 	limitations: string[];
 	confidence: number;
+	published_at: string | null;
+	citation_number?: number;
 };
 
 function uniqueWebSources(sources: WebSourceCandidate[]): WebSourceCandidate[] {
-	const seen = new Set<string>();
+	const seenUrls = new Set<string>();
+	const seenCitationNumbers = new Set<number>();
 	return sources.filter((source) => {
-		const key = source.source_url.replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase();
-		if (seen.has(key)) return false;
-		seen.add(key);
+		const key = normalizedWebSourceUrl(source.source_url);
+		if (source.citation_number) {
+			if (seenCitationNumbers.has(source.citation_number)) return false;
+			seenCitationNumbers.add(source.citation_number);
+			seenUrls.add(key);
+			return true;
+		}
+		if (seenUrls.has(key)) return false;
+		seenUrls.add(key);
 		return true;
 	});
 }
 
-function webSource(url: string, title: string, snippet = ''): WebSourceCandidate {
+function webSource(
+	url: string,
+	title: string,
+	snippet = '',
+	options: { publishedAt?: string | null; citationNumber?: number } = {}
+): WebSourceCandidate {
 	const sourceSummary = compactToolText(snippet, 220);
 	const titleSummary = compactWebSourceTitle(title, url, 220);
 	const summary = sourceSummary || titleSummary;
@@ -794,8 +1104,14 @@ function webSource(url: string, title: string, snippet = ''): WebSourceCandidate
 		extracted_text: summary || titleSummary || 'Web search cited this source.',
 		summary: summary || titleSummary || 'Web search cited this source; verify the source page directly before publication.',
 		limitations: ['Provider web_search result; cite and verify source page before publication.'],
-		confidence: 0.6
+		confidence: 0.6,
+		published_at: options.publishedAt || null,
+		citation_number: options.citationNumber
 	};
+}
+
+function normalizedWebSourceUrl(value: string): string {
+	return value.replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase();
 }
 
 function compactWebSourceTitle(title: string, url: string, maxLength: number): string {
@@ -812,20 +1128,6 @@ function compactWebSourceTitle(title: string, url: string, maxLength: number): s
 		}
 	}
 	return compactToolText(value, maxLength);
-}
-
-function shouldKeepWebSource(url: string, query: string): boolean {
-	const normalizedQuery = query.toLowerCase();
-	try {
-		const parsed = new URL(url);
-		const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
-		const path = parsed.pathname.toLowerCase();
-		if (!/\b(reddit|forum|social|thread)\b/.test(normalizedQuery) && /(^|\.)reddit\.com$/.test(host)) return false;
-		if (!/\b(pdf|document|filing|budget)\b/.test(normalizedQuery) && path.endsWith('.pdf')) return false;
-		return true;
-	} catch {
-		return true;
-	}
 }
 
 function extractAnnotationSnippet(outputText: string, startIndex?: number, endIndex?: number): string {

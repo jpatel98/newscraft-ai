@@ -24,6 +24,7 @@ import {
 import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest, type RouteDecision } from './router.js';
 import type { NewsroomTool, ToolRegistry, ToolRunContext, ToolRunOutput } from './tools.js';
 import type { ModelProvider } from '../util/openai-complete.js';
+import type { DocumentContext, NewsroomContext } from '@newscraft/shared';
 
 export interface NewsroomAgentRunContext {
 	repository?: HarnessRepository;
@@ -33,6 +34,8 @@ export interface NewsroomAgentRunContext {
 	modelApiKey?: string;
 	openAiApiKey?: string;
 	trigger?: 'manual' | 'schedule' | 'test';
+	newsroomContext?: NewsroomContext;
+	documents?: DocumentContext[];
 	signal?: AbortSignal;
 	outputStyle?: 'report' | 'chat';
 	/** Current user request used for routing when prompt also carries system/time/context text. */
@@ -131,9 +134,10 @@ export class DisciplinedNewsroomAgent {
 
 	async run(prompt: string, context: NewsroomAgentRunContext = {}): Promise<NewsroomAgentRunResult> {
 		const routingPrompt = context.routingPrompt?.trim() || prompt;
-		const decision = routeNewsroomRequest(routingPrompt, {
+		let decision = routeNewsroomRequest(routingPrompt, {
 			default_tool_budget: this.config.default_tool_budget
 		});
+		if (context.documents?.length) decision = documentRouteDecision(decision, routingPrompt);
 		const ledger = new ToolBudgetLedger(
 			mergeToolBudget({
 				...this.config.default_tool_budget,
@@ -179,7 +183,7 @@ export class DisciplinedNewsroomAgent {
 		}
 
 		const signal = combinedSignal(context.signal, decision.tool_budget.max_runtime_seconds);
-		const plan = await this.resolvePlan(prompt, decision, context, signal);
+		const plan = await this.resolvePlan(routingPrompt, decision, context, signal);
 		const queue: QueuedStep[] = plan.steps.map((step, index) => ({
 			id: `step_${index + 1}`,
 			tool: step.tool,
@@ -350,11 +354,15 @@ export class DisciplinedNewsroomAgent {
 		if (!policy.allowed || !policy.model) return fallback;
 
 		const planner = this.options.planner || planResearchSteps;
+		const documentOnly = Boolean(context.documents?.length) && !requestsExternalCorroboration(prompt);
+		const allowedPlannerTools: ReadonlySet<string> | null = documentOnly
+			? new Set([NEWSROOM_TOOL_NAMES.pdfTextExtractor])
+			: null;
 		try {
 			const plan = await planner({
 				prompt,
 				route: decision,
-				tools: this.plannerToolCatalog(),
+				tools: this.plannerToolCatalog(allowedPlannerTools),
 				sourceMonitors: this.config.source_monitors.map((monitor) => ({ name: monitor.name, tags: monitor.tags })),
 				maxSteps: Math.max(1, Math.min(4, this.config.default_tool_budget.max_total_tool_calls)),
 				apiKey,
@@ -364,6 +372,9 @@ export class DisciplinedNewsroomAgent {
 				signal: plannerSignal(signal)
 			});
 			if (!plan.steps.length) return fallback;
+			if (allowedPlannerTools && plan.steps.some((step) => !allowedPlannerTools.has(step.tool))) {
+				throw new Error('planner returned an external tool for a document-only request');
+			}
 			this.appendPlannerEvent(context, 'plan.created', {
 				source: plan.source,
 				reason: plan.reason,
@@ -379,12 +390,15 @@ export class DisciplinedNewsroomAgent {
 		}
 	}
 
-	private plannerToolCatalog(): Array<{ name: string; when_to_use: string }> {
+	private plannerToolCatalog(
+		allowedTools: ReadonlySet<string> | null = null
+	): Array<{ name: string; when_to_use: string }> {
 		return this.registry
 			.list()
 			.filter(
 				(tool) =>
 					this.config.enabled_tools.includes(tool.name) &&
+					(!allowedTools || allowedTools.has(tool.name)) &&
 					// The browser provider is a stub that always blocks; never plan it.
 					tool.name !== NEWSROOM_TOOL_NAMES.browserAutomation
 			)
@@ -514,11 +528,24 @@ export class DisciplinedNewsroomAgent {
 				(this.modelProvider(context) === 'openai' ? context.openAiApiKey || this.options.openAiApiKey : ''),
 			openAiApiKey: context.openAiApiKey || this.options.openAiApiKey,
 			trigger: context.trigger,
+			newsroomContext: context.newsroomContext,
+			documents: context.documents,
 			signal: context.signal,
 			onAnswerDelta: context.onAnswerDelta
 		};
 		try {
-			return await tool.run(inputForTool(tool.name, prompt, evidence, stepInput), toolContext);
+			const requestPrompt = context.routingPrompt?.trim() || prompt;
+			if (
+				context.documents?.length &&
+				!requestsExternalCorroboration(requestPrompt) &&
+				tool.name !== NEWSROOM_TOOL_NAMES.pdfTextExtractor
+			) {
+				return {
+					status: 'blocked',
+					limitations: ['External research was not requested for the attached PDF.']
+				};
+			}
+			return await tool.run(inputForTool(tool.name, requestPrompt, evidence, stepInput), toolContext);
 		} catch (err) {
 			return {
 				status: 'error',
@@ -532,6 +559,32 @@ export class DisciplinedNewsroomAgent {
 		if (!context.modelApiKey && !this.options.modelApiKey && (context.openAiApiKey || this.options.openAiApiKey)) return 'openai';
 		return this.config.model_provider;
 	}
+}
+
+function documentRouteDecision(base: RouteDecision, prompt: string): RouteDecision {
+	const corroborate = requestsExternalCorroboration(prompt);
+	return {
+		...base,
+		selected_mode: corroborate ? 'hybrid_research' : 'custom_tool',
+		reason: corroborate
+			? 'The request asks to compare attached document evidence with external sources.'
+			: 'The request includes attached document evidence.',
+		tools_to_use: corroborate
+			? [NEWSROOM_TOOL_NAMES.pdfTextExtractor, NEWSROOM_TOOL_NAMES.webSearch]
+			: [NEWSROOM_TOOL_NAMES.pdfTextExtractor],
+		stop_condition: corroborate
+			? 'stop after document evidence and bounded external corroboration are available'
+			: 'stop after the attached document evidence is read',
+		expected_output: corroborate
+			? 'a comparison that separates attached-document claims from external evidence'
+			: 'a document-only answer with page citations'
+	};
+}
+
+function requestsExternalCorroboration(prompt: string): boolean {
+	return /\b(verify|corroborate|fact[- ]?check|search (?:the )?web|search externally|external sources?|other outlets?|broader coverage)\b/i.test(
+		prompt
+	);
 }
 
 function inputForTool(name: string, prompt: string, evidence: EvidenceObject[], stepInput = ''): unknown {

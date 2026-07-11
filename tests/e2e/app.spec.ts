@@ -10,9 +10,7 @@ async function collectPageProblems(page: Page) {
 	page.on('console', (msg) => {
 		if (msg.type() !== 'error') return;
 		const text = msg.text();
-		if (/Failed to load resource: the server responded with a status of (400|401|502)/.test(text)) {
-			return;
-		}
+		if (/Failed to load resource:.*status of 401 \(Unauthorized\)/.test(text)) return;
 		problems.push(`console: ${text}`);
 	});
 	return problems;
@@ -23,9 +21,13 @@ async function signIn(page: Page) {
 	await page.getByLabel('Password', { exact: true }).fill(password);
 	await page.getByRole('button', { name: 'Sign in' }).click();
 	await expect(page).toHaveURL(/\/$/);
+	await expect(page.locator('.shell')).toHaveAttribute('data-ready', 'true');
+	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
 }
 
 async function expectChatStartHome(page: Page) {
+	await expect(page.locator('.shell')).toHaveAttribute('data-ready', 'true');
+	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
 	await expect(page).toHaveTitle(/New chat · NewsCraft/);
 	await expect(
 		page.getByRole('heading', { name: 'What should NewsCraft work on?' })
@@ -206,6 +208,81 @@ async function interceptChatStreamWithPlanFixture(
 		});
 		// Give the browser time to process the answer frames and re-render
 		await page.waitForTimeout(300);
+	};
+}
+
+async function installAnswerActionStreamFixture(page: Page) {
+	const answerFrame = `data: ${JSON.stringify({
+		id: 'chatcmpl-answer-action',
+		object: 'chat.completion.chunk',
+		created: 0,
+		model: 'newsroom-harness',
+		choices: [
+			{
+				index: 0,
+				delta: { content: 'Formatted answer with inherited evidence [1].' },
+				finish_reason: null
+			}
+		]
+	})}\n\n`;
+	const citationFrame = sseFrame('agent.citations', {
+		citations: [
+			{
+				citationNumber: 1,
+				title: 'FIFA match schedule',
+				url: 'https://inside.fifa.com/match-centre',
+				domain: 'inside.fifa.com',
+				publicationDate: '2026-07-10',
+				sourceType: 'official',
+				supportingExcerpt: 'The confirmed match begins at 19:00 local time.'
+			}
+		]
+	});
+	await page.addInitScript(({ answerFrame, citationFrame }) => {
+		const originalFetch = window.fetch.bind(window);
+		const state = window as Window & {
+			__answerActionRequests?: Array<Record<string, unknown>>;
+			__answerActionRelease?: () => void;
+		};
+		state.__answerActionRequests = [];
+		window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+			const url =
+				typeof input === 'string'
+					? input
+					: input instanceof URL
+						? input.href
+						: (input as Request).url;
+			if (!url.includes('/api/chat/stream')) return originalFetch(input, init);
+			state.__answerActionRequests?.push(JSON.parse(String(init?.body || '{}')));
+			const encoder = new TextEncoder();
+			const stream = new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(
+						encoder.encode(`${answerFrame}${citationFrame}data: [DONE]\n\n`)
+					);
+					state.__answerActionRelease = () => controller.close();
+				}
+			});
+			return new Response(stream, {
+				status: 200,
+				headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' }
+			});
+		};
+	}, { answerFrame, citationFrame });
+
+	return {
+		request: () =>
+			page.evaluate(() => {
+				const state = window as Window & { __answerActionRequests?: Array<Record<string, unknown>> };
+				return state.__answerActionRequests?.at(-1) ?? null;
+			}),
+		release: async () => {
+			await page.evaluate(() => {
+				const state = window as Window & { __answerActionRelease?: () => void };
+				state.__answerActionRelease?.();
+			});
+			await page.getByRole('button', { name: 'Use answer' }).last().waitFor({ state: 'visible' });
+		}
 	};
 }
 
@@ -415,7 +492,8 @@ test.describe('keyboard navigation and dialog focus', () => {
 
 		const composer = page.getByLabel('Message NewsCraft');
 		await composer.fill('/feedback initial note');
-		await page.keyboard.press('Enter');
+		await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled();
+		await composer.press('Enter');
 
 		const dialog = page.getByRole('dialog', { name: 'Capture feedback' });
 		await expect(dialog).toBeVisible();
@@ -659,7 +737,7 @@ test.describe('plan timeline UI', () => {
 		const longAnswer = Array.from(
 			{ length: 90 },
 			(_, i) => `Seeded context line ${i + 1} for a long thread.`
-		).join('\n');
+		).join('\n\n');
 		const seedRes = await page.request.post('/api/e2e/seed-conversation', {
 			data: {
 				secret: e2eSecret,
@@ -674,8 +752,11 @@ test.describe('plan timeline UI', () => {
 		const releaseStream = await interceptChatStreamWithPlanFixture(page);
 
 		await page.goto(`/c/${convId}`);
-		await page.waitForTimeout(150);
+		await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
 		const scroller = page.locator('.thread');
+		await expect
+			.poll(() => scroller.evaluate((el) => el.scrollHeight - el.clientHeight))
+			.toBeGreaterThan(96);
 		await scroller.evaluate((el) => {
 			el.scrollTop = 0;
 			el.dispatchEvent(new Event('scroll'));
@@ -794,5 +875,379 @@ test.describe('persisted answer sources', () => {
 
 		await expectNoTechnicalLeakage(page);
 		expect(problems).toEqual([]);
+	});
+});
+
+test.describe('citation evidence UI', () => {
+	test.beforeAll(async ({ request }) => {
+		await ensureTestAccount(request);
+	});
+
+	test('opens an accessible evidence preview, restores focus, and becomes a mobile bottom sheet', async ({
+		page
+	}) => {
+		const problems = await collectPageProblems(page);
+		await signIn(page);
+
+		const source = {
+			id: 'fifa-schedule',
+			url: 'https://inside.fifa.com/match-centre',
+			title: 'FIFA match schedule',
+			domain: 'inside.fifa.com',
+			status: 'used',
+			firstSeenAt: 1000,
+			lastSeenAt: 1100,
+			used: true
+		};
+		const seedRes = await page.request.post('/api/e2e/seed-conversation', {
+			data: {
+				secret: e2eSecret,
+				password,
+				userMessage: 'What FIFA games are being played today?',
+				assistantMessage: 'The confirmed match begins at 19:00 local time [1].',
+				assistantToolCalls: {
+					version: 1,
+					tools: [],
+					sources: [source],
+					citations: [
+						{
+							citationNumber: 1,
+							title: 'FIFA match schedule',
+							url: source.url,
+							domain: source.domain,
+							publicationDate: '2026-07-10',
+							sourceType: 'official',
+							supportingExcerpt: 'The match begins at 19:00 local time.'
+						}
+					]
+				}
+			},
+			headers: { 'content-type': 'application/json' }
+		});
+		if (!seedRes.ok()) throw new Error(`seed-conversation: ${seedRes.status()} ${await seedRes.text()}`);
+		const { id: convId } = (await seedRes.json()) as { id: string };
+
+		await page.goto(`/c/${convId}`);
+		const citation = page.getByRole('button', { name: 'Citation 1: FIFA match schedule' });
+		await expect(citation).toBeVisible();
+		await expect(page.locator('[data-testid="message-sources"]')).toHaveCount(0);
+
+		await citation.focus();
+		await citation.press('Enter');
+		const dialog = page.getByRole('dialog', { name: 'FIFA match schedule' });
+		await expect(dialog).toBeVisible();
+		await expect(dialog).toContainText('Official source');
+		await expect(dialog).toContainText('The match begins at 19:00 local time.');
+		await expect(dialog.getByRole('link', { name: 'Open original' })).toHaveAttribute(
+			'href',
+			source.url
+		);
+		await expect(page.getByRole('button', { name: 'Close evidence preview' })).toBeFocused();
+		await page.keyboard.press('Shift+Tab');
+		await expect(dialog.getByRole('link', { name: 'Open original' })).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(page.getByRole('button', { name: 'Close evidence preview' })).toBeFocused();
+
+		await page.keyboard.press('Escape');
+		await expect(dialog).toHaveCount(0);
+		await expect(citation).toBeFocused();
+
+		await page.setViewportSize({ width: 390, height: 844 });
+		await citation.click();
+		const sheet = page.locator('[data-testid="evidence-preview"]');
+		await expect(sheet).toBeVisible();
+		const box = await sheet.boundingBox();
+		expect(box).not.toBeNull();
+		expect(Math.abs((box?.y ?? 0) + (box?.height ?? 0) - 844)).toBeLessThan(2);
+		expect(box?.width).toBe(390);
+		await page.keyboard.press('Escape');
+
+		await page.reload();
+		const reloadedCitation = page.getByRole('button', { name: 'Citation 1: FIFA match schedule' });
+		await expect(reloadedCitation).toBeVisible();
+		await reloadedCitation.click();
+		await expect(page.getByRole('dialog', { name: 'FIFA match schedule' })).toContainText('Jul 10, 2026');
+		await page.locator('.evidence-backdrop__dismiss').click({ position: { x: 5, y: 5 } });
+		await expect(page.getByRole('dialog', { name: 'FIFA match schedule' })).toHaveCount(0);
+		await expect(reloadedCitation).toBeFocused();
+
+		expect(problems).toEqual([]);
+	});
+
+	test('keeps the legacy source disclosure when a visible citation is unresolved', async ({ page }) => {
+		await signIn(page);
+		const seedRes = await page.request.post('/api/e2e/seed-conversation', {
+			data: {
+				secret: e2eSecret,
+				password,
+				userMessage: 'Check this schedule.',
+				assistantMessage: 'The schedule remains unconfirmed [2].',
+				assistantToolCalls: {
+					version: 1,
+					tools: [],
+					sources: [
+						{
+							id: 'schedule-source',
+							url: 'https://example.com/schedule',
+							title: 'Schedule source',
+							status: 'used',
+							firstSeenAt: 1000,
+							lastSeenAt: 1100,
+							used: true
+						}
+					],
+					citations: [
+						{
+							citationNumber: 2,
+							title: 'Different source',
+							url: 'https://example.com/different',
+							domain: 'example.com',
+							publicationDate: null,
+							sourceType: 'unknown',
+							supportingExcerpt: ''
+						}
+					]
+				}
+			},
+			headers: { 'content-type': 'application/json' }
+		});
+		if (!seedRes.ok()) throw new Error(`seed-conversation: ${seedRes.status()} ${await seedRes.text()}`);
+		const { id: convId } = (await seedRes.json()) as { id: string };
+
+		await page.goto(`/c/${convId}`);
+		await expect(page.getByText('The schedule remains unconfirmed')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Citation 2: Different source' })).toHaveCount(0);
+		await expect(page.locator('[data-testid="message-sources"]')).toBeVisible();
+	});
+});
+
+test.describe('answer handoff actions', () => {
+	test.beforeAll(async ({ request }) => {
+		await ensureTestAccount(request);
+	});
+
+	test('runs all four formats as visible follow-up turns with inherited citations and no research steps', async ({
+		page
+	}) => {
+		await signIn(page);
+		const seedRes = await page.request.post('/api/e2e/seed-conversation', {
+			data: {
+				secret: e2eSecret,
+				password,
+				userMessage: 'What FIFA games are being played today?',
+				assistantMessage: 'The confirmed match begins at 19:00 local time [1].',
+				assistantToolCalls: {
+					version: 1,
+					tools: [],
+					sources: [],
+					citations: [
+						{
+							citationNumber: 1,
+							title: 'FIFA match schedule',
+							url: 'https://inside.fifa.com/match-centre',
+							domain: 'inside.fifa.com',
+							publicationDate: '2026-07-10',
+							sourceType: 'official',
+							supportingExcerpt: 'The confirmed match begins at 19:00 local time.'
+						}
+					]
+				}
+			},
+			headers: { 'content-type': 'application/json' }
+		});
+		if (!seedRes.ok()) throw new Error(`seed-conversation: ${seedRes.status()} ${await seedRes.text()}`);
+		const { id: convId } = (await seedRes.json()) as { id: string };
+		const fixture = await installAnswerActionStreamFixture(page);
+		await page.goto(`/c/${convId}`);
+		await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
+		const sourceArticle = page.locator('article.msg--assistant').last();
+		const sourceDomId = await sourceArticle.getAttribute('id');
+		const sourceMessageId = sourceDomId?.replace(/^m-/, '');
+		expect(sourceMessageId).toBeTruthy();
+		const sourceActionArticle = page.locator(`[id="m-${sourceMessageId}"]`);
+
+		const actions = [
+			['Producer brief', 'producer_brief', 'Create a producer brief from this answer.'],
+			['30-second script', 'thirty_second_script', 'Turn this answer into a 30-second script.'],
+			['Interview questions', 'interview_questions', 'Draft interview questions from this answer.'],
+			['Copy with citations', 'copy_with_citations', 'Turn this answer into clean copy with citations.']
+		] as const;
+
+		for (const [label, action, visibleRequest] of actions) {
+			await sourceActionArticle.getByRole('button', { name: 'Use answer' }).click();
+			await page.getByRole('menuitem', { name: label }).click();
+			await expect(page.getByText(visibleRequest)).toBeVisible();
+			await expect.poll(fixture.request).toMatchObject({
+				conversation_id: convId,
+				output_action: action,
+				source_message_id: sourceMessageId
+			});
+			await expect(page.locator('[data-testid="plan-timeline"]')).toHaveCount(0);
+			const persistRes = await page.request.post('/api/e2e/seed-conversation', {
+				data: {
+					secret: e2eSecret,
+					password,
+					conversationId: convId,
+					userMessage: visibleRequest,
+					assistantMessage: 'Formatted answer with inherited evidence [1].',
+					assistantToolCalls: {
+						version: 1,
+						tools: [],
+						sources: [],
+						citations: [
+							{
+								citationNumber: 1,
+								title: 'FIFA match schedule',
+								url: 'https://inside.fifa.com/match-centre',
+								domain: 'inside.fifa.com',
+								publicationDate: '2026-07-10',
+								sourceType: 'official',
+								supportingExcerpt: 'The confirmed match begins at 19:00 local time.'
+							}
+						]
+					}
+				},
+				headers: { 'content-type': 'application/json' }
+			});
+			if (!persistRes.ok()) {
+				throw new Error(`persist-answer-action: ${persistRes.status()} ${await persistRes.text()}`);
+			}
+			await fixture.release();
+			await expect(page.getByText('Formatted answer with inherited evidence').last()).toBeVisible();
+			await expect(
+				page.getByRole('button', { name: 'Citation 1: FIFA match schedule' }).last()
+			).toBeVisible();
+			await expect(page.getByRole('button', { name: 'Use answer' }).last()).toBeEnabled();
+		}
+	});
+});
+
+test.describe('private PDF composer lifecycle', () => {
+	test.beforeAll(async ({ request }) => {
+		await ensureTestAccount(request);
+	});
+
+	test('shows upload states, blocks early sends, removes files, and restores a ready PDF after send failure', async ({
+		page
+	}) => {
+		await signIn(page);
+		const convId = await seedConversation(page, {
+			userMessage: 'Review the attached source document.',
+			assistantMessage: 'Attach the PDF when ready.'
+		});
+
+		let releaseToken: (() => void) | undefined;
+		let releaseUpload: (() => void) | undefined;
+		let releaseProcess: (() => void) | undefined;
+		let tokenCount = 0;
+		let failUpload = false;
+		const firstTokenGate = new Promise<void>((resolve) => (releaseToken = resolve));
+		const firstUploadGate = new Promise<void>((resolve) => (releaseUpload = resolve));
+		const firstProcessGate = new Promise<void>((resolve) => (releaseProcess = resolve));
+
+		await page.route('**/api/health*', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ app: { capabilities: { documents: true } } })
+			})
+		);
+		await page.route('**/documents/upload-token', async (route) => {
+			tokenCount += 1;
+			if (tokenCount === 1) await firstTokenGate;
+			const id = `doc-${tokenCount}`;
+			await route.fulfill({
+				status: 201,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					documents: [
+						{
+							document: {
+								id,
+								filename: tokenCount === 2 ? 'failed.pdf' : 'notes.pdf',
+								state: 'uploading',
+								pageCount: null,
+								error: null
+							},
+							upload: {
+								path: `org/conversation/${id}/file.pdf`,
+								token: `token-${id}`,
+								signedUrl: `https://storage.example/upload/${id}?token=token-${id}`
+							}
+						}
+					]
+				})
+			});
+		});
+		await page.route('https://storage.example/**', async (route) => {
+			if (tokenCount === 1) await firstUploadGate;
+			await route.fulfill({ status: failUpload ? 500 : 200, body: '{}' });
+		});
+		await page.route('**/documents/*/process', async (route) => {
+			if (tokenCount === 1) await firstProcessGate;
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					document: {
+						id: `doc-${tokenCount}`,
+						filename: 'notes.pdf',
+						state: 'ready',
+						pageCount: 2,
+						error: null
+					}
+				})
+			});
+		});
+		await page.route(/\/api\/conversations\/[^/]+\/documents\/doc-\d+$/, (route) =>
+			route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+		);
+		await page.goto(`/c/${convId}`);
+		await expect(page.getByRole('button', { name: 'Attach image or PDF' })).toBeVisible();
+
+		const input = page.locator('input[type="file"]');
+		await input.setInputFiles({
+			name: 'notes.pdf',
+			mimeType: 'application/pdf',
+			buffer: Buffer.from('%PDF-1.4\nfixture')
+		});
+		await expect(page.getByText('Uploading', { exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
+		releaseToken?.();
+		await expect(page.getByText('Uploading', { exact: true })).toBeVisible();
+		releaseUpload?.();
+		await expect(page.getByText('Processing', { exact: true })).toBeVisible();
+		releaseProcess?.();
+		await expect(page.getByText('2 pages ready', { exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled();
+		await page.getByRole('button', { name: 'Remove notes.pdf' }).click();
+		await expect(page.getByText('2 pages ready', { exact: true })).toHaveCount(0);
+
+		failUpload = true;
+		await input.setInputFiles({
+			name: 'failed.pdf',
+			mimeType: 'application/pdf',
+			buffer: Buffer.from('%PDF-1.4\nfailed fixture')
+		});
+		await expect(page.getByText("Couldn't upload that PDF. Try again.", { exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
+		await page.getByRole('button', { name: 'Remove failed.pdf' }).click();
+
+		failUpload = false;
+		await input.setInputFiles({
+			name: 'notes.pdf',
+			mimeType: 'application/pdf',
+			buffer: Buffer.from('%PDF-1.4\nretry fixture')
+		});
+		await expect(page.getByText('2 pages ready', { exact: true })).toBeVisible();
+		await page.route('**/api/chat/stream', (route) =>
+			route.fulfill({ status: 503, contentType: 'text/plain', body: 'unavailable' })
+		);
+		const composer = page.getByLabel('Message NewsCraft');
+		await composer.fill('Summarize this private PDF.');
+		await page.getByRole('button', { name: 'Send message' }).click();
+		await expect(composer).toHaveValue('Summarize this private PDF.');
+		await expect(page.getByText('2 pages ready', { exact: true })).toBeVisible();
+		await expect(page.getByText("Couldn't send. Your draft is still here.", { exact: true })).toBeVisible();
 	});
 });

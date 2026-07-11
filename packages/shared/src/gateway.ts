@@ -1,5 +1,45 @@
 export type ReasoningEffort = 'low' | 'medium' | 'high';
 
+export type CitationSourceType =
+	| 'official'
+	| 'primary'
+	| 'news_report'
+	| 'social_post'
+	| 'user_document'
+	| 'commercial'
+	| 'unknown';
+
+export interface CitationRecord {
+	citationNumber: number;
+	title: string;
+	url: string;
+	domain: string;
+	publicationDate: string | null;
+	sourceType: CitationSourceType;
+	supportingExcerpt: string;
+	documentPage?: number;
+}
+
+export interface NewsroomContext {
+	timezone: string;
+	homeMarket?: string;
+	preferredDomains?: string[];
+}
+
+export interface DocumentContextPage {
+	pageNumber: number;
+	text: string;
+}
+
+export interface DocumentContext {
+	id: string;
+	filename: string;
+	downloadUrl?: string;
+	checksum?: string;
+	pageCount: number;
+	pages: DocumentContextPage[];
+}
+
 export type GatewayContentPart =
 	| { type: 'text'; text: string }
 	| { type: 'image_url'; image_url: { url: string } };
@@ -21,6 +61,10 @@ export interface GatewayChatCompletionRequest {
 	planner_enabled?: boolean;
 	/** Correlation id propagated from the app request for observability/log joins. */
 	trace_id?: string;
+	/** Organization-scoped editorial defaults, kept separate from the user prompt. */
+	newsroom_context?: NewsroomContext;
+	/** Bounded page excerpts from private conversation documents. */
+	documents?: DocumentContext[];
 }
 
 export interface GatewayChatCompletionChunk {
@@ -67,4 +111,8 @@ export interface GatewayResponsesRequest {
 	previous_response_id?: string;
 	/** Correlation id propagated from the app request for observability/log joins. */
 	trace_id?: string;
+	/** Organization-scoped editorial defaults, kept separate from the user prompt. */
+	newsroom_context?: NewsroomContext;
+	/** Bounded page excerpts from private conversation documents. */
+	documents?: DocumentContext[];
 }

@@ -3,12 +3,14 @@
 
 	interface Props {
 		sources: DisplaySourceReceipt[];
+		/** Structured inline citations are complete, so a second source list would be redundant. */
+		resolvedInline?: boolean;
 	}
 
-	let { sources }: Props = $props();
+	let { sources, resolvedInline = false }: Props = $props();
 </script>
 
-{#if sources.length > 0}
+{#if sources.length > 0 && !resolvedInline}
 	<details class="source-disclosure" data-testid="message-sources">
 		<summary class="source-disclosure__summary">
 			<span>Sources</span>

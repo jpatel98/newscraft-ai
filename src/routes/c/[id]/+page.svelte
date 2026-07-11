@@ -9,13 +9,32 @@
 	import { formatThreadUpdated } from '$lib/utils/time';
 	import { persistedThreadMessages, type PersistedThreadMessage } from '$lib/utils/thread-messages';
 	import { parseSlashCommand } from '$lib/utils/slash';
-	import { streamFailureMessage } from '$lib/client/stream';
+	import { streamFailureMessage, type StreamArgs } from '$lib/client/stream';
+	import {
+		ConversationDocumentError,
+		deleteConversationDocument,
+		documentsCapabilityEnabled,
+		uploadConversationPdf
+	} from '$lib/client/documents';
+	import type {
+		AnswerUseAction,
+		ComposerDocumentAttachment,
+		DocumentUploadControls
+	} from '$lib/components/journalist-ui';
 	import { activeHTMLElement, focusDialog, restoreFocus, trapTabKey } from '$lib/utils/focus';
 	import X from 'lucide-svelte/icons/x';
 	import Send from 'lucide-svelte/icons/send-horizontal';
 
 	type ThreadMessage = PersistedThreadMessage;
-	type FailedSend = { content: MessageContent; command?: ChatCommand };
+	type RunStreamArgs = StreamArgs & { conversation_id: string };
+	type FailedSend = { args: RunStreamArgs };
+
+	const ANSWER_ACTION_REQUESTS: Record<AnswerUseAction, string> = {
+		producer_brief: 'Create a producer brief from this answer.',
+		thirty_second_script: 'Turn this answer into a 30-second script.',
+		interview_questions: 'Draft interview questions from this answer.',
+		copy_with_citations: 'Turn this answer into clean copy with citations.'
+	};
 
 	let { data } = $props();
 
@@ -33,6 +52,8 @@
 	let feedbackDialog = $state<HTMLDivElement | null>(null);
 	let feedbackTextarea = $state<HTMLTextAreaElement | null>(null);
 	let feedbackOpener = $state<HTMLElement | null>(null);
+	let documentsEnabled = $state(false);
+	let documentAttachments = $state<ComposerDocumentAttachment[]>([]);
 	let wasFeedbackOpen = false;
 	// Persisted message ids that are currently being shadowed by an overlay
 	// stream (resume). Hides the partial row while we re-stream into it; on
@@ -67,14 +88,7 @@
 		overlay = overlay.filter((m) => !m.failure);
 	}
 
-	async function runStream(args: {
-		conversation_id: string;
-		content?: MessageContent;
-		regenerate?: boolean;
-		resume?: boolean;
-		message_id?: string;
-		command?: ChatCommand;
-	}) {
+	async function runStream(args: RunStreamArgs) {
 		// startStream aborts any prior controller; wait for the previous run to
 		// fully unwind so its overlay cleanup completes before we add our own.
 		const prior = activeStream;
@@ -82,7 +96,9 @@
 		await prior.catch(() => {});
 
 		const isResume = args.resume === true && !!args.message_id;
-		const isRetryableSend = Boolean(args.content && !args.regenerate && !isResume);
+		const isRetryableSend = Boolean(
+			(args.content || args.output_action) && !args.regenerate && !isResume
+		);
 		if (isRetryableSend) clearFailureOverlays();
 		const resumingId = isResume ? (args.message_id as string) : null;
 
@@ -157,6 +173,10 @@
 							updatedAt: Date.now()
 						});
 					},
+					onCitations: (citations) => {
+						noteStreamEstablished();
+						chat.setCitations(citations);
+					},
 					onPlan: (plan) => {
 						noteStreamEstablished();
 						chat.setPlan(plan);
@@ -189,9 +209,14 @@
 					const message = streamFailureMessage(e);
 					asstText = asstText.trim() ? `${asstText}\n\n${message}` : message;
 					asstMsg.content = asstText;
-					if (isRetryableSend && args.content) {
+					if (isRetryableSend) {
 						asstMsg.failure = { retryable: true };
-						failedRetry = { content: args.content, command: args.command };
+						failedRetry = {
+							args: {
+								...args,
+								document_ids: args.document_ids ? [...args.document_ids] : undefined
+							}
+						};
 					}
 					keepFailureAssistant = true;
 					if (isRetryableSend && !streamEstablished) failureToRethrow = e;
@@ -221,7 +246,11 @@
 		return run;
 	}
 
-	async function handleSend(content: MessageContent, command?: ChatCommand) {
+	async function handleSend(
+		content: MessageContent,
+		command?: ChatCommand,
+		documentIds: string[] = []
+	) {
 		const parsedCommand = typeof content === 'string' ? parseSlashCommand(content) : null;
 		if (command?.slash === '/feedback' || parsedCommand?.slash === '/feedback') {
 			feedbackComment = (command?.raw ?? parsedCommand?.raw ?? '').replace(/^\/feedback\b/i, '').trim();
@@ -230,7 +259,51 @@
 			feedbackOpen = true;
 			return;
 		}
-		await runStream({ conversation_id: data.conversation.id, content, command });
+		await runStream({
+			conversation_id: data.conversation.id,
+			content,
+			command,
+			...(documentIds.length ? { document_ids: documentIds } : {})
+		});
+	}
+
+	async function handleUseAnswer(action: AnswerUseAction, messageId: string) {
+		await runStream({
+			conversation_id: data.conversation.id,
+			content: ANSWER_ACTION_REQUESTS[action],
+			output_action: action,
+			source_message_id: messageId
+		});
+	}
+
+	async function handleDocumentUpload(file: File, controls: DocumentUploadControls) {
+		try {
+			const document = await uploadConversationPdf(data.conversation.id, file, {
+				onCreated: (created) =>
+					controls.update({ documentId: created.id, state: 'uploading' }),
+				onProcessing: (processing) =>
+					controls.update({ documentId: processing.id, state: 'processing' })
+			});
+			return {
+				documentId: document.id,
+				state: 'ready' as const,
+				pageCount: document.pageCount ?? undefined,
+				error: undefined
+			};
+		} catch (cause) {
+			return {
+				state: 'failed' as const,
+				error:
+					cause instanceof ConversationDocumentError
+						? cause.message
+						: "Couldn't process that PDF. Try again."
+			};
+		}
+	}
+
+	async function handleDocumentRemove(document: ComposerDocumentAttachment) {
+		if (!document.documentId) return;
+		await deleteConversationDocument(data.conversation.id, document.documentId);
 	}
 
 	async function submitFeedback() {
@@ -295,11 +368,11 @@
 		clearFailureOverlays();
 		failedRetry = null;
 		try {
-			const wanted = contentText(retry.content);
+			const wanted = retry.args.content ? contentText(retry.args.content) : '';
 			const lastUserIndex = data.messages.findLastIndex((message) => message.role === 'user');
 			const lastUser = lastUserIndex >= 0 ? data.messages[lastUserIndex] : null;
 			const resumable =
-				lastUser && contentText(lastUser.content) === wanted
+				lastUser && wanted && contentText(lastUser.content) === wanted
 					? data.messages
 							.slice(lastUserIndex + 1)
 							.findLast((message) => message.role === 'assistant' && message.partial)
@@ -307,16 +380,12 @@
 
 			if (resumable) {
 				await runStream({
-					conversation_id: data.conversation.id,
+					...retry.args,
 					resume: true,
 					message_id: resumable.id
 				});
 			} else {
-				await runStream({
-					conversation_id: data.conversation.id,
-					content: retry.content,
-					command: retry.command
-				});
+				await runStream(retry.args);
 			}
 		} catch {
 			/* runStream already leaves the safe retry state visible */
@@ -341,6 +410,9 @@
 	}
 
 	onMount(() => {
+		void documentsCapabilityEnabled().then((enabled) => {
+			documentsEnabled = enabled;
+		});
 		if (typeof location === 'undefined') return;
 		const m = location.hash.match(/^#p=(.*)$/);
 		if (!m) return;
@@ -398,6 +470,7 @@
 			onResume={handleResume}
 			onDiscard={handleDiscard}
 			onRetryFailure={handleRetryFailure}
+			onUseAnswer={handleUseAnswer}
 		/>
 {/key}
 
@@ -485,7 +558,14 @@
 
 <div class="composer-zone">
 	<div class="composer-zone__inner">
-		<Composer onSend={handleSend} draftKey={data.conversation.id} />
+		<Composer
+			onSend={handleSend}
+			draftKey={data.conversation.id}
+			{documentsEnabled}
+			bind:documentAttachments
+			onDocumentUpload={handleDocumentUpload}
+			onDocumentRemove={handleDocumentRemove}
+		/>
 	</div>
 </div>
 

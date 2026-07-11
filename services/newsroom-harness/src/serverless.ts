@@ -92,6 +92,7 @@ function serverlessHealth(config: ReturnType<typeof loadConfig>): GatewayHealthR
 			reports: false,
 			memory: false,
 			savedResearch: false,
+			documents: true,
 			scheduler: false,
 			persistence: 'stateless'
 		},

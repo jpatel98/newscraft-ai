@@ -37,3 +37,21 @@ export function newsroomTimeContext(options: NewsroomTimeContextOptions = {}): s
 		'Interpret relative date phrases such as "today", "tonight", "tomorrow", and "yesterday" using this local newsroom date unless the user explicitly specifies another timezone.'
 	].join('\n');
 }
+
+export function isCurrentEventQuery(query: string): boolean {
+	return /\b(latest|current|today|tonight|tomorrow|yesterday|this week|breaking|schedule|fixtures?|verify|confirm)\b/i.test(
+		query
+	);
+}
+
+export function currentAsOfLabel(options: NewsroomTimeContextOptions = {}): string {
+	return new Intl.DateTimeFormat('en-CA', {
+		timeZone: options.timeZone || newsroomTimeZone(),
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		hour: 'numeric',
+		minute: '2-digit',
+		timeZoneName: 'short'
+	}).format(options.now ?? new Date());
+}

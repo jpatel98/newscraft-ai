@@ -39,6 +39,7 @@
 	const isThreadPage = $derived(page.url.pathname.startsWith('/c/'));
 
 	let paletteOpen = $state(false);
+	let shellReady = $state(false);
 	let drawerOpen = $state(false);
 	let isMobile = $state(false);
 	let drawerToggleButton = $state<HTMLButtonElement | null>(null);
@@ -133,8 +134,10 @@
 			}
 		};
 		window.addEventListener('keydown', handler);
+		shellReady = true;
 
 		return () => {
+			shellReady = false;
 			window.removeEventListener('keydown', handler);
 			mq.removeEventListener('change', onMediaChange);
 			window.removeEventListener('orientationchange', onOrientationChange);
@@ -521,6 +524,7 @@
 {:else}
 	<div
 		class="shell {drawerOpen ? 'shell--drawer-open' : ''} {isThreadPage ? 'shell--thread' : 'shell--plain'}"
+		data-ready={shellReady ? 'true' : 'false'}
 		data-keyboard-open={keyboardOpen ? 'true' : 'false'}
 		style={`--visual-vh: ${visualViewportHeight};`}
 	>

@@ -8,6 +8,8 @@ export interface CompleteProviderTextOptions {
 	instructions?: string;
 	reasoningEffort?: 'low' | 'medium' | 'high';
 	maxOutputTokens?: number;
+	/** Perplexity-only: force a model-only response for transformations and synthesis. */
+	disableSearch?: boolean;
 	signal?: AbortSignal;
 }
 
@@ -160,6 +162,7 @@ function providerTextBody(options: CompleteProviderTextOptions & { provider: Mod
 			...(options.instructions ? [{ role: 'system', content: options.instructions }] : []),
 			{ role: 'user', content: options.input }
 		],
+		...(options.disableSearch ? { disable_search: true } : {}),
 		...(options.maxOutputTokens ? { max_tokens: options.maxOutputTokens } : {})
 	};
 }

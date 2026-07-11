@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHarnessServer, type HarnessServer } from '../src/server.js';
 
 let tempDir: string;
@@ -40,6 +40,8 @@ async function authFetch(pathname: string, init: RequestInit = {}) {
 afterEach(async () => {
 	await harness?.close();
 	if (tempDir) await rm(tempDir, { recursive: true, force: true });
+	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 });
 
 describe('newsroom harness server', () => {
@@ -149,6 +151,67 @@ describe('newsroom harness server', () => {
 		expect(response.headers.get('content-type')).toContain('text/event-stream');
 		expect(text).toContain('"object":"chat.completion.chunk"');
 		expect(text.trim().endsWith('data: [DONE]')).toBe(true);
+	});
+
+	it('resolves the exact FIFA schedule regression through an official retry and citation SSE', async () => {
+		const nativeFetch = globalThis.fetch.bind(globalThis);
+		let providerCalls = 0;
+		vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+			const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+			if (!url.includes('api.perplexity.ai')) return nativeFetch(input, init);
+			providerCalls += 1;
+			return new Response(
+				JSON.stringify(
+					providerCalls === 1
+						? {
+								choices: [{ message: { content: 'A report lists one match [1].' } }],
+								citations: ['https://www.reuters.com/sports/reported-match'],
+								search_results: [
+									{
+										url: 'https://www.reuters.com/sports/reported-match',
+										title: 'Reported match',
+										date: '2026-07-10'
+									}
+								]
+							}
+							: {
+								choices: [
+									{ message: { content: 'FIFA lists the confirmed match and kickoff time [1].' } }
+								],
+								citations: ['https://inside.fifa.com/match-centre'],
+								search_results: [
+									{
+										url: 'https://inside.fifa.com/match-centre',
+										title: 'FIFA match schedule',
+										snippet: 'The confirmed match begins at 19:00 local time.',
+										date: '2026-07-10'
+									}
+								]
+							}
+				),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			);
+		});
+		await startHarness({ modelProvider: 'perplexity', modelApiKey: 'fake-key' });
+
+		const response = await authFetch('/v1/chat/completions', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				stream: true,
+				messages: [{ role: 'user', content: 'what fifa games are being played today' }],
+				newsroom_context: { timezone: 'America/Toronto' }
+			})
+		});
+		const text = await response.text();
+
+		expect(response.status).toBe(200);
+		expect(providerCalls).toBe(2);
+		expect(text).toContain('Current as of');
+		expect(text).toContain('event: agent.citations');
+		expect(text).toContain('https://inside.fifa.com/match-centre');
+		expect(text).toContain('"sourceType":"primary"');
+		expect(text).not.toContain('No browser automation provider');
 	});
 
 	it('returns non-streaming Chat Completions JSON for title generation', async () => {

@@ -3,6 +3,8 @@
 	import { onMount } from 'svelte';
 	import Send from 'lucide-svelte/icons/send-horizontal';
 	import Paperclip from 'lucide-svelte/icons/paperclip';
+	import FileText from 'lucide-svelte/icons/file-text';
+	import LoaderCircle from 'lucide-svelte/icons/loader-circle';
 	import X from 'lucide-svelte/icons/x';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { filterSlashCommands, parseSlashCommand } from '$lib/utils/slash';
@@ -19,22 +21,45 @@
 		type ResizedImage
 	} from '$lib/utils/image-resize';
 	import type { ChatCommand, ContentPart, AgentCommand, MessageContent } from '$lib/types';
+	import {
+		documentStateLabel,
+		isPdfFile,
+		pdfSelectionError,
+		type ComposerDocumentAttachment,
+		type DocumentUploadControls
+	} from './journalist-ui';
 
 	interface Props {
-		onSend?: (content: MessageContent, command?: ChatCommand) => Promise<void> | void;
+		onSend?: (
+			content: MessageContent,
+			command?: ChatCommand,
+			documentIds?: string[]
+		) => Promise<void> | void;
 		disabled?: boolean;
 		placeholder?: string;
 		draftKey?: string | null;
+		documentsEnabled?: boolean;
+		documentAttachments?: ComposerDocumentAttachment[];
+		onDocumentUpload?: (
+			file: File,
+			controls: DocumentUploadControls
+		) => Promise<Partial<ComposerDocumentAttachment> | void> | Partial<ComposerDocumentAttachment> | void;
+		onDocumentRemove?: (document: ComposerDocumentAttachment) => Promise<void> | void;
 	}
 	let {
 		onSend,
 		disabled = false,
 		placeholder = 'Message NewsCraft',
-		draftKey = 'new'
+		draftKey = 'new',
+		documentsEnabled = false,
+		documentAttachments = $bindable([]),
+		onDocumentUpload,
+		onDocumentRemove
 	}: Props = $props();
 
 	const SEND_FAILURE_MESSAGE = "Couldn't send. Your draft is still here.";
 	const CREATE_FAILURE_MESSAGE = "Couldn't start a new chat. Your draft is still here.";
+	const PDF_UPLOAD_FAILURE_MESSAGE = "Couldn't process that PDF. Your draft is still here.";
 
 	interface Attachment {
 		id: string;
@@ -61,7 +86,7 @@
 	const draftStorageKey = $derived(composerDraftStorageKey(draftKey));
 
 	const slashToken = $derived.by(() => {
-		if (attachments.length > 0) return null;
+		if (attachments.length > 0 || documentAttachments.length > 0) return null;
 		const match = value.match(/^\/([A-Za-z0-9_-]*)$/);
 		return match ? match[1] : null;
 	});
@@ -88,9 +113,16 @@
 	function hydrateDraft() {
 		const key = draftStorageKey;
 		if (!mounted || hydratedDraftStorageKey === key) return;
+		const firstHydration = hydratedDraftStorageKey === undefined;
+		const currentValue = value;
 		hydratedDraftStorageKey = key;
-		value = readComposerDraft(draftStorage(), key);
+		if (firstHydration && currentValue.trim().length > 0) {
+			writeComposerDraft(draftStorage(), key, currentValue);
+		} else {
+			value = readComposerDraft(draftStorage(), key);
+		}
 		attachments = [];
+		documentAttachments = [];
 		attachError = null;
 		queueMicrotask(autosize);
 	}
@@ -174,9 +206,47 @@
 		return attachments.map((a) => ({ ...a, image: a.image ? { ...a.image } : undefined }));
 	}
 
-	function restoreFailedSend(sentValue: string, sentAttachments: Attachment[]) {
+	function snapshotDocuments(): ComposerDocumentAttachment[] {
+		return documentAttachments.map((document) => ({ ...document }));
+	}
+
+	function readyDocumentIds(documents = documentAttachments): string[] {
+		return documents
+			.filter(
+				(document): document is ComposerDocumentAttachment & { documentId: string } =>
+					document.state === 'ready' && Boolean(document.documentId)
+			)
+			.map((document) => document.documentId);
+	}
+
+	export function getReadyDocumentIds(): string[] {
+		return readyDocumentIds();
+	}
+
+	function updateDocumentAttachment(
+		id: string,
+		patch: Partial<ComposerDocumentAttachment>
+	) {
+		documentAttachments = documentAttachments.map((document) =>
+			document.id === id ? { ...document, ...patch, id: document.id } : document
+		);
+	}
+
+	export function updateDocument(
+		id: string,
+		patch: Partial<ComposerDocumentAttachment>
+	) {
+		updateDocumentAttachment(id, patch);
+	}
+
+	function restoreFailedSend(
+		sentValue: string,
+		sentAttachments: Attachment[],
+		sentDocuments: ComposerDocumentAttachment[] = []
+	) {
 		value = sentValue;
 		attachments = sentAttachments;
+		documentAttachments = sentDocuments;
 		attachError = SEND_FAILURE_MESSAGE;
 		queueMicrotask(() => {
 			textarea?.focus();
@@ -184,11 +254,54 @@
 		});
 	}
 
+	async function ingestPdf(file: File) {
+		const id = newAttachmentId();
+		const document: ComposerDocumentAttachment = {
+			id,
+			name: file.name,
+			bytes: file.size,
+			state: 'uploading'
+		};
+		documentAttachments = [...documentAttachments, document];
+
+		if (!onDocumentUpload) {
+			updateDocumentAttachment(id, {
+				state: 'failed',
+				error: 'Upload unavailable'
+			});
+			attachError = PDF_UPLOAD_FAILURE_MESSAGE;
+			return;
+		}
+
+		try {
+			const result = await onDocumentUpload(file, {
+				id,
+				update: (patch) => updateDocumentAttachment(id, patch)
+			});
+			if (result) updateDocumentAttachment(id, result);
+			const current = documentAttachments.find((item) => item.id === id);
+			if (current?.state === 'uploading') updateDocumentAttachment(id, { state: 'processing' });
+		} catch {
+			updateDocumentAttachment(id, {
+				state: 'failed',
+				error: 'Processing failed'
+			});
+			attachError = PDF_UPLOAD_FAILURE_MESSAGE;
+		}
+	}
+
 	async function ingestFiles(files: File[]) {
 		attachError = null;
 		const accepted = files.filter((f) => f.type.startsWith('image/'));
-		const rejected = files.length - accepted.length;
-		if (rejected > 0) attachError = 'Only image files are allowed.';
+		const pdfs = files.filter(isPdfFile);
+		const rejected = files.length - accepted.length - pdfs.length;
+		const errors: string[] = [];
+		if (rejected > 0) errors.push(documentsEnabled ? 'Only images and PDFs are allowed.' : 'Only image files are allowed.');
+		if (pdfs.length > 0 && !documentsEnabled) errors.push('PDF attachments are not available in this chat.');
+		const pdfError = documentsEnabled
+			? pdfSelectionError(pdfs, documentAttachments.length)
+			: null;
+		if (pdfError) errors.push(pdfError);
 
 		for (const file of accepted) {
 			const att: Attachment = {
@@ -209,6 +322,11 @@
 			}
 			attachments = [...attachments];
 		}
+
+		if (documentsEnabled && !pdfError) {
+			for (const file of pdfs) await ingestPdf(file);
+		}
+		if (errors.length > 0) attachError = errors[0];
 	}
 
 	function clipboardImageFiles(data: DataTransfer | null): File[] {
@@ -254,6 +372,19 @@
 		attachments = attachments.filter((a) => a.id !== id);
 	}
 
+	async function removeDocument(document: ComposerDocumentAttachment) {
+		const index = documentAttachments.findIndex((item) => item.id === document.id);
+		documentAttachments = documentAttachments.filter((item) => item.id !== document.id);
+		try {
+			await onDocumentRemove?.(document);
+		} catch {
+			const restored = [...documentAttachments];
+			restored.splice(Math.max(0, index), 0, document);
+			documentAttachments = restored;
+			attachError = "Couldn't remove that PDF. Try again.";
+		}
+	}
+
 	function onPaperclip() {
 		fileInput?.click();
 	}
@@ -280,7 +411,8 @@
 	function buildContent(): MessageContent | null {
 		const text = value.trim();
 		const ready = attachments.filter((a) => a.state === 'ready' && a.image);
-		if (!text && ready.length === 0) return null;
+		if (!text && ready.length === 0 && readyDocumentIds().length === 0) return null;
+		if (!text && ready.length === 0) return 'Summarize the attached PDF.';
 		if (ready.length === 0) return text;
 		const parts: ContentPart[] = [];
 		if (text) parts.push({ type: 'text', text });
@@ -303,6 +435,7 @@
 	async function send() {
 		if (disabled) return;
 		if (attachments.some((a) => a.state === 'compressing')) return;
+		if (documentAttachments.some((document) => document.state !== 'ready')) return;
 		const content = buildContent();
 		if (content == null) return;
 
@@ -314,6 +447,8 @@
 		if (onSend) {
 			const sentValue = value;
 			const sentAttachments = snapshotAttachments();
+			const sentDocuments = snapshotDocuments();
+			const sentDocumentIds = readyDocumentIds(sentDocuments);
 			const parsed = typeof content === 'string' ? parseSlashCommand(content) : null;
 			const matched = parsed
 				? commands.find((cmd) => cmd.slash.toLowerCase() === parsed.slash)
@@ -323,18 +458,23 @@
 				: undefined;
 			value = '';
 			attachments = [];
+			documentAttachments = [];
 			attachError = null;
 			try {
-				void Promise.resolve(onSend(content, command)).catch(() => {
-					restoreFailedSend(sentValue, sentAttachments);
+				void Promise.resolve(onSend(content, command, sentDocumentIds)).catch(() => {
+					restoreFailedSend(sentValue, sentAttachments, sentDocuments);
 				});
 			} catch {
-				restoreFailedSend(sentValue, sentAttachments);
+				restoreFailedSend(sentValue, sentAttachments, sentDocuments);
 			}
 			queueMicrotask(() => textarea?.focus());
 			return;
 		}
 		if (busy) return;
+		if (documentAttachments.length > 0) {
+			attachError = 'PDFs can be sent after the chat opens.';
+			return;
+		}
 		busy = true;
 		try {
 			const r = await fetch('/api/conversations', {
@@ -408,11 +548,27 @@
 	}
 
 	const compressing = $derived(attachments.some((a) => a.state === 'compressing'));
+	const documentsProcessing = $derived(
+		documentAttachments.some(
+			(document) => document.state === 'uploading' || document.state === 'processing'
+		)
+	);
+	const documentsFailed = $derived(
+		documentAttachments.some((document) => document.state === 'failed')
+	);
+	const documentsBlocked = $derived(
+		documentAttachments.some(
+			(document) => document.state !== 'ready' || !document.documentId
+		)
+	);
 	const canSend = $derived(
 		!busy &&
 			!disabled &&
 			!compressing &&
-			(value.trim().length > 0 || attachments.some((a) => a.state === 'ready'))
+			!documentsBlocked &&
+			(value.trim().length > 0 ||
+				attachments.some((a) => a.state === 'ready') ||
+				readyDocumentIds().length > 0)
 	);
 	const showInterruptHint = $derived(chat.streaming && value.trim().length > 0);
 </script>
@@ -426,7 +582,7 @@
 	<input
 		bind:this={fileInput}
 		type="file"
-		accept="image/*"
+		accept={documentsEnabled ? 'image/*,application/pdf,.pdf' : 'image/*'}
 		multiple
 		onchange={onFilePick}
 		style="display:none"
@@ -436,11 +592,46 @@
 	<div
 		class="composer-wrap"
 		class:composer-wrap--drop={dropActive}
+		data-drop-label={documentsEnabled ? 'Drop image or PDF to attach' : 'Drop image to attach'}
 		ondragover={onDragOver}
 		ondragleave={onDragLeave}
 		ondrop={onDrop}
 		role="presentation"
 	>
+		{#if documentsEnabled && documentAttachments.length > 0}
+			<div class="composer__documents" aria-label="Attached PDFs">
+				{#each documentAttachments as document (document.id)}
+					<div
+						class="composer__document"
+						class:composer__document--failed={document.state === 'failed'}
+						data-state={document.state}
+					>
+						<div class="composer__document__icon" aria-hidden="true">
+							{#if document.state === 'uploading' || document.state === 'processing'}
+								<LoaderCircle class="composer__document__spinner" size="16" strokeWidth={1.7} />
+							{:else}
+								<FileText size="16" strokeWidth={1.7} />
+							{/if}
+						</div>
+						<div class="composer__document__body">
+							<span class="composer__document__name" title={document.name}>{document.name}</span>
+							<span class="composer__document__state" role="status">
+								{documentStateLabel(document)}
+							</span>
+						</div>
+						<button
+							type="button"
+							class="composer__document__remove"
+							onclick={() => void removeDocument(document)}
+							aria-label="Remove {document.name}"
+							title="Remove PDF"
+						>
+							<X size="13" strokeWidth={2} aria-hidden="true" />
+						</button>
+					</div>
+				{/each}
+			</div>
+		{/if}
 		{#if attachments.length > 0}
 			<div class="composer__attachments" aria-label="Attached images">
 				{#each attachments as a (a.id)}
@@ -519,14 +710,15 @@
 				class="composer__icon-btn"
 				onclick={onPaperclip}
 				disabled={disabled || busy}
-				aria-label="Attach image"
-				title="Attach image"
+				aria-label={documentsEnabled ? 'Attach image or PDF' : 'Attach image'}
+				title={documentsEnabled ? 'Attach image or PDF' : 'Attach image'}
 			>
 				<Paperclip size="16" strokeWidth={1.5} />
 			</button>
 			<textarea
 				bind:this={textarea}
 				bind:value
+				data-ready={mounted ? 'true' : 'false'}
 				onkeydown={onKey}
 				onpaste={onPaste}
 				class="composer__textarea"
@@ -551,7 +743,11 @@
 		</div>
 	</div>
 	<div class="composer__hint" class:composer__hint--interrupt={showInterruptHint}>
-		{#if showInterruptHint}
+		{#if documentsProcessing}
+			<span>Preparing PDF before send</span>
+		{:else if documentsFailed}
+			<span>Remove the failed PDF to send</span>
+		{:else if showInterruptHint}
 			<span><kbd>Enter</kbd> interrupts the current reply and sends</span>
 		{:else}
 			<span
@@ -567,7 +763,7 @@
 		position: relative;
 	}
 	.composer-wrap--drop::after {
-		content: 'Drop image to attach';
+		content: attr(data-drop-label);
 		position: absolute;
 		inset: 0;
 		display: flex;
@@ -588,6 +784,91 @@
 		flex-wrap: wrap;
 		gap: 10px;
 		margin-bottom: 10px;
+	}
+	.composer__documents {
+		display: grid;
+		gap: 6px;
+		margin-bottom: 10px;
+	}
+	.composer__document {
+		display: grid;
+		grid-template-columns: 30px minmax(0, 1fr) 28px;
+		align-items: center;
+		gap: 8px;
+		min-height: 48px;
+		padding: 7px 8px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+	}
+	.composer__document--failed {
+		border-color: color-mix(in srgb, var(--danger-fg, #b34040) 45%, var(--border-default));
+	}
+	.composer__document__icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 30px;
+		height: 30px;
+		border-radius: var(--radius-1);
+		background: var(--bg-raised);
+		color: var(--accent-fg);
+	}
+	.composer__document--failed .composer__document__icon {
+		color: var(--danger-fg, #b34040);
+	}
+	:global(.composer__document__spinner) {
+		animation: composer-document-spin 900ms linear infinite;
+	}
+	.composer__document__body {
+		min-width: 0;
+		display: grid;
+		gap: 2px;
+	}
+	.composer__document__name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--fg-1);
+	}
+	.composer__document__state {
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+		letter-spacing: 0;
+		color: var(--fg-3);
+	}
+	.composer__document--failed .composer__document__state {
+		color: var(--danger-fg, #b34040);
+	}
+	.composer__document__remove {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 1px solid transparent;
+		border-radius: var(--radius-1);
+		background: transparent;
+		color: var(--fg-3);
+		cursor: pointer;
+	}
+	.composer__document__remove:hover {
+		border-color: var(--border-soft);
+		background: var(--bg-raised);
+		color: var(--fg-1);
+	}
+	.composer__document__remove:focus-visible {
+		outline: none;
+		box-shadow: var(--shadow-focus);
+	}
+	@keyframes composer-document-spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 	.composer__att {
 		position: relative;

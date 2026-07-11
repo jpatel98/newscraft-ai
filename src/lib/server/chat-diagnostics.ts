@@ -11,7 +11,8 @@ export interface ChatDiagnosticEvent {
 const MAX_EVENTS_PER_CONVERSATION = 80;
 const MAX_DETAIL_STRING = 500;
 const EVENT_TTL_MS = 24 * 60 * 60 * 1000;
-const SENSITIVE_KEY_RE = /authorization|cookie|token|secret|password|key|credential|session|database_url|url$/i;
+const SENSITIVE_KEY_RE =
+	/authorization|cookie|token|secret|password|key|credential|session|database_url|url$|(^|[._-])(error|exception|stack|prompt|content|text|excerpt|body|raw|detail)([._-]|$)/i;
 const REDACT_TEXT_PATTERNS: Array<[RegExp, string]> = [
 	[/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]'],
 	[/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[redacted-api-key]'],

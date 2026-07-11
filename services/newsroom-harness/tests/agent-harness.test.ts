@@ -386,6 +386,31 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).not.toContain('publication date not found');
 		expect(answer).not.toContain('accessed 2026-05-31T22:00:00.000Z');
 		expect(answer).not.toContain('Feed item without source date');
+		expect(answer).toContain('[2]');
+	});
+
+	it('adds a resolvable marker to direct-source chat summaries without provider-written citations', () => {
+		const prompt = 'Summarize https://www.toronto.ca/news/release';
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence: [
+				normalizeEvidence({
+					source_name: 'City of Toronto',
+					source_url: 'https://www.toronto.ca/news/release',
+					tool_used: 'source_feed_fetcher',
+					title: 'City release',
+					published_at: '2026-07-10',
+					extracted_text: 'Council approved the motion after debate.',
+					source_kind: 'official'
+				})
+			],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('Council approved the motion after debate. [1]');
 	});
 
 	it('uses a compact answer shape for chat source runs', () => {
@@ -713,7 +738,7 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).not.toContain('## Lead Candidates');
 	});
 
-	it('keeps evidence-heavy reports compact instead of repeating every source body', () => {
+	it('keeps every evidence source in reports without repeating full source bodies', () => {
 		const decision = routeNewsroomRequest('What are the latest Canada stories today?');
 		const repeated = 'Slug: Canada-clean-electricity-strategy Date: May 14, 2026 Description: '.repeat(25);
 		const evidence = Array.from({ length: 20 }, (_, index) =>
@@ -740,9 +765,12 @@ describe('disciplined newsroom agent harness', () => {
 			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot()
 		});
 
-		expect(answer).toContain('additional usable sources were recorded');
-		expect(answer.length).toBeLessThan(9000);
-		expect(answer.match(/Canada-clean-electricity-strategy/g)?.length ?? 0).toBeLessThan(20);
+		expect(answer).not.toContain('additional usable sources were recorded');
+		for (let index = 0; index < 20; index += 1) {
+			expect(answer).toContain(`https://example.com/story-${index}`);
+		}
+		expect(answer.length).toBeLessThan(12_000);
+		expect(answer.match(/Canada-clean-electricity-strategy/g)?.length ?? 0).toBeLessThanOrEqual(20);
 	});
 
 	it('does not turn homepage headline blobs into report prose', () => {

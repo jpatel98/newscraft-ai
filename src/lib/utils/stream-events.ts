@@ -1,3 +1,5 @@
+import type { CitationRecord, CitationSourceType } from '@newscraft/shared';
+
 export interface StreamToolCall {
 	id: string;
 	name: string;
@@ -57,6 +59,7 @@ export interface StreamEventUpdate {
 	tool?: StreamToolUpdate;
 	source?: PersistedSource;
 	plan?: StreamPlanUpdate;
+	citations?: CitationRecord[];
 }
 
 type JsonObject = Record<string, unknown>;
@@ -94,6 +97,44 @@ function numberValue(value: unknown): number | undefined {
 		if (Number.isFinite(parsed)) return parsed;
 	}
 	return undefined;
+}
+
+const CITATION_SOURCE_TYPES = new Set<CitationSourceType>([
+	'official',
+	'primary',
+	'news_report',
+	'social_post',
+	'user_document',
+	'commercial',
+	'unknown'
+]);
+
+function citationUrl(value: unknown): string | null {
+	const url = stringValue(value);
+	if (!url) return null;
+	if (/^https?:\/\//i.test(url) || url.startsWith('/api/')) return url;
+	return null;
+}
+
+function citationFromValue(value: unknown): CitationRecord | null {
+	const record = objectValue(value);
+	if (!record) return null;
+	const citationNumber = numberValue(record.citationNumber ?? record.citation_number ?? record.number);
+	const url = citationUrl(record.url);
+	if (!citationNumber || citationNumber < 1 || !Number.isInteger(citationNumber) || !url) return null;
+	const sourceTypeValue = stringValue(record.sourceType ?? record.source_type) as CitationSourceType | null;
+	const sourceType = sourceTypeValue && CITATION_SOURCE_TYPES.has(sourceTypeValue) ? sourceTypeValue : 'unknown';
+	const documentPage = numberValue(record.documentPage ?? record.document_page ?? record.page);
+	return {
+		citationNumber,
+		title: stringValue(record.title) || url,
+		url,
+		domain: stringValue(record.domain) || domainOf(url) || 'Attached document',
+		publicationDate: stringValue(record.publicationDate ?? record.publication_date) || null,
+		sourceType,
+		supportingExcerpt: stringValue(record.supportingExcerpt ?? record.supporting_excerpt ?? record.excerpt) || '',
+		...(documentPage && documentPage > 0 ? { documentPage: Math.floor(documentPage) } : {})
+	};
 }
 
 function parseJsonObject(data: string): JsonObject | null {
@@ -265,6 +306,7 @@ export function sseFrame(event: string, data: string): string {
 export class StreamEventState {
 	private calls = new Map<string, StreamToolCall>();
 	private sources = new Map<string, PersistedSource>();
+	private citations = new Map<string, CitationRecord>();
 	private itemToCall = new Map<string, string>();
 	private argumentText = new Map<string, string>();
 	private anonymousActive = new Map<string, string>();
@@ -295,6 +337,18 @@ export class StreamEventState {
 
 		if (event === 'agent.plan') return this.applyAgentPlan(payload);
 
+		if (event === 'agent.citations') {
+			const raw = Array.isArray(payload.citations) ? payload.citations : [];
+			for (const item of raw) {
+				const citation = citationFromValue(item);
+				if (citation) {
+					const key = `${citation.citationNumber}\u0000${citation.url}\u0000${citation.documentPage ?? ''}`;
+					this.citations.set(key, citation);
+				}
+			}
+			return this.citations.size ? [{ citations: this.citationList() }] : [];
+		}
+
 		if (event === 'agent.tool.progress') return this.applyAgentTool(payload, now);
 
 		if (event.startsWith('agent.source') || event.startsWith('agent.progress')) {
@@ -321,6 +375,12 @@ export class StreamEventState {
 		return Array.from(this.sources.values())
 			.map((source) => ({ ...source }))
 			.sort((a, b) => a.firstSeenAt - b.firstSeenAt);
+	}
+
+	citationList(): CitationRecord[] {
+		return Array.from(this.citations.values())
+			.map((citation) => ({ ...citation }))
+			.sort((a, b) => a.citationNumber - b.citationNumber);
 	}
 
 	private applyAgentPlan(payload: JsonObject): StreamEventUpdate[] {

@@ -57,6 +57,7 @@ export async function planResearchSteps(request: PlannerRequest): Promise<Resear
 		input: plannerInput(request),
 		reasoningEffort: request.reasoningEffort || 'low',
 		maxOutputTokens: 600,
+		disableSearch: true,
 		signal: request.signal
 	});
 	return parseResearchPlan(raw, request);

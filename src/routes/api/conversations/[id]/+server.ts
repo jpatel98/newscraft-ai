@@ -6,6 +6,7 @@ import {
 	setConversationPinned,
 	setConversationSystemPrompt
 } from '$lib/server/db/conversations';
+import { cleanupConversationDocumentObjects } from '$lib/server/documents/runtime';
 
 const MAX_SYSTEM_PROMPT_CHARS = 8000;
 
@@ -72,6 +73,11 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 	if (!id) throw error(400, 'id required');
 	const existing = await getConversation(locals.user.id, id);
 	if (!existing) throw error(404, 'not found');
+	try {
+		await cleanupConversationDocumentObjects(locals.user.id, id);
+	} catch {
+		throw error(503, 'Private PDFs could not be removed. Try deleting the conversation again.');
+	}
 	await deleteConversation(locals.user.id, id);
 	return json({ ok: true });
 };

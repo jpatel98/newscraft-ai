@@ -4,6 +4,7 @@ import type { EvidenceObject } from './evidence.js';
 import type { RouteDecision } from './router.js';
 import type { ToolBudgetSnapshot } from './budget.js';
 import type { ModelProvider } from '../util/openai-complete.js';
+import type { DocumentContext, NewsroomContext } from '@newscraft/shared';
 
 export type ToolCategory =
 	| 'source_feed_fetcher'
@@ -39,6 +40,8 @@ export interface ToolRunContext {
 	modelApiKey?: string;
 	openAiApiKey?: string;
 	trigger?: 'manual' | 'schedule' | 'test';
+	newsroomContext?: NewsroomContext;
+	documents?: DocumentContext[];
 	signal?: AbortSignal;
 	/** Live answer-text deltas for streaming surfaces; tools may ignore it. */
 	onAnswerDelta?: (delta: string) => void;

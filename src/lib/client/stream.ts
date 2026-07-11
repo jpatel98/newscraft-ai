@@ -6,6 +6,7 @@ import {
 	type StreamToolUpdate
 } from '$lib/utils/stream-events';
 import type { ChatCommand, MessageContent } from '$lib/types';
+import type { CitationRecord } from '@newscraft/shared';
 
 export const CHAT_STREAM_FAILURE_MESSAGE =
 	"I couldn't start that reply. Your message is still here. Try again.";
@@ -49,6 +50,9 @@ export interface StreamArgs {
 	resume?: boolean;
 	message_id?: string;
 	command?: ChatCommand;
+	document_ids?: string[];
+	output_action?: 'producer_brief' | 'thirty_second_script' | 'interview_questions' | 'copy_with_citations';
+	source_message_id?: string;
 }
 
 export interface StreamCallbacks {
@@ -68,6 +72,7 @@ export interface StreamCallbacks {
 	}) => void;
 	onToolDone?: (id: string, tool?: StreamToolUpdate) => void;
 	onSource?: (source: PersistedSource) => void;
+	onCitations?: (citations: CitationRecord[]) => void;
 	onPlan?: (plan: StreamPlanUpdate) => void;
 	onTitle?: (title: string) => void;
 	signal?: AbortSignal;
@@ -107,6 +112,7 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 				if (update.title) cb.onTitle?.(update.title);
 				if (update.delta) cb.onDelta(update.delta);
 				if (update.source) cb.onSource?.(update.source);
+				if (update.citations) cb.onCitations?.(update.citations);
 				if (update.plan) cb.onPlan?.(update.plan);
 				if (update.tool) {
 					if (update.tool.done) cb.onToolDone?.(update.tool.id, update.tool);

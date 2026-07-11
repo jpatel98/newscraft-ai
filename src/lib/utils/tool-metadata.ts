@@ -1,9 +1,11 @@
+import type { CitationRecord, CitationSourceType } from '@newscraft/shared';
 import type { PersistedSource, StreamToolCall } from './stream-events';
 
 interface ToolMetadataEnvelope {
 	version: 1;
 	tools: StreamToolCall[];
 	sources: PersistedSource[];
+	citations?: CitationRecord[];
 }
 
 export interface AnswerProvenanceBundle {
@@ -13,6 +15,7 @@ export interface AnswerProvenanceBundle {
 	createdAt: number;
 	tools: StreamToolCall[];
 	sources: PersistedSource[];
+	citations: CitationRecord[];
 	stream: {
 		startedAt: number;
 		endedAt: number;
@@ -29,6 +32,11 @@ export interface AnswerProvenanceBundle {
 		toolCount: number;
 		sourceCount: number;
 		usedSourceCount: number;
+		citationCount: number;
+		resolvedCitationCount: number;
+		danglingCitationCount: number;
+		primarySourceCount: number;
+		unknownDateCount: number;
 	};
 }
 
@@ -37,6 +45,8 @@ export interface BuildAnswerProvenanceInput {
 	conversationId: string;
 	tools: StreamToolCall[];
 	sources: PersistedSource[];
+	citations?: CitationRecord[];
+	answerText?: string;
 	startedAt: number;
 	endedAt?: number;
 	assistantChars: number;
@@ -51,6 +61,7 @@ export interface BuildAnswerProvenanceInput {
 export interface ParsedToolMetadata {
 	tools: StreamToolCall[];
 	sources: PersistedSource[];
+	citations: CitationRecord[];
 }
 
 export interface DisplaySourceReceipt {
@@ -88,6 +99,16 @@ const TRACKING_QUERY_RE = /^(utm_|fbclid$|gclid$|mc_[a-z_]+$)/i;
 const TECHNICAL_LABEL_RE =
 	/(?:^|[_\s-])(?:openai|perplexity|sonar|model|provider|tool|call|adapter|gateway|response|metadata|json|http|fetch|browse|search|url_fetch|web_search)(?:$|[_\s-])/i;
 const ID_LIKE_LABEL_RE = /^(?:src|source|tool|call|run|job|msg|message|step)[_-]?[a-z0-9_-]{4,}$/i;
+const CITATION_MARKER_RE = /\[(\d{1,4})\](?!\()/g;
+const CITATION_SOURCE_TYPES = new Set<CitationSourceType>([
+	'official',
+	'primary',
+	'news_report',
+	'social_post',
+	'user_document',
+	'commercial',
+	'unknown'
+]);
 
 function objectValue(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === 'object' && !Array.isArray(value)
@@ -99,6 +120,20 @@ function stringValue(value: unknown): string | undefined {
 	if (typeof value === 'string' && value.trim()) return value.trim();
 	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
 	return undefined;
+}
+
+function citationSourceKey(citation: CitationRecord): string {
+	return JSON.stringify([
+		citation.citationNumber,
+		citation.url,
+		citation.documentPage ?? null
+	]);
+}
+
+function uniqueCitationRecords(citations: ReadonlyArray<CitationRecord>): CitationRecord[] {
+	const records = new Map<string, CitationRecord>();
+	for (const citation of citations) records.set(citationSourceKey(citation), citation);
+	return Array.from(records.values());
 }
 
 function numberValue(value: unknown): number | undefined {
@@ -171,8 +206,22 @@ function domainOf(url: string): string {
 }
 
 function sanitizeSourceUrl(value: string): string | null {
+	const trimmed = value.trim();
+	if (trimmed.startsWith('/api/') && !trimmed.startsWith('//')) {
+		try {
+			const url = new URL(trimmed, 'https://newscraft.local');
+			for (const key of Array.from(url.searchParams.keys())) {
+				if (SENSITIVE_QUERY_RE.test(key) || TRACKING_QUERY_RE.test(key)) {
+					url.searchParams.delete(key);
+				}
+			}
+			return `${url.pathname}${url.search}${url.hash}`;
+		} catch {
+			return null;
+		}
+	}
 	try {
-		const url = new URL(value.trim());
+		const url = new URL(trimmed);
 		if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
 		url.username = '';
 		url.password = '';
@@ -265,8 +314,31 @@ function normalizeSource(value: unknown): PersistedSource | null {
 	};
 }
 
+function normalizeCitation(value: unknown): CitationRecord | null {
+	const o = objectValue(value);
+	const citationNumber = numberValue(o?.citationNumber ?? o?.citation_number ?? o?.number);
+	const rawUrl = stringValue(o?.url);
+	const url = rawUrl ? sanitizeSourceUrl(rawUrl) : null;
+	if (!o || !citationNumber || !Number.isInteger(citationNumber) || citationNumber < 1 || !url) return null;
+	const rawSourceType = stringValue(o.sourceType ?? o.source_type) as CitationSourceType | undefined;
+	const sourceType = rawSourceType && CITATION_SOURCE_TYPES.has(rawSourceType) ? rawSourceType : 'unknown';
+	const documentPage = numberValue(o.documentPage ?? o.document_page ?? o.page);
+	return {
+		citationNumber,
+		title: compactProvenanceString(redactSensitiveText(stringValue(o.title) ?? url)),
+		url,
+		domain: stringValue(o.domain) ?? (url.startsWith('/api/') ? 'Attached document' : domainOf(url)),
+		publicationDate: stringValue(o.publicationDate ?? o.publication_date) ?? null,
+		sourceType,
+		supportingExcerpt: compactProvenanceString(
+			redactSensitiveText(stringValue(o.supportingExcerpt ?? o.supporting_excerpt ?? o.excerpt) ?? '')
+		),
+		...(documentPage && documentPage > 0 ? { documentPage: Math.floor(documentPage) } : {})
+	};
+}
+
 export function parseToolMetadata(raw: string | null | undefined): ParsedToolMetadata {
-	if (!raw) return { tools: [], sources: [] };
+	if (!raw) return { tools: [], sources: [], citations: [] };
 	try {
 		const parsed = JSON.parse(raw) as unknown;
 		if (Array.isArray(parsed)) {
@@ -274,12 +346,13 @@ export function parseToolMetadata(raw: string | null | undefined): ParsedToolMet
 				tools: parsed
 					.map((tool, i) => normalizeTool(tool, `tool-${i + 1}`))
 					.filter((tool): tool is StreamToolCall => Boolean(tool)),
-				sources: []
+				sources: [],
+				citations: []
 			};
 		}
 
 		const envelope = objectValue(parsed);
-		if (!envelope || envelope.version !== 1) return { tools: [], sources: [] };
+		if (!envelope || envelope.version !== 1) return { tools: [], sources: [], citations: [] };
 		return {
 			tools: Array.isArray(envelope.tools)
 				? envelope.tools
@@ -290,27 +363,38 @@ export function parseToolMetadata(raw: string | null | undefined): ParsedToolMet
 				? envelope.sources
 						.map(normalizeSource)
 						.filter((source): source is PersistedSource => Boolean(source))
+				: [],
+			citations: Array.isArray(envelope.citations)
+				? envelope.citations
+						.map(normalizeCitation)
+						.filter((citation): citation is CitationRecord => Boolean(citation))
 				: []
 		};
 	} catch {
-		return { tools: [], sources: [] };
+		return { tools: [], sources: [], citations: [] };
 	}
 }
 
 export function serializeToolMetadata(
 	tools: StreamToolCall[],
-	sources: PersistedSource[]
+	sources: PersistedSource[],
+	citations: CitationRecord[] = []
 ): string | null {
-	if (tools.length === 0 && sources.length === 0) return null;
-	return JSON.stringify({ version: 1, tools, sources } satisfies ToolMetadataEnvelope);
+	if (tools.length === 0 && sources.length === 0 && citations.length === 0) return null;
+	return JSON.stringify({ version: 1, tools, sources, citations } satisfies ToolMetadataEnvelope);
 }
 
 export function buildAnswerProvenanceBundle(input: BuildAnswerProvenanceInput): AnswerProvenanceBundle {
-	const merged = mergeToolMetadata(null, input.tools, input.sources);
+	const merged = mergeToolMetadata(null, input.tools, input.sources, input.citations ?? []);
 	const endedAt = input.endedAt ?? Date.now();
 	const finishStatus = input.finishStatus ?? (input.done ? 'completed' : 'partial');
 	const tools = merged.tools.map(sanitizeTool);
 	const sources = merged.sources.map(sanitizeSource);
+	const citations = merged.citations
+		.map((citation) => normalizeCitation(citation))
+		.filter((citation): citation is CitationRecord => Boolean(citation));
+	const markers = citationNumbersInText(input.answerText ?? '');
+	const resolvedCitationCount = resolvedCitationNumbersForAnswer(input.answerText ?? '', citations).length;
 	return {
 		version: 1,
 		messageId: input.messageId,
@@ -318,6 +402,7 @@ export function buildAnswerProvenanceBundle(input: BuildAnswerProvenanceInput): 
 		createdAt: endedAt,
 		tools,
 		sources,
+		citations,
 		stream: {
 			startedAt: input.startedAt,
 			endedAt,
@@ -333,7 +418,14 @@ export function buildAnswerProvenanceBundle(input: BuildAnswerProvenanceInput): 
 			model: input.model,
 			toolCount: tools.length,
 			sourceCount: sources.length,
-			usedSourceCount: sources.filter((source) => source.used).length
+			usedSourceCount: sources.filter((source) => source.used).length,
+			citationCount: markers.length,
+			resolvedCitationCount,
+			danglingCitationCount: Math.max(0, markers.length - resolvedCitationCount),
+			primarySourceCount: citations.filter((citation) =>
+				['official', 'primary', 'user_document'].includes(citation.sourceType)
+			).length,
+			unknownDateCount: citations.filter((citation) => !citation.publicationDate).length
 		}
 	};
 }
@@ -345,7 +437,8 @@ export function serializeAnswerProvenance(input: BuildAnswerProvenanceInput): st
 export function mergeToolMetadata(
 	existingRaw: string | null | undefined,
 	nextTools: StreamToolCall[],
-	nextSources: PersistedSource[]
+	nextSources: PersistedSource[],
+	nextCitations: CitationRecord[] = []
 ): ParsedToolMetadata {
 	const existing = parseToolMetadata(existingRaw);
 	const toolsById = new Map<string, StreamToolCall>();
@@ -368,10 +461,71 @@ export function mergeToolMetadata(
 		});
 	}
 
+	const citationsByRecord = new Map<string, CitationRecord>();
+	for (const citation of existing.citations) citationsByRecord.set(citationSourceKey(citation), citation);
+	for (const raw of nextCitations) {
+		const citation = normalizeCitation(raw);
+		if (citation) citationsByRecord.set(citationSourceKey(citation), citation);
+	}
+
 	return {
 		tools: Array.from(toolsById.values()),
-		sources: Array.from(sourcesByUrl.values())
+		sources: Array.from(sourcesByUrl.values()),
+		citations: Array.from(citationsByRecord.values()).sort(
+			(a, b) => a.citationNumber - b.citationNumber
+		)
 	};
+}
+
+export function citationRecordsForAnswer(raw: string | null | undefined): CitationRecord[] {
+	return parseToolMetadata(raw).citations;
+}
+
+export function citationNumbersInText(text: string): number[] {
+	const visible = text
+		.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, '')
+		.replace(/`+[^`]*`+/g, '')
+		.replace(/\[[^\]]*\]\([^)]*\)/g, '');
+	const numbers: number[] = [];
+	for (const match of visible.matchAll(CITATION_MARKER_RE)) {
+		if (match.index != null && visible[match.index - 1] === '\\') continue;
+		const number = Number(match[1]);
+		if (Number.isInteger(number) && number > 0) numbers.push(number);
+	}
+	return numbers;
+}
+
+export function isInspectableCitationRecord(
+	citation: CitationRecord | undefined
+): citation is CitationRecord {
+	if (!citation) return false;
+	const validUrl = /^https?:\/\//i.test(citation.url) || citation.url.startsWith('/api/');
+	return Boolean(
+		citation.title.trim() &&
+			!/^unknown source$/i.test(citation.title.trim()) &&
+			validUrl &&
+			citation.domain.trim() &&
+			!/^unknown source$/i.test(citation.domain.trim()) &&
+			citation.supportingExcerpt.trim()
+	);
+}
+
+export function resolvedCitationNumbersForAnswer(
+	answerText: string,
+	citations: ReadonlyArray<CitationRecord>
+): number[] {
+	return citationNumbersInText(answerText).filter((number) => {
+		const matches = uniqueCitationRecords(
+			citations.filter((citation) => citation.citationNumber === number)
+		);
+		return matches.length === 1 && isInspectableCitationRecord(matches[0]);
+	});
+}
+
+export function allCitationMarkersResolve(raw: string | null | undefined, answerText: string): boolean {
+	const markers = citationNumbersInText(answerText);
+	if (!markers.length) return false;
+	return resolvedCitationNumbersForAnswer(answerText, parseToolMetadata(raw).citations).length === markers.length;
 }
 
 export function usedSources(sources: PersistedSource[]): PersistedSource[] {
@@ -387,7 +541,8 @@ export function sourceReceiptsForAnswer(
 ): DisplaySourceReceipt[] {
 	if (!answerText.trim()) return [];
 	const linked = linkedUrlKeys(answerText);
-	const parsedSources = usedSources(parseToolMetadata(raw).sources);
+	const parsed = parseToolMetadata(raw);
+	const parsedSources = usedSources(parsed.sources);
 	const live = liveSources
 		.map((source) => normalizeSource(source))
 		.filter((source): source is PersistedSource => Boolean(source))
@@ -406,12 +561,42 @@ export function sourceReceiptsForAnswer(
 		});
 	}
 
+	for (const citation of parsed.citations) {
+		const key = sourceUrlKey(citation.url);
+		if (!key || linked.has(key) || receipts.has(key)) continue;
+		const url = sanitizeSourceUrl(citation.url);
+		if (!url) continue;
+		const title = cleanSourceLabel(citation.title);
+		const domain = cleanSourceLabel(citation.domain) || domainOf(url) || 'Attached document';
+		receipts.set(key, {
+			url,
+			label:
+				title && !labelLooksTechnical(title) && !labelLooksLikeUrl(title)
+					? title
+					: domain || 'Source',
+			domain
+		});
+	}
+
 	return Array.from(receipts.values());
 }
 
-export function sourceContextForFollowup(raw: string | null | undefined, limit = 6): string {
-	const sources = usedSources(parseToolMetadata(raw).sources).slice(0, limit);
-	if (!sources.length) return '';
+export function sourceContextForFollowup(raw: string | null | undefined): string {
+	const parsed = parseToolMetadata(raw);
+	const citations = parsed.citations;
+	const sources = usedSources(parsed.sources);
+	if (!citations.length && !sources.length) return '';
+	if (citations.length) {
+		return [
+			'[NewsCraft resolved citation context for follow-up transformation]',
+			'Use these records only to transform the previous answer. Do not claim fresh research.',
+			...citations.map((citation) => {
+				const date = citation.publicationDate || 'Date unknown';
+				const page = citation.documentPage ? `, page ${citation.documentPage}` : '';
+				return `[${citation.citationNumber}] ${compactSourceContextText(citation.title, 140)} (${citation.domain}; ${date}${page}): ${compactSourceContextText(citation.supportingExcerpt, 220)}`;
+			})
+		].join('\n');
+	}
 	return [
 		'[NewsCraft source context for follow-up questions]',
 		'Sources used:',

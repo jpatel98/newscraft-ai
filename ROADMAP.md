@@ -1,6 +1,6 @@
 # NewsCraft AI — Source of Truth & Roadmap
 
-Last updated: 2026-07-09
+Last updated: 2026-07-11
 
 This is the single canonical document for NewsCraft AI: what the product is,
 how it is built today, where it is going, and how to work on it. If any other
@@ -47,8 +47,12 @@ rebuilt for that.
   current updates, coverage comparison, sourced discovery, and beat research.
   Title is "New chat · NewsCraft".
 - `/c/[id]` — chat thread. Sidebar lists recent threads (pinned / today /
-  yesterday / last 7 days / earlier), rename, search.
-- `/settings` — account + app settings.
+  yesterday / last 7 days / earlier), rename, search. Resolved numeric citations
+  open an evidence preview; completed answers expose Markdown export and a
+  compact newsroom-format menu. PDF controls appear only when every document
+  capability is healthy.
+- `/settings` — account + app settings, including organization-scoped newsroom
+  timezone, home market, and preferred domains.
 - `/login`, `/signup`, `/setup`, `/account-setup/[token]` — auth/setup pages.
 - `/logout` — auth sign-out endpoint.
 
@@ -60,6 +64,8 @@ in the code.
 - Chat/conversations: `/api/chat/stream`, `/api/conversations`,
   `/api/conversations/[id]`, `/api/conversations/[id]/assistant-note`,
   `/api/conversations/[id]/export`, `/api/conversations/[id]/title`,
+  `/api/conversations/[id]/documents`, signed upload/process/download/delete
+  routes below it, `/api/conversations/[id]/messages/[messageId]/export`,
   `/api/messages/[id]/clear-partial`, `/api/messages/[id]/onwards`,
   `/api/search`.
 - Agent bridge / Story Tracker internals: `/api/agent/commands`,
@@ -74,7 +80,7 @@ in the code.
 - Health/settings/admin: `/api/health`, `/api/settings/status`,
   `/api/settings/export`, `/api/settings/password`, `/api/settings/accounts`,
   `/api/settings/accounts/[id]`, `/api/settings/accounts/[id]/setup-link`,
-  `/api/settings/wipe-db`.
+  `/api/settings/newsroom-profile`, `/api/settings/wipe-db`.
 
 `missions`, `jobs`, `runs`, `reports`, and `board` survive as **internal**
 DB/helper names for compatibility and diagnostics; they are not surfaced in
@@ -113,7 +119,9 @@ user-facing UI.
 - **Health capabilities (shipped 2026-07-02).** `GatewayHealthResponse.capabilities`
   reports what each deployment shape actually supports (`chat`, `jobs`,
   `memory`, `savedResearch`, `scheduler`, `persistence:
-  'sqlite'|'sqlite+supabase'|'stateless'`). The UI can gate surfaces on it.
+  'sqlite'|'sqlite+supabase'|'stateless'`, and `documents`). The app advertises
+  documents only when the profile/document tables, private constrained bucket,
+  parser, and harness capability all agree.
 - Source fetch pipeline + adapters (RSS, Atom, HTML, Bluesky, sitemap, PDF).
   These stay **backend-only** and are never named in the UI ("From BBC World
   Service" or a link — never adapter names or fetch metadata).
@@ -145,10 +153,11 @@ user-facing UI.
   `includeFiles: "dist/**"` packages the compiled runtime and copied prompts;
   `excludeFiles: ".data/**"` keeps local SQLite data out of deploys. `public/`
   exists only because Vercel requires a static output directory. The project
-  is linked to the same GitHub repo with `services/newsroom-harness` as its
-  root, so pushes to `main` auto-deploy it. Production explicitly selects
-  Perplexity with `perplexity/sonar`; `/health` reports a configured provider
-  and no config errors. **This stateless shape is the intended production
+  was **not Git-linked when last verified on 2026-07-09**; its newest
+  production deployment was still at `b840c9e`, so later source changes do not
+  auto-deploy there. Linking and deploying the harness are rollout work, not
+  completed implementation. Production explicitly selects Perplexity with
+  `perplexity/sonar`. **This stateless shape is the intended production
   topology for the chat-first product** — no jobs, no scheduler, no harness
   persistence in prod. Health reports `persistence: 'stateless'` honestly.
 - The UI talks to the harness over `AGENT_GATEWAY_URL` + bearer key. A remote
@@ -194,12 +203,26 @@ UI, auth, and persistence of user-facing data. They talk over
 - **No technical leakage.** No tool traces, JSON, job/run IDs, file paths,
   HTTP status, adapter names, or model internals in user-facing output. A
   search shows a subtle "Searching…" indicator, not a tool log.
-- **Sources shown once.** Citations are inline markdown links. No source-tag
-  chips plus inline links for the same source.
+- **Sources shown once.** Resolved numeric citation controls open the evidence
+  preview. The legacy source disclosure appears only when structured citation
+  metadata is absent or incomplete.
+- **Every marker resolves exactly once.** `CitationRecord` is the canonical
+  citation contract: citation number, title, URL, domain, publication date,
+  source type, supporting excerpt, and optional document page. Citation order
+  follows the provider response; no arbitrary source-count truncation is
+  allowed.
 - **Cite or stay silent.** Current-events answers need source-backed evidence.
   Prefer official/primary/configured monitors before broad web search; use
   search as fallback/broad discovery. Flag conflicts, weak sourcing, paywalls,
   blocked pages, CAPTCHA, and stale data instead of smoothing them over.
+- **Classify evidence independently.** Sources are `official`, `primary`,
+  `news_report`, `social_post`, `user_document`, `commercial`, or `unknown`.
+  Commercial, social, and unknown evidence cannot be the sole support for
+  schedules, government action, police/legal claims, elections, or explicit
+  verification.
+- **Private documents stay private.** Attached PDFs are conversation-scoped
+  `user_document` evidence. Document summaries remain document-only unless the
+  user explicitly asks for external verification or corroboration.
 - **Humans stay in control.** NewsCraft recommends, summarizes, compares,
   drafts. It does not silently publish.
 - Keep route names, slash commands, buttons, and visible labels stable unless
@@ -229,6 +252,13 @@ UI, auth, and persistence of user-facing data. They talk over
 - **Durable app hardening (shipped through 2026-07-03).** Chat diagnostics,
   per-message provenance receipts, revocable sessions, organization ids, and
   internal agent-job state are persisted in Postgres (migrations 0007–0011).
+- **Trust-first implementation (2026-07-10, production rollout pending).**
+  Ordered structured citations stream through `agent.citations` and persist in
+  message metadata and provenance. Migrations 0012–0013 add newsroom profiles,
+  conversation documents, page text, and full-text search. The composer uses
+  direct signed uploads; inline evidence, document page citations, adaptive
+  answers, answer transformations, and clean per-answer Markdown export are
+  implemented behind capability checks.
 
 ### What's holding the core experience back
 
@@ -291,11 +321,42 @@ until this holds.
 
 **Chat quality gate (all must hold before anything unfreezes):**
 
-- Golden-prompt eval (full mode, live API): **≥ 12/15 passing**, including
-  every caveat/clarification/paywall trap.
+- Fixture eval: **24/24**. Full-mode live API: **≥ 21/24**, including every
+  citation-integrity, primary-source, caveat, clarification, paywall, document,
+  pasted-URL, conflict, and inherited-provenance trust trap.
+- Citation integrity: zero dangling/duplicate markers. Every primary-required
+  prompt either cites primary evidence or explicitly states that none was
+  found.
 - Latency: **TTFT ≤ 3s, p50 ≤ 12s, p90 ≤ 25s** for chat-class prompts.
 - Provenance: every source-backed answer has a stored evidence bundle.
 - Used on real shifts for **2+ weeks** after the above hold.
+
+### Trust-first releases (implemented locally 2026-07-10; rollout pending)
+
+1. **Defensible citations.** Sonar citation order and all cited sources are
+   preserved. `agent.citations` is backward compatible; older clients retain
+   source disclosure. Named-outlet and explicit-period filters are provider-
+   specific, and high-risk prompts receive one bounded official-source retry.
+   Answers lead with the result and add confirmed facts, disagreement,
+   uncertainty, comparisons, and a local `Current as of` line only when useful.
+2. **Private PDF research.** Up to three PDFs per turn, 20 MB each, 250 pages;
+   text extraction uses `unpdf`, with no OCR. Documents up to 25 pages use full
+   text when the 24,000-character cap permits; larger documents retrieve the
+   six best pages plus adjacent pages within that cap. The private
+   `newsroom-documents` bucket is provisioned with
+   `pnpm storage:provision`; service-role credentials remain server-only.
+3. **Newsroom handoff.** Producer brief, 30-second script, interview questions,
+   and copy-with-citations run as visible follow-up turns using the selected
+   answer and inherited provenance without a new search. Per-answer Markdown
+   export includes resolved citations, publication dates, and document pages.
+   Diagnostics record counts/timings/actions only, never document or answer
+   content.
+
+Rollout order is strict: apply migrations and provision the private bucket;
+deploy the backward-compatible harness; verify `documents` capability; deploy
+the app; then run the authenticated production acceptance pass. This work does
+not unfreeze tracker, missions, jobs, reports, scheduler, teams, publishing, or
+monitoring.
 
 ### Phase 1 — Chat + the multi-step agent (shipped 2026-06, historical record)
 
@@ -543,9 +604,11 @@ As built:
 
 As built:
 
-- `services/newsroom-harness/eval/golden-prompts.json` — 15 repo-owned prompts
-  covering all four jobs-to-be-done (current events, claim verification,
-  competitor coverage, context follow-up) plus 6 known-trap variants:
+- `services/newsroom-harness/eval/golden-prompts.json` — 24 repo-owned prompts:
+  the original 15 covering all four jobs-to-be-done plus 9 trust-first cases
+  for citation ordering, FIFA schedules, conflicting reports, PDF pages,
+  direct URLs, document-only work, external corroboration, inherited
+  provenance, and unknown dates. Known-trap variants include:
   ambiguous follow-up, "today" recency phrasing, no-evidence/obscure topic,
   paywalled source, claim with no available evidence, and obscure local council
   story. Each entry declares: `class`, `latency_class` (`simple` / `research`),
@@ -558,8 +621,11 @@ As built:
   `NEWSROOM_EVAL_COMPARE_PLANNER=1`). Normal full mode omits planner overrides
   so it measures the production-default route; comparison mode explicitly
   runs both `true` and `false`. Checks cover ttft/total budgets, plan events,
-  citation presence, no internal term leakage, and known traps. Results,
-  including answer text, source count, and final plan, are written to
+  citation presence/order/resolution, primary evidence, publication dates,
+  document pages, inherited provenance, no internal term leakage, and known
+  traps. Fixture mode requires 24/24; full mode requires 21/24 and every trust
+  trap. Results, including answer text, citation-quality counts, source count,
+  and final plan, are written to
   `.tmp/eval/eval-{mode}-{ts}.json`.
 - `scripts/producer-acceptance.mjs` — extended with M4 assertions: captures
   ttft/totalMs + planEvents + sources on every `streamChat` call; asserts
@@ -623,6 +689,12 @@ Env loading: the app reads root `.env.local`; the harness reads
 fallback. See `.env.example`. Keep secrets out of docs, commits, logs, and
 memory.
 
+PDF research additionally requires server-only `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY`. After database migrations, run
+`corepack pnpm storage:provision` to create or repair the private PDF-only,
+20 MB `newsroom-documents` bucket. Never expose the service-role credential to
+the browser; uploads use short-lived signed URLs.
+
 If `/api/health` fails with `DATABASE_URL is required`, the UI is missing
 Supabase Postgres config. Use the Supabase session-pooler URI when IPv4 is
 required; SQLite-only assumptions for the main UI path are stale.
@@ -644,7 +716,7 @@ corepack pnpm producer:acceptance    # full producer acceptance
 corepack pnpm test:e2e               # Playwright
 ```
 
-`eval:fixture` runs the 15-prompt golden suite in deterministic mode — no API
+`eval:fixture` runs the 24-prompt golden suite in deterministic mode — no API
 key or running servers required. For full-mode eval (real API, latency
 measurement, planner comparison), start the harness and run:
 `NEWSROOM_EVAL_MODE=full node services/newsroom-harness/eval/run-eval.mjs`
@@ -720,7 +792,8 @@ lsof -nP -iTCP:8650 -sTCP:LISTEN
 The authoritative list lives in `.env.example`. Key groups:
 
 - **App**: `APP_SESSION_SECRET`, `APP_PASSWORD_HASH`, `DATABASE_URL`,
-  `AGENT_GATEWAY_URL`, `AGENT_GATEWAY_API_KEY`.
+  `AGENT_GATEWAY_URL`, `AGENT_GATEWAY_API_KEY`, server-only `SUPABASE_URL`,
+  server-only `SUPABASE_SERVICE_ROLE_KEY`.
 - **Harness**: `NEWSROOM_HARNESS_HOST/PORT`, `NEWSROOM_HARNESS_DB_PATH`,
   `NEWSROOM_HARNESS_DATABASE_URL`, `NEWSROOM_HARNESS_API_KEY`, the
   tool/search/timeout budgets, `NEWSROOM_SOURCE_FETCH_TIMEOUT_MS` (per-URL

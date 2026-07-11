@@ -312,6 +312,7 @@ function harnessHealth(ctx: {
 			reports: true,
 			memory: true,
 			savedResearch: true,
+			documents: true,
 			scheduler: ctx.config.schedulerEnabled,
 			persistence: ctx.repositoryBackend
 		},

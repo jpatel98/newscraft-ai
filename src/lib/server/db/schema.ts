@@ -1,4 +1,4 @@
-import { bigint, index, integer, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { bigint, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 
 const timestampMs = (name: string) => bigint(name, { mode: 'number' });
 
@@ -68,6 +68,17 @@ export const organizationMembers = pgTable(
 	})
 );
 
+export const newsroomProfiles = pgTable('newsroom_profiles', {
+	orgId: text('org_id')
+		.primaryKey()
+		.references(() => organizations.id, { onDelete: 'cascade' }),
+	timezone: text('timezone').notNull().default('UTC'),
+	homeMarket: text('home_market').notNull().default(''),
+	preferredDomains: jsonb('preferred_domains').$type<string[]>().notNull().default([]),
+	createdAt: timestampMs('created_at').notNull(),
+	updatedAt: timestampMs('updated_at').notNull()
+});
+
 export const conversations = pgTable('conversations', {
 	id: text('id').primaryKey(),
 	accountId: text('account_id')
@@ -88,6 +99,87 @@ export const conversations = pgTable('conversations', {
 		t.updatedAt
 	)
 }));
+
+export const conversationDocuments = pgTable(
+	'conversation_documents',
+	{
+		id: text('id').primaryKey(),
+		orgId: text('org_id')
+			.notNull()
+			.references(() => organizations.id, { onDelete: 'cascade' }),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		conversationId: text('conversation_id')
+			.notNull()
+			.references(() => conversations.id, { onDelete: 'cascade' }),
+		originalFilename: text('original_filename').notNull(),
+		storagePath: text('storage_path').notNull(),
+		mimeType: text('mime_type', { enum: ['application/pdf'] }).notNull().default('application/pdf'),
+		sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+		checksumSha256: text('checksum_sha256').notNull(),
+		processingState: text('processing_state', {
+			enum: ['uploading', 'processing', 'ready', 'failed']
+		})
+			.notNull()
+			.default('uploading'),
+		pageCount: integer('page_count'),
+		failureCode: text('failure_code'),
+		failureMessage: text('failure_message'),
+		processingStartedAt: timestampMs('processing_started_at'),
+		processedAt: timestampMs('processed_at'),
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
+	},
+	(t) => ({
+		storagePathUnique: uniqueIndex('conversation_documents_storage_path_unique').on(t.storagePath),
+		ownerIdx: index('conversation_documents_owner_idx').on(
+			t.accountId,
+			t.conversationId,
+			t.createdAt
+		),
+		orgIdx: index('conversation_documents_org_idx').on(t.orgId, t.updatedAt),
+		stateIdx: index('conversation_documents_state_idx').on(t.processingState, t.updatedAt)
+	})
+);
+
+export const conversationDocumentPages = pgTable(
+	'conversation_document_pages',
+	{
+		// search_vector is generated and indexed by migration 0013, then queried through raw SQL.
+		id: text('id').primaryKey(),
+		documentId: text('document_id')
+			.notNull()
+			.references(() => conversationDocuments.id, { onDelete: 'cascade' }),
+		orgId: text('org_id')
+			.notNull()
+			.references(() => organizations.id, { onDelete: 'cascade' }),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		conversationId: text('conversation_id')
+			.notNull()
+			.references(() => conversations.id, { onDelete: 'cascade' }),
+		pageNumber: integer('page_number').notNull(),
+		pageText: text('page_text').notNull(),
+		charCount: integer('char_count').notNull(),
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
+	},
+	(t) => ({
+		documentPageUnique: uniqueIndex('conversation_document_pages_document_number_unique').on(
+			t.documentId,
+			t.pageNumber
+		),
+		ownerIdx: index('conversation_document_pages_owner_idx').on(
+			t.accountId,
+			t.conversationId,
+			t.documentId,
+			t.pageNumber
+		),
+		orgIdx: index('conversation_document_pages_org_idx').on(t.orgId, t.documentId, t.pageNumber)
+	})
+);
 
 export const messages = pgTable(
 	'messages',

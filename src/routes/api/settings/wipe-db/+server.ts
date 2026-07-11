@@ -9,6 +9,7 @@ import {
 	missions,
 	settings
 } from '$lib/server/db/schema';
+import { cleanupAccountDocumentObjects } from '$lib/server/documents/runtime';
 
 interface Body {
 	confirm?: string;
@@ -27,6 +28,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	if (body.confirm !== 'WIPE-EVERYTHING') {
 		throw error(400, 'confirmation phrase missing or incorrect');
+	}
+	try {
+		await cleanupAccountDocumentObjects(accountId);
+	} catch {
+		throw error(503, 'Private PDFs could not be removed. Try the data wipe again.');
 	}
 
 	await db.transaction(async (tx: any) => {

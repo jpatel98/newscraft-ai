@@ -348,7 +348,12 @@ describe('runtime streamed chat', () => {
 
 		expect(gatePassed).toHaveLength(2);
 		expect(chunks.length).toBeGreaterThan(1);
-		expect(chunks.join('')).toBe(cleanVisibleChatOutput(rawAnswer, prompt));
+		const streamed = chunks.join('');
+		expect(streamed).toMatch(/^\*\*Current as of:\*\*/);
+		expect(streamed.match(/Current as of/g)).toHaveLength(1);
+		expect(streamed.replace(/^\*\*Current as of:\*\*[^\n]*\n\n/, '')).toBe(
+			cleanVisibleChatOutput(rawAnswer, prompt)
+		);
 	});
 
 	it('falls back to chunking the final answer when no tool streams', async () => {

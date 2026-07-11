@@ -55,6 +55,10 @@ export function agentSourceFrame(data: unknown): string {
 	return sseFrame({ event: 'agent.source', data });
 }
 
+export function agentCitationsFrame(data: unknown): string {
+	return sseFrame({ event: 'agent.citations', data });
+}
+
 export function agentPlanFrame(data: unknown): string {
 	return sseFrame({ event: 'agent.plan', data });
 }

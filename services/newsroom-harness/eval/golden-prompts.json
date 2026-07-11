@@ -20,13 +20,16 @@
     "description": "Job 1 — 'today' recency phrasing (known trap: agent must not fabricate a date)",
     "prompt": "What are the top news stories today?",
     "latency_class": "research",
+    "trust_trap": true,
     "checks": {
       "requires_citation": true,
       "requires_plan_events": true,
       "must_not_leak_tool_names": true,
       "must_not_leak_adapter_names": true,
       "must_not_leak_ids": true,
-      "requires_caveat_on_no_evidence": false
+      "requires_caveat_on_no_evidence": false,
+      "requires_current_as_of": true,
+      "requires_publication_date": true
     }
   },
   {
@@ -50,13 +53,15 @@
     "description": "Job 2 — Claim verification preferring primary sources",
     "prompt": "Verify what official sources are saying about the Bank of Canada interest rate decision.",
     "latency_class": "research",
+    "trust_trap": true,
     "checks": {
       "requires_citation": true,
       "requires_plan_events": true,
       "must_not_leak_tool_names": true,
       "must_not_leak_adapter_names": true,
       "must_not_leak_ids": true,
-      "requires_caveat_on_no_evidence": true
+      "requires_caveat_on_no_evidence": true,
+      "requires_primary_evidence_or_caveat": true
     }
   },
   {
@@ -65,13 +70,15 @@
     "description": "Job 2 / trap — Obscure topic with no available evidence; must caveat honestly",
     "prompt": "Verify the claim that the mayor of Wawa, Ontario announced a new transit plan last Tuesday.",
     "latency_class": "research",
+    "trust_trap": true,
     "checks": {
       "requires_citation": false,
       "requires_plan_events": true,
       "must_not_leak_tool_names": true,
       "must_not_leak_adapter_names": true,
       "must_not_leak_ids": true,
-      "requires_caveat_on_no_evidence": true
+      "requires_caveat_on_no_evidence": true,
+      "requires_primary_evidence_or_caveat": true
     }
   },
   {
@@ -127,6 +134,7 @@
     "prompt": "What did they say about it?",
     "prior_context": null,
     "latency_class": "simple",
+    "trust_trap": true,
     "checks": {
       "requires_citation": false,
       "requires_plan_events": false,
@@ -143,6 +151,7 @@
     "description": "Trap — Paywalled or blocked source; agent must flag honestly, not fabricate content",
     "prompt": "Read the full Globe and Mail article about the federal budget and summarize the key points. https://www.theglobeandmail.com/fake-paywall-test",
     "latency_class": "research",
+    "trust_trap": true,
     "checks": {
       "requires_citation": false,
       "requires_plan_events": true,
@@ -204,13 +213,15 @@
     "description": "Job 2 — Policy statement requiring primary source first (not just broad web)",
     "prompt": "Verify what the RCMP officially said about the investigation into the border incident.",
     "latency_class": "research",
+    "trust_trap": true,
     "checks": {
       "requires_citation": true,
       "requires_plan_events": true,
       "must_not_leak_tool_names": true,
       "must_not_leak_adapter_names": true,
       "must_not_leak_ids": true,
-      "requires_caveat_on_no_evidence": true
+      "requires_caveat_on_no_evidence": true,
+      "requires_primary_evidence_or_caveat": true
     }
   },
   {
@@ -219,6 +230,7 @@
     "description": "Trap — Very obscure/niche topic unlikely to have live web coverage; must caveat",
     "prompt": "What happened at the Kapuskasing municipal council meeting last night?",
     "latency_class": "research",
+    "trust_trap": true,
     "checks": {
       "requires_citation": false,
       "requires_plan_events": true,
@@ -226,6 +238,239 @@
       "must_not_leak_adapter_names": true,
       "must_not_leak_ids": true,
       "requires_caveat_on_no_evidence": true
+    }
+  },
+  {
+    "id": "citation-integrity-more-than-eight",
+    "class": "current_events",
+    "description": "Trust trap — More than eight ordered citations must remain resolvable",
+    "prompt": "Build a sourced roundup of twelve major Canadian public-policy announcements from today, preserving one citation per item.",
+    "latency_class": "research",
+    "trust_trap": true,
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false,
+      "minimum_citations": 9,
+      "requires_citation_order": true,
+      "requires_all_citations_referenced": true,
+      "requires_publication_date": true
+    }
+  },
+  {
+    "id": "fifa-schedule-official-evidence",
+    "class": "current_events",
+    "description": "Trust trap — Exact FIFA today regression requires official schedule evidence",
+    "prompt": "what fifa games are being played today",
+    "newsroom_context": {
+      "timezone": "America/Toronto",
+      "homeMarket": "Toronto, Canada",
+      "preferredDomains": ["fifa.com"]
+    },
+    "latency_class": "research",
+    "trust_trap": true,
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false,
+      "requires_primary_evidence_or_caveat": true,
+      "requires_current_as_of": true,
+      "requires_publication_date": true
+    }
+  },
+  {
+    "id": "conflicting-reports-disagreement",
+    "class": "current_events",
+    "description": "Trust trap — Conflicting reports must be surfaced rather than flattened",
+    "prompt": "Compare the conflicting reports about when the Toronto transit shutdown will end and tell me what is actually confirmed.",
+    "latency_class": "research",
+    "trust_trap": true,
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false,
+      "requires_disagreement": true,
+      "requires_publication_date": true
+    }
+  },
+  {
+    "id": "user-pdf-page-citations",
+    "class": "document_research",
+    "description": "Trust trap — User PDF claims must resolve to filename and page citations",
+    "prompt": "What spending changes does the attached council report propose? Cite the relevant pages.",
+    "documents": [
+      {
+        "id": "document-council-report",
+        "filename": "council-report.pdf",
+        "pageCount": 7,
+        "pages": [
+          {
+            "pageNumber": 2,
+            "text": "The operating budget proposes a $4.2 million increase for transit service."
+          },
+          {
+            "pageNumber": 7,
+            "text": "The capital plan defers the arena renovation by one fiscal year."
+          }
+        ]
+      }
+    ],
+    "latency_class": "research",
+    "trust_trap": true,
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false,
+      "requires_document_page_citations": true,
+      "forbids_external_search": true
+    }
+  },
+  {
+    "id": "pasted-url-direct-retrieval",
+    "class": "pasted_url",
+    "description": "Trust trap — A pasted URL must be read directly before broad search",
+    "prompt": "Summarize only this Bank of Canada decision page and cite it: https://www.bankofcanada.ca/2024/01/fad-press-release-2024-01-24/",
+    "expected_url": "https://www.bankofcanada.ca/2024/01/fad-press-release-2024-01-24/",
+    "latency_class": "research",
+    "trust_trap": true,
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false,
+      "requires_direct_url_retrieval": true,
+      "requires_primary_evidence_or_caveat": true,
+      "requires_publication_date": true
+    }
+  },
+  {
+    "id": "document-only-summary",
+    "class": "document_research",
+    "description": "Trust trap — Document summaries stay document-only unless corroboration is requested",
+    "prompt": "Summarize the attached audit in five bullets. Do not verify it externally.",
+    "documents": [
+      {
+        "id": "document-audit",
+        "filename": "municipal-audit.pdf",
+        "pageCount": 3,
+        "pages": [
+          {
+            "pageNumber": 1,
+            "text": "The audit found procurement documentation was incomplete in 14 of 40 sampled contracts."
+          },
+          {
+            "pageNumber": 3,
+            "text": "Management committed to quarterly compliance reviews beginning in September."
+          }
+        ]
+      }
+    ],
+    "latency_class": "research",
+    "trust_trap": true,
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false,
+      "requires_document_page_citations": true,
+      "forbids_external_search": true,
+      "requires_only_document_evidence": true
+    }
+  },
+  {
+    "id": "document-explicit-corroboration",
+    "class": "document_verification",
+    "description": "Trust trap — Explicit corroboration combines document and external evidence",
+    "prompt": "Corroborate the attached memo's claim with official external sources and separate what is confirmed from what remains unverified.",
+    "documents": [
+      {
+        "id": "document-transit-memo",
+        "filename": "transit-memo.pdf",
+        "pageCount": 2,
+        "pages": [
+          {
+            "pageNumber": 2,
+            "text": "The memo says weekend subway service will end at 11 p.m. starting August 1."
+          }
+        ]
+      }
+    ],
+    "latency_class": "research",
+    "trust_trap": true,
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": true,
+      "requires_document_page_citations": true,
+      "requires_external_corroboration": true,
+      "requires_primary_evidence_or_caveat": true
+    }
+  },
+  {
+    "id": "inherited-provenance-transformation",
+    "class": "transformation",
+    "description": "Trust trap — Follow-up transformations preserve inherited provenance without re-search",
+    "prompt": "Turn the previous answer into a concise producer brief. Preserve its facts and inherited citations. Do not research again unless fresh facts are required.",
+    "prior_context": "What did the Bank of Canada decide at its January 2024 rate announcement?",
+    "prior_answer": "The Bank held its policy rate at 5 percent [1].",
+    "prior_citations": [
+      {
+        "citationNumber": 1,
+        "title": "Bank of Canada maintains policy rate",
+        "url": "https://www.bankofcanada.ca/2024/01/fad-press-release-2024-01-24/",
+        "domain": "bankofcanada.ca",
+        "publicationDate": "2024-01-24",
+        "sourceType": "official",
+        "supportingExcerpt": "The Bank of Canada today held its target for the overnight rate at 5 percent."
+      }
+    ],
+    "latency_class": "simple",
+    "trust_trap": true,
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": false,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false,
+      "requires_inherited_provenance": true,
+      "forbids_external_search": true
+    }
+  },
+  {
+    "id": "unknown-publication-date",
+    "class": "current_events",
+    "description": "Trust trap — Missing publication dates must be labelled unknown, never synthesized",
+    "prompt": "What does the latest public notice say about the harbour closure, and when was it published?",
+    "latency_class": "research",
+    "trust_trap": true,
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_caveat_on_no_evidence": false,
+      "requires_unknown_publication_date_label": true
     }
   }
 ]

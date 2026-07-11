@@ -7,9 +7,11 @@ const threadSource = readFileSync(
 	'utf8'
 );
 
-describe('chat failure retry UI', () => {
+	describe('chat failure retry UI', () => {
 	it('renders safe stream failures without raw thrown details', () => {
-		expect(pageSource).toContain("import { streamFailureMessage } from '$lib/client/stream';");
+		expect(pageSource).toContain(
+			"import { streamFailureMessage, type StreamArgs } from '$lib/client/stream';"
+		);
 		expect(pageSource).toContain('const message = streamFailureMessage(e);');
 		expect(pageSource).toContain('asstMsg.failure = { retryable: true };');
 		expect(pageSource).not.toContain('String(e)');
@@ -17,13 +19,14 @@ describe('chat failure retry UI', () => {
 	});
 
 	it('keeps a retry target and wires the Retry action', () => {
-		expect(pageSource).toContain('failedRetry = { content: args.content, command: args.command };');
+		expect(pageSource).toContain('type FailedSend = { args: RunStreamArgs };');
+		expect(pageSource).toContain('document_ids: args.document_ids ? [...args.document_ids] : undefined');
 		expect(pageSource).toContain('async function handleRetryFailure()');
 		expect(pageSource).toContain("message.role === 'assistant' && message.partial");
 		expect(pageSource).toContain('resume: true');
 		expect(pageSource).toContain('message_id: resumable.id');
-		expect(pageSource).toContain('content: retry.content');
-		expect(pageSource).toContain('command: retry.command');
+		expect(pageSource).toContain('...retry.args');
+		expect(pageSource).toContain('await runStream(retry.args);');
 		expect(pageSource).toContain('onRetryFailure={handleRetryFailure}');
 		expect(threadSource).toContain('onRetryFailure?: () => void;');
 		expect(threadSource).toContain('failure?.retryable');

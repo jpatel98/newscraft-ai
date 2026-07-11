@@ -1,6 +1,18 @@
 import { assessSourceQuality, type SourceQualityAssessment } from '../util/source-quality.js';
 
-type EvidenceSourceKind = 'official' | 'media_report' | 'internal' | 'primary' | 'unknown';
+export type JournalistSourceKind =
+	| 'official'
+	| 'primary'
+	| 'news_report'
+	| 'social_post'
+	| 'user_document'
+	| 'commercial'
+	| 'unknown';
+
+// Keep the two legacy values while the rest of the harness migrates to the
+// journalist-facing source contract. Web evidence is always classified with
+// JournalistSourceKind.
+export type EvidenceSourceKind = JournalistSourceKind | 'internal' | 'media_report';
 
 export interface EvidenceObject {
 	source_name: string;
@@ -14,6 +26,8 @@ export interface EvidenceObject {
 	confidence: number;
 	limitations: string[];
 	source_kind?: EvidenceSourceKind;
+	citation_number?: number;
+	document_page?: number;
 }
 
 export interface EvidenceInput {
@@ -31,6 +45,8 @@ export interface EvidenceInput {
 	confidence?: number | string | null;
 	limitations?: string[] | string | null;
 	source_kind?: EvidenceSourceKind | null;
+	citation_number?: number | string | null;
+	document_page?: number | string | null;
 	url?: string | null;
 	fetchedAt?: string | null;
 }
@@ -57,7 +73,9 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 		summary,
 		confidence: normalizeConfidence(input.confidence ?? defaults.confidence ?? 0.5),
 		limitations,
-		source_kind: sourceKind
+		source_kind: sourceKind,
+		citation_number: positiveInteger(input.citation_number ?? defaults.citation_number),
+		document_page: positiveInteger(input.document_page ?? defaults.document_page)
 	};
 }
 
@@ -93,7 +111,8 @@ export function dedupeEvidence(evidence: EvidenceObject[]): EvidenceObject[] {
 	const seen = new Set<string>();
 	const deduped: EvidenceObject[] = [];
 	for (const item of evidence) {
-		const key = `${item.source_url}\n${item.title}`.toLowerCase();
+		const citationKey = item.citation_number ? `\n${item.citation_number}` : '';
+		const key = `${item.source_url}\n${item.title}${citationKey}`.toLowerCase();
 		if (seen.has(key)) continue;
 		seen.add(key);
 		deduped.push(item);
@@ -123,20 +142,81 @@ function summarizeEvidenceText(text: string, maxLength = 320): string {
 	return sentence.slice(0, maxLength).trim();
 }
 
-function classifyEvidenceSource(sourceName: string, sourceUrl: string): EvidenceSourceKind {
-	const haystack = `${sourceName} ${sourceUrl}`.toLowerCase();
-	if (haystack.startsWith('newsroom://') || haystack.includes('research update')) return 'internal';
-	if (/\b(police|sheriff|court|city of|government|ministry|department|agency|official)\b/.test(haystack)) {
-		return 'official';
-	}
-	if (/\.(gov|gc\.ca|mil)\b/.test(haystack) || haystack.includes('.gov/') || haystack.includes('canada.ca')) {
-		return 'official';
-	}
-	if (/\b(rss|feed|release|records|filing|pdf)\b/.test(haystack)) return 'primary';
-	if (/\b(news|times|star|globe|cbc|ctv|apnews|reuters|guardian|bbc|outlet|media)\b/.test(haystack)) {
-		return 'media_report';
-	}
+export function classifyEvidenceSource(sourceName: string, sourceUrl: string): EvidenceSourceKind {
+	const normalizedName = sourceName.toLowerCase();
+	const normalizedUrl = sourceUrl.toLowerCase();
+	if (normalizedUrl.startsWith('newsroom://') || normalizedName.includes('research update')) return 'internal';
+	if (normalizedUrl.startsWith('document://') || normalizedUrl.startsWith('attachment://')) return 'user_document';
+
+	const parsed = safeUrl(sourceUrl);
+	const host = parsed?.hostname.replace(/^www\./, '').toLowerCase() || '';
+	const path = parsed?.pathname.toLowerCase() || '';
+
+	if (isSocialHost(host)) return 'social_post';
+	if (isOfficialSource(host)) return 'official';
+	if (isNewsSource(host, normalizedName)) return 'news_report';
+	if (isCommercialSource(host, path, normalizedName)) return 'commercial';
+	if (isPrimarySource(host, path, normalizedName)) return 'primary';
 	return 'unknown';
+}
+
+function safeUrl(value: string): URL | null {
+	try {
+		return new URL(value);
+	} catch {
+		return null;
+	}
+}
+
+function isSocialHost(host: string): boolean {
+	return (
+		/(^|\.)(x|twitter|facebook|instagram|tiktok|threads|reddit|youtube)\.com$/.test(host) ||
+		/(^|\.)bsky\.app$/.test(host) ||
+		/(^|\.)mastodon\.social$/.test(host)
+	);
+}
+
+function isOfficialSource(host: string): boolean {
+	return (
+		/(^|\.)(gov|mil)(\.[a-z]{2})?$/.test(host) ||
+		/(^|\.)(gc\.ca|canada\.ca|ontario\.ca|quebec\.ca|toronto\.ca)$/.test(host) ||
+		/(^|\.)(elections\.ca|bankofcanada\.ca|rcmp-grc\.gc\.ca|tps\.ca)$/.test(host)
+	);
+}
+
+function isNewsSource(host: string, sourceName: string): boolean {
+	if (
+		/(^|\.)(reuters\.com|apnews\.com|cbc\.ca|ctvnews\.ca|globalnews\.ca|citynews\.ca|thestar\.com|theglobeandmail\.com|bbc\.(com|co\.uk)|theguardian\.com|cnn\.com|nytimes\.com|washingtonpost\.com|espn\.com|sportsnet\.ca|tsn\.ca|theathletic\.com)$/.test(
+			host
+		)
+	) {
+		return true;
+	}
+	return /\b(reuters|associated press|ap news|cbc news|ctv news|global news|citynews|toronto star|globe and mail|bbc news|guardian|news outlet|media report)\b/.test(
+		sourceName
+	);
+}
+
+function isPrimarySource(host: string, path: string, sourceName: string): boolean {
+	if (/(^|\.)(fifa\.com|who\.int|un\.org|sec\.gov)$/.test(host)) return true;
+	if (/\.(edu|ac\.[a-z]{2})$/.test(host)) return true;
+	const directDocument = /\b(press[-_/ ]?release|newsroom|media[-_/ ]?release|regulatory[-_/ ]?filing|agenda|minutes|transcript|official[-_/ ]?statement)\b/.test(
+		path
+	);
+	if (!directDocument) return false;
+	const publisherToken = host.split('.').slice(-2, -1)[0]?.replace(/[^a-z0-9]/g, '') || '';
+	return publisherToken.length >= 4 && sourceName.replace(/[^a-z0-9]/g, '').includes(publisherToken);
+}
+
+function isCommercialSource(host: string, path: string, sourceName: string): boolean {
+	if (
+		/(^|\.)(amazon\.[a-z.]+|walmart\.[a-z.]+|ticketmaster\.[a-z.]+|stubhub\.[a-z.]+|eventbrite\.[a-z.]+|expedia\.[a-z.]+|booking\.com|realtor\.[a-z.]+|zillow\.com)$/.test(
+			host
+		)
+	) {
+		return true;
+	}
+	return /\b(shop|store|marketplace|tickets?|pricing|product|sponsored|affiliate)\b/.test(`${path} ${sourceName}`);
 }
 
 export function evidenceHasBlockingLimitation(evidence: EvidenceObject[]): boolean {
@@ -161,6 +241,12 @@ function normalizeConfidence(value: number | string | null | undefined): number 
 	if (!Number.isFinite(parsed)) return 0.5;
 	if (parsed > 1) return Math.max(0, Math.min(1, parsed / 100));
 	return Math.max(0, Math.min(1, parsed));
+}
+
+function positiveInteger(value: number | string | null | undefined): number | undefined {
+	const parsed = Number(value);
+	if (!Number.isInteger(parsed) || parsed < 1) return undefined;
+	return parsed;
 }
 
 function nonEmpty(value: string | null | undefined): string | null {

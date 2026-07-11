@@ -25,6 +25,7 @@ async function expectSettingsFlow(page: Page) {
 	await expect(page.getByRole('heading', { name: 'Account & preferences' })).toBeVisible();
 	await expect(page.locator('.settings h2')).toHaveText([
 		'Account',
+		'Newsroom',
 		'Data',
 		'Security',
 		'Sessions',

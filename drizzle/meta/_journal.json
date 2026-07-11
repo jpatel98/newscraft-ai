@@ -85,6 +85,20 @@
       "when": 1783200000000,
       "tag": "0011_agent_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783714377000,
+      "tag": "0012_newsroom_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1783714377001,
+      "tag": "0013_conversation_documents",
+      "breakpoints": true
     }
   ]
 }

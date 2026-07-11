@@ -9,11 +9,25 @@ const pageSource = readFileSync(
 
 describe('settings page source', () => {
 	it('keeps the default settings flow centered on account, data, security, and sessions', () => {
-		const headings = ['settings-account', 'settings-data', 'settings-security', 'settings-session'];
+		const headings = [
+			'settings-account',
+			'settings-newsroom',
+			'settings-data',
+			'settings-security',
+			'settings-session'
+		];
 		const positions = headings.map((heading) => pageSource.indexOf(`id="${heading}"`));
 
 		expect(positions.every((position) => position > -1)).toBe(true);
 		expect(positions).toEqual([...positions].sort((a, b) => a - b));
+	});
+
+	it('offers organization-scoped newsroom context without provider controls', () => {
+		expect(pageSource).toContain("fetch('/api/settings/newsroom-profile'");
+		expect(pageSource).toContain('id="newsroom-timezone"');
+		expect(pageSource).toContain('id="newsroom-market"');
+		expect(pageSource).toContain('id="newsroom-domains"');
+		expect(pageSource).not.toMatch(/Perplexity|Sonar|OpenAI/);
 	});
 
 	it('does not surface agent skill internals in settings', () => {

@@ -1,4 +1,11 @@
-import type { GatewayChatMessage, ReasoningEffort } from '@newscraft/shared';
+import type {
+	CitationRecord,
+	CitationSourceType,
+	DocumentContext,
+	GatewayChatMessage,
+	NewsroomContext,
+	ReasoningEffort
+} from '@newscraft/shared';
 import { createHash } from 'node:crypto';
 import { AssignmentDesk, type AssignmentDeskDecision } from './assignment-desk.js';
 import { cleanVisibleChatOutput } from './answer.js';
@@ -20,7 +27,12 @@ import type { FetchedSource } from '../tools/sources.js';
 import { completeProviderText, type ModelProvider } from '../util/openai-complete.js';
 import { firstUrl, promptFromChatMessages, splitForStreaming } from '../util/text.js';
 import type { HarnessRepository } from '../db/repository.js';
-import { newsroomTimeContext, type NewsroomTimeContextOptions } from './time-context.js';
+import {
+	currentAsOfLabel,
+	isCurrentEventQuery,
+	newsroomTimeContext,
+	type NewsroomTimeContextOptions
+} from './time-context.js';
 
 export interface RuntimeControls {
 	maxToolCalls: number;
@@ -45,11 +57,14 @@ export interface RuntimeContext {
 	trigger?: 'manual' | 'schedule' | 'test';
 	/** Diagnostics/eval override: false forces the regex-router fallback for this request. */
 	plannerEnabled?: boolean;
+	newsroomContext?: NewsroomContext;
+	documents?: DocumentContext[];
 }
 
 export type RuntimeProgressEvent =
 	| { type: 'tool'; id: string; name: string; status: string; detail?: string; result?: unknown }
 	| { type: 'source'; source: FetchedSource; stepId?: string }
+	| { type: 'citations'; citations: CitationRecord[] }
 	| { type: 'plan'; planSource: AgentPlanEvent['source']; steps: AgentPlanStepEvent[] };
 
 export interface MissionRuntimeResult {
@@ -87,17 +102,30 @@ export class NewsroomAgentRuntime {
 			return this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 		}
 		if (isSimpleGreeting(latestUserPrompt)) return 'Hi. What should NewsCraft work on?';
-		if (shouldAskForClarification(messages, latestUserPrompt)) return clarificationAnswer(latestUserPrompt);
+		if (shouldAskForClarification(messages, latestUserPrompt) && !context.documents?.length) {
+			return clarificationAnswer(latestUserPrompt);
+		}
 		const formatFollowup = formatOnlyFollowupAnswer(messages);
 		if (formatFollowup) return formatFollowup;
-		if (isDirectAnswerPrompt(latestUserPrompt)) {
+		if (isDirectAnswerPrompt(latestUserPrompt) && !context.documents?.length) {
 			return this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
 		}
 		if (!this.modelApiKey()) return this.localChat(prompt);
-		return this.withTimeout(
-			() => this.disciplinedComplete(buildDisciplinedChatPrompt(messages), latestUserPrompt, context),
+		const answer = await this.withTimeout(
+			() =>
+				this.disciplinedComplete(
+					buildDisciplinedChatPrompt(
+						messages,
+						{ timeZone: context.newsroomContext?.timezone },
+						context.newsroomContext,
+						context.documents
+					),
+					latestUserPrompt,
+					context
+				),
 			context.signal
 		);
+		return withCurrentAsOfLabel(answer, latestUserPrompt, context.newsroomContext?.timezone);
 	}
 
 	async *streamChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): AsyncGenerator<string> {
@@ -116,7 +144,7 @@ export class NewsroomAgentRuntime {
 			for (const chunk of splitForStreaming('Hi. What should NewsCraft work on?')) yield chunk;
 			return;
 		}
-		if (shouldAskForClarification(messages, latestUserPrompt)) {
+		if (shouldAskForClarification(messages, latestUserPrompt) && !context.documents?.length) {
 			for (const chunk of splitForStreaming(clarificationAnswer(latestUserPrompt))) yield chunk;
 			return;
 		}
@@ -125,7 +153,7 @@ export class NewsroomAgentRuntime {
 			for (const chunk of splitForStreaming(formatFollowup)) yield chunk;
 			return;
 		}
-		if (isDirectAnswerPrompt(latestUserPrompt)) {
+		if (isDirectAnswerPrompt(latestUserPrompt) && !context.documents?.length) {
 			const answer = await this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
 			for (const chunk of splitForStreaming(answer)) yield chunk;
 			return;
@@ -134,7 +162,16 @@ export class NewsroomAgentRuntime {
 			for (const chunk of splitForStreaming(this.localChat(prompt))) yield chunk;
 			return;
 		}
-		yield* this.disciplinedStream(buildDisciplinedChatPrompt(messages), latestUserPrompt, context);
+		yield* this.disciplinedStream(
+			buildDisciplinedChatPrompt(
+				messages,
+				{ timeZone: context.newsroomContext?.timezone },
+				context.newsroomContext,
+				context.documents
+			),
+			latestUserPrompt,
+			context
+		);
 	}
 
 	async runMission(prompt: string, context: RuntimeContext): Promise<MissionRuntimeResult> {
@@ -159,6 +196,8 @@ export class NewsroomAgentRuntime {
 			modelProvider: this.modelProvider(),
 			modelApiKey: this.modelApiKey(),
 			trigger: context.trigger,
+			newsroomContext: context.newsroomContext,
+			documents: context.documents,
 			signal: context.signal,
 			onPlanEvent: (event) => context.onProgress?.({ type: 'plan', planSource: event.source, steps: event.steps }),
 			onToolEvent: (event) => {
@@ -189,6 +228,8 @@ export class NewsroomAgentRuntime {
 				}
 			}
 		});
+		reconcileDocumentAndWebEvidence(result, context.documents);
+		this.emitCitationRecords(result.evidence, context);
 		const sources = result.evidence.map(evidenceToFetchedSource);
 		const markdown = await this.synthesizeMissionOutput(prompt, result, context);
 		return { role, markdown, sources, evidence: result.evidence };
@@ -227,6 +268,7 @@ export class NewsroomAgentRuntime {
 				input: prompt,
 				reasoningEffort: decision.reasoningEffort,
 				maxOutputTokens: 1200,
+				disableSearch: true,
 				signal: context.signal
 			});
 			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
@@ -250,7 +292,7 @@ export class NewsroomAgentRuntime {
 				'3. Turn the strongest angle into a short outline with next reporting or production steps.'
 			].join('\n');
 		}
-		return 'I can help with that directly. If you need current facts, verification, source comparison, or live news, ask me to check sources.';
+		return "I couldn't complete that writing request right now.";
 	}
 
 	private async runDisciplinedAgent(
@@ -271,7 +313,7 @@ export class NewsroomAgentRuntime {
 			modelProvider: this.modelProvider(),
 			modelApiKey: this.modelApiKey()
 		});
-		return agent.run(prompt, {
+		const result = await agent.run(prompt, {
 			repository: context.repository,
 			runId: context.runId,
 			jobId: context.jobId,
@@ -279,6 +321,8 @@ export class NewsroomAgentRuntime {
 			modelProvider: this.modelProvider(),
 			modelApiKey: this.modelApiKey(),
 			trigger: context.trigger,
+			newsroomContext: context.newsroomContext,
+			documents: context.documents,
 			signal: context.signal,
 			outputStyle: 'chat',
 			routingPrompt,
@@ -287,6 +331,14 @@ export class NewsroomAgentRuntime {
 			onToolEvent: (event) => this.forwardDisciplinedProgress(event, context),
 			onAnswerDelta
 		});
+		reconcileDocumentAndWebEvidence(result, context.documents);
+		this.emitCitationRecords(result.evidence, context);
+		return result;
+	}
+
+	private emitCitationRecords(evidence: EvidenceObject[], context: RuntimeContext): void {
+		const citations = citationRecordsFromEvidence(evidence);
+		if (citations.length) context.onProgress?.({ type: 'citations', citations });
 	}
 
 	private async titleCompletion(prompt: string, context: RuntimeContext): Promise<string> {
@@ -298,6 +350,7 @@ export class NewsroomAgentRuntime {
 				model: decision.model,
 				input: prompt,
 				reasoningEffort: decision.reasoningEffort,
+				disableSearch: true,
 				signal: context.signal
 			});
 			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
@@ -321,6 +374,8 @@ export class NewsroomAgentRuntime {
 	): AsyncGenerator<string> {
 		this.triageEditorCommand(routingPrompt, context);
 		const sanitizer = new StreamingAnswerSanitizer({ clean: (raw) => cleanVisibleChatOutput(raw, prompt) });
+		const currentAsOf = currentAsOfPrefix(routingPrompt, context.newsroomContext?.timezone);
+		let currentAsOfEmitted = false;
 		const pending: string[] = [];
 		let wake: (() => void) | null = null;
 		const notify = () => {
@@ -351,6 +406,13 @@ export class NewsroomAgentRuntime {
 
 		while (!settled || pending.length) {
 			if (pending.length) {
+				if (currentAsOf && !currentAsOfEmitted) {
+					currentAsOfEmitted = true;
+					if (!/\bCurrent as of\b/i.test(sanitizer.emitted)) {
+						yield `${currentAsOf}\n\n`;
+						continue;
+					}
+				}
 				yield pending.shift() as string;
 				continue;
 			}
@@ -368,6 +430,9 @@ export class NewsroomAgentRuntime {
 		}
 		const finalAnswer = outcome.result.final_answer.trim() || this.localChat(prompt);
 		if (!sanitizer.emitted) {
+			if (currentAsOf && !currentAsOfEmitted && !/\bCurrent as of\b/i.test(finalAnswer)) {
+				yield `${currentAsOf}\n\n`;
+			}
 			for (const chunk of splitForStreaming(finalAnswer)) yield chunk;
 			return;
 		}
@@ -441,6 +506,7 @@ export class NewsroomAgentRuntime {
 				].join('\n'),
 				input: missionSynthesisInput(prompt, result),
 				reasoningEffort: decision.reasoningEffort,
+				disableSearch: true,
 				signal: context.signal
 			});
 			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
@@ -570,6 +636,16 @@ export class NewsroomAgentRuntime {
 	}
 }
 
+function currentAsOfPrefix(prompt: string, timeZone?: string): string {
+	if (!isCurrentEventQuery(prompt)) return '';
+	return `**Current as of:** ${currentAsOfLabel({ timeZone })}`;
+}
+
+function withCurrentAsOfLabel(answer: string, prompt: string, timeZone?: string): string {
+	if (!isCurrentEventQuery(prompt) || /\bCurrent as of\b/i.test(answer)) return answer;
+	return `${currentAsOfPrefix(prompt, timeZone)}\n\n${answer}`;
+}
+
 function evidenceToFetchedSource(evidence: EvidenceObject): FetchedSource {
 	const contentText = evidence.extracted_text || evidence.summary || evidence.title;
 	return {
@@ -594,6 +670,7 @@ function isSimpleGreeting(prompt: string): boolean {
 }
 
 function isDirectAnswerPrompt(prompt: string): boolean {
+	if (/\b(?:turn|rewrite|using only)\b[\s\S]{0,100}\bprevious answer\b/i.test(prompt)) return true;
 	return routeNewsroomRequest(prompt).selected_mode === 'direct_answer';
 }
 
@@ -613,7 +690,6 @@ function clarificationAnswer(prompt: string): string {
 function missionSynthesisInput(prompt: string, result: NewsroomAgentRunResult): string {
 	const evidence = result.evidence.length
 		? result.evidence
-				.slice(0, 20)
 				.map((item, index) =>
 					[
 						`Source ${index + 1}: ${item.title}`,
@@ -768,7 +844,9 @@ function tableCell(value: string): string {
 
 export function buildDisciplinedChatPrompt(
 	messages: GatewayChatMessage[],
-	timeOptions: NewsroomTimeContextOptions = {}
+	timeOptions: NewsroomTimeContextOptions = {},
+	newsroomContext?: NewsroomContext,
+	documents: DocumentContext[] = []
 ): string {
 	const latestUserIndex = latestUserIndexFromChatMessages(messages);
 	const latestUserPrompt =
@@ -778,9 +856,13 @@ export function buildDisciplinedChatPrompt(
 	const priorContext = recentConversationContext(messages, latestUserIndex);
 	const systemInstructions = systemInstructionsFromChatMessages(messages);
 	const dateContext = newsroomTimeContext(timeOptions);
+	const structuredContext = structuredNewsroomContext(newsroomContext);
+	const documentContext = structuredDocumentContext(documents);
 	if (!priorContext) {
 		return [
 			dateContext,
+			...(structuredContext ? ['', structuredContext] : []),
+			...(documentContext ? ['', documentContext] : []),
 			...(systemInstructions ? ['', 'System and newsroom instructions:', systemInstructions] : []),
 			'',
 			'Current user question:',
@@ -790,6 +872,8 @@ export function buildDisciplinedChatPrompt(
 
 	return [
 		dateContext,
+		...(structuredContext ? ['', structuredContext] : []),
+		...(documentContext ? ['', documentContext] : []),
 		...(systemInstructions ? ['', 'System and newsroom instructions:', systemInstructions] : []),
 		'',
 		'Current user question:',
@@ -800,6 +884,114 @@ export function buildDisciplinedChatPrompt(
 		'',
 		'Use the recent context to resolve pronouns, article references, and source references. Answer the current user question, and do not treat prior assistant wording as fresh evidence unless source details are included.'
 	].join('\n');
+}
+
+function structuredNewsroomContext(context: NewsroomContext | undefined): string {
+	if (!context) return '';
+	return [
+		'Newsroom profile:',
+		`- Timezone: ${context.timezone}`,
+		...(context.homeMarket ? [`- Home market: ${context.homeMarket}`] : []),
+		...(context.preferredDomains?.length
+			? [`- Preferred source domains: ${context.preferredDomains.join(', ')}`]
+			: [])
+	].join('\n');
+}
+
+function structuredDocumentContext(documents: DocumentContext[]): string {
+	if (!documents.length) return '';
+	return [
+		'Private conversation documents:',
+		'Use these documents as user-provided evidence. Do not search externally unless the user explicitly asks to verify or corroborate them.',
+		...documents.flatMap((document) => [
+			`Document: ${document.filename} (${document.pageCount} pages)`,
+			...document.pages.map((page) => `Page ${page.pageNumber}:\n${page.text}`)
+		])
+	].join('\n\n');
+}
+
+function citationRecordsFromEvidence(evidence: EvidenceObject[]): CitationRecord[] {
+	const withMetadata = evidence.map((item, index) => {
+		const extended = item as EvidenceObject & { citation_number?: number; document_page?: number };
+		return {
+			item,
+			index,
+			citationNumber:
+				Number.isInteger(extended.citation_number) && Number(extended.citation_number) > 0
+					? Number(extended.citation_number)
+					: null,
+			documentPage:
+				Number.isInteger(extended.document_page) && Number(extended.document_page) > 0
+					? Number(extended.document_page)
+					: undefined
+		};
+	});
+	const hasExplicitNumbers = withMetadata.some((entry) => entry.citationNumber != null);
+	const records = new Map<number, CitationRecord>();
+	for (const entry of withMetadata) {
+		if (hasExplicitNumbers && entry.citationNumber == null) continue;
+		const citationNumber = entry.citationNumber ?? entry.index + 1;
+		if (records.has(citationNumber)) continue;
+		const sourceType = citationSourceType(entry.item.source_kind);
+		const url = entry.item.source_url;
+		if (!/^https?:\/\//i.test(url) && !url.startsWith('/api/')) continue;
+		records.set(citationNumber, {
+			citationNumber,
+			title: entry.item.title || entry.item.source_name || url,
+			url,
+			domain: citationDomain(url, sourceType),
+			publicationDate: entry.item.published_at || null,
+			sourceType,
+			supportingExcerpt: truncateEvidence(
+				entry.item.extracted_text || entry.item.summary || entry.item.title,
+				900
+			),
+			...(entry.documentPage ? { documentPage: entry.documentPage } : {})
+		});
+	}
+	return Array.from(records.values()).sort((a, b) => a.citationNumber - b.citationNumber);
+}
+
+function reconcileDocumentAndWebEvidence(
+	result: NewsroomAgentRunResult,
+	documents: DocumentContext[] | undefined
+): void {
+	if (!documents?.length) return;
+	const webEvidence = result.evidence.filter(
+		(item) => item.tool_used === 'openai_web_search' && item.citation_number
+	);
+	const documentEvidence = result.evidence.filter((item) => item.source_kind === 'user_document');
+	if (!webEvidence.length || !documentEvidence.length) return;
+	const maxWebCitation = Math.max(...webEvidence.map((item) => item.citation_number || 0));
+	for (const [index, item] of documentEvidence.entries()) {
+		item.citation_number = maxWebCitation + index + 1;
+	}
+	const documentNotes = documentEvidence.slice(0, 3).map((item) => {
+		const excerpt = truncateEvidence(item.summary || item.extracted_text || item.title, 360);
+		return `- ${excerpt} [${item.citation_number}]`;
+	});
+	if (documentNotes.length) {
+		result.final_answer = `${result.final_answer.trim()}\n\n**Attached document evidence**\n\n${documentNotes.join('\n')}`;
+	}
+}
+
+function citationSourceType(value: EvidenceObject['source_kind']): CitationSourceType {
+	if (value === 'official') return 'official';
+	if (value === 'primary') return 'primary';
+	if (value === 'media_report' || value === 'news_report') return 'news_report';
+	if (value === 'social_post') return 'social_post';
+	if (value === 'user_document') return 'user_document';
+	if (value === 'commercial') return 'commercial';
+	return 'unknown';
+}
+
+function citationDomain(url: string, sourceType: CitationSourceType): string {
+	if (sourceType === 'user_document' || url.startsWith('/api/')) return 'Attached document';
+	try {
+		return new URL(url).hostname.replace(/^www\./, '');
+	} catch {
+		return 'Unknown source';
+	}
 }
 
 function buildDirectChatPrompt(messages: GatewayChatMessage[]): string {

@@ -102,6 +102,64 @@
 		return account.isCurrent ? 'Current account' : `Account ${index + 1}`;
 	}
 
+	// --- Newsroom context ---
+	let newsroomTimezone = $state('');
+	let newsroomHomeMarket = $state('');
+	let newsroomDomains = $state('');
+	let newsroomHydrated = $state(false);
+	let newsroomBusy = $state(false);
+	let newsroomMsg = $state<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+	$effect(() => {
+		if (newsroomHydrated) return;
+		newsroomTimezone = data.newsroomProfile.timezone;
+		newsroomHomeMarket = data.newsroomProfile.homeMarket;
+		newsroomDomains = data.newsroomProfile.preferredDomains.join(', ');
+		newsroomHydrated = true;
+	});
+
+	async function submitNewsroomProfile(e: Event) {
+		e.preventDefault();
+		newsroomBusy = true;
+		newsroomMsg = null;
+		try {
+			const preferredDomains = newsroomDomains
+				.split(/[\s,]+/)
+				.map((domain) => domain.trim())
+				.filter(Boolean);
+			const response = await fetch('/api/settings/newsroom-profile', {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json', accept: 'application/json' },
+				body: JSON.stringify({
+					timezone: newsroomTimezone,
+					homeMarket: newsroomHomeMarket,
+					preferredDomains
+				})
+			});
+			const result = (await response.json().catch(() => null)) as
+				| {
+						message?: string;
+						profile?: { timezone: string; homeMarket: string; preferredDomains: string[] };
+				  }
+				| null;
+			if (!response.ok || !result?.profile) {
+				newsroomMsg = {
+					kind: 'err',
+					text: result?.message || 'Could not save newsroom context.'
+				};
+				return;
+			}
+			newsroomTimezone = result.profile.timezone;
+			newsroomHomeMarket = result.profile.homeMarket;
+			newsroomDomains = result.profile.preferredDomains.join(', ');
+			newsroomMsg = { kind: 'ok', text: 'Newsroom context saved.' };
+		} catch {
+			newsroomMsg = { kind: 'err', text: 'Could not save newsroom context.' };
+		} finally {
+			newsroomBusy = false;
+		}
+	}
+
 	// --- Change password ---
 	let pwCurrent = $state('');
 	let pwNew = $state('');
@@ -331,9 +389,79 @@
 					</div>
 				</div>
 			</div>
-		</section>
+			</section>
 
-		<section class="settings__group" aria-labelledby="settings-data">
+			<section class="settings__group" aria-labelledby="settings-newsroom">
+				<div class="settings__group__head">
+					<h2 id="settings-newsroom" class="settings__group__title">Newsroom</h2>
+					<p class="settings__group__copy">Set the local context used for current reporting.</p>
+				</div>
+				<div class="settings__section-body">
+					<form class="settings__form newsroom-form" onsubmit={submitNewsroomProfile}>
+						<div class="field">
+							<label class="field__label" for="newsroom-timezone">Timezone</label>
+							<input
+								id="newsroom-timezone"
+								class="field__input"
+								type="text"
+								list="newsroom-timezones"
+								bind:value={newsroomTimezone}
+								required
+								spellcheck="false"
+								autocomplete="off"
+							/>
+							<datalist id="newsroom-timezones">
+								<option value="America/Toronto"></option>
+								<option value="America/Vancouver"></option>
+								<option value="America/Edmonton"></option>
+								<option value="America/Winnipeg"></option>
+								<option value="America/Halifax"></option>
+								<option value="America/St_Johns"></option>
+								<option value="America/New_York"></option>
+								<option value="America/Chicago"></option>
+								<option value="America/Denver"></option>
+								<option value="America/Los_Angeles"></option>
+								<option value="Europe/London"></option>
+								<option value="UTC"></option>
+							</datalist>
+						</div>
+						<div class="field">
+							<label class="field__label" for="newsroom-market">Home market</label>
+							<input
+								id="newsroom-market"
+								class="field__input"
+								type="text"
+								maxlength="120"
+								bind:value={newsroomHomeMarket}
+								placeholder="Toronto, Ontario"
+							/>
+						</div>
+						<div class="field">
+							<label class="field__label" for="newsroom-domains">Preferred domains</label>
+							<textarea
+								id="newsroom-domains"
+								class="field__input newsroom-form__domains"
+								rows="3"
+								bind:value={newsroomDomains}
+								placeholder="cbc.ca, toronto.ca"
+								spellcheck="false"
+							></textarea>
+						</div>
+						<div class="settings__form-actions">
+							<button type="submit" class="btn btn--primary" disabled={newsroomBusy}>
+								{newsroomBusy ? 'Saving…' : 'Save newsroom context'}
+							</button>
+						</div>
+						{#if newsroomMsg}
+							<div class={newsroomMsg.kind === 'ok' ? 'settings__ok' : 'field__error'}>
+								{newsroomMsg.text}
+							</div>
+						{/if}
+					</form>
+				</div>
+			</section>
+
+			<section class="settings__group" aria-labelledby="settings-data">
 			<div class="settings__group__head">
 				<h2 id="settings-data" class="settings__group__title">Data</h2>
 				<p class="settings__group__copy">Download or remove conversation records.</p>
@@ -542,6 +670,15 @@
 	.accounts-create {
 		display: grid;
 		gap: 10px;
+	}
+	.newsroom-form {
+		max-width: 680px;
+	}
+	.newsroom-form__domains {
+		min-height: 84px;
+		resize: vertical;
+		font-family: var(--font-mono);
+		font-size: 12px;
 	}
 	.setup-link {
 		display: grid;

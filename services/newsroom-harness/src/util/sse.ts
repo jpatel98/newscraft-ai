@@ -64,3 +64,7 @@ export function agentToolProgressFrame(data: unknown): string {
 export function agentPlanFrame(data: unknown): string {
 	return sseFrame({ event: 'agent.plan', data });
 }
+
+export function agentCitationsFrame(data: unknown): string {
+	return sseFrame({ event: 'agent.citations', data });
+}

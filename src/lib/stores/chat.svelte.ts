@@ -4,6 +4,8 @@
 // Also holds the ephemeral tool-progress strip + the prompt-reuse handoff used
 // by the ↑ keyboard shortcut to recall the previous user message.
 
+import type { CitationRecord } from '@newscraft/shared';
+
 export type PlanStepStatus = 'pending' | 'running' | 'ok' | 'failed' | 'skipped';
 
 export interface PlanStepSource {
@@ -78,6 +80,7 @@ class ChatSession {
 	abortIntent = $state<'stop' | 'partial' | null>(null);
 	tools = $state<ToolProgress[]>([]);
 	sources = $state<SourceProgress[]>([]);
+	citations = $state<CitationRecord[]>([]);
 	// Names of tools that completed during the current run. Cleared on the
 	// next startStream so each turn shows its own summary; powers the
 	// "Sources checked" recap that replaces the live activity component.
@@ -105,6 +108,7 @@ class ChatSession {
 		this.streaming = true;
 		this.tools = [];
 		this.sources = [];
+		this.citations = [];
 		this.toolHistory = [];
 		this.plan = null;
 		this.streamStartedAt = Date.now();
@@ -151,6 +155,10 @@ class ChatSession {
 		} else {
 			this.plan = plan;
 		}
+	}
+
+	setCitations(citations: CitationRecord[]) {
+		this.citations = citations.map((citation) => ({ ...citation }));
 	}
 
 	/** Attach a source to a plan step by stepId. Called from pushSource when stepId is present. */

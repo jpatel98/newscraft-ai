@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildAnswerProvenanceBundle,
+	allCitationMarkersResolve,
+	citationRecordsForAnswer,
+	mergeToolMetadata,
 	parseToolMetadata,
+	resolvedCitationNumbersForAnswer,
 	serializeAnswerProvenance,
 	serializeToolMetadata,
 	sourceReceiptsForAnswer,
@@ -14,6 +18,7 @@ describe('tool metadata', () => {
 		const metadata = parseToolMetadata('[{"id":"t1","name":"web_search","status":"ok"}]');
 		expect(metadata.tools).toMatchObject([{ id: 't1', name: 'web_search', status: 'ok' }]);
 		expect(metadata.sources).toEqual([]);
+		expect(metadata.citations).toEqual([]);
 	});
 
 	it('parses v1 envelopes with persisted sources', () => {
@@ -64,7 +69,49 @@ describe('tool metadata', () => {
 	});
 
 	it('returns empty metadata for malformed json', () => {
-		expect(parseToolMetadata('{nope')).toEqual({ tools: [], sources: [] });
+		expect(parseToolMetadata('{nope')).toEqual({ tools: [], sources: [], citations: [] });
+	});
+
+	it('persists ordered citation records and resolves visible markers', () => {
+		const citations = Array.from({ length: 10 }, (_, index) => ({
+			citationNumber: index + 1,
+			title: `Source ${index + 1}`,
+			url: `https://example.com/${index + 1}`,
+			domain: 'example.com',
+			publicationDate: index === 9 ? null : '2026-07-10',
+			sourceType: index === 0 ? ('official' as const) : ('news_report' as const),
+			supportingExcerpt: `Evidence ${index + 1}`
+		}));
+		const raw = serializeToolMetadata([], [], citations);
+
+		expect(citationRecordsForAnswer(raw)).toHaveLength(10);
+		expect(citationRecordsForAnswer(raw).map((citation) => citation.citationNumber)).toEqual([
+			1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+		]);
+		expect(allCitationMarkersResolve(raw, 'Confirmed [1], with another record [10].')).toBe(true);
+		expect(allCitationMarkersResolve(raw, 'A dangling marker [11].')).toBe(false);
+		expect(
+			allCitationMarkersResolve(
+				serializeToolMetadata([], [], [{ ...citations[0], supportingExcerpt: '' }]),
+				'Incomplete evidence [1].'
+			)
+		).toBe(false);
+		const conflicting = [citations[0], { ...citations[0], url: 'https://elsewhere.test/1' }];
+		expect(allCitationMarkersResolve(serializeToolMetadata([], [], conflicting), 'Conflict [1].')).toBe(
+			false
+		);
+		expect(mergeToolMetadata(null, [], [], conflicting).citations).toHaveLength(2);
+		expect(resolvedCitationNumbersForAnswer('Repeated [1], then [1].', [citations[0]])).toEqual([
+			1,
+			1
+		]);
+		expect(
+			resolvedCitationNumbersForAnswer('Not markers: [1](https://example.com), `[1]`, \\[1].', [
+				citations[0]
+			])
+		).toEqual([]);
+		expect(sourceContextForFollowup(raw)).toContain('[10] Source 10');
+		expect(mergeToolMetadata(raw, [], [], []).citations).toHaveLength(10);
 	});
 
 	it('filters source strips to used sources', () => {
@@ -168,6 +215,47 @@ describe('tool metadata', () => {
 		]);
 	});
 
+	it('builds fallback source receipts from inherited citations, including private document routes', () => {
+		const raw = serializeToolMetadata(
+			[],
+			[],
+			[
+				{
+					citationNumber: 1,
+					title: 'Council minutes',
+					url: 'https://city.example/minutes',
+					domain: 'city.example',
+					publicationDate: '2026-07-10',
+					sourceType: 'official',
+					supportingExcerpt: 'Council approved the motion.'
+				},
+				{
+					citationNumber: 2,
+					title: 'budget.pdf, page 7',
+					url: '/api/conversations/c-1/documents/d-1/download#page=7',
+					domain: 'Attached document',
+					publicationDate: null,
+					sourceType: 'user_document',
+					supportingExcerpt: 'The budget is $2 million.',
+					documentPage: 7
+				}
+			]
+		);
+
+		expect(sourceReceiptsForAnswer(raw, 'A transformed answer without markers.')).toEqual([
+			{
+				url: 'https://city.example/minutes',
+				label: 'Council minutes',
+				domain: 'city.example'
+			},
+			{
+				url: '/api/conversations/c-1/documents/d-1/download#page=7',
+				label: 'budget.pdf, page 7',
+				domain: 'Attached document'
+			}
+		]);
+	});
+
 	it('builds compact source context for follow-up questions', () => {
 		const raw = serializeToolMetadata(
 			[],
@@ -220,6 +308,18 @@ describe('tool metadata', () => {
 				{ id: 'search-1', name: 'web_search', status: 'running', startedAt: 1010 },
 				{ id: 'search-1', name: 'web_search', status: 'ok', endedAt: 1200, result: { count: 2 } }
 			],
+			answerText: 'The result is confirmed [1], but this marker is unresolved [2].',
+			citations: [
+				{
+					citationNumber: 1,
+					title: 'Official result',
+					url: 'https://example.gov/result',
+					domain: 'example.gov',
+					publicationDate: null,
+					sourceType: 'official',
+					supportingExcerpt: 'The official result.'
+				}
+			],
 			sources: [
 				{
 					id: 'result-1',
@@ -260,12 +360,51 @@ describe('tool metadata', () => {
 			model: 'gpt-test',
 			toolCount: 1,
 			sourceCount: 1,
-			usedSourceCount: 1
+			usedSourceCount: 1,
+			citationCount: 2,
+			resolvedCitationCount: 1,
+			danglingCitationCount: 1,
+			primarySourceCount: 1,
+			unknownDateCount: 1
 		});
 		expect(bundle.stream).toMatchObject({
 			elapsedMs: 500,
 			finishStatus: 'completed',
 			events: { message: 3, 'agent.source': 2 }
+		});
+	});
+
+	it('counts incomplete and conflicting citation evidence as dangling provenance', () => {
+		const base = {
+			citationNumber: 1,
+			title: 'Official result',
+			url: 'https://example.gov/result',
+			domain: 'example.gov',
+			publicationDate: '2026-07-10',
+			sourceType: 'official' as const,
+			supportingExcerpt: 'The official result.'
+		};
+		const build = (citations: typeof base[]) =>
+			buildAnswerProvenanceBundle({
+				messageId: 'msg_1',
+				conversationId: 'convo_1',
+				tools: [],
+				sources: [],
+				citations,
+				answerText: 'Claim [1].',
+				startedAt: 1000,
+				endedAt: 1100,
+				assistantChars: 10,
+				done: true
+			});
+
+		expect(build([{ ...base, supportingExcerpt: '' }]).metadata).toMatchObject({
+			resolvedCitationCount: 0,
+			danglingCitationCount: 1
+		});
+		expect(build([base, { ...base, url: 'https://example.org/result' }]).metadata).toMatchObject({
+			resolvedCitationCount: 0,
+			danglingCitationCount: 1
 		});
 	});
 
