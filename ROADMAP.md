@@ -154,9 +154,8 @@ user-facing UI.
   `excludeFiles: ".data/**"` keeps local SQLite data out of deploys. `public/`
   exists only because Vercel requires a static output directory. The project
   was **not Git-linked when last verified on 2026-07-09**; its newest
-  production deployment was still at `b840c9e`, so later source changes do not
-  auto-deploy there. Linking and deploying the harness are rollout work, not
-  completed implementation. Production explicitly selects Perplexity with
+  Git-triggered production deployment is now active; the latest verified
+  deployment includes `ecb47b2`. Production explicitly selects Perplexity with
   `perplexity/sonar`. **This stateless shape is the intended production
   topology for the chat-first product** — no jobs, no scheduler, no harness
   persistence in prod. Health reports `persistence: 'stateless'` honestly.
@@ -252,13 +251,15 @@ UI, auth, and persistence of user-facing data. They talk over
 - **Durable app hardening (shipped through 2026-07-03).** Chat diagnostics,
   per-message provenance receipts, revocable sessions, organization ids, and
   internal agent-job state are persisted in Postgres (migrations 0007–0011).
-- **Trust-first implementation (2026-07-10, production rollout pending).**
+- **Trust-first implementation (2026-07-10, code deployed 2026-07-11).**
   Ordered structured citations stream through `agent.citations` and persist in
   message metadata and provenance. Migrations 0012–0013 add newsroom profiles,
   conversation documents, page text, and full-text search. The composer uses
   direct signed uploads; inline evidence, document page citations, adaptive
   answers, answer transformations, and clean per-answer Markdown export are
-  implemented behind capability checks.
+  implemented behind capability checks. The app and harness are live, but the
+  production database migrations, private storage bucket, and authenticated
+  PDF acceptance pass remain rollout prerequisites.
 
 ### What's holding the core experience back
 
