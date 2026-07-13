@@ -1,6 +1,10 @@
 <script lang="ts">
 	import Composer from '$lib/components/Composer.svelte';
+	import NewsroomArtifactPane, {
+		type ArtifactDraft
+	} from '$lib/components/NewsroomArtifactPane.svelte';
 	import Thread from '$lib/components/Thread.svelte';
+	import type { CitationRecord } from '@newscraft/shared';
 	import type { ChatCommand, ChatMessage, MessageContent } from '$lib/types';
 	import { contentText } from '$lib/types';
 	import { invalidateAll, replaceState } from '$app/navigation';
@@ -59,6 +63,8 @@
 	// stream (resume). Hides the partial row while we re-stream into it; on
 	// invalidateAll the partial flag flips and the row reappears finalized.
 	let hiddenIds = $state<Set<string>>(new Set());
+	let artifactOpen = $state(false);
+	let activeArtifact = $state<ArtifactDraft | null>(null);
 
 	const persisted = $derived(persistedThreadMessages(data.messages, hiddenIds));
 	const messages = $derived([...persisted, ...overlay]);
@@ -88,7 +94,10 @@
 		overlay = overlay.filter((m) => !m.failure);
 	}
 
-	async function runStream(args: RunStreamArgs) {
+	async function runStream(
+		args: RunStreamArgs,
+		artifact?: { action: AnswerUseAction; sourceMessageId: string }
+	) {
 		// startStream aborts any prior controller; wait for the previous run to
 		// fully unwind so its overlay cleanup completes before we add our own.
 		const prior = activeStream;
@@ -135,6 +144,25 @@
 		let streamEstablished = false;
 		let keepFailureAssistant = false;
 		let failureToRethrow: unknown = null;
+		let artifactCitations: CitationRecord[] = [];
+		if (artifact) {
+			activeArtifact = {
+				...artifact,
+				content: '',
+				citations: [],
+				status: 'generating'
+			};
+			artifactOpen = true;
+		}
+		const updateArtifact = (patch: Partial<ArtifactDraft>) => {
+			if (
+				!artifact ||
+				activeArtifact?.action !== artifact.action ||
+				activeArtifact.sourceMessageId !== artifact.sourceMessageId
+			)
+				return;
+			activeArtifact = { ...activeArtifact, ...patch };
+		};
 		const noteStreamEstablished = () => {
 			streamEstablished = true;
 		};
@@ -156,6 +184,7 @@
 						asstText += s;
 						asstMsg.content = asstText;
 						overlay = [...overlay];
+						updateArtifact({ content: asstText });
 					},
 					onToolProgress: (t) => {
 						noteStreamEstablished();
@@ -176,6 +205,8 @@
 					onCitations: (citations) => {
 						noteStreamEstablished();
 						chat.setCitations(citations);
+						artifactCitations = citations;
+						updateArtifact({ citations });
 					},
 					onPlan: (plan) => {
 						noteStreamEstablished();
@@ -186,6 +217,7 @@
 				asstMsg.partial = false;
 				asstMsg.streaming = false;
 				overlay = [...overlay];
+				updateArtifact({ content: asstText, citations: artifactCitations, status: 'ready' });
 			} catch (e) {
 				const aborted = (e as { name?: string })?.name === 'AbortError' || controller.signal.aborted;
 				const wantsPartialAnswer = aborted && chat.abortIntent === 'partial';
@@ -221,6 +253,7 @@
 					keepFailureAssistant = true;
 					if (isRetryableSend && !streamEstablished) failureToRethrow = e;
 				}
+				if (artifact) updateArtifact({ content: asstText, citations: artifactCitations, status: 'error' });
 				overlay = [...overlay];
 			} finally {
 				try {
@@ -268,12 +301,15 @@
 	}
 
 	async function handleUseAnswer(action: AnswerUseAction, messageId: string) {
-		await runStream({
-			conversation_id: data.conversation.id,
-			content: ANSWER_ACTION_REQUESTS[action],
-			output_action: action,
-			source_message_id: messageId
-		});
+		await runStream(
+			{
+				conversation_id: data.conversation.id,
+				content: ANSWER_ACTION_REQUESTS[action],
+				output_action: action,
+				source_message_id: messageId
+			},
+			{ action, sourceMessageId: messageId }
+		);
 	}
 
 	async function handleDocumentUpload(file: File, controls: DocumentUploadControls) {
@@ -462,7 +498,8 @@
 	</div>
 </header>
 
-{#key data.conversation.id}
+<div class="conversation-workspace">
+	{#key data.conversation.id}
 		<Thread
 			{messages}
 			conversationId={data.conversation.id}
@@ -472,7 +509,16 @@
 			onRetryFailure={handleRetryFailure}
 			onUseAnswer={handleUseAnswer}
 		/>
-{/key}
+	{/key}
+	{#if artifactOpen && activeArtifact}
+		<NewsroomArtifactPane
+			draft={activeArtifact}
+			disabled={chat.streaming}
+			onSelect={handleUseAnswer}
+			onClose={() => (artifactOpen = false)}
+		/>
+	{/if}
+</div>
 
 {#if feedbackOpen}
 	<div class="feedback-backdrop">
@@ -570,6 +616,12 @@
 </div>
 
 <style>
+	.conversation-workspace {
+		flex: 1;
+		min-height: 0;
+		min-width: 0;
+		display: flex;
+	}
 	.feedback-backdrop {
 		position: fixed;
 		inset: 0;

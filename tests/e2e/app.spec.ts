@@ -29,13 +29,12 @@ async function expectChatStartHome(page: Page) {
 	await expect(page.locator('.shell')).toHaveAttribute('data-ready', 'true');
 	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
 	await expect(page).toHaveTitle(/New chat · NewsCraft/);
-	await expect(
-		page.getByRole('heading', { name: 'What should NewsCraft work on?' })
-	).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'What are you working on?' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Start with a newsroom task' })).toBeVisible();
 	await expect(page.locator('[aria-label="Starter prompts"]')).toBeVisible();
 	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute(
 		'placeholder',
-		'Ask NewsCraft...'
+		'Ask about a story, source, or newsroom task...'
 	);
 }
 
@@ -432,10 +431,17 @@ test.describe.serial('NewsCraft app shell', () => {
 
 		await page.setViewportSize({ width: 390, height: 844 });
 		await signIn(page);
-		await expect(
-			page.getByRole('heading', { name: 'What should NewsCraft work on?' })
-		).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'What are you working on?' })).toBeVisible();
 		await expect(page.getByLabel('Message NewsCraft')).toBeVisible();
+		await expect(page.locator('[aria-label="Starter prompts"]')).toBeVisible();
+		const mobilePrompts = page.locator('[aria-label="Starter prompts"] button');
+		const mobileFirst = await mobilePrompts.nth(0).boundingBox();
+		const mobileSecond = await mobilePrompts.nth(1).boundingBox();
+		expect(mobileFirst).not.toBeNull();
+		expect(mobileSecond).not.toBeNull();
+		expect(Math.abs((mobileFirst?.x ?? 0) - (mobileSecond?.x ?? 0))).toBeLessThan(2);
+		expect(mobileSecond?.y ?? 0).toBeGreaterThan((mobileFirst?.y ?? 0) + (mobileFirst?.height ?? 0));
+		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 
 		await page.getByRole('button', { name: 'Toggle sidebar' }).click();
 		const sidebar = page.locator('aside[aria-label="Sidebar"]');
@@ -444,6 +450,23 @@ test.describe.serial('NewsCraft app shell', () => {
 
 		await sidebar.getByRole('button', { name: 'Close sidebar' }).click();
 		await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
+		expect(problems).toEqual([]);
+	});
+
+	test('uses the tablet width for scannable two-column newsroom tasks', async ({ page }) => {
+		const problems = await collectPageProblems(page);
+
+		await page.setViewportSize({ width: 834, height: 1112 });
+		await signIn(page);
+		await expect(page.getByRole('heading', { name: 'What are you working on?' })).toBeVisible();
+		const tabletPrompts = page.locator('[aria-label="Starter prompts"] button');
+		const tabletFirst = await tabletPrompts.nth(0).boundingBox();
+		const tabletSecond = await tabletPrompts.nth(1).boundingBox();
+		expect(tabletFirst).not.toBeNull();
+		expect(tabletSecond).not.toBeNull();
+		expect(Math.abs((tabletFirst?.y ?? 0) - (tabletSecond?.y ?? 0))).toBeLessThan(2);
+		expect(tabletSecond?.x ?? 0).toBeGreaterThan((tabletFirst?.x ?? 0) + (tabletFirst?.width ?? 0));
+		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(834);
 		expect(problems).toEqual([]);
 	});
 });
@@ -1074,8 +1097,6 @@ test.describe('answer handoff actions', () => {
 		const sourceDomId = await sourceArticle.getAttribute('id');
 		const sourceMessageId = sourceDomId?.replace(/^m-/, '');
 		expect(sourceMessageId).toBeTruthy();
-		const sourceActionArticle = page.locator(`[id="m-${sourceMessageId}"]`);
-
 		const actions = [
 			['Producer brief', 'producer_brief', 'Create a producer brief from this answer.'],
 			['30-second script', 'thirty_second_script', 'Turn this answer into a 30-second script.'],
@@ -1083,9 +1104,20 @@ test.describe('answer handoff actions', () => {
 			['Copy with citations', 'copy_with_citations', 'Turn this answer into clean copy with citations.']
 		] as const;
 
-		for (const [label, action, visibleRequest] of actions) {
-			await sourceActionArticle.getByRole('button', { name: 'Use answer' }).click();
-			await page.getByRole('menuitem', { name: label }).click();
+		for (const [index, [label, action, visibleRequest]] of actions.entries()) {
+			if (index === 0) {
+				await page
+					.getByTestId('answer-utility-bar')
+					.getByRole('button', { name: 'Use answer' })
+					.click();
+				await page.getByRole('menuitem', { name: label }).click();
+			} else {
+				await page
+					.getByTestId('newsroom-artifact-pane')
+					.getByRole('button', { name: label })
+					.click();
+			}
+			await expect(page.getByTestId('newsroom-artifact-pane')).toBeVisible();
 			await expect(page.getByText(visibleRequest)).toBeVisible();
 			await expect.poll(fixture.request).toMatchObject({
 				conversation_id: convId,
@@ -1127,7 +1159,7 @@ test.describe('answer handoff actions', () => {
 			await expect(
 				page.getByRole('button', { name: 'Citation 1: FIFA match schedule' }).last()
 			).toBeVisible();
-			await expect(page.getByRole('button', { name: 'Use answer' }).last()).toBeEnabled();
+			await expect(page.getByTestId('newsroom-artifact-pane')).toContainText('1 citation');
 		}
 	});
 });

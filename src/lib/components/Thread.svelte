@@ -175,6 +175,24 @@
 		}
 		return null;
 	});
+	const latestReadyAssistant = $derived.by(() => {
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i];
+			if (message.role === 'assistant' && !message.partial && !message.failure) return message;
+		}
+		return null;
+	});
+	const latestReadyCitations = $derived(
+		latestReadyAssistant ? citationsOf(latestReadyAssistant, false) : []
+	);
+	const latestPrimaryCount = $derived(
+		latestReadyCitations.filter(
+			(citation) => citation.sourceType === 'official' || citation.sourceType === 'primary'
+		).length
+	);
+	const latestExportUrl = $derived(
+		latestReadyAssistant ? answerExportUrl(conversationId, latestReadyAssistant.id) : null
+	);
 	const showJumpLatest = $derived(
 		chat.streaming && chat.activityConversationId === conversationId && !stickToBottom
 	);
@@ -370,7 +388,10 @@
 							</div>
 						{/if}
 
-						{#if !m.partial && !failure && (m.role === 'assistant' || m.role === 'user')}
+						{#if !m.partial &&
+							!failure &&
+							(m.role === 'assistant' || m.role === 'user') &&
+							m.id !== latestReadyAssistant?.id}
 							<div class="msg__actions">
 								<button
 									type="button"
@@ -424,6 +445,56 @@
 				</article>
 			{/each}
 		</div>
+		{#if latestReadyAssistant}
+			<div
+				class="answer-utility"
+				data-testid="answer-utility-bar"
+				aria-label="Latest answer actions"
+			>
+				<div class="answer-utility__trust">
+					<span>{latestReadyCitations.length} citation{latestReadyCitations.length === 1 ? '' : 's'}</span>
+					{#if latestPrimaryCount > 0}
+						<span aria-hidden="true">·</span>
+						<span>{latestPrimaryCount} primary</span>
+					{/if}
+				</div>
+				<div class="answer-utility__actions">
+					<button type="button" class="msg__action" onclick={() => copy(latestReadyAssistant)}>
+						<Copy size="12" strokeWidth={1.6} aria-hidden="true" />
+						<span aria-live="polite">{copyButtonLabel(latestReadyAssistant)}</span>
+					</button>
+					{#if latestExportUrl}
+						<a
+							class="msg__action"
+							href={latestExportUrl}
+							download
+							onclick={() => void onExportAnswer?.(latestReadyAssistant.id, latestExportUrl)}
+						>
+							<Download size="12" strokeWidth={1.6} aria-hidden="true" />
+							<span>Markdown</span>
+						</a>
+					{/if}
+					{#if onUseAnswer}
+						<AnswerActions
+							messageId={`utility-${latestReadyAssistant.id}`}
+							onSelect={(action) => onUseAnswer?.(action, latestReadyAssistant.id)}
+						/>
+					{/if}
+					{#if latestReadyAssistant.id === lastAssistantId && onRegenerate}
+						<button
+							type="button"
+							class="msg__action answer-utility__regenerate"
+							onclick={() => onRegenerate?.()}
+							aria-label="Regenerate reply"
+							title="Regenerate reply"
+						>
+							<RotateCcw size="12" strokeWidth={1.6} aria-hidden="true" />
+							<span>Regenerate</span>
+						</button>
+					{/if}
+				</div>
+			</div>
+		{/if}
 	</div>
 	{#if showJumpLatest}
 		<button
@@ -452,7 +523,37 @@
 		flex: 1;
 		min-height: 0;
 		min-width: 0;
+		display: grid;
+		grid-template-rows: minmax(0, 1fr) auto;
+	}
+	.answer-utility {
+		min-width: 0;
 		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 7px max(24px, calc((100% - 880px) / 2 + 24px));
+		border-top: 1px solid var(--border-default);
+		background: color-mix(in srgb, var(--bg-page) 96%, transparent);
+		box-shadow: 0 -3px 12px rgb(15 23 42 / 4%);
+	}
+	.answer-utility__trust,
+	.answer-utility__actions {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+	}
+	.answer-utility__trust {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--fg-3);
+		letter-spacing: 0;
+		white-space: nowrap;
+	}
+	.answer-utility :global(.msg__action),
+	.answer-utility :global(.answer-actions__trigger) {
+		min-height: 30px;
+		opacity: 1;
 	}
 	.thread__jump {
 		position: absolute;
@@ -517,8 +618,22 @@
 		text-decoration: none;
 	}
 	@media (max-width: 620px) {
+		.answer-utility {
+			padding: 6px 10px;
+			overflow-x: auto;
+			justify-content: flex-start;
+		}
+		.answer-utility__trust {
+			display: none;
+		}
+		.answer-utility__actions {
+			min-width: max-content;
+		}
+		.answer-utility__regenerate span {
+			display: none;
+		}
 		.thread__jump {
-			bottom: 10px;
+			bottom: 58px;
 			min-height: 38px;
 		}
 	}

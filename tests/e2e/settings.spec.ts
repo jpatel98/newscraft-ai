@@ -78,4 +78,38 @@ test.describe('settings page', () => {
 		await expect(page.getByRole('link', { name: 'Download conversations' })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 	});
+
+	test('does not expose the account directory or management controls to members', async ({
+		page,
+		browser
+	}) => {
+		await signIn(page);
+		await page.goto('/settings');
+		await page.getByRole('button', { name: 'Create setup link' }).click();
+		const setupUrl = await page.getByLabel('Setup link').inputValue();
+
+		const memberPage = await browser.newPage();
+		try {
+			await memberPage.goto(setupUrl);
+			const memberPassword = `member privacy ${Date.now()}`;
+			await memberPage.getByLabel('Password', { exact: true }).fill(memberPassword);
+			await memberPage.getByLabel('Confirm password').fill(memberPassword);
+			await memberPage.getByRole('button', { name: 'Save password' }).click();
+			await expect(memberPage).toHaveURL(/\/$/);
+			await memberPage.goto('/settings');
+
+			await expect(memberPage.getByRole('heading', { name: 'Account & preferences' })).toBeVisible();
+			await expect(memberPage.getByRole('button', { name: 'Create setup link' })).toHaveCount(0);
+			await expect(memberPage.locator('.accounts-list')).toHaveCount(0);
+			await expect(memberPage.getByText('Last login:', { exact: false })).toHaveCount(0);
+			await expect(
+				memberPage.getByRole('button', { name: /^(?:Setup|Reset) link$/ })
+			).toHaveCount(0);
+			await expect(memberPage.getByRole('button', { name: 'Remove' })).toHaveCount(0);
+			await expect(memberPage.getByRole('button', { name: 'Update password' })).toBeVisible();
+			await expect(memberPage.getByRole('button', { name: 'Sign out' })).toBeVisible();
+		} finally {
+			await memberPage.close();
+		}
+	});
 });

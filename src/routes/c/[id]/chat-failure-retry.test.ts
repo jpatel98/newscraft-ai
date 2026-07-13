@@ -31,6 +31,7 @@ const threadSource = readFileSync(
 		expect(threadSource).toContain('onRetryFailure?: () => void;');
 		expect(threadSource).toContain('failure?.retryable');
 		expect(threadSource).toContain('Retry');
-		expect(threadSource).toContain('!failure && (m.role');
+		expect(threadSource).toContain('!failure &&');
+		expect(threadSource).toContain("(m.role === 'assistant' || m.role === 'user')");
 	});
 });

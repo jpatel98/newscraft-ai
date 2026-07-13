@@ -303,11 +303,14 @@
 						<div class="settings__stat__value">{data.conversations.length}</div>
 					</div>
 					<div class="settings__stat">
-						<div class="settings__stat__label">Accounts</div>
-						<div class="settings__stat__value">{data.accounts.length}</div>
+						<div class="settings__stat__label">Account</div>
+						<div class="settings__stat__value">
+							{data.user?.name || data.user?.email || 'Current'}
+						</div>
 					</div>
 				</div>
-				<div class="accounts-panel">
+				{#if data.canManageAccounts}
+					<div class="accounts-panel">
 					<form class="settings__form accounts-create" onsubmit={submitAccount} autocomplete="off">
 						<div class="settings__section-title">New account link</div>
 						<p class="settings__section-copy">
@@ -388,7 +391,8 @@
 							</div>
 						{/each}
 					</div>
-				</div>
+					</div>
+				{/if}
 			</div>
 			</section>
 

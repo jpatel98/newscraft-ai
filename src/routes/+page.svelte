@@ -1,6 +1,16 @@
 <script lang="ts">
-	import { ArrowRight, BadgeCheck, GitCompareArrows, Newspaper, Radio, ShieldCheck } from 'lucide-svelte';
+	import {
+		ArrowRight,
+		ArrowUpRight,
+		BadgeCheck,
+		GitCompareArrows,
+		MessageSquare,
+		Newspaper,
+		Radio,
+		ShieldCheck
+	} from 'lucide-svelte';
 	import Composer from '$lib/components/Composer.svelte';
+	import { formatRelativeTime } from '$lib/utils/time';
 
 	let { data } = $props();
 	let composer: Composer | undefined = $state();
@@ -13,11 +23,34 @@
 	] as const;
 
 	const suggestionChips = [
-		{ label: 'Latest on a story', icon: Radio, prompt: starterPrompts[0] },
-		{ label: 'Compare coverage', icon: GitCompareArrows, prompt: starterPrompts[1] },
-		{ label: 'Find with sources', icon: BadgeCheck, prompt: starterPrompts[2] },
-		{ label: 'Research a beat', icon: Newspaper, prompt: starterPrompts[3] }
+		{
+			label: 'Catch up on a developing story',
+			description: 'Newest confirmed facts, changes, and open questions',
+			icon: Radio,
+			prompt: starterPrompts[0]
+		},
+		{
+			label: 'Compare how outlets frame it',
+			description: 'Differences in emphasis, sourcing, and omissions',
+			icon: GitCompareArrows,
+			prompt: starterPrompts[1]
+		},
+		{
+			label: 'Find primary evidence',
+			description: 'Official records and reputable reporting with dates',
+			icon: BadgeCheck,
+			prompt: starterPrompts[2]
+		},
+		{
+			label: 'Build a producer brief',
+			description: 'Key facts, reactions, and questions for the rundown',
+			icon: Newspaper,
+			prompt: starterPrompts[3]
+		}
 	] as const;
+
+	const firstName = $derived(data.user?.name?.trim().split(/\s+/)[0] || '');
+	const recentThreads = $derived((data.conversations ?? []).slice(0, 3));
 </script>
 
 <svelte:head>
@@ -95,26 +128,75 @@
 	</main>
 {:else}
 	<main class="chat-start" aria-labelledby="chat-start-title">
-		<section class="chat-start__content">
+		<section class="chat-start__desk">
 			<header class="chat-start__hero">
-				<p class="chat-start__eyebrow">Newsroom research</p>
-				<h1 id="chat-start-title">What should NewsCraft work on?</h1>
-				<p>Ask about a story, source, topic, or newsroom task.</p>
+				<div class="chat-start__identity">
+					<img src="/brand/newscraft-agent-avatar.png" alt="" />
+					<span>Newsroom desk</span>
+				</div>
+				{#if firstName}<p class="chat-start__welcome">Welcome back, {firstName}</p>{/if}
+				<h1 id="chat-start-title">What are you working on?</h1>
+				<p class="chat-start__lead">
+					Research a developing story, compare coverage, or turn sources into usable copy.
+				</p>
 			</header>
 
 			<section class="chat-start__composer" aria-label="Start a new chat">
-				<Composer bind:this={composer} placeholder="Ask NewsCraft..." draftKey="new" />
+				<Composer
+					bind:this={composer}
+					placeholder="Ask about a story, source, or newsroom task..."
+					draftKey="new"
+				/>
 			</section>
 
-			<section class="chat-start__prompts" aria-label="Starter prompts">
-				{#each suggestionChips as card}
-					{@const Icon = card.icon}
-					<button type="button" aria-label={card.prompt} onclick={() => composer?.setValue(card.prompt)}>
-						<Icon strokeWidth={1.8} aria-hidden="true" />
-						<span>{card.label}</span>
-					</button>
-				{/each}
-			</section>
+			<div class:chat-start__workspace--solo={recentThreads.length === 0} class="chat-start__workspace">
+				<section class="chat-start__tasks" aria-labelledby="starter-prompts-title">
+					<div class="chat-start__section-head">
+						<h2 id="starter-prompts-title">Start with a newsroom task</h2>
+						<span>Choose a starting point</span>
+					</div>
+					<div class="chat-start__prompts" aria-label="Starter prompts">
+						{#each suggestionChips as card}
+							{@const Icon = card.icon}
+							<button
+								type="button"
+								aria-label={card.prompt}
+								onclick={() => composer?.setValue(card.prompt)}
+							>
+								<span class="chat-start__prompt-icon"><Icon strokeWidth={1.8} aria-hidden="true" /></span>
+								<span class="chat-start__prompt-copy">
+									<strong>{card.label}</strong>
+									<small>{card.description}</small>
+								</span>
+								<span class="chat-start__prompt-arrow">
+									<ArrowRight size="15" strokeWidth={1.8} aria-hidden="true" />
+								</span>
+							</button>
+						{/each}
+					</div>
+				</section>
+
+				{#if recentThreads.length > 0}
+					<section class="chat-start__recent" aria-labelledby="recent-work-title">
+						<div class="chat-start__section-head">
+							<h2 id="recent-work-title">Recent work</h2>
+							<span>{recentThreads.length} thread{recentThreads.length === 1 ? '' : 's'}</span>
+						</div>
+						<div class="chat-start__recent-list">
+							{#each recentThreads as thread (thread.id)}
+								<a href={`/c/${thread.id}`}>
+									<MessageSquare size="15" strokeWidth={1.7} aria-hidden="true" />
+									<span>
+										<strong>{thread.title}</strong>
+										<small>{formatRelativeTime(thread.updatedAt)}</small>
+									</span>
+									<ArrowUpRight size="14" strokeWidth={1.7} aria-hidden="true" />
+								</a>
+							{/each}
+						</div>
+					</section>
+				{/if}
+			</div>
 		</section>
 	</main>
 {/if}
@@ -326,87 +408,158 @@
 	.chat-start {
 		width: 100%;
 		min-height: 100dvh;
-		display: flex;
-		justify-content: center;
-		padding: calc(env(safe-area-inset-top, 0px) + 8px) var(--space-4)
-			calc(env(safe-area-inset-bottom, 0px) + 10px);
+		display: grid;
+		justify-items: center;
+		padding: clamp(64px, 11vh, 124px) clamp(24px, 5vw, 72px)
+			calc(env(safe-area-inset-bottom, 0px) + 36px);
+		background:
+			linear-gradient(var(--border-soft), var(--border-soft)) top 30px center / min(1080px, calc(100% - 48px)) 1px no-repeat,
+			var(--bg-page);
 	}
 
-	.chat-start__content {
-		width: min(760px, 100%);
+	.chat-start__desk {
+		width: min(980px, 100%);
 		display: grid;
-		gap: var(--space-3);
+		gap: 22px;
 		align-content: start;
 		color: var(--fg-1);
 	}
 
 	.chat-start__hero {
 		display: grid;
-		gap: var(--space-2);
+		gap: 8px;
+		max-width: 760px;
 	}
 
 	.chat-start h1 {
 		margin: 0;
 		font-family: var(--font-display);
-		font-size: clamp(28px, 7vw, 36px);
-		line-height: 1.12;
+		font-size: 42px;
+		line-height: 1.08;
 		letter-spacing: 0;
-		font-weight: var(--fw-semibold);
+		font-weight: 650;
 	}
 
-	.chat-start__eyebrow {
+	.chat-start__identity {
+		display: inline-flex;
+		align-items: center;
+		gap: 9px;
+		width: fit-content;
+		margin-bottom: 8px;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--fg-2);
+	}
+
+	.chat-start__identity img {
+		width: 28px;
+		height: 28px;
+		border-radius: var(--radius-2);
+		object-fit: cover;
+	}
+
+	.chat-start__welcome {
 		margin: 0;
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: 10.5px;
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
 		color: var(--fg-3);
 	}
 
-	.chat-start p {
-		margin: var(--space-2) 0 0;
-		color: var(--fg-3);
-		font-size: var(--fs-body);
-		line-height: var(--lh-body);
+	.chat-start__lead {
+		max-width: 650px;
+		margin: 2px 0 0;
+		color: var(--fg-2);
+		font-size: 15px;
+		line-height: 1.55;
 	}
 
 	.chat-start__composer {
-		margin-top: 2px;
+		width: min(840px, 100%);
+	}
+
+	.chat-start__composer :global(.composer) {
+		min-height: 62px;
+		border-color: var(--border-default);
+		box-shadow: 0 8px 28px rgb(14 14 13 / 7%);
+	}
+
+	.chat-start__workspace {
+		display: grid;
+		grid-template-columns: minmax(0, 1.65fr) minmax(240px, 0.8fr);
+		gap: 32px;
+		padding-top: 6px;
+	}
+
+	.chat-start__workspace--solo {
+		grid-template-columns: minmax(0, 720px);
+	}
+
+	.chat-start__tasks,
+	.chat-start__recent {
+		min-width: 0;
+	}
+
+	.chat-start__section-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 9px;
+		padding-bottom: 8px;
+		border-bottom: 1px solid var(--border-soft);
+	}
+
+	.chat-start__section-head h2 {
+		margin: 0;
+		font-size: 12px;
+		font-weight: 650;
+		letter-spacing: 0;
+	}
+
+	.chat-start__section-head span {
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+		color: var(--fg-3);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
 	}
 
 	.chat-start__prompts {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: var(--space-2);
+		gap: 8px;
 	}
 
 	.chat-start__prompts button {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-height: 44px;
+		display: grid;
+		grid-template-columns: 30px minmax(0, 1fr) 16px;
+		align-items: start;
+		gap: 10px;
+		min-height: 78px;
 		width: 100%;
-		padding: 11px var(--space-3);
+		padding: 12px;
 		border-radius: var(--radius-2);
 		border: 1px solid var(--border-soft);
 		background: var(--bg-surface);
 		color: var(--fg-1);
 		font: inherit;
-		font-size: var(--fs-body-sm);
-		line-height: var(--lh-body-sm);
+		text-align: left;
 		cursor: pointer;
-		box-shadow: var(--shadow-0);
 		transition:
 			background var(--dur-fast) var(--ease-std),
 			border-color var(--dur-fast) var(--ease-std),
-			color var(--dur-fast) var(--ease-std);
-		white-space: normal;
+			transform var(--dur-fast) var(--ease-std);
 	}
 
 	.chat-start__prompts button:hover {
 		border-color: var(--border-default);
 		background: var(--bg-raised);
-		color: var(--accent-fg);
+		transform: translateY(-1px);
 	}
 
 	.chat-start__prompts button:focus-visible {
@@ -414,10 +567,105 @@
 		box-shadow: var(--shadow-focus);
 	}
 
-	.chat-start__prompts button :global(svg) {
-		width: var(--space-4);
-		height: var(--space-4);
-		flex: none;
+	.chat-start__prompt-icon {
+		width: 30px;
+		height: 30px;
+		display: grid;
+		place-items: center;
+		border-radius: var(--radius-1);
+		background: var(--bg-raised);
+		color: var(--accent-fg);
+	}
+
+	.chat-start__prompt-icon :global(svg) {
+		width: 15px;
+		height: 15px;
+	}
+
+	.chat-start__prompt-copy {
+		display: grid;
+		gap: 3px;
+		min-width: 0;
+	}
+
+	.chat-start__prompt-copy strong,
+	.chat-start__recent-list strong {
+		font-size: 12.5px;
+		line-height: 1.35;
+		font-weight: 650;
+		letter-spacing: 0;
+		overflow-wrap: anywhere;
+	}
+
+	.chat-start__prompt-copy small {
+		color: var(--fg-3);
+		font-size: 10.5px;
+		line-height: 1.4;
+		letter-spacing: 0;
+	}
+
+	.chat-start__prompt-arrow {
+		display: grid;
+		place-items: center;
+		margin-top: 7px;
+		color: var(--fg-4);
+		transition: color var(--dur-fast) var(--ease-std);
+	}
+
+	.chat-start__prompts button:hover .chat-start__prompt-arrow {
+		color: var(--accent-fg);
+	}
+
+	.chat-start__recent-list {
+		display: grid;
+	}
+
+	.chat-start__recent-list a {
+		display: grid;
+		grid-template-columns: 18px minmax(0, 1fr) 14px;
+		align-items: start;
+		gap: 8px;
+		min-height: 54px;
+		padding: 10px 2px;
+		border-bottom: 1px solid var(--border-soft);
+		color: var(--fg-2);
+		text-decoration: none;
+	}
+
+	.chat-start__recent-list a > span {
+		display: grid;
+		gap: 3px;
+		min-width: 0;
+	}
+
+	.chat-start__recent-list strong {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		color: var(--fg-1);
+	}
+
+	.chat-start__recent-list small {
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+		color: var(--fg-3);
+		letter-spacing: 0;
+	}
+
+	.chat-start__recent-list a > :global(svg:last-child) {
+		color: var(--fg-4);
+	}
+
+	.chat-start__recent-list a:hover strong,
+	.chat-start__recent-list a:hover > :global(svg:last-child) {
+		color: var(--accent-fg);
+	}
+
+	.chat-start__recent-list a:focus-visible {
+		outline: none;
+		box-shadow: var(--shadow-focus);
 	}
 
 	@media (max-width: 760px) {
@@ -452,21 +700,61 @@
 		}
 
 		.chat-start {
-			padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px
-				calc(env(safe-area-inset-bottom, 0px) + 10px);
-			gap: var(--space-4);
+			padding: calc(env(safe-area-inset-top, 0px) + 78px) 16px
+				calc(env(safe-area-inset-bottom, 0px) + 24px);
+			background: var(--bg-page);
 		}
 
 		.chat-start h1 {
-			font-size: 28px;
-			line-height: 1.1;
+			font-size: 32px;
+			line-height: 1.08;
 		}
 
-		.chat-start p {
-			font-size: 13px;
+		.chat-start__desk {
+			gap: 18px;
 		}
+
+		.chat-start__workspace {
+			grid-template-columns: 1fr;
+			gap: 24px;
+		}
+
+		.chat-start__composer {
+			width: 100%;
+		}
+
+		.chat-start__recent {
+			order: -1;
+		}
+	}
+
+	@media (max-width: 520px) {
+		.chat-start {
+			padding-inline: 12px;
+		}
+
+		.chat-start__identity {
+			margin-bottom: 2px;
+		}
+
+		.chat-start h1 {
+			font-size: 29px;
+		}
+
+		.chat-start__lead {
+			font-size: 13.5px;
+		}
+
 		.chat-start__prompts {
 			grid-template-columns: 1fr;
+		}
+
+		.chat-start__prompts button {
+			min-height: 68px;
+		}
+
+		.chat-start__section-head span {
+			display: none;
 		}
 	}
 </style>

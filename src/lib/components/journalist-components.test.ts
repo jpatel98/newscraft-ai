@@ -48,4 +48,15 @@ describe('journalist trust components', () => {
 		expect(thread).toContain('onExportAnswer?.(m.id, exportUrl)');
 		expect(thread).toContain('aria-label="Export answer as Markdown"');
 	});
+
+	it('keeps latest-answer actions visible and opens a streamed newsroom artifact', () => {
+		const thread = source('./Thread.svelte');
+		const artifact = source('./NewsroomArtifactPane.svelte');
+		expect(thread).toContain('data-testid="answer-utility-bar"');
+		expect(thread).toContain('latestPrimaryCount');
+		expect(artifact).toContain('data-testid="newsroom-artifact-pane"');
+		expect(artifact).toContain('<Markdown');
+		expect(artifact).toContain('onSelect(option.action, draft.sourceMessageId)');
+		expect(artifact).toContain('downloadArtifact');
+	});
 });
