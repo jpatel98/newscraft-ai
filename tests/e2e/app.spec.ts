@@ -439,8 +439,8 @@ test.describe.serial('NewsCraft app shell', () => {
 		const mobileSecond = await mobilePrompts.nth(1).boundingBox();
 		expect(mobileFirst).not.toBeNull();
 		expect(mobileSecond).not.toBeNull();
-		expect(Math.abs((mobileFirst?.x ?? 0) - (mobileSecond?.x ?? 0))).toBeLessThan(2);
-		expect(mobileSecond?.y ?? 0).toBeGreaterThan((mobileFirst?.y ?? 0) + (mobileFirst?.height ?? 0));
+		expect(Math.abs((mobileFirst?.y ?? 0) - (mobileSecond?.y ?? 0))).toBeLessThan(2);
+		expect(mobileSecond?.x ?? 0).toBeGreaterThan((mobileFirst?.x ?? 0) + (mobileFirst?.width ?? 0));
 		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 
 		await page.getByRole('button', { name: 'Toggle sidebar' }).click();

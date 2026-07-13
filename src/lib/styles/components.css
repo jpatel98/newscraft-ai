@@ -2471,11 +2471,14 @@ body,
 		gap: 4px;
 		align-items: start;
 	}
+	.pane--thread .pane__header {
+		padding-top: calc(env(safe-area-inset-top, 0px) + 64px);
+	}
 	.shell--drawer-open .pane__header {
 		padding-top: 12px;
 	}
 	.pane__header__title {
-		font-size: 18px;
+		font-size: 16px;
 		line-height: 1.12;
 	}
 	.pane__header__topic {
@@ -2531,21 +2534,21 @@ body,
 		grid-template-columns: 1fr;
 	}
 	.cmdbar {
-		top: calc(env(safe-area-inset-top, 0px) + 10px);
-		left: calc(env(safe-area-inset-left, 0px) + 16px);
-		gap: 6px;
-		padding: 0;
-		background: transparent;
-		border: 0;
-		border-radius: 0;
-		box-shadow: none;
+		top: calc(env(safe-area-inset-top, 0px) + 8px);
+		left: calc(env(safe-area-inset-left, 0px) + 12px);
+		gap: 2px;
+		padding: 3px;
+		background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		box-shadow: var(--shadow-1);
 	}
 	.cmdbar__btn {
-		width: 44px;
-		height: 44px;
-		background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
-		border: 1px solid var(--border-soft);
-		box-shadow: var(--shadow-1);
+		width: 36px;
+		height: 36px;
+		background: transparent;
+		border: 0;
+		box-shadow: none;
 	}
 	.cmdbar__btn:hover {
 		background: var(--bg-surface);
@@ -2559,7 +2562,21 @@ body,
 		padding-top: 6px;
 	}
 	.thread__inner {
-		padding: 0 16px;
+		padding: 0 12px;
+	}
+	.md table {
+		display: table;
+		width: 100%;
+		max-width: 100%;
+		table-layout: fixed;
+		white-space: normal;
+		font-size: 12px;
+	}
+	.md th,
+	.md td {
+		padding: 6px 7px;
+		overflow-wrap: anywhere;
+		word-break: normal;
 	}
 	.msg {
 		grid-template-columns: 28px minmax(0, 1fr);

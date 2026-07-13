@@ -24,13 +24,13 @@
 
 	const suggestionChips = [
 		{
-			label: 'Catch up on a developing story',
+			label: 'Catch up on a story',
 			description: 'Newest confirmed facts, changes, and open questions',
 			icon: Radio,
 			prompt: starterPrompts[0]
 		},
 		{
-			label: 'Compare how outlets frame it',
+			label: 'Compare coverage',
 			description: 'Differences in emphasis, sourcing, and omissions',
 			icon: GitCompareArrows,
 			prompt: starterPrompts[1]
@@ -700,31 +700,111 @@
 		}
 
 		.chat-start {
-			padding: calc(env(safe-area-inset-top, 0px) + 78px) 16px
+			padding: calc(env(safe-area-inset-top, 0px) + 66px) 16px
 				calc(env(safe-area-inset-bottom, 0px) + 24px);
 			background: var(--bg-page);
 		}
 
 		.chat-start h1 {
-			font-size: 32px;
-			line-height: 1.08;
+			font-size: 26px;
+			line-height: 1.12;
 		}
 
 		.chat-start__desk {
-			gap: 18px;
+			gap: 14px;
+		}
+
+		.chat-start__identity,
+		.chat-start__welcome {
+			display: none;
+		}
+
+		.chat-start__lead {
+			max-width: 36rem;
+			font-size: 13px;
+			line-height: 1.45;
 		}
 
 		.chat-start__workspace {
 			grid-template-columns: 1fr;
-			gap: 24px;
+			gap: 20px;
 		}
 
 		.chat-start__composer {
 			width: 100%;
 		}
 
-		.chat-start__recent {
-			order: -1;
+		.chat-start__composer :global(.composer) {
+			min-height: 52px;
+			box-shadow: 0 3px 12px rgb(14 14 13 / 5%);
+		}
+
+		.chat-start__composer :global(.composer__icon-btn),
+		.chat-start__composer :global(.composer__send) {
+			width: 40px;
+			height: 40px;
+			min-width: 40px;
+			min-height: 40px;
+		}
+
+		.chat-start__composer :global(.composer__textarea) {
+			min-height: 36px;
+			padding-block: 8px;
+			font-size: 15px;
+		}
+
+		.chat-start__section-head {
+			margin-bottom: 7px;
+			padding-bottom: 6px;
+		}
+
+		.chat-start__prompts {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 7px;
+		}
+
+		.chat-start__prompts button {
+			grid-template-columns: 26px minmax(0, 1fr);
+			align-items: center;
+			min-height: 56px;
+			padding: 9px;
+			gap: 8px;
+		}
+
+		.chat-start__prompt-icon {
+			width: 26px;
+			height: 26px;
+		}
+
+		.chat-start__prompt-copy strong {
+			font-size: 11.5px;
+			line-height: 1.25;
+		}
+
+		.chat-start__prompt-copy small,
+		.chat-start__prompt-arrow {
+			display: none;
+		}
+
+		.chat-start__recent-list a {
+			min-height: 46px;
+			padding-block: 8px;
+		}
+
+		.chat-start__recent-list a:nth-child(n + 3) {
+			display: none;
+		}
+
+		.chat-start__recent .chat-start__section-head span {
+			display: none;
+		}
+
+		.chat-start__recent-list strong {
+			display: block;
+			overflow: hidden;
+			white-space: nowrap;
+			text-overflow: ellipsis;
+			font-size: 11.5px;
 		}
 	}
 
@@ -735,22 +815,6 @@
 
 		.chat-start__identity {
 			margin-bottom: 2px;
-		}
-
-		.chat-start h1 {
-			font-size: 29px;
-		}
-
-		.chat-start__lead {
-			font-size: 13.5px;
-		}
-
-		.chat-start__prompts {
-			grid-template-columns: 1fr;
-		}
-
-		.chat-start__prompts button {
-			min-height: 68px;
 		}
 
 		.chat-start__section-head span {
