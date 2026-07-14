@@ -450,6 +450,45 @@ test.describe.serial('NewsCraft app shell', () => {
 
 		await sidebar.getByRole('button', { name: 'Close sidebar' }).click();
 		await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
+
+		const conversationId = await seedConversation(page, {
+			title: 'Mobile layout check',
+			userMessage: 'What is happening today?',
+			assistantMessage:
+				'Here is a concise newsroom update with enough text to verify that the thread remains scrollable above the composer.'
+		});
+		await page.goto(`/c/${conversationId}`);
+		await expect(page.locator('.pane__header__title')).toHaveText('Mobile layout check');
+
+		await page.evaluate(() => {
+			if (!window.visualViewport) return;
+			Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 700 });
+			Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 100 });
+			window.visualViewport.dispatchEvent(new Event('resize'));
+		});
+		await expect(page.locator('.shell')).toHaveAttribute('data-keyboard-open', 'false');
+
+		const mobileLayout = await page.evaluate(() => {
+			const shell = document.querySelector<HTMLElement>('.shell')!.getBoundingClientRect();
+			const header = document.querySelector<HTMLElement>('.pane__header')!.getBoundingClientRect();
+			const composer = document.querySelector<HTMLElement>('.composer-zone')!.getBoundingClientRect();
+			return {
+				shellHeight: shell.height,
+				headerTop: header.top,
+				composerBottom: composer.bottom,
+				viewportHeight: window.innerHeight,
+				documentWidth: document.documentElement.scrollWidth
+			};
+		});
+		expect(Math.abs(mobileLayout.shellHeight - mobileLayout.viewportHeight)).toBeLessThan(2);
+		expect(mobileLayout.headerTop).toBeGreaterThanOrEqual(0);
+		expect(Math.abs(mobileLayout.composerBottom - mobileLayout.viewportHeight)).toBeLessThan(2);
+		expect(mobileLayout.documentWidth).toBeLessThanOrEqual(390);
+		await expect(page.getByTestId('answer-utility-bar')).toBeVisible();
+		await expect(page.getByTestId('answer-utility-bar').getByRole('button', { name: 'Copy answer' })).toHaveCSS(
+			'width',
+			'44px'
+		);
 		expect(problems).toEqual([]);
 	});
 

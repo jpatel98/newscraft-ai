@@ -95,9 +95,14 @@
 				visualViewportHeight = `${window.innerHeight}px`;
 				return;
 			}
-			const keyboardHeight = Math.max(0, window.innerHeight - window.visualViewport.height);
+			const keyboardHeight = Math.max(
+				0,
+				window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop
+			);
 			keyboardOpen = keyboardHeight > 130;
-			visualViewportHeight = `${Math.round(window.visualViewport.height)}px`;
+			visualViewportHeight = keyboardOpen
+				? `${Math.round(window.visualViewport.height)}px`
+				: '100dvh';
 		};
 		const onMediaChange = () => {
 			applyMobile();

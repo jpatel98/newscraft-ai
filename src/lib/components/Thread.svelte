@@ -395,13 +395,14 @@
 							<div class="msg__actions">
 								<button
 									type="button"
-									class="msg__action {copyFeedback?.id === m.id && copyFeedback.state === 'success'
+									class="msg__action msg__action--copy {copyFeedback?.id === m.id && copyFeedback.state === 'success'
 										? 'msg__action--success'
 										: ''} {copyFeedback?.id === m.id && copyFeedback.state === 'error'
 										? 'msg__action--error'
 										: ''}"
 									onclick={() => copy(m)}
 									aria-label={copyButtonLabel(m) === 'Copy' ? 'Copy message' : copyButtonLabel(m)}
+									title={copyButtonLabel(m) === 'Copy' ? 'Copy message' : copyButtonLabel(m)}
 								>
 									<Copy size="11" strokeWidth={1.5} />
 									<span aria-live="polite">{copyButtonLabel(m)}</span>
@@ -409,7 +410,7 @@
 								{#if m.role === 'assistant'}
 									{#if exportUrl}
 										<a
-										class="msg__action"
+										class="msg__action msg__action--export"
 										href={exportUrl}
 										download
 										onclick={() => void onExportAnswer?.(m.id, exportUrl)}
@@ -459,13 +460,19 @@
 					{/if}
 				</div>
 				<div class="answer-utility__actions">
-					<button type="button" class="msg__action" onclick={() => copy(latestReadyAssistant)}>
+					<button
+						type="button"
+						class="msg__action msg__action--copy"
+						onclick={() => copy(latestReadyAssistant)}
+						aria-label="Copy answer"
+						title="Copy answer"
+					>
 						<Copy size="12" strokeWidth={1.6} aria-hidden="true" />
 						<span aria-live="polite">{copyButtonLabel(latestReadyAssistant)}</span>
 					</button>
 					{#if latestExportUrl}
 						<a
-							class="msg__action"
+							class="msg__action msg__action--export"
 							href={latestExportUrl}
 							download
 							onclick={() => void onExportAnswer?.(latestReadyAssistant.id, latestExportUrl)}

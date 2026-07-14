@@ -1311,6 +1311,7 @@ body,
 	align-items: center;
 	justify-content: center;
 	padding: 24px;
+	box-sizing: border-box;
 }
 
 .card {
@@ -2431,10 +2432,24 @@ body,
 
 /* ---------- Mobile (≤ 760px) ---------- */
 @media (max-width: 760px) {
+	/* Auth pages render outside the app shell. On mobile Safari, their flex
+	 * parent can retain the taller layout viewport after browser chrome changes.
+	 * Give the page its own dynamic viewport box so the form remains centered
+	 * in what the person can actually see instead of drifting below the fold. */
+	.page--centered {
+		flex: 0 0 auto;
+		min-height: 100svh;
+		min-height: 100dvh;
+		padding: max(28px, calc(env(safe-area-inset-top, 0px) + 20px)) 16px
+			max(28px, calc(env(safe-area-inset-bottom, 0px) + 20px));
+	}
 	.shell {
-		height: var(--visual-vh, 100dvh);
+		height: 100dvh;
 		min-height: 0;
 		overflow: hidden;
+	}
+	.shell[data-keyboard-open='true'] {
+		height: var(--visual-vh, 100dvh);
 	}
 	.drawer__brand__full {
 		display: none;
@@ -2560,6 +2575,7 @@ body,
 	.thread {
 		overscroll-behavior: contain;
 		padding-top: 6px;
+		scroll-padding-block: 8px 16px;
 	}
 	.thread__inner {
 		padding: 0 12px;
@@ -2609,12 +2625,31 @@ body,
 	}
 	.msg__actions {
 		opacity: 1;
-		gap: 6px;
+		flex-wrap: wrap;
+		gap: 2px 4px;
 	}
 	.msg__action {
 		min-height: 44px;
-		padding: 0 10px;
+		padding: 0 8px;
 		border-radius: var(--radius-2);
+	}
+	.msg__action--copy,
+	.msg__action--export {
+		width: 44px;
+		justify-content: center;
+		padding-inline: 0;
+	}
+	.msg__action--copy span,
+	.msg__action--export span {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 	.msg__action svg {
 		width: 15px;

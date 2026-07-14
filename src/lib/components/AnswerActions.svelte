@@ -221,4 +221,11 @@
 		font-size: 10px;
 		color: var(--danger-fg, #b34040);
 	}
+
+	@media (max-width: 760px) {
+		.answer-actions__trigger {
+			min-height: 44px;
+			padding-inline: 8px;
+		}
+	}
 </style>
