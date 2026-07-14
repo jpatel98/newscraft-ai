@@ -40,7 +40,7 @@ export const ANSWER_USE_ACTIONS: ReadonlyArray<{ action: AnswerUseAction; label:
 	},
 	{
 		action: 'thirty_second_script',
-		label: '30-second script'
+		label: 'Turn into OCVO'
 	},
 	{
 		action: 'interview_questions',

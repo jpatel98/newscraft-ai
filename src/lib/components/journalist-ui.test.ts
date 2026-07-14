@@ -76,6 +76,9 @@ describe('journalist citation UI helpers', () => {
 			'interview_questions',
 			'copy_with_citations'
 		]);
+		expect(ANSWER_USE_ACTIONS.find((action) => action.action === 'thirty_second_script')?.label).toBe(
+			'Turn into OCVO'
+		);
 		expect(answerExportUrl('conversation 1', 'message/1')).toBe(
 			'/api/conversations/conversation%201/messages/message%2F1/export'
 		);

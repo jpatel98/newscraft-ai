@@ -35,7 +35,7 @@
 
 	const ANSWER_ACTION_REQUESTS: Record<AnswerUseAction, string> = {
 		producer_brief: 'Create a producer brief from this answer.',
-		thirty_second_script: 'Turn this answer into a 30-second script.',
+		thirty_second_script: 'Write a 30-second OC/VO from this answer.',
 		interview_questions: 'Draft interview questions from this answer.',
 		copy_with_citations: 'Turn this answer into clean copy with citations.'
 	};
