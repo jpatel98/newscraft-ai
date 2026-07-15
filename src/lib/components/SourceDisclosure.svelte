@@ -13,7 +13,7 @@
 {#if sources.length > 0 && !resolvedInline}
 	<details class="source-disclosure" data-testid="message-sources">
 		<summary class="source-disclosure__summary">
-			<span>Sources</span>
+			<span>Sources used</span>
 			<span class="source-disclosure__count">{sources.length}</span>
 		</summary>
 		<ul class="source-disclosure__list">
@@ -33,7 +33,9 @@
 
 <style>
 	.source-disclosure {
-		margin-top: 8px;
+		margin-top: 12px;
+		padding-top: 8px;
+		border-top: 1px solid var(--border-soft);
 		max-width: 100%;
 		font-family: var(--font-mono);
 		font-size: 11px;
@@ -44,12 +46,12 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		min-height: 24px;
-		padding: 2px 8px;
-		border: 1px solid var(--border-soft);
+		min-height: 30px;
+		padding: 3px 9px;
+		border: 1px solid var(--border-default);
 		border-radius: var(--radius-1);
-		background: var(--bg-surface);
-		color: var(--fg-2);
+		background: var(--accent-soft);
+		color: var(--accent-fg);
 		cursor: pointer;
 		font-weight: 600;
 		text-transform: uppercase;
@@ -67,8 +69,13 @@
 	}
 
 	.source-disclosure__count {
-		color: var(--fg-3);
+		min-width: 18px;
+		padding: 1px 4px;
+		border-radius: var(--radius-pill);
+		background: var(--bg-surface);
+		color: var(--accent-fg);
 		font-weight: 500;
+		text-align: center;
 	}
 
 	.source-disclosure__list {
@@ -85,6 +92,12 @@
 		flex-wrap: wrap;
 		align-items: baseline;
 		gap: 4px 8px;
+		padding: 4px 0;
+		border-bottom: 1px solid var(--border-soft);
+	}
+
+	.source-disclosure__item:last-child {
+		border-bottom: 0;
 	}
 
 	.source-disclosure__link {

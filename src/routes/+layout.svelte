@@ -611,7 +611,13 @@
 					<SquarePen size="14" strokeWidth={1.8} />
 					<span>New chat</span>
 				</a>
+				<div class="drawer__context" aria-label="Workspace summary">
+					<span class="drawer__context__label">Workspace</span>
+					<span class="drawer__context__value">
+						{data.conversations.length} saved thread{data.conversations.length === 1 ? '' : 's'}
+					</span>
 				</div>
+			</div>
 
 			<div class="sidebar__search">
 				<Search class="sidebar__search__glyph" size="13" strokeWidth={1.6} />
@@ -622,7 +628,7 @@
 					onkeydown={onSearchKeydown}
 					type="text"
 					class="sidebar__search__input"
-					placeholder="Search your threads..."
+					placeholder="Search saved threads..."
 					autocomplete="off"
 					spellcheck="false"
 					aria-label="Search your threads"

@@ -91,7 +91,10 @@ export class NewsroomAgentRuntime {
 	private readonly agentConfig: NewsroomAgentConfig;
 
 	constructor(private controls: RuntimeControls) {
-		this.agentConfig = createNewsroomAgentConfig(controls.agentConfig);
+		this.agentConfig = createNewsroomAgentConfig({
+			...controls.agentConfig,
+			...(controls.modelProvider ? { model_provider: controls.modelProvider } : {})
+		});
 	}
 
 	async completeChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): Promise<string> {
@@ -607,7 +610,7 @@ export class NewsroomAgentRuntime {
 
 	private modelProvider(): ModelProvider {
 		if (!this.controls.modelProvider && !this.controls.modelApiKey && this.controls.openAiApiKey) return 'openai';
-		return this.controls.modelProvider || 'perplexity';
+		return this.controls.modelProvider || 'openai';
 	}
 
 	private modelApiKey(): string {

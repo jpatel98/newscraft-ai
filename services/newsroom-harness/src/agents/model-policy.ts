@@ -55,11 +55,11 @@ export interface ResolveModelPolicyOptions {
 }
 
 const DEFAULT_MODELS = {
-	nano: 'perplexity/sonar',
-	mini: 'perplexity/sonar',
-	standard: 'perplexity/sonar',
+	nano: 'openai/gpt-5-mini',
+	mini: 'openai/gpt-5-mini',
+	standard: 'openai/gpt-5-mini',
 	premium: 'openai/gpt-5.5',
-	web_search: 'perplexity/sonar'
+	web_search: 'openai/gpt-5-mini'
 };
 
 export function createModelPolicyConfig(overrides: ModelPolicyOverrides = {}): ModelPolicyConfig {

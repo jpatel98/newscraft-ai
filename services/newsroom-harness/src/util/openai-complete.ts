@@ -24,7 +24,7 @@ export class ProviderConfigurationError extends Error {
 
 /** One non-streaming provider call that returns the output text. */
 export async function completeProviderText(options: CompleteProviderTextOptions): Promise<string> {
-	const provider = options.provider || 'perplexity';
+	const provider = options.provider || 'openai';
 	const model = normalizeProviderModel(provider, options.model);
 	const response = await fetch(providerTextUrl(provider), {
 		method: 'POST',

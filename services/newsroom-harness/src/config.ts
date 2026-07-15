@@ -157,20 +157,6 @@ function resolveModelProvider(params: {
 		};
 	}
 
-	if (perplexityEnabled) {
-		return {
-			provider: 'perplexity',
-			modelApiKey: params.perplexityApiKey || '',
-			selection: {
-				mode: 'fallback',
-				source: 'default',
-				selected: 'perplexity',
-				requested: null,
-				reason: 'Using Perplexity by default (Sonar-first) because its API key is available.'
-			}
-		};
-	}
-
 	if (openAiEnabled) {
 		return {
 			provider: 'openai',
@@ -180,18 +166,32 @@ function resolveModelProvider(params: {
 				source: 'default',
 				selected: 'openai',
 				requested: null,
-				reason: 'Falling back to OpenAI for research because Perplexity is not configured.'
+				reason: 'Using OpenAI by default because its API key is available.'
+			}
+		};
+	}
+
+	if (perplexityEnabled) {
+		return {
+			provider: 'perplexity',
+			modelApiKey: params.perplexityApiKey || '',
+			selection: {
+				mode: 'fallback',
+				source: 'default',
+				selected: 'perplexity',
+				requested: null,
+				reason: 'Falling back to Perplexity because OpenAI is not configured.'
 			}
 		};
 	}
 
 	return {
-		provider: 'perplexity',
+		provider: 'openai',
 		modelApiKey: '',
 		selection: {
 			mode: 'disabled',
 			source: 'default',
-			selected: 'perplexity',
+			selected: 'openai',
 			requested: null,
 			reason: 'No provider keys are configured.'
 		}

@@ -747,11 +747,11 @@
 		gap: 8px;
 	}
 	.settings__danger {
-		border: 1px solid var(--flag-700);
+		border: 1px solid color-mix(in srgb, var(--flag-700) 68%, var(--border-default));
 		border-radius: var(--radius-2);
 		padding: 16px;
 		max-width: 520px;
-		background: color-mix(in srgb, var(--flag-50) 34%, var(--bg-surface));
+		background: color-mix(in srgb, var(--flag-50) 52%, var(--bg-surface));
 	}
 	.settings__danger__title {
 		font-family: var(--font-display);

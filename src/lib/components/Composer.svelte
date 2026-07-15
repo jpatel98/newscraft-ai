@@ -730,6 +730,7 @@
 				autocapitalize="sentences"
 				disabled={busy}
 				aria-label="Message NewsCraft"
+				aria-describedby="composer-hint"
 			></textarea>
 			<button
 				type="submit"
@@ -742,7 +743,7 @@
 			</button>
 		</div>
 	</div>
-	<div class="composer__hint" class:composer__hint--interrupt={showInterruptHint}>
+	<div id="composer-hint" class="composer__hint" class:composer__hint--interrupt={showInterruptHint}>
 		{#if documentsProcessing}
 			<span>Preparing PDF before send</span>
 		{:else if documentsFailed}

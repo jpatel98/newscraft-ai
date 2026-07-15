@@ -2697,3 +2697,248 @@ body,
 		min-height: 44px;
 	}
 }
+
+/* ---------- Final UI polish ----------
+ * A small, additive layer keeps the established newsprint/cobalt system while
+ * giving the workspace a clearer rhythm across desktop and touch layouts.
+ */
+.shell {
+	background: var(--bg-page);
+}
+
+.cmdbar {
+	backdrop-filter: blur(10px);
+}
+
+.drawer {
+	background: color-mix(in srgb, var(--bg-surface) 96%, var(--cobalt-50));
+}
+
+.drawer__head {
+	padding-top: 16px;
+	position: relative;
+}
+
+.drawer__head::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 2px;
+	background: var(--ink-900);
+}
+
+.drawer__context {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 0 14px 11px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.drawer__context__label {
+	color: var(--accent-fg);
+	font-weight: 700;
+}
+
+.drawer__context__value {
+	color: var(--fg-3);
+	text-align: right;
+}
+
+.sidebar__section {
+	padding-top: 17px;
+	font-size: 10px;
+	letter-spacing: 0.14em;
+}
+
+.sidebar__subsection {
+	padding-top: 14px;
+	font-size: 9px;
+	letter-spacing: 0.1em;
+}
+
+.sidebar__row {
+	min-height: 38px;
+	padding: 8px 9px;
+	border: 1px solid transparent;
+}
+
+.sidebar__row:hover {
+	border-color: var(--border-soft);
+}
+
+.sidebar__row--active {
+	border-color: var(--cobalt-100);
+}
+
+.sidebar__search {
+	min-height: 38px;
+	margin-top: 10px;
+	background: color-mix(in srgb, var(--bg-raised) 54%, var(--bg-surface));
+}
+
+.pane__header {
+	padding-top: 18px;
+	padding-bottom: 14px;
+	border-bottom: 1px solid var(--border-soft);
+	background: color-mix(in srgb, var(--bg-page) 88%, var(--bg-surface));
+}
+
+.pane__header__title {
+	font-size: 18px;
+	font-weight: 700;
+}
+
+.pane__header__topic {
+	color: var(--fg-3);
+}
+
+.thread {
+	padding-top: 18px;
+	background: color-mix(in srgb, var(--bg-page) 84%, var(--bg-surface));
+}
+
+.thread__inner {
+	max-width: 940px;
+	padding-inline: 32px;
+}
+
+.msg {
+	padding-block: 12px;
+}
+
+.msg__body {
+	line-height: 1.62;
+}
+
+.msg.msg--user > div {
+	max-width: 72%;
+}
+
+.msg.msg--user .msg__body {
+	border: 1px solid var(--cobalt-100);
+	background: color-mix(in srgb, var(--accent-soft) 78%, var(--bg-surface));
+}
+
+.msg__actions {
+	opacity: 0.72;
+}
+
+.msg:hover .msg__actions,
+.msg:focus-within .msg__actions {
+	opacity: 1;
+}
+
+.composer-zone {
+	padding-top: 12px;
+	background: color-mix(in srgb, var(--bg-page) 92%, var(--bg-surface));
+	box-shadow: 0 -8px 24px color-mix(in srgb, var(--ink-900) 4%, transparent);
+}
+
+.composer-zone__inner {
+	max-width: 940px;
+}
+
+.composer {
+	min-height: 52px;
+	box-shadow: var(--shadow-2);
+}
+
+.composer__hint {
+	color: var(--fg-3);
+}
+
+.settings {
+	max-width: 900px;
+	padding-top: 40px;
+}
+
+.settings__masthead {
+	margin-bottom: 30px;
+}
+
+.settings__title {
+	font-size: 38px;
+}
+
+.settings__group {
+	grid-template-columns: 196px minmax(0, 1fr);
+	gap: 36px;
+	padding-block: 28px;
+}
+
+.settings__group__title {
+	font-size: 17px;
+}
+
+.settings__group__head {
+	padding-top: 2px;
+}
+
+.settings__section-body {
+	padding: 16px;
+	border: 1px solid var(--border-soft);
+	background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
+}
+
+.settings__stats {
+	margin: -1px -1px 16px;
+}
+
+.settings__stat {
+	background: var(--bg-raised);
+}
+
+@media (max-width: 760px) {
+	.drawer__context {
+		padding-inline: 12px;
+	}
+
+	.pane__header {
+		padding-top: calc(env(safe-area-inset-top, 0px) + 52px);
+		padding-bottom: 12px;
+	}
+
+	.shell--drawer-open .pane__header {
+		padding-top: 14px;
+	}
+
+	.thread {
+		padding-top: 10px;
+	}
+
+	.thread__inner {
+		padding-inline: 16px;
+	}
+
+	.msg {
+		padding-block: 9px;
+	}
+
+	.msg.msg--user > div {
+		max-width: 90%;
+	}
+
+	.settings {
+		padding-top: 28px;
+	}
+
+	.settings__title {
+		font-size: 30px;
+	}
+
+	.settings__group {
+		gap: 14px;
+		padding-block: 22px;
+	}
+
+	.settings__section-body {
+		padding: 12px;
+	}
+}

@@ -100,26 +100,26 @@ function resolveModelProvider({ requested, openAiApiKey, perplexityApiKey }) {
     };
   }
 
-  if (perplexityEnabled) {
-    return {
-      provider: 'perplexity',
-      configured: true,
-      selection: 'fallback',
-      reason: 'Using Perplexity by default because PERPLEXITY_API_KEY is available.'
-    };
-  }
-
   if (openAiEnabled) {
     return {
       provider: 'openai',
       configured: true,
       selection: 'fallback',
-      reason: 'Falling back to OpenAI because PERPLEXITY_API_KEY is not configured.'
+      reason: 'Using OpenAI by default because OPENAI_API_KEY is available.'
+    };
+  }
+
+  if (perplexityEnabled) {
+    return {
+      provider: 'perplexity',
+      configured: true,
+      selection: 'fallback',
+      reason: 'Falling back to Perplexity because OPENAI_API_KEY is not configured.'
     };
   }
 
   return {
-    provider: 'perplexity',
+    provider: 'openai',
     configured: false,
     selection: 'disabled',
     reason: 'No provider keys are configured.'

@@ -555,7 +555,7 @@ export class DisciplinedNewsroomAgent {
 	}
 
 	private modelProvider(context: NewsroomAgentRunContext): ModelProvider {
-		if (context.modelProvider || this.options.modelProvider) return context.modelProvider || this.options.modelProvider || 'perplexity';
+		if (context.modelProvider || this.options.modelProvider) return context.modelProvider || this.options.modelProvider || 'openai';
 		if (!context.modelApiKey && !this.options.modelApiKey && (context.openAiApiKey || this.options.openAiApiKey)) return 'openai';
 		return this.config.model_provider;
 	}

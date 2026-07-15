@@ -57,6 +57,9 @@ const DEFAULT_SOURCE_MONITORS: SourceMonitorConfig[] = [
 
 export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig> = {}): NewsroomAgentConfig {
 	const defaultBudget = mergeToolBudget(overrides.default_tool_budget || DEFAULT_TOOL_BUDGET);
+	const modelProvider = overrides.model_provider || 'openai';
+	const defaultModel = modelProvider === 'openai' ? 'openai/gpt-5-mini' : 'perplexity/sonar';
+	const modelPolicyOverrides = overrides.model_policy as ModelPolicyOverrides | undefined;
 	return {
 		enabled_tools:
 			overrides.enabled_tools || [
@@ -106,9 +109,18 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 			...overrides.required_citation_behavior
 		},
 		source_monitors: overrides.source_monitors || DEFAULT_SOURCE_MONITORS,
-		model_policy: createModelPolicyConfig(overrides.model_policy as ModelPolicyOverrides | undefined),
-		model_provider: overrides.model_provider || 'perplexity',
-		web_search_model: overrides.web_search_model || 'perplexity/sonar'
+		model_policy: createModelPolicyConfig({
+			...modelPolicyOverrides,
+			models: {
+				nano: defaultModel,
+				mini: defaultModel,
+				standard: defaultModel,
+				web_search: defaultModel,
+				...modelPolicyOverrides?.models
+			}
+		}),
+		model_provider: modelProvider,
+		web_search_model: overrides.web_search_model || defaultModel
 	};
 }
 

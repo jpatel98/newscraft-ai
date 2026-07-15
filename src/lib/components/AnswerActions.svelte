@@ -146,11 +146,11 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
-		min-height: 26px;
-		padding: 2px 7px;
-		border: 1px solid transparent;
+		min-height: 30px;
+		padding: 3px 8px;
+		border: 1px solid var(--border-soft);
 		border-radius: var(--radius-1);
-		background: transparent;
+		background: var(--bg-surface);
 		color: var(--fg-3);
 		font-family: var(--font-mono);
 		font-size: 10.5px;
@@ -161,7 +161,7 @@
 
 	.answer-actions__trigger:hover,
 	.answer-actions__trigger[aria-expanded='true'] {
-		border-color: var(--border-soft);
+		border-color: var(--border-default);
 		background: var(--bg-raised);
 		color: var(--fg-1);
 	}
