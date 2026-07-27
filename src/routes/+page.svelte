@@ -85,12 +85,7 @@
 			<main class="chat-start" aria-labelledby="chat-start-title">
 				<section class="chat-start__content">
 					<header class="chat-start__hero">
-						<div class="chat-start__eyebrow-row">
-							<p class="chat-start__eyebrow">Newsroom research</p>
-							<span class="chat-start__eyebrow-status">Source-aware workspace</span>
-						</div>
 						<h1 id="chat-start-title">What are you working on?</h1>
-						<p>Start with a story, source, topic, or newsroom task. NewsCraft will keep the research trail visible.</p>
 					</header>
 
 			<section class="chat-start__composer" aria-label="Start a new chat">
@@ -340,21 +335,18 @@
 	}
 
 	.chat-start__content {
-		width: min(760px, 100%);
+		width: min(840px, 100%);
 		display: grid;
-		gap: var(--space-8);
+		gap: 18px;
 		align-content: start;
 		color: var(--fg-1);
 		padding: 48px 0 24px;
 	}
 
 	.chat-start__hero {
-		display: grid;
-		gap: var(--space-3);
-		max-width: 680px;
+		text-align: center;
 	}
 
-	.chat-start__eyebrow-row,
 	.chat-start__section-head {
 		display: flex;
 		align-items: center;
@@ -365,36 +357,18 @@
 	.chat-start h1 {
 		margin: 0;
 		font-family: var(--font-display);
-		font-size: clamp(28px, 7vw, 36px);
+		font-size: 32px;
 		line-height: 1.12;
 		letter-spacing: 0;
 		font-weight: var(--fw-semibold);
 	}
 
-	.chat-start__eyebrow {
-		margin: 0;
-		font-family: var(--font-mono);
-		font-size: 11px;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--fg-3);
-		margin: 0;
-	}
-
-	.chat-start__eyebrow-status,
 	.chat-start__section-meta {
 		font-family: var(--font-mono);
 		font-size: 10px;
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
 		color: var(--accent-fg);
-	}
-
-	.chat-start__hero > p {
-		margin: var(--space-2) 0 0;
-		color: var(--fg-3);
-		font-size: var(--fs-body-lg);
-		line-height: 1.55;
 	}
 
 	.chat-start__composer {
@@ -414,9 +388,7 @@
 	}
 
 	.chat-start__section-head {
-		padding-bottom: var(--space-2);
-		border-bottom: 1px solid var(--border-soft);
-		align-items: end;
+		align-items: baseline;
 	}
 
 	.chat-start__section-eyebrow {
@@ -561,10 +533,6 @@
 			line-height: 1.1;
 		}
 
-		.chat-start__hero > p {
-			font-size: 13px;
-		}
-		.chat-start__eyebrow-status,
 		.chat-start__section-meta {
 			font-size: 9px;
 		}
@@ -573,9 +541,6 @@
 		}
 		.chat-start__section-head h2 {
 			font-size: 16px;
-		}
-		.chat-start__composer {
-			padding: 4px;
 		}
 	}
 </style>
