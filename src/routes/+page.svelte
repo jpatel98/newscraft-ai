@@ -423,7 +423,8 @@
 	}
 
 	.chat-start__composer :global(.composer) {
-		min-height: 68px;
+		min-height: 58px;
+		align-items: center;
 		border-color: var(--border-strong);
 		box-shadow: 0 10px 32px rgb(14 14 13 / 8%);
 	}
