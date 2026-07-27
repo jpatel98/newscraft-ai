@@ -30,8 +30,6 @@ async function expectChatStartHome(page: Page) {
 	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
 	await expect(page).toHaveTitle(/New chat · NewsCraft/);
 	await expect(page.getByRole('heading', { name: 'What are you working on?' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Start with a newsroom task' })).toBeVisible();
-	await expect(page.locator('[aria-label="Starter prompts"]')).toBeVisible();
 	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute(
 		'placeholder',
 		'Ask about a story, source, or newsroom task...'
@@ -399,33 +397,6 @@ test.describe.serial('NewsCraft app shell', () => {
 		expect(problems).toEqual([]);
 	});
 
-	test('tracks a starter prompt into chat without exposing internals', async ({
-		page
-	}) => {
-		const problems = await collectPageProblems(page);
-
-		await signIn(page);
-		await expectChatStartHome(page);
-
-		const message =
-			'Toronto housing: find the newest reliable updates from the past 24 hours, cite source links, and flag anything unconfirmed.';
-		await page.getByRole('button', { name: message }).click();
-		await expect(page.getByLabel('Message NewsCraft')).toHaveValue(message);
-		await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled();
-		await page.getByRole('button', { name: 'Send message' }).click();
-
-		await expect(page).toHaveURL(/\/c\/[^/]+$/);
-		await expect(page.getByText(message)).toBeVisible();
-		await expect(page.getByText(/couldn't reach the research service/i)).toBeVisible();
-		await expect(page.getByLabel('Message NewsCraft')).toBeVisible();
-
-		await page.getByRole('button', { name: 'Toggle sidebar' }).click();
-		await expect(page.getByRole('complementary', { name: 'Sidebar' })).toBeVisible();
-		await expect(page.getByText('Untitled thread').first()).toBeVisible();
-		await expectNoTechnicalLeakage(page);
-		expect(problems).toEqual([]);
-	});
-
 	test('keeps the primary flow usable on a mobile viewport', async ({ page }) => {
 		const problems = await collectPageProblems(page);
 
@@ -433,14 +404,6 @@ test.describe.serial('NewsCraft app shell', () => {
 		await signIn(page);
 		await expect(page.getByRole('heading', { name: 'What are you working on?' })).toBeVisible();
 		await expect(page.getByLabel('Message NewsCraft')).toBeVisible();
-		await expect(page.locator('[aria-label="Starter prompts"]')).toBeVisible();
-		const mobilePrompts = page.locator('[aria-label="Starter prompts"] button');
-		const mobileFirst = await mobilePrompts.nth(0).boundingBox();
-		const mobileSecond = await mobilePrompts.nth(1).boundingBox();
-		expect(mobileFirst).not.toBeNull();
-		expect(mobileSecond).not.toBeNull();
-		expect(Math.abs((mobileFirst?.y ?? 0) - (mobileSecond?.y ?? 0))).toBeLessThan(2);
-		expect(mobileSecond?.x ?? 0).toBeGreaterThan((mobileFirst?.x ?? 0) + (mobileFirst?.width ?? 0));
 		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 
 		await page.getByRole('button', { name: 'Toggle sidebar' }).click();
@@ -489,23 +452,6 @@ test.describe.serial('NewsCraft app shell', () => {
 			'width',
 			'44px'
 		);
-		expect(problems).toEqual([]);
-	});
-
-	test('uses the tablet width for scannable two-column newsroom tasks', async ({ page }) => {
-		const problems = await collectPageProblems(page);
-
-		await page.setViewportSize({ width: 834, height: 1112 });
-		await signIn(page);
-		await expect(page.getByRole('heading', { name: 'What are you working on?' })).toBeVisible();
-		const tabletPrompts = page.locator('[aria-label="Starter prompts"] button');
-		const tabletFirst = await tabletPrompts.nth(0).boundingBox();
-		const tabletSecond = await tabletPrompts.nth(1).boundingBox();
-		expect(tabletFirst).not.toBeNull();
-		expect(tabletSecond).not.toBeNull();
-		expect(Math.abs((tabletFirst?.y ?? 0) - (tabletSecond?.y ?? 0))).toBeLessThan(2);
-		expect(tabletSecond?.x ?? 0).toBeGreaterThan((tabletFirst?.x ?? 0) + (tabletFirst?.width ?? 0));
-		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(834);
 		expect(problems).toEqual([]);
 	});
 });

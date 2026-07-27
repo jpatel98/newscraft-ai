@@ -4,41 +4,6 @@
 	import { formatRelativeTime } from '$lib/utils/time';
 
 	let { data } = $props();
-	let composer: Composer | undefined = $state();
-
-	const starterPrompts = [
-		'Toronto housing: find the newest reliable updates from the past 24 hours, cite source links, and flag anything unconfirmed.',
-		'Toronto mayoral race: compare how CBC, CTV, and Global News are covering it today, including what each outlet emphasizes and leaves out.',
-		'Ontario health care: find recent official and reputable media sources with publication dates, then summarize the three most newsworthy developments.',
-		'Canadian immigration policy: build a producer brief with the latest official updates, major reactions, and unanswered questions.'
-	] as const;
-
-	const suggestionChips = [
-		{
-			label: 'Latest on a story',
-			description: 'Build a verified update with dates and caveats.',
-			icon: Radio,
-			prompt: starterPrompts[0]
-		},
-		{
-			label: 'Compare coverage',
-			description: 'See how different outlets frame the same story.',
-			icon: GitCompareArrows,
-			prompt: starterPrompts[1]
-		},
-		{
-			label: 'Find with sources',
-			description: 'Start from official and reputable reporting.',
-			icon: BadgeCheck,
-			prompt: starterPrompts[2]
-		},
-		{
-			label: 'Research a beat',
-			description: 'Turn a broad topic into a producer-ready brief.',
-			icon: Newspaper,
-			prompt: starterPrompts[3]
-		}
-	] as const;
 
 	const recentThreads = $derived((data.conversations ?? []).slice(0, 3));
 </script>
@@ -129,31 +94,8 @@
 					</header>
 
 			<section class="chat-start__composer" aria-label="Start a new chat">
-				<Composer bind:this={composer} placeholder="Ask NewsCraft..." draftKey="new" />
+				<Composer placeholder="Ask NewsCraft..." draftKey="new" />
 			</section>
-
-					<section class="chat-start__prompt-section" aria-labelledby="chat-start-prompts-title">
-						<div class="chat-start__section-head">
-							<div>
-								<p class="chat-start__section-eyebrow">Quick starts</p>
-								<h2 id="chat-start-prompts-title">Choose a newsroom move</h2>
-							</div>
-							<span class="chat-start__section-meta">4 workflows</span>
-						</div>
-						<div class="chat-start__prompts">
-						{#each suggestionChips as card}
-							{@const Icon = card.icon}
-							<button type="button" aria-label={card.prompt} onclick={() => composer?.setValue(card.prompt)}>
-								<span class="chat-start__prompt-icon"><Icon strokeWidth={1.8} aria-hidden="true" /></span>
-								<span class="chat-start__prompt-copy">
-									<strong>{card.label}</strong>
-									<span>{card.description}</span>
-								</span>
-								<ArrowRight class="chat-start__prompt-arrow" size="15" strokeWidth={1.8} aria-hidden="true" />
-							</button>
-						{/each}
-						</div>
-					</section>
 
 					{#if recentThreads.length > 0}
 						<section class="chat-start__recent" aria-labelledby="chat-start-recent-title">
@@ -466,7 +408,6 @@
 		box-shadow: 0 10px 32px rgb(14 14 13 / 8%);
 	}
 
-	.chat-start__prompt-section,
 	.chat-start__recent {
 		display: grid;
 		gap: var(--space-3);
@@ -495,82 +436,23 @@
 		font-weight: 700;
 	}
 
-	.chat-start__prompts {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: var(--space-3);
-	}
-
-	.chat-start__prompts button {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-3);
-		min-height: 86px;
-		width: 100%;
-		padding: var(--space-4);
-		border-radius: var(--radius-2);
-		border: 1px solid var(--border-default);
-		background: var(--bg-surface);
-		color: var(--fg-1);
-		font: inherit;
-		font-size: var(--fs-body);
-		line-height: var(--lh-body-sm);
-		cursor: pointer;
-		box-shadow: var(--shadow-1);
-		transition:
-			background var(--dur-fast) var(--ease-std),
-			border-color var(--dur-fast) var(--ease-std),
-			color var(--dur-fast) var(--ease-std);
-		white-space: normal;
-		text-align: left;
-	}
-
-	.chat-start__prompts button:hover {
-		border-color: var(--border-default);
-		background: var(--bg-raised);
-		color: var(--accent-fg);
-		box-shadow: var(--shadow-2);
-	}
-
-	.chat-start__prompts button:focus-visible {
-		outline: none;
-		box-shadow: var(--shadow-focus);
-	}
-
-	.chat-start__prompt-icon {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 32px;
-		height: 32px;
-		flex: none;
-		border: 1px solid var(--cobalt-100);
-		border-radius: var(--radius-2);
-		background: var(--accent-soft);
-		color: var(--accent-fg);
-	}
-
-	.chat-start__prompt-copy,
 	.chat-start__recent-copy {
 		display: grid;
 		gap: 3px;
 		min-width: 0;
 	}
 
-	.chat-start__prompt-copy strong,
 	.chat-start__recent-copy strong {
 		font-weight: 650;
 		color: var(--fg-1);
 	}
 
-	.chat-start__prompt-copy span,
 	.chat-start__recent-copy span {
 		color: var(--fg-3);
 		font-size: 12px;
 		line-height: 1.4;
 	}
 
-	:global(.chat-start__prompt-arrow),
 	:global(.chat-start__recent-arrow) {
 		margin-left: auto;
 		flex: none;
@@ -578,7 +460,6 @@
 		transition: transform var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std);
 	}
 
-	.chat-start__prompts button:hover :global(.chat-start__prompt-arrow),
 	.chat-start__recent-row:hover :global(.chat-start__recent-arrow) {
 		color: var(--accent-fg);
 		transform: translateX(2px);
@@ -692,9 +573,6 @@
 		}
 		.chat-start__section-head h2 {
 			font-size: 16px;
-		}
-		.chat-start__prompts {
-			grid-template-columns: 1fr;
 		}
 		.chat-start__composer {
 			padding: 4px;
