@@ -456,10 +456,14 @@
 	}
 
 	.chat-start__composer {
-		padding: var(--space-2);
-		border: 1px solid var(--border-soft);
-		background: color-mix(in srgb, var(--bg-surface) 52%, transparent);
-		box-shadow: var(--shadow-1);
+		width: 100%;
+	}
+
+	.chat-start__composer :global(.composer) {
+		min-height: 58px;
+		align-items: center;
+		border-color: var(--border-strong);
+		box-shadow: 0 10px 32px rgb(14 14 13 / 8%);
 	}
 
 	.chat-start__prompt-section,
