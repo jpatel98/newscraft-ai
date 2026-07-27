@@ -13,37 +13,6 @@
 	import { formatRelativeTime } from '$lib/utils/time';
 
 	let { data } = $props();
-	let composer: Composer | undefined = $state();
-
-	const starterPrompts = [
-		'Toronto housing: find the newest reliable updates from the past 24 hours, cite source links, and flag anything unconfirmed.',
-		'Toronto mayoral race: compare how CBC, CTV, and Global News are covering it today, including what each outlet emphasizes and leaves out.',
-		'Ontario health care: find recent official and reputable media sources with publication dates, then summarize the three most newsworthy developments.',
-		'Canadian immigration policy: build a producer brief with the latest official updates, major reactions, and unanswered questions.'
-	] as const;
-
-	const suggestionChips = [
-		{
-			label: 'Catch up on a story',
-			icon: Radio,
-			prompt: starterPrompts[0]
-		},
-		{
-			label: 'Compare coverage',
-			icon: GitCompareArrows,
-			prompt: starterPrompts[1]
-		},
-		{
-			label: 'Find primary evidence',
-			icon: BadgeCheck,
-			prompt: starterPrompts[2]
-		},
-		{
-			label: 'Build a producer brief',
-			icon: Newspaper,
-			prompt: starterPrompts[3]
-		}
-	] as const;
 
 	const recentThreads = $derived((data.conversations ?? []).slice(0, 3));
 </script>
@@ -130,55 +99,31 @@
 
 			<section class="chat-start__composer" aria-label="Start a new chat">
 				<Composer
-					bind:this={composer}
 					placeholder="Ask about a story, source, or newsroom task..."
 					draftKey="new"
 				/>
 			</section>
 
-			<div class="chat-start__workspace">
-				<section class="chat-start__tasks" aria-labelledby="starter-prompts-title">
+			{#if recentThreads.length > 0}
+				<section class="chat-start__recent" aria-labelledby="recent-work-title">
 					<div class="chat-start__section-head">
-						<h2 id="starter-prompts-title">Quick starts</h2>
+						<h2 id="recent-work-title">Recent work</h2>
+						<span>{recentThreads.length} thread{recentThreads.length === 1 ? '' : 's'}</span>
 					</div>
-					<div class="chat-start__prompts" aria-label="Starter prompts">
-						{#each suggestionChips as card}
-							{@const Icon = card.icon}
-							<button
-								type="button"
-								aria-label={card.prompt}
-								onclick={() => composer?.setValue(card.prompt)}
-							>
-								<span class="chat-start__prompt-icon"><Icon strokeWidth={1.8} aria-hidden="true" /></span>
-								<span class="chat-start__prompt-copy">
-									<strong>{card.label}</strong>
+					<div class="chat-start__recent-list">
+						{#each recentThreads as thread (thread.id)}
+							<a href={`/c/${thread.id}`}>
+								<MessageSquare size="15" strokeWidth={1.7} aria-hidden="true" />
+								<span>
+									<strong>{thread.title}</strong>
+									<small>{formatRelativeTime(thread.updatedAt)}</small>
 								</span>
-							</button>
+								<ArrowUpRight size="14" strokeWidth={1.7} aria-hidden="true" />
+							</a>
 						{/each}
 					</div>
 				</section>
-
-				{#if recentThreads.length > 0}
-					<section class="chat-start__recent" aria-labelledby="recent-work-title">
-						<div class="chat-start__section-head">
-							<h2 id="recent-work-title">Recent work</h2>
-							<span>{recentThreads.length} thread{recentThreads.length === 1 ? '' : 's'}</span>
-						</div>
-						<div class="chat-start__recent-list">
-							{#each recentThreads as thread (thread.id)}
-								<a href={`/c/${thread.id}`}>
-									<MessageSquare size="15" strokeWidth={1.7} aria-hidden="true" />
-									<span>
-										<strong>{thread.title}</strong>
-										<small>{formatRelativeTime(thread.updatedAt)}</small>
-									</span>
-									<ArrowUpRight size="14" strokeWidth={1.7} aria-hidden="true" />
-								</a>
-							{/each}
-						</div>
-					</section>
-				{/if}
-			</div>
+			{/if}
 		</section>
 	</main>
 {/if}
@@ -429,14 +374,6 @@
 		box-shadow: 0 10px 32px rgb(14 14 13 / 8%);
 	}
 
-	.chat-start__workspace {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: 26px;
-		padding-top: 10px;
-	}
-
-	.chat-start__tasks,
 	.chat-start__recent {
 		min-width: 0;
 	}
@@ -465,71 +402,12 @@
 		letter-spacing: 0.04em;
 	}
 
-	.chat-start__prompts {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 8px;
-	}
-
-	.chat-start__prompts button {
-		display: grid;
-		grid-template-columns: 26px minmax(0, 1fr);
-		align-items: center;
-		gap: 9px;
-		min-height: 52px;
-		width: 100%;
-		padding: 10px;
-		border-radius: var(--radius-2);
-		border: 1px solid var(--border-soft);
-		background: transparent;
-		color: var(--fg-1);
-		font: inherit;
-		text-align: left;
-		cursor: pointer;
-		transition:
-			background var(--dur-fast) var(--ease-std),
-			border-color var(--dur-fast) var(--ease-std);
-	}
-
-	.chat-start__prompts button:hover {
-		border-color: var(--border-default);
-		background: var(--bg-raised);
-	}
-
-	.chat-start__prompts button:focus-visible {
-		outline: none;
-		box-shadow: var(--shadow-focus);
-	}
-
-	.chat-start__prompt-icon {
-		width: 26px;
-		height: 26px;
-		display: grid;
-		place-items: center;
-		border-radius: var(--radius-1);
-		color: var(--fg-3);
-	}
-
-	.chat-start__prompt-icon :global(svg) {
-		width: 15px;
-		height: 15px;
-	}
-
-	.chat-start__prompt-copy {
-		min-width: 0;
-	}
-
-	.chat-start__prompt-copy strong,
 	.chat-start__recent-list strong {
 		font-size: 12.5px;
 		line-height: 1.35;
 		font-weight: 650;
 		letter-spacing: 0;
 		overflow-wrap: anywhere;
-	}
-
-	.chat-start__prompts button:hover .chat-start__prompt-icon {
-		color: var(--accent-fg);
 	}
 
 	.chat-start__recent-list {
@@ -630,11 +508,6 @@
 			gap: 14px;
 		}
 
-		.chat-start__workspace {
-			grid-template-columns: 1fr;
-			gap: 20px;
-		}
-
 		.chat-start__composer {
 			width: 100%;
 		}
@@ -661,29 +534,6 @@
 		.chat-start__section-head {
 			margin-bottom: 7px;
 			padding-bottom: 6px;
-		}
-
-		.chat-start__prompts {
-			grid-template-columns: repeat(2, minmax(0, 1fr));
-			gap: 7px;
-		}
-
-		.chat-start__prompts button {
-			grid-template-columns: 26px minmax(0, 1fr);
-			align-items: center;
-			min-height: 56px;
-			padding: 9px;
-			gap: 8px;
-		}
-
-		.chat-start__prompt-icon {
-			width: 26px;
-			height: 26px;
-		}
-
-		.chat-start__prompt-copy strong {
-			font-size: 11.5px;
-			line-height: 1.25;
 		}
 
 		.chat-start__recent-list a {
