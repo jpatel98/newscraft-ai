@@ -30,7 +30,7 @@ async function expectChatStartHome(page: Page) {
 	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
 	await expect(page).toHaveTitle(/New chat · NewsCraft/);
 	await expect(page.getByRole('heading', { name: 'What are you working on?' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Start with a newsroom task' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Quick starts' })).toBeVisible();
 	await expect(page.locator('[aria-label="Starter prompts"]')).toBeVisible();
 	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute(
 		'placeholder',

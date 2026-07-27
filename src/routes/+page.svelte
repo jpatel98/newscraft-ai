@@ -25,31 +25,26 @@
 	const suggestionChips = [
 		{
 			label: 'Catch up on a story',
-			description: 'Newest confirmed facts, changes, and open questions',
 			icon: Radio,
 			prompt: starterPrompts[0]
 		},
 		{
 			label: 'Compare coverage',
-			description: 'Differences in emphasis, sourcing, and omissions',
 			icon: GitCompareArrows,
 			prompt: starterPrompts[1]
 		},
 		{
 			label: 'Find primary evidence',
-			description: 'Official records and reputable reporting with dates',
 			icon: BadgeCheck,
 			prompt: starterPrompts[2]
 		},
 		{
 			label: 'Build a producer brief',
-			description: 'Key facts, reactions, and questions for the rundown',
 			icon: Newspaper,
 			prompt: starterPrompts[3]
 		}
 	] as const;
 
-	const firstName = $derived(data.user?.name?.trim().split(/\s+/)[0] || '');
 	const recentThreads = $derived((data.conversations ?? []).slice(0, 3));
 </script>
 
@@ -130,15 +125,7 @@
 	<main class="chat-start" aria-labelledby="chat-start-title">
 		<section class="chat-start__desk">
 			<header class="chat-start__hero">
-				<div class="chat-start__identity">
-					<img src="/brand/newscraft-agent-avatar.png" alt="" />
-					<span>Newsroom desk</span>
-				</div>
-				{#if firstName}<p class="chat-start__welcome">Welcome back, {firstName}</p>{/if}
 				<h1 id="chat-start-title">What are you working on?</h1>
-				<p class="chat-start__lead">
-					Research a developing story, compare coverage, or turn sources into usable copy.
-				</p>
 			</header>
 
 			<section class="chat-start__composer" aria-label="Start a new chat">
@@ -149,11 +136,10 @@
 				/>
 			</section>
 
-			<div class:chat-start__workspace--solo={recentThreads.length === 0} class="chat-start__workspace">
+			<div class="chat-start__workspace">
 				<section class="chat-start__tasks" aria-labelledby="starter-prompts-title">
 					<div class="chat-start__section-head">
-						<h2 id="starter-prompts-title">Start with a newsroom task</h2>
-						<span>Choose a starting point</span>
+						<h2 id="starter-prompts-title">Quick starts</h2>
 					</div>
 					<div class="chat-start__prompts" aria-label="Starter prompts">
 						{#each suggestionChips as card}
@@ -166,10 +152,6 @@
 								<span class="chat-start__prompt-icon"><Icon strokeWidth={1.8} aria-hidden="true" /></span>
 								<span class="chat-start__prompt-copy">
 									<strong>{card.label}</strong>
-									<small>{card.description}</small>
-								</span>
-								<span class="chat-start__prompt-arrow">
-									<ArrowRight size="15" strokeWidth={1.8} aria-hidden="true" />
 								</span>
 							</button>
 						{/each}
@@ -410,93 +392,47 @@
 		min-height: 100dvh;
 		display: grid;
 		justify-items: center;
-		padding: clamp(64px, 11vh, 124px) clamp(24px, 5vw, 72px)
+		padding: 78px clamp(24px, 5vw, 72px)
 			calc(env(safe-area-inset-bottom, 0px) + 36px);
-		background:
-			linear-gradient(var(--border-soft), var(--border-soft)) top 30px center / min(1080px, calc(100% - 48px)) 1px no-repeat,
-			var(--bg-page);
+		background: var(--bg-page);
 	}
 
 	.chat-start__desk {
-		width: min(980px, 100%);
+		width: min(840px, 100%);
 		display: grid;
-		gap: 22px;
+		gap: 18px;
 		align-content: start;
 		color: var(--fg-1);
 	}
 
 	.chat-start__hero {
-		display: grid;
-		gap: 8px;
-		max-width: 760px;
+		text-align: center;
 	}
 
 	.chat-start h1 {
 		margin: 0;
 		font-family: var(--font-display);
-		font-size: 42px;
-		line-height: 1.08;
+		font-size: 32px;
+		line-height: 1.12;
 		letter-spacing: 0;
 		font-weight: 650;
 	}
 
-	.chat-start__identity {
-		display: inline-flex;
-		align-items: center;
-		gap: 9px;
-		width: fit-content;
-		margin-bottom: 8px;
-		font-family: var(--font-mono);
-		font-size: 10.5px;
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--fg-2);
-	}
-
-	.chat-start__identity img {
-		width: 28px;
-		height: 28px;
-		border-radius: var(--radius-2);
-		object-fit: cover;
-	}
-
-	.chat-start__welcome {
-		margin: 0;
-		font-family: var(--font-mono);
-		font-size: 10.5px;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--fg-3);
-	}
-
-	.chat-start__lead {
-		max-width: 650px;
-		margin: 2px 0 0;
-		color: var(--fg-2);
-		font-size: 15px;
-		line-height: 1.55;
-	}
-
 	.chat-start__composer {
-		width: min(840px, 100%);
+		width: 100%;
 	}
 
 	.chat-start__composer :global(.composer) {
-		min-height: 62px;
-		border-color: var(--border-default);
-		box-shadow: 0 8px 28px rgb(14 14 13 / 7%);
+		min-height: 68px;
+		border-color: var(--border-strong);
+		box-shadow: 0 10px 32px rgb(14 14 13 / 8%);
 	}
 
 	.chat-start__workspace {
 		display: grid;
-		grid-template-columns: minmax(0, 1.65fr) minmax(240px, 0.8fr);
-		gap: 32px;
-		padding-top: 6px;
-	}
-
-	.chat-start__workspace--solo {
-		grid-template-columns: minmax(0, 720px);
+		grid-template-columns: 1fr;
+		gap: 26px;
+		padding-top: 10px;
 	}
 
 	.chat-start__tasks,
@@ -509,16 +445,15 @@
 		align-items: baseline;
 		justify-content: space-between;
 		gap: 12px;
-		margin-bottom: 9px;
-		padding-bottom: 8px;
-		border-bottom: 1px solid var(--border-soft);
+		margin-bottom: 8px;
 	}
 
 	.chat-start__section-head h2 {
 		margin: 0;
-		font-size: 12px;
-		font-weight: 650;
+		font-size: 11px;
+		font-weight: 600;
 		letter-spacing: 0;
+		color: var(--fg-3);
 	}
 
 	.chat-start__section-head span {
@@ -537,29 +472,27 @@
 
 	.chat-start__prompts button {
 		display: grid;
-		grid-template-columns: 30px minmax(0, 1fr) 16px;
-		align-items: start;
-		gap: 10px;
-		min-height: 78px;
+		grid-template-columns: 26px minmax(0, 1fr);
+		align-items: center;
+		gap: 9px;
+		min-height: 52px;
 		width: 100%;
-		padding: 12px;
+		padding: 10px;
 		border-radius: var(--radius-2);
 		border: 1px solid var(--border-soft);
-		background: var(--bg-surface);
+		background: transparent;
 		color: var(--fg-1);
 		font: inherit;
 		text-align: left;
 		cursor: pointer;
 		transition:
 			background var(--dur-fast) var(--ease-std),
-			border-color var(--dur-fast) var(--ease-std),
-			transform var(--dur-fast) var(--ease-std);
+			border-color var(--dur-fast) var(--ease-std);
 	}
 
 	.chat-start__prompts button:hover {
 		border-color: var(--border-default);
 		background: var(--bg-raised);
-		transform: translateY(-1px);
 	}
 
 	.chat-start__prompts button:focus-visible {
@@ -568,13 +501,12 @@
 	}
 
 	.chat-start__prompt-icon {
-		width: 30px;
-		height: 30px;
+		width: 26px;
+		height: 26px;
 		display: grid;
 		place-items: center;
 		border-radius: var(--radius-1);
-		background: var(--bg-raised);
-		color: var(--accent-fg);
+		color: var(--fg-3);
 	}
 
 	.chat-start__prompt-icon :global(svg) {
@@ -583,8 +515,6 @@
 	}
 
 	.chat-start__prompt-copy {
-		display: grid;
-		gap: 3px;
 		min-width: 0;
 	}
 
@@ -597,22 +527,7 @@
 		overflow-wrap: anywhere;
 	}
 
-	.chat-start__prompt-copy small {
-		color: var(--fg-3);
-		font-size: 10.5px;
-		line-height: 1.4;
-		letter-spacing: 0;
-	}
-
-	.chat-start__prompt-arrow {
-		display: grid;
-		place-items: center;
-		margin-top: 7px;
-		color: var(--fg-4);
-		transition: color var(--dur-fast) var(--ease-std);
-	}
-
-	.chat-start__prompts button:hover .chat-start__prompt-arrow {
+	.chat-start__prompts button:hover .chat-start__prompt-icon {
 		color: var(--accent-fg);
 	}
 
@@ -714,17 +629,6 @@
 			gap: 14px;
 		}
 
-		.chat-start__identity,
-		.chat-start__welcome {
-			display: none;
-		}
-
-		.chat-start__lead {
-			max-width: 36rem;
-			font-size: 13px;
-			line-height: 1.45;
-		}
-
 		.chat-start__workspace {
 			grid-template-columns: 1fr;
 			gap: 20px;
@@ -781,11 +685,6 @@
 			line-height: 1.25;
 		}
 
-		.chat-start__prompt-copy small,
-		.chat-start__prompt-arrow {
-			display: none;
-		}
-
 		.chat-start__recent-list a {
 			min-height: 46px;
 			padding-block: 8px;
@@ -811,10 +710,6 @@
 	@media (max-width: 520px) {
 		.chat-start {
 			padding-inline: 12px;
-		}
-
-		.chat-start__identity {
-			margin-bottom: 2px;
 		}
 
 		.chat-start__section-head span {
