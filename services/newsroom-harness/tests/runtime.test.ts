@@ -350,6 +350,63 @@ describe('newsroom agent runtime', () => {
 		expect(answer).not.toMatch(/heat warning|weather\.gc\.ca|Sources|End|If you/i);
 	});
 
+	it('does not duplicate or un-cite a one-line selected source in OCVO fallback', async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ output_text: 'Provider text should not be used.' }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const claim = 'The TTC says Line 1 service changes start tonight';
+		const context: ConversationContext = {
+			intent: 'transform',
+			sourceMessageId: 'message-transit',
+			activeTopic: {
+				subject: 'Toronto transit service changes tonight',
+				entities: ['TTC'],
+				location: 'Toronto'
+			},
+			lastSourceBackedAnswer: {
+				messageId: 'message-transit',
+				content: `${claim} [1].`,
+				citations: [
+					{
+						citationNumber: 1,
+						title: 'TTC service advisory',
+						url: 'https://www.ttc.ca/service-advisories/line-1',
+						domain: 'ttc.ca',
+						publicationDate: '2026-07-28',
+						sourceType: 'official',
+						supportingExcerpt: 'Line 1 service changes start tonight.'
+					}
+				],
+				publicationDates: ['2026-07-28']
+			}
+		};
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'openai',
+			modelApiKey: 'fake-key',
+			openAiApiKey: ''
+		});
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: 'Write a 30-second OC/VO from this answer.' }],
+			{ conversationContext: context }
+		);
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(answer).toMatch(/^ON CAM:\n/);
+		expect(answer).toContain('\n\nVO:\nNo additional sourced VO detail is confirmed in the selected answer.');
+		expect(answer.match(new RegExp(claim, 'g'))).toHaveLength(1);
+		expect(answer).toContain(`${claim} [1].`);
+		expect(answer.match(/\[1\]/g)).toHaveLength(1);
+		expect(answer).not.toContain('Provider text should not be used');
+	});
+
 	it('preserves multi-source OCVO claim citations from the selected answer without research', async () => {
 		const fetchMock = vi.fn(async () =>
 			new Response(JSON.stringify({ output_text: 'Provider text should not be used.' }), {

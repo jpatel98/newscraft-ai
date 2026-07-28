@@ -513,12 +513,9 @@ export function resolvedCitationNumbersForAnswer(
 	answerText: string,
 	citations: ReadonlyArray<CitationRecord>
 ): number[] {
-	return citationNumbersInText(answerText).filter((number) => {
-		const matches = uniqueCitationRecords(
-			citations.filter((citation) => citation.citationNumber === number)
-		);
-		return matches.length === 1 && isInspectableCitationRecord(matches[0]);
-	});
+	return citationNumbersInText(answerText).filter((number) =>
+		Boolean(resolvableCitationRecordForNumber(citations, number))
+	);
 }
 
 export function citationRecordsUsedInAnswer(
@@ -527,17 +524,23 @@ export function citationRecordsUsedInAnswer(
 ): CitationRecord[] {
 	const usedNumbers = new Set(citationNumbersInText(answerText));
 	const records = new Map<number, CitationRecord>();
-	for (const citation of citations) {
-		if (
-			!usedNumbers.has(citation.citationNumber) ||
-			records.has(citation.citationNumber) ||
-			!isInspectableCitationRecord(citation)
-		) {
-			continue;
-		}
-		records.set(citation.citationNumber, citation);
+	for (const number of usedNumbers) {
+		const record = resolvableCitationRecordForNumber(citations, number);
+		if (record) records.set(number, record);
 	}
 	return Array.from(records.values()).sort((left, right) => left.citationNumber - right.citationNumber);
+}
+
+export function resolvableCitationRecordForNumber(
+	citations: ReadonlyArray<CitationRecord>,
+	number: number
+): CitationRecord | null {
+	const matches = citations.filter((citation) => citation.citationNumber === number);
+	if (!matches.length) return null;
+	if (!matches.every(isInspectableCitationRecord)) return null;
+	const unique = uniqueCitationRecords(matches);
+	if (unique.length !== 1) return null;
+	return matches[0];
 }
 
 export function allCitationMarkersResolve(raw: string | null | undefined, answerText: string): boolean {

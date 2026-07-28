@@ -151,6 +151,45 @@ describe('tool metadata', () => {
 		]);
 	});
 
+	it('resolves duplicate same-source records but excludes conflicting duplicate citation numbers', () => {
+		const base = {
+			citationNumber: 1,
+			title: 'Official update',
+			url: 'https://example.gov/update?id=1',
+			domain: 'example.gov',
+			publicationDate: '2026-07-28',
+			sourceType: 'official' as const,
+			supportingExcerpt: 'Official update evidence.'
+		};
+		const duplicateSameSource = [
+			base,
+			{
+				...base,
+				title: 'Official update duplicate',
+				supportingExcerpt: 'Same source, duplicate provider annotation.'
+			}
+		];
+		const duplicateConflictingSource = [
+			base,
+			{
+				...base,
+				url: 'https://other.example.gov/update?id=1',
+				domain: 'other.example.gov',
+				supportingExcerpt: 'Different source for the same citation number.'
+			}
+		];
+
+		expect(resolvedCitationNumbersForAnswer('Claim [1], repeated [1].', duplicateSameSource)).toEqual([1, 1]);
+		expect(citationRecordsUsedInAnswer('Output action keeps claim [1].', duplicateSameSource)).toEqual([
+			base
+		]);
+		expect(resolvedCitationNumbersForAnswer('Ambiguous claim [1].', duplicateConflictingSource)).toEqual([]);
+		expect(citationRecordsUsedInAnswer('Output action must not persist ambiguous claim [1].', duplicateConflictingSource)).toEqual([]);
+		expect(allCitationMarkersResolve(serializeToolMetadata([], [], duplicateConflictingSource), 'Ambiguous claim [1].')).toBe(
+			false
+		);
+	});
+
 	it('filters source strips to used sources', () => {
 		expect(
 			usedSources([

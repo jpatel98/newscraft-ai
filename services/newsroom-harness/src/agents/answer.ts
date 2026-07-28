@@ -150,7 +150,7 @@ export function draftNewsroomOcvoFromConversation(
 		.filter(Boolean);
 	const onCam = scriptLines[0] || scriptLine(sourceAnswer, 260);
 	const vo = uniqueScriptLines(scriptLines.slice(1), onCam);
-	if (!vo.length) vo.push(scriptLine(removeCitationMarkers(sourceAnswer), 280));
+	if (!vo.length) vo.push(nonClaimVoFallback());
 	const banner = bannerTextForContext(context, sourceAnswer);
 	return [
 		'ON CAM:',
@@ -238,8 +238,8 @@ function stripUnresolvedCitationMarkers(value: string, citationNumbers: Set<numb
 		.trim();
 }
 
-function removeCitationMarkers(value: string): string {
-	return value.replace(/\s*\[\d+\]/g, '').trim();
+function nonClaimVoFallback(): string {
+	return 'No additional sourced VO detail is confirmed in the selected answer.';
 }
 
 function citationMarkersInText(value: string): number[] {

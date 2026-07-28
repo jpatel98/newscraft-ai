@@ -243,6 +243,75 @@ describe('conversation context builder', () => {
 		expect(fallback).not.toContain('"messageId"');
 	});
 
+	it('resolves duplicate same-source citation numbers in selected output-action context', () => {
+		const source = 'The TTC lists Toronto transit service changes for tonight [1].';
+		const duplicateSameSource = [
+			citation(1, {
+				title: 'TTC service update',
+				url: 'https://www.ttc.ca/service-advisories?id=1',
+				domain: 'ttc.ca',
+				sourceType: 'official',
+				supportingExcerpt: 'Service changes are listed for tonight.'
+			}),
+			citation(1, {
+				title: 'Duplicate TTC service update',
+				url: 'https://www.ttc.ca/service-advisories?id=1',
+				domain: 'ttc.ca',
+				sourceType: 'official',
+				supportingExcerpt: 'Duplicate annotation for the same source.'
+			})
+		];
+		const messages = [
+			message('m1', 'user', 'Check the Toronto transit update.'),
+			message('m2', 'assistant', source, duplicateSameSource)
+		];
+
+		const context = buildConversationContext({
+			messages,
+			currentRequest: 'Write a 30-second OC/VO from this answer.',
+			outputAction: true,
+			sourceMessageId: 'm2'
+		});
+
+		expect(context.lastSourceBackedAnswer?.citations).toEqual([duplicateSameSource[0]]);
+	});
+
+	it('excludes conflicting duplicate citation numbers from selected output-action context', () => {
+		const source = 'The TTC lists Toronto transit service changes for tonight [1].';
+		const duplicateConflictingSource = [
+			citation(1, {
+				title: 'TTC service update',
+				url: 'https://www.ttc.ca/service-advisories?id=1',
+				domain: 'ttc.ca',
+				sourceType: 'official',
+				supportingExcerpt: 'Service changes are listed for tonight.'
+			}),
+			citation(1, {
+				title: 'Conflicting service update',
+				url: 'https://weather.gc.ca/warnings/report_e.html?on61',
+				domain: 'weather.gc.ca',
+				sourceType: 'official',
+				supportingExcerpt: 'A different source was incorrectly assigned the same citation number.'
+			})
+		];
+		const messages = [
+			message('m1', 'user', 'Check the Toronto transit update.'),
+			message('m2', 'assistant', source, duplicateConflictingSource)
+		];
+
+		const context = buildConversationContext({
+			messages,
+			currentRequest: 'Write a 30-second OC/VO from this answer.',
+			outputAction: true,
+			sourceMessageId: 'm2'
+		});
+		const fallback = conversationContextCompatibilityMessage(context);
+
+		expect(context.lastSourceBackedAnswer?.citations).toEqual([]);
+		expect(fallback).not.toContain('https://www.ttc.ca/service-advisories');
+		expect(fallback).not.toContain('https://weather.gc.ca/warnings');
+	});
+
 	it('requires direct publisher evidence for named cross-outlet comparisons', () => {
 		const context = buildConversationContext({
 			messages: [],

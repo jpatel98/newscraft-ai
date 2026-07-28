@@ -12,8 +12,8 @@ import { contentText } from '$lib/types';
 import { parseContent } from '$lib/server/db/conversations';
 import {
 	citationNumbersInText,
-	isInspectableCitationRecord,
-	parseToolMetadata
+	parseToolMetadata,
+	resolvableCitationRecordForNumber
 } from '$lib/utils/tool-metadata';
 
 const MAX_CONTEXT_BYTES = 24 * 1024;
@@ -263,9 +263,9 @@ function findSourceAnswer(
 function resolvedCitations(answer: string, citations: CitationRecord[]): CitationRecord[] {
 	const markers = new Set(citationNumbersInText(answer));
 	const records = new Map<number, CitationRecord>();
-	for (const citation of citations) {
-		if (!markers.has(citation.citationNumber) || !isInspectableCitationRecord(citation)) continue;
-		if (!records.has(citation.citationNumber)) records.set(citation.citationNumber, citation);
+	for (const marker of markers) {
+		const record = resolvableCitationRecordForNumber(citations, marker);
+		if (record) records.set(marker, record);
 	}
 	return Array.from(records.values()).sort((left, right) => left.citationNumber - right.citationNumber);
 }
