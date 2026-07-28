@@ -146,9 +146,9 @@ export function draftNewsroomOcvoFromConversation(
 		resolvableCitationNumbers
 	);
 	const scriptLines = dedupeVisibleCitationMarkers(scriptSentences, resolvableCitationNumbers)
-		.map((sentence, index) => scriptLine(sentence, index === 0 ? 260 : 280))
+		.map((sentence, index) => scriptLine(sentence, index === 0 ? 260 : 280, resolvableCitationNumbers))
 		.filter(Boolean);
-	const onCam = scriptLines[0] || scriptLine(sourceAnswer, 260);
+	const onCam = scriptLines[0] || scriptLine(sourceAnswer, 260, resolvableCitationNumbers);
 	const vo = uniqueScriptLines(scriptLines.slice(1), onCam);
 	if (!vo.length) vo.push(nonClaimVoFallback());
 	const banner = bannerTextForContext(context, sourceAnswer);
@@ -260,8 +260,52 @@ function uniqueScriptLines(sentences: string[], existing: string): string[] {
 	return result;
 }
 
-function scriptLine(value: string, maxLength: number): string {
-	return ensureTerminalPunctuation(compactText(value, maxLength).replace(/^[-*]\s*/, '').trim());
+function scriptLine(value: string, maxLength: number, citationNumbers?: Set<number>): string {
+	const uncitedFallback = () => ensureTerminalPunctuation(compactText(value, maxLength).replace(/^[-*]\s*/, '').trim());
+	const cleaned = compactText(value, Number.MAX_SAFE_INTEGER).replace(/^[-*]\s*/, '').trim();
+	const markers = citationNumbers ? uniqueResolvableCitationMarkers(cleaned, citationNumbers) : [];
+	if (!markers.length) return uncitedFallback();
+	return ensureTerminalPunctuation(shortenCitationBearingScriptLine(cleaned, maxLength, markers));
+}
+
+function shortenCitationBearingScriptLine(value: string, maxLength: number, markers: number[]): string {
+	const cleaned = collapseScriptWhitespace(value);
+	const markerLabels = markers.map((number) => `[${number}]`);
+	const markerSuffix = ` ${markerLabels.join(' ')}`;
+	if (cleaned.length <= maxLength && markerLabels.every((marker) => cleaned.includes(marker))) {
+		return cleaned;
+	}
+	const suffix = `${markerSuffix}.`;
+	const proseBudget = Math.max(0, maxLength - suffix.length);
+	const markerlessProse = collapseScriptWhitespace(cleaned.replace(/\s*\[\d+\]/g, ''));
+	const shortenedProse = compactCitationProse(markerlessProse, proseBudget).replace(/[.!?]$/, '');
+	return `${shortenedProse}${suffix}`.trim();
+}
+
+function uniqueResolvableCitationMarkers(value: string, citationNumbers: Set<number>): number[] {
+	const seen = new Set<number>();
+	const markers: number[] = [];
+	for (const number of citationMarkersInText(value)) {
+		if (!citationNumbers.has(number) || seen.has(number)) continue;
+		seen.add(number);
+		markers.push(number);
+	}
+	return markers;
+}
+
+function compactCitationProse(value: string, maxLength: number): string {
+	const cleaned = collapseScriptWhitespace(value);
+	if (maxLength <= 0) return '';
+	if (cleaned.length <= maxLength) return cleaned;
+	if (maxLength === 1) return '…';
+	return `${cleaned.slice(0, maxLength - 1).trim()}…`;
+}
+
+function collapseScriptWhitespace(value: string): string {
+	return value
+		.replace(/\s+([,.;:!?])/g, '$1')
+		.replace(/\s{2,}/g, ' ')
+		.trim();
 }
 
 function ensureTerminalPunctuation(value: string): string {

@@ -407,6 +407,154 @@ describe('newsroom agent runtime', () => {
 		expect(answer).not.toContain('Provider text should not be used');
 	});
 
+	it('preserves a tail citation when shortening a long one-source OCVO line', async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ output_text: 'Provider text should not be used.' }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const longClaim = [
+			'The TTC says overnight Line 1 work will close several downtown stations after the evening rush',
+			'with replacement shuttle buses assigned to the corridor and customer-service staff posted at key transfer points',
+			'while crews complete signal testing, track inspections, platform repairs, and accessibility checks before morning service resumes'
+		].join(' ');
+		const sourceSentence = `${longClaim} [1].`;
+		expect(sourceSentence.indexOf('[1]')).toBeGreaterThan(260);
+		const context: ConversationContext = {
+			intent: 'transform',
+			sourceMessageId: 'message-long-transit',
+			activeTopic: {
+				subject: 'Toronto transit service changes tonight',
+				entities: ['TTC'],
+				location: 'Toronto'
+			},
+			lastSourceBackedAnswer: {
+				messageId: 'message-long-transit',
+				content: sourceSentence,
+				citations: [
+					{
+						citationNumber: 1,
+						title: 'TTC service advisory',
+						url: 'https://www.ttc.ca/service-advisories/line-1',
+						domain: 'ttc.ca',
+						publicationDate: '2026-07-28',
+						sourceType: 'official',
+						supportingExcerpt: 'Overnight Line 1 work will close several downtown stations.'
+					}
+				],
+				publicationDates: ['2026-07-28']
+			}
+		};
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'openai',
+			modelApiKey: 'fake-key',
+			openAiApiKey: ''
+		});
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: 'Write a 30-second OC/VO from this answer.' }],
+			{ conversationContext: context }
+		);
+
+		const onCam = answer.split('\n')[1] || '';
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(answer).toMatch(/^ON CAM:\n/);
+		expect(onCam.length).toBeLessThanOrEqual(260);
+		expect(onCam).toMatch(/\[1\]\.$/);
+		expect(answer.match(/\[1\]/g)).toHaveLength(1);
+		expect(onCam).toMatch(/^The TTC says overnight Line 1 work/);
+		expect(answer).toContain('\n\nVO:\nNo additional sourced VO detail is confirmed in the selected answer.');
+		expect(answer).not.toContain('Provider text should not be used');
+	});
+
+	it('preserves all tail citations when shortening a long multi-marker OCVO line', async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ output_text: 'Provider text should not be used.' }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const longClaim = [
+			'Transit officials say the downtown service plan includes Line 1 station closures, Queen Street shuttle routing',
+			'and unchanged GO Transit connections for late-night riders moving between Union Station, Saint George, and the west-end bus bridge',
+			'with agencies advising passengers to check platform signs, route notices, and posted supervisor instructions before leaving'
+		].join(' ');
+		const sourceSentence = `${longClaim} [1] [2] [3].`;
+		expect(sourceSentence.indexOf('[1]')).toBeGreaterThan(260);
+		const context: ConversationContext = {
+			intent: 'transform',
+			sourceMessageId: 'message-long-transit',
+			activeTopic: {
+				subject: 'Toronto transit service changes tonight',
+				entities: ['TTC', 'City of Toronto', 'Metrolinx'],
+				location: 'Toronto'
+			},
+			lastSourceBackedAnswer: {
+				messageId: 'message-long-transit',
+				content: sourceSentence,
+				citations: [
+					{
+						citationNumber: 1,
+						title: 'TTC service advisory',
+						url: 'https://www.ttc.ca/service-advisories/line-1',
+						domain: 'ttc.ca',
+						publicationDate: '2026-07-28',
+						sourceType: 'official',
+						supportingExcerpt: 'Line 1 station closures are listed.'
+					},
+					{
+						citationNumber: 2,
+						title: 'Queen Street shuttle update',
+						url: 'https://www.toronto.ca/news/queen-shuttle',
+						domain: 'toronto.ca',
+						publicationDate: '2026-07-28',
+						sourceType: 'official',
+						supportingExcerpt: 'Queen Street shuttle routing is listed.'
+					},
+					{
+						citationNumber: 3,
+						title: 'GO Transit update',
+						url: 'https://www.gotransit.com/service-updates',
+						domain: 'gotransit.com',
+						publicationDate: '2026-07-28',
+						sourceType: 'primary',
+						supportingExcerpt: 'GO Transit connections are unchanged.'
+					}
+				],
+				publicationDates: ['2026-07-28']
+			}
+		};
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'openai',
+			modelApiKey: 'fake-key',
+			openAiApiKey: ''
+		});
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: 'Write a 30-second OC/VO from this answer.' }],
+			{ conversationContext: context }
+		);
+
+		const onCam = answer.split('\n')[1] || '';
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(answer).toMatch(/^ON CAM:\n/);
+		expect(onCam.length).toBeLessThanOrEqual(260);
+		expect(onCam).toMatch(/\[1\] \[2\] \[3\]\.$/);
+		expect(answer.match(/\[\d+\]/g)).toEqual(['[1]', '[2]', '[3]']);
+		expect(onCam).toMatch(/^Transit officials say the downtown service plan/);
+		expect(answer).toContain('\n\nVO:\nNo additional sourced VO detail is confirmed in the selected answer.');
+		expect(answer).not.toContain('Provider text should not be used');
+	});
+
 	it('preserves multi-source OCVO claim citations from the selected answer without research', async () => {
 		const fetchMock = vi.fn(async () =>
 			new Response(JSON.stringify({ output_text: 'Provider text should not be used.' }), {
