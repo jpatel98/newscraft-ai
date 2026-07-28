@@ -522,6 +522,25 @@ export function resolvedCitationNumbersForAnswer(
 	});
 }
 
+export function citationRecordsUsedInAnswer(
+	answerText: string,
+	citations: ReadonlyArray<CitationRecord>
+): CitationRecord[] {
+	const usedNumbers = new Set(citationNumbersInText(answerText));
+	const records = new Map<number, CitationRecord>();
+	for (const citation of citations) {
+		if (
+			!usedNumbers.has(citation.citationNumber) ||
+			records.has(citation.citationNumber) ||
+			!isInspectableCitationRecord(citation)
+		) {
+			continue;
+		}
+		records.set(citation.citationNumber, citation);
+	}
+	return Array.from(records.values()).sort((left, right) => left.citationNumber - right.citationNumber);
+}
+
 export function allCitationMarkersResolve(raw: string | null | undefined, answerText: string): boolean {
 	const markers = citationNumbersInText(answerText);
 	if (!markers.length) return false;

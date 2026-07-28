@@ -44,3 +44,12 @@ export async function getMessageProvenance(messageId: string): Promise<MessagePr
 		.limit(1)) as MessageProvenanceRow[];
 	return row;
 }
+
+export async function getConversationMessageProvenance(
+	conversationId: string
+): Promise<MessageProvenanceRow[]> {
+	return (await db
+		.select()
+		.from(messageProvenance)
+		.where(eq(messageProvenance.conversationId, conversationId))) as MessageProvenanceRow[];
+}

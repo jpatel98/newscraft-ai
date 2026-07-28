@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ToolBudgetLedger, mergeToolBudget } from '../src/agents/budget.js';
-import { generateFinalAnswer } from '../src/agents/answer.js';
+import { cleanVisibleChatOutput, generateFinalAnswer } from '../src/agents/answer.js';
 import { createDefaultToolRegistry } from '../src/agents/default-tools.js';
 import { classifyEvidenceSource, normalizeEvidence } from '../src/agents/evidence.js';
 import { createNewsroomAgentConfig } from '../src/agents/harness-config.js';
@@ -67,6 +67,75 @@ describe('citation and source-quality web research', () => {
 
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
 		expect(result.evidence?.map((source) => source.source_url)).toEqual([repeatedUrl, repeatedUrl]);
+	});
+
+	it('turns OpenAI URL annotations into ordered markers and excludes action-only sources', async () => {
+		const urls = Array.from({ length: 9 }, (_, index) => `https://www.reuters.com/world/annotated-${index + 1}`);
+		const segments = urls.map((_, index) => `Claim ${index + 1} uses source ${index + 1}`);
+		const text = `${segments.join('. ')}.`;
+		let cursor = 0;
+		const annotations = segments.map((segment, index) => {
+			const start = text.indexOf(segment, cursor);
+			const end = start + segment.length;
+			cursor = end;
+			return {
+				type: 'url_citation',
+				url: urls[index],
+				title: `Reuters annotated ${index + 1}`,
+				start_index: start,
+				end_index: end
+			};
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					output_text: text,
+					output: [
+						{
+							type: 'web_search_call',
+							action: {
+								sources: [
+									{
+										url: 'https://example.com/action-only',
+										title: 'Action-only source'
+									}
+								]
+							}
+						},
+						{
+							type: 'message',
+							content: [{ type: 'output_text', text, annotations }]
+						}
+					],
+					search_results: urls.map((url, index) => ({
+						url,
+						title: `Search result ${index + 1}`,
+						snippet: `Supporting excerpt ${index + 1}`,
+						date: `2026-07-${String(index + 1).padStart(2, '0')}`
+					}))
+				})
+			)
+		);
+
+		const result = await runWebSearch('Summarize annotated OpenAI coverage', { provider: 'openai' });
+
+		expect(result.answer).toContain('source 1 [1]');
+		expect(result.answer).toContain('source 9 [9]');
+		expect(result.answer).not.toContain('[10]');
+		expect(result.evidence).toHaveLength(9);
+		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+		expect(result.evidence?.map((source) => source.source_url)).toEqual(urls);
+		expect(result.evidence?.some((source) => source.source_url === 'https://example.com/action-only')).toBe(false);
+	});
+
+	it('retains raw URLs when the user asks for direct links', () => {
+		const answer = 'Direct link: https://example.com/story?story=1 [1].';
+
+		expect(cleanVisibleChatOutput(answer, 'Give me the direct URLs for the citations.')).toContain(
+			'https://example.com/story?story=1'
+		);
+		expect(cleanVisibleChatOutput(answer, 'Summarize the story.')).not.toContain('https://example.com/story');
 	});
 
 	it('classifies web sources independently with the journalist source contract', () => {

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { CitationRecord } from '@newscraft/shared';
-	import DOMPurify from 'dompurify';
 	import { onMount } from 'svelte';
 	import { highlight } from '$lib/utils/highlight';
 	import { prepareAssistantMarkdown, renderMarkdownToHtml } from '$lib/utils/markdown-render';
@@ -25,9 +24,7 @@
 
 	const html = $derived.by(() => {
 		try {
-			const raw = renderMarkdownToHtml(markdown);
-			if (typeof window === 'undefined') return raw; // Renderer escapes raw HTML before SSR.
-			return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+			return renderMarkdownToHtml(markdown);
 		} catch {
 			return '<p>(failed to render)</p>';
 		}

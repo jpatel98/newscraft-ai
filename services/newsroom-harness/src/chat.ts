@@ -39,6 +39,7 @@ export async function writeChatCompletion(
 			reasoningEffort: body.reasoning_effort,
 			plannerEnabled: body.planner_enabled,
 			newsroomContext: body.newsroom_context,
+			conversationContext: body.conversation_context,
 			documents: body.documents,
 			onProgress: (event) => writeProgress(res, event)
 		})) {
@@ -58,6 +59,7 @@ export async function writeChatCompletion(
 			reasoningEffort: body.reasoning_effort,
 			plannerEnabled: body.planner_enabled,
 			newsroomContext: body.newsroom_context,
+			conversationContext: body.conversation_context,
 			documents: body.documents
 		}),
 		prompt
@@ -101,6 +103,7 @@ export async function writeResponses(
 			model,
 			reasoningEffort: body.reasoning_effort,
 			newsroomContext: body.newsroom_context,
+			conversationContext: body.conversation_context,
 			documents: body.documents,
 			onProgress: (event) => writeProgress(res, event)
 		})) {
@@ -133,6 +136,7 @@ export async function writeResponses(
 			model,
 			reasoningEffort: body.reasoning_effort,
 			newsroomContext: body.newsroom_context,
+			conversationContext: body.conversation_context,
 			documents: body.documents
 		}),
 		prompt

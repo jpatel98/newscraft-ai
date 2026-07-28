@@ -3,6 +3,7 @@ import {
 	buildAnswerProvenanceBundle,
 	allCitationMarkersResolve,
 	citationRecordsForAnswer,
+	citationRecordsUsedInAnswer,
 	mergeToolMetadata,
 	parseToolMetadata,
 	resolvedCitationNumbersForAnswer,
@@ -112,6 +113,42 @@ describe('tool metadata', () => {
 		).toEqual([]);
 		expect(sourceContextForFollowup(raw)).toContain('[10] Source 10');
 		expect(mergeToolMetadata(raw, [], [], []).citations).toHaveLength(10);
+	});
+
+	it('keeps only inspectable citation records used by visible markers', () => {
+		const citations = [
+			{
+				citationNumber: 1,
+				title: 'Unused source',
+				url: 'https://example.com/unused',
+				domain: 'example.com',
+				publicationDate: null,
+				sourceType: 'news_report' as const,
+				supportingExcerpt: 'Unused evidence.'
+			},
+			{
+				citationNumber: 2,
+				title: 'Official source',
+				url: 'https://example.gov/official',
+				domain: 'example.gov',
+				publicationDate: '2026-07-10',
+				sourceType: 'official' as const,
+				supportingExcerpt: 'Official evidence.'
+			},
+			{
+				citationNumber: 9,
+				title: 'Missing excerpt',
+				url: 'https://example.com/missing',
+				domain: 'example.com',
+				publicationDate: null,
+				sourceType: 'unknown' as const,
+				supportingExcerpt: ''
+			}
+		];
+
+		expect(citationRecordsUsedInAnswer('The transformed answer uses one claim [2] and drops a bad one [9].', citations)).toEqual([
+			citations[1]
+		]);
 	});
 
 	it('filters source strips to used sources', () => {

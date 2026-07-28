@@ -284,7 +284,8 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			}
 			let raw = attempt.raw;
 			let streamFailure = attempt.streamFailure;
-			let outputText = extractProviderResponseText(provider, raw);
+			let providerOutputText = extractProviderResponseText(provider, raw);
+			let outputText = withProviderCitationMarkers(raw, providerOutputText);
 			if (streamFailure && !outputText.trim()) {
 				return {
 					status: 'error',
@@ -293,7 +294,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				};
 			}
 			let evidence = normalizeToolEvidence(
-				{ evidence: extractProviderWebSources(raw, outputText) },
+				{ evidence: extractProviderWebSources(raw, providerOutputText) },
 				NEWSROOM_TOOL_NAMES.webSearch,
 				{
 					source_name: `${providerName} web_search`,
@@ -315,9 +316,10 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				});
 				recordAttempt(retry, 'official_source');
 				if (retry.response.ok) {
-					const retryText = extractProviderResponseText(provider, retry.raw);
+					const retryProviderText = extractProviderResponseText(provider, retry.raw);
+					const retryText = withProviderCitationMarkers(retry.raw, retryProviderText);
 					const retryEvidence = normalizeToolEvidence(
-						{ evidence: extractProviderWebSources(retry.raw, retryText) },
+						{ evidence: extractProviderWebSources(retry.raw, retryProviderText) },
 						NEWSROOM_TOOL_NAMES.webSearch,
 						{
 							source_name: `${providerName} web_search`,
@@ -330,6 +332,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 						if (retryText.trim()) {
 							raw = retry.raw;
 							streamFailure = retry.streamFailure;
+							providerOutputText = retryProviderText;
 							outputText = retryText;
 							evidence = retryEvidence;
 						} else {
@@ -973,14 +976,18 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 			}>;
 		}>;
 	};
-	const searchResultByUrl = new Map<string, ProviderSearchResult>();
-	for (const source of response.search_results || []) {
-		if (source.url) searchResultByUrl.set(normalizedWebSourceUrl(source.url), source);
-	}
+	const resultByUrl = new Map<string, ProviderSearchResult>();
+	const rememberResult = (source: ProviderSearchResult) => {
+		if (source.url && !resultByUrl.has(normalizedWebSourceUrl(source.url))) {
+			resultByUrl.set(normalizedWebSourceUrl(source.url), source);
+		}
+	};
+	for (const source of response.search_results || []) rememberResult(source);
+	for (const source of response.fetch_url_results || []) rememberResult(source);
 	for (const [index, citation] of (response.citations || []).entries()) {
 		const url = (typeof citation === 'string' ? citation : citation.url) || response.search_results?.[index]?.url;
 		if (!url) continue;
-		const matchingResult = searchResultByUrl.get(normalizedWebSourceUrl(url));
+		const matchingResult = resultByUrl.get(normalizedWebSourceUrl(url));
 		const title = (typeof citation === 'string' ? '' : citation.title) || matchingResult?.title || url;
 		const snippet = (typeof citation === 'string' ? '' : citation.snippet) || matchingResult?.snippet || '';
 		const publishedAt =
@@ -992,6 +999,7 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 	}
 	for (const source of response.search_results || []) {
 		if (!source.url) continue;
+		rememberResult(source);
 		actionSources.push(
 			webSource(source.url, source.title || source.url, source.snippet || '', {
 				publishedAt: source.date || source.last_updated || null
@@ -1000,15 +1008,19 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 	}
 	for (const source of response.fetch_url_results || []) {
 		if (!source.url) continue;
+		rememberResult(source);
 		actionSources.push(
 			webSource(source.url, source.title || source.url, source.content || source.snippet || '', {
 				publishedAt: source.date || source.last_updated || null
 			})
 		);
 	}
+	const annotationNumberByUrl = new Map<string, number>();
+	const seenAnnotationUrls = new Set<string>();
 	for (const item of response.output || []) {
 		for (const source of item.search_results || []) {
 			if (!source.url) continue;
+			rememberResult(source);
 			actionSources.push(
 				webSource(source.url, source.title || source.url, source.snippet || '', {
 					publishedAt: source.date || source.last_updated || null
@@ -1017,6 +1029,7 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 		}
 		for (const source of item.fetch_url_results || []) {
 			if (!source.url) continue;
+			rememberResult(source);
 			actionSources.push(
 				webSource(source.url, source.title || source.url, source.content || source.snippet || '', {
 					publishedAt: source.date || source.last_updated || null
@@ -1030,6 +1043,7 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 		for (const content of item.content || []) {
 			for (const source of content.search_results || []) {
 				if (!source.url) continue;
+				rememberResult(source);
 				actionSources.push(
 					webSource(source.url, source.title || source.url, source.snippet || '', {
 						publishedAt: source.date || source.last_updated || null
@@ -1038,25 +1052,93 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 			}
 			for (const source of content.fetch_url_results || []) {
 				if (!source.url) continue;
+				rememberResult(source);
 				actionSources.push(
 					webSource(source.url, source.title || source.url, source.content || source.snippet || '', {
 						publishedAt: source.date || source.last_updated || null
 					})
 				);
 			}
-			for (const annotation of content.annotations || []) {
-				if (annotation.type !== 'url_citation' || !annotation.url) continue;
+			for (const annotation of orderedUrlAnnotations(content.annotations || [])) {
+				const key = normalizedWebSourceUrl(annotation.url);
+				if (!annotationNumberByUrl.has(key)) annotationNumberByUrl.set(key, annotationNumberByUrl.size + 1);
+				if (seenAnnotationUrls.has(key)) continue;
+				seenAnnotationUrls.add(key);
+				const matchingResult = resultByUrl.get(key);
 				citedSources.push(
 					webSource(
 						annotation.url,
-						annotation.title || annotation.url,
-						extractAnnotationSnippet(outputText, annotation.start_index, annotation.end_index)
+						annotation.title || matchingResult?.title || annotation.url,
+						extractAnnotationSnippet(outputText, annotation.start_index, annotation.end_index),
+						{
+							citationNumber: annotationNumberByUrl.get(key),
+							publishedAt: matchingResult?.date || matchingResult?.last_updated || null
+						}
 					)
 				);
 			}
 		}
 	}
-	return uniqueWebSources([...citedSources, ...actionSources]);
+	return citedSources.length ? uniqueWebSources(citedSources) : uniqueWebSources(actionSources);
+}
+
+function withProviderCitationMarkers(raw: unknown, outputText: string): string {
+	if (!outputText.trim()) return outputText;
+	const annotations = providerUrlAnnotations(raw);
+	if (!annotations.length) return outputText;
+	const numberByUrl = new Map<string, number>();
+	const insertions: Array<{ index: number; marker: string }> = [];
+	for (const annotation of annotations) {
+		const key = normalizedWebSourceUrl(annotation.url);
+		if (!numberByUrl.has(key)) numberByUrl.set(key, numberByUrl.size + 1);
+		const citationNumber = numberByUrl.get(key);
+		if (!citationNumber) continue;
+		const end = Math.max(0, Math.min(outputText.length, Number(annotation.end_index ?? outputText.length)));
+		const nearby = outputText.slice(Math.max(0, end - 8), Math.min(outputText.length, end + 8));
+		if (new RegExp(`\\[${citationNumber}\\]`).test(nearby)) continue;
+		insertions.push({ index: end, marker: ` [${citationNumber}]` });
+	}
+	if (!insertions.length) return outputText;
+	let marked = outputText;
+	for (const insertion of insertions.sort((left, right) => right.index - left.index)) {
+		marked = `${marked.slice(0, insertion.index)}${insertion.marker}${marked.slice(insertion.index)}`;
+	}
+	return marked;
+}
+
+function providerUrlAnnotations(raw: unknown): UrlAnnotation[] {
+	const response = raw as {
+		output?: Array<{
+			content?: Array<{ annotations?: UrlAnnotation[] }>;
+		}>;
+	};
+	return (response.output || []).flatMap((item) =>
+		(item.content || []).flatMap((content) => orderedUrlAnnotations(content.annotations || []))
+	);
+}
+
+type UrlAnnotation = {
+	type?: string;
+	url: string;
+	title?: string;
+	start_index?: number;
+	end_index?: number;
+};
+
+function orderedUrlAnnotations(annotations: Array<UrlAnnotation | { url?: string }>): UrlAnnotation[] {
+	return annotations
+		.filter(
+			(annotation): annotation is UrlAnnotation =>
+				(annotation as UrlAnnotation).type === 'url_citation' &&
+				typeof annotation.url === 'string' &&
+				/^https?:\/\//i.test(annotation.url)
+		)
+		.sort((left, right) => {
+			const leftStart = Number(left.start_index ?? Number.MAX_SAFE_INTEGER);
+			const rightStart = Number(right.start_index ?? Number.MAX_SAFE_INTEGER);
+			if (leftStart !== rightStart) return leftStart - rightStart;
+			return normalizedWebSourceUrl(left.url).localeCompare(normalizedWebSourceUrl(right.url));
+		});
 }
 
 type WebSourceCandidate = {

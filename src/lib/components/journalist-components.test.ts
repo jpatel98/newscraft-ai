@@ -8,6 +8,7 @@ function source(name: string): string {
 describe('journalist trust components', () => {
 	it('renders resolved numeric markers as labelled native buttons', () => {
 		const markdown = source('./Markdown.svelte');
+		expect(markdown).not.toContain('DOMPurify');
 		expect(markdown).toContain("button.className = 'md-citation';");
 		expect(markdown).toContain("button.setAttribute('aria-label', `Citation ${number}: ${records[0].title}`)");
 		expect(markdown).toContain("parent.closest('a, button, code, pre, script, style, textarea')");

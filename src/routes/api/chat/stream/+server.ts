@@ -34,11 +34,11 @@ import { StreamEventState, sseFrame, type PersistedSource, type StreamToolCall }
 import {
 	mergeToolMetadata,
 	citationNumbersInText,
+	citationRecordsUsedInAnswer,
 	parseToolMetadata,
 	resolvedCitationNumbersForAnswer,
 	serializeAnswerProvenance,
-	serializeToolMetadata,
-	sourceContextForFollowup
+	serializeToolMetadata
 } from '$lib/utils/tool-metadata';
 import {
 	getConversationReasoningEffort,
@@ -48,12 +48,24 @@ import {
 } from '$lib/server/reasoning';
 import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import { checkRateLimit } from '$lib/server/rate-limit';
-import { saveMessageProvenance } from '$lib/server/db/message-provenance';
+import {
+	getConversationMessageProvenance,
+	saveMessageProvenance
+} from '$lib/server/db/message-provenance';
 import { newId } from '$lib/utils/id';
-import type { CitationRecord, DocumentContext, NewsroomContext } from '@newscraft/shared';
+import type {
+	CitationRecord,
+	ConversationContext,
+	DocumentContext,
+	NewsroomContext
+} from '@newscraft/shared';
 import { getNewsroomProfile } from '$lib/server/documents/profiles';
 import { getConversationDocumentService } from '$lib/server/documents/runtime';
 import type { ConversationDocumentService } from '$lib/server/documents/service';
+import {
+	buildConversationContext,
+	conversationContextCompatibilityMessage
+} from '$lib/server/conversation-context';
 
 interface Body {
 	conversation_id?: string;
@@ -157,13 +169,6 @@ function toResponsesContent(c: AgentContent): string | AgentResponseContentPart[
 			? { type: 'input_text', text: p.text }
 			: { type: 'input_image', image_url: p.image_url.url }
 	);
-}
-
-function withFollowupSourceContext(content: AgentContent, toolCalls: string | null): AgentContent {
-	const sourceContext = sourceContextForFollowup(toolCalls);
-	if (!sourceContext) return content;
-	if (typeof content === 'string') return `${content}\n\n${sourceContext}`;
-	return [...content, { type: 'text', text: sourceContext }];
 }
 
 type ResponseHistoryMessage = { role: 'user' | 'assistant'; content: AgentContent };
@@ -607,6 +612,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	const isRegenerate = body.regenerate === true;
 	let resumeMessageId: string | null = null;
+	let visibleUserMessageId: string | null = null;
 	let outputActionSource:
 		| Awaited<ReturnType<typeof getMessageById>>
 		| undefined;
@@ -650,7 +656,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (cleaned == null) throw error(400, 'content required');
 		if (typeof cleaned === 'string' && !cleaned.trim()) throw error(400, 'content required');
 		let upstreamContent: MessageContent = outputActionUpstreamContent ?? cleaned;
-		await addMessage({ conversationId: convoId, role: 'user', content: cleaned });
+		const visibleUserMessage = await addMessage({ conversationId: convoId, role: 'user', content: cleaned });
+		visibleUserMessageId = visibleUserMessage.id;
 		if (body.output_action) {
 			recordChatDiagnostic(convoId, 'chat.output_action', {
 				trace_id: traceId,
@@ -703,28 +710,48 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			}
 		}
 
-		if (upstreamContent !== cleaned || outputActionPrompt) {
+		if (upstreamContent !== cleaned && !outputActionPrompt) {
 			body = { ...body, content: upstreamContent };
 		}
 	}
 
 	const reasoningEffort = await getConversationReasoningEffort(convoId);
 	const messages = await getMessages(convoId);
+	const provenance = await getConversationMessageProvenance(convoId);
 	const inheritedMetadata = body.output_action
 		? parseToolMetadata(outputActionSource?.toolCalls)
 		: null;
+	const conversationContext: ConversationContext = buildConversationContext({
+		messages,
+		provenance,
+		currentRequest: body.output_action
+			? OUTPUT_ACTION_VISIBLE_REQUESTS[body.output_action]
+			: body.content
+				? contentText(body.content)
+				: '',
+		outputAction: Boolean(body.output_action),
+		sourceMessageId: body.source_message_id
+	});
 	recordChatDiagnostic(convoId, 'chat.history_built', {
 		trace_id: traceId,
 		messageCount: messages.length,
+		conversationContextBytes: new TextEncoder().encode(JSON.stringify(conversationContext)).byteLength,
 		reasoningEffort
 	});
-	const history = messages.map<AgentMessage>((m) => {
+	const historyMessages =
+		body.output_action && outputActionSource && visibleUserMessageId
+			? messages.filter(
+					(message) =>
+						message.role === 'system' ||
+						message.id === outputActionSource?.id ||
+						message.id === visibleUserMessageId
+				)
+			: messages;
+	const history = historyMessages.map<AgentMessage>((m) => {
 		const parsed = parseContent(m.content);
-		let content = toAgentContent(parsed);
-		if (m.role === 'assistant') content = withFollowupSourceContext(content, m.toolCalls);
 		return {
 			role: m.role === 'tool' ? 'assistant' : (m.role as 'user' | 'assistant' | 'system'),
-			content
+			content: toAgentContent(parsed)
 		};
 	});
 	if ((!isResume && !isRegenerate && body.content) || (isResume && body.output_action && body.content)) {
@@ -741,6 +768,16 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	}
 	appendSystemInstruction(history, INTERACTIVE_WEB_SYSTEM);
 	appendSystemInstruction(history, FAST_SOURCE_SYSTEM);
+	if (body.output_action) appendSystemInstruction(history, OUTPUT_ACTION_PROMPTS[body.output_action]);
+	if (
+		conversationContext.activeTopic ||
+		conversationContext.lastSourceBackedAnswer ||
+		conversationContext.claimStates?.length
+	) {
+		// Older harnesses ignore conversation_context. A tagged system message
+		// preserves citation/correction state without mutating assistant prose.
+		appendSystemInstruction(history, conversationContextCompatibilityMessage(conversationContext));
+	}
 
 	let researchContext: Awaited<ReturnType<typeof requestResearchContext>>;
 	try {
@@ -781,6 +818,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				stream: true,
 				reasoning_effort: reasoningEffort,
 				newsroom_context: researchContext.newsroomContext,
+				conversation_context: conversationContext,
 				documents: researchContext.documents
 			},
 			{ signal: upstreamAbort.signal, sessionId, traceId }
@@ -801,6 +839,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					store: false,
 					reasoning_effort: reasoningEffort,
 					newsroom_context: researchContext.newsroomContext,
+					conversation_context: conversationContext,
 					documents: researchContext.documents
 				},
 				{ signal: upstreamAbort.signal, sessionId, traceId }
@@ -854,7 +893,9 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			streamState.citationList()
 		);
 		const capturedSources = captured.sources;
-		const capturedCitations = captured.citations;
+		const capturedCitations = body.output_action
+			? citationRecordsUsedInAnswer(assistantBuf, captured.citations)
+			: captured.citations;
 		if (resumeMessageId) {
 			const existingRow = await getMessageById(resumeMessageId);
 			const merged = mergeToolMetadata(
@@ -888,15 +929,15 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					answerText: contentText(parseContent(row.content)),
 					done,
 					finishStatus,
-						events: streamStats,
-						transport,
-						reasoningEffort,
-						model: upstreamModel,
-						traceId
-					});
-				}
-				return row;
+					events: streamStats,
+					transport,
+					reasoningEffort,
+					model: upstreamModel,
+					traceId
+				});
 			}
+			return row;
+		}
 		if (!assistantBuf && capturedToolCalls.length === 0 && capturedCitations.length === 0) return undefined;
 		const row = await addMessage({
 			conversationId: convoId,

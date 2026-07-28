@@ -4,6 +4,7 @@ import {
 	NewsroomAgentRuntime,
 	type RuntimeProgressEvent
 } from '../src/agents/runtime.js';
+import type { ConversationContext } from '@newscraft/shared';
 import { normalizeEvidence } from '../src/agents/evidence.js';
 import { createModelPolicyConfig } from '../src/agents/model-policy.js';
 import { ToolRegistry, type NewsroomTool, type ToolCategory } from '../src/agents/tools.js';
@@ -122,12 +123,13 @@ describe('newsroom agent runtime', () => {
 		registry.register(stubRuntimeTool('openai_web_search', 'web_search_provider', 'Latest Canada story from a readable source.'));
 		const progress: RuntimeProgressEvent[] = [];
 		const runtime = new NewsroomAgentRuntime({
-			maxToolCalls: 1,
+			maxToolCalls: 2,
 			runTimeoutMs: 5000,
 			retryLimit: 0,
 			modelProvider: 'perplexity',
 			modelApiKey: 'fake-key',
 			openAiApiKey: '',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
 			registry
 		});
 
@@ -204,6 +206,148 @@ describe('newsroom agent runtime', () => {
 		});
 
 		expect(receivedQuery).toBe(question);
+	});
+
+	it('does not answer a Toronto weather follow-up with unrelated Santo Domingo baseball evidence', async () => {
+		const registry = new ToolRegistry();
+		let webToolCalls = 0;
+		registry.register({
+			name: 'openai_web_search',
+			description: 'web fixture',
+			when_to_use: 'test only',
+			category: 'web_search_provider',
+			input_schema: { type: 'object' },
+			output_schema: { type: 'object' },
+			async run() {
+				webToolCalls += 1;
+				return {
+					status: 'ok',
+					answer: 'Santo Domingo baseball clubs play tonight [1].',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'Sports feed',
+							source_url: 'https://example.com/santo-domingo-baseball',
+							accessed_at: '2026-07-28T12:00:00.000Z',
+							tool_used: 'openai_web_search',
+							title: 'Santo Domingo baseball schedule',
+							published_at: '2026-07-28',
+							extracted_text: 'Santo Domingo baseball clubs play tonight.',
+							summary: 'Santo Domingo baseball clubs play tonight.',
+							confidence: 0.8,
+							limitations: [],
+							source_kind: 'media_report',
+							citation_number: 1
+						})
+					]
+				};
+			}
+		});
+		const context: ConversationContext = {
+			intent: 'verify',
+			activeTopic: {
+				subject: 'ECCC weather alert for Toronto on July 28, 2026',
+				entities: ['ECCC'],
+				location: 'Toronto',
+				relevantDate: '2026-07-28'
+			},
+			lastSourceBackedAnswer: {
+				messageId: 'message-weather',
+				content: 'No active Toronto ECCC alert was verified [1].',
+				citations: [
+					{
+						citationNumber: 1,
+						title: 'Toronto weather alerts',
+						url: 'https://weather.gc.ca/warnings/report_e.html?on61',
+						domain: 'weather.gc.ca',
+						publicationDate: '2026-07-28',
+						sourceType: 'official',
+						supportingExcerpt: 'ECCC warning page for Toronto.'
+					}
+				],
+				publicationDates: ['2026-07-28']
+			}
+		};
+		const progress: RuntimeProgressEvent[] = [];
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			registry
+		});
+
+		const answer = await runtime.completeChat([{ role: 'user', content: 'Search sources and verify whether it is still active today.' }], {
+			plannerEnabled: false,
+			conversationContext: context,
+			onProgress: (event) => progress.push(event)
+		});
+
+		expect(answer).not.toMatch(/Santo Domingo|baseball|clubs play/i);
+		expect(answer).toMatch(/couldn't verify|No gathered evidence|no usable source/i);
+		expect(webToolCalls).toBe(1);
+		expect(progress.some((event) => event.type === 'source')).toBe(false);
+	});
+
+	it('drafts Toronto transit OCVO from the selected answer without researching a heat warning', async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ output_text: 'A heat warning script should not be used.' }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const progress: RuntimeProgressEvent[] = [];
+		const context: ConversationContext = {
+			intent: 'transform',
+			sourceMessageId: 'message-transit',
+			activeTopic: {
+				subject: 'Toronto transit service changes tonight',
+				entities: ['TTC'],
+				location: 'Toronto'
+			},
+			lastSourceBackedAnswer: {
+				messageId: 'message-transit',
+				content:
+					'The TTC lists Toronto transit service changes for tonight [2]. Riders should check the affected routes before leaving.',
+				citations: [
+					{
+						citationNumber: 2,
+						title: 'TTC service advisories',
+						url: 'https://www.ttc.ca/service-advisories',
+						domain: 'ttc.ca',
+						publicationDate: '2026-07-28',
+						sourceType: 'official',
+						supportingExcerpt: 'Service changes are listed for tonight.'
+					}
+				],
+				publicationDates: ['2026-07-28']
+			}
+		};
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'openai',
+			modelApiKey: 'fake-key',
+			openAiApiKey: ''
+		});
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: 'Write a 30-second OC/VO from this answer.' }],
+			{ conversationContext: context, onProgress: (event) => progress.push(event) }
+		);
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(progress).toEqual([]);
+		expect(answer).toMatch(/^ON CAM:\n/);
+		expect(answer).toContain('\n\nVO:\n');
+		expect(answer).toContain('\n\nBANNER:\n');
+		expect(answer).toContain('TTC');
+		expect(answer).toContain('Toronto transit');
+		expect(answer).toContain('[2]');
+		expect(answer).not.toMatch(/heat warning|weather\.gc\.ca|Sources|End|If you/i);
 	});
 
 	it('routes the current user question without letting system tool guidance hijack it', async () => {

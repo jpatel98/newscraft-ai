@@ -12,6 +12,7 @@ import {
 	createNewsroomAgentConfig,
 	type NewsroomAgentConfig
 } from './harness-config.js';
+import { formatConversationContext, guardEvidenceForConversation } from './grounded-conversation.js';
 import { resolveModelPolicy, type ModelPolicyDecision } from './model-policy.js';
 import {
 	defaultStepLabel,
@@ -24,7 +25,7 @@ import {
 import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest, type RouteDecision } from './router.js';
 import type { NewsroomTool, ToolRegistry, ToolRunContext, ToolRunOutput } from './tools.js';
 import type { ModelProvider } from '../util/openai-complete.js';
-import type { DocumentContext, NewsroomContext } from '@newscraft/shared';
+import type { ConversationContext, DocumentContext, NewsroomContext } from '@newscraft/shared';
 
 export interface NewsroomAgentRunContext {
 	repository?: HarnessRepository;
@@ -35,6 +36,7 @@ export interface NewsroomAgentRunContext {
 	openAiApiKey?: string;
 	trigger?: 'manual' | 'schedule' | 'test';
 	newsroomContext?: NewsroomContext;
+	conversationContext?: ConversationContext;
 	documents?: DocumentContext[];
 	signal?: AbortSignal;
 	outputStyle?: 'report' | 'chat';
@@ -134,10 +136,11 @@ export class DisciplinedNewsroomAgent {
 
 	async run(prompt: string, context: NewsroomAgentRunContext = {}): Promise<NewsroomAgentRunResult> {
 		const routingPrompt = context.routingPrompt?.trim() || prompt;
+		const researchPrompt = groundedResearchPrompt(routingPrompt, context.conversationContext);
 		let decision = routeNewsroomRequest(routingPrompt, {
 			default_tool_budget: this.config.default_tool_budget
 		});
-		if (context.documents?.length) decision = documentRouteDecision(decision, routingPrompt);
+		if (context.documents?.length) decision = documentRouteDecision(decision, researchPrompt);
 		const ledger = new ToolBudgetLedger(
 			mergeToolBudget({
 				...this.config.default_tool_budget,
@@ -183,7 +186,7 @@ export class DisciplinedNewsroomAgent {
 		}
 
 		const signal = combinedSignal(context.signal, decision.tool_budget.max_runtime_seconds);
-		const plan = await this.resolvePlan(routingPrompt, decision, context, signal);
+		const plan = await this.resolvePlan(researchPrompt, decision, context, signal);
 		const queue: QueuedStep[] = plan.steps.map((step, index) => ({
 			id: `step_${index + 1}`,
 			tool: step.tool,
@@ -245,7 +248,7 @@ export class DisciplinedNewsroomAgent {
 			step.status = 'running';
 			emitPlan();
 			context.onToolEvent?.({ type: 'tool_started', tool: tool.name, stepId: step.id, status: 'running', detail: step.label });
-			const output = await this.runTool(tool, prompt, decision, evidence, ledger.snapshot(), {
+			const rawOutput = await this.runTool(tool, prompt, decision, evidence, ledger.snapshot(), {
 				...context,
 				signal,
 				// Only one tool may stream answer text: the final answer uses the
@@ -253,6 +256,7 @@ export class DisciplinedNewsroomAgent {
 				// verbatim, and a second stream after a failed one would garble output.
 				onAnswerDelta: toolAnswers.length === 0 && !answerStreamUsed ? forwardAnswerDelta : undefined
 			}, step.input);
+			const output = applyConversationGuard(rawOutput, context.conversationContext);
 			lastOutput = output;
 			const outputLimitations = output.limitations || [];
 			const publicDetail = output.status === 'ok' ? undefined : publicStepFailureDetail(outputLimitations);
@@ -288,6 +292,12 @@ export class DisciplinedNewsroomAgent {
 
 		if (evidenceHasBlockingLimitation(evidence) && !limitations.some((item) => /blocked|unavailable/i.test(item))) {
 			limitations.push('One or more sources were blocked or unavailable.');
+		}
+		const finalGuard = guardEvidenceForConversation(evidence, context.conversationContext);
+		if (finalGuard.excluded.length) {
+			evidence.splice(0, evidence.length, ...finalGuard.evidence);
+			limitations.push(...finalGuard.limitations);
+			toolAnswers.splice(0, toolAnswers.length);
 		}
 		if (!toolCalls.length && plan.steps.length) {
 			limitations.push('No selected tools were run.');
@@ -529,6 +539,7 @@ export class DisciplinedNewsroomAgent {
 			openAiApiKey: context.openAiApiKey || this.options.openAiApiKey,
 			trigger: context.trigger,
 			newsroomContext: context.newsroomContext,
+			conversationContext: context.conversationContext,
 			documents: context.documents,
 			signal: context.signal,
 			onAnswerDelta: context.onAnswerDelta
@@ -579,6 +590,32 @@ function documentRouteDecision(base: RouteDecision, prompt: string): RouteDecisi
 			? 'a comparison that separates attached-document claims from external evidence'
 			: 'a document-only answer with page citations'
 	};
+}
+
+function applyConversationGuard(output: ToolRunOutput, context: ConversationContext | undefined): ToolRunOutput {
+	const guarded = guardEvidenceForConversation(output.evidence || [], context);
+	if (!guarded.excluded.length) return output;
+	const limitations = [...(output.limitations || []), ...guarded.limitations];
+	return {
+		...output,
+		status: output.status === 'ok' && output.evidence?.length && !guarded.evidence.length ? 'unavailable' : output.status,
+		evidence: guarded.evidence,
+		answer: undefined,
+		limitations
+	};
+}
+
+function groundedResearchPrompt(prompt: string, context: ConversationContext | undefined): string {
+	const grounded = formatConversationContext(context);
+	if (!grounded) return prompt;
+	return [
+		'Current user request:',
+		prompt,
+		'',
+		grounded,
+		'',
+		'Resolve follow-ups only from this conversation state. The current user request is authoritative; do not substitute a different story, location, sport, alert, or outlet.'
+	].join('\n');
 }
 
 function requestsExternalCorroboration(prompt: string): boolean {

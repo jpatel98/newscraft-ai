@@ -26,6 +26,51 @@ export interface NewsroomContext {
 	preferredDomains?: string[];
 }
 
+export type ConversationIntent = 'research' | 'verify' | 'correct' | 'transform';
+
+export interface ConversationTopic {
+	/** Human-readable subject carried across follow-ups. */
+	subject: string;
+	entities?: string[];
+	location?: string;
+	/** Calendar date or date phrase relevant to the claim, not a retrieval timestamp. */
+	relevantDate?: string;
+	/** Named publishers that the user explicitly asked to compare or verify directly. */
+	requestedOutlets?: string[];
+	/** True when republished copies cannot satisfy the requested outlet evidence. */
+	directSourcesRequired?: boolean;
+}
+
+export interface ConversationClaimState {
+	text: string;
+	status: 'disputed' | 'corrected' | 'retracted';
+	correction?: string;
+	messageId?: string;
+}
+
+export interface ConversationSourceAnswer {
+	messageId: string;
+	content: string;
+	citations: CitationRecord[];
+	publicationDates?: string[];
+}
+
+/**
+ * Provider-independent, conversation-scoped working state. The app rebuilds
+ * this bounded packet from durable messages and provenance for every request;
+ * the harness remains stateless.
+ */
+export interface ConversationContext {
+	version: 1;
+	intent: ConversationIntent;
+	activeTopic?: ConversationTopic;
+	targetMessageId?: string;
+	sourceMessageId?: string;
+	lastSourceBackedAnswer?: ConversationSourceAnswer;
+	claimStates?: ConversationClaimState[];
+	unresolvedQuestions?: string[];
+}
+
 export interface DocumentContextPage {
 	pageNumber: number;
 	text: string;
@@ -63,6 +108,8 @@ export interface GatewayChatCompletionRequest {
 	trace_id?: string;
 	/** Organization-scoped editorial defaults, kept separate from the user prompt. */
 	newsroom_context?: NewsroomContext;
+	/** Bounded conversation state rebuilt by the durable app owner. */
+	conversation_context?: ConversationContext;
 	/** Bounded page excerpts from private conversation documents. */
 	documents?: DocumentContext[];
 }
@@ -113,6 +160,8 @@ export interface GatewayResponsesRequest {
 	trace_id?: string;
 	/** Organization-scoped editorial defaults, kept separate from the user prompt. */
 	newsroom_context?: NewsroomContext;
+	/** Bounded conversation state rebuilt by the durable app owner. */
+	conversation_context?: ConversationContext;
 	/** Bounded page excerpts from private conversation documents. */
 	documents?: DocumentContext[];
 }

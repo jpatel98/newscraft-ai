@@ -82,4 +82,30 @@ describe('markdown rendering', () => {
 		expect(html).toContain('href="https://example.com/minutes"');
 		expect(html).toContain('Caveat: The official minutes were not posted yet.');
 	});
+
+	it('renders hydration-stable sanitized HTML while preserving legitimate Markdown', () => {
+		const prepared = prepareAssistantMarkdown(
+			[
+				'User note: keep **this wording** and the citation marker [9].',
+				'',
+				'| Claim | Source |',
+				'| --- | --- |',
+				'| Service changes tonight | [TTC](https://www.ttc.ca/service-advisories) |',
+				'',
+				'Unsafe raw HTML should be text: <script>alert(1)</script>',
+				'',
+				'If you’d like, the next step can be a separate source list.'
+			].join('\n')
+		);
+		const serverHtml = renderMarkdownToHtml(prepared);
+		const clientHtml = renderMarkdownToHtml(prepared);
+
+		expect(clientHtml).toBe(serverHtml);
+		expect(serverHtml).toContain('<strong>this wording</strong>');
+		expect(serverHtml).toContain('<table>');
+		expect(serverHtml).toContain('href="https://www.ttc.ca/service-advisories"');
+		expect(serverHtml).toContain('[9]');
+		expect(serverHtml).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+		expect(serverHtml).not.toContain('next step can be');
+	});
 });

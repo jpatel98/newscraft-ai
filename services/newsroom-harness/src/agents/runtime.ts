@@ -1,6 +1,7 @@
 import type {
 	CitationRecord,
 	CitationSourceType,
+	ConversationContext,
 	DocumentContext,
 	GatewayChatMessage,
 	NewsroomContext,
@@ -8,7 +9,8 @@ import type {
 } from '@newscraft/shared';
 import { createHash } from 'node:crypto';
 import { AssignmentDesk, type AssignmentDeskDecision } from './assignment-desk.js';
-import { cleanVisibleChatOutput } from './answer.js';
+import { cleanVisibleChatOutput, draftNewsroomOcvoFromConversation } from './answer.js';
+import { formatConversationContext } from './grounded-conversation.js';
 import { routeNewsroomRequest } from './router.js';
 import { roleLabel, type NewsroomRole } from './roles.js';
 import {
@@ -58,6 +60,7 @@ export interface RuntimeContext {
 	/** Diagnostics/eval override: false forces the regex-router fallback for this request. */
 	plannerEnabled?: boolean;
 	newsroomContext?: NewsroomContext;
+	conversationContext?: ConversationContext;
 	documents?: DocumentContext[];
 }
 
@@ -102,12 +105,12 @@ export class NewsroomAgentRuntime {
 			return this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 		}
 		if (isSimpleGreeting(latestUserPrompt)) return 'Hi. What should NewsCraft work on?';
-		if (shouldAskForClarification(messages, latestUserPrompt) && !context.documents?.length) {
+		if (shouldAskForClarification(messages, latestUserPrompt, context.conversationContext) && !context.documents?.length) {
 			return clarificationAnswer(latestUserPrompt);
 		}
 		const formatFollowup = formatOnlyFollowupAnswer(messages);
 		if (formatFollowup) return formatFollowup;
-		if (isDirectAnswerPrompt(latestUserPrompt) && !context.documents?.length) {
+		if (isDirectAnswerPrompt(latestUserPrompt, context.conversationContext) && !context.documents?.length) {
 			return this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
 		}
 		if (!this.modelApiKey()) return this.localChat(prompt);
@@ -118,7 +121,8 @@ export class NewsroomAgentRuntime {
 						messages,
 						{ timeZone: context.newsroomContext?.timezone },
 						context.newsroomContext,
-						context.documents
+						context.documents,
+						context.conversationContext
 					),
 					latestUserPrompt,
 					context
@@ -144,7 +148,7 @@ export class NewsroomAgentRuntime {
 			for (const chunk of splitForStreaming('Hi. What should NewsCraft work on?')) yield chunk;
 			return;
 		}
-		if (shouldAskForClarification(messages, latestUserPrompt) && !context.documents?.length) {
+		if (shouldAskForClarification(messages, latestUserPrompt, context.conversationContext) && !context.documents?.length) {
 			for (const chunk of splitForStreaming(clarificationAnswer(latestUserPrompt))) yield chunk;
 			return;
 		}
@@ -153,7 +157,7 @@ export class NewsroomAgentRuntime {
 			for (const chunk of splitForStreaming(formatFollowup)) yield chunk;
 			return;
 		}
-		if (isDirectAnswerPrompt(latestUserPrompt) && !context.documents?.length) {
+		if (isDirectAnswerPrompt(latestUserPrompt, context.conversationContext) && !context.documents?.length) {
 			const answer = await this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
 			for (const chunk of splitForStreaming(answer)) yield chunk;
 			return;
@@ -164,11 +168,12 @@ export class NewsroomAgentRuntime {
 		}
 		yield* this.disciplinedStream(
 			buildDisciplinedChatPrompt(
-				messages,
-				{ timeZone: context.newsroomContext?.timezone },
-				context.newsroomContext,
-				context.documents
-			),
+			messages,
+			{ timeZone: context.newsroomContext?.timezone },
+			context.newsroomContext,
+			context.documents,
+			context.conversationContext
+		),
 			latestUserPrompt,
 			context
 		);
@@ -197,6 +202,7 @@ export class NewsroomAgentRuntime {
 			modelApiKey: this.modelApiKey(),
 			trigger: context.trigger,
 			newsroomContext: context.newsroomContext,
+			conversationContext: context.conversationContext,
 			documents: context.documents,
 			signal: context.signal,
 			onPlanEvent: (event) => context.onProgress?.({ type: 'plan', planSource: event.source, steps: event.steps }),
@@ -254,7 +260,10 @@ export class NewsroomAgentRuntime {
 	}
 
 	private async directChatCompletion(messages: GatewayChatMessage[], context: RuntimeContext): Promise<string> {
-		const prompt = buildDirectChatPrompt(messages);
+		const latestUserPrompt = latestUserPromptFromChatMessages(messages);
+		const ocvo = draftNewsroomOcvoFromConversation(latestUserPrompt, context.conversationContext);
+		if (ocvo) return ocvo;
+		const prompt = buildDirectChatPrompt(messages, context.conversationContext);
 		if (!this.modelApiKey()) return this.localDirectChat(prompt);
 		const decision = this.modelDecision('interactive_chat', context);
 		this.emitModelPolicyEvent(decision, context);
@@ -322,6 +331,7 @@ export class NewsroomAgentRuntime {
 			modelApiKey: this.modelApiKey(),
 			trigger: context.trigger,
 			newsroomContext: context.newsroomContext,
+			conversationContext: context.conversationContext,
 			documents: context.documents,
 			signal: context.signal,
 			outputStyle: 'chat',
@@ -329,7 +339,7 @@ export class NewsroomAgentRuntime {
 			forcePlanner: context.plannerEnabled === true,
 			onPlanEvent: (event) => context.onProgress?.({ type: 'plan', planSource: event.source, steps: event.steps }),
 			onToolEvent: (event) => this.forwardDisciplinedProgress(event, context),
-			onAnswerDelta
+			onAnswerDelta: shouldBufferGroundedAnswer(context.conversationContext) ? undefined : onAnswerDelta
 		});
 		reconcileDocumentAndWebEvidence(result, context.documents);
 		this.emitCitationRecords(result.evidence, context);
@@ -669,13 +679,19 @@ function isSimpleGreeting(prompt: string): boolean {
 	);
 }
 
-function isDirectAnswerPrompt(prompt: string): boolean {
+function isDirectAnswerPrompt(prompt: string, conversationContext?: ConversationContext): boolean {
+	if (conversationContext?.intent === 'transform' && conversationContext.lastSourceBackedAnswer) return true;
 	if (/\b(?:turn|rewrite|using only)\b[\s\S]{0,100}\bprevious answer\b/i.test(prompt)) return true;
 	return routeNewsroomRequest(prompt).selected_mode === 'direct_answer';
 }
 
-function shouldAskForClarification(messages: GatewayChatMessage[], latestUserPrompt: string): boolean {
+function shouldAskForClarification(
+	messages: GatewayChatMessage[],
+	latestUserPrompt: string,
+	conversationContext?: ConversationContext
+): boolean {
 	if (routeNewsroomRequest(latestUserPrompt).selected_mode !== 'clarification_needed') return false;
+	if (conversationContext?.activeTopic || conversationContext?.lastSourceBackedAnswer) return false;
 	const latestUserIndex = latestUserIndexFromChatMessages(messages);
 	return !recentConversationContext(messages, latestUserIndex);
 }
@@ -846,14 +862,16 @@ export function buildDisciplinedChatPrompt(
 	messages: GatewayChatMessage[],
 	timeOptions: NewsroomTimeContextOptions = {},
 	newsroomContext?: NewsroomContext,
-	documents: DocumentContext[] = []
+	documents: DocumentContext[] = [],
+	conversationContext?: ConversationContext
 ): string {
 	const latestUserIndex = latestUserIndexFromChatMessages(messages);
 	const latestUserPrompt =
 		latestUserIndex >= 0 ? chatMessageText(messages[latestUserIndex]).trim() : promptFromChatMessages(messages).trim();
 	if (!latestUserPrompt) return promptFromChatMessages(messages);
 
-	const priorContext = recentConversationContext(messages, latestUserIndex);
+	const groundedContext = formatConversationContext(conversationContext);
+	const priorContext = groundedContext ? '' : recentConversationContext(messages, latestUserIndex);
 	const systemInstructions = systemInstructionsFromChatMessages(messages);
 	const dateContext = newsroomTimeContext(timeOptions);
 	const structuredContext = structuredNewsroomContext(newsroomContext);
@@ -863,6 +881,7 @@ export function buildDisciplinedChatPrompt(
 			dateContext,
 			...(structuredContext ? ['', structuredContext] : []),
 			...(documentContext ? ['', documentContext] : []),
+			...(groundedContext ? ['', groundedContext] : []),
 			...(systemInstructions ? ['', 'System and newsroom instructions:', systemInstructions] : []),
 			'',
 			'Current user question:',
@@ -874,6 +893,7 @@ export function buildDisciplinedChatPrompt(
 		dateContext,
 		...(structuredContext ? ['', structuredContext] : []),
 		...(documentContext ? ['', documentContext] : []),
+		...(groundedContext ? ['', groundedContext] : []),
 		...(systemInstructions ? ['', 'System and newsroom instructions:', systemInstructions] : []),
 		'',
 		'Current user question:',
@@ -994,20 +1014,30 @@ function citationDomain(url: string, sourceType: CitationSourceType): string {
 	}
 }
 
-function buildDirectChatPrompt(messages: GatewayChatMessage[]): string {
+function buildDirectChatPrompt(messages: GatewayChatMessage[], conversationContext?: ConversationContext): string {
 	const latestUserIndex = latestUserIndexFromChatMessages(messages);
 	const latestUserPrompt =
 		latestUserIndex >= 0 ? chatMessageText(messages[latestUserIndex]).trim() : promptFromChatMessages(messages).trim();
 	if (!latestUserPrompt) return promptFromChatMessages(messages);
 
-	const priorContext = recentConversationContext(messages, latestUserIndex);
+	const groundedContext = formatConversationContext(conversationContext);
+	const priorContext = groundedContext ? '' : recentConversationContext(messages, latestUserIndex);
 	const systemInstructions = systemInstructionsFromChatMessages(messages);
 	return [
 		...(systemInstructions ? ['System and newsroom instructions:', systemInstructions, ''] : []),
+		...(groundedContext ? [groundedContext, ''] : []),
 		'Current user request:',
 		latestUserPrompt,
 		...(priorContext ? ['', 'Recent conversation context:', priorContext] : [])
 	].join('\n');
+}
+
+function shouldBufferGroundedAnswer(conversationContext?: ConversationContext): boolean {
+	return Boolean(
+		conversationContext?.activeTopic ||
+			conversationContext?.lastSourceBackedAnswer ||
+			conversationContext?.claimStates?.length
+	);
 }
 
 function latestUserIndexFromChatMessages(messages: GatewayChatMessage[]): number {

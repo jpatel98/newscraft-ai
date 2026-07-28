@@ -1,4 +1,5 @@
 import type { ToolBudgetSnapshot } from './budget.js';
+import type { ConversationContext } from '@newscraft/shared';
 import {
 	assessEvidenceQuality,
 	isUsableEvidence,
@@ -119,13 +120,116 @@ function chatToolAnswerCaveats(prompt: string, caveats: string[]): string[] {
 }
 
 export function cleanVisibleChatOutput(answer: string, prompt = ''): string {
-	const cleaned = cleanChatToolAnswer(answer);
+	const cleaned = cleanChatToolAnswer(answer, { preserveUrls: wantsDirectUrls(prompt) });
 	if (wantsTable(prompt)) return compactChatText(cleaned, 4000);
 	return polishedChatText(cleaned, 4000);
 }
 
+export function draftNewsroomOcvoFromConversation(
+	prompt: string,
+	context: ConversationContext | undefined
+): string | null {
+	if (context?.intent !== 'transform' || !context.lastSourceBackedAnswer || !wantsNewsroomOcvo(prompt)) {
+		return null;
+	}
+	const sourceAnswer = sanitizeOcvoSourceText(context.lastSourceBackedAnswer.content);
+	if (!sourceAnswer) return null;
+	const sentences = splitScriptSentences(sourceAnswer);
+	const first = sentences[0] || sourceAnswer;
+	const citationNumber = context.lastSourceBackedAnswer.citations[0]?.citationNumber;
+	const onCam = appendCitationMarker(scriptLine(first, 210), citationNumber);
+	const voCandidates = uniqueScriptLines(sentences.slice(1), onCam)
+		.slice(0, 3)
+		.map((sentence) => scriptLine(sentence, 230))
+		.filter(Boolean);
+	const vo = voCandidates.length ? voCandidates : [scriptLine(sourceAnswer, 260)];
+	const banner = bannerTextForContext(context, sourceAnswer);
+	return [
+		'ON CAM:',
+		onCam,
+		'',
+		'VO:',
+		...vo.map((line, index) => (index === vo.length - 1 ? appendCitationMarker(line, citationNumber) : line)),
+		...(banner ? ['', 'BANNER:', banner] : [])
+	].join('\n');
+}
+
+function wantsNewsroomOcvo(prompt: string): boolean {
+	return /\b(?:ocvo|oc\/vo|on[- ]?cam(?:era)?|voice[- ]?over|vo|script)\b/i.test(prompt);
+}
+
+function sanitizeOcvoSourceText(value: string): string {
+	const withoutSections = cleanChatToolAnswer(value)
+		.replace(/\[(?:Sources?|End|END|source list|source)\]/gi, ' ')
+		.replace(/(?:^|\n)\s*(?:ON\s*CAM|ONCAM|VO|V\/O|BANNER|SUPER)\s*:?\s*/gi, '\n')
+		.replace(/\b(?:ON\s*CAM|ONCAM)\s*:\s*(?=\S)/gi, '\n')
+		.replace(/\b(?:V\/O|VO)\s*:\s*(?=\S)/gi, '\n')
+		.replace(/\bBANNER\s*:\s*(?=\S)/gi, '\n')
+		.replace(
+			/(?:^|\n)\s*.*\b(?:openai|perplexity|web_search|tool call|provider|http\s*\d{3}|status code|api key|model)\b.*$/gim,
+			'\n'
+		)
+		.replace(/(?:^|\n)\s*(?:version|take)\s+\d+\s*:?\s*/gi, '\n')
+		.replace(/\b(?:If you(?:'|’)d like|Would you like|Do you want)\b[\s\S]*$/i, '')
+		.replace(/\s+/g, ' ')
+		.trim();
+	return withoutSections.replace(/\s+([,.;:!?])/g, '$1');
+}
+
+function splitScriptSentences(value: string): string[] {
+	const protectedCitations = value.replace(/\[(\d+)\]/g, '{{$1}}');
+	return protectedCitations
+		.split(/(?<=[.!?])\s+/)
+		.map((sentence) => sentence.replace(/\{\{(\d+)\}\}/g, '[$1]').trim())
+		.filter((sentence) => sentence.length >= 8);
+}
+
+function uniqueScriptLines(sentences: string[], existing: string): string[] {
+	const seen = new Set([normalizeComparable(existing)]);
+	const result: string[] = [];
+	for (const sentence of sentences) {
+		const key = normalizeComparable(sentence);
+		if (!key || seen.has(key)) continue;
+		seen.add(key);
+		result.push(sentence);
+	}
+	return result;
+}
+
+function scriptLine(value: string, maxLength: number): string {
+	return ensureTerminalPunctuation(compactText(value, maxLength).replace(/^[-*]\s*/, '').trim());
+}
+
+function appendCitationMarker(value: string, citationNumber: number | undefined): string {
+	if (!citationNumber || new RegExp(`\\[${citationNumber}\\]`).test(value)) return value;
+	if (/\[\d+\]\s*$/.test(value)) return value;
+	return `${value.replace(/[.?!]?$/, '')} [${citationNumber}].`;
+}
+
+function ensureTerminalPunctuation(value: string): string {
+	if (!value) return value;
+	return /[.!?]\s*(?:\[\d+\])?$/.test(value) ? value : `${value}.`;
+}
+
+function bannerTextForContext(context: ConversationContext, sourceAnswer: string): string {
+	const candidates = [
+		context.activeTopic?.location && context.activeTopic.subject
+			? `${context.activeTopic.location}: ${context.activeTopic.subject}`
+			: '',
+		context.activeTopic?.subject || '',
+		sourceAnswer
+	];
+	const candidate = candidates.find((item) => item.trim()) || '';
+	return compactText(candidate.replace(/\[\d+\]/g, ''), 64).replace(/[.!?]$/, '');
+}
+
 function wantsTable(prompt: string): boolean {
 	return /\b(table|tabular|rows?|columns?)\b/i.test(prompt);
+}
+
+function wantsDirectUrls(prompt: string): boolean {
+	return /\b(?:exact|direct|raw)\s+(?:links?|urls?)\b/i.test(prompt) ||
+		/\b(?:give|show|list|include)\b[\s\S]{0,40}\b(?:links?|urls?)\b/i.test(prompt);
 }
 
 function chatNoLead(unusableEvidence: EvidenceObject[], limitations: string[] = []): string {
@@ -422,8 +526,8 @@ function compactChatText(value: string, maxLength: number): string {
 	return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
 }
 
-function cleanChatToolAnswer(value: string): string {
-	return normalizeChatAnswerWhitespace(repairInlineStoryLines(stripCitationChatter(stripSourceSections(value))));
+function cleanChatToolAnswer(value: string, options: { preserveUrls?: boolean } = {}): string {
+	return normalizeChatAnswerWhitespace(repairInlineStoryLines(stripCitationChatter(stripSourceSections(value), options)));
 }
 
 function stripSourceSections(value: string): string {
@@ -435,8 +539,8 @@ function stripSourceSections(value: string): string {
 		.replace(/(?:^|\n)\s*(?:[-*]\s*)?\[[^\]]+\]\(https?:\/\/[^)]+\)[^\n]*/gi, '');
 }
 
-function stripCitationChatter(value: string): string {
-	return value
+function stripCitationChatter(value: string, options: { preserveUrls?: boolean } = {}): string {
+	const cleaned = value
 		.replace(
 			/(?:^|\n)\s*If you(?:'|’)d like,\s*(?:the )?next step can be[\s\S]*?(?=\n{2,}|$)/gi,
 			''
@@ -457,7 +561,9 @@ function stripCitationChatter(value: string): string {
 		.replace(/\bAdditional confirmations?:\s*[\s\S]*$/i, '')
 		.replace(/\bAP write[- ]?up carried by\s*[\s\S]*$/i, '')
 		.replace(/\bCanadian Press version carried by\s*[\s\S]*$/i, '')
-		.replace(/\bIt is based on media\/search results and should be checked against a primary source before publication\.?/gi, '')
+		.replace(/\bIt is based on media\/search results and should be checked against a primary source before publication\.?/gi, '');
+	if (options.preserveUrls) return cleaned;
+	return cleaned
 		.replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/gi, '$1')
 		.replace(/https?:\/\/\S+/gi, '')
 		.replace(/\s+\((?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^)]*)?\)/gi, '');
