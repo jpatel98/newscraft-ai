@@ -132,24 +132,32 @@ export function draftNewsroomOcvoFromConversation(
 	if (context?.intent !== 'transform' || !context.lastSourceBackedAnswer || !wantsNewsroomOcvo(prompt)) {
 		return null;
 	}
-	const sourceAnswer = sanitizeOcvoSourceText(context.lastSourceBackedAnswer.content);
+	const resolvableCitationNumbers = new Set(
+		context.lastSourceBackedAnswer.citations.map((citation) => citation.citationNumber)
+	);
+	const sourceAnswer = stripUnresolvedCitationMarkers(
+		sanitizeOcvoSourceText(context.lastSourceBackedAnswer.content),
+		resolvableCitationNumbers
+	);
 	if (!sourceAnswer) return null;
 	const sentences = splitScriptSentences(sourceAnswer);
-	const first = sentences[0] || sourceAnswer;
-	const citationNumber = context.lastSourceBackedAnswer.citations[0]?.citationNumber;
-	const onCam = appendCitationMarker(scriptLine(first, 210), citationNumber);
-	const voCandidates = uniqueScriptLines(sentences.slice(1), onCam)
-		.slice(0, 3)
-		.map((sentence) => scriptLine(sentence, 230))
+	const scriptSentences = selectCitationPreservingScriptSentences(
+		sentences.length ? sentences : [sourceAnswer],
+		resolvableCitationNumbers
+	);
+	const scriptLines = dedupeVisibleCitationMarkers(scriptSentences, resolvableCitationNumbers)
+		.map((sentence, index) => scriptLine(sentence, index === 0 ? 260 : 280))
 		.filter(Boolean);
-	const vo = voCandidates.length ? voCandidates : [scriptLine(sourceAnswer, 260)];
+	const onCam = scriptLines[0] || scriptLine(sourceAnswer, 260);
+	const vo = uniqueScriptLines(scriptLines.slice(1), onCam);
+	if (!vo.length) vo.push(scriptLine(removeCitationMarkers(sourceAnswer), 280));
 	const banner = bannerTextForContext(context, sourceAnswer);
 	return [
 		'ON CAM:',
 		onCam,
 		'',
 		'VO:',
-		...vo.map((line, index) => (index === vo.length - 1 ? appendCitationMarker(line, citationNumber) : line)),
+		...vo,
 		...(banner ? ['', 'BANNER:', banner] : [])
 	].join('\n');
 }
@@ -184,6 +192,62 @@ function splitScriptSentences(value: string): string[] {
 		.filter((sentence) => sentence.length >= 8);
 }
 
+function selectCitationPreservingScriptSentences(sentences: string[], citationNumbers: Set<number>): string[] {
+	const targetNumbers = new Set(
+		sentences.flatMap((sentence) => citationMarkersInText(sentence).filter((number) => citationNumbers.has(number)))
+	);
+	if (!targetNumbers.size) return uniqueScriptLines(sentences, '').slice(0, 4);
+
+	const selected: string[] = [];
+	const covered = new Set<number>();
+	for (const sentence of sentences) {
+		const markers = citationMarkersInText(sentence).filter((number) => targetNumbers.has(number));
+		if (!markers.some((number) => !covered.has(number))) continue;
+		selected.push(sentence);
+		for (const marker of markers) covered.add(marker);
+		if (covered.size === targetNumbers.size) break;
+	}
+	return selected.length ? selected : uniqueScriptLines(sentences, '').slice(0, 4);
+}
+
+function dedupeVisibleCitationMarkers(sentences: string[], citationNumbers: Set<number>): string[] {
+	const seen = new Set<number>();
+	return sentences
+		.map((sentence) =>
+			sentence
+				.replace(/\[(\d+)\]/g, (marker, rawNumber: string) => {
+					const number = Number(rawNumber);
+					if (!citationNumbers.has(number) || seen.has(number)) return '';
+					seen.add(number);
+					return marker;
+				})
+				.replace(/\s+([,.;:!?])/g, '$1')
+				.replace(/\s{2,}/g, ' ')
+				.trim()
+		)
+		.filter(Boolean);
+}
+
+function stripUnresolvedCitationMarkers(value: string, citationNumbers: Set<number>): string {
+	return value
+		.replace(/\[(\d+)\]/g, (marker, rawNumber: string) =>
+			citationNumbers.has(Number(rawNumber)) ? marker : ''
+		)
+		.replace(/\s+([,.;:!?])/g, '$1')
+		.replace(/\s{2,}/g, ' ')
+		.trim();
+}
+
+function removeCitationMarkers(value: string): string {
+	return value.replace(/\s*\[\d+\]/g, '').trim();
+}
+
+function citationMarkersInText(value: string): number[] {
+	return Array.from(value.matchAll(/\[(\d+)\]/g), (match) => Number(match[1])).filter((number) =>
+		Number.isInteger(number)
+	);
+}
+
 function uniqueScriptLines(sentences: string[], existing: string): string[] {
 	const seen = new Set([normalizeComparable(existing)]);
 	const result: string[] = [];
@@ -198,12 +262,6 @@ function uniqueScriptLines(sentences: string[], existing: string): string[] {
 
 function scriptLine(value: string, maxLength: number): string {
 	return ensureTerminalPunctuation(compactText(value, maxLength).replace(/^[-*]\s*/, '').trim());
-}
-
-function appendCitationMarker(value: string, citationNumber: number | undefined): string {
-	if (!citationNumber || new RegExp(`\\[${citationNumber}\\]`).test(value)) return value;
-	if (/\[\d+\]\s*$/.test(value)) return value;
-	return `${value.replace(/[.?!]?$/, '')} [${citationNumber}].`;
 }
 
 function ensureTerminalPunctuation(value: string): string {

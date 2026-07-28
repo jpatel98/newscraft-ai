@@ -129,6 +129,92 @@ describe('citation and source-quality web research', () => {
 		expect(result.evidence?.some((source) => source.source_url === 'https://example.com/action-only')).toBe(false);
 	});
 
+	it('preserves meaningful query-string and fragment identity for OpenAI annotations', async () => {
+		const urls = [
+			'https://example.com/story?edition=morning',
+			'https://example.com/story?edition=evening',
+			'https://example.com/story?edition=morning#correction'
+		];
+		const segments = ['Morning edition claim', 'Evening edition claim', 'Correction fragment claim'];
+		const text = `${segments.join('. ')}.`;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					output_text: text,
+					output: [
+						{
+							type: 'message',
+							content: [
+								{
+									type: 'output_text',
+									text,
+									annotations: annotationFixtures(text, segments, urls)
+								}
+							]
+						}
+					],
+					search_results: urls.map((url, index) => ({
+						url,
+						title: `Exact source ${index + 1}`,
+						snippet: `Supporting excerpt ${index + 1}`
+					}))
+				})
+			)
+		);
+
+		const result = await runWebSearch('Summarize annotated OpenAI source identity', { provider: 'openai' });
+
+		expect(result.answer).toContain('Morning edition claim [1]');
+		expect(result.answer).toContain('Evening edition claim [2]');
+		expect(result.answer).toContain('Correction fragment claim [3]');
+		expect(result.evidence?.map((source) => source.source_url)).toEqual(urls);
+		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2, 3]);
+	});
+
+	it('dedupes exact and tracking-only repeated OpenAI annotations without losing visible resolution', async () => {
+		const canonical = 'https://example.com/story?id=123#section';
+		const tracking = 'https://example.com/story?id=123&utm_source=newscraft#section';
+		const repeated = 'https://example.com/other?id=456';
+		const segments = ['First exact-source claim', 'Tracking duplicate claim', 'Repeated annotation claim', 'Repeated annotation follow-up'];
+		const text = `${segments.join('. ')}.`;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					output_text: text,
+					output: [
+						{
+							type: 'message',
+							content: [
+								{
+									type: 'output_text',
+									text,
+									annotations: annotationFixtures(text, segments, [canonical, tracking, repeated, repeated])
+								}
+							]
+						}
+					],
+					search_results: [
+						{ url: canonical, title: 'Canonical source', snippet: 'Canonical evidence' },
+						{ url: repeated, title: 'Repeated source', snippet: 'Repeated evidence' }
+					]
+				})
+			)
+		);
+
+		const result = await runWebSearch('Summarize repeated annotated OpenAI source identity', {
+			provider: 'openai'
+		});
+
+		expect(result.answer).toContain('First exact-source claim [1]');
+		expect(result.answer).toContain('Tracking duplicate claim [1]');
+		expect(result.answer).toContain('Repeated annotation claim [2]');
+		expect(result.answer).toContain('Repeated annotation follow-up [2]');
+		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
+		expect(result.evidence?.map((source) => source.source_url)).toEqual([canonical, repeated]);
+	});
+
 	it('retains raw URLs when the user asks for direct links', () => {
 		const answer = 'Direct link: https://example.com/story?story=1 [1].';
 
@@ -389,6 +475,22 @@ function jsonResponse(value: unknown): Response {
 	return new Response(JSON.stringify(value), {
 		status: 200,
 		headers: { 'content-type': 'application/json' }
+	});
+}
+
+function annotationFixtures(text: string, segments: string[], urls: string[]) {
+	let cursor = 0;
+	return segments.map((segment, index) => {
+		const start = text.indexOf(segment, cursor);
+		const end = start + segment.length;
+		cursor = end;
+		return {
+			type: 'url_citation',
+			url: urls[index],
+			title: `Annotated source ${index + 1}`,
+			start_index: start,
+			end_index: end
+		};
 	});
 }
 

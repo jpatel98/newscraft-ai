@@ -1,6 +1,10 @@
 import type {
 	GatewayChatCompletionRequest,
 	GatewayChatCompletionResponse,
+	GatewayChatMessage,
+	GatewayContent,
+	GatewayContentPart,
+	GatewayResponseInputMessage,
 	GatewayResponsesRequest
 } from '@newscraft/shared';
 import {
@@ -16,7 +20,7 @@ import type { NewsroomAgentRuntime, RuntimeProgressEvent } from './agents/runtim
 import { cleanVisibleChatOutput } from './agents/answer.js';
 import { newId } from './util/ids.js';
 import { noStoreSseHeaders } from './util/http.js';
-import { promptFromChatMessages, promptFromResponseInput } from './util/text.js';
+import { promptFromChatMessages } from './util/text.js';
 
 export async function writeChatCompletion(
 	res: ServerResponse,
@@ -90,8 +94,8 @@ export async function writeResponses(
 ): Promise<void> {
 	const id = newId('resp');
 	const model = body.model || 'newsroom-harness';
-	const prompt = promptFromResponseInput(body.input || '', body.instructions);
-	const messages = [{ role: 'user' as const, content: prompt }];
+	const messages = messagesFromResponsesRequest(body);
+	const prompt = promptFromChatMessages(messages);
 
 	if (body.stream) {
 		res.writeHead(200, noStoreSseHeaders());
@@ -152,6 +156,38 @@ export async function writeResponses(
 			output: [{ type: 'message', content: [{ type: 'output_text', text }] }]
 		})
 	);
+}
+
+function messagesFromResponsesRequest(body: GatewayResponsesRequest): GatewayChatMessage[] {
+	const messages: GatewayChatMessage[] = [];
+	const instructions = body.instructions?.trim();
+	if (instructions) messages.push({ role: 'system', content: instructions });
+	if (typeof body.input === 'string') {
+		if (body.input.trim()) messages.push({ role: 'user', content: body.input });
+		return messages;
+	}
+	for (const item of body.input || []) {
+		const content = responseInputContentToChatContent(item);
+		if (!content) continue;
+		messages.push({ role: item.role, content });
+	}
+	return messages;
+}
+
+function responseInputContentToChatContent(item: GatewayResponseInputMessage): GatewayContent | null {
+	if (typeof item.content === 'string') return item.content;
+	const parts: GatewayContentPart[] = [];
+	for (const part of item.content) {
+		if (part.type === 'input_text' && part.text) {
+			parts.push({ type: 'text', text: part.text });
+			continue;
+		}
+		if (part.type === 'input_image' && part.image_url) {
+			parts.push({ type: 'image_url', image_url: { url: part.image_url } });
+		}
+	}
+	if (!parts.length) return null;
+	return parts;
 }
 
 function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {

@@ -1033,10 +1033,18 @@ function buildDirectChatPrompt(messages: GatewayChatMessage[], conversationConte
 }
 
 function shouldBufferGroundedAnswer(conversationContext?: ConversationContext): boolean {
+	if (!conversationContext) return false;
+	if (conversationContext.claimStates?.length) return true;
+	const topic = conversationContext.activeTopic;
+	if (!topic) return false;
+	// Buffer only when the conversation guard may reject streamed provider text
+	// after checking evidence against topic constraints.
 	return Boolean(
-		conversationContext?.activeTopic ||
-			conversationContext?.lastSourceBackedAnswer ||
-			conversationContext?.claimStates?.length
+		topic.location ||
+			topic.relevantDate ||
+			topic.entities?.length ||
+			topic.requestedOutlets?.length ||
+			topic.directSourcesRequired
 	);
 }
 

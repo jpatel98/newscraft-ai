@@ -350,6 +350,87 @@ describe('newsroom agent runtime', () => {
 		expect(answer).not.toMatch(/heat warning|weather\.gc\.ca|Sources|End|If you/i);
 	});
 
+	it('preserves multi-source OCVO claim citations from the selected answer without research', async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ output_text: 'Provider text should not be used.' }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const context: ConversationContext = {
+			intent: 'transform',
+			sourceMessageId: 'message-transit',
+			activeTopic: {
+				subject: 'Toronto transit service changes tonight',
+				entities: ['TTC'],
+				location: 'Toronto'
+			},
+			lastSourceBackedAnswer: {
+				messageId: 'message-transit',
+				content: [
+					'The TTC says Line 1 service changes start tonight [1].',
+					'The City of Toronto says shuttle buses will run on Queen Street [2].',
+					'Metrolinx says GO Transit connections are not affected [3].'
+				].join(' '),
+				citations: [
+					{
+						citationNumber: 1,
+						title: 'TTC service advisory',
+						url: 'https://www.ttc.ca/service-advisories/line-1',
+						domain: 'ttc.ca',
+						publicationDate: '2026-07-28',
+						sourceType: 'official',
+						supportingExcerpt: 'Line 1 service changes start tonight.'
+					},
+					{
+						citationNumber: 2,
+						title: 'Queen Street shuttle update',
+						url: 'https://www.toronto.ca/news/queen-shuttle',
+						domain: 'toronto.ca',
+						publicationDate: '2026-07-28',
+						sourceType: 'official',
+						supportingExcerpt: 'Shuttle buses will run on Queen Street.'
+					},
+					{
+						citationNumber: 3,
+						title: 'GO Transit update',
+						url: 'https://www.gotransit.com/service-updates',
+						domain: 'gotransit.com',
+						publicationDate: '2026-07-28',
+						sourceType: 'primary',
+						supportingExcerpt: 'GO Transit connections are not affected.'
+					}
+				],
+				publicationDates: ['2026-07-28']
+			}
+		};
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'openai',
+			modelApiKey: 'fake-key',
+			openAiApiKey: ''
+		});
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: 'Write a 30-second OC/VO from this answer.' }],
+			{ conversationContext: context }
+		);
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(answer).toMatch(/^ON CAM:\n/);
+		expect(answer).toContain('\n\nVO:\n');
+		expect(answer).toMatch(/TTC says Line 1 service changes start tonight \[1\]\./);
+		expect(answer).toMatch(/shuttle buses will run on Queen Street \[2\]\./);
+		expect(answer).toMatch(/GO Transit connections are not affected \[3\]\./);
+		for (const number of [1, 2, 3]) {
+			expect(answer.match(new RegExp(`\\[${number}\\]`, 'g'))).toHaveLength(1);
+		}
+		expect(answer).not.toMatch(/Provider text|openai|web_search|Would you like|Sources|End/i);
+	});
+
 	it('routes the current user question without letting system tool guidance hijack it', async () => {
 		const registry = new ToolRegistry();
 		registry.register(

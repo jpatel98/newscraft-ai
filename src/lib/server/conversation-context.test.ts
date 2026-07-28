@@ -3,6 +3,7 @@ import type { CitationRecord } from '@newscraft/shared';
 import type { MessageRow } from './db/conversations';
 import {
 	buildConversationContext,
+	conversationContextProvenanceMessageIds,
 	conversationContextCompatibilityMessage
 } from './conversation-context';
 import { serializeToolMetadata } from '$lib/utils/tool-metadata';
@@ -97,6 +98,66 @@ describe('conversation context builder', () => {
 		expect(context.claimStates).toBeUndefined();
 	});
 
+	it('does not inherit prior citations for an explicit new source request', () => {
+		const messages = [
+			message('m1', 'user', 'Check the ECCC weather alert for Toronto.'),
+			message('m2', 'assistant', 'No active Toronto alert was verified [1].', [citation(1)])
+		];
+
+		const context = buildConversationContext({
+			messages,
+			currentRequest: 'Find sources on Santo Domingo baseball today.'
+		});
+
+		expect(context.activeTopic?.subject).toBe('Find sources on Santo Domingo baseball today.');
+		expect(context.activeTopic?.location).toBe('Santo Domingo');
+		expect(context.activeTopic?.relevantDate).toBe('today');
+		expect(context.lastSourceBackedAnswer).toBeUndefined();
+		expect(context.claimStates).toBeUndefined();
+	});
+
+	it('treats source requests with pronouns plus concrete topics as new requests', () => {
+		const messages = [
+			message('m1', 'user', 'Check the ECCC weather alert for Toronto.'),
+			message('m2', 'assistant', 'No active Toronto alert was verified [1].', [citation(1)])
+		];
+
+		const context = buildConversationContext({
+			messages,
+			currentRequest: 'Find sources on this Toronto transit plan.'
+		});
+
+		expect(context.activeTopic?.subject).toBe('Find sources on this Toronto transit plan.');
+		expect(context.activeTopic?.location).toBe('Toronto');
+		expect(context.lastSourceBackedAnswer).toBeUndefined();
+	});
+
+	it('keeps current freshness qualifiers authoritative on inherited-topic follow-ups', () => {
+		const messages = [
+			message('m1', 'user', 'Check the ECCC weather alert for Toronto on July 24, 2026.'),
+			message('m2', 'assistant', 'ECCC listed a Toronto alert on July 24 [1].', [
+				citation(1, { publicationDate: '2026-07-24' })
+			])
+		];
+
+		const todayContext = buildConversationContext({
+			messages,
+			currentRequest: 'Is it still active today?'
+		});
+		const datedContext = buildConversationContext({
+			messages,
+			currentRequest: 'Is it still active on 2026-07-28?'
+		});
+
+		expect(todayContext.activeTopic).toMatchObject({
+			location: 'Toronto',
+			relevantDate: 'today'
+		});
+		expect(todayContext.activeTopic?.subject).toContain('Is it still active today?');
+		expect(todayContext.activeTopic?.relevantDate).not.toBe('July 24, 2026');
+		expect(datedContext.activeTopic?.relevantDate).toBe('2026-07-28');
+	});
+
 	it('inherits the cited answer and topic for a contextual source follow-up', () => {
 		const messages = [
 			message('m1', 'user', 'Check the ECCC weather alert for Toronto.'),
@@ -110,6 +171,26 @@ describe('conversation context builder', () => {
 
 		expect(context.activeTopic?.subject).toBe('Check the ECCC weather alert for Toronto.');
 		expect(context.lastSourceBackedAnswer?.messageId).toBe('m2');
+	});
+
+	it('bounds provenance lookup to the selected answer plus recent assistant messages', () => {
+		const messages: MessageRow[] = [];
+		for (let index = 1; index <= 30; index += 1) {
+			messages.push(message(`u${index}`, 'user', `Question ${index}`));
+			messages.push(message(`a${index}`, 'assistant', `Answer ${index} [1].`, [citation(1)]));
+		}
+
+		const ids = conversationContextProvenanceMessageIds({
+			messages,
+			sourceMessageId: 'a3'
+		});
+
+		expect(ids).toContain('a3');
+		expect(ids).toContain('a30');
+		expect(ids).toContain('a19');
+		expect(ids).not.toContain('a18');
+		expect(ids).not.toContain('u30');
+		expect(ids).toHaveLength(13);
 	});
 
 	it('uses the exact selected source answer and its resolved citations for output actions', () => {

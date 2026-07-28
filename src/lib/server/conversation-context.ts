@@ -23,6 +23,7 @@ const MAX_CITATIONS = 12;
 const MAX_CITATION_EXCERPT_CHARS = 520;
 const MAX_CLAIM_STATES = 8;
 const MAX_UNRESOLVED = 6;
+const MAX_RECENT_PROVENANCE_MESSAGES = 12;
 const COMPATIBILITY_CONTEXT_TAG = '[NewsCraft compatibility conversation context]';
 
 const ENTITY_STOP_WORDS = new Set([
@@ -116,6 +117,23 @@ export interface BuildConversationContextInput {
 	sourceMessageId?: string;
 }
 
+export function conversationContextProvenanceMessageIds(input: {
+	messages: MessageRow[];
+	sourceMessageId?: string;
+}): string[] {
+	const ids = new Set<string>();
+	if (input.sourceMessageId) ids.add(input.sourceMessageId);
+	let recentAssistantCount = 0;
+	for (let index = input.messages.length - 1; index >= 0; index -= 1) {
+		const message = input.messages[index];
+		if (message?.role !== 'assistant' || message.partial === 1) continue;
+		ids.add(message.id);
+		recentAssistantCount += 1;
+		if (recentAssistantCount >= MAX_RECENT_PROVENANCE_MESSAGES) break;
+	}
+	return Array.from(ids);
+}
+
 export function buildConversationContext(input: BuildConversationContextInput): ConversationContext {
 	const currentRequest = compact(input.currentRequest, MAX_TOPIC_CHARS);
 	const intent = conversationIntent(currentRequest, Boolean(input.outputAction));
@@ -128,11 +146,13 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 		? findSourceAnswer(input.messages, provenanceByMessage, input.sourceMessageId) ??
 			findSourceAnswer(input.messages, provenanceByMessage)
 		: undefined;
-	const topicPrompt = topicPromptFor(input.messages, selectedSource?.messageId, currentRequest);
+	const topicPrompt = inheritsPriorState
+		? topicPromptFor(input.messages, selectedSource?.messageId, currentRequest)
+		: currentRequest;
 	const context: ConversationContext = {
 		version: 1,
 		intent,
-		...(topicPrompt ? { activeTopic: buildTopic(topicPrompt, selectedSource?.citations ?? []) } : {}),
+		...(topicPrompt ? { activeTopic: buildTopic(topicPrompt, selectedSource?.citations ?? [], currentRequest) } : {}),
 		...(input.sourceMessageId ? { targetMessageId: input.sourceMessageId, sourceMessageId: input.sourceMessageId } : {}),
 		...(selectedSource ? { lastSourceBackedAnswer: selectedSource } : {}),
 		...(inheritsPriorState ? claimStateFields(input.messages) : {}),
@@ -284,7 +304,7 @@ function topicPromptFor(
 			if (message?.role !== 'user') continue;
 			const value = contentText(parseContent(message.content)).trim();
 			if (value && !looksLikeAmbiguousFollowup(value) && topicSpecificity(value) >= 2) {
-				return compact(value, MAX_TOPIC_CHARS);
+				return compact(topicWithCurrentQualifier(value, currentRequest), MAX_TOPIC_CHARS);
 			}
 		}
 	}
@@ -296,9 +316,9 @@ function topicPromptFor(
 		const value = contentText(parseContent(message.content)).trim();
 		if (!value || looksLikeAmbiguousFollowup(value)) continue;
 		fallback ||= value;
-		if (topicSpecificity(value) >= 2) return compact(value, MAX_TOPIC_CHARS);
+		if (topicSpecificity(value) >= 2) return compact(topicWithCurrentQualifier(value, currentRequest), MAX_TOPIC_CHARS);
 	}
-	return compact(fallback || currentRequest, MAX_TOPIC_CHARS);
+	return compact(fallback ? topicWithCurrentQualifier(fallback, currentRequest) : currentRequest, MAX_TOPIC_CHARS);
 }
 
 function topicSpecificity(value: string): number {
@@ -310,15 +330,20 @@ function topicSpecificity(value: string): number {
 	return score;
 }
 
-function buildTopic(subject: string, citations: CitationRecord[]): ConversationTopic {
-	const requestedOutlets = extractRequestedOutlets(subject);
+function buildTopic(
+	subject: string,
+	citations: CitationRecord[],
+	currentRequest: string = subject
+): ConversationTopic {
+	const extractionText = `${subject}\n${currentRequest}`;
+	const requestedOutlets = extractRequestedOutlets(extractionText);
 	const publicationDates = citations
 		.map((citation) => citation.publicationDate)
 		.filter((value): value is string => Boolean(value));
-	const relevantDate = extractRelevantDate(subject) ?? publicationDates[0];
-	const entities = extractEntities(subject);
-	const location = extractLocation(subject);
-	const comparison = /\b(compare|comparison|versus|vs\.?|both|two outlets?|coverage)\b/i.test(subject);
+	const relevantDate = extractRelevantDate(currentRequest) ?? extractRelevantDate(subject) ?? publicationDates[0];
+	const entities = extractEntities(extractionText);
+	const location = extractLocation(extractionText);
+	const comparison = /\b(compare|comparison|versus|vs\.?|both|two outlets?|coverage)\b/i.test(extractionText);
 	return {
 		subject,
 		...(entities.length ? { entities } : {}),
@@ -395,7 +420,7 @@ function extractRelevantDate(value: string): string | undefined {
 		value.match(
 			/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:,\s*20\d{2})?\b/i
 		)?.[0] ??
-		value.match(/\b(?:today|yesterday|current|latest)\b/i)?.[0].toLowerCase()
+		value.match(/\b(?:today|yesterday|current|latest|now)\b/i)?.[0].toLowerCase()
 	);
 }
 
@@ -409,16 +434,19 @@ function conversationIntent(value: string, outputAction: boolean): ConversationI
 }
 
 function referencesPriorConversation(value: string, intent: ConversationIntent): boolean {
-	if (intent === 'transform' || looksLikeAmbiguousFollowup(value)) return true;
+	if (intent === 'transform') return true;
 	const normalized = value.replace(/\s+/g, ' ').trim();
+	if (looksLikeExplicitNewTopicRequest(normalized)) return false;
+	if (looksLikeAmbiguousFollowup(value)) return true;
 	if (normalized.length > 240) return false;
 	return (
-		/\b(?:previous|earlier|above|same|sources?|citations?|links?|cited page|official page|source page|the answer|the claim|the alert|the status)\b/i.test(
+		/\b(?:previous|earlier|above|same|cited page|official page|source page|the answer|the claim|the alert|the status)\b/i.test(
 			normalized
 		) ||
 		/^(?:keep|rewrite|shorten|expand|summarize|explain|cite|list|show|give|tell me more)\b/i.test(
 			normalized
 		) ||
+		/\b(?:the|those|that|this)\s+(?:sources?|citations?|links?)\b/i.test(normalized) ||
 		/^is there (?:an?|any) (?:update|change)\b/i.test(normalized)
 	);
 }
@@ -473,6 +501,55 @@ function looksLikeAmbiguousFollowup(value: string): boolean {
 		(/\b(it|this|that|they|he|she|the claim|the alert|same topic|previous answer)\b/.test(normalized) ||
 			/^(and|but|so|what about|is it|are they|does that|what did)\b/.test(normalized))
 	);
+}
+
+function topicWithCurrentQualifier(subject: string, currentRequest: string): string {
+	if (!currentRequest || !hasAuthoritativeCurrentQualifier(currentRequest)) return subject;
+	if (normalizedComparable(subject).includes(normalizedComparable(currentRequest))) return subject;
+	return `${subject} Current follow-up: ${currentRequest}`;
+}
+
+function hasAuthoritativeCurrentQualifier(value: string): boolean {
+	return Boolean(
+		extractRelevantDate(value) ||
+			/\b(?:still active|active today|active now|currently active|right now|as of)\b/i.test(value)
+	);
+}
+
+function looksLikeExplicitNewTopicRequest(value: string): boolean {
+	const normalized = value.toLowerCase();
+	if (!normalized) return false;
+	const patterns = [
+		/^(?:find|search|look up|research|gather|collect|get)\b[\s\S]{0,80}\b(?:sources?|citations?|links?)\b[\s\S]{0,40}\b(?:on|for|about)\s+(.{3,})$/i,
+		/^(?:find|search|look up|research|gather|collect|get)\b[\s\S]{0,80}\b(?:on|for|about)\s+(.{3,})$/i,
+		/\b(?:sources?|citations?|links?)\s+(?:on|for|about)\s+(.{3,})$/i
+	];
+	for (const pattern of patterns) {
+		const topic = value.match(pattern)?.[1] ?? '';
+		if (hasExplicitTopicTail(topic)) return true;
+	}
+	return false;
+}
+
+function hasExplicitTopicTail(value: string): boolean {
+	const normalized = value.toLowerCase().replace(/\s+/g, ' ').replace(/[.?!]+$/, '').trim();
+	if (!normalized) return false;
+	if (
+		/^(?:it|this|that|these|those|same|previous|above|the (?:answer|story|claim|alert|status|source|citation|link))$/i.test(
+			normalized
+		)
+	) {
+		return false;
+	}
+	const topicWords = normalized
+		.replace(/^(?:this|that|the|a|an)\s+/, '')
+		.split(/\W+/)
+		.filter((word) => word.length >= 3 && !['source', 'sources', 'citation', 'citations', 'links'].includes(word));
+	return topicWords.length > 0;
+}
+
+function normalizedComparable(value: string): string {
+	return value.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function fitContextToBudget(context: ConversationContext): ConversationContext {

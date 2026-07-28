@@ -225,7 +225,6 @@ function sanitizeSourceUrl(value: string): string | null {
 		if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
 		url.username = '';
 		url.password = '';
-		url.hash = '';
 		for (const key of Array.from(url.searchParams.keys())) {
 			if (SENSITIVE_QUERY_RE.test(key) || TRACKING_QUERY_RE.test(key)) {
 				url.searchParams.delete(key);
@@ -244,7 +243,7 @@ function sourceUrlKey(value: string): string | null {
 		const url = new URL(sanitized);
 		const pathname = url.pathname.replace(/\/$/, '') || '/';
 		const search = url.searchParams.toString();
-		return `${url.protocol}//${url.hostname.toLowerCase()}${url.port ? `:${url.port}` : ''}${pathname}${search ? `?${search}` : ''}`;
+		return `${url.protocol}//${url.hostname.toLowerCase()}${url.port ? `:${url.port}` : ''}${pathname}${search ? `?${search}` : ''}${url.hash}`;
 	} catch {
 		return sanitized.toLowerCase();
 	}

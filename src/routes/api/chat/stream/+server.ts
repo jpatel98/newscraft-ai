@@ -64,6 +64,7 @@ import { getConversationDocumentService } from '$lib/server/documents/runtime';
 import type { ConversationDocumentService } from '$lib/server/documents/service';
 import {
 	buildConversationContext,
+	conversationContextProvenanceMessageIds,
 	conversationContextCompatibilityMessage
 } from '$lib/server/conversation-context';
 
@@ -717,7 +718,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	const reasoningEffort = await getConversationReasoningEffort(convoId);
 	const messages = await getMessages(convoId);
-	const provenance = await getConversationMessageProvenance(convoId);
+	const provenanceMessageIds = conversationContextProvenanceMessageIds({
+		messages,
+		sourceMessageId: body.source_message_id
+	});
+	const provenance = await getConversationMessageProvenance(convoId, {
+		messageIds: provenanceMessageIds,
+		limit: provenanceMessageIds.length
+	});
 	const inheritedMetadata = body.output_action
 		? parseToolMetadata(outputActionSource?.toolCalls)
 		: null;

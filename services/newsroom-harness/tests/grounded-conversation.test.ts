@@ -95,4 +95,50 @@ describe('grounded conversation guard', () => {
 		expect(result.excluded).toEqual([aggregator]);
 		expect(result.limitations.join(' ')).toContain('Global News');
 	});
+
+	it('applies the current follow-up date instead of accepting stale inherited-topic evidence', () => {
+		const context: ConversationContext = {
+			intent: 'verify',
+			activeTopic: {
+				subject:
+					'ECCC weather alert for Toronto on May 1, 2026 Current follow-up: Is it still active on 2026-07-28?',
+				entities: ['ECCC'],
+				location: 'Toronto',
+				relevantDate: '2026-07-28'
+			}
+		};
+		const stale = normalizeEvidence({
+			source_name: 'ECCC',
+			source_url: 'https://weather.gc.ca/warnings/report_e.html?on61',
+			accessed_at: '2026-07-28T12:00:00.000Z',
+			tool_used: 'openai_web_search',
+			title: 'Toronto weather alerts',
+			published_at: '2026-05-01',
+			extracted_text: 'ECCC listed a Toronto weather alert on May 1, 2026.',
+			summary: 'ECCC listed a Toronto weather alert on May 1, 2026.',
+			confidence: 0.9,
+			limitations: [],
+			source_kind: 'official',
+			citation_number: 1
+		});
+		const current = normalizeEvidence({
+			source_name: 'ECCC',
+			source_url: 'https://weather.gc.ca/warnings/report_e.html?on61',
+			accessed_at: '2026-07-28T12:00:00.000Z',
+			tool_used: 'openai_web_search',
+			title: 'Toronto weather alerts',
+			published_at: '2026-07-28',
+			extracted_text: 'ECCC lists the Toronto warning status for July 28, 2026.',
+			summary: 'ECCC lists the Toronto warning status for July 28, 2026.',
+			confidence: 0.9,
+			limitations: [],
+			source_kind: 'official',
+			citation_number: 2
+		});
+
+		const result = guardEvidenceForConversation([stale, current], context);
+
+		expect(result.evidence).toEqual([current]);
+		expect(result.excluded).toEqual([stale]);
+	});
 });

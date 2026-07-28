@@ -382,4 +382,86 @@ describe('runtime streamed chat', () => {
 
 		expect(chunks.join('')).toContain('Nothing major was reported');
 	});
+
+	it('keeps streaming enabled for source-only conversation context without guard constraints', async () => {
+		let hadDeltaSink: boolean | null = null;
+		const registry = new ToolRegistry();
+		registry.register(
+			streamingStubTool({
+				name: 'openai_web_search',
+				category: 'web_search_provider',
+				deltas: ['City hall budget update: ', 'Council passed the motion.'],
+				answer: 'City hall budget update: Council passed the motion.',
+				onRun: (value) => {
+					hadDeltaSink = value;
+				}
+			})
+		);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 4,
+			runTimeoutMs: 10_000,
+			retryLimit: 0,
+			openAiApiKey: 'test-key',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
+			registry
+		});
+
+		const chunks: string[] = [];
+		for await (const delta of runtime.streamChat(
+			[{ role: 'user', content: 'What happened at city hall this week?' }],
+			{
+				conversationContext: {
+					version: 1,
+					intent: 'research',
+					activeTopic: { subject: 'city hall budget update' }
+				}
+			}
+		)) {
+			chunks.push(delta);
+		}
+
+		expect(hadDeltaSink).toBe(true);
+		expect(chunks.join('')).toContain('Council passed the motion');
+	});
+
+	it('buffers streaming when the conversation guard may reject constrained evidence', async () => {
+		let hadDeltaSink: boolean | null = null;
+		const registry = new ToolRegistry();
+		registry.register(
+			streamingStubTool({
+				name: 'openai_web_search',
+				category: 'web_search_provider',
+				deltas: ['Toronto update should wait.'],
+				answer: 'Toronto city hall update: Council passed the motion.',
+				onRun: (value) => {
+					hadDeltaSink = value;
+				}
+			})
+		);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 4,
+			runTimeoutMs: 10_000,
+			retryLimit: 0,
+			openAiApiKey: 'test-key',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
+			registry
+		});
+
+		const chunks: string[] = [];
+		for await (const delta of runtime.streamChat(
+			[{ role: 'user', content: 'What happened at city hall this week?' }],
+			{
+				conversationContext: {
+					version: 1,
+					intent: 'research',
+					activeTopic: { subject: 'Toronto city hall update', location: 'Toronto' }
+				}
+			}
+		)) {
+			chunks.push(delta);
+		}
+
+		expect(hadDeltaSink).toBe(false);
+		expect(chunks.join('')).toContain('Toronto city hall update');
+	});
 });

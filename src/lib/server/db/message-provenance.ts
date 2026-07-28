@@ -1,6 +1,8 @@
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from './index';
 import { messageProvenance } from './schema';
+
+const DEFAULT_CONVERSATION_PROVENANCE_LIMIT = 24;
 
 export interface MessageProvenanceRow {
 	messageId: string;
@@ -46,10 +48,26 @@ export async function getMessageProvenance(messageId: string): Promise<MessagePr
 }
 
 export async function getConversationMessageProvenance(
-	conversationId: string
+	conversationId: string,
+	options: { messageIds?: string[]; limit?: number } = {}
 ): Promise<MessageProvenanceRow[]> {
+	const messageIds = Array.from(new Set(options.messageIds ?? []));
+	if (options.messageIds && !messageIds.length) return [];
+	const limit = Math.max(
+		1,
+		Math.min(options.limit ?? DEFAULT_CONVERSATION_PROVENANCE_LIMIT, DEFAULT_CONVERSATION_PROVENANCE_LIMIT)
+	);
 	return (await db
 		.select()
 		.from(messageProvenance)
-		.where(eq(messageProvenance.conversationId, conversationId))) as MessageProvenanceRow[];
+		.where(
+			messageIds.length
+				? and(
+						eq(messageProvenance.conversationId, conversationId),
+						inArray(messageProvenance.messageId, messageIds)
+					)
+				: eq(messageProvenance.conversationId, conversationId)
+		)
+		.orderBy(desc(messageProvenance.updatedAt))
+		.limit(limit)) as MessageProvenanceRow[];
 }

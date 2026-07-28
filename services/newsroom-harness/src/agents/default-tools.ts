@@ -1193,7 +1193,22 @@ function webSource(
 }
 
 function normalizedWebSourceUrl(value: string): string {
-	return value.replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase();
+	try {
+		const parsed = new URL(value);
+		const params = Array.from(parsed.searchParams.entries()).filter(
+			([key]) => !isTrackingQueryParam(key)
+		);
+		parsed.search = '';
+		for (const [key, paramValue] of params) parsed.searchParams.append(key, paramValue);
+		const path = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, '');
+		return `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}${path}${parsed.search}${parsed.hash}`;
+	} catch {
+		return value.trim().replace(/\/$/, '').toLowerCase();
+	}
+}
+
+function isTrackingQueryParam(key: string): boolean {
+	return /^(?:utm_[a-z0-9_]+|fbclid|gclid|gbraid|wbraid|igshid|mc_cid|mc_eid|mkt_tok)$/i.test(key);
 }
 
 function compactWebSourceTitle(title: string, url: string, maxLength: number): string {

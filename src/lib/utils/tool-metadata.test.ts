@@ -63,7 +63,7 @@ describe('tool metadata', () => {
 
 		expect(parseToolMetadata(raw).sources).toMatchObject([
 			{
-				url: 'https://example.com/story',
+				url: 'https://example.com/story#section',
 				used: true
 			}
 		]);
@@ -222,7 +222,7 @@ describe('tool metadata', () => {
 
 		expect(receipts).toEqual([
 			{
-				url: 'https://news.example.com/story',
+				url: 'https://news.example.com/story#fragment',
 				label: 'Reuters Canada update',
 				domain: 'news.example.com'
 			}
