@@ -366,6 +366,28 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				}
 			}
 
+			if (
+				isCurrentEarthquakeQuery(input.query) &&
+				(!selected.usable ||
+					!hasPrimaryEvidence(selected.evidence) ||
+					!hasSubstantiveCurrentAnswer(input.query, selected.outputText)) &&
+				!context.signal?.aborted
+			) {
+				const structured = await latestEarthquakeEvidence(input.query, context);
+				if (structured) {
+					selected = {
+						...selected,
+						raw: {},
+						outputText: structured.answer,
+						evidence: structured.evidence,
+						streamFailure: null,
+						upstreamStatus: 200,
+						failureCategory: undefined,
+						usable: true
+					};
+				}
+			}
+
 			let outputText = selected.outputText;
 			if (
 				selected.provider === 'perplexity' &&
@@ -1307,6 +1329,127 @@ function hasSubstantiveCurrentAnswer(query: string, answer: string): boolean {
 			text
 		);
 	return !(directsUserToSource && directoryDescription);
+}
+
+function isCurrentEarthquakeQuery(query: string): boolean {
+	return isCurrentEventQuery(query) && /\b(?:earthquakes?|seismic activity|tremors?)\b/i.test(query);
+}
+
+async function latestEarthquakeEvidence(
+	query: string,
+	context: ToolRunContext
+): Promise<{ answer: string; evidence: EvidenceObject[] } | null> {
+	const now = new Date();
+	const start = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+	const url = new URL('https://earthquake.usgs.gov/fdsnws/event/1/query');
+	url.searchParams.set('format', 'geojson');
+	url.searchParams.set('starttime', start.toISOString());
+	url.searchParams.set('endtime', now.toISOString());
+	url.searchParams.set('minmagnitude', '2.5');
+	url.searchParams.set('orderby', 'time');
+	url.searchParams.set('limit', '500');
+	let response: Response;
+	try {
+		response = await fetch(url, {
+			headers: { accept: 'application/geo+json, application/json' },
+			signal: boundedSignal(context.signal, 12_000)
+		});
+	} catch {
+		return null;
+	}
+	if (!response.ok) return null;
+	const raw = (await response.json().catch(() => null)) as UsgsEarthquakeCollection | null;
+	if (!raw?.features?.length) return null;
+	const location = earthquakeLocationTerm(query);
+	const matching = raw.features
+		.filter((feature) => {
+			const place = feature.properties?.place || '';
+			return !location || place.toLowerCase().includes(location.toLowerCase());
+		})
+		.filter((feature) => {
+			const properties = feature.properties;
+			return (
+				Number.isFinite(properties?.mag) &&
+				Number.isFinite(properties?.time) &&
+				Boolean(properties?.place && properties?.url)
+			);
+		})
+		.slice(0, 5);
+	if (!matching.length) return null;
+	const evidence = matching.map((feature, index) => {
+		const properties = feature.properties!;
+		const depth = Number(feature.geometry?.coordinates?.[2]);
+		const eventTime = new Date(Number(properties.time));
+		const detail = [
+			`USGS lists a ${properties.status === 'reviewed' ? 'reviewed ' : ''}magnitude ${properties.mag} earthquake ${properties.place}`,
+			`at ${earthquakeEventTime(eventTime, query)}`,
+			Number.isFinite(depth) ? `at a depth of ${compactNumber(depth)} km` : ''
+		]
+			.filter(Boolean)
+			.join(', ');
+		const summary = `${detail}.`;
+		return normalizeEvidence({
+			source_name: 'U.S. Geological Survey',
+			source_url: properties.url!,
+			accessed_at: now.toISOString(),
+			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+			title: properties.title || `Magnitude ${properties.mag} earthquake near ${properties.place}`,
+			published_at: eventTime.toISOString(),
+			extracted_text: summary,
+			summary,
+			confidence: properties.status === 'reviewed' ? 0.95 : 0.85,
+			limitations: ['Earthquake catalog values can be revised as agencies review new data.'],
+			source_kind: 'official',
+			citation_number: index + 1
+		});
+	});
+	const statements = evidence.map((item) => `${item.summary} [${item.citation_number}]`);
+	return {
+		answer:
+			statements.length === 1
+				? statements[0]
+				: ['Latest listed events, newest first:', ...statements.map((statement) => `- ${statement}`)].join('\n'),
+		evidence
+	};
+}
+
+type UsgsEarthquakeCollection = {
+	features?: Array<{
+		properties?: {
+			mag?: number | null;
+			place?: string | null;
+			time?: number | null;
+			url?: string | null;
+			title?: string | null;
+			status?: string | null;
+		};
+		geometry?: { coordinates?: number[] | null };
+	}>;
+};
+
+function earthquakeLocationTerm(query: string): string {
+	const match = query.match(
+		/\b(?:in|near|around)\s+([\p{L}][\p{L}\p{M} .'-]{1,60}?)(?=\s+(?:today|tonight|right now|currently|latest|newest)\b|[?.!,]|$)/iu
+	);
+	return match?.[1]?.trim() || '';
+}
+
+function earthquakeEventTime(value: Date, query: string): string {
+	const timeZone = /\bjapan\b/i.test(query) ? 'Asia/Tokyo' : 'UTC';
+	return new Intl.DateTimeFormat('en-CA', {
+		timeZone,
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
+		hour12: false,
+		timeZoneName: 'short'
+	}).format(value);
+}
+
+function compactNumber(value: number): string {
+	return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
 }
 
 function requestsExternalCorroboration(query: string): boolean {

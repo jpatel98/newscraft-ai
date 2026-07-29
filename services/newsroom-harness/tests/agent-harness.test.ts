@@ -1322,7 +1322,7 @@ describe('disciplined newsroom agent harness', () => {
 							{
 								message: {
 									content:
-										'JMA reported a magnitude 4.7 earthquake east of Aomori Prefecture at 16:38 JST today [1].'
+										'The JMA page is the official record. Consult it for the newest bulletins [1].'
 								}
 							}
 						],
@@ -1331,13 +1331,58 @@ describe('disciplined newsroom agent harness', () => {
 							{
 								url: 'https://www.data.jma.go.jp/multi/quake/?lang=en',
 								title: 'Japan Meteorological Agency earthquake information',
-								snippet:
-									'A magnitude 4.7 earthquake occurred east of Aomori Prefecture at 16:38 JST.',
+								snippet: 'Official real-time earthquake bulletins for Japan.',
 								date: '2026-07-29T16:38:00.000Z'
 							}
 						]
 					}),
 					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						type: 'FeatureCollection',
+						features: [
+							{
+								type: 'Feature',
+								properties: {
+									mag: 4.6,
+									place: '10 km W of Honmachi, Japan',
+									time: Date.parse('2026-07-29T13:22:34.716Z'),
+									url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-newest',
+									title: 'M 4.6 - 10 km W of Honmachi, Japan',
+									status: 'reviewed'
+								},
+								geometry: { type: 'Point', coordinates: [130.49, 32.51, 10] }
+							},
+							{
+								type: 'Feature',
+								properties: {
+									mag: 5.4,
+									place: '11 km N of Tsunagi, Japan',
+									time: Date.parse('2026-07-29T12:39:36.661Z'),
+									url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-older',
+									title: 'M 5.4 - 11 km N of Tsunagi, Japan',
+									status: 'reviewed'
+								},
+								geometry: { type: 'Point', coordinates: [130.48, 32.34, 10] }
+							},
+							{
+								type: 'Feature',
+								properties: {
+									mag: 3.1,
+									place: 'California',
+									time: Date.parse('2026-07-29T14:00:00.000Z'),
+									url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-unrelated',
+									title: 'M 3.1 - California',
+									status: 'reviewed'
+								},
+								geometry: { type: 'Point', coordinates: [-120, 35, 5] }
+							}
+						]
+					}),
+					{ status: 200, headers: { 'content-type': 'application/geo+json' } }
 				)
 			);
 		vi.stubGlobal('fetch', fetchMock);
@@ -1371,10 +1416,11 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat'
 		});
 
-		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(fetchMock).toHaveBeenCalledTimes(4);
 		expect(String(fetchMock.mock.calls[0]?.[0])).toContain('api.openai.com');
 		expect(String(fetchMock.mock.calls[1]?.[0])).toContain('api.perplexity.ai');
 		expect(String(fetchMock.mock.calls[2]?.[0])).toContain('api.perplexity.ai');
+		expect(String(fetchMock.mock.calls[3]?.[0])).toContain('earthquake.usgs.gov/fdsnws/event/1/query');
 		expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
 			search_recency_filter: 'day'
 		});
@@ -1383,15 +1429,26 @@ describe('disciplined newsroom agent harness', () => {
 			search_domain_filter: ['jma.go.jp', 'earthquake.usgs.gov'],
 			search_recency_filter: 'day'
 		});
-		expect(result.final_answer).toContain('magnitude 4.7 earthquake');
+		expect(result.final_answer).toContain('magnitude 4.6 earthquake 10 km W of Honmachi, Japan');
+		expect(result.final_answer).toContain('magnitude 5.4 earthquake 11 km N of Tsunagi, Japan');
+		expect(result.final_answer.indexOf('magnitude 4.6')).toBeLessThan(result.final_answer.indexOf('magnitude 5.4'));
+		expect(result.final_answer).not.toContain('California');
 		expect(result.final_answer).not.toContain('Check the page');
+		expect(result.final_answer).not.toContain('Consult it');
 		expect(result.final_answer).not.toContain('Japan Times');
-		expect(result.evidence).toEqual([
-			expect.objectContaining({
-				source_url: 'https://www.data.jma.go.jp/multi/quake?lang=en',
-				source_kind: 'official'
-			})
-		]);
+		expect(result.evidence).toHaveLength(2);
+		expect(result.evidence).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					source_url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-newest',
+					source_kind: 'official'
+				}),
+				expect.objectContaining({
+					source_url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-older',
+					source_kind: 'official'
+				})
+			])
+		);
 	});
 
 	it('does not truncate an accepted cited claim at an abbreviation', async () => {
