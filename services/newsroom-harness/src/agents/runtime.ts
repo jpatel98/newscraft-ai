@@ -730,6 +730,7 @@ function isSimpleGreeting(prompt: string): boolean {
 }
 
 function isDirectAnswerPrompt(prompt: string, conversationContext?: ConversationContext): boolean {
+	if (conversationContext?.currentTurn?.researchRequired) return false;
 	if (conversationContext?.intent === 'transform' && conversationContext.lastSourceBackedAnswer) return true;
 	if (/\b(?:turn|rewrite|using only)\b[\s\S]{0,100}\bprevious answer\b/i.test(prompt)) return true;
 	if (
@@ -960,7 +961,7 @@ export function buildDisciplinedChatPrompt(
 	if (!latestUserPrompt) return promptFromChatMessages(messages);
 
 	const groundedContext = formatConversationContext(conversationContext);
-	const priorContext = groundedContext ? '' : recentConversationContext(messages, latestUserIndex);
+	const priorContext = recentConversationContext(messages, latestUserIndex);
 	const systemInstructions = systemInstructionsFromChatMessages(messages);
 	const dateContext = newsroomTimeContext(timeOptions);
 	const structuredContext = structuredNewsroomContext(newsroomContext);
@@ -1116,7 +1117,7 @@ function buildDirectChatPrompt(messages: GatewayChatMessage[], conversationConte
 	if (!latestUserPrompt) return promptFromChatMessages(messages);
 
 	const groundedContext = formatConversationContext(conversationContext);
-	const priorContext = groundedContext ? '' : recentConversationContext(messages, latestUserIndex);
+	const priorContext = recentConversationContext(messages, latestUserIndex);
 	const systemInstructions = systemInstructionsFromChatMessages(messages);
 	return [
 		...(systemInstructions ? ['System and newsroom instructions:', systemInstructions, ''] : []),
@@ -1138,6 +1139,7 @@ function shouldBufferGroundedAnswer(
 		return true;
 	}
 	if (!conversationContext) return false;
+	if (conversationContext.currentTurn?.researchRequired) return true;
 	if (conversationContext.claimStates?.length) return true;
 	const topic = conversationContext.activeTopic;
 	if (!topic) return false;

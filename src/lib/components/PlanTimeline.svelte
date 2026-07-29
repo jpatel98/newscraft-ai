@@ -64,7 +64,7 @@
 		data-testid="plan-timeline"
 		role="status"
 		aria-live="polite"
-		aria-label="Research plan"
+		aria-label="Research progress"
 	>
 		<!-- Header: always visible; clicking collapses/expands -->
 		<button
@@ -72,7 +72,7 @@
 			class="plan-timeline__head"
 			onclick={toggle}
 			aria-expanded={expanded}
-			aria-label={expanded ? 'Collapse research plan' : 'Expand research plan'}
+			aria-label={expanded ? 'Collapse research progress' : 'Expand research progress'}
 		>
 			{#if !expanded || !activeTurn || chat.hasAssistantOutput}
 				<!-- Collapsed summary -->
@@ -86,7 +86,7 @@
 				<span class="pulse__dots plan-timeline__dots" aria-hidden="true"
 					><span></span><span></span><span></span></span
 				>
-				<span class="plan-timeline__head-label">Research plan</span>
+				<span class="plan-timeline__head-label">Researching</span>
 				<span class="plan-timeline__chevron plan-timeline__chevron--right" aria-hidden="true">▾</span>
 			{/if}
 		</button>

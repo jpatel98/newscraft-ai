@@ -55,6 +55,28 @@ export interface ConversationSourceAnswer {
 	publicationDates?: string[];
 }
 
+export type ConversationOperation = 'send' | 'retry' | 'resume' | 'regenerate' | 'transform';
+
+export interface ConversationCurrentTurn {
+	/** Durable user-message id when the request already exists in app storage. */
+	messageId?: string;
+	/** The user's literal, authoritative instruction for this run. */
+	content: string;
+	/** Concrete task to execute now. Normally identical to the authoritative instruction. */
+	resolvedRequest: string;
+	operation: ConversationOperation;
+	/** Routes this turn directly through research before synthesis. */
+	researchRequired: boolean;
+	/** Current/latest results must be ordered newest-first and pass freshness checks. */
+	freshness?: 'current';
+}
+
+export interface ConversationRecentTurn {
+	messageId: string;
+	role: 'user' | 'assistant';
+	content: string;
+}
+
 /**
  * Provider-independent, conversation-scoped working state. The app rebuilds
  * this bounded packet from durable messages and provenance for every request;
@@ -63,6 +85,8 @@ export interface ConversationSourceAnswer {
 export interface ConversationContext {
 	version: 1;
 	intent: ConversationIntent;
+	currentTurn?: ConversationCurrentTurn;
+	recentTurns?: ConversationRecentTurn[];
 	activeTopic?: ConversationTopic;
 	targetMessageId?: string;
 	sourceMessageId?: string;

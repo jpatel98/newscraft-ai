@@ -39,6 +39,7 @@ const GENERIC_TOPIC_TERMS = new Set([
 	'source',
 	'story',
 	'tell',
+	'the',
 	'today',
 	'update',
 	'use',
@@ -83,6 +84,18 @@ export function formatConversationContext(context: ConversationContext | undefin
 	return [
 		'Grounded conversation state:',
 		`- Current intent: ${context.intent}`,
+		...(context.currentTurn
+			? [
+					`- Authoritative current instruction: ${context.currentTurn.content}`,
+					...(context.currentTurn.resolvedRequest !== context.currentTurn.content
+						? [`- Resolved task to execute: ${context.currentTurn.resolvedRequest}`]
+						: []),
+					`- Research required: ${context.currentTurn.researchRequired ? 'yes' : 'no'}`,
+					...(context.currentTurn.freshness === 'current'
+						? ['- Freshness contract: use current readable evidence and present the newest supported developments first']
+						: [])
+				]
+			: []),
 		...(topic
 			? [
 					`- Active subject: ${topic.subject}`,

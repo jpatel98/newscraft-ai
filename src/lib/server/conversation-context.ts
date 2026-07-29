@@ -2,6 +2,8 @@ import type {
 	CitationRecord,
 	ConversationClaimState,
 	ConversationContext,
+	ConversationOperation,
+	ConversationRecentTurn,
 	ConversationIntent,
 	ConversationSourceAnswer,
 	ConversationTopic
@@ -17,12 +19,15 @@ import {
 } from '$lib/utils/tool-metadata';
 
 const MAX_CONTEXT_BYTES = 24 * 1024;
+const MAX_CURRENT_REQUEST_CHARS = 4000;
 const MAX_TOPIC_CHARS = 480;
 const MAX_ANSWER_CHARS = 6200;
 const MAX_CITATION_EXCERPT_CHARS = 520;
 const MAX_CLAIM_STATES = 8;
 const MAX_UNRESOLVED = 6;
 const MAX_RECENT_PROVENANCE_MESSAGES = 12;
+const MAX_RECENT_TURNS = 6;
+const MAX_RECENT_TURN_CHARS = 900;
 const COMPATIBILITY_CONTEXT_TAG = '[NewsCraft compatibility conversation context]';
 
 const ENTITY_STOP_WORDS = new Set([
@@ -112,6 +117,8 @@ export interface BuildConversationContextInput {
 	messages: MessageRow[];
 	provenance?: MessageProvenanceRow[];
 	currentRequest: string;
+	currentMessageId?: string;
+	operation?: ConversationOperation;
 	outputAction?: boolean;
 	sourceMessageId?: string;
 }
@@ -134,13 +141,20 @@ export function conversationContextProvenanceMessageIds(input: {
 }
 
 export function buildConversationContext(input: BuildConversationContextInput): ConversationContext {
-	const currentRequest = compact(input.currentRequest, MAX_TOPIC_CHARS);
+	const currentRequest = compact(input.currentRequest, MAX_CURRENT_REQUEST_CHARS);
 	const intent = conversationIntent(currentRequest, Boolean(input.outputAction));
+	const operation = input.outputAction ? 'transform' : input.operation ?? 'send';
+	const recentTurns = recentConversationTurns(input.messages, input.currentMessageId);
+	// The current user instruction is the task. Research starts on this turn;
+	// there is no intermediate proposal/approval state to resolve.
+	const resolvedRequest = currentRequest;
+	const researchRequired = requestNeedsResearch(resolvedRequest);
 	const provenanceByMessage = new Map(
 		(input.provenance ?? []).map((row) => [row.messageId, citationsFromProvenance(row.provenanceJson)])
 	);
 	const inheritsPriorState =
-		Boolean(input.sourceMessageId) || referencesPriorConversation(currentRequest, intent);
+		Boolean(input.sourceMessageId) ||
+		referencesPriorConversation(currentRequest, intent);
 	const selectedSource = inheritsPriorState
 		? findSourceAnswer(input.messages, provenanceByMessage, input.sourceMessageId) ??
 			findSourceAnswer(input.messages, provenanceByMessage)
@@ -151,7 +165,24 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 	const context: ConversationContext = {
 		version: 1,
 		intent,
-		...(topicPrompt ? { activeTopic: buildTopic(topicPrompt, selectedSource?.citations ?? [], currentRequest) } : {}),
+		currentTurn: {
+			...(input.currentMessageId ? { messageId: input.currentMessageId } : {}),
+			content: currentRequest,
+			resolvedRequest,
+			operation,
+			researchRequired,
+			...(isCurrentResearchRequest(resolvedRequest) ? { freshness: 'current' as const } : {})
+		},
+		...(recentTurns.length ? { recentTurns } : {}),
+		...(topicPrompt
+			? {
+					activeTopic: buildTopic(
+						compact(topicPrompt, MAX_TOPIC_CHARS),
+						selectedSource?.citations ?? [],
+						currentRequest
+					)
+				}
+			: {}),
 		...(input.sourceMessageId ? { targetMessageId: input.sourceMessageId, sourceMessageId: input.sourceMessageId } : {}),
 		...(selectedSource ? { lastSourceBackedAnswer: selectedSource } : {}),
 		...(inheritsPriorState ? claimStateFields(input.messages) : {}),
@@ -167,6 +198,15 @@ export function conversationContextCompatibilityMessage(context: ConversationCon
 		COMPATIBILITY_CONTEXT_TAG,
 		'This is a compatibility fallback for conversation-scoped state. The current user request remains authoritative.',
 		`Intent: ${context.intent}.`,
+		...(context.currentTurn
+			? [
+					`Current instruction: ${context.currentTurn.content}`,
+					...(context.currentTurn.resolvedRequest !== context.currentTurn.content
+						? [`Resolved task: ${context.currentTurn.resolvedRequest}`]
+						: []),
+					`Research required: ${context.currentTurn.researchRequired ? 'yes' : 'no'}.`
+				]
+			: []),
 		...(topic
 			? [
 					`Active subject: ${topic.subject}`,
@@ -445,6 +485,48 @@ function conversationIntent(value: string, outputAction: boolean): ConversationI
 	return 'research';
 }
 
+function recentConversationTurns(
+	messages: MessageRow[],
+	currentMessageId?: string
+): ConversationRecentTurn[] {
+	return messages
+		.filter(
+			(message) =>
+				message.id !== currentMessageId &&
+				(message.role === 'user' || message.role === 'assistant') &&
+				(message.role !== 'assistant' || message.partial !== 1)
+		)
+		.slice(-MAX_RECENT_TURNS)
+		.map((message) => ({
+			messageId: message.id,
+			role: message.role as ConversationRecentTurn['role'],
+			content: compact(contentText(parseContent(message.content)), MAX_RECENT_TURN_CHARS)
+		}))
+		.filter((turn) => Boolean(turn.content));
+}
+
+function requestNeedsResearch(value: string): boolean {
+	if (
+		/\b(?:do not|don't|without)\s+(?:(?:new|fresh|more|additional)\s+)?(?:re-?search|search|browse|look(?:ing)? up)\b/i.test(
+			value
+		)
+	) {
+		return false;
+	}
+	return /\b(?:latest|current|today|tonight|right now|breaking|newest|news)\b/i.test(value) ||
+		/\bupdates?\s+(?:on|about|from|regarding)\b/i.test(value) ||
+		/\b(?:past|last)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|years?)\b/i.test(value) ||
+		/\b(?:search|research|browse|look up|gather|verify|confirm|fact[- ]?check|sources?|citations?|coverage|reporting)\b/i.test(
+			value
+		);
+}
+
+function isCurrentResearchRequest(value: string): boolean {
+	return /\b(?:latest|current|today|tonight|right now|breaking|newest|past 24 hours?|last 24 hours?)\b/i.test(
+		value
+	);
+}
+
 function referencesPriorConversation(value: string, intent: ConversationIntent): boolean {
 	if (intent === 'transform') return true;
 	const normalized = value.replace(/\s+/g, ' ').trim();
@@ -590,6 +672,7 @@ function fitContextToBudget(context: ConversationContext): ConversationContext {
 	if (byteLength(context) <= MAX_CONTEXT_BYTES) return context;
 	const reduced: ConversationContext = {
 		...context,
+		recentTurns: context.recentTurns?.slice(-4),
 		claimStates: context.claimStates?.slice(-4),
 		unresolvedQuestions: context.unresolvedQuestions?.slice(-3),
 		lastSourceBackedAnswer: context.lastSourceBackedAnswer
@@ -605,6 +688,9 @@ function fitContextToBudget(context: ConversationContext): ConversationContext {
 	};
 	while (byteLength(reduced) > MAX_CONTEXT_BYTES && (reduced.claimStates?.length ?? 0) > 1) {
 		reduced.claimStates?.shift();
+	}
+	while (byteLength(reduced) > MAX_CONTEXT_BYTES && (reduced.recentTurns?.length ?? 0) > 1) {
+		reduced.recentTurns?.shift();
 	}
 	while (byteLength(reduced) > MAX_CONTEXT_BYTES && (reduced.unresolvedQuestions?.length ?? 0) > 1) {
 		reduced.unresolvedQuestions?.shift();

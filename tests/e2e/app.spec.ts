@@ -686,6 +686,10 @@ test.describe('plan timeline UI', () => {
 		await expect(page.locator('[data-testid="plan-timeline"]')).toBeVisible({
 			timeout: 5_000
 		});
+		await expect(page.getByText('Researching', { exact: true })).toBeVisible();
+		await expect(
+			page.getByRole('button', { name: /approve|start research|continue research/i })
+		).toHaveCount(0);
 		// Steps are visible because the timeline is expanded (answer not yet arrived)
 		const steps = page.locator('[data-testid="plan-step"]');
 		await expect(steps).toHaveCount(2, { timeout: 3_000 });

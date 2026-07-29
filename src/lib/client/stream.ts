@@ -46,6 +46,7 @@ function toDiagnostic(error: unknown): string {
 export interface StreamArgs {
 	conversation_id?: string;
 	content?: MessageContent;
+	retry?: boolean;
 	regenerate?: boolean;
 	resume?: boolean;
 	message_id?: string;
@@ -98,6 +99,7 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 	if (!r.body) throw new ChatStreamError('stream response body missing');
 
 	const streamState = new StreamEventState();
+	let completed = false;
 	try {
 		for await (const ev of readSSE(r.body)) {
 			if (ev.event === 'agent.meta') {
@@ -109,6 +111,7 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 				continue;
 			}
 			for (const update of streamState.apply(ev.event, ev.data)) {
+				if (update.done) completed = true;
 				if (update.title) cb.onTitle?.(update.title);
 				if (update.delta) cb.onDelta(update.delta);
 				if (update.source) cb.onSource?.(update.source);
@@ -120,6 +123,9 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 				}
 				if (update.failed) throw new ChatStreamError(`stream event failed: ${update.failed}`);
 			}
+		}
+		if (!completed && !cb.signal?.aborted) {
+			throw new ChatStreamError('stream ended before a completed response was received');
 		}
 	} catch (error) {
 		if (isAbortError(error) || error instanceof ChatStreamError) throw error;

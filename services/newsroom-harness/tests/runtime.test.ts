@@ -153,6 +153,103 @@ describe('newsroom agent runtime', () => {
 		).toBe(true);
 	});
 
+	it('immediately researches an initial current-events request and filters stale evidence', async () => {
+		let receivedQuery = '';
+		const registry = new ToolRegistry();
+		registry.register({
+			name: 'openai_web_search',
+			description: 'web fixture',
+			when_to_use: 'test only',
+			category: 'web_search_provider',
+			input_schema: { type: 'object' },
+			output_schema: { type: 'object' },
+			async run(input) {
+				receivedQuery = String((input as { query?: string }).query || '');
+				const now = new Date().toISOString();
+				return {
+					status: 'ok',
+					answer:
+						'Japan reported a newly reviewed earthquake update [1]. A 2023 earthquake article is also available [2].',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'Japan earthquake authority',
+							source_url: 'https://example.go.jp/earthquake-update',
+							accessed_at: now,
+							tool_used: 'openai_web_search',
+							title: 'Latest Japan earthquake update',
+							published_at: now,
+							extracted_text: 'Japan reported a newly reviewed earthquake update.',
+							summary: 'Japan reported a newly reviewed earthquake update.',
+							confidence: 0.9,
+							limitations: [],
+							source_kind: 'official',
+							citation_number: 1
+						}),
+						normalizeEvidence({
+							source_name: 'Old Japan earthquake article',
+							source_url: 'https://example.com/japan-earthquake-2023',
+							accessed_at: now,
+							tool_used: 'openai_web_search',
+							title: 'Japan earthquake article from 2023',
+							published_at: '2023-01-01T12:00:00.000Z',
+							extracted_text: 'A 2023 earthquake article is also available.',
+							summary: 'A 2023 earthquake article is also available.',
+							confidence: 0.8,
+							limitations: [],
+							source_kind: 'media_report',
+							citation_number: 2
+						})
+					]
+				};
+			}
+		});
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
+			registry
+		});
+		const progress: RuntimeProgressEvent[] = [];
+		const context: ConversationContext = {
+			version: 1,
+			intent: 'research',
+			currentTurn: {
+				messageId: 'm1',
+				content: "What's the latest on earthquakes in Japan?",
+				resolvedRequest: "What's the latest on earthquakes in Japan?",
+				operation: 'send',
+				researchRequired: true,
+				freshness: 'current'
+			},
+			activeTopic: {
+				subject: "What's the latest on earthquakes in Japan?",
+				location: 'Japan',
+				relevantDate: 'latest'
+			}
+		};
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: "What's the latest on earthquakes in Japan?" }],
+			{
+				plannerEnabled: false,
+				conversationContext: context,
+				onProgress: (event) => progress.push(event)
+			}
+		);
+
+		expect(receivedQuery).toContain('earthquakes in Japan');
+		expect(answer).toContain('Japan reported');
+		expect(answer).not.toMatch(/2023 earthquake article|\[2\]/);
+		const plans = progress.filter((event) => event.type === 'plan');
+		expect(plans.length).toBeGreaterThan(1);
+		const finalPlan = plans.at(-1);
+		expect(finalPlan?.type === 'plan' ? finalPlan.steps.map((step) => step.status) : []).toEqual(['ok']);
+	});
+
 	it('keeps structured newsroom context out of the routed tool query', async () => {
 		let receivedQuery = '';
 		const registry = new ToolRegistry();
@@ -974,20 +1071,30 @@ describe('newsroom agent runtime', () => {
 	});
 
 	it('builds a bounded follow-up prompt from recent conversation context', () => {
-		const prompt = buildDisciplinedChatPrompt([
-			{ role: 'system', content: 'System instructions should not become follow-up context.' },
-			{ role: 'user', content: 'What did Mark Carney say about recession in Canada today?' },
+		const prompt = buildDisciplinedChatPrompt(
+			[
+				{ role: 'system', content: 'System instructions should not become follow-up context.' },
+				{ role: 'user', content: 'What did Mark Carney say about recession in Canada today?' },
+				{
+					role: 'assistant',
+					content: [
+						'Pressed on GDP data showing a technical recession, Mark Carney said the data will be uneven.',
+						'[NewsCraft source context for follow-up questions]',
+						'Sources used:',
+						'- Carney says some Canadian economic data will be uneven (investing.com)'
+					].join('\n')
+				},
+				{ role: 'user', content: 'what are the policy shifts he is referring to?' }
+			],
+			{},
+			undefined,
+			[],
 			{
-				role: 'assistant',
-				content: [
-					'Pressed on GDP data showing a technical recession, Mark Carney said the data will be uneven.',
-					'[NewsCraft source context for follow-up questions]',
-					'Sources used:',
-					'- Carney says some Canadian economic data will be uneven (investing.com)'
-				].join('\n')
-			},
-			{ role: 'user', content: 'what are the policy shifts he is referring to?' }
-		]);
+				version: 1,
+				intent: 'research',
+				activeTopic: { subject: 'Mark Carney policy shifts in Canada' }
+			}
+		);
 
 		expect(prompt).toContain('Current user question:');
 		expect(prompt).toContain('what are the policy shifts he is referring to?');

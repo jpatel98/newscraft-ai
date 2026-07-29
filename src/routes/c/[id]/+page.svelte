@@ -105,6 +105,7 @@
 		await prior.catch(() => {});
 
 		const isResume = args.resume === true && !!args.message_id;
+		const isRetry = args.retry === true;
 		const isRetryableSend = Boolean(
 			(args.content || args.output_action) && !args.regenerate && !isResume
 		);
@@ -112,7 +113,7 @@
 		const resumingId = isResume ? (args.message_id as string) : null;
 
 		const userMsg: ThreadMessage | null =
-			args.regenerate || isResume
+			args.regenerate || isRetry || isResume
 				? null
 				: {
 						id: 'tmp-u-' + Math.random().toString(36).slice(2),
@@ -404,7 +405,11 @@
 		clearFailureOverlays();
 		failedRetry = null;
 		try {
-			const wanted = retry.args.content ? contentText(retry.args.content) : '';
+			const wanted = retry.args.content
+				? contentText(retry.args.content)
+				: retry.args.output_action
+					? ANSWER_ACTION_REQUESTS[retry.args.output_action]
+					: '';
 			const lastUserIndex = data.messages.findLastIndex((message) => message.role === 'user');
 			const lastUser = lastUserIndex >= 0 ? data.messages[lastUserIndex] : null;
 			const resumable =
@@ -419,6 +424,11 @@
 					...retry.args,
 					resume: true,
 					message_id: resumable.id
+				});
+			} else if (lastUser && wanted && contentText(lastUser.content) === wanted) {
+				await runStream({
+					...retry.args,
+					retry: true
 				});
 			} else {
 				await runStream(retry.args);

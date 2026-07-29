@@ -130,6 +130,7 @@ function plannerInput(request: PlannerRequest): string {
 		'- input is what the tool acts on: a focused search query (not the raw request), a URL to read, or feed URLs.',
 		'- label is shown to the user while the step runs (e.g. "Checking Toronto police releases"). Never mention tool, adapter, or model names in labels.',
 		'- For current events, prefer configured/official sources before broad web search when a configured monitor clearly matches.',
+		'- For latest/current requests, search the requested time window and put the newest supported developments first. Older background is not a latest update.',
 		'- Never invent URLs. Only read URLs that appear in the request.',
 		'- For multi-part questions, you may plan one focused web search per distinct part.',
 		'Available tools:',

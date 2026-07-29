@@ -21,7 +21,6 @@ import {
 	getConversation,
 	getMessageById,
 	getMessages,
-	lastAssistantMessage,
 	parseContent,
 	releasePartialAssistantMessageClaim,
 	setMessageToolCalls
@@ -67,10 +66,15 @@ import {
 	conversationContextProvenanceMessageIds,
 	conversationContextCompatibilityMessage
 } from '$lib/server/conversation-context';
+import {
+	answerForLatestUser,
+	isLatestUnfinishedAssistant
+} from '$lib/server/reply-operations';
 
 interface Body {
 	conversation_id?: string;
 	content?: MessageContent;
+	retry?: boolean;
 	regenerate?: boolean;
 	resume?: boolean;
 	message_id?: string;
@@ -600,11 +604,16 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	// --- Resolve conversation + decide what to stream ---
 	const isResume = body.resume === true;
+	const isRetry = body.retry === true;
+	const isRegenerate = body.regenerate === true;
+	if ([isResume, isRetry, isRegenerate].filter(Boolean).length > 1) {
+		throw error(400, 'choose only one reply operation');
+	}
 	const accountId = locals.user.id;
 	let convo = body.conversation_id ? await getConversation(accountId, body.conversation_id) : undefined;
-	const isNew = !convo && !isResume;
+	const isNew = !convo && !isResume && !isRetry && !isRegenerate;
 	if (!convo) {
-		if (isResume) throw error(404, 'conversation not found');
+		if (isResume || isRetry || isRegenerate) throw error(404, 'conversation not found');
 		convo = await createConversation(accountId);
 	}
 	const convoId = convo.id;
@@ -628,12 +637,12 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	recordChatDiagnostic(convoId, 'chat.request', {
 		trace_id: traceId,
 		contentLength: len,
+		retry: body.retry === true,
 		resume: isResume,
 		regenerate: body.regenerate === true,
 		newConversation: isNew
 	});
 
-	const isRegenerate = body.regenerate === true;
 	let resumeMessageId: string | null = null;
 	let visibleUserMessageId: string | null = null;
 	let outputActionSource:
@@ -665,11 +674,29 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (!target || target.conversationId !== convoId) throw error(404, 'message not found');
 		if (target.role !== 'assistant') throw error(400, 'can only resume assistant messages');
 		if (target.partial !== 1) throw error(400, 'message is not partial');
+		const existingMessages = await getMessages(convoId);
+		if (!isLatestUnfinishedAssistant(existingMessages, target.id)) {
+			throw error(409, 'only the latest unfinished answer can be resumed');
+		}
 		if (!(await claimPartialAssistantMessage(messageId, convoId))) throw error(409, 'already resuming');
 		resumeMessageId = messageId;
-	} else if (isRegenerate) {
-		const lastA = await lastAssistantMessage(convoId);
-		if (lastA) await deleteMessagesFrom(convoId, lastA.id);
+	} else if (isRegenerate || isRetry) {
+		const existingMessages = await getMessages(convoId);
+		const existingUser = [...existingMessages].reverse().find((message) => message.role === 'user');
+		if (!existingUser) throw error(409, 'no user request is available for this operation');
+		if (isRetry) {
+			const expectedVisibleRequest = body.output_action
+				? OUTPUT_ACTION_VISIBLE_REQUESTS[body.output_action]
+				: body.content
+					? contentText(body.content)
+					: '';
+			const persistedVisibleRequest = contentText(parseContent(existingUser.content));
+			if (expectedVisibleRequest && expectedVisibleRequest !== persistedVisibleRequest) {
+				throw error(409, 'the saved user request changed before retry');
+			}
+		}
+		const existingAnswer = answerForLatestUser(existingMessages);
+		if (existingAnswer) await deleteMessagesFrom(convoId, existingAnswer.id);
 	} else {
 		const outputActionPrompt = body.output_action ? OUTPUT_ACTION_PROMPTS[body.output_action] : undefined;
 		const requestedContent = body.output_action
@@ -746,6 +773,9 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	const reasoningEffort = await getConversationReasoningEffort(convoId);
 	const messages = await getMessages(convoId);
 	const latestUserMessage = [...messages].reverse().find((message) => message.role === 'user');
+	if ((isResume || isRetry || isRegenerate) && !latestUserMessage) {
+		throw error(409, 'no user request is available for this operation');
+	}
 	if (isRegenerate && documentIds.length === 0) {
 		documentIds = parseUserDocumentIds(latestUserMessage?.toolCalls);
 	}
@@ -760,19 +790,29 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	const inheritedMetadata = body.output_action
 		? parseToolMetadata(outputActionSource?.toolCalls)
 		: null;
-	const regeneratedUserRequest = isRegenerate
-		? contentText(
-				parseContent(latestUserMessage?.content ?? '')
-			)
-		: '';
+	const persistedUserRequest =
+		isRegenerate || isRetry || isResume
+			? contentText(parseContent(latestUserMessage?.content ?? ''))
+			: '';
+	const currentRequest = body.output_action
+		? OUTPUT_ACTION_VISIBLE_REQUESTS[body.output_action]
+		: body.content
+			? contentText(body.content)
+			: persistedUserRequest;
 	const conversationContext: ConversationContext = buildConversationContext({
 		messages,
 		provenance,
-		currentRequest: body.output_action
-			? OUTPUT_ACTION_VISIBLE_REQUESTS[body.output_action]
-			: body.content
-				? contentText(body.content)
-				: regeneratedUserRequest,
+		currentRequest,
+		currentMessageId: visibleUserMessageId ?? latestUserMessage?.id,
+		operation: body.output_action
+			? 'transform'
+			: isResume
+				? 'resume'
+				: isRetry
+					? 'retry'
+					: isRegenerate
+						? 'regenerate'
+						: 'send',
 		outputAction: Boolean(body.output_action),
 		sourceMessageId: body.source_message_id
 	});
@@ -780,17 +820,25 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		trace_id: traceId,
 		messageCount: messages.length,
 		conversationContextBytes: new TextEncoder().encode(JSON.stringify(conversationContext)).byteLength,
+		currentMessageId: conversationContext.currentTurn?.messageId ?? null,
+		operation: conversationContext.currentTurn?.operation ?? null,
+		researchRequired: conversationContext.currentTurn?.researchRequired ?? false,
+		freshness: conversationContext.currentTurn?.freshness ?? null,
+		recentTurnCount: conversationContext.recentTurns?.length ?? 0,
 		reasoningEffort
 	});
+	const completedHistoryMessages = messages.filter(
+		(message) => message.role !== 'assistant' || message.partial !== 1
+	);
 	const historyMessages =
 		body.output_action && outputActionSource && visibleUserMessageId
-			? messages.filter(
+			? completedHistoryMessages.filter(
 					(message) =>
 						message.role === 'system' ||
 						message.id === outputActionSource?.id ||
 						message.id === visibleUserMessageId
 				)
-			: messages;
+			: completedHistoryMessages;
 	const history = historyMessages.map<AgentMessage>((m) => {
 		const parsed = parseContent(m.content);
 		return {
@@ -830,11 +878,19 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			orgId: convo.orgId,
 			accountId,
 			documentIds,
-			query: body.content ? contentText(body.content) : regeneratedUserRequest,
+			query: currentRequest,
 			traceId
 		});
 	} catch (cause) {
 		if (cause instanceof NewsroomContextUnavailableError) {
+			if (resumeMessageId) {
+				return await localGatewayFailureResponse(
+					convoId,
+					'newsroom context unavailable',
+					resumeMessageId,
+					traceId
+				);
+			}
 			return localAssistantResponse(
 				convoId,
 				"I couldn't load your newsroom timezone, so I stopped before interpreting relative dates. Try again in a moment.",
@@ -1049,6 +1105,15 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				return;
 			}
 
+			if (done && !assistantBuf.trim()) {
+				const fallback = conversationContext.currentTurn?.researchRequired
+					? "I couldn't complete the research with readable current sources right now. Please retry."
+					: "I couldn't complete that reply right now. Please retry.";
+				assistantBuf = fallback;
+				controller.enqueue(
+					enc.encode(sseFrame('response.output_text.delta', JSON.stringify({ delta: fallback })))
+				);
+			}
 			const assistantRow = await persistAssistant(done ? 'completed' : 'partial');
 			const citationMarkers = citationNumbersInText(assistantBuf);
 			const citationRecords = assistantRow

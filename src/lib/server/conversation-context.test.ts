@@ -41,6 +41,74 @@ function message(
 }
 
 describe('conversation context builder', () => {
+	it('starts current-events research from the initial user request', () => {
+		const context = buildConversationContext({
+			messages: [message('m1', 'user', "What's the latest on earthquakes in Japan?")],
+			currentRequest: "What's the latest on earthquakes in Japan?",
+			currentMessageId: 'm1'
+		});
+
+		expect(context.currentTurn).toEqual({
+			messageId: 'm1',
+			content: "What's the latest on earthquakes in Japan?",
+			resolvedRequest: "What's the latest on earthquakes in Japan?",
+			operation: 'send',
+			researchRequired: true,
+			freshness: 'current'
+		});
+		expect(context.recentTurns).toBeUndefined();
+		expect(context.activeTopic?.subject).toContain('earthquakes in Japan');
+	});
+
+	it('keeps a conversational acknowledgement as the authoritative current turn', () => {
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Find the latest Toronto news today.'),
+				message('m2', 'assistant', 'Here are the confirmed Toronto updates with source links.'),
+				message('m3', 'user', 'Okay.')
+			],
+			currentRequest: 'Okay.',
+			currentMessageId: 'm3'
+		});
+
+		expect(context.currentTurn?.resolvedRequest).toBe('Okay.');
+		expect(context.currentTurn?.researchRequired).toBe(false);
+	});
+
+	it('does not force research for an ordinary writing request', () => {
+		const context = buildConversationContext({
+			messages: [],
+			currentRequest: 'Write a sharper headline for this copy.'
+		});
+
+		expect(context.currentTurn).toMatchObject({
+			resolvedRequest: 'Write a sharper headline for this copy.',
+			researchRequired: false,
+			operation: 'send'
+		});
+	});
+
+	it('does not confuse editorial update wording with a request for live updates', () => {
+		const context = buildConversationContext({
+			messages: [],
+			currentRequest: 'Update this headline and find a stronger verb.'
+		});
+
+		expect(context.currentTurn?.researchRequired).toBe(false);
+	});
+
+	it('does not mistake a reference to the last answer for a freshness request', () => {
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Explain the housing proposal.'),
+				message('m2', 'assistant', 'The proposal has three main parts.')
+			],
+			currentRequest: 'Shorten the last answer without new research.'
+		});
+
+		expect(context.currentTurn?.researchRequired).toBe(false);
+	});
+
 	it('retains topic, corrections, publication dates, and citations within a bounded packet', () => {
 		const messages: MessageRow[] = [
 			message('m1', 'user', 'Check the ECCC weather alert for Toronto on July 24, 2026.'),

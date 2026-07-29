@@ -136,11 +136,16 @@ export class DisciplinedNewsroomAgent {
 
 	async run(prompt: string, context: NewsroomAgentRunContext = {}): Promise<NewsroomAgentRunResult> {
 		const routingPrompt = context.routingPrompt?.trim() || prompt;
+		const resolvedRoutingPrompt =
+			context.conversationContext?.currentTurn?.researchRequired &&
+			context.conversationContext.currentTurn.resolvedRequest.trim()
+				? context.conversationContext.currentTurn.resolvedRequest.trim()
+				: routingPrompt;
 		const researchPrompt = documentResearchPrompt(
-			groundedResearchPrompt(routingPrompt, context.conversationContext),
+			groundedResearchPrompt(resolvedRoutingPrompt, context.conversationContext),
 			context.documents
 		);
-		let decision = routeNewsroomRequest(routingPrompt, {
+		let decision = routeNewsroomRequest(resolvedRoutingPrompt, {
 			default_tool_budget: this.config.default_tool_budget
 		});
 		if (context.documents?.length) decision = documentRouteDecision(decision, researchPrompt);
@@ -174,7 +179,7 @@ export class DisciplinedNewsroomAgent {
 				plan: { source: 'router', steps: [] },
 				evidence,
 				final_answer: generateFinalAnswer({
-					prompt: routingPrompt,
+					prompt: resolvedRoutingPrompt,
 					decision,
 					evidence,
 					limitations,
@@ -318,7 +323,7 @@ export class DisciplinedNewsroomAgent {
 			plan: planEvent(plan.source, queue),
 			evidence,
 			final_answer: generateFinalAnswer({
-				prompt: routingPrompt,
+				prompt: resolvedRoutingPrompt,
 				decision,
 				evidence,
 				limitations,

@@ -112,4 +112,27 @@ describe('streamChat error contract', () => {
 		expect(onMeta).toHaveBeenCalledWith({ conversation_id: 'convo_1', trace_id: 'trace_12345678' });
 		expect(onDelta).toHaveBeenCalledWith('Hello');
 	});
+
+	it('rejects a plan-only stream that closes before a completed answer', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				sseResponse(
+					'event: agent.plan\n' +
+						'data: {"source":"router","steps":[{"id":"step_1","label":"Checking Japan earthquake updates","status":"running"}]}\n\n'
+				)
+			)
+		);
+
+		await expect(
+			streamChat(
+				{ conversation_id: 'convo_1', content: "What's the latest on earthquakes in Japan?" },
+				{ onDelta: vi.fn(), onPlan: vi.fn() }
+			)
+		).rejects.toMatchObject({
+			name: 'ChatStreamError',
+			message: CHAT_STREAM_FAILURE_MESSAGE,
+			retryable: true
+		});
+	});
 });
