@@ -293,7 +293,15 @@ export class DisciplinedNewsroomAgent {
 				diagnostics: output.diagnostics
 			});
 
-			followUpFetches += this.queueFollowUps(queue, step, output, evidence, ledger, context, followUpFetches);
+			followUpFetches += this.queueFollowUps(
+				queue,
+				step,
+				rawOutput,
+				evidence,
+				ledger,
+				context,
+				followUpFetches
+			);
 			emitPlan();
 
 			if (step.tool === NEWSROOM_TOOL_NAMES.briefGenerator) break;
@@ -464,10 +472,12 @@ export class DisciplinedNewsroomAgent {
 			});
 		}
 
-		// Research updates need publication dates; chat prioritizes latency, so
-		// deep follow-up fetches only run for report-style outputs.
+		// Research updates need publication dates. Ordinary chat prioritizes
+		// latency, but a current-news chat must read undated discoveries before
+		// the freshness guard can accept them.
 		if (
-			context.outputStyle !== 'chat' &&
+			(context.outputStyle !== 'chat' ||
+				context.conversationContext?.currentTurn?.freshness === 'current') &&
 			step.tool === NEWSROOM_TOOL_NAMES.webSearch &&
 			output.status === 'ok' &&
 			this.stepCanBeQueued(NEWSROOM_TOOL_NAMES.urlFetchRead)

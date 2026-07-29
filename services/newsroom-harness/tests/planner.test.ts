@@ -460,6 +460,76 @@ describe('planned agent loop', () => {
 		expect(result.tool_calls.map((call) => call.name)).toEqual(['openai_web_search']);
 	});
 
+	it('reads undated discoveries before answering a current-news chat', async () => {
+		const registry = new ToolRegistry();
+		const fetchedUrls: string[] = [];
+		const sourceUrl = 'https://example.com/japan-earthquake-update';
+		const searchText =
+			'Japan authorities are assessing the latest earthquake activity and public-safety guidance.';
+		registry.register(
+			stubTool('openai_web_search', 'web_search_provider', () => ({
+				status: 'ok',
+				evidence: [evidenceItem(sourceUrl, searchText, null)],
+				answer: `${searchText} [1]`
+			}))
+		);
+		registry.register(
+			stubTool('url_fetch_read', 'custom', (input) => {
+				fetchedUrls.push((input as { url: string }).url);
+				return {
+					status: 'ok',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'Example News',
+							source_url: sourceUrl,
+							accessed_at: '2026-07-29T17:00:00.000Z',
+							tool_used: 'url_fetch_read',
+							title: 'Latest earthquake update from Japan',
+							published_at: '2026-07-29T16:30:00.000Z',
+							extracted_text: searchText,
+							summary: searchText,
+							confidence: 0.9,
+							source_kind: 'news_report'
+						})
+					]
+				};
+			})
+		);
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: { enabled_tools: ['openai_web_search', 'url_fetch_read'], planner_enabled: false }
+		});
+
+		const result = await agent.run("What's the latest on earthquakes in Japan?", {
+			outputStyle: 'chat',
+			conversationContext: {
+				version: 1,
+				intent: 'research',
+				currentTurn: {
+					messageId: 'message-current',
+					content: "What's the latest on earthquakes in Japan?",
+					resolvedRequest: "What's the latest on earthquakes in Japan?",
+					researchRequired: true,
+					freshness: 'current'
+				},
+				activeTopic: {
+					subject: 'latest earthquakes in Japan',
+					location: 'Japan',
+					relevantDate: '2026-07-29'
+				}
+			}
+		});
+
+		expect(fetchedUrls).toEqual([sourceUrl]);
+		expect(result.tool_calls.map((call) => call.name)).toEqual([
+			'openai_web_search',
+			'url_fetch_read'
+		]);
+		expect(result.evidence).toHaveLength(1);
+		expect(result.final_answer).toContain('earthquake activity');
+		expect(result.final_answer).toContain('[1]');
+	});
+
 	it('builds a complete current-status answer when the provider answer only cites rejected evidence', async () => {
 		const registry = new ToolRegistry();
 		registry.register(
