@@ -1251,7 +1251,7 @@ describe('disciplined newsroom agent harness', () => {
 		});
 	});
 
-	it('runs the official-source fallback when a general current-news search only finds secondary evidence', async () => {
+	it('runs a substantive fallback when a general current-news search only finds secondary evidence', async () => {
 		const fetchMock = vi
 			.fn()
 			.mockResolvedValueOnce(
@@ -1298,7 +1298,7 @@ describe('disciplined newsroom agent harness', () => {
 							{
 								message: {
 									content:
-										'Japan’s meteorological agency published an updated earthquake bulletin today [1].'
+										'The Japan Meteorological Agency page is the authoritative real-time source. Check the page for minute-by-minute updates [1].'
 								}
 							}
 						],
@@ -1309,6 +1309,31 @@ describe('disciplined newsroom agent harness', () => {
 								title: 'Japan Meteorological Agency earthquake information',
 								snippet: 'Updated earthquake bulletin for Japan.',
 								date: '2026-07-29T15:30:00.000Z'
+							}
+						]
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						choices: [
+							{
+								message: {
+									content:
+										'JMA reported a magnitude 4.7 earthquake east of Aomori Prefecture at 16:38 JST today [1].'
+								}
+							}
+						],
+						citations: ['https://www.data.jma.go.jp/multi/quake/?lang=en'],
+						search_results: [
+							{
+								url: 'https://www.data.jma.go.jp/multi/quake/?lang=en',
+								title: 'Japan Meteorological Agency earthquake information',
+								snippet:
+									'A magnitude 4.7 earthquake occurred east of Aomori Prefecture at 16:38 JST.',
+								date: '2026-07-29T16:38:00.000Z'
 							}
 						]
 					}),
@@ -1346,14 +1371,20 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat'
 		});
 
-		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
 		expect(String(fetchMock.mock.calls[0]?.[0])).toContain('api.openai.com');
 		expect(String(fetchMock.mock.calls[1]?.[0])).toContain('api.perplexity.ai');
+		expect(String(fetchMock.mock.calls[2]?.[0])).toContain('api.perplexity.ai');
 		expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+			search_recency_filter: 'day'
+		});
+		expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).not.toHaveProperty('search_domain_filter');
+		expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toMatchObject({
 			search_domain_filter: ['jma.go.jp', 'earthquake.usgs.gov'],
 			search_recency_filter: 'day'
 		});
-		expect(result.final_answer).toContain('earthquake bulletin');
+		expect(result.final_answer).toContain('magnitude 4.7 earthquake');
+		expect(result.final_answer).not.toContain('Check the page');
 		expect(result.final_answer).not.toContain('Japan Times');
 		expect(result.evidence).toEqual([
 			expect.objectContaining({

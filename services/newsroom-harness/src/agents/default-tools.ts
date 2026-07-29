@@ -310,7 +310,10 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 
 			const fallbackKey = context.perplexityApiKey || '';
 			if (
-				!selected.usable &&
+				(!selected.usable ||
+					(needsOfficialSourceRetry(input.query) &&
+						(!hasPrimaryEvidence(selected.evidence) ||
+							!hasSubstantiveCurrentAnswer(input.query, selected.outputText)))) &&
 				primaryProvider === 'openai' &&
 				fallbackKey &&
 				!context.signal?.aborted
@@ -324,12 +327,18 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					context
 				});
 				recordOutcome(fallback, 'fallback');
-				if (fallback.usable) selected = fallback;
+				if (
+					fallback.usable &&
+					hasSubstantiveCurrentAnswer(input.query, fallback.outputText)
+				) {
+					selected = fallback;
+				}
 			}
 
 			if (
 				needsOfficialSourceRetry(input.query) &&
-				!hasPrimaryEvidence(selected.evidence) &&
+				(!hasPrimaryEvidence(selected.evidence) ||
+					!hasSubstantiveCurrentAnswer(input.query, selected.outputText)) &&
 				!context.signal?.aborted
 			) {
 				const officialProvider: ModelProvider = fallbackKey ? 'perplexity' : selected.provider;
@@ -348,7 +357,13 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					officialSourceOnly: true
 				});
 				recordOutcome(official, 'official_source');
-				if (official.usable && hasPrimaryEvidence(official.evidence)) selected = official;
+				if (
+					official.usable &&
+					hasPrimaryEvidence(official.evidence) &&
+					hasSubstantiveCurrentAnswer(input.query, official.outputText)
+				) {
+					selected = official;
+				}
 			}
 
 			let outputText = selected.outputText;
@@ -1181,6 +1196,8 @@ function webSearchPrompt(
 		'For a broad top-news request, provide a concise mixed roundup using the newsroom home market when available. For an unqualified FIFA-games-today request, check official FIFA-run competitions across the date and state that scope. For a requested national public-policy roundup, include all government levels unless the user narrows the scope.',
 		'Lead with the direct answer. Add confirmed facts, disagreement, uncertainty, or a comparison table only when each is relevant; do not emit empty boilerplate sections.',
 		'Tell the user what the research found before discussing what could not be confirmed. A partial, source-backed answer is more useful than a generic access or verification disclaimer.',
+		'For latest, current, or today requests, report the newest concrete findings in newest-to-oldest order. Include the event time or date and the key event facts when the sources provide them.',
+		'Do not substitute instructions to check, consult, visit, or monitor a source page for the requested update.',
 		isCurrentEventQuery(query)
 			? `Do not add a Current as of label; NewsCraft adds the local label outside the provider response.`
 			: 'Do not add a Current as of label unless the answer depends on changing or time-sensitive facts.',
@@ -1275,6 +1292,21 @@ function needsOfficialSourceRetry(query: string): boolean {
 	if (/\b(earthquakes?|seismic|tsunami|volcan(?:o|ic)|wildfires?|hurricanes?|tornado(?:es)?|flood(?:ing|s)?)\b/i.test(query)) return true;
 	if (/\b(schedule|fixtures?|kick[- ]?off|tip[- ]?off)\b/i.test(query)) return true;
 	return /\b(games?|matches?)\b[\s\S]*\b(today|tonight|tomorrow|this week)\b/i.test(query);
+}
+
+function hasSubstantiveCurrentAnswer(query: string, answer: string): boolean {
+	if (!isCurrentEventQuery(query)) return true;
+	const text = answer.replace(/\s+/g, ' ').trim();
+	if (!text) return false;
+	const directsUserToSource =
+		/\b(?:check|consult|monitor|visit|see)\b[\s\S]{0,100}\b(?:pages?|sites?|sources?|updates?|bulletins?|record)\b/i.test(
+			text
+		);
+	const directoryDescription =
+		/\b(?:authoritative|official record|ongoing source|real[- ]time data|minute[- ]by[- ]minute updates?)\b/i.test(
+			text
+		);
+	return !(directsUserToSource && directoryDescription);
 }
 
 function requestsExternalCorroboration(query: string): boolean {
