@@ -103,10 +103,8 @@ describe('provider usage ledger', () => {
 
 		const output = await runWebSearchTool(repository, run.jobId, run.runId);
 
-		expect(output.status).toBe('error');
-		expect(output.limitations?.join(' ')).toBe(
-			'The configured research provider (OpenAI) could not complete web search right now.'
-		);
+			expect(output.status).toBe('error');
+			expect(output.limitations?.join(' ')).toBe('Live research could not finish right now.');
 		expect(output.limitations?.join(' ')).not.toMatch(/HTTP|provider unavailable|fake-key|API key/i);
 		const records = repository.listUsageRecords({ runId: run.runId });
 		expect(records).toHaveLength(1);

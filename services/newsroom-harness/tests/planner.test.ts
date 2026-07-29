@@ -338,7 +338,7 @@ describe('planned agent loop', () => {
 			})
 		});
 
-		const result = await agent.run('Summarize the attached PDF.', {
+		const result = await agent.run('Summarize the attached PDF. Do not verify it externally.', {
 			openAiApiKey: 'test-key',
 			forcePlanner: true,
 			documents: [
@@ -460,9 +460,81 @@ describe('planned agent loop', () => {
 		expect(result.tool_calls.map((call) => call.name)).toEqual(['openai_web_search']);
 	});
 
+	it('builds a complete current-status answer when the provider answer only cites rejected evidence', async () => {
+		const registry = new ToolRegistry();
+		registry.register(
+			stubTool('openai_web_search', 'web_search_provider', () => ({
+				status: 'ok',
+				evidence: [
+					alertEvidence(1, '2026-07-26', 'A heat warning was active in Toronto on July 26, 2026.'),
+					alertEvidence(2, null, 'No alerts in effect for Toronto.')
+				],
+				answer: '(weather.gc.ca) A heat warning was active in Toronto on July 26, 2026 [1].'
+			}))
+		);
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: { enabled_tools: ['openai_web_search'], planner_enabled: false }
+		});
+
+		const result = await agent.run('As of now, is a weather alert active for the City of Toronto?', {
+			outputStyle: 'chat',
+			conversationContext: {
+				version: 1,
+				intent: 'verify',
+				activeTopic: {
+					subject: 'current City of Toronto weather alert status',
+					location: 'Toronto',
+					relevantDate: '2026-07-28'
+				}
+			}
+		});
+
+		expect(result.evidence.map((item) => item.citation_number)).toEqual([1]);
+		expect(result.final_answer).toContain('**Current status:**');
+		expect(result.final_answer).toContain('no alerts are in effect. [1]');
+		expect(result.final_answer).not.toContain('July 26');
+		expect(result.final_answer).not.toContain('(weather.gc.ca)');
+	});
+
+	it('retains only provider claims whose citations survive conversation filtering', async () => {
+		const registry = new ToolRegistry();
+		registry.register(
+			stubTool('openai_web_search', 'web_search_provider', () => ({
+				status: 'ok',
+				evidence: [
+					alertEvidence(1, '2026-07-26', 'A heat warning was active in Toronto on July 26, 2026.'),
+					alertEvidence(2, null, 'No alerts in effect.')
+				],
+				answer: 'The July 26 heat warning was active [1]. Environment Canada reports no alerts in effect [2].'
+			}))
+		);
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: { enabled_tools: ['openai_web_search'], planner_enabled: false }
+		});
+
+		const result = await agent.run('Verify the current City of Toronto weather alert status now.', {
+			outputStyle: 'chat',
+			conversationContext: {
+				version: 1,
+				intent: 'verify',
+				activeTopic: {
+					subject: 'current City of Toronto weather alert status',
+					location: 'Toronto',
+					relevantDate: '2026-07-28'
+				}
+			}
+		});
+
+		expect(result.final_answer).toContain('Environment Canada reports no alerts in effect [1].');
+		expect(result.final_answer).not.toContain('July 26 heat warning');
+		expect(result.final_answer).not.toContain('[2]');
+	});
+
 	it('marks steps beyond the budget as skipped in the final plan', async () => {
 		const registry = new ToolRegistry();
-		registry.register(stubTool('source_feed_fetcher', 'source_feed_fetcher', () => ({
+		registry.register(stubTool('url_fetch_read', 'custom', () => ({
 			status: 'ok',
 			evidence: [evidenceItem('https://official.example/release', LONG_TEXT, '2026-06-09')]
 		})));
@@ -473,7 +545,7 @@ describe('planned agent loop', () => {
 		const agent = new DisciplinedNewsroomAgent({
 			registry,
 			config: {
-				enabled_tools: ['source_feed_fetcher', 'openai_web_search'],
+				enabled_tools: ['url_fetch_read', 'openai_web_search'],
 				planner_enabled: false,
 				default_tool_budget: {
 					max_total_tool_calls: 1,
@@ -494,3 +566,20 @@ describe('planned agent loop', () => {
 		expect(result.plan.steps[1]).toMatchObject({ tool: 'openai_web_search', status: 'skipped' });
 	});
 });
+
+function alertEvidence(citationNumber: number, publishedAt: string | null, text: string) {
+	return normalizeEvidence({
+		source_name: 'Environment Canada',
+		source_url: `https://weather.gc.ca/warnings/report_e.html?on61&citation=${citationNumber}`,
+		accessed_at: '2026-07-28T17:00:00.000Z',
+		tool_used: 'openai_web_search',
+		title: 'City of Toronto weather alert status',
+		published_at: publishedAt,
+		extracted_text: text,
+		summary: text,
+		confidence: 0.95,
+		limitations: [],
+		source_kind: 'official',
+		citation_number: citationNumber
+	});
+}

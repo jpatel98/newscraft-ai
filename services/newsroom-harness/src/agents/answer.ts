@@ -16,6 +16,7 @@ export interface AnswerGenerationInput {
 	budget: ToolBudgetSnapshot;
 	toolAnswers?: string[];
 	outputStyle?: 'report' | 'chat';
+	conversationContext?: ConversationContext;
 }
 
 export function generateFinalAnswer(input: AnswerGenerationInput): string {
@@ -34,7 +35,10 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		return directAnswerFallback(input.prompt);
 	}
 	if (!evidence.length && input.toolAnswers?.length) {
-		const answer = input.toolAnswers.filter((item) => item.trim()).join('\n\n');
+		const answer = input.toolAnswers
+			.filter((item) => item.trim())
+			.join('\n\n')
+			.replace(/\s*\[\d+\]/g, '');
 		const caveats = publicCaveatsFor(input.prompt, evidence, unusableEvidence, input.limitations, {
 			noUsableEvidence: true
 		});
@@ -47,7 +51,14 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		return noPublishableLeadReport(unusableEvidence, input.limitations);
 	}
 	if (input.outputStyle === 'chat') {
-		return chatAnswer(input.prompt, evidence, unusableEvidence, input.limitations, input.toolAnswers || []);
+		return chatAnswer(
+			input.prompt,
+			evidence,
+			unusableEvidence,
+			input.limitations,
+			input.toolAnswers || [],
+			input.conversationContext
+		);
 	}
 
 	const briefItems = evidence.map((item) => briefItemFor(item));
@@ -78,7 +89,8 @@ function chatAnswer(
 	evidence: EvidenceObject[],
 	unusableEvidence: EvidenceObject[],
 	limitations: string[],
-	toolAnswers: string[]
+	toolAnswers: string[],
+	conversationContext?: ConversationContext
 ): string {
 	const freshest = evidence[0];
 	const rawToolAnswer = toolAnswers.find((item) => item.trim());
@@ -86,24 +98,126 @@ function chatAnswer(
 	const answer = rawToolAnswer
 		? formatChatToolAnswer(prompt, rawToolAnswer)
 		: documentEvidence.length
-			? documentChatAnswer(documentEvidence)
-			: `${summaryFor(freshest, 720)}${freshest.citation_number ? ` [${freshest.citation_number}]` : ''}`;
+			? documentChatAnswer(documentEvidence, prompt)
+			: groundedEvidenceChatAnswer(prompt, evidence, conversationContext);
 	const caveats = publicCaveatsFor(prompt, evidence, unusableEvidence, limitations, { noUsableEvidence: false });
-	return appendCaveats(answer, caveats);
+	const publicationDate = publicationDateAnswer(prompt, evidence);
+	return appendCaveats([answer, publicationDate].filter(Boolean).join('\n\n'), caveats);
+}
+
+function publicationDateAnswer(prompt: string, evidence: EvidenceObject[]): string {
+	if (!/\b(?:when (?:was|were) .*published|publication date|published when)\b/i.test(prompt)) return '';
+	const dated = evidence.find((item) => item.published_at);
+	return dated ? `Publication date: ${dated.published_at}.` : 'Publication date: Date unknown.';
+}
+
+function groundedEvidenceChatAnswer(
+	prompt: string,
+	evidence: EvidenceObject[],
+	conversationContext?: ConversationContext
+): string {
+	const status = currentStatusStatement(prompt, evidence, conversationContext);
+	if (status) return status;
+
+	const statements = evidence
+		.map((item) => {
+			const statement = completeEvidenceStatement(item);
+			if (!statement) return '';
+			const marker = item.citation_number ? ` [${item.citation_number}]` : '';
+			return `${statement}${marker}`;
+		})
+		.filter(Boolean)
+		.slice(0, 6);
+	if (!statements.length) {
+		return "I couldn't verify a complete claim from the remaining topic- and date-matched source text.";
+	}
+	if (statements.length === 1) return statements[0];
+	return ['**Confirmed from the usable evidence**', '', ...statements.map((statement) => `- ${statement}`)].join('\n');
+}
+
+function currentStatusStatement(
+	prompt: string,
+	evidence: EvidenceObject[],
+	conversationContext?: ConversationContext
+): string {
+	if (!/\b(current|currently|active|in effect|as of|now|today|latest)\b/i.test(prompt)) return '';
+	const requestedLocation = conversationContext?.activeTopic?.location?.trim().toLowerCase();
+	const inactive: string[] = [];
+	const active: string[] = [];
+	for (const item of evidence) {
+		const text = `${item.summary} ${item.extracted_text}`.replace(/\s+/g, ' ').trim();
+		if (requestedLocation && !text.toLowerCase().includes(requestedLocation)) continue;
+		const marker = item.citation_number ? ` [${item.citation_number}]` : '';
+		if (/\bno (?:weather )?alerts?(?: are| is)? in effect\b/i.test(text)) {
+			inactive.push(marker);
+			continue;
+		}
+		const activeMatch = text.match(
+			/\b((?:an?|the) (?:weather )?(?:warning|watch|advisory|alert) (?:is|remains) (?:active|in effect))\b/i
+		);
+		if (activeMatch) active.push(`${sentenceCase(activeMatch[1])}${marker}`);
+	}
+	if (inactive.length && active.length) {
+		return `**Current status unresolved:** Accepted sources conflict: one says no alerts are in effect${inactive.join('')}, while another says ${active[0]}.`;
+	}
+	if (inactive.length) return `**Current status:** The accepted source states that no alerts are in effect.${inactive[0]}`;
+	if (active.length) return `**Current status:** ${active[0]}.`;
+	return '';
+}
+
+function completeEvidenceStatement(item: EvidenceObject): string {
+	const candidate = compactText(item.summary || item.extracted_text || '', 720)
+		.replace(/^\([a-z0-9.-]+\)\s*/i, '')
+		.replace(/^\d+[.)]\s*/, '')
+		.trim();
+	if (!candidate || /(?:\.\.\.|…)(?:\s*\[\d+\])?$/.test(candidate)) return '';
+	const sentences = candidate.split(/(?<=[.!?])\s+/);
+	const complete = sentences.find(
+		(sentence) =>
+			sentence.length >= 20 &&
+			/[.!?](?:["')\]]+)?$/.test(sentence) &&
+			!looksLikeHeadlineBlob(sentence)
+	);
+	return complete?.replace(/\s*\[\d+\]\s*$/, '').trim() || '';
+}
+
+function sentenceCase(value: string): string {
+	return value ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
 }
 
 function withImplicitCitationNumbers(evidence: EvidenceObject[]): EvidenceObject[] {
-	if (evidence.some((item) => item.citation_number != null)) return evidence;
-	return evidence.map((item, index) => ({ ...item, citation_number: index + 1 }));
+	const used = new Set(
+		evidence
+			.map((item) => item.citation_number)
+			.filter((number): number is number => Number.isInteger(number) && Number(number) > 0)
+	);
+	let next = 1;
+	return evidence.map((item) => {
+		if (item.citation_number != null) return item;
+		while (used.has(next)) next += 1;
+		const citationNumber = next;
+		used.add(citationNumber);
+		next += 1;
+		return { ...item, citation_number: citationNumber };
+	});
 }
 
-function documentChatAnswer(evidence: EvidenceObject[]): string {
-	const statements = evidence.slice(0, 6).map((item, index) => {
+function documentChatAnswer(evidence: EvidenceObject[], prompt: string): string {
+	const requestedCount = requestedListCount(prompt);
+	const limit = requestedCount >= 9 ? Math.min(12, requestedCount) : 6;
+	const statements = evidence.slice(0, limit).map((item, index) => {
 		const citationNumber = item.citation_number ?? index + 1;
 		return `${summaryFor(item, 420)} [${citationNumber}]`;
 	});
 	if (statements.length === 1) return statements[0];
 	return ['**Document summary**', '', ...statements.map((statement) => `- ${statement}`)].join('\n');
+}
+
+function requestedListCount(prompt: string): number {
+	const words: Record<string, number> = { nine: 9, ten: 10, eleven: 11, twelve: 12 };
+	const match = prompt.match(/\b(nine|ten|eleven|twelve|1[0-2])\b/i);
+	if (!match) return 0;
+	return words[match[1].toLowerCase()] || Number(match[1]) || 0;
 }
 
 function formatChatToolAnswer(prompt: string, answer: string): string {
@@ -120,9 +234,22 @@ function chatToolAnswerCaveats(prompt: string, caveats: string[]): string[] {
 }
 
 export function cleanVisibleChatOutput(answer: string, prompt = ''): string {
-	const cleaned = cleanChatToolAnswer(answer, { preserveUrls: wantsDirectUrls(prompt) });
-	if (wantsTable(prompt)) return compactChatText(cleaned, 4000);
-	return polishedChatText(cleaned, 4000);
+	const cleaned = softenUnsupportedScheduleAbsence(
+		cleanChatToolAnswer(answer, { preserveUrls: wantsDirectUrls(prompt) }),
+		prompt
+	);
+	if (wantsTable(prompt)) return compactChatText(cleaned, 8000);
+	return polishedChatText(cleaned, 8000);
+}
+
+function softenUnsupportedScheduleAbsence(value: string, prompt: string): string {
+	if (!/\b(?:schedule|scheduled|fixture|fixtures|games?|matches?)\b/i.test(prompt)) return value;
+	return value
+		.replace(
+			/\bThere are no ([^.]*?\b(?:games?|matches?|fixtures?)\b[^.]*?) scheduled\b/gi,
+			'I found no $1 listed as scheduled'
+		)
+		.replace(/\b(?:show|shows|showed) no fixtures\b/gi, 'did not show any fixtures');
 }
 
 export function draftNewsroomOcvoFromConversation(
@@ -148,11 +275,21 @@ export function draftNewsroomOcvoFromConversation(
 	const scriptLines = dedupeVisibleCitationMarkers(scriptSentences, resolvableCitationNumbers)
 		.map((sentence, index) => scriptLine(sentence, index === 0 ? 260 : 280, resolvableCitationNumbers))
 		.filter(Boolean);
-	const onCam = scriptLines[0] || scriptLine(sourceAnswer, 260, resolvableCitationNumbers);
-	const vo = uniqueScriptLines(scriptLines.slice(1), onCam);
-	if (!vo.length) vo.push(nonClaimVoFallback());
-	const banner = bannerTextForContext(context, sourceAnswer);
+	const fallbackVo = nonClaimVoFallback();
+	const fallbackWords = wordCount(fallbackVo);
+	const scriptBudget = requestedOcvoWordBudget(prompt);
+	const reserveFallback = scriptLines.length <= 1 ? fallbackWords : 0;
+	const boundedScriptLines = limitScriptLinesToWordBudget(
+		scriptLines.length ? scriptLines : [scriptLine(sourceAnswer, 260, resolvableCitationNumbers)],
+		Math.max(1, scriptBudget - reserveFallback)
+	);
+	const onCam = boundedScriptLines[0] || scriptLine(sourceAnswer, 260, resolvableCitationNumbers);
+	const vo = uniqueScriptLines(boundedScriptLines.slice(1), onCam);
+	if (!vo.length) vo.push(fallbackVo);
+	const tease = wantsTease(prompt) ? teaseTextForContext(context) : '';
+	const banner = excludesBanner(prompt) ? '' : bannerTextForContext(context, sourceAnswer);
 	return [
+		...(tease ? ['TEASE:', tease, ''] : []),
 		'ON CAM:',
 		onCam,
 		'',
@@ -164,6 +301,27 @@ export function draftNewsroomOcvoFromConversation(
 
 function wantsNewsroomOcvo(prompt: string): boolean {
 	return /\b(?:ocvo|oc\/vo|on[- ]?cam(?:era)?|voice[- ]?over|vo|script)\b/i.test(prompt);
+}
+
+function wantsTease(prompt: string): boolean {
+	return /\btease\b/i.test(prompt);
+}
+
+function excludesBanner(prompt: string): boolean {
+	return /\b(?:no|without)\s+(?:a\s+)?banner\b/i.test(prompt) ||
+		/\bdo not (?:add|include|write)\s+(?:a\s+)?banner\b/i.test(prompt);
+}
+
+function teaseTextForContext(context: ConversationContext): string {
+	const topic = context.activeTopic;
+	const subject = (
+		topic?.location && /\b(?:weather\s+)?(?:alert|warning|watch|advisory)\b/i.test(topic.subject)
+			? `${topic.location} weather alert status`
+			: compactText(topic?.subject || 'this developing story', 96)
+	)
+		.replace(/\[\d+\]/g, '')
+		.replace(/[.!?]$/, '');
+	return ensureTerminalPunctuation(`What the latest confirmed evidence says about ${subject}`);
 }
 
 function sanitizeOcvoSourceText(value: string): string {
@@ -185,11 +343,28 @@ function sanitizeOcvoSourceText(value: string): string {
 }
 
 function splitScriptSentences(value: string): string[] {
-	const protectedCitations = value.replace(/\[(\d+)\]/g, '{{$1}}');
-	return protectedCitations
+	const protectedText = value
+		.replace(/\[(\d+)\]/g, '{{$1}}')
+		.replace(/\b([ap])\.m\./gi, (_, period: string) => `{{${period.toLowerCase()}m}}`);
+	return protectedText
 		.split(/(?<=[.!?])\s+/)
-		.map((sentence) => sentence.replace(/\{\{(\d+)\}\}/g, '[$1]').trim())
+		.map((sentence) =>
+			sentence
+				.replace(/\{\{(\d+)\}\}/g, '[$1]')
+				.replace(/\{\{([ap])m\}\}/g, '$1.m.')
+				.trim()
+		)
 		.filter((sentence) => sentence.length >= 8);
+}
+
+export function directCitationLinksFromConversation(
+	prompt: string,
+	context: ConversationContext | undefined
+): string | null {
+	if (!context?.lastSourceBackedAnswer || !wantsDirectUrls(prompt)) return null;
+	const citations = context.lastSourceBackedAnswer.citations;
+	if (!citations.length) return 'No resolved citation links are available in the selected answer.';
+	return citations.map((citation) => `${citation.citationNumber}. ${citation.url}`).join('\n');
 }
 
 function selectCitationPreservingScriptSentences(sentences: string[], citationNumbers: Set<number>): string[] {
@@ -240,6 +415,43 @@ function stripUnresolvedCitationMarkers(value: string, citationNumbers: Set<numb
 
 function nonClaimVoFallback(): string {
 	return 'No additional sourced VO detail is confirmed in the selected answer.';
+}
+
+function requestedOcvoWordBudget(prompt: string): number {
+	const match = prompt.match(
+		/\b(\d{1,3})\s*(?:-|\s)?\s*seconds?\s+(?:oc\s*\/?\s*vo|voice[- ]?over|script)\b/i
+	);
+	const seconds = match ? Number(match[1]) : 30;
+	return Math.max(20, Math.min(180, Math.floor(seconds * 2.5)));
+}
+
+function limitScriptLinesToWordBudget(lines: string[], budget: number): string[] {
+	const selected: string[] = [];
+	let used = 0;
+	for (const line of lines) {
+		const words = wordCount(line);
+		if (selected.length && used + words > budget) continue;
+		const fitted = words > budget - used ? fitScriptLineToWordBudget(line, budget - used) : line;
+		if (!fitted) continue;
+		selected.push(fitted);
+		used += wordCount(fitted);
+		if (used >= budget) break;
+	}
+	return selected;
+}
+
+function fitScriptLineToWordBudget(line: string, budget: number): string {
+	if (budget <= 0) return '';
+	const markers = Array.from(line.matchAll(/\[(\d+)\]/g), (match) => match[0]);
+	const prose = line.replace(/\s*\[\d+\]/g, '').trim();
+	const words = prose.split(/\s+/).filter(Boolean);
+	const proseBudget = Math.max(1, budget - markers.length);
+	const shortened = words.length > proseBudget ? `${words.slice(0, proseBudget).join(' ')}…` : prose;
+	return ensureTerminalPunctuation(`${shortened}${markers.length ? ` ${markers.join(' ')}` : ''}`);
+}
+
+function wordCount(value: string): number {
+	return value.match(/\b[\p{L}\p{N}][\p{L}\p{N}'’.-]*\b/gu)?.length ?? 0;
 }
 
 function citationMarkersInText(value: string): number[] {
@@ -652,6 +864,31 @@ function stripCitationChatter(value: string, options: { preserveUrls?: boolean }
 			''
 		)
 		.replace(
+			/(?:^|\n)\s*If you want,?\s+(?:I|we|NewsCraft)\s+(?:can|could|will)\b[\s\S]*$/gi,
+			''
+		)
+		.replace(
+			/(?:^|\n)\s*If you want one clear next step\b[\s\S]*?(?=\n{2,}\*\*Attached document evidence\*\*|$)/gi,
+			''
+		)
+		.replace(
+			/(?:^|\n)\s*If you prefer immediate verification\b[\s\S]*?(?=\n{2,}\*\*Attached document evidence\*\*|$)/gi,
+			''
+		)
+		.replace(
+			/(?:^|\n)\s*(?:[-*]\s*)?If you meant\b[^\n]*(?:\bsay which\b|\btell me\b|\bI(?:'|’)ll\b|\bI will\b)[^\n]*(?=\n|$)/gi,
+			''
+		)
+		.replace(
+			/(?:^|\n)\s*(?:#{1,6}\s*)?What I can do next\b[\s\S]*?(?=\n{2,}(?:Quick factual anchor|Attached document evidence)\b|$)/gi,
+			''
+		)
+		.replace(/(?:^|\n)\s*(?:Which|What) next step do you want\??\s*$/gi, '')
+		.replace(
+			/(?:^|\n)\s*(?:[-*]\s*)?If you need\b[^\n]*(?:\bI|we|NewsCraft)\s+(?:can|could|will)\b[^\n]*(?=\n|$)/gi,
+			''
+		)
+		.replace(
 			/(?:^|\n)\s*I could not find reliable\s*$/gi,
 			''
 		)
@@ -673,6 +910,7 @@ function stripCitationChatter(value: string, options: { preserveUrls?: boolean }
 
 function normalizeChatAnswerWhitespace(value: string): string {
 	return value
+		.replace(/\.:\s+(?=[A-Z])/g, '.\n- ')
 		.replace(/[ \t]+\n/g, '\n')
 		.replace(/\n{3,}/g, '\n\n')
 		.replace(/[ \t]{2,}/g, ' ')
@@ -704,18 +942,24 @@ function polishedChatText(value: string, maxLength: number): string {
 		.replace(/^Bold:\s*/gim, '')
 		.replace(/\n{3,}/g, '\n\n')
 		.trim();
-	if (cleaned.length <= maxLength) return cleaned;
-	return truncateTextAtBoundary(cleaned, maxLength);
+	const bounded = cleaned.length <= maxLength ? cleaned : truncateTextAtBoundary(cleaned, maxLength);
+	return trimIncompleteTrailingParagraph(bounded);
 }
 
 function truncateTextAtBoundary(value: string, maxLength: number): string {
 	const slice = value.slice(0, maxLength);
 	const paragraph = slice.lastIndexOf('\n\n');
-	const line = slice.lastIndexOf('\n');
 	const sentence = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('! '), slice.lastIndexOf('? '));
-	const boundary = Math.max(paragraph, line, sentence);
-	const trimmed = slice.slice(0, boundary > maxLength * 0.55 ? boundary : maxLength).trim();
-	return `${trimmed}…`;
+	const boundary = Math.max(paragraph, sentence >= 0 ? sentence + 1 : -1);
+	return slice.slice(0, boundary > maxLength * 0.55 ? boundary : maxLength).trim();
+}
+
+function trimIncompleteTrailingParagraph(value: string): string {
+	if (/[.!?]["')\]]*(?:\s*\[\d+\])?$/.test(value) || /\[\d+\]$/.test(value)) return value;
+	const paragraph = value.lastIndexOf('\n\n');
+	if (paragraph > 0) return value.slice(0, paragraph).trim();
+	const sentence = Math.max(value.lastIndexOf('. '), value.lastIndexOf('! '), value.lastIndexOf('? '));
+	return sentence > value.length * 0.55 ? value.slice(0, sentence + 1).trim() : value;
 }
 
 function noPublishableLeadReport(unusableEvidence: EvidenceObject[], limitations: string[] = []): string {
@@ -771,7 +1015,7 @@ function publicCaveatsFor(
 	const providerConfigurationLimitation = combinedLimitations
 		.map(providerUnavailableLimitation)
 		.find((item): item is string => Boolean(item));
-	const blocked = combinedLimitations.some((item) => /paywall|subscription|login|captcha|blocked|unavailable|access denied|forbidden|could not be read/i.test(item));
+	const blocked = combinedLimitations.some((item) => /paywall|subscription|login|captcha|blocked|unavailable|access denied|access was restricted|requires access|forbidden|could not be read/i.test(item));
 	if (options.noUsableEvidence) {
 		if (providerConfigurationLimitation) caveats.push(providerConfigurationLimitation);
 		else {

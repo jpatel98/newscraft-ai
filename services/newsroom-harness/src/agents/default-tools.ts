@@ -43,6 +43,8 @@ const NAMED_SOURCE_DOMAINS: Array<{ pattern: RegExp; domain: string }> = [
 	{ pattern: /\bBBC(?: News)?\b/i, domain: 'bbc.com' },
 	{ pattern: /\b(?:The )?Guardian\b/i, domain: 'theguardian.com' }
 ];
+const WEB_SEARCH_DEADLINE_MS = 30_000;
+const OFFICIAL_RETRY_MIN_REMAINING_MS = 12_000;
 
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
@@ -216,6 +218,9 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				};
 			}
 			const endpoint = providerTextEndpoint(provider);
+			const searchDeadlineAt = Date.now() + WEB_SEARCH_DEADLINE_MS;
+			const searchSignal = boundedSignal(context.signal, WEB_SEARCH_DEADLINE_MS);
+			const boundedContext: ToolRunContext = { ...context, signal: searchSignal };
 			context.repository?.appendEvent({
 				jobId: context.jobId,
 				runId: context.runId,
@@ -238,8 +243,13 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				}
 			});
 			const highRiskVerification = provider === 'perplexity' && needsOfficialSourceRetry(input.query);
-			const streamDeltas = Boolean(context.onAnswerDelta) && !highRiskVerification;
-			const recordAttempt = (attempt: ProviderSearchAttempt, kind: 'initial' | 'official_source') => {
+			// Source records arrive after provider text. Buffer the provider answer
+			// until its citation markers can be reconciled against usable evidence.
+			const streamDeltas = false;
+			const recordAttempt = (
+				attempt: ProviderSearchAttempt,
+				kind: 'initial' | 'official_source'
+			) => {
 				context.repository?.appendEvent({
 					jobId: context.jobId,
 					runId: context.runId,
@@ -271,7 +281,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				query: input.query,
 				stream: streamDeltas,
 				newsroomContext: context.newsroomContext,
-				signal: context.signal,
+				signal: searchSignal,
 				onAnswerDelta: streamDeltas ? context.onAnswerDelta : undefined
 			});
 			recordAttempt(attempt, 'initial');
@@ -285,11 +295,13 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			let raw = attempt.raw;
 			let streamFailure = attempt.streamFailure;
 			let providerOutputText = extractProviderResponseText(provider, raw);
-			let outputText = withProviderCitationMarkers(raw, providerOutputText);
+			let outputText = canonicalizeTrackingUrlsInText(
+				withProviderCitationMarkers(raw, providerOutputText)
+			);
 			if (streamFailure && !outputText.trim()) {
 				return {
 					status: 'error',
-					limitations: [`${providerName} web_search stream failed: ${streamFailure}`],
+					limitations: ['Live research ended before it could return an answer.'],
 					raw
 				};
 			}
@@ -303,7 +315,16 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					limitations: ['Broad web-search evidence; verify important claims against primary sources.']
 				}
 			);
-			if (highRiskVerification && !hasPrimaryEvidence(evidence)) {
+			evidence = evidence.filter((item) => isAllowedResearchSource(item.source_url, input.query));
+			if (needsPublicationMetadata(input.query)) {
+				evidence = await enrichMissingPublicationMetadata(evidence, boundedContext, input.query);
+				evidence = retainDatedCurrentEvidence(evidence, input.query);
+			}
+			if (
+				highRiskVerification &&
+				!hasPrimaryEvidence(evidence) &&
+				searchDeadlineAt - Date.now() >= OFFICIAL_RETRY_MIN_REMAINING_MS
+			) {
 				const retry = await performProviderWebSearch({
 					provider,
 					apiKey,
@@ -311,13 +332,15 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					query: input.query,
 					stream: false,
 					newsroomContext: context.newsroomContext,
-					signal: context.signal,
+					signal: searchSignal,
 					officialSourceOnly: true
 				});
 				recordAttempt(retry, 'official_source');
 				if (retry.response.ok) {
 					const retryProviderText = extractProviderResponseText(provider, retry.raw);
-					const retryText = withProviderCitationMarkers(retry.raw, retryProviderText);
+					const retryText = canonicalizeTrackingUrlsInText(
+						withProviderCitationMarkers(retry.raw, retryProviderText)
+					);
 					const retryEvidence = normalizeToolEvidence(
 						{ evidence: extractProviderWebSources(retry.raw, retryProviderText) },
 						NEWSROOM_TOOL_NAMES.webSearch,
@@ -348,7 +371,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			}
 			const answerText = outputText.trim();
 			const streamLimitations = streamFailure
-				? [`Web search stream ended early: ${streamFailure}. The answer may be incomplete.`]
+				? ['Live research ended early. Treat this answer as incomplete.']
 				: [];
 			if (evidence.length) {
 				return { status: 'ok', evidence, answer: outputText, limitations: streamLimitations, raw: { output_text: outputText } };
@@ -358,13 +381,13 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					status: 'ok',
 					evidence,
 					answer: answerText,
-					limitations: [`${providerName} web_search returned answer text but no cited sources could be extracted.`, ...streamLimitations],
+					limitations: ['No usable source links were returned.', ...streamLimitations],
 					raw: { output_text: outputText }
 				};
 			}
 			return {
 				status: 'unavailable',
-				limitations: [`${providerName} web_search returned no cited sources.`],
+				limitations: ['No usable source links were returned.'],
 				raw: { output_text: outputText }
 			};
 		}
@@ -409,9 +432,11 @@ function browserAutomationProviderTool(): NewsroomTool<{ task: string; url?: str
 		},
 		output_schema: evidenceOutputSchema,
 		async run(input) {
-			const limitation = /login|captcha|paywall/i.test(input.task)
-				? 'Browser task stopped because it appears to require login, CAPTCHA, or paywall access.'
-				: 'No browser automation provider is configured inside this harness; register one when direct page interaction is needed.';
+			const limitation = /paywall/i.test(input.task)
+				? 'This page appears paywalled or requires access that NewsCraft does not have.'
+				: /login|captcha/i.test(input.task)
+					? 'This page is blocked by a login or browser check that NewsCraft cannot complete.'
+				: 'This page could not be opened directly.';
 			return { status: 'blocked', limitations: [limitation] };
 		}
 	};
@@ -620,6 +645,135 @@ export async function fetchEvidenceUrls(
 	return results;
 }
 
+async function enrichMissingPublicationMetadata(
+	evidence: EvidenceObject[],
+	context: ToolRunContext,
+	query: string
+): Promise<EvidenceObject[]> {
+	const candidates = evidence
+		.map((item, index) => ({ item, index }))
+		.filter(
+			({ item }) =>
+				(!item.published_at || /^No source excerpt was returned\b/i.test(item.extracted_text)) &&
+				/^https?:\/\//i.test(item.source_url)
+		)
+		.slice(0, 8);
+	if (!candidates.length) return evidence;
+
+	const enriched = [...evidence];
+	let cursor = 0;
+	const workers = Array.from({ length: Math.min(4, candidates.length) }, async () => {
+		while (cursor < candidates.length) {
+			const candidate = candidates[cursor];
+			cursor += 1;
+			try {
+				const fetched = await fetchSourceUrl(
+					candidate.item.source_url,
+					metadataFetchSignal(context.signal)
+				);
+				const publicationDate =
+					fetched.metadata?.publishedAt || publicationDateFromUrl(fetched.url);
+				enriched[candidate.index] = {
+					...candidate.item,
+					published_at: publicationDate || candidate.item.published_at,
+					...(fetched.contentText.trim()
+						? {
+								extracted_text: fetched.contentText,
+								summary: relevantFetchedExcerpt(
+									fetched.contentText,
+									query,
+									candidate.item.title,
+									fetched.summary || fetched.snippet || candidate.item.summary
+								)
+							}
+						: {})
+				};
+			} catch {
+				// Metadata enrichment is best-effort; an unknown publication date
+				// remains unknown rather than failing the whole research run.
+			}
+		}
+	});
+	await Promise.all(workers);
+	return enriched;
+}
+
+function relevantFetchedExcerpt(content: string, query: string, title: string, fallback: string): string {
+	const stopwords = new Set([
+		'about',
+		'after',
+		'against',
+		'and',
+		'from',
+		'have',
+		'latest',
+		'into',
+		'outside',
+		'report',
+		'reports',
+		'state',
+		'that',
+		'their',
+		'this',
+		'what',
+		'when',
+		'where',
+		'which',
+		'with'
+	]);
+	const terms = [...new Set(`${query} ${title}`.toLowerCase().match(/[a-z0-9][a-z0-9'-]{3,}/g) || [])]
+		.filter((term) => !stopwords.has(term))
+		.slice(0, 24);
+	const sentences = content
+		.replace(/\s+/g, ' ')
+		.split(/(?<=[.!?])\s+/)
+		.map((sentence) => sentence.trim())
+		.filter((sentence) => sentence.length >= 40);
+	let best = '';
+	let bestScore = 0;
+	for (let index = 0; index < sentences.length; index += 1) {
+		const candidate = `${sentences[index]} ${sentences[index + 1] || ''}`.trim();
+		const lower = candidate.toLowerCase();
+		const score = terms.reduce((total, term) => total + (lower.includes(term) ? 1 : 0), 0);
+		if (score <= bestScore) continue;
+		best = candidate;
+		bestScore = score;
+	}
+	return compactToolText(bestScore >= 2 ? best : fallback, 900);
+}
+
+function metadataFetchSignal(signal: AbortSignal | undefined): AbortSignal {
+	const timeout = AbortSignal.timeout(Math.min(4_000, sourceFetchTimeoutMs()));
+	if (signal && typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
+	return timeout;
+}
+
+function retainDatedCurrentEvidence(evidence: EvidenceObject[], query: string): EvidenceObject[] {
+	if (!isCurrentEventQuery(query)) return evidence;
+	const maxAgeDays = requestedRecencyDays(query);
+	const earliest = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+	return evidence.filter((item) => {
+		if (item.published_at) {
+			const publishedAt = Date.parse(item.published_at);
+			return Number.isFinite(publishedAt) && publishedAt >= earliest;
+		}
+		const livePrimary =
+			(item.source_kind === 'official' || item.source_kind === 'primary') &&
+			/\b(?:alert|warning|watch|advisory|status|schedule|fixture|score|match)\b/i.test(
+				`${query} ${item.title}`
+			);
+		return livePrimary;
+	});
+}
+
+function requestedRecencyDays(query: string): number {
+	const explicitDays = query.match(/\b(\d{1,2})(?: calendar)? days?\b/i);
+	if (explicitDays) return Math.min(32, Math.max(2, Number(explicitDays[1]) + 1));
+	if (/\b(?:this|past|last) week\b|\bseven(?: calendar)? days\b/i.test(query)) return 8;
+	if (/\b(?:two weeks?|fortnight|fourteen(?: calendar)? days)\b/i.test(query)) return 15;
+	return 2;
+}
+
 function sourceFetchSignal(signal: AbortSignal | undefined): AbortSignal {
 	const timeout = AbortSignal.timeout(sourceFetchTimeoutMs());
 	if (signal && typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
@@ -657,7 +811,7 @@ function fetchedSourceToEvidence(
 		accessed_at: source.fetchedAt,
 		tool_used: toolUsed,
 		title: source.title,
-		published_at: source.metadata?.publishedAt ?? null,
+		published_at: source.metadata?.publishedAt ?? publicationDateFromUrl(source.url),
 		extracted_text: source.contentText,
 		summary: source.summary || source.snippet,
 		confidence: quality.usable ? 0.75 : 0,
@@ -665,6 +819,25 @@ function fetchedSourceToEvidence(
 	});
 	if (!quality.usable) return { ...evidence, extracted_text: '', summary: '', confidence: 0 };
 	return evidence;
+}
+
+function publicationDateFromUrl(value: string): string | null {
+	let path = '';
+	try {
+		path = new URL(value).pathname;
+	} catch {
+		return null;
+	}
+	const explicit = path.match(/\b(20\d{2})-(0[1-9]|1[0-2])-([0-2]\d|3[01])\b/);
+	const segmented = path.match(/\/(20\d{2})\/(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])(?:\/|$)/);
+	const parts = explicit || segmented;
+	if (!parts) return null;
+	const [, year, rawMonth, rawDay] = parts;
+	const month = rawMonth.padStart(2, '0');
+	const day = rawDay.padStart(2, '0');
+	const candidate = `${year}-${month}-${day}`;
+	const parsed = new Date(`${candidate}T00:00:00.000Z`);
+	return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== candidate ? null : candidate;
 }
 
 function withStatusFromEvidence(evidence: EvidenceObject[], requestedCount: number): ToolRunOutput {
@@ -771,6 +944,7 @@ function webSearchRequestBody(input: {
 			model: input.model,
 			stream: input.stream,
 			reasoning: { effort: 'low' },
+			max_output_tokens: webSearchOutputTokenLimit(input.query),
 			tools: [{ type: 'web_search' }],
 			tool_choice: 'auto',
 			input: input.input
@@ -796,6 +970,20 @@ function webSearchRequestBody(input: {
 	};
 }
 
+function webSearchOutputTokenLimit(query: string): number {
+	return /\b(?:nine|ten|eleven|twelve|1[0-2])\b[\s\S]{0,100}\b(?:items?|citations?|sources?|announcements?|stories?)\b/i.test(
+		query
+	)
+		? 2_400
+		: 1_200;
+}
+
+function boundedSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+	const timeout = AbortSignal.timeout(timeoutMs);
+	if (signal && typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
+	return timeout;
+}
+
 function webSearchPrompt(
 	query: string,
 	newsroomContext?: ToolRunContext['newsroomContext'],
@@ -814,17 +1002,23 @@ function webSearchPrompt(
 				]
 			: []),
 		'Search for source material relevant to this newsroom request.',
+		'Complete the research now. Do not ask for scope confirmation when a safe, bounded interpretation can answer the request; state the interpretation briefly and proceed.',
+		'For a broad top-news request, provide a concise mixed roundup using the newsroom home market when available. For an unqualified FIFA-games-today request, check official FIFA-run competitions across the date and state that scope. For a requested national public-policy roundup, include all government levels unless the user narrows the scope.',
 		'Lead with the direct answer. Add confirmed facts, disagreement, uncertainty, or a comparison table only when each is relevant; do not emit empty boilerplate sections.',
 		isCurrentEventQuery(query)
 			? `Do not add a Current as of label; NewsCraft adds the local label outside the provider response.`
 			: 'Do not add a Current as of label unless the answer depends on changing or time-sensitive facts.',
 		'Current-as-of and source-access times are context only. Never present either as a source publication date; use each source\'s actual publication date or state that the date is unknown.',
 		'Summarize the freshest usable result first, using concrete event dates or timestamps only when they matter to the answer.',
+		isCurrentEventQuery(query)
+			? 'For today/current/latest requests, cite only pages whose real publication timestamp is within the requested period, except an official live status or schedule page. Do not use an older dated article as today’s news.'
+			: '',
 		'Prefer primary or official sources and directly relevant local/reputable outlets.',
 		officialSourceOnly
 			? 'Use official or direct first-party sources for the answer. If none are readable, state that primary confirmation was not found.'
 			: 'Attribute reputable reporting when direct evidence is unavailable and state material uncertainty.',
 		'If no reliable readable source confirms a current-events or claim-verification request, say that plainly instead of giving a confident unsourced answer.',
+		'When reputable sources disagree, attribute each conclusion separately. Do not group sources or investigators together if their findings materially differ.',
 		'For local meetings or other obscure events, distinguish agendas and previews from confirmed outcomes; if no official minutes or first-party account confirms what happened, state that limitation explicitly.',
 		'If a requested source is paywalled, blocked, CAPTCHA-protected, unavailable, empty, or cannot be read, flag that limitation honestly without technical details.',
 		'If the request is an ambiguous follow-up and there is no clear referent, ask a brief clarifying question instead of guessing.',
@@ -848,6 +1042,25 @@ function sonarSearchFilters(query: string, officialSourceOnly = false): Record<s
 		...(domains.length ? { search_domain_filter: domains } : {}),
 		...(recency ? { search_recency_filter: recency } : {})
 	};
+}
+
+function needsPublicationMetadata(query: string): boolean {
+	return (
+		isCurrentEventQuery(query) ||
+		/\b(?:publication date|when .*published|compare|contrast|coverage|reporting|reports?|verify|fact[- ]?check)\b/i.test(
+			query
+		)
+	);
+}
+
+function isAllowedResearchSource(url: string, query: string): boolean {
+	if (/\b(?:wikipedia|reddit)\b/i.test(query)) return true;
+	try {
+		const host = new URL(url).hostname.toLowerCase();
+		return !/(^|\.)(?:wikipedia\.org|reddit\.com)$/.test(host);
+	} catch {
+		return true;
+	}
 }
 
 function namedDomainsForQuery(query: string): string[] {
@@ -921,14 +1134,14 @@ function providerEnvName(provider: ModelProvider): string {
 	return provider === 'openai' ? 'OPENAI_API_KEY' : 'PERPLEXITY_API_KEY';
 }
 
-function publicProviderFailure(providerName: string, status: number): string {
+function publicProviderFailure(_providerName: string, status: number): string {
 	if (status === 401 || status === 403) {
-		return `The configured research provider (${providerName}) rejected the request. Check the provider key and model configuration.`;
+		return 'Live research is temporarily unavailable.';
 	}
 	if (status === 429) {
-		return `The configured research provider (${providerName}) is rate limited. Try again once quota is available.`;
+		return 'Live research is temporarily busy. Try again shortly.';
 	}
-	return `The configured research provider (${providerName}) could not complete web search right now.`;
+	return 'Live research could not finish right now.';
 }
 
 function providerUsageMetadata(raw: unknown): Record<string, number> | null {
@@ -982,11 +1195,18 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 			resultByUrl.set(normalizedWebSourceUrl(source.url), source);
 		}
 	};
+	const annotations = providerUrlAnnotations(raw);
+	const annotationNumberByUrl = new Map<string, number>();
+	for (const annotation of annotations) {
+		const key = normalizedWebSourceUrl(annotation.url);
+		if (!annotationNumberByUrl.has(key)) annotationNumberByUrl.set(key, annotationNumberByUrl.size + 1);
+	}
 	for (const source of response.search_results || []) rememberResult(source);
 	for (const source of response.fetch_url_results || []) rememberResult(source);
 	for (const [index, citation] of (response.citations || []).entries()) {
 		const url = (typeof citation === 'string' ? citation : citation.url) || response.search_results?.[index]?.url;
 		if (!url) continue;
+		if (typeof citation !== 'string') rememberResult(citation);
 		const matchingResult = resultByUrl.get(normalizedWebSourceUrl(url));
 		const title = (typeof citation === 'string' ? '' : citation.title) || matchingResult?.title || url;
 		const snippet = (typeof citation === 'string' ? '' : citation.snippet) || matchingResult?.snippet || '';
@@ -995,6 +1215,7 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 			matchingResult?.date ||
 			matchingResult?.last_updated ||
 			null;
+		if (annotations.length) continue;
 		citedSources.push(webSource(url, title, snippet, { citationNumber: index + 1, publishedAt }));
 	}
 	for (const source of response.search_results || []) {
@@ -1015,7 +1236,6 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 			})
 		);
 	}
-	const annotationNumberByUrl = new Map<string, number>();
 	const seenAnnotationUrls = new Set<string>();
 	for (const item of response.output || []) {
 		for (const source of item.search_results || []) {
@@ -1069,7 +1289,9 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 					webSource(
 						annotation.url,
 						annotation.title || matchingResult?.title || annotation.url,
-						extractAnnotationSnippet(outputText, annotation.start_index, annotation.end_index),
+						supportingExcerptForAnnotation(
+							matchingResult?.content || matchingResult?.snippet || ''
+						),
 						{
 							citationNumber: annotationNumberByUrl.get(key),
 							publishedAt: matchingResult?.date || matchingResult?.last_updated || null
@@ -1079,7 +1301,11 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 			}
 		}
 	}
-	return citedSources.length ? uniqueWebSources(citedSources) : uniqueWebSources(actionSources);
+	return citedSources.length
+		? uniqueWebSources(citedSources).sort(
+				(left, right) => (left.citation_number ?? Number.MAX_SAFE_INTEGER) - (right.citation_number ?? Number.MAX_SAFE_INTEGER)
+			)
+		: uniqueWebSources(actionSources);
 }
 
 function withProviderCitationMarkers(raw: unknown, outputText: string): string {
@@ -1176,18 +1402,19 @@ function webSource(
 	snippet = '',
 	options: { publishedAt?: string | null; citationNumber?: number } = {}
 ): WebSourceCandidate {
+	const canonicalUrl = normalizedWebSourceUrl(url);
 	const sourceSummary = compactToolText(snippet, 220);
-	const titleSummary = compactWebSourceTitle(title, url, 220);
+	const titleSummary = compactWebSourceTitle(title, canonicalUrl, 220);
 	const summary = sourceSummary || titleSummary;
 	return {
-		source_name: sourceNameFromUrl(url),
-		source_url: url,
+		source_name: sourceNameFromUrl(canonicalUrl),
+		source_url: canonicalUrl,
 		title,
 		extracted_text: summary || titleSummary || 'Web search cited this source.',
 		summary: summary || titleSummary || 'Web search cited this source; verify the source page directly before publication.',
 		limitations: ['Provider web_search result; cite and verify source page before publication.'],
 		confidence: 0.6,
-		published_at: options.publishedAt || null,
+		published_at: options.publishedAt || publicationDateFromUrl(canonicalUrl),
 		citation_number: options.citationNumber
 	};
 }
@@ -1195,16 +1422,41 @@ function webSource(
 function normalizedWebSourceUrl(value: string): string {
 	try {
 		const parsed = new URL(value);
-		const params = Array.from(parsed.searchParams.entries()).filter(
-			([key]) => !isTrackingQueryParam(key)
-		);
-		parsed.search = '';
-		for (const [key, paramValue] of params) parsed.searchParams.append(key, paramValue);
+		const queryParts = parsed.search
+			.slice(1)
+			.split('&')
+			.filter(Boolean)
+			.filter((part) => {
+				const separator = part.indexOf('=');
+				const rawKey = separator >= 0 ? part.slice(0, separator) : part;
+				const rawValue = separator >= 0 ? part.slice(separator + 1) : null;
+				const key = decodeQueryComponent(rawKey);
+				if (isTrackingQueryParam(key)) return false;
+				if (rawValue === null || rawValue === '') return true;
+				return !['undefined', 'null'].includes(decodeQueryComponent(rawValue).trim().toLowerCase());
+			});
+		parsed.search = queryParts.length ? `?${queryParts.join('&')}` : '';
 		const path = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, '');
 		return `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}${path}${parsed.search}${parsed.hash}`;
 	} catch {
 		return value.trim().replace(/\/$/, '').toLowerCase();
 	}
+}
+
+function decodeQueryComponent(value: string): string {
+	try {
+		return decodeURIComponent(value.replace(/\+/g, ' '));
+	} catch {
+		return value;
+	}
+}
+
+function canonicalizeTrackingUrlsInText(value: string): string {
+	return value.replace(/https?:\/\/[^\s)\]]+/gi, (url) => {
+		const trailing = url.match(/[.,;:!?]+$/)?.[0] || '';
+		const core = trailing ? url.slice(0, -trailing.length) : url;
+		return `${normalizedWebSourceUrl(core)}${trailing}`;
+	});
 }
 
 function isTrackingQueryParam(key: string): boolean {
@@ -1227,14 +1479,10 @@ function compactWebSourceTitle(title: string, url: string, maxLength: number): s
 	return compactToolText(value, maxLength);
 }
 
-function extractAnnotationSnippet(outputText: string, startIndex?: number, endIndex?: number): string {
-	if (!Number.isFinite(startIndex) || !Number.isFinite(endIndex)) return '';
-	const start = Math.max(0, Number(startIndex));
-	const end = Math.min(outputText.length, Number(endIndex));
-	const contextStart = Math.max(0, outputText.lastIndexOf('.', start - 1) + 1);
-	const nextPeriod = outputText.indexOf('.', end);
-	const contextEnd = nextPeriod >= 0 ? Math.min(outputText.length, nextPeriod + 1) : Math.min(outputText.length, end + 180);
-	return compactToolText(outputText.slice(contextStart, contextEnd), 260);
+function supportingExcerptForAnnotation(fallback = ''): string {
+	const sourceExcerpt = compactToolText(fallback, 260);
+	if (sourceExcerpt.length >= 20) return sourceExcerpt;
+	return 'No source excerpt was returned; open the original source to inspect the supporting passage.';
 }
 
 function compactToolText(value: string, maxLength: number): string {

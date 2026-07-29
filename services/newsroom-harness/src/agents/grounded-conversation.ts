@@ -175,6 +175,7 @@ export function guardEvidenceForConversation(
 function evidenceMatchesTopic(item: EvidenceObject, topic: ConversationTopic): boolean {
 	const host = sourceHost(item.source_url);
 	if (/(^|\.)(reddit\.com|wikipedia\.org)$/i.test(host)) return false;
+	if (item.source_kind === 'user_document') return true;
 
 	if (topic.directSourcesRequired && topic.requestedOutlets?.length) {
 		if (!topic.requestedOutlets.some((outlet) => evidenceComesDirectlyFromOutlet(item, outlet))) {
@@ -239,7 +240,6 @@ function publisherAliasesForHost(host: string): string[] {
 }
 
 function isStaleForTopic(item: EvidenceObject, topic: ConversationTopic): boolean {
-	if (!item.published_at) return false;
 	const freshnessSensitive =
 		/\b(?:today|yesterday|current|currently|latest|active|now|same[- ]day|this (?:week|month|year))\b/i.test(
 			topic.subject
@@ -247,9 +247,54 @@ function isStaleForTopic(item: EvidenceObject, topic: ConversationTopic): boolea
 	if (!topic.relevantDate && !freshnessSensitive) return false;
 	const parsedTarget = topic.relevantDate ? Date.parse(topic.relevantDate) : Number.NaN;
 	const target = Number.isFinite(parsedTarget) ? parsedTarget : freshnessSensitive ? Date.now() : Number.NaN;
-	const published = Date.parse(item.published_at);
+	const evidenceDate =
+		item.published_at ||
+		embeddedEvidenceDate(item, target) ||
+		(item.source_kind === 'official' || item.source_kind === 'primary' ? item.accessed_at : null);
+	if (!evidenceDate) return freshnessSensitive;
+	const published = Date.parse(evidenceDate);
 	if (!Number.isFinite(target) || !Number.isFinite(published)) return false;
-	return Math.abs(target - published) > 45 * 24 * 60 * 60 * 1000;
+	const maxAgeDays = /\bthis (?:week)\b/i.test(topic.subject)
+		? 8
+		: freshnessSensitive
+			? 1
+			: 7;
+	return Math.abs(target - published) > maxAgeDays * 24 * 60 * 60 * 1000;
+}
+
+function embeddedEvidenceDate(item: EvidenceObject, target: number): string | null {
+	const text = `${item.title} ${item.extracted_text} ${item.summary}`;
+	const dates: number[] = [];
+	for (const match of text.matchAll(/\b(20\d{2})-(\d{2})-(\d{2})\b/g)) {
+		const parsed = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+		if (Number.isFinite(parsed)) dates.push(parsed);
+	}
+	const targetDate = new Date(Number.isFinite(target) ? target : Date.now());
+	const monthPattern =
+		/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:\s*[-–—]\s*(\d{1,2}))?(?:,\s*(20\d{2}))?/gi;
+	const months = [
+		'january',
+		'february',
+		'march',
+		'april',
+		'may',
+		'june',
+		'july',
+		'august',
+		'september',
+		'october',
+		'november',
+		'december'
+	];
+	for (const match of text.matchAll(monthPattern)) {
+		const month = months.indexOf(match[1].toLowerCase());
+		const day = Number(match[3] || match[2]);
+		const year = Number(match[4] || targetDate.getUTCFullYear());
+		const parsed = Date.UTC(year, month, day);
+		if (month >= 0 && Number.isFinite(parsed)) dates.push(parsed);
+	}
+	if (!dates.length) return null;
+	return new Date(Math.max(...dates)).toISOString();
 }
 
 function topicTerms(value: string, minimumLength = 3): string[] {

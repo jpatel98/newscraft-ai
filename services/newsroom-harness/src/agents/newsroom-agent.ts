@@ -136,7 +136,10 @@ export class DisciplinedNewsroomAgent {
 
 	async run(prompt: string, context: NewsroomAgentRunContext = {}): Promise<NewsroomAgentRunResult> {
 		const routingPrompt = context.routingPrompt?.trim() || prompt;
-		const researchPrompt = groundedResearchPrompt(routingPrompt, context.conversationContext);
+		const researchPrompt = documentResearchPrompt(
+			groundedResearchPrompt(routingPrompt, context.conversationContext),
+			context.documents
+		);
 		let decision = routeNewsroomRequest(routingPrompt, {
 			default_tool_budget: this.config.default_tool_budget
 		});
@@ -176,7 +179,8 @@ export class DisciplinedNewsroomAgent {
 					evidence,
 					limitations,
 					budget,
-					outputStyle: context.outputStyle
+					outputStyle: context.outputStyle,
+					conversationContext: context.conversationContext
 				}),
 				limitations,
 				tool_calls: toolCalls,
@@ -297,8 +301,12 @@ export class DisciplinedNewsroomAgent {
 		if (finalGuard.excluded.length) {
 			evidence.splice(0, evidence.length, ...finalGuard.evidence);
 			limitations.push(...finalGuard.limitations);
-			toolAnswers.splice(0, toolAnswers.length);
+			const groundedAnswers = toolAnswers
+				.map((answer) => retainAcceptedCitationClaims(answer, finalGuard.evidence))
+				.filter((answer): answer is string => Boolean(answer));
+			toolAnswers.splice(0, toolAnswers.length, ...groundedAnswers);
 		}
+		alignCitationSequence(evidence, toolAnswers);
 		if (!toolCalls.length && plan.steps.length) {
 			limitations.push('No selected tools were run.');
 		}
@@ -316,7 +324,8 @@ export class DisciplinedNewsroomAgent {
 				limitations,
 				budget,
 				toolAnswers,
-				outputStyle: context.outputStyle
+				outputStyle: context.outputStyle,
+				conversationContext: context.conversationContext
 			}),
 			limitations: [...new Set(limitations.filter(Boolean))],
 			tool_calls: toolCalls,
@@ -337,6 +346,11 @@ export class DisciplinedNewsroomAgent {
 		signal: AbortSignal
 	): Promise<ResearchPlan> {
 		const routedPlan = planFromRoute(decision, prompt);
+		if (context.documents?.length) {
+			// Attached-document requests have a strict evidence order: read the
+			// document first, then search only when corroboration was requested.
+			return routedPlan;
+		}
 		const fallback = context.forcePlanner
 			? routedPlan
 			: singleCallChatFollowupPlan(routedPlan, prompt, decision, context);
@@ -364,10 +378,7 @@ export class DisciplinedNewsroomAgent {
 		if (!policy.allowed || !policy.model) return fallback;
 
 		const planner = this.options.planner || planResearchSteps;
-		const documentOnly = Boolean(context.documents?.length) && !requestsExternalCorroboration(prompt);
-		const allowedPlannerTools: ReadonlySet<string> | null = documentOnly
-			? new Set([NEWSROOM_TOOL_NAMES.pdfTextExtractor])
-			: null;
+		const allowedPlannerTools: ReadonlySet<string> | null = null;
 		try {
 			const plan = await planner({
 				prompt,
@@ -382,9 +393,6 @@ export class DisciplinedNewsroomAgent {
 				signal: plannerSignal(signal)
 			});
 			if (!plan.steps.length) return fallback;
-			if (allowedPlannerTools && plan.steps.some((step) => !allowedPlannerTools.has(step.tool))) {
-				throw new Error('planner returned an external tool for a document-only request');
-			}
 			this.appendPlannerEvent(context, 'plan.created', {
 				source: plan.source,
 				reason: plan.reason,
@@ -600,9 +608,107 @@ function applyConversationGuard(output: ToolRunOutput, context: ConversationCont
 		...output,
 		status: output.status === 'ok' && output.evidence?.length && !guarded.evidence.length ? 'unavailable' : output.status,
 		evidence: guarded.evidence,
-		answer: undefined,
+		answer: output.answer ? retainAcceptedCitationClaims(output.answer, guarded.evidence) : undefined,
 		limitations
 	};
+}
+
+function retainAcceptedCitationClaims(answer: string, evidence: EvidenceObject[]): string | undefined {
+	const accepted = new Set(
+		evidence
+			.map((item) => item.citation_number)
+			.filter((number): number is number => number != null)
+	);
+	if (!accepted.size) return undefined;
+
+	const markers = citationNumbersIn(answer);
+	if (
+		markers.length &&
+		markers.every((number) => accepted.has(number)) &&
+		isSubstantiveCitedClaim(answer)
+	) {
+		return answer.trim();
+	}
+	if (!markers.length) return undefined;
+
+	const claims = splitCitedClaims(answer)
+		.map((claim) => claim.trim())
+		.filter(Boolean)
+		.filter((claim) => {
+			const claimMarkers = citationNumbersIn(claim);
+			return (
+				claimMarkers.length > 0 &&
+				claimMarkers.every((number) => accepted.has(number)) &&
+				isSubstantiveCitedClaim(claim)
+			);
+		});
+	return claims.length ? claims.join('\n\n') : undefined;
+}
+
+function splitCitedClaims(value: string): string[] {
+	return value
+		.replace(/((?:\s*\[\d+\])+(?:[.!?])?)(?:\s+|$)/g, '$1\n')
+		.split(/\n+/);
+}
+
+function isSubstantiveCitedClaim(value: string): boolean {
+	const prose = value
+		.replace(/\[\d+\]/g, ' ')
+		.replace(/https?:\/\/\S+/gi, ' ')
+		.replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b/gi, ' ')
+		.replace(/[*_#`()]/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+	const words = prose.match(/\b[\p{L}\p{N}][\p{L}\p{N}'’.-]*\b/gu)?.length ?? 0;
+	return prose.length >= 24 && words >= 5;
+}
+
+function citationNumbersIn(value: string): number[] {
+	return [...value.matchAll(/\[(\d+)\]/g)]
+		.map((match) => Number(match[1]))
+		.filter((number) => Number.isInteger(number) && number > 0);
+}
+
+function alignCitationSequence(evidence: EvidenceObject[], toolAnswers: string[]): void {
+	const usedNumbers = new Set(
+		evidence
+			.map((item) => item.citation_number)
+			.filter((number): number is number => number != null)
+	);
+	let nextNumber = 1;
+	for (const item of evidence) {
+		if (item.citation_number != null) continue;
+		while (usedNumbers.has(nextNumber)) nextNumber += 1;
+		item.citation_number = nextNumber;
+		usedNumbers.add(nextNumber);
+		nextNumber += 1;
+	}
+	const accepted = new Set(
+		evidence
+			.map((item) => item.citation_number)
+			.filter((number): number is number => number != null)
+	);
+	for (let index = toolAnswers.length - 1; index >= 0; index -= 1) {
+		const markers = citationNumbersIn(toolAnswers[index]);
+		if (!markers.some((number) => !accepted.has(number))) continue;
+		const grounded = retainAcceptedCitationClaims(toolAnswers[index], evidence);
+		if (grounded) toolAnswers[index] = grounded;
+		else toolAnswers.splice(index, 1);
+	}
+
+	const remap = new Map<number, number>();
+	for (const item of evidence) {
+		const original = item.citation_number;
+		if (original == null) continue;
+		if (!remap.has(original)) remap.set(original, remap.size + 1);
+		item.citation_number = remap.get(original);
+	}
+	for (let index = 0; index < toolAnswers.length; index += 1) {
+		toolAnswers[index] = toolAnswers[index].replace(/\[(\d+)\]/g, (marker, rawNumber: string) => {
+			const next = remap.get(Number(rawNumber));
+			return next ? `[${next}]` : marker;
+		});
+	}
 }
 
 function groundedResearchPrompt(prompt: string, context: ConversationContext | undefined): string {
@@ -618,7 +724,25 @@ function groundedResearchPrompt(prompt: string, context: ConversationContext | u
 	].join('\n');
 }
 
+function documentResearchPrompt(prompt: string, documents: DocumentContext[] | undefined): string {
+	if (!documents?.length) return prompt;
+	const documentText = documents
+		.flatMap((document) => [
+			`Attached document: ${document.filename}`,
+			...document.pages.map((page) => `Page ${page.pageNumber}: ${page.text}`)
+		])
+		.join('\n');
+	return `${prompt}\n\n${documentText}`;
+}
+
 function requestsExternalCorroboration(prompt: string): boolean {
+	if (
+		/\b(?:do not|don't|without)\s+(?:verify(?:ing)?|corroborat(?:e|ing)|search(?:ing)?)\b[\s\S]{0,40}\b(?:externally|external|web|outside)\b/i.test(
+			prompt
+		)
+	) {
+		return false;
+	}
 	return /\b(verify|corroborate|fact[- ]?check|search (?:the )?web|search externally|external sources?|other outlets?|broader coverage)\b/i.test(
 		prompt
 	);
@@ -702,6 +826,9 @@ function publicStepFailureDetail(limitations: string[]): string | undefined {
 	}
 	if (/no usable|no cited sources|no readable|returned no .*sources?|empty source/i.test(value)) {
 		return 'No usable sources were found for this step.';
+	}
+	if (/could not be opened directly/i.test(value)) {
+		return 'This research step is not available.';
 	}
 	if (
 		/unavailable|not configured|missing|disabled|not registered|provider|harness|register|api[_ -]?key|http\s*\d{3}|failed|error/i.test(

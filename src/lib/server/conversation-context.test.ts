@@ -173,6 +173,82 @@ describe('conversation context builder', () => {
 		expect(context.lastSourceBackedAnswer?.messageId).toBe('m2');
 	});
 
+	it('inherits cited evidence for a long skeptical no-search follow-up', () => {
+		const messages = [
+			message('m1', 'user', 'Check the ECCC weather alert for Toronto.'),
+			message('m2', 'assistant', 'The official page says there are no active alerts [1].', [
+				citation(1, {
+					title: 'Latest Alert For: Toronto Alert',
+					url: 'https://ecalertme.weather.gc.ca/warning-latest_en.php?ualert_id=3738',
+					domain: 'ecalertme.weather.gc.ca',
+					publicationDate: null
+				})
+			])
+		];
+		const currentRequest =
+			'Using only the cited evidence already in this thread, be skeptical: does citation [1] prove that no alert is active at the current newsroom time even though the page has no publication timestamp? Do not search. State exactly what is confirmed and what remains uncertain.';
+
+		const context = buildConversationContext({ messages, currentRequest });
+
+		expect(currentRequest.length).toBeGreaterThan(240);
+		expect(context.intent).toBe('verify');
+		expect(context.activeTopic?.subject).toContain('ECCC weather alert for Toronto');
+		expect(context.lastSourceBackedAnswer?.messageId).toBe('m2');
+		expect(context.lastSourceBackedAnswer?.citations.map((item) => item.citationNumber)).toEqual([1]);
+	});
+
+	it.each([
+		'Using only the inherited evidence, assess the claim. Do not search.',
+		'Use the sources from your last answer and do not search.',
+		'Be skeptical of the last answer without new research.'
+	])('reconstructs inherited context for common no-search wording: %s', (currentRequest) => {
+		const messages = [
+			message('m1', 'user', 'Check the ECCC weather alert for Toronto.'),
+			message('m2', 'assistant', 'The official page says there are no active alerts [1].', [citation(1)])
+		];
+
+		const context = buildConversationContext({ messages, currentRequest });
+
+		expect(context.lastSourceBackedAnswer?.messageId).toBe('m2');
+		expect(context.activeTopic?.subject).toContain('ECCC weather alert for Toronto');
+	});
+
+	it('keeps the concrete story topic when transforming a skeptical follow-up answer', () => {
+		const messages = [
+			message(
+				'm1',
+				'user',
+				[
+					'QA — Verified Local Trust Run — July 28, 2026',
+					'As of now in Toronto time, use the official Environment Canada alert page to determine whether any weather alert is active for the City of Toronto. Distinguish current alert status from observations and forecasts. Give me a concise producer brief with direct supporting citations and real source dates; do not treat page access time as publication time.'
+				].join('\n')
+			),
+			message('m2', 'assistant', 'The official page states there are no active alerts [1].', [citation(1)]),
+			message(
+				'm3',
+				'user',
+				'Using only the cited evidence already in this thread, be skeptical: does citation [1] prove the status at the current newsroom time? Do not search.'
+			),
+			message(
+				'm4',
+				'assistant',
+				'The page states there are no active alerts, but it has no visible publication timestamp [1].',
+				[citation(1)]
+			)
+		];
+
+		const context = buildConversationContext({
+			messages,
+			currentRequest:
+				'Using only verified facts already in this thread, write a 10-second tease and a 25-second OC/VO. Do not search.'
+		});
+
+		expect(context.intent).toBe('transform');
+		expect(context.activeTopic?.subject).toContain('weather alert is active for the City of Toronto');
+		expect(context.activeTopic?.subject).not.toContain('be skeptical');
+		expect(context.lastSourceBackedAnswer?.messageId).toBe('m4');
+	});
+
 	it('bounds provenance lookup to the selected answer plus recent assistant messages', () => {
 		const messages: MessageRow[] = [];
 		for (let index = 1; index <= 30; index += 1) {
@@ -243,7 +319,7 @@ describe('conversation context builder', () => {
 		expect(fallback).not.toContain('"messageId"');
 	});
 
-	it('resolves duplicate same-source citation numbers in selected output-action context', () => {
+		it('resolves duplicate same-source citation numbers in selected output-action context', () => {
 		const source = 'The TTC lists Toronto transit service changes for tonight [1].';
 		const duplicateSameSource = [
 			citation(1, {
@@ -273,10 +349,56 @@ describe('conversation context builder', () => {
 			sourceMessageId: 'm2'
 		});
 
-		expect(context.lastSourceBackedAnswer?.citations).toEqual([duplicateSameSource[0]]);
-	});
+			expect(context.lastSourceBackedAnswer?.citations).toEqual([duplicateSameSource[0]]);
+		});
 
-	it('excludes conflicting duplicate citation numbers from selected output-action context', () => {
+		it('keeps every resolved citation beyond the former follow-up cap', () => {
+			const citations = Array.from({ length: 14 }, (_, index) => citation(index + 1));
+			const source = citations
+				.map((item) => `Confirmed fact ${item.citationNumber} [${item.citationNumber}].`)
+				.join(' ');
+			const messages = [
+				message('m1', 'user', 'Build a source-backed rundown.'),
+				message('m2', 'assistant', source, citations)
+			];
+
+			const context = buildConversationContext({
+				messages,
+				currentRequest: 'List the exact direct URLs for every citation in the previous answer.',
+				sourceMessageId: 'm2'
+			});
+
+			expect(context.lastSourceBackedAnswer?.citations).toHaveLength(14);
+			expect(context.lastSourceBackedAnswer?.citations.map((item) => item.citationNumber)).toEqual(
+				Array.from({ length: 14 }, (_, index) => index + 1)
+			);
+		});
+
+		it('compacts long citation metadata before dropping resolved links', () => {
+			const citations = Array.from({ length: 40 }, (_, index) =>
+				citation(index + 1, {
+					title: `Official source ${index + 1} ${'title '.repeat(30)}`,
+					supportingExcerpt: `Confirmed evidence ${index + 1}. ${'Supporting context. '.repeat(80)}`
+				})
+			);
+			const source = citations
+				.map((item) => `Confirmed fact ${item.citationNumber} [${item.citationNumber}].`)
+				.join(' ');
+
+			const context = buildConversationContext({
+				messages: [
+					message('m1', 'user', 'Build a source-backed rundown.'),
+					message('m2', 'assistant', source, citations)
+				],
+				currentRequest: 'List the exact direct URLs for every citation in the previous answer.',
+				sourceMessageId: 'm2'
+			});
+
+			expect(context.lastSourceBackedAnswer?.citations).toHaveLength(40);
+			expect(context.lastSourceBackedAnswer?.citations.at(-1)?.citationNumber).toBe(40);
+		});
+
+		it('excludes conflicting duplicate citation numbers from selected output-action context', () => {
 		const source = 'The TTC lists Toronto transit service changes for tonight [1].';
 		const duplicateConflictingSource = [
 			citation(1, {

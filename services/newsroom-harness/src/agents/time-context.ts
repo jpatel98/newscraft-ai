@@ -39,7 +39,7 @@ export function newsroomTimeContext(options: NewsroomTimeContextOptions = {}): s
 }
 
 export function isCurrentEventQuery(query: string): boolean {
-	return /\b(latest|current|today|tonight|tomorrow|yesterday|this week|breaking|schedule|fixtures?|verify|confirm)\b/i.test(
+	return /\b(latest|current|today|tonight|tomorrow|yesterday|this week|breaking|schedule|fixtures?)\b/i.test(
 		query
 	);
 }

@@ -60,6 +60,10 @@ describe('disciplined newsroom agent harness', () => {
 			['summarize http://example.com/latest-news', 'custom_tool'],
 			['compare CBC and CTV coverage of the mayor', 'web_search'],
 			['compare Reuters and AP coverage', 'web_search'],
+			[
+				'Compare the reports about the disputed attribution and state what remains unresolved.',
+				'web_search'
+			],
 			['What did they say about it?', 'clarification_needed'],
 			['Open this dynamic page and click the latest release', 'browser_automation'],
 			[
@@ -76,7 +80,7 @@ describe('disciplined newsroom agent harness', () => {
 			routeNewsroomRequest(
 				'Verify this police release against official sources and what other outlets are reporting: https://example.com/story'
 			).tools_to_use
-		).toEqual(['source_feed_fetcher', 'openai_web_search']);
+		).toEqual(['url_fetch_read', 'openai_web_search']);
 	});
 
 	it('routes direct URL summaries through the explicit source fetcher path', () => {
@@ -88,7 +92,7 @@ describe('disciplined newsroom agent harness', () => {
 		]) {
 			expect(routeNewsroomRequest(prompt)).toMatchObject({
 				selected_mode: 'custom_tool',
-				tools_to_use: ['source_feed_fetcher']
+				tools_to_use: ['url_fetch_read']
 			});
 		}
 
@@ -96,7 +100,7 @@ describe('disciplined newsroom agent harness', () => {
 			routeNewsroomRequest('summarize http://example.com/latest-news and compare what other outlets are reporting')
 		).toMatchObject({
 			selected_mode: 'hybrid_research',
-			tools_to_use: ['source_feed_fetcher', 'openai_web_search']
+			tools_to_use: ['url_fetch_read', 'openai_web_search']
 		});
 	});
 
@@ -104,6 +108,7 @@ describe('disciplined newsroom agent harness', () => {
 		for (const prompt of [
 			'compare CBC and CTV coverage of the mayor',
 			'compare CBC and CTV coverage',
+			"Compare how CBC and CTV covered the Bank of Canada's July 15, 2026 policy-rate decision.",
 			'contrast Global News and Toronto Star reporting about the mayor',
 			'analyze Reuters and AP articles about the decision'
 		]) {
@@ -855,13 +860,13 @@ describe('disciplined newsroom agent harness', () => {
 	it('does not exceed the configured tool budget during a hybrid run', async () => {
 		const registry = new ToolRegistry();
 		registry.register(stubTool('configured_source_monitor', 'source_monitor', 'Official release evidence'));
-		registry.register(stubTool('source_feed_fetcher', 'source_feed_fetcher', 'Direct source evidence'));
+		registry.register(stubTool('url_fetch_read', 'custom', 'Direct source evidence'));
 		registry.register(stubTool('openai_web_search', 'web_search_provider', 'Other outlet evidence'));
 		const agent = new DisciplinedNewsroomAgent({
 			registry,
 			config: {
 				...defaultAgentConfig(),
-				enabled_tools: ['configured_source_monitor', 'source_feed_fetcher', 'openai_web_search'],
+				enabled_tools: ['configured_source_monitor', 'url_fetch_read', 'openai_web_search'],
 				default_tool_budget: mergeToolBudget({ max_total_tool_calls: 1, max_custom_tool_calls: 1 })
 			}
 		});
@@ -1109,6 +1114,73 @@ describe('disciplined newsroom agent harness', () => {
 		expect(result.final_answer).not.toContain('Link extraction was incomplete');
 		expect(result.final_answer).not.toContain('I could not find reliable sources confirming this');
 		expect(result.final_answer).not.toContain('I could not find readable source material');
+	});
+
+	it('does not truncate an accepted cited claim at an abbreviation', async () => {
+		const registry = new ToolRegistry();
+		registry.register({
+			name: 'openai_web_search',
+			description: 'Fixture web search',
+			when_to_use: 'test only',
+			category: 'web_search_provider',
+			async run() {
+				return {
+					status: 'ok',
+					answer:
+						'A shooter fired at the U.S. Consulate in Toronto on Monday, police said [1]. An unrelated stale claim should be removed [2].',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'Associated Press',
+							source_url: 'https://apnews.com/article/toronto-consulate',
+							accessed_at: '2026-07-28T18:00:00.000Z',
+							tool_used: 'openai_web_search',
+							title: 'Police investigate shooting at US consulate in Toronto',
+							published_at: '2026-07-27T18:57:13.000Z',
+							extracted_text:
+								'Police said a shooter fired at the U.S. Consulate in Toronto on Monday.',
+							summary: 'A shooter fired at the U.S. Consulate in Toronto on Monday.',
+							confidence: 0.9,
+							citation_number: 1
+						}),
+						normalizeEvidence({
+							source_name: 'Unrelated outlet',
+							source_url: 'https://example.com/vancouver',
+							accessed_at: '2026-07-28T18:00:00.000Z',
+							tool_used: 'openai_web_search',
+							title: 'Unrelated Vancouver story',
+							published_at: '2026-07-27T17:00:00.000Z',
+							extracted_text: 'An unrelated stale claim from Vancouver.',
+							summary: 'An unrelated stale claim from Vancouver.',
+							confidence: 0.8,
+							citation_number: 2
+						})
+					]
+				};
+			}
+		});
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['openai_web_search']
+			}
+		});
+
+		const result = await agent.run('What are the top stories in Toronto today?', {
+			outputStyle: 'chat',
+			conversationContext: {
+				version: 1,
+				intent: 'research',
+				activeTopic: {
+					subject: 'U.S. Consulate shooting',
+					entities: ['U.S. Consulate'],
+					location: 'Toronto'
+				}
+			}
+		});
+
+		expect(result.final_answer).toContain('U.S. Consulate in Toronto on Monday');
+		expect(result.final_answer).not.toContain('unrelated stale claim');
 	});
 });
 

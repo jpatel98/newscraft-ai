@@ -130,7 +130,7 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 			hasUrl
 				? 'The request supplies a direct source URL and asks for broader coverage context.'
 				: 'The request needs both primary/source evidence and broader coverage context.',
-			[hasUrl ? NEWSROOM_TOOL_NAMES.sourceFeedFetcher : NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.webSearch],
+			[hasUrl ? NEWSROOM_TOOL_NAMES.urlFetchRead : NEWSROOM_TOOL_NAMES.sourceMonitor, NEWSROOM_TOOL_NAMES.webSearch],
 			budget,
 			'stop after primary/source evidence and broader coverage evidence exist, or a budget/availability limit is hit',
 			'a producer-ready answer separating official or primary sources from media reports'
@@ -141,7 +141,7 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		return decision(
 			'custom_tool',
 			'The request supplies a direct URL, so route through the explicit source fetch path.',
-			[NEWSROOM_TOOL_NAMES.sourceFeedFetcher],
+			[NEWSROOM_TOOL_NAMES.urlFetchRead],
 			budget,
 			'stop after the URL/source fetch returns evidence or a clear limitation',
 			'an answer grounded in direct source-fetch evidence'
@@ -256,7 +256,7 @@ function mentionsPdfOrDocument(text: string): boolean {
 }
 
 function mentionsOtherOutlets(text: string): boolean {
-	return /\b(other outlets|media reports|what outlets|coverage elsewhere|related coverage|competitor coverage|reporting about|who else is reporting|broader coverage)\b/.test(
+	return /\b(other outlets|media reports|reputable reports|compare (?:the )?(?:reputable )?reports|what outlets|coverage elsewhere|related coverage|competitor coverage|reporting about|who else is reporting|broader coverage)\b/.test(
 		text
 	);
 }
@@ -299,7 +299,7 @@ function isDirectGeneralRequest(text: string): boolean {
 function mentionsNamedOutletCoverageComparison(text: string): boolean {
 	const comparableText = text.replace(/https?:\/\/[^\s)>\]]+/gi, ' ');
 	if (!/\b(compare|contrast|analy[sz]e|summari[sz]e|review|break down)\b/.test(comparableText)) return false;
-	if (!/\b(coverage|reporting|stories|story|article|articles|outlets?)\b/.test(comparableText)) return false;
+	if (!/\b(coverage|covered|covering|reporting|stories|story|article|articles|outlets?)\b/.test(comparableText)) return false;
 	const outletMatches = comparableText.match(/\b(cbc|ctv|global(?: news)?|cp24|citynews|toronto star|the star|globe and mail|national post|reuters|ap|associated press|bbc|cnn|fox news|new york times|washington post|guardian|al jazeera)\b/g);
 	if ((outletMatches?.length || 0) >= 2) return true;
 	return /\b[a-z0-9.-]+\.(?:com|ca|org|net|news)\b/.test(comparableText);

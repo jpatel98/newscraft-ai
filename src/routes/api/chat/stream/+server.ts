@@ -115,6 +115,28 @@ const OUTPUT_ACTION_VISIBLE_REQUESTS: Record<NonNullable<Body['output_action']>,
 	copy_with_citations: 'Turn this answer into clean copy with citations.'
 };
 
+function serializeUserDocumentIds(documentIds: string[]): string | null {
+	return documentIds.length ? JSON.stringify({ document_ids: documentIds }) : null;
+}
+
+function parseUserDocumentIds(value: string | null | undefined): string[] {
+	if (!value) return [];
+	try {
+		const parsed = JSON.parse(value) as { document_ids?: unknown };
+		if (!Array.isArray(parsed.document_ids)) return [];
+		return Array.from(
+			new Set(
+				parsed.document_ids.filter(
+					(documentId): documentId is string =>
+						typeof documentId === 'string' && documentId.trim().length > 0
+				)
+			)
+		).slice(0, 3);
+	} catch {
+		return [];
+	}
+}
+
 function sanitizeTraceId(value: string | undefined | null): string | null {
 	const normalized = (value || '').trim();
 	if (!TRACE_ID_RE.test(normalized)) return null;
@@ -586,7 +608,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		convo = await createConversation(accountId);
 	}
 	const convoId = convo.id;
-	const documentIds = Array.isArray(body.document_ids)
+	let documentIds = Array.isArray(body.document_ids)
 		? Array.from(
 				new Set(
 					body.document_ids.filter(
@@ -657,7 +679,12 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (cleaned == null) throw error(400, 'content required');
 		if (typeof cleaned === 'string' && !cleaned.trim()) throw error(400, 'content required');
 		let upstreamContent: MessageContent = outputActionUpstreamContent ?? cleaned;
-		const visibleUserMessage = await addMessage({ conversationId: convoId, role: 'user', content: cleaned });
+		const visibleUserMessage = await addMessage({
+			conversationId: convoId,
+			role: 'user',
+			content: cleaned,
+			toolCalls: serializeUserDocumentIds(documentIds)
+		});
 		visibleUserMessageId = visibleUserMessage.id;
 		if (body.output_action) {
 			recordChatDiagnostic(convoId, 'chat.output_action', {
@@ -718,6 +745,10 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	const reasoningEffort = await getConversationReasoningEffort(convoId);
 	const messages = await getMessages(convoId);
+	const latestUserMessage = [...messages].reverse().find((message) => message.role === 'user');
+	if (isRegenerate && documentIds.length === 0) {
+		documentIds = parseUserDocumentIds(latestUserMessage?.toolCalls);
+	}
 	const provenanceMessageIds = conversationContextProvenanceMessageIds({
 		messages,
 		sourceMessageId: body.source_message_id
@@ -729,6 +760,11 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	const inheritedMetadata = body.output_action
 		? parseToolMetadata(outputActionSource?.toolCalls)
 		: null;
+	const regeneratedUserRequest = isRegenerate
+		? contentText(
+				parseContent(latestUserMessage?.content ?? '')
+			)
+		: '';
 	const conversationContext: ConversationContext = buildConversationContext({
 		messages,
 		provenance,
@@ -736,7 +772,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			? OUTPUT_ACTION_VISIBLE_REQUESTS[body.output_action]
 			: body.content
 				? contentText(body.content)
-				: '',
+				: regeneratedUserRequest,
 		outputAction: Boolean(body.output_action),
 		sourceMessageId: body.source_message_id
 	});
@@ -794,7 +830,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			orgId: convo.orgId,
 			accountId,
 			documentIds,
-			query: body.content ? contentText(body.content) : '',
+			query: body.content ? contentText(body.content) : regeneratedUserRequest,
 			traceId
 		});
 	} catch (cause) {

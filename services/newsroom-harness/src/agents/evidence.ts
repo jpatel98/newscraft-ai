@@ -180,13 +180,13 @@ function isOfficialSource(host: string): boolean {
 	return (
 		/(^|\.)(gov|mil)(\.[a-z]{2})?$/.test(host) ||
 		/(^|\.)(gc\.ca|canada\.ca|ontario\.ca|quebec\.ca|toronto\.ca)$/.test(host) ||
-		/(^|\.)(elections\.ca|bankofcanada\.ca|rcmp-grc\.gc\.ca|tps\.ca)$/.test(host)
+		/(^|\.)(elections\.ca|bankofcanada\.ca|rcmp-grc\.gc\.ca|rcmp\.ca|tps\.ca|ttc\.ca)$/.test(host)
 	);
 }
 
 function isNewsSource(host: string, sourceName: string): boolean {
 	if (
-		/(^|\.)(reuters\.com|apnews\.com|cbc\.ca|ctvnews\.ca|globalnews\.ca|citynews\.ca|thestar\.com|theglobeandmail\.com|bbc\.(com|co\.uk)|theguardian\.com|cnn\.com|nytimes\.com|washingtonpost\.com|espn\.com|sportsnet\.ca|tsn\.ca|theathletic\.com)$/.test(
+		/(^|\.)(reuters\.com|apnews\.com|cbc\.ca|ctvnews\.ca|globalnews\.ca|citynews\.ca|thestar\.com|theglobeandmail\.com|bbc\.(com|co\.uk)|theguardian\.com|aljazeera\.com|cnn\.com|nytimes\.com|washingtonpost\.com|espn\.com|sportsnet\.ca|tsn\.ca|theathletic\.com)$/.test(
 			host
 		)
 	) {
@@ -198,7 +198,7 @@ function isNewsSource(host: string, sourceName: string): boolean {
 }
 
 function isPrimarySource(host: string, path: string, sourceName: string): boolean {
-	if (/(^|\.)(fifa\.com|who\.int|un\.org|sec\.gov)$/.test(host)) return true;
+	if (/(^|\.)(fifa\.com|who\.int|un\.org|sec\.gov|hrw\.org|forensic-architecture\.org)$/.test(host)) return true;
 	if (/\.(edu|ac\.[a-z]{2})$/.test(host)) return true;
 	const directDocument = /\b(press[-_/ ]?release|newsroom|media[-_/ ]?release|regulatory[-_/ ]?filing|agenda|minutes|transcript|official[-_/ ]?statement)\b/.test(
 		path

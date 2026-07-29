@@ -19,6 +19,10 @@
     "class": "current_events",
     "description": "Job 1 — 'today' recency phrasing (known trap: agent must not fabricate a date)",
     "prompt": "What are the top news stories today?",
+    "newsroom_context": {
+      "timezone": "America/Toronto",
+      "homeMarket": "Toronto, Canada"
+    },
     "latency_class": "research",
     "trust_trap": true,
     "checks": {
@@ -36,7 +40,7 @@
     "id": "current-events-regional",
     "class": "current_events",
     "description": "Job 1 — Regional current events with named location",
-    "prompt": "What's happening in Toronto this week?",
+    "prompt": "Summarize major City of Toronto announcements published this week on https://www.toronto.ca/news/.",
     "latency_class": "research",
     "checks": {
       "requires_citation": true,
@@ -73,7 +77,7 @@
     "trust_trap": true,
     "checks": {
       "requires_citation": false,
-      "requires_plan_events": true,
+      "requires_plan_events": false,
       "must_not_leak_tool_names": true,
       "must_not_leak_adapter_names": true,
       "must_not_leak_ids": true,
@@ -100,7 +104,7 @@
     "id": "competitor-coverage-named-outlet",
     "class": "competitor_coverage",
     "description": "Job 3 — Named competitor outlet comparison",
-    "prompt": "Compare how CBC and CTV are covering the federal election campaign this week.",
+    "prompt": "Compare how CBC and CTV covered the Bank of Canada's July 15, 2026 policy-rate decision.",
     "latency_class": "research",
     "checks": {
       "requires_citation": true,
@@ -120,7 +124,7 @@
     "latency_class": "simple",
     "checks": {
       "requires_citation": false,
-      "requires_plan_events": true,
+      "requires_plan_events": false,
       "must_not_leak_tool_names": true,
       "must_not_leak_adapter_names": true,
       "must_not_leak_ids": true,
@@ -196,7 +200,7 @@
     "id": "current-events-ongoing-story",
     "class": "current_events",
     "description": "Job 1 — Ongoing named story requiring sourced update",
-    "prompt": "What's the latest on the Ontario teachers' strike negotiations?",
+    "prompt": "What's the latest on the Toronto police investigation into the shooting outside the U.S. Consulate?",
     "latency_class": "research",
     "checks": {
       "requires_citation": true,
@@ -211,7 +215,7 @@
     "id": "claim-verification-primary-source-policy",
     "class": "claim_verification",
     "description": "Job 2 — Policy statement requiring primary source first (not just broad web)",
-    "prompt": "Verify what the RCMP officially said about the investigation into the border incident.",
+    "prompt": "Verify what the RCMP officially said about the February 2022 Coutts, Alberta border blockade investigation and arrests.",
     "latency_class": "research",
     "trust_trap": true,
     "checks": {
@@ -242,9 +246,31 @@
   },
   {
     "id": "citation-integrity-more-than-eight",
-    "class": "current_events",
+    "class": "document_research",
     "description": "Trust trap — More than eight ordered citations must remain resolvable",
-    "prompt": "Build a sourced roundup of twelve major Canadian public-policy announcements from today, preserving one citation per item.",
+    "prompt": "Using only the attached citation-order fixture, list all twelve confirmed items in page order with one citation per item.",
+    "documents": [
+      {
+        "id": "document-citation-order",
+        "filename": "citation-order-fixture.pdf",
+        "downloadUrl": "/api/conversations/eval/documents/document-citation-order/download",
+        "pageCount": 12,
+        "pages": [
+          { "pageNumber": 1, "text": "Confirmed fixture item 1 records the first council decision." },
+          { "pageNumber": 2, "text": "Confirmed fixture item 2 records the second council decision." },
+          { "pageNumber": 3, "text": "Confirmed fixture item 3 records the third council decision." },
+          { "pageNumber": 4, "text": "Confirmed fixture item 4 records the fourth council decision." },
+          { "pageNumber": 5, "text": "Confirmed fixture item 5 records the fifth council decision." },
+          { "pageNumber": 6, "text": "Confirmed fixture item 6 records the sixth council decision." },
+          { "pageNumber": 7, "text": "Confirmed fixture item 7 records the seventh council decision." },
+          { "pageNumber": 8, "text": "Confirmed fixture item 8 records the eighth council decision." },
+          { "pageNumber": 9, "text": "Confirmed fixture item 9 records the ninth council decision." },
+          { "pageNumber": 10, "text": "Confirmed fixture item 10 records the tenth council decision." },
+          { "pageNumber": 11, "text": "Confirmed fixture item 11 records the eleventh council decision." },
+          { "pageNumber": 12, "text": "Confirmed fixture item 12 records the twelfth council decision." }
+        ]
+      }
+    ],
     "latency_class": "research",
     "trust_trap": true,
     "checks": {
@@ -257,7 +283,9 @@
       "minimum_citations": 9,
       "requires_citation_order": true,
       "requires_all_citations_referenced": true,
-      "requires_publication_date": true
+      "requires_document_page_citations": true,
+      "forbids_external_search": true,
+      "requires_only_document_evidence": true
     }
   },
   {
@@ -281,14 +309,15 @@
       "requires_caveat_on_no_evidence": false,
       "requires_primary_evidence_or_caveat": true,
       "requires_current_as_of": true,
-      "requires_publication_date": true
+      "requires_publication_date": true,
+      "allows_undated_live_primary": true
     }
   },
   {
     "id": "conflicting-reports-disagreement",
     "class": "current_events",
     "description": "Trust trap — Conflicting reports must be surfaced rather than flattened",
-    "prompt": "Compare the conflicting reports about when the Toronto transit shutdown will end and tell me what is actually confirmed.",
+    "prompt": "Compare the reports and separately attribute the differing conclusions in Human Rights Watch's November 26, 2023 Al-Ahli Hospital findings and Al Jazeera's October 20, 2023 report titled \"Investigations reveal discrepancies in Israel's Gaza hospital attack claims,\" which summarizes the Forensic Architecture analysis. State what each source concluded and what remains unresolved.",
     "latency_class": "research",
     "trust_trap": true,
     "checks": {
@@ -298,6 +327,7 @@
       "must_not_leak_adapter_names": true,
       "must_not_leak_ids": true,
       "requires_caveat_on_no_evidence": false,
+      "minimum_citations": 2,
       "requires_disagreement": true,
       "requires_publication_date": true
     }
@@ -311,6 +341,7 @@
       {
         "id": "document-council-report",
         "filename": "council-report.pdf",
+        "downloadUrl": "/api/conversations/eval/documents/document-council-report/download",
         "pageCount": 7,
         "pages": [
           {
@@ -366,6 +397,7 @@
       {
         "id": "document-audit",
         "filename": "municipal-audit.pdf",
+        "downloadUrl": "/api/conversations/eval/documents/document-audit/download",
         "pageCount": 3,
         "pages": [
           {
@@ -402,6 +434,7 @@
       {
         "id": "document-transit-memo",
         "filename": "transit-memo.pdf",
+        "downloadUrl": "/api/conversations/eval/documents/document-transit-memo/download",
         "pageCount": 2,
         "pages": [
           {
@@ -460,7 +493,7 @@
     "id": "unknown-publication-date",
     "class": "current_events",
     "description": "Trust trap — Missing publication dates must be labelled unknown, never synthesized",
-    "prompt": "What does the latest public notice say about the harbour closure, and when was it published?",
+    "prompt": "What does this official Toronto alert page say about current alert status, and when was the page published? If no publication date appears, label it Date unknown. https://weather.gc.ca/warnings/report_e.html?on61",
     "latency_class": "research",
     "trust_trap": true,
     "checks": {

@@ -340,7 +340,12 @@ describe('newsroom agent runtime', () => {
 		);
 
 		expect(fetchMock).not.toHaveBeenCalled();
-		expect(progress).toEqual([]);
+		expect(progress).toEqual([
+			{
+				type: 'citations',
+				citations: context.lastSourceBackedAnswer?.citations
+			}
+		]);
 		expect(answer).toMatch(/^ON CAM:\n/);
 		expect(answer).toContain('\n\nVO:\n');
 		expect(answer).toContain('\n\nBANNER:\n');
@@ -759,6 +764,7 @@ describe('newsroom agent runtime', () => {
 
 	it('keeps web and attached-document citation numbers distinct during corroboration', async () => {
 		const registry = new ToolRegistry();
+		let webQuery = '';
 		registry.register({
 			name: 'pdf_text_extractor',
 			description: 'document fixture',
@@ -794,7 +800,8 @@ describe('newsroom agent runtime', () => {
 			category: 'web_search_provider',
 			input_schema: { type: 'object' },
 			output_schema: { type: 'object' },
-			async run() {
+			async run(input) {
+				webQuery = String((input as { query?: string }).query || '');
 				return {
 					status: 'ok',
 					answer: 'The official notice confirms the Monday start. [1]',
@@ -844,6 +851,7 @@ describe('newsroom agent runtime', () => {
 		);
 
 		expect(answer).toContain('official notice confirms');
+		expect(webQuery).toContain('The memo says the program begins Monday.');
 		expect(answer).toContain('[1]');
 		expect(answer).toContain('Attached document evidence');
 		expect(answer).toContain('[2]');
@@ -881,9 +889,9 @@ describe('newsroom agent runtime', () => {
 			expect(progress).toEqual([]);
 		});
 
-		it('runs direct URL summaries through the source fetcher path', async () => {
-		const registry = new ToolRegistry();
-		registry.register(stubRuntimeTool('source_feed_fetcher', 'source_feed_fetcher', 'Fetcher handled the supplied URL.'));
+		it('runs direct URL summaries through the direct page reader', async () => {
+			const registry = new ToolRegistry();
+			registry.register(stubRuntimeTool('url_fetch_read', 'custom', 'Reader handled the supplied URL.'));
 		registry.register(stubRuntimeTool('openai_web_search', 'web_search_provider', 'Web search should not run for direct URLs.'));
 		const progress: RuntimeProgressEvent[] = [];
 		const runtime = new NewsroomAgentRuntime({
@@ -904,8 +912,8 @@ describe('newsroom agent runtime', () => {
 			}
 		);
 
-		expect(answer).toContain('Fetcher handled');
-		expect(progress.some((event) => event.type === 'tool' && event.name === 'source_feed_fetcher')).toBe(true);
+			expect(answer).toContain('Reader handled');
+			expect(progress.some((event) => event.type === 'tool' && event.name === 'url_fetch_read')).toBe(true);
 		expect(progress.some((event) => event.type === 'tool' && event.name === 'openai_web_search')).toBe(false);
 	});
 

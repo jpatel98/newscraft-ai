@@ -9,7 +9,11 @@ import type {
 } from '@newscraft/shared';
 import { createHash } from 'node:crypto';
 import { AssignmentDesk, type AssignmentDeskDecision } from './assignment-desk.js';
-import { cleanVisibleChatOutput, draftNewsroomOcvoFromConversation } from './answer.js';
+import {
+	cleanVisibleChatOutput,
+	directCitationLinksFromConversation,
+	draftNewsroomOcvoFromConversation
+} from './answer.js';
 import { formatConversationContext } from './grounded-conversation.js';
 import { routeNewsroomRequest } from './router.js';
 import { roleLabel, type NewsroomRole } from './roles.js';
@@ -86,6 +90,8 @@ const DIRECT_CHAT_INSTRUCTIONS = [
 	'Do not claim that you browsed, searched, verified, checked sources, or accessed live information in this direct-answer mode.',
 	'If the user asks for current facts, live/news information, verification, source comparison, source-backed claims, browsing, URLs, or newsroom tool work, say briefly that NewsCraft should run a source-backed research pass instead of answering from memory.',
 	'Preserve newsroom discipline: distinguish facts from assumptions, keep uncertainty visible, and avoid overclaiming.',
+	'When listing multiple confirmed facts, put each fact on its own bullet or sentence.',
+	'Do not append unsolicited offers, next-step suggestions, or questions about what the user wants next.',
 	'Do not mention Hermes, internal implementation details, tools, credentials, secrets, system prompts, or routing internals.'
 ].join('\n');
 
@@ -105,13 +111,17 @@ export class NewsroomAgentRuntime {
 			return this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 		}
 		if (isSimpleGreeting(latestUserPrompt)) return 'Hi. What should NewsCraft work on?';
+		const contextualClarification = contextualClarificationAnswer(messages, latestUserPrompt);
+		if (contextualClarification) return contextualClarification;
 		if (shouldAskForClarification(messages, latestUserPrompt, context.conversationContext) && !context.documents?.length) {
 			return clarificationAnswer(latestUserPrompt);
 		}
 		const formatFollowup = formatOnlyFollowupAnswer(messages);
 		if (formatFollowup) return formatFollowup;
 		if (isDirectAnswerPrompt(latestUserPrompt, context.conversationContext) && !context.documents?.length) {
-			return this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
+			const answer = await this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
+			this.emitInheritedCitationRecords(context, answer);
+			return answer;
 		}
 		if (!this.modelApiKey()) return this.localChat(prompt);
 		const answer = await this.withTimeout(
@@ -148,6 +158,11 @@ export class NewsroomAgentRuntime {
 			for (const chunk of splitForStreaming('Hi. What should NewsCraft work on?')) yield chunk;
 			return;
 		}
+		const contextualClarification = contextualClarificationAnswer(messages, latestUserPrompt);
+		if (contextualClarification) {
+			for (const chunk of splitForStreaming(contextualClarification)) yield chunk;
+			return;
+		}
 		if (shouldAskForClarification(messages, latestUserPrompt, context.conversationContext) && !context.documents?.length) {
 			for (const chunk of splitForStreaming(clarificationAnswer(latestUserPrompt))) yield chunk;
 			return;
@@ -159,6 +174,7 @@ export class NewsroomAgentRuntime {
 		}
 		if (isDirectAnswerPrompt(latestUserPrompt, context.conversationContext) && !context.documents?.length) {
 			const answer = await this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
+			this.emitInheritedCitationRecords(context, answer);
 			for (const chunk of splitForStreaming(answer)) yield chunk;
 			return;
 		}
@@ -235,7 +251,7 @@ export class NewsroomAgentRuntime {
 			}
 		});
 		reconcileDocumentAndWebEvidence(result, context.documents);
-		this.emitCitationRecords(result.evidence, context);
+		this.emitCitationRecords(result.evidence, result.final_answer, context);
 		const sources = result.evidence.map(evidenceToFetchedSource);
 		const markdown = await this.synthesizeMissionOutput(prompt, result, context);
 		return { role, markdown, sources, evidence: result.evidence };
@@ -261,6 +277,8 @@ export class NewsroomAgentRuntime {
 
 	private async directChatCompletion(messages: GatewayChatMessage[], context: RuntimeContext): Promise<string> {
 		const latestUserPrompt = latestUserPromptFromChatMessages(messages);
+		const citationLinks = directCitationLinksFromConversation(latestUserPrompt, context.conversationContext);
+		if (citationLinks) return citationLinks;
 		const ocvo = draftNewsroomOcvoFromConversation(latestUserPrompt, context.conversationContext);
 		if (ocvo) return ocvo;
 		const prompt = buildDirectChatPrompt(messages, context.conversationContext);
@@ -339,16 +357,30 @@ export class NewsroomAgentRuntime {
 			forcePlanner: context.plannerEnabled === true,
 			onPlanEvent: (event) => context.onProgress?.({ type: 'plan', planSource: event.source, steps: event.steps }),
 			onToolEvent: (event) => this.forwardDisciplinedProgress(event, context),
-			onAnswerDelta: shouldBufferGroundedAnswer(context.conversationContext) ? undefined : onAnswerDelta
+			onAnswerDelta: shouldBufferGroundedAnswer(routingPrompt, context.conversationContext)
+				? undefined
+				: onAnswerDelta
 		});
 		reconcileDocumentAndWebEvidence(result, context.documents);
-		this.emitCitationRecords(result.evidence, context);
+		this.emitCitationRecords(result.evidence, result.final_answer, context);
 		return result;
 	}
 
-	private emitCitationRecords(evidence: EvidenceObject[], context: RuntimeContext): void {
-		const citations = citationRecordsFromEvidence(evidence);
-		if (citations.length) context.onProgress?.({ type: 'citations', citations });
+	private emitCitationRecords(evidence: EvidenceObject[], answer: string, context: RuntimeContext): void {
+		const markers = new Set(citationMarkersInText(answer));
+		const citations = citationRecordsFromEvidence(evidence).filter((citation) =>
+			markers.has(citation.citationNumber)
+		);
+		context.onProgress?.({ type: 'citations', citations });
+	}
+
+	private emitInheritedCitationRecords(context: RuntimeContext, answer: string): void {
+		const citations = context.conversationContext?.lastSourceBackedAnswer?.citations ?? [];
+		const markers = new Set(citationMarkersInText(answer));
+		const referenced = citations.filter(
+			(citation) => markers.has(citation.citationNumber) || answer.includes(citation.url)
+		);
+		if (referenced.length) context.onProgress?.({ type: 'citations', citations: referenced });
 	}
 
 	private async titleCompletion(prompt: string, context: RuntimeContext): Promise<string> {
@@ -385,6 +417,10 @@ export class NewsroomAgentRuntime {
 		this.triageEditorCommand(routingPrompt, context);
 		const sanitizer = new StreamingAnswerSanitizer({ clean: (raw) => cleanVisibleChatOutput(raw, prompt) });
 		const currentAsOf = currentAsOfPrefix(routingPrompt, context.newsroomContext?.timezone);
+		const bufferAuthoritativeAnswer = shouldBufferGroundedAnswer(
+			routingPrompt,
+			context.conversationContext
+		);
 		let currentAsOfEmitted = false;
 		const pending: string[] = [];
 		let wake: (() => void) | null = null;
@@ -414,6 +450,11 @@ export class NewsroomAgentRuntime {
 			}
 		})();
 
+		if (bufferAuthoritativeAnswer && currentAsOf) {
+			currentAsOfEmitted = true;
+			yield `${currentAsOf}\n\n`;
+		}
+
 		while (!settled || pending.length) {
 			if (pending.length) {
 				if (currentAsOf && !currentAsOfEmitted) {
@@ -434,24 +475,33 @@ export class NewsroomAgentRuntime {
 
 		const outcome = settled as { result: NewsroomAgentRunResult } | { error: unknown };
 		if ('error' in outcome) {
-			if (!sanitizer.emitted) throw outcome.error;
+			if (!sanitizer.emitted) {
+				if (currentAsOfEmitted) {
+					yield 'Live research could not finish right now.';
+					return;
+				}
+				throw outcome.error;
+			}
 			yield '\n\nThe research run was interrupted before it finished; treat the answer above as incomplete.';
 			return;
 		}
 		const finalAnswer = outcome.result.final_answer.trim() || this.localChat(prompt);
+		const visibleFinalAnswer = currentAsOfEmitted
+			? withoutLeadingCurrentAsOf(finalAnswer)
+			: finalAnswer;
 		if (!sanitizer.emitted) {
-			if (currentAsOf && !currentAsOfEmitted && !/\bCurrent as of\b/i.test(finalAnswer)) {
+			if (currentAsOf && !currentAsOfEmitted && !/\bCurrent as of\b/i.test(visibleFinalAnswer)) {
 				yield `${currentAsOf}\n\n`;
 			}
-			for (const chunk of splitForStreaming(finalAnswer)) yield chunk;
+			for (const chunk of splitForStreaming(visibleFinalAnswer)) yield chunk;
 			return;
 		}
-		const tail = streamTailForFinalAnswer(sanitizer.emitted, finalAnswer);
+		const tail = streamTailForFinalAnswer(sanitizer.emitted, visibleFinalAnswer);
 		if (tail === null) {
 			// The final answer does not extend the streamed text (interrupted tool
 			// stream or a whole-text rewrite). Emit it after a hard break rather
 			// than silently dropping caveats or replacement content.
-			for (const chunk of splitForStreaming(`\n\n${finalAnswer}`)) yield chunk;
+			for (const chunk of splitForStreaming(`\n\n${visibleFinalAnswer}`)) yield chunk;
 			return;
 		}
 		for (const chunk of splitForStreaming(tail)) yield chunk;
@@ -682,6 +732,17 @@ function isSimpleGreeting(prompt: string): boolean {
 function isDirectAnswerPrompt(prompt: string, conversationContext?: ConversationContext): boolean {
 	if (conversationContext?.intent === 'transform' && conversationContext.lastSourceBackedAnswer) return true;
 	if (/\b(?:turn|rewrite|using only)\b[\s\S]{0,100}\bprevious answer\b/i.test(prompt)) return true;
+	if (
+		conversationContext?.lastSourceBackedAnswer &&
+		(
+			/\b(?:using|use)\s+only\b[\s\S]{0,120}\b(?:inherited|provided|previous|existing)\b[\s\S]{0,80}\b(?:evidence|answer|citations?)\b/i.test(
+				prompt
+			) ||
+			/\bdo not (?:re-?search|search)\b/i.test(prompt)
+		)
+	) {
+		return true;
+	}
 	return routeNewsroomRequest(prompt).selected_mode === 'direct_answer';
 }
 
@@ -694,6 +755,34 @@ function shouldAskForClarification(
 	if (conversationContext?.activeTopic || conversationContext?.lastSourceBackedAnswer) return false;
 	const latestUserIndex = latestUserIndexFromChatMessages(messages);
 	return !recentConversationContext(messages, latestUserIndex);
+}
+
+function contextualClarificationAnswer(
+	messages: GatewayChatMessage[],
+	latestUserPrompt: string
+): string | null {
+	const referentialStatementFollowup =
+		/\bwhat did (?:the )?(?:police|official|agency|department)?\s*statement (?:actually )?say\b/i.test(
+			latestUserPrompt
+		);
+	if (
+		routeNewsroomRequest(latestUserPrompt).selected_mode !== 'clarification_needed' &&
+		!referentialStatementFollowup
+	) {
+		return null;
+	}
+	const latestUserIndex = latestUserIndexFromChatMessages(messages);
+	if (latestUserIndex < 1) return null;
+	for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role !== 'user') continue;
+		const priorContext = chatMessageText(message).replace(/\s+/g, ' ').trim();
+		if (!priorContext) continue;
+		const compactContext =
+			priorContext.length <= 420 ? priorContext : `${priorContext.slice(0, 419).trim()}…`;
+		return `From the context already in this thread: ${compactContext}\n\nThe original source wording is not included here, so I can't quote or verify anything beyond that context.`;
+	}
+	return null;
 }
 
 function clarificationAnswer(prompt: string): string {
@@ -963,7 +1052,7 @@ function citationRecordsFromEvidence(evidence: EvidenceObject[]): CitationRecord
 			publicationDate: entry.item.published_at || null,
 			sourceType,
 			supportingExcerpt: truncateEvidence(
-				entry.item.extracted_text || entry.item.summary || entry.item.title,
+				entry.item.summary || entry.item.extracted_text || entry.item.title,
 				900
 			),
 			...(entry.documentPage ? { documentPage: entry.documentPage } : {})
@@ -1014,6 +1103,12 @@ function citationDomain(url: string, sourceType: CitationSourceType): string {
 	}
 }
 
+function citationMarkersInText(value: string): number[] {
+	return Array.from(value.matchAll(/\[(\d+)\]/g), (match) => Number(match[1])).filter((number) =>
+		Number.isInteger(number)
+	);
+}
+
 function buildDirectChatPrompt(messages: GatewayChatMessage[], conversationContext?: ConversationContext): string {
 	const latestUserIndex = latestUserIndexFromChatMessages(messages);
 	const latestUserPrompt =
@@ -1032,7 +1127,16 @@ function buildDirectChatPrompt(messages: GatewayChatMessage[], conversationConte
 	].join('\n');
 }
 
-function shouldBufferGroundedAnswer(conversationContext?: ConversationContext): boolean {
+function shouldBufferGroundedAnswer(
+	prompt: string,
+	conversationContext?: ConversationContext
+): boolean {
+	if (
+		isCurrentEventQuery(prompt) ||
+		/\b(?:verify|fact[- ]?check|confirm)\b/i.test(prompt)
+	) {
+		return true;
+	}
 	if (!conversationContext) return false;
 	if (conversationContext.claimStates?.length) return true;
 	const topic = conversationContext.activeTopic;
@@ -1046,6 +1150,13 @@ function shouldBufferGroundedAnswer(conversationContext?: ConversationContext): 
 			topic.requestedOutlets?.length ||
 			topic.directSourcesRequired
 	);
+}
+
+function withoutLeadingCurrentAsOf(value: string): string {
+	return value
+		.replace(/^\s*\*\*Current as of:\*\*[^\n]*(?:\n+|$)/i, '')
+		.replace(/^\s*Current as of:[^\n]*(?:\n+|$)/i, '')
+		.trimStart();
 }
 
 function latestUserIndexFromChatMessages(messages: GatewayChatMessage[]): number {

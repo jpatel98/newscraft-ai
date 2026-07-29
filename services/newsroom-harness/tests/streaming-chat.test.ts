@@ -383,7 +383,7 @@ describe('runtime streamed chat', () => {
 		expect(chunks.join('')).toContain('Nothing major was reported');
 	});
 
-	it('keeps streaming enabled for source-only conversation context without guard constraints', async () => {
+	it('buffers current source-only conversation context until the cited answer is authoritative', async () => {
 		let hadDeltaSink: boolean | null = null;
 		const registry = new ToolRegistry();
 		registry.register(
@@ -420,8 +420,80 @@ describe('runtime streamed chat', () => {
 			chunks.push(delta);
 		}
 
-		expect(hadDeltaSink).toBe(true);
+		expect(hadDeltaSink).toBe(false);
 		expect(chunks.join('')).toContain('Council passed the motion');
+	});
+
+	it('does not append an authoritative cited rewrite after already streaming its uncited draft', async () => {
+		let hadDeltaSink: boolean | null = null;
+		const registry = new ToolRegistry();
+		registry.register(
+			streamingStubTool({
+				name: 'openai_web_search',
+				category: 'web_search_provider',
+				deltas: ['Council approved the motion.'],
+				answer: 'Council approved the motion [1].',
+				onRun: (value) => {
+					hadDeltaSink = value;
+				}
+			})
+		);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 4,
+			runTimeoutMs: 10_000,
+			retryLimit: 0,
+			openAiApiKey: 'test-key',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
+			registry
+		});
+
+		let answer = '';
+		for await (const delta of runtime.streamChat(
+			[{ role: 'user', content: 'What is the latest confirmed city hall vote today?' }],
+			{}
+		)) {
+			answer += delta;
+		}
+
+		expect(hadDeltaSink).toBe(false);
+		expect(answer.match(/Council approved the motion/g)).toHaveLength(1);
+		expect(answer).toContain('Council approved the motion [1].');
+		expect(answer.match(/Current as of/g)).toHaveLength(1);
+	});
+
+	it('finishes a buffered current response with safe wording when research times out', async () => {
+		const registry = new ToolRegistry();
+		registry.register(
+			streamingStubTool({
+				name: 'openai_web_search',
+				category: 'web_search_provider',
+				deltas: [''],
+				answer: 'This answer should never arrive.',
+				gate: () => new Promise((resolve) => setTimeout(resolve, 80))
+			})
+		);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 4,
+			runTimeoutMs: 10,
+			retryLimit: 0,
+			openAiApiKey: 'test-key',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
+			registry
+		});
+
+		let answer = '';
+		for await (const delta of runtime.streamChat(
+			[{ role: 'user', content: 'What is the latest confirmed city hall vote today?' }],
+			{}
+		)) {
+			answer += delta;
+		}
+
+		expect(answer).toContain('Current as of');
+		expect(answer).toMatch(
+			/(?:Live research could not finish|I couldn't verify this from readable sources) right now\./
+		);
+		expect(answer).not.toContain('This answer should never arrive');
 	});
 
 	it('buffers streaming when the conversation guard may reject constrained evidence', async () => {

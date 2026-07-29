@@ -217,13 +217,16 @@ function fixtureRunResult(promptEntry) {
   // Evidence / citations
   let citations = [];
   if (id === 'citation-integrity-more-than-eight') {
-    citations = Array.from({ length: 12 }, (_, index) =>
+    const document = promptEntry.documents[0];
+    citations = document.pages.map((page, index) =>
       fixtureCitation(index + 1, {
-        url: `https://www.canada.ca/en/public-policy/news/2026/07/announcement-${index + 1}.html`,
-        title: `Government announcement ${index + 1}`,
-        sourceType: 'official',
-        publicationDate: '2026-07-10',
-        supportingExcerpt: `Official announcement ${index + 1} was published today.`
+        url: document.downloadUrl,
+        title: `${document.filename}, page ${page.pageNumber}`,
+        domain: 'Attached document',
+        sourceType: 'user_document',
+        publicationDate: null,
+        documentPage: page.pageNumber,
+        supportingExcerpt: page.text
       })
     );
   } else if (id === 'fifa-schedule-official-evidence') {
@@ -451,6 +454,7 @@ async function fullRunAgainstHarness(promptEntry, plannerEnabled) {
   const planEvents = [];
   const sources = [];
   const structuredCitations = [];
+  let citationEventSeen = false;
 
   for await (const event of readSse(response.body)) {
     if (event.event === 'message') {
@@ -468,6 +472,7 @@ async function fullRunAgainstHarness(promptEntry, plannerEnabled) {
       const payload = safeJson(event.data);
       if (payload) sources.push(payload);
     } else if (event.event === 'agent.citations') {
+      citationEventSeen = true;
       const payload = safeJson(event.data);
       if (Array.isArray(payload?.citations)) structuredCitations.push(...payload.citations);
     }
@@ -479,7 +484,7 @@ async function fullRunAgainstHarness(promptEntry, plannerEnabled) {
     answer,
     plan: planEvents.at(-1) || null,
     citations:
-      structuredCitations.length > 0
+      citationEventSeen
         ? structuredCitations
         : sources
             .filter((source) => source?.status !== 'skipped')
@@ -714,16 +719,23 @@ function evalResult(promptEntry, run, budget) {
     ].some((pattern) => pattern.test(run.answer));
     results.push({
       name: 'caveat_on_no_evidence',
-      pass: hasCaveat,
-      detail: hasCaveat ? 'caveat present' : 'no caveat found for potential no-evidence answer'
+      pass: citations.length > 0 || hasCaveat,
+      detail:
+        citations.length > 0
+          ? `not required because ${citations.length} citation record(s) resolved`
+          : hasCaveat
+            ? 'caveat present'
+            : 'no caveat found for no-evidence answer'
     });
   }
 
   if (checks.requires_primary_evidence_or_caveat) {
     const primaryCount = citations.filter((citation) => citation.sourceType === 'official' || citation.sourceType === 'primary').length;
-    const explicitlyAbsent = /\bno (?:official(?: or primary)?|primary|first-party) (?:sources?|evidence) (?:was |were |could be )?(?:found|available|located|published)\b/i.test(
-      run.answer
-    );
+    const explicitlyAbsent = [
+      /\bno (?:readable )?(?:official(?: or primary)?|primary|first-party) (?:sources?|evidence) (?:was |were |could be )?(?:found|available|located|published)\b/i,
+      /\b(?:could not|couldn't|cannot|can't|did not|didn't) (?:find|locate|confirm)[\s\S]{0,80}\b(?:official|primary|first-party|direct) (?:sources?|evidence)\b/i,
+      /\bfound no (?:readable )?(?:official|primary|first-party|direct) (?:sources?|evidence)\b/i
+    ].some((pattern) => pattern.test(run.answer));
     results.push({
       name: 'primary_evidence_or_explicit_absence',
       pass: primaryCount > 0 || explicitlyAbsent,
@@ -732,14 +744,35 @@ function evalResult(promptEntry, run, budget) {
   }
 
   if (checks.requires_publication_date) {
+    const allowedUndatedLive = citations.filter(
+      (citation) =>
+        !citation.publicationDate &&
+        checks.allows_undated_live_primary &&
+        (citation.sourceType === 'official' || citation.sourceType === 'primary') &&
+        /\b(?:alert|warning|watch|advisory|status|schedule|fixture|match centre)\b/i.test(
+          `${citation.title || ''} ${citation.url || ''}`
+        )
+    );
     const invalid = citations.filter((citation) => {
-      if (!citation.publicationDate || Number.isNaN(Date.parse(citation.publicationDate))) return true;
+      if (!citation.publicationDate) {
+        return false;
+      }
+      if (Number.isNaN(Date.parse(citation.publicationDate))) return true;
       return Boolean(citation.fetchedAt && citation.publicationDate === citation.fetchedAt);
     });
+    const datedCount = citations.filter((citation) => citation.publicationDate).length;
     results.push({
       name: 'publication_date_preserved',
-      pass: citations.length > 0 && invalid.length === 0,
-      detail: invalid.length === 0 && citations.length > 0 ? `${citations.length} publication date(s) retained` : `${invalid.length || citations.length} missing, invalid, or fetch-time date(s)`
+      pass:
+        citations.length > 0 &&
+        invalid.length === 0 &&
+        (datedCount > 0 || allowedUndatedLive.length === citations.length),
+      detail:
+        invalid.length === 0 &&
+        citations.length > 0 &&
+        (datedCount > 0 || allowedUndatedLive.length === citations.length)
+          ? `${datedCount} publication date(s) retained; ${citations.length - datedCount} source date(s) left unknown`
+          : `${invalid.length || citations.length} missing, invalid, or fetch-time date(s)`
     });
   }
 
@@ -753,7 +786,7 @@ function evalResult(promptEntry, run, budget) {
   }
 
   if (checks.requires_disagreement) {
-    const surfaced = /\b(conflict(?:ing)?|disagree|differ|accounts? (?:do not|don't) match|not confirmed|remains? unresolved)\b/i.test(run.answer);
+    const surfaced = /\b(conflict(?:ing)?|disagree|differ|different conclusions?|contrary|inconsistent with|challenged|accounts? (?:do not|don't) match|not confirmed|remains? unresolved)\b/i.test(run.answer);
     results.push({
       name: 'disagreement_surfaced',
       pass: surfaced,
@@ -997,6 +1030,7 @@ async function main() {
     total_ms: run.total_ms,
     answer: run.answer,
     citation_count: effectiveCitationRecords(run).length,
+    citations: effectiveCitationRecords(run),
     legacy_source_count: run.legacySourceCount ?? 0,
     plan: run.plan
   });

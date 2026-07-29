@@ -19,7 +19,6 @@ import {
 const MAX_CONTEXT_BYTES = 24 * 1024;
 const MAX_TOPIC_CHARS = 480;
 const MAX_ANSWER_CHARS = 6200;
-const MAX_CITATIONS = 12;
 const MAX_CITATION_EXCERPT_CHARS = 520;
 const MAX_CLAIM_STATES = 8;
 const MAX_UNRESOLVED = 6;
@@ -241,7 +240,7 @@ function findSourceAnswer(
 			metadataCitations.length ? metadataCitations : provenanceByMessage.get(message.id) ?? []
 		);
 		if (!citations.length && !sourceMessageId) continue;
-		const boundedCitations = citations.slice(0, MAX_CITATIONS).map((citation) => ({
+		const boundedCitations = citations.map((citation) => ({
 			...citation,
 			title: compact(citation.title, 180),
 			url: compact(citation.url, 1200),
@@ -303,7 +302,12 @@ function topicPromptFor(
 			const message = messages[index];
 			if (message?.role !== 'user') continue;
 			const value = contentText(parseContent(message.content)).trim();
-			if (value && !looksLikeAmbiguousFollowup(value) && topicSpecificity(value) >= 2) {
+			if (
+				value &&
+				!looksLikeAmbiguousFollowup(value) &&
+				!isTopicDerivationFollowup(value) &&
+				topicSpecificity(value) >= 2
+			) {
 				return compact(topicWithCurrentQualifier(value, currentRequest), MAX_TOPIC_CHARS);
 			}
 		}
@@ -314,7 +318,13 @@ function topicPromptFor(
 		const message = messages[index];
 		if (message?.role !== 'user') continue;
 		const value = contentText(parseContent(message.content)).trim();
-		if (!value || looksLikeAmbiguousFollowup(value)) continue;
+		if (
+			!value ||
+			looksLikeAmbiguousFollowup(value) ||
+			isTopicDerivationFollowup(value)
+		) {
+			continue;
+		}
 		fallback ||= value;
 		if (topicSpecificity(value) >= 2) return compact(topicWithCurrentQualifier(value, currentRequest), MAX_TOPIC_CHARS);
 	}
@@ -429,7 +439,9 @@ function conversationIntent(value: string, outputAction: boolean): ConversationI
 		return 'transform';
 	}
 	if (/\b(correct|correction|retract|wrong|incorrect|not active|no longer active)\b/i.test(value)) return 'correct';
-	if (/\b(verify|fact[- ]?check|confirm|is (?:this|that|it) true|challenge)\b/i.test(value)) return 'verify';
+	if (/\b(verify|fact[- ]?check|confirm|is (?:this|that|it) true|challenge|skeptical|prove)\b/i.test(value)) {
+		return 'verify';
+	}
 	return 'research';
 }
 
@@ -438,6 +450,14 @@ function referencesPriorConversation(value: string, intent: ConversationIntent):
 	const normalized = value.replace(/\s+/g, ' ').trim();
 	if (looksLikeExplicitNewTopicRequest(normalized)) return false;
 	if (looksLikeAmbiguousFollowup(value)) return true;
+	if (
+		/\b(?:cited|provided|existing|earlier|prior)\s+(?:evidence|sources?|citations?)\b/i.test(normalized) ||
+		/\b(?:inherited evidence|last answer|sources? from (?:your|the) last answer)\b/i.test(normalized) ||
+		/\bcitation\s*\[\d+\]/i.test(normalized) ||
+		/\b(?:already\s+)?in (?:this|the) thread\b/i.test(normalized)
+	) {
+		return true;
+	}
 	if (normalized.length > 240) return false;
 	return (
 		/\b(?:previous|earlier|above|same|cited page|official page|source page|the answer|the claim|the alert|the status)\b/i.test(
@@ -448,6 +468,20 @@ function referencesPriorConversation(value: string, intent: ConversationIntent):
 		) ||
 		/\b(?:the|those|that|this)\s+(?:sources?|citations?|links?)\b/i.test(normalized) ||
 		/^is there (?:an?|any) (?:update|change)\b/i.test(normalized)
+	);
+}
+
+function isTopicDerivationFollowup(value: string): boolean {
+	if (looksLikeAmbiguousFollowup(value)) return true;
+	const normalized = value.replace(/\s+/g, ' ').trim();
+	return (
+		/\b(?:previous|earlier|above|same)\s+(?:answer|story|claim|status|source|citation|evidence)\b/i.test(
+			normalized
+		) ||
+		/\b(?:cited|provided|existing|earlier|prior)\s+(?:evidence|sources?|citations?)\b/i.test(normalized) ||
+		/\b(?:inherited evidence|last answer|sources? from (?:your|the) last answer)\b/i.test(normalized) ||
+		/\bcitation\s*\[\d+\]/i.test(normalized) ||
+		/\b(?:already\s+)?in (?:this|the) thread\b/i.test(normalized)
 	);
 }
 
@@ -562,19 +596,13 @@ function fitContextToBudget(context: ConversationContext): ConversationContext {
 			? {
 					...context.lastSourceBackedAnswer,
 					content: boundedText(context.lastSourceBackedAnswer.content, 3600),
-					citations: context.lastSourceBackedAnswer.citations.slice(0, 8).map((citation) => ({
+					citations: context.lastSourceBackedAnswer.citations.map((citation) => ({
 						...citation,
-						supportingExcerpt: compact(citation.supportingExcerpt, 300)
+						supportingExcerpt: compact(citation.supportingExcerpt, 180)
 					}))
 				}
 			: undefined
 	};
-	while (
-		byteLength(reduced) > MAX_CONTEXT_BYTES &&
-		(reduced.lastSourceBackedAnswer?.citations.length ?? 0) > 1
-	) {
-		reduced.lastSourceBackedAnswer?.citations.pop();
-	}
 	while (byteLength(reduced) > MAX_CONTEXT_BYTES && (reduced.claimStates?.length ?? 0) > 1) {
 		reduced.claimStates?.shift();
 	}
@@ -586,6 +614,21 @@ function fitContextToBudget(context: ConversationContext): ConversationContext {
 			reduced.lastSourceBackedAnswer.content,
 			1600
 		);
+	}
+	if (byteLength(reduced) > MAX_CONTEXT_BYTES && reduced.lastSourceBackedAnswer) {
+		reduced.lastSourceBackedAnswer.citations = reduced.lastSourceBackedAnswer.citations.map(
+			(citation) => ({
+				...citation,
+				title: compact(citation.title, 140),
+				supportingExcerpt: compact(citation.supportingExcerpt, 80)
+			})
+		);
+	}
+	while (
+		byteLength(reduced) > MAX_CONTEXT_BYTES &&
+		(reduced.lastSourceBackedAnswer?.citations.length ?? 0) > 1
+	) {
+		reduced.lastSourceBackedAnswer?.citations.pop();
 	}
 	return reduced;
 }

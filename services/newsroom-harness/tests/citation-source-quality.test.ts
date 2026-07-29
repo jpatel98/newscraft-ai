@@ -9,6 +9,7 @@ import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest } from '../src/agents/router.
 import type { ToolRunContext } from '../src/agents/tools.js';
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 });
@@ -63,10 +64,81 @@ describe('citation and source-quality web research', () => {
 			)
 		);
 
-		const result = await runWebSearch('Compare two claims in current reporting');
+		const result = await runWebSearch('Compare two claims in reporting');
 
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
 		expect(result.evidence?.map((source) => source.source_url)).toEqual([repeatedUrl, repeatedUrl]);
+	});
+
+	it('keeps dated evidence from the full requested seven-day window', async () => {
+		const sixDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
+		const url = 'https://www.canada.ca/en/news/policy-announcement.html';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					choices: [{ message: { content: 'The government announced the policy this week [1].' } }],
+					citations: [url],
+					search_results: [
+						{
+							url,
+							title: 'Policy announcement',
+							snippet: 'The government announced a new public policy.',
+							date: sixDaysAgo
+						}
+					]
+				})
+			)
+		);
+
+		const result = await runWebSearch(
+			'Build a policy roundup from the seven calendar days ending today.'
+		);
+
+		expect(result.evidence).toHaveLength(1);
+		expect(result.evidence?.[0].published_at).toBe(sixDaysAgo);
+	});
+
+	it('aborts provider work at the shared web-search deadline', async () => {
+		const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+			return new Promise<Response>((_resolve, reject) => {
+				init?.signal?.addEventListener(
+					'abort',
+					() => reject(init.signal?.reason || new DOMException('Aborted', 'AbortError')),
+					{ once: true }
+				);
+			});
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const pending = runWebSearch('Verify this claim against official sources.', {
+			signal: AbortSignal.timeout(20)
+		});
+
+		await expect(pending).rejects.toMatchObject({ name: 'TimeoutError' });
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('excludes encyclopedia results unless the user explicitly requests them', async () => {
+		const officialUrl = 'https://www.who.int/news/item/17-10-2023-hospital-statement';
+		const wikipediaUrl = 'https://en.wikipedia.org/wiki/Hospital_explosion';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					choices: [{ message: { content: 'WHO documented the blast [1]. Wikipedia summarizes competing claims [2].' } }],
+					citations: [officialUrl, wikipediaUrl],
+					search_results: [
+						{ url: officialUrl, title: 'WHO statement', snippet: 'WHO documented the hospital blast.', date: '2023-10-17' },
+						{ url: wikipediaUrl, title: 'Hospital explosion', snippet: 'Wikipedia summary.', date: '2023-10-18' }
+					]
+				})
+			)
+		);
+
+		const result = await runWebSearch('Compare reputable reports about the hospital blast.');
+
+		expect(result.evidence?.map((item) => item.source_url)).toEqual([officialUrl]);
 	});
 
 	it('turns OpenAI URL annotations into ordered markers and excludes action-only sources', async () => {
@@ -211,8 +283,250 @@ describe('citation and source-quality web research', () => {
 		expect(result.answer).toContain('Tracking duplicate claim [1]');
 		expect(result.answer).toContain('Repeated annotation claim [2]');
 		expect(result.answer).toContain('Repeated annotation follow-up [2]');
+		expect(result.answer).not.toContain('utm_source=');
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
 		expect(result.evidence?.map((source) => source.source_url)).toEqual([canonical, repeated]);
+	});
+
+	it('drops empty provider query values from visible answers and evidence', async () => {
+		const canonical = 'https://weather.gc.ca/warnings/report_e.html';
+		const malformed = 'https://weather.gc.ca/warnings/report_e.html?on61=undefined';
+		const segment = 'No alerts are in effect';
+		const text = `${segment}. ${malformed}`;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					output_text: text,
+					output: [
+						{
+							type: 'message',
+							content: [
+								{
+									type: 'output_text',
+									text,
+									annotations: annotationFixtures(text, [segment], [malformed])
+								}
+							]
+						}
+					],
+					search_results: [
+						{ url: malformed, title: 'Toronto alerts', snippet: 'No alerts are in effect.' }
+					]
+				})
+			)
+		);
+
+		const result = await runWebSearch('Check Toronto alerts now', { provider: 'openai' });
+
+		expect(result.answer).toContain(canonical);
+		expect(result.answer).not.toContain('undefined');
+		expect(result.evidence?.[0]?.source_url).toBe(canonical);
+	});
+
+	it('preserves meaningful bare query parameters in exact source links', async () => {
+		const direct = 'https://weather.gc.ca/warnings/report_e.html?on61';
+		const segment = 'Toronto has no alerts in effect';
+		const text = `${segment}.`;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					output_text: text,
+					output: [
+						{
+							type: 'message',
+							content: [
+								{
+									type: 'output_text',
+									text,
+									annotations: annotationFixtures(text, [segment], [direct])
+								}
+							]
+						}
+					],
+					search_results: [{ url: direct, title: 'Toronto alerts', snippet: segment }]
+				})
+			)
+		);
+
+		const result = await runWebSearch('Check Toronto alerts now', { provider: 'openai' });
+
+		expect(result.evidence?.[0]?.source_url).toBe(direct);
+	});
+
+	it('uses annotation order when mixed provider citation arrays disagree', async () => {
+		const sourceA = 'https://example.com/source-a';
+		const sourceB = 'https://example.com/source-b';
+		const segments = ['Source A supports the first claim', 'Source B supports the second claim'];
+		const sourceExcerpts = ['Primary source excerpt A', 'Primary source excerpt B'];
+		const text = `${segments[0]}. ${segments[1]}.`;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					citations: [sourceB, sourceA],
+					search_results: [
+						{ url: sourceA, title: 'Source A', snippet: sourceExcerpts[0], date: '2026-07-27' },
+						{ url: sourceB, title: 'Source B', snippet: sourceExcerpts[1], date: '2026-07-27' }
+					],
+					output_text: text,
+					output: [
+						{
+							type: 'message',
+							content: [
+								{
+									type: 'output_text',
+									text,
+									annotations: annotationFixtures(text, segments, [sourceA, sourceB])
+								}
+							]
+						}
+					]
+				})
+			)
+		);
+
+		const result = await runWebSearch('Compare two annotated claims', { provider: 'openai' });
+
+		expect(result.answer).toContain(`${segments[0]} [1]`);
+		expect(result.answer).toContain(`${segments[1]} [2]`);
+		expect(result.evidence?.map((source) => source.source_url)).toEqual([sourceA, sourceB]);
+		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
+		expect(result.evidence?.map((source) => source.extracted_text)).toEqual(sourceExcerpts);
+	});
+
+	it('removes provider citation markers when no source record can resolve them', () => {
+		const prompt = 'Summarize the reported policy update.';
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence: [],
+			limitations: ['No usable source links were returned.'],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			toolAnswers: ['The policy changed today [1].'],
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('The policy changed today.');
+		expect(answer).not.toContain('[1]');
+	});
+
+	it('numbers mixed explicit and unnumbered evidence without leaving uncited claims', () => {
+		const prompt = 'Summarize the confirmed update.';
+		const evidence = [
+			normalizeEvidence({
+				source_name: 'Official source',
+				source_url: 'https://example.gov/first',
+				tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+				title: 'First update',
+				extracted_text: 'The first official update is confirmed.',
+				summary: 'The first official update is confirmed.',
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'official',
+				citation_number: 1
+			}),
+			normalizeEvidence({
+				source_name: 'Second source',
+				source_url: 'https://example.com/second',
+				tool_used: NEWSROOM_TOOL_NAMES.urlFetchRead,
+				title: 'Second update',
+				extracted_text: 'The second direct update is confirmed.',
+				summary: 'The second direct update is confirmed.',
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'news_report'
+			})
+		];
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence,
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('[1]');
+		expect(answer).toContain('[2]');
+	});
+
+	it('surfaces conflicting current-status evidence instead of choosing one source', () => {
+		const prompt = 'What is the current Toronto weather alert status?';
+		const evidence = [
+			normalizeEvidence({
+				source_name: 'Official alerts',
+				source_url: 'https://weather.gc.ca/toronto/alerts',
+				tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+				title: 'Toronto alerts',
+				extracted_text: 'Toronto has no weather alerts in effect.',
+				summary: 'Toronto has no weather alerts in effect.',
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'official',
+				citation_number: 1
+			}),
+			normalizeEvidence({
+				source_name: 'Official warning',
+				source_url: 'https://weather.gc.ca/toronto/warning',
+				tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+				title: 'Toronto warning',
+				extracted_text: 'A weather warning is active for Toronto.',
+				summary: 'A weather warning is active for Toronto.',
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'official',
+				citation_number: 2
+			})
+		];
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence,
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat',
+			conversationContext: {
+				version: 1,
+				intent: 'research',
+				activeTopic: { subject: 'Toronto weather alert status', location: 'Toronto' }
+			}
+		});
+
+		expect(answer).toContain('Current status unresolved');
+		expect(answer).toContain('conflict');
+		expect(answer).toContain('[1]');
+		expect(answer).toContain('[2]');
+	});
+
+	it('labels an explicitly requested missing publication date as unknown', () => {
+		const prompt = 'What does the latest official notice say, and when was it published?';
+		const evidence = [
+			normalizeEvidence({
+				source_name: 'Official notice',
+				source_url: 'https://example.gov/notices/status',
+				tool_used: NEWSROOM_TOOL_NAMES.urlFetchRead,
+				title: 'Official status notice',
+				extracted_text: 'The east entrance remains closed until further notice.',
+				summary: 'The east entrance remains closed until further notice.',
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'official',
+				citation_number: 1,
+				published_at: null
+			})
+		];
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence,
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('Publication date: Date unknown.');
 	});
 
 	it('retains raw URLs when the user asks for direct links', () => {
@@ -224,8 +538,130 @@ describe('citation and source-quality web research', () => {
 		expect(cleanVisibleChatOutput(answer, 'Summarize the story.')).not.toContain('https://example.com/story');
 	});
 
+	it('preserves an explicit publication date encoded in a direct article URL', async () => {
+		const url = 'https://www.bankofcanada.ca/2024/01/fad-press-release-2024-01-24/';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				new Response(
+					`<html><head><title>Policy decision</title></head><body><article><h1>Policy decision</h1><p>${'The Bank held its target for the overnight rate and continued quantitative tightening. '.repeat(6)}</p></article></body></html>`,
+					{ status: 200, headers: { 'content-type': 'text/html' } }
+				)
+			)
+		);
+		const tool = createDefaultToolRegistry().require(NEWSROOM_TOOL_NAMES.urlFetchRead);
+
+		const result = await tool.run({ url }, toolContext(`Summarize ${url}`));
+
+		expect(result.evidence?.[0]).toMatchObject({
+			source_url: url,
+			published_at: '2024-01-24'
+		});
+	});
+
+	it('removes unsolicited trailing next-step offers', () => {
+		const answer = [
+			'No active warning was confirmed from the official alert page.',
+			'',
+			'If you want, I can also check the seven-day forecast.',
+			'',
+			'- If you need to verify within the hour, I can re-check the official alert page.'
+		].join('\n');
+
+		expect(cleanVisibleChatOutput(answer, 'Is a warning active?')).toBe(
+			'No active warning was confirmed from the official alert page.'
+		);
+	});
+
+	it('removes multi-paragraph next-step menus without dropping attached-document evidence', () => {
+		const answer = [
+			'No public TTC announcement confirms the memo claim [1].',
+			'',
+			'If you want one clear next step (pick one)',
+			'- I can search board minutes or check whether the memo was later posted.',
+			'',
+			'If you prefer immediate verification: tell me whether to search again or contact media relations.',
+			'',
+			'**Attached document evidence**',
+			'',
+			'- The memo states that weekend service will end at 11 p.m. [2].'
+		].join('\n');
+
+		const cleaned = cleanVisibleChatOutput(answer, 'Corroborate this memo externally.');
+
+		expect(cleaned).toContain('No public TTC announcement confirms the memo claim [1].');
+		expect(cleaned).toContain('Attached document evidence');
+		expect(cleaned).toContain('weekend service will end at 11 p.m. [2]');
+		expect(cleaned).not.toContain('next step');
+		expect(cleaned).not.toContain('contact media relations');
+	});
+
+	it('does not state an absolute schedule absence when only a live listing was checked', () => {
+		const cleaned = cleanVisibleChatOutput(
+			[
+				'There are no FIFA-run matches scheduled for Tuesday. The official Match Centre shows no fixtures [1].',
+				'',
+				'- If you meant non-FIFA competitions, say which league and I’ll pull today’s schedule.'
+			].join('\n'),
+			'What FIFA games are being played today?'
+		);
+
+		expect(cleaned).toContain('I found no FIFA-run matches listed as scheduled for Tuesday.');
+		expect(cleaned).toContain('The official Match Centre did not show any fixtures [1].');
+		expect(cleaned).not.toContain('There are no');
+		expect(cleaned).not.toContain('I’ll pull');
+	});
+
+	it('keeps long newsroom roundups complete instead of ending with a generated ellipsis', () => {
+		const paragraphs = Array.from(
+			{ length: 30 },
+			(_, index) =>
+				`${index + 1}) Department announcement ${index + 1} includes a complete sourced policy summary with operational, funding, implementation, regional, and accountability detail [${index + 1}].`
+		);
+		const cleaned = cleanVisibleChatOutput(
+			paragraphs.join('\n\n'),
+			'Build a sourced roundup with one citation per item.'
+		);
+
+		expect(cleaned.length).toBeGreaterThan(4000);
+		expect(cleaned).toContain('30) Department announcement 30');
+		expect(cleaned.endsWith('…')).toBe(false);
+		expect(cleaned).toMatch(/\[30\]\.$/);
+	});
+
+	it('drops an unfinished provider paragraph without damaging the last complete cited claim', () => {
+		const cleaned = cleanVisibleChatOutput(
+			[
+				'Human Rights Watch reached one conclusion [1].',
+				'',
+				'Al Jazeera reported a conflicting analysis [2].',
+				'',
+				'Points of disagreement',
+				'- Direction and origin differed because the available crater evidence was interpreted as'
+			].join('\n'),
+			'Compare the reports.'
+		);
+
+		expect(cleaned).toBe(
+			'Human Rights Watch reached one conclusion [1].\n\nAl Jazeera reported a conflicting analysis [2].'
+		);
+	});
+
+	it('repairs a model-compressed separator between confirmed facts', () => {
+		expect(
+			cleanVisibleChatOutput(
+				'Confirmed facts: The warning was issued July 17.: A temperature was observed July 28.',
+				'Assess the inherited evidence.'
+			)
+		).toBe('Confirmed facts: The warning was issued July 17.\n- A temperature was observed July 28.');
+	});
+
 	it('classifies web sources independently with the journalist source contract', () => {
 		expect(classifyEvidenceSource('City of Toronto', 'https://www.toronto.ca/news/mayor-statement')).toBe('official');
+		expect(classifyEvidenceSource('TTC service advisory', 'https://www.ttc.ca/service-advisories')).toBe('official');
+		expect(classifyEvidenceSource('RCMP review', 'https://rcmp.ca/en/publications/review')).toBe('official');
+		expect(classifyEvidenceSource('Human Rights Watch', 'https://www.hrw.org/news/investigation')).toBe('primary');
+		expect(classifyEvidenceSource('Al Jazeera', 'https://www.aljazeera.com/news/story')).toBe('news_report');
 		expect(classifyEvidenceSource('FIFA match schedule', 'https://www.fifa.com/tournaments/schedule')).toBe('primary');
 		expect(classifyEvidenceSource('Reuters', 'https://www.reuters.com/world/example')).toBe('news_report');
 		expect(classifyEvidenceSource('ESPN schedule', 'https://www.espn.com/soccer/schedule')).toBe('news_report');
@@ -420,6 +856,7 @@ async function runWebSearch(
 	options: {
 		provider?: 'perplexity' | 'openai';
 		newsroomContext?: ToolRunContext['newsroomContext'];
+		signal?: AbortSignal;
 	} = {}
 ) {
 	const provider = options.provider || 'perplexity';
@@ -428,7 +865,8 @@ async function runWebSearch(
 		{ query },
 		toolContext(query, {
 			provider,
-			newsroomContext: options.newsroomContext
+			newsroomContext: options.newsroomContext,
+			signal: options.signal
 		})
 	);
 }
@@ -439,6 +877,7 @@ function toolContext(
 		provider?: 'perplexity' | 'openai';
 		newsroomContext?: ToolRunContext['newsroomContext'];
 		documents?: ToolRunContext['documents'];
+		signal?: AbortSignal;
 	} = {}
 ): ToolRunContext {
 	const provider = options.provider || 'perplexity';
@@ -467,7 +906,8 @@ function toolContext(
 		openAiApiKey: provider === 'openai' ? 'fake-key' : '',
 		trigger: 'test',
 		newsroomContext: options.newsroomContext,
-		documents: options.documents
+		documents: options.documents,
+		signal: options.signal
 	};
 }
 
