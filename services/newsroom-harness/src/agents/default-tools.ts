@@ -1320,6 +1320,19 @@ function hasSubstantiveCurrentAnswer(query: string, answer: string): boolean {
 	if (!isCurrentEventQuery(query)) return true;
 	const text = answer.replace(/\s+/g, ' ').trim();
 	if (!text) return false;
+	if (isCurrentEarthquakeQuery(query)) {
+		const hasMagnitude = /\b(?:magnitude|M)\s*\d+(?:\.\d+)?\b/i.test(text);
+		const hasEventTime =
+			/\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?|[A-Z]{2,5})?\b/i.test(text) ||
+			/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}\b/i.test(
+				text
+			);
+		const promisesFutureWork =
+			/\b(?:I can|I could|I(?:'|’)ll|let me)\b[\s\S]{0,120}\b(?:pull|fetch|find|check|look up|list)\b/i.test(
+				text
+			);
+		if (!hasMagnitude || !hasEventTime || promisesFutureWork) return false;
+	}
 	const directsUserToSource =
 		/\b(?:check|consult|monitor|visit|see)\b[\s\S]{0,100}\b(?:pages?|sites?|sources?|updates?|bulletins?|record)\b/i.test(
 			text

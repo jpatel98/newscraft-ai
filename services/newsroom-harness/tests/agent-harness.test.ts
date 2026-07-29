@@ -1176,16 +1176,16 @@ describe('disciplined newsroom agent harness', () => {
 						{
 							message: {
 								content:
-									'Japan’s meteorological agency published an updated earthquake bulletin today [1].'
+									'Ontario reported 12 active wildfires in its 15:30 EDT update today [1].'
 							}
 						}
 					],
-					citations: ['https://www.data.jma.go.jp/multi/quake/?lang=en'],
+					citations: ['https://www.ontario.ca/page/forest-fires'],
 					search_results: [
 						{
-							url: 'https://www.data.jma.go.jp/multi/quake/?lang=en',
-							title: 'Japan Meteorological Agency earthquake information',
-							snippet: 'Updated earthquake bulletin for Japan.',
+							url: 'https://www.ontario.ca/page/forest-fires',
+							title: 'Forest fire updates',
+							snippet: 'Ontario reported 12 active wildfires.',
 							date: '2026-07-29T15:30:00.000Z'
 						}
 					]
@@ -1216,7 +1216,7 @@ describe('disciplined newsroom agent harness', () => {
 			perplexityApiKey: 'perplexity-key'
 		});
 
-		const result = await agent.run("what's the latest on earthquakes in Japan", {
+		const result = await agent.run("what's the latest on wildfires in Ontario", {
 			modelProvider: 'openai',
 			modelApiKey: 'openai-key',
 			openAiApiKey: 'openai-key',
@@ -1235,7 +1235,7 @@ describe('disciplined newsroom agent harness', () => {
 		expect(result.tool_calls).toEqual([
 			expect.objectContaining({ name: 'openai_web_search', status: 'ok', evidence_count: 1 })
 		]);
-		expect(result.final_answer).toContain('earthquake bulletin');
+		expect(result.final_answer).toContain('12 active wildfires');
 		expect(result.final_answer).not.toContain("couldn't verify");
 		expect(result.evidence).toHaveLength(1);
 		const completed = toolEvents.find((event) => event.type === 'tool_completed');
@@ -1322,7 +1322,7 @@ describe('disciplined newsroom agent harness', () => {
 							{
 								message: {
 									content:
-										'The JMA page is the official record. Consult it for the newest bulletins [1].'
+										'Official monitoring pages list the event and continue to show aftershocks and intensity data [1]. International catalogs may show values such as M6.8 or JMA 7.1. I can pull the exact event timestamps and list the latest aftershocks.'
 								}
 							}
 						],
@@ -1435,6 +1435,7 @@ describe('disciplined newsroom agent harness', () => {
 		expect(result.final_answer).not.toContain('California');
 		expect(result.final_answer).not.toContain('Check the page');
 		expect(result.final_answer).not.toContain('Consult it');
+		expect(result.final_answer).not.toContain('I can pull');
 		expect(result.final_answer).not.toContain('Japan Times');
 		expect(result.evidence).toHaveLength(2);
 		expect(result.evidence).toEqual(
