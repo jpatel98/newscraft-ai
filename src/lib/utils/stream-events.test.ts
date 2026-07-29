@@ -114,6 +114,67 @@ describe('StreamEventState', () => {
 		]);
 	});
 
+	it('preserves sanitized research fallback diagnostics for durable provenance', () => {
+		const state = new StreamEventState();
+		state.apply(
+			'agent.tool.progress',
+			JSON.stringify({
+				id: 'search-1',
+				name: 'openai_web_search',
+				status: 'running'
+			}),
+			1000
+		);
+		state.apply(
+			'agent.tool.progress',
+			JSON.stringify({
+				id: 'search-1',
+				name: 'openai_web_search',
+				status: 'ok',
+				result: {
+					count: 1,
+					research: {
+						attempts: [
+							{
+								role: 'primary',
+								provider: 'openai',
+								status: 'failed',
+								latencyMs: 22000,
+								sourceCount: 0,
+								upstreamStatus: 503,
+								failureCategory: 'http_5xx'
+							},
+							{
+								role: 'fallback',
+								provider: 'perplexity',
+								status: 'ok',
+								latencyMs: 5000,
+								sourceCount: 1
+							}
+						],
+						fallbackUsed: true,
+						fallbackSucceeded: true,
+						finalOutcome: 'sourced'
+					}
+				}
+			}),
+			28000
+		);
+
+		expect(state.toolCalls()[0]?.result).toMatchObject({
+			count: 1,
+			research: {
+				fallbackUsed: true,
+				fallbackSucceeded: true,
+				finalOutcome: 'sourced',
+				attempts: [
+					{ provider: 'openai', failureCategory: 'http_5xx' },
+					{ provider: 'perplexity', status: 'ok', sourceCount: 1 }
+				]
+			}
+		});
+	});
+
 	it('does not mark search-result-only sources as used', () => {
 		const state = new StreamEventState();
 

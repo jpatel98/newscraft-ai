@@ -119,7 +119,11 @@ user-facing UI.
   actionable messages (`util/openai-complete.ts`). `validateHarnessConfig`
   (`config.ts`) surfaces errors/warnings in `/health` — missing keys warn,
   provider/model mismatches are errors and flip health `ok:false`. Provider is
-  inferred from available keys when `NEWSROOM_MODEL_PROVIDER` is unset.
+  inferred from available keys when `NEWSROOM_MODEL_PROVIDER` is unset. OpenAI
+  is primary; a failed or source-empty current-news search retries once for
+  transport failures and then falls back to Perplexity Sonar inside the same
+  visible research step when both keys are configured. Sanitized attempt
+  outcomes persist with answer provenance; raw provider errors do not.
 - **Health capabilities (shipped 2026-07-02).** `GatewayHealthResponse.capabilities`
   reports what each deployment shape actually supports (`chat`, `jobs`,
   `memory`, `savedResearch`, `scheduler`, `persistence:
@@ -159,8 +163,9 @@ user-facing UI.
   exists only because Vercel requires a static output directory. The project
   was **not Git-linked when last verified on 2026-07-09**; its newest
   Git-triggered production deployment is now active; the latest verified
-  deployment includes `ecb47b2`. Production explicitly selects Perplexity with
-  `perplexity/sonar`. **This stateless shape is the intended production
+  deployment includes `ecb47b2`. Production explicitly selects OpenAI; the
+  harness retains Perplexity Sonar as its bounded research fallback when the
+  fallback key is configured. **This stateless shape is the intended production
   topology for the chat-first product** — no jobs, no scheduler, no harness
   persistence in prod. Health reports `persistence: 'stateless'` honestly.
 - The UI talks to the harness over `AGENT_GATEWAY_URL` + bearer key. A remote

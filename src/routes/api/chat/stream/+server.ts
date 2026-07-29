@@ -70,6 +70,7 @@ import {
 	answerForLatestUser,
 	isLatestUnfinishedAssistant
 } from '$lib/server/reply-operations';
+import { resolveResearchFinishStatus } from '$lib/server/research-outcome';
 
 interface Body {
 	conversation_id?: string;
@@ -247,6 +248,41 @@ function withTraceDetails(details: Record<string, unknown>, traceId: string): Re
 	return {
 		...details,
 		trace_id: traceId
+	};
+}
+
+function researchDiagnosticsFromTools(tools: StreamToolCall[]): Record<string, unknown> | null {
+	const search = [...tools].reverse().find((tool) => tool.name === 'openai_web_search');
+	if (!search?.result || typeof search.result !== 'object' || Array.isArray(search.result)) return null;
+	const research = (search.result as Record<string, unknown>).research;
+	if (!research || typeof research !== 'object' || Array.isArray(research)) return null;
+	const value = research as Record<string, unknown>;
+	const attempts = Array.isArray(value.attempts)
+		? value.attempts.slice(0, 4).flatMap((attempt) => {
+				if (!attempt || typeof attempt !== 'object' || Array.isArray(attempt)) return [];
+				const item = attempt as Record<string, unknown>;
+				return [
+					{
+						role: typeof item.role === 'string' ? item.role : 'unknown',
+						provider: typeof item.provider === 'string' ? item.provider : 'unknown',
+						status: typeof item.status === 'string' ? item.status : 'failed',
+						latencyMs: typeof item.latencyMs === 'number' ? item.latencyMs : 0,
+						sourceCount: typeof item.sourceCount === 'number' ? item.sourceCount : 0,
+						...(typeof item.upstreamStatus === 'number'
+							? { upstreamStatus: item.upstreamStatus }
+							: {}),
+						...(typeof item.failureCategory === 'string'
+							? { failureCategory: item.failureCategory }
+							: {})
+					}
+				];
+			})
+		: [];
+	return {
+		attempts,
+		fallbackUsed: value.fallbackUsed === true,
+		fallbackSucceeded: value.fallbackSucceeded === true,
+		finalOutcome: typeof value.finalOutcome === 'string' ? value.finalOutcome : 'unknown'
 	};
 }
 
@@ -996,6 +1032,12 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		const capturedCitations = body.output_action
 			? citationRecordsUsedInAnswer(assistantBuf, captured.citations)
 			: captured.citations;
+		const resolvedFinishStatus = resolveResearchFinishStatus({
+			requested: finishStatus,
+			researchRequired: conversationContext.currentTurn?.researchRequired === true,
+			sourceCount: capturedSources.length,
+			citationCount: capturedCitations.length
+		});
 		if (resumeMessageId) {
 			const existingRow = await getMessageById(resumeMessageId);
 			const merged = mergeToolMetadata(
@@ -1028,7 +1070,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					assistantChars: contentText(parseContent(row.content)).length,
 					answerText: contentText(parseContent(row.content)),
 					done,
-					finishStatus,
+					finishStatus: resolvedFinishStatus,
 					events: streamStats,
 					transport,
 					reasoningEffort,
@@ -1056,7 +1098,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			assistantChars: assistantBuf.length,
 			answerText: assistantBuf,
 			done,
-			finishStatus,
+			finishStatus: resolvedFinishStatus,
 			events: streamStats,
 			transport,
 			reasoningEffort,
@@ -1163,6 +1205,12 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					['official', 'primary', 'user_document'].includes(citation.sourceType)
 				).length,
 				unknownDateCount: citationRecords.filter((citation) => !citation.publicationDate).length,
+				researchOutcome: conversationContext.currentTurn?.researchRequired
+					? resolvedCitationCount > 0
+						? 'sourced'
+						: 'failed'
+					: 'not_required',
+				research: researchDiagnosticsFromTools(streamState.toolCalls()),
 				events: streamStats
 			});
 			if (sentDone || done) controller.enqueue(enc.encode('data: [DONE]\n\n'));

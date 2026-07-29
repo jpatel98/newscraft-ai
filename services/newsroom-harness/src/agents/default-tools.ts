@@ -44,7 +44,6 @@ const NAMED_SOURCE_DOMAINS: Array<{ pattern: RegExp; domain: string }> = [
 	{ pattern: /\b(?:The )?Guardian\b/i, domain: 'theguardian.com' }
 ];
 const WEB_SEARCH_DEADLINE_MS = 30_000;
-const OFFICIAL_RETRY_MIN_REMAINING_MS = 12_000;
 
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
@@ -178,13 +177,19 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			if (context.documents?.length && !requestsExternalCorroboration(input.query)) {
 				return { status: 'ok', evidence: [] };
 			}
-			const provider = context.modelProvider || context.config.model_provider;
-			const providerName = providerLabel(provider);
-			const apiKey = context.modelApiKey || (provider === 'openai' ? context.openAiApiKey : '');
-			if (!apiKey) {
+			const primaryProvider = context.modelProvider || context.config.model_provider;
+			const primaryProviderName = providerLabel(primaryProvider);
+			const primaryApiKey =
+				context.modelApiKey ||
+				(primaryProvider === 'openai' ? context.openAiApiKey : context.perplexityApiKey) ||
+				'';
+			if (!primaryApiKey) {
 				return {
 					status: 'unavailable',
-					limitations: [`${providerName} web_search is not configured because ${providerEnvName(provider)} is missing.`]
+					limitations: [
+						`${primaryProviderName} web_search is not configured because ${providerEnvName(primaryProvider)} is missing.`
+					],
+					diagnostics: failedSearchDiagnostics(primaryProvider, 'not_configured')
 				};
 			}
 			const modelDecision = resolveModelPolicy(context.config.model_policy, 'web_search', { trigger: context.trigger });
@@ -208,19 +213,16 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					limitations: [modelDecision.reason]
 				};
 			}
-			let requestModel: string;
+			let primaryModel: string;
 			try {
-				requestModel = normalizeProviderModel(provider, modelDecision.model);
+				primaryModel = normalizeProviderModel(primaryProvider, modelDecision.model);
 			} catch (err) {
 				return {
 					status: 'unavailable',
-					limitations: [err instanceof Error ? err.message : String(err)]
+					limitations: [err instanceof Error ? err.message : String(err)],
+					diagnostics: failedSearchDiagnostics(primaryProvider, 'model_configuration')
 				};
 			}
-			const endpoint = providerTextEndpoint(provider);
-			const searchDeadlineAt = Date.now() + WEB_SEARCH_DEADLINE_MS;
-			const searchSignal = boundedSignal(context.signal, WEB_SEARCH_DEADLINE_MS);
-			const boundedContext: ToolRunContext = { ...context, signal: searchSignal };
 			context.repository?.appendEvent({
 				jobId: context.jobId,
 				runId: context.runId,
@@ -235,160 +237,168 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					tool: NEWSROOM_TOOL_NAMES.webSearch
 				},
 				costMetadata: {
-					provider,
-					model: requestModel,
-					endpoint,
+					provider: primaryProvider,
+					model: primaryModel,
+					endpoint: providerTextEndpoint(primaryProvider),
 					tool: NEWSROOM_TOOL_NAMES.webSearch,
 					estimated: false
 				}
 			});
-			const highRiskVerification = provider === 'perplexity' && needsOfficialSourceRetry(input.query);
-			// Source records arrive after provider text. Buffer the provider answer
-			// until its citation markers can be reconciled against usable evidence.
-			const streamDeltas = false;
-			const recordAttempt = (
-				attempt: ProviderSearchAttempt,
-				kind: 'initial' | 'official_source'
+			const attempts: NonNullable<ToolRunOutput['diagnostics']>['attempts'] = [];
+			const recordOutcome = (
+				outcome: InterpretedProviderSearch,
+				role: 'primary' | 'retry' | 'fallback' | 'official_source'
 			) => {
+				const publicRole = role === 'official_source' ? 'fallback' : role;
+				attempts.push({
+					role: publicRole,
+					provider: outcome.provider,
+					status: outcome.usable ? 'ok' : 'failed',
+					latencyMs: outcome.latencyMs,
+					sourceCount: outcome.evidence.length,
+					...(outcome.upstreamStatus ? { upstreamStatus: outcome.upstreamStatus } : {}),
+					...(outcome.failureCategory ? { failureCategory: outcome.failureCategory } : {})
+				});
 				context.repository?.appendEvent({
 					jobId: context.jobId,
 					runId: context.runId,
 					agent: NEWSROOM_TOOL_NAMES.webSearch,
-					kind: attempt.response.ok && !attempt.streamFailure ? 'model.call.completed' : 'model.call.failed',
+					kind: outcome.usable ? 'model.call.completed' : 'model.call.failed',
 					payload: {
 						task: modelDecision.task,
 						tier: modelDecision.tier,
-						model: requestModel,
-						status: attempt.response.status,
+						model: outcome.model,
+						status: outcome.upstreamStatus ?? 0,
 						tool: NEWSROOM_TOOL_NAMES.webSearch,
-						attempt: kind
+						attempt: role,
+						failure_category: outcome.failureCategory
 					},
 					costMetadata: {
-						provider,
-						model: requestModel,
-						endpoint,
+						provider: outcome.provider,
+						model: outcome.model,
+						endpoint: providerTextEndpoint(outcome.provider),
 						tool: NEWSROOM_TOOL_NAMES.webSearch,
-						latency_ms: attempt.latencyMs,
-						usage: providerUsageMetadata(attempt.raw),
+						latency_ms: outcome.latencyMs,
+						usage: providerUsageMetadata(outcome.raw),
 						estimated: false
 					}
 				});
 			};
-			const attempt = await performProviderWebSearch({
-				provider,
-				apiKey,
-				model: requestModel,
+
+			let selected = await interpretProviderWebSearch({
+				provider: primaryProvider,
+				apiKey: primaryApiKey,
+				model: primaryModel,
 				query: input.query,
-				stream: streamDeltas,
 				newsroomContext: context.newsroomContext,
-				signal: searchSignal,
-				onAnswerDelta: streamDeltas ? context.onAnswerDelta : undefined
+				context
 			});
-			recordAttempt(attempt, 'initial');
-			if (!attempt.response.ok) {
-				return {
-					status: 'error',
-					limitations: [publicProviderFailure(providerName, attempt.response.status)],
-					raw: attempt.raw
-				};
-			}
-			let raw = attempt.raw;
-			let streamFailure = attempt.streamFailure;
-			let providerOutputText = extractProviderResponseText(provider, raw);
-			let outputText = canonicalizeTrackingUrlsInText(
-				withProviderCitationMarkers(raw, providerOutputText)
-			);
-			if (streamFailure && !outputText.trim()) {
-				return {
-					status: 'error',
-					limitations: ['Live research ended before it could return an answer.'],
-					raw
-				};
-			}
-			let evidence = normalizeToolEvidence(
-				{ evidence: extractProviderWebSources(raw, providerOutputText) },
-				NEWSROOM_TOOL_NAMES.webSearch,
-				{
-					source_name: `${providerName} web_search`,
-					accessed_at: new Date().toISOString(),
-					confidence: 0.6,
-					limitations: ['Broad web-search evidence; verify important claims against primary sources.']
-				}
-			);
-			evidence = evidence.filter((item) => isAllowedResearchSource(item.source_url, input.query));
-			if (needsPublicationMetadata(input.query)) {
-				evidence = await enrichMissingPublicationMetadata(evidence, boundedContext, input.query);
-				evidence = retainDatedCurrentEvidence(evidence, input.query);
-			}
-			if (
-				highRiskVerification &&
-				!hasPrimaryEvidence(evidence) &&
-				searchDeadlineAt - Date.now() >= OFFICIAL_RETRY_MIN_REMAINING_MS
-			) {
-				const retry = await performProviderWebSearch({
-					provider,
-					apiKey,
-					model: requestModel,
+			recordOutcome(selected, 'primary');
+
+			if (!selected.usable && retryableSearchFailure(selected) && !context.signal?.aborted) {
+				const retry = await interpretProviderWebSearch({
+					provider: primaryProvider,
+					apiKey: primaryApiKey,
+					model: primaryModel,
 					query: input.query,
-					stream: false,
 					newsroomContext: context.newsroomContext,
-					signal: searchSignal,
+					context
+				});
+				recordOutcome(retry, 'retry');
+				if (retry.usable) selected = retry;
+			}
+
+			const fallbackKey = context.perplexityApiKey || '';
+			if (
+				!selected.usable &&
+				primaryProvider === 'openai' &&
+				fallbackKey &&
+				!context.signal?.aborted
+			) {
+				const fallback = await interpretProviderWebSearch({
+					provider: 'perplexity',
+					apiKey: fallbackKey,
+					model: normalizeProviderModel('perplexity', 'perplexity/sonar'),
+					query: input.query,
+					newsroomContext: context.newsroomContext,
+					context
+				});
+				recordOutcome(fallback, 'fallback');
+				if (fallback.usable) selected = fallback;
+			}
+
+			if (
+				selected.provider === 'perplexity' &&
+				needsOfficialSourceRetry(input.query) &&
+				!hasPrimaryEvidence(selected.evidence) &&
+				!context.signal?.aborted
+			) {
+				const official = await interpretProviderWebSearch({
+					provider: 'perplexity',
+					apiKey: fallbackKey || primaryApiKey,
+					model: normalizeProviderModel('perplexity', 'perplexity/sonar'),
+					query: input.query,
+					newsroomContext: context.newsroomContext,
+					context,
 					officialSourceOnly: true
 				});
-				recordAttempt(retry, 'official_source');
-				if (retry.response.ok) {
-					const retryProviderText = extractProviderResponseText(provider, retry.raw);
-					const retryText = canonicalizeTrackingUrlsInText(
-						withProviderCitationMarkers(retry.raw, retryProviderText)
-					);
-					const retryEvidence = normalizeToolEvidence(
-						{ evidence: extractProviderWebSources(retry.raw, retryProviderText) },
-						NEWSROOM_TOOL_NAMES.webSearch,
-						{
-							source_name: `${providerName} web_search`,
-							accessed_at: new Date().toISOString(),
-							confidence: 0.65,
-							limitations: ['Broad web-search evidence; verify important claims against primary sources.']
-						}
-					);
-					if (hasPrimaryEvidence(retryEvidence)) {
-						if (retryText.trim()) {
-							raw = retry.raw;
-							streamFailure = retry.streamFailure;
-							providerOutputText = retryProviderText;
-							outputText = retryText;
-							evidence = retryEvidence;
-						} else {
-							evidence = appendUniqueEvidence(evidence, retryEvidence);
-						}
-					}
-				}
+				recordOutcome(official, 'official_source');
+				if (official.usable && hasPrimaryEvidence(official.evidence)) selected = official;
 			}
-			if (highRiskVerification && !hasPrimaryEvidence(evidence)) {
+
+			let outputText = selected.outputText;
+			if (
+				selected.provider === 'perplexity' &&
+				needsOfficialSourceRetry(input.query) &&
+				!hasPrimaryEvidence(selected.evidence)
+			) {
 				const primaryStatus =
 					'**Primary-source status:** I did not find readable official or direct evidence in this search, so treat the attributed reporting as provisional.';
 				outputText = outputText.trim() ? `${outputText.trim()}\n\n${primaryStatus}` : primaryStatus;
 			}
 			const answerText = outputText.trim();
-			const streamLimitations = streamFailure
+			const streamLimitations = selected.streamFailure
 				? ['Live research ended early. Treat this answer as incomplete.']
 				: [];
-			if (evidence.length) {
-				return { status: 'ok', evidence, answer: outputText, limitations: streamLimitations, raw: { output_text: outputText } };
-			}
-			if (answerText) {
+			const fallbackUsed = attempts.some((attempt) => attempt.role === 'fallback');
+			const fallbackSucceeded = attempts.some(
+				(attempt) => attempt.role === 'fallback' && attempt.status === 'ok'
+			);
+			const diagnostics: NonNullable<ToolRunOutput['diagnostics']> = {
+				attempts,
+				fallbackUsed,
+				fallbackSucceeded,
+				finalOutcome: selected.evidence.length ? 'sourced' : answerText ? 'unsourced' : 'failed'
+			};
+			if (selected.evidence.length) {
 				return {
 					status: 'ok',
-					evidence,
+					evidence: selected.evidence,
+					answer: outputText,
+					limitations: streamLimitations,
+					raw: { output_text: outputText },
+					diagnostics
+				};
+			}
+			if (answerText && !isCurrentEventQuery(input.query)) {
+				return {
+					status: 'ok',
+					evidence: selected.evidence,
 					answer: answerText,
 					limitations: ['No usable source links were returned.', ...streamLimitations],
-					raw: { output_text: outputText }
+					raw: { output_text: outputText },
+					diagnostics
 				};
 			}
 			return {
-				status: 'unavailable',
-				limitations: ['No usable source links were returned.'],
-				raw: { output_text: outputText }
+				status: selected.upstreamStatus && selected.upstreamStatus >= 400 ? 'error' : 'unavailable',
+				limitations: [
+					selected.upstreamStatus
+						? publicProviderFailure(providerLabel(selected.provider), selected.upstreamStatus)
+						: 'No usable source links were returned.'
+				],
+				raw: { output_text: outputText },
+				diagnostics
 			};
 		}
 	};
@@ -874,6 +884,166 @@ type ProviderSearchAttempt = {
 	latencyMs: number;
 };
 
+type InterpretedProviderSearch = {
+	provider: ModelProvider;
+	model: string;
+	raw: ProviderSearchRaw;
+	outputText: string;
+	evidence: EvidenceObject[];
+	streamFailure: string | null;
+	latencyMs: number;
+	upstreamStatus?: number;
+	failureCategory?: string;
+	usable: boolean;
+};
+
+async function interpretProviderWebSearch(input: {
+	provider: ModelProvider;
+	apiKey: string;
+	model: string;
+	query: string;
+	newsroomContext?: ToolRunContext['newsroomContext'];
+	context: ToolRunContext;
+	officialSourceOnly?: boolean;
+}): Promise<InterpretedProviderSearch> {
+	const startedAt = Date.now();
+	const searchSignal = boundedSignal(input.context.signal, WEB_SEARCH_DEADLINE_MS);
+	let attempt: ProviderSearchAttempt;
+	try {
+		attempt = await performProviderWebSearch({
+			provider: input.provider,
+			apiKey: input.apiKey,
+			model: input.model,
+			query: input.query,
+			stream: false,
+			newsroomContext: input.newsroomContext,
+			officialSourceOnly: input.officialSourceOnly,
+			signal: searchSignal
+		});
+	} catch (err) {
+		if (input.context.signal?.aborted) throw err;
+		return {
+			provider: input.provider,
+			model: input.model,
+			raw: {},
+			outputText: '',
+			evidence: [],
+			streamFailure: null,
+			latencyMs: Math.max(0, Date.now() - startedAt),
+			failureCategory: searchExceptionCategory(err, input.context.signal),
+			usable: false
+		};
+	}
+
+	if (!attempt.response.ok) {
+		return {
+			provider: input.provider,
+			model: input.model,
+			raw: attempt.raw,
+			outputText: '',
+			evidence: [],
+			streamFailure: attempt.streamFailure,
+			latencyMs: attempt.latencyMs,
+			upstreamStatus: attempt.response.status,
+			failureCategory: httpFailureCategory(attempt.response.status),
+			usable: false
+		};
+	}
+
+	const providerOutputText = extractProviderResponseText(input.provider, attempt.raw);
+	const outputText = canonicalizeTrackingUrlsInText(
+		withProviderCitationMarkers(attempt.raw, providerOutputText)
+	);
+	let evidence = normalizeToolEvidence(
+		{ evidence: extractProviderWebSources(attempt.raw, providerOutputText) },
+		NEWSROOM_TOOL_NAMES.webSearch,
+		{
+			source_name: `${providerLabel(input.provider)} web_search`,
+			accessed_at: new Date().toISOString(),
+			confidence: 0.6,
+			limitations: ['Broad web-search evidence; verify important claims against primary sources.']
+		}
+	);
+	evidence = evidence.filter((item) => isAllowedResearchSource(item.source_url, input.query));
+	if (needsPublicationMetadata(input.query)) {
+		evidence = await enrichMissingPublicationMetadata(
+			evidence,
+			{ ...input.context, signal: searchSignal },
+			input.query
+		);
+		evidence = retainDatedCurrentEvidence(evidence, input.query);
+	}
+	const currentRequest = isCurrentEventQuery(input.query);
+	const usable = evidence.length > 0 || (!currentRequest && Boolean(outputText.trim()));
+	return {
+		provider: input.provider,
+		model: input.model,
+		raw: attempt.raw,
+		outputText,
+		evidence,
+		streamFailure: attempt.streamFailure,
+		latencyMs: attempt.latencyMs,
+		upstreamStatus: attempt.response.status,
+		...(usable
+			? {}
+			: {
+					failureCategory:
+						attempt.streamFailure && !outputText.trim()
+							? 'stream_interrupted'
+							: 'no_usable_sources'
+				}),
+		usable
+	};
+}
+
+function retryableSearchFailure(outcome: InterpretedProviderSearch): boolean {
+	return (
+		!outcome.usable &&
+		outcome.failureCategory !== 'aborted' &&
+		outcome.failureCategory !== 'no_usable_sources' &&
+		outcome.failureCategory !== 'not_configured' &&
+		outcome.failureCategory !== 'model_configuration'
+	);
+}
+
+function searchExceptionCategory(err: unknown, parentSignal?: AbortSignal): string {
+	if (parentSignal?.aborted) return 'aborted';
+	const name = err instanceof Error ? err.name : '';
+	const message = err instanceof Error ? err.message : String(err);
+	if (name === 'TimeoutError' || /timeout|timed out/i.test(message)) return 'timeout';
+	if (name === 'AbortError' || /abort/i.test(message)) return 'timeout';
+	return 'network';
+}
+
+function httpFailureCategory(status: number): string {
+	if (status === 408) return 'http_408';
+	if (status === 429) return 'http_429';
+	if (status >= 500) return 'http_5xx';
+	if (status === 401 || status === 403) return 'authentication';
+	return 'http_other';
+}
+
+function failedSearchDiagnostics(
+	provider: ModelProvider,
+	failureCategory: string
+): NonNullable<ToolRunOutput['diagnostics']> {
+	return {
+		attempts: [
+			{
+				role: 'primary',
+				provider,
+				status: 'failed',
+				latencyMs: 0,
+				sourceCount: 0,
+				failureCategory
+			}
+		],
+		fallbackUsed: false,
+		fallbackSucceeded: false,
+		finalOutcome: 'failed'
+	};
+}
+
 async function performProviderWebSearch(input: {
 	provider: ModelProvider;
 	apiKey: string;
@@ -1115,19 +1285,6 @@ function validTimeZone(value?: string): string | null {
 
 function hasPrimaryEvidence(evidence: EvidenceObject[]): boolean {
 	return evidence.some((item) => item.source_kind === 'official' || item.source_kind === 'primary');
-}
-
-function appendUniqueEvidence(evidence: EvidenceObject[], additions: EvidenceObject[]): EvidenceObject[] {
-	const seen = new Set(evidence.map((item) => item.source_url.toLowerCase()));
-	return [
-		...evidence,
-		...additions.filter((item) => {
-			const key = item.source_url.toLowerCase();
-			if (seen.has(key)) return false;
-			seen.add(key);
-			return true;
-		})
-	];
 }
 
 function providerEnvName(provider: ModelProvider): string {

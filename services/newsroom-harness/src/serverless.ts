@@ -20,6 +20,7 @@ export function createVercelHarnessHandler() {
 		modelProvider: config.modelProvider,
 		modelApiKey: config.modelApiKey,
 		openAiApiKey: config.openAiApiKey,
+		perplexityApiKey: config.perplexityApiKey,
 		agentConfig: config.agent
 	});
 

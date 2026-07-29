@@ -47,6 +47,7 @@ export interface RuntimeControls {
 	modelProvider?: ModelProvider;
 	modelApiKey?: string;
 	openAiApiKey: string;
+	perplexityApiKey?: string;
 	agentConfig?: Partial<NewsroomAgentConfig>;
 	/** Tool registry override, mainly for tests. */
 	registry?: ToolRegistry;
@@ -206,6 +207,7 @@ export class NewsroomAgentRuntime {
 			registry: this.controls.registry,
 			repository: context.repository,
 			openAiApiKey: this.controls.openAiApiKey,
+			perplexityApiKey: this.controls.perplexityApiKey,
 			modelProvider: this.modelProvider(),
 			modelApiKey: this.modelApiKey()
 		});
@@ -214,6 +216,7 @@ export class NewsroomAgentRuntime {
 			runId: context.runId,
 			jobId: context.jobId,
 			openAiApiKey: this.controls.openAiApiKey,
+			perplexityApiKey: this.controls.perplexityApiKey,
 			modelProvider: this.modelProvider(),
 			modelApiKey: this.modelApiKey(),
 			trigger: context.trigger,
@@ -337,6 +340,7 @@ export class NewsroomAgentRuntime {
 			registry: this.controls.registry,
 			repository: context.repository,
 			openAiApiKey: this.controls.openAiApiKey,
+			perplexityApiKey: this.controls.perplexityApiKey,
 			modelProvider: this.modelProvider(),
 			modelApiKey: this.modelApiKey()
 		});
@@ -345,6 +349,7 @@ export class NewsroomAgentRuntime {
 			runId: context.runId,
 			jobId: context.jobId,
 			openAiApiKey: this.controls.openAiApiKey,
+			perplexityApiKey: this.controls.perplexityApiKey,
 			modelProvider: this.modelProvider(),
 			modelApiKey: this.modelApiKey(),
 			trigger: context.trigger,
@@ -529,7 +534,10 @@ export class NewsroomAgentRuntime {
 				name: event.tool,
 				status: event.status === 'ok' ? 'ok' : 'failed',
 				detail: event.detail,
-				result: { count: event.evidence?.length || 0 }
+				result: {
+					count: event.evidence?.length || 0,
+					...(event.diagnostics ? { research: event.diagnostics } : {})
+				}
 			});
 			return;
 		}

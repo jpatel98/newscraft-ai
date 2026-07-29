@@ -39,6 +39,7 @@ export interface ToolRunContext {
 	modelProvider?: ModelProvider;
 	modelApiKey?: string;
 	openAiApiKey?: string;
+	perplexityApiKey?: string;
 	trigger?: 'manual' | 'schedule' | 'test';
 	newsroomContext?: NewsroomContext;
 	conversationContext?: ConversationContext;
@@ -54,6 +55,20 @@ export interface ToolRunOutput {
 	answer?: string;
 	limitations?: string[];
 	raw?: unknown;
+	diagnostics?: {
+		attempts: Array<{
+			role: 'primary' | 'retry' | 'fallback';
+			provider: ModelProvider;
+			status: 'ok' | 'failed';
+			latencyMs: number;
+			sourceCount: number;
+			upstreamStatus?: number;
+			failureCategory?: string;
+		}>;
+		fallbackUsed: boolean;
+		fallbackSucceeded: boolean;
+		finalOutcome: 'sourced' | 'unsourced' | 'failed';
+	};
 }
 
 export interface NewsroomTool<Input = unknown, Output extends ToolRunOutput = ToolRunOutput> {

@@ -721,6 +721,7 @@ describe('citation and source-quality web research', () => {
 	});
 
 	it('runs one bounded official-source retry for a high-risk schedule without primary evidence', async () => {
+		const today = new Date().toISOString();
 		const fetchMock = vi
 			.fn()
 			.mockResolvedValueOnce(
@@ -728,7 +729,7 @@ describe('citation and source-quality web research', () => {
 					choices: [{ message: { content: 'A report lists a match [1].' } }],
 					citations: ['https://www.reuters.com/sports/reported-match'],
 					search_results: [
-						{ url: 'https://www.reuters.com/sports/reported-match', title: 'Reported match', date: '2026-07-10' }
+						{ url: 'https://www.reuters.com/sports/reported-match', title: 'Reported match', date: today }
 					]
 				})
 			)
@@ -740,7 +741,7 @@ describe('citation and source-quality web research', () => {
 						{
 							url: 'https://www.fifa.com/tournaments/match-center',
 							title: 'FIFA match schedule',
-							date: '2026-07-10'
+							date: today
 						}
 					]
 				})
@@ -760,7 +761,7 @@ describe('citation and source-quality web research', () => {
 				source_url: 'https://www.fifa.com/tournaments/match-center',
 				source_kind: 'primary',
 				citation_number: 1,
-				published_at: '2026-07-10'
+				published_at: today
 			})
 		]);
 	});

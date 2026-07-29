@@ -58,7 +58,16 @@ describe('provider usage ledger', () => {
 				async () =>
 					new Response(
 						JSON.stringify({
-							output_text: 'The source-backed search answer.',
+							output_text: 'The source-backed search answer [1].',
+							citations: ['https://example.com/current-story'],
+							search_results: [
+								{
+									url: 'https://example.com/current-story',
+									title: 'Current story',
+									snippet: 'The source-backed search answer.',
+									date: new Date().toISOString()
+								}
+							],
 							usage: { input_tokens: 20, output_tokens: 6, total_tokens: 26 }
 						}),
 						{ status: 200, headers: { 'content-type': 'application/json' } }
@@ -107,7 +116,7 @@ describe('provider usage ledger', () => {
 			expect(output.limitations?.join(' ')).toBe('Live research could not finish right now.');
 		expect(output.limitations?.join(' ')).not.toMatch(/HTTP|provider unavailable|fake-key|API key/i);
 		const records = repository.listUsageRecords({ runId: run.runId });
-		expect(records).toHaveLength(1);
+		expect(records).toHaveLength(2);
 		expect(records[0]).toMatchObject({
 			job_id: run.jobId,
 			run_id: run.runId,
@@ -117,6 +126,13 @@ describe('provider usage ledger', () => {
 			endpoint: 'responses',
 			status: 'failed',
 			usage_metadata: {}
+		});
+		expect(records[1]).toMatchObject({
+			job_id: run.jobId,
+			run_id: run.runId,
+			task: NEWSROOM_TOOL_NAMES.webSearch,
+			provider: 'openai',
+			status: 'failed'
 		});
 		expect(records[0].cost_metadata).toMatchObject({
 			provider: 'openai',

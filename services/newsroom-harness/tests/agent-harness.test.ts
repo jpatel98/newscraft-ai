@@ -1116,6 +1116,93 @@ describe('disciplined newsroom agent harness', () => {
 		expect(result.final_answer).not.toContain('I could not find readable source material');
 	});
 
+	it('retries primary research and falls back to sourced Sonar evidence for a current-news request', async () => {
+		const fetchMock = vi.fn(async (url: string | URL | Request) => {
+			const href = String(url);
+			if (href.includes('api.openai.com')) {
+				return new Response(JSON.stringify({ error: { message: 'temporary upstream failure' } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				});
+			}
+			return new Response(
+				JSON.stringify({
+					choices: [
+						{
+							message: {
+								content:
+									'Japan’s meteorological agency published an updated earthquake bulletin today [1].'
+							}
+						}
+					],
+					citations: ['https://www.data.jma.go.jp/multi/quake/?lang=en'],
+					search_results: [
+						{
+							url: 'https://www.data.jma.go.jp/multi/quake/?lang=en',
+							title: 'Japan Meteorological Agency earthquake information',
+							snippet: 'Updated earthquake bulletin for Japan.',
+							date: '2026-07-29T15:30:00.000Z'
+						}
+					]
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		const toolEvents: Array<Record<string, unknown>> = [];
+		const agent = new DisciplinedNewsroomAgent({
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['openai_web_search'],
+				model_provider: 'openai',
+				web_search_model: 'openai/gpt-5-mini',
+				model_policy: createModelPolicyConfig({
+					models: {
+						nano: 'openai/gpt-5-mini',
+						mini: 'openai/gpt-5-mini',
+						standard: 'openai/gpt-5-mini',
+						web_search: 'openai/gpt-5-mini'
+					}
+				})
+			},
+			modelProvider: 'openai',
+			modelApiKey: 'openai-key',
+			openAiApiKey: 'openai-key',
+			perplexityApiKey: 'perplexity-key'
+		});
+
+		const result = await agent.run("what's the latest on earthquakes in Japan", {
+			modelProvider: 'openai',
+			modelApiKey: 'openai-key',
+			openAiApiKey: 'openai-key',
+			perplexityApiKey: 'perplexity-key',
+			newsroomContext: { timezone: 'America/Toronto' },
+			outputStyle: 'chat',
+			onToolEvent: (event) => toolEvents.push(event as unknown as Record<string, unknown>)
+		});
+
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(fetchMock.mock.calls.slice(0, 2).every(([url]) => String(url).includes('api.openai.com'))).toBe(true);
+		expect(String(fetchMock.mock.calls[2]?.[0])).toContain('api.perplexity.ai');
+		expect(result.tool_calls).toEqual([
+			expect.objectContaining({ name: 'openai_web_search', status: 'ok', evidence_count: 1 })
+		]);
+		expect(result.final_answer).toContain('earthquake bulletin');
+		expect(result.final_answer).not.toContain("couldn't verify");
+		expect(result.evidence).toHaveLength(1);
+		const completed = toolEvents.find((event) => event.type === 'tool_completed');
+		expect(completed?.diagnostics).toMatchObject({
+			fallbackUsed: true,
+			fallbackSucceeded: true,
+			finalOutcome: 'sourced',
+			attempts: [
+				{ role: 'primary', provider: 'openai', status: 'failed', upstreamStatus: 503 },
+				{ role: 'retry', provider: 'openai', status: 'failed', upstreamStatus: 503 },
+				{ role: 'fallback', provider: 'perplexity', status: 'ok', sourceCount: 1 }
+			]
+		});
+	});
+
 	it('does not truncate an accepted cited claim at an abbreviation', async () => {
 		const registry = new ToolRegistry();
 		registry.register({

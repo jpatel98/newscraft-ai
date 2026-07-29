@@ -155,6 +155,7 @@ describe('newsroom harness server', () => {
 
 	it('resolves the exact FIFA schedule regression through an official retry and citation SSE', async () => {
 		const nativeFetch = globalThis.fetch.bind(globalThis);
+		const today = new Date().toISOString();
 		let providerCalls = 0;
 		vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
 			const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -170,7 +171,7 @@ describe('newsroom harness server', () => {
 									{
 										url: 'https://www.reuters.com/sports/reported-match',
 										title: 'Reported match',
-										date: '2026-07-10'
+										date: today
 									}
 								]
 							}
@@ -184,7 +185,7 @@ describe('newsroom harness server', () => {
 										url: 'https://inside.fifa.com/match-centre',
 										title: 'FIFA match schedule',
 										snippet: 'The confirmed match begins at 19:00 local time.',
-										date: '2026-07-10'
+										date: today
 									}
 								]
 							}

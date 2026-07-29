@@ -1247,6 +1247,61 @@ describe('newsroom agent runtime', () => {
 		expect(output.length).toBeGreaterThan(0);
 		expect(chunks.some((chunk, index) => chunk && index > 0 && chunks[index - 1] === chunk)).toBe(false);
 	});
+
+	const liveResearchSmoke = process.env.NEWSROOM_HARNESS_LIVE_RESEARCH_SMOKE === '1';
+	const liveResearchIt = liveResearchSmoke ? it : it.skip;
+
+	liveResearchIt('returns fresh readable evidence for a basic current-news research request', async () => {
+		expect(process.env.OPENAI_API_KEY, 'OPENAI_API_KEY must be set for live research smoke').toBeTruthy();
+		const progress: RuntimeProgressEvent[] = [];
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 4,
+			runTimeoutMs: 120_000,
+			retryLimit: 1,
+			modelProvider: 'openai',
+			modelApiKey: process.env.OPENAI_API_KEY || '',
+			openAiApiKey: process.env.OPENAI_API_KEY || '',
+			perplexityApiKey: process.env.PERPLEXITY_API_KEY || '',
+			agentConfig: {
+				enabled_tools: ['openai_web_search'],
+				planner_enabled: false,
+				model_provider: 'openai',
+				model_policy: createModelPolicyConfig({
+					models: {
+						nano: 'openai/gpt-5-mini',
+						mini: 'openai/gpt-5-mini',
+						standard: 'openai/gpt-5-mini',
+						web_search: 'openai/gpt-5-mini'
+					}
+				})
+			}
+		});
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: "What's the latest on earthquakes in Japan?" }],
+			{
+				newsroomContext: { timezone: 'America/Toronto' },
+				onProgress: (event) => progress.push(event)
+			}
+		);
+
+		expect(answer).not.toMatch(/couldn't verify this from readable sources|temporarily unavailable/i);
+		expect(progress.some((event) => event.type === 'source')).toBe(true);
+		expect(
+			progress.some(
+				(event) => event.type === 'citations' && event.citations.length > 0
+			)
+		).toBe(true);
+		expect(
+			progress.some(
+				(event) =>
+					event.type === 'tool' &&
+					event.name === 'openai_web_search' &&
+					event.status === 'ok' &&
+					Number((event.result as { count?: number } | undefined)?.count) > 0
+			)
+		).toBe(true);
+	});
 });
 
 function stubRuntimeTool(name: string, category: ToolCategory, text: string): NewsroomTool {

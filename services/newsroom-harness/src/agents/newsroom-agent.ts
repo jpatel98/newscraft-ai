@@ -34,6 +34,7 @@ export interface NewsroomAgentRunContext {
 	modelProvider?: ModelProvider;
 	modelApiKey?: string;
 	openAiApiKey?: string;
+	perplexityApiKey?: string;
 	trigger?: 'manual' | 'schedule' | 'test';
 	newsroomContext?: NewsroomContext;
 	conversationContext?: ConversationContext;
@@ -66,6 +67,7 @@ export interface AgentToolEvent {
 	status?: string;
 	detail?: string;
 	evidence?: EvidenceObject[];
+	diagnostics?: ToolRunOutput['diagnostics'];
 }
 
 export type AgentPlanStepStatus = 'pending' | 'running' | 'ok' | 'failed' | 'skipped';
@@ -102,6 +104,7 @@ export interface DisciplinedNewsroomAgentOptions {
 	modelProvider?: ModelProvider;
 	modelApiKey?: string;
 	openAiApiKey?: string;
+	perplexityApiKey?: string;
 	/** Planner override, mainly for tests. Defaults to the model planner. */
 	planner?: PlannerFn;
 }
@@ -286,7 +289,8 @@ export class DisciplinedNewsroomAgent {
 				stepId: step.id,
 				status: output.status,
 				detail: publicDetail,
-				evidence: output.evidence || []
+				evidence: output.evidence || [],
+				diagnostics: output.diagnostics
 			});
 
 			followUpFetches += this.queueFollowUps(queue, step, output, evidence, ledger, context, followUpFetches);
@@ -550,6 +554,7 @@ export class DisciplinedNewsroomAgent {
 				this.options.modelApiKey ||
 				(this.modelProvider(context) === 'openai' ? context.openAiApiKey || this.options.openAiApiKey : ''),
 			openAiApiKey: context.openAiApiKey || this.options.openAiApiKey,
+			perplexityApiKey: context.perplexityApiKey || this.options.perplexityApiKey,
 			trigger: context.trigger,
 			newsroomContext: context.newsroomContext,
 			conversationContext: context.conversationContext,

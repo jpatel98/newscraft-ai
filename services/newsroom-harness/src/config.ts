@@ -15,6 +15,7 @@ export interface HarnessConfig {
 	modelProvider: ModelProvider;
 	modelApiKey: string;
 	openAiApiKey: string;
+	perplexityApiKey: string;
 	uiIngestUrl: string;
 	uiIngestKey: string;
 	runTimeoutMs: number;
@@ -97,6 +98,7 @@ export function loadConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfi
 		modelProvider,
 		modelApiKey,
 		openAiApiKey: process.env.OPENAI_API_KEY || '',
+		perplexityApiKey: process.env.PERPLEXITY_API_KEY || '',
 		uiIngestUrl: process.env.NEWSROOM_UI_INGEST_URL || '',
 		uiIngestKey: process.env.NEWSROOM_UI_INGEST_KEY || '',
 		runTimeoutMs,
@@ -157,20 +159,6 @@ function resolveModelProvider(params: {
 		};
 	}
 
-	if (perplexityEnabled) {
-		return {
-			provider: 'perplexity',
-			modelApiKey: params.perplexityApiKey || '',
-			selection: {
-				mode: 'fallback',
-				source: 'default',
-				selected: 'perplexity',
-				requested: null,
-				reason: 'Using Perplexity by default (Sonar-first) because its API key is available.'
-			}
-		};
-	}
-
 	if (openAiEnabled) {
 		return {
 			provider: 'openai',
@@ -180,18 +168,32 @@ function resolveModelProvider(params: {
 				source: 'default',
 				selected: 'openai',
 				requested: null,
-				reason: 'Falling back to OpenAI for research because Perplexity is not configured.'
+				reason: 'Using OpenAI as the primary research provider because its API key is available.'
+			}
+		};
+	}
+
+	if (perplexityEnabled) {
+		return {
+			provider: 'perplexity',
+			modelApiKey: params.perplexityApiKey || '',
+			selection: {
+				mode: 'fallback',
+				source: 'default',
+				selected: 'perplexity',
+				requested: null,
+				reason: 'Falling back to Perplexity because OpenAI is not configured.'
 			}
 		};
 	}
 
 	return {
-		provider: 'perplexity',
+		provider: 'openai',
 		modelApiKey: '',
 		selection: {
 			mode: 'disabled',
 			source: 'default',
-			selected: 'perplexity',
+			selected: 'openai',
 			requested: null,
 			reason: 'No provider keys are configured.'
 		}
