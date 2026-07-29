@@ -448,10 +448,50 @@ test.describe.serial('NewsCraft app shell', () => {
 		expect(Math.abs(mobileLayout.composerBottom - mobileLayout.viewportHeight)).toBeLessThan(2);
 		expect(mobileLayout.documentWidth).toBeLessThanOrEqual(390);
 		await expect(page.getByTestId('answer-utility-bar')).toBeVisible();
+		const mobileUtilityGap = await page.evaluate(() => {
+			const utility = document.querySelector<HTMLElement>('[data-testid="answer-utility-bar"]')!.getBoundingClientRect();
+			const composer = document.querySelector<HTMLElement>('.composer-zone')!.getBoundingClientRect();
+			return composer.top - utility.bottom;
+		});
+		expect(Math.abs(mobileUtilityGap)).toBeLessThan(2);
 		await expect(page.getByTestId('answer-utility-bar').getByRole('button', { name: 'Copy answer' })).toHaveCSS(
 			'width',
 			'44px'
 		);
+		expect(problems).toEqual([]);
+	});
+
+	test('centers the collapsed desktop workspace and docks latest-answer actions above the composer', async ({
+		page
+	}) => {
+		const problems = await collectPageProblems(page);
+		await page.setViewportSize({ width: 1414, height: 728 });
+		await signIn(page);
+		const conversationId = await seedConversation(page, {
+			title: 'Desktop layout check',
+			userMessage: 'What is happening today?',
+			assistantMessage: 'Here is a short sourced newsroom update.'
+		});
+		await page.goto(`/c/${conversationId}`);
+		await expect(page.getByTestId('answer-utility-bar')).toBeVisible();
+
+		const layout = await page.evaluate(() => {
+			const pane = document.querySelector<HTMLElement>('.pane')!.getBoundingClientRect();
+			const inner = document.querySelector<HTMLElement>('.thread__inner')!.getBoundingClientRect();
+			const utility = document.querySelector<HTMLElement>('[data-testid="answer-utility-bar"]')!.getBoundingClientRect();
+			const composer = document.querySelector<HTMLElement>('.composer-zone')!.getBoundingClientRect();
+			return {
+				paneLeft: pane.left,
+				paneRight: pane.right,
+				threadCenter: inner.left + inner.width / 2,
+				viewportCenter: window.innerWidth / 2,
+				utilityGap: composer.top - utility.bottom
+			};
+		});
+		expect(Math.abs(layout.paneLeft)).toBeLessThan(2);
+		expect(Math.abs(layout.paneRight - 1414)).toBeLessThan(2);
+		expect(Math.abs(layout.threadCenter - layout.viewportCenter)).toBeLessThan(2);
+		expect(Math.abs(layout.utilityGap)).toBeLessThan(2);
 		expect(problems).toEqual([]);
 	});
 

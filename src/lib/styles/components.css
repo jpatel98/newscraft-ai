@@ -729,11 +729,7 @@ body,
 	flex-direction: column;
 	overflow: hidden;
 	flex: 1;
-	/* Keep the thread title the same distance from the visible left control,
-	 * whether that control is the compact floating bar or the open drawer.
-	 * Title x = pane padding + header inset; menu-title gap stays constant.
-	 */
-	padding-left: calc(var(--cmdbar-clear) + var(--menu-title-gap) - var(--pane-title-inset));
+	padding-left: 0;
 	min-width: 0;
 	transition: padding-left var(--dur-base) var(--ease-std);
 }
@@ -759,10 +755,10 @@ body,
 }
 
 .pane__header {
-	/* Uniform inset from the pane's left edge in both drawer states —
-	 * the pane itself handles clearing the cmdbar/drawer, so the title's
- * gap from whatever's on the left stays consistent when toggling. */
-	padding: 14px var(--pane-title-inset) 11px;
+	/* Keep only the title clear of the floating command bar. The thread and
+	 * composer stay centered in the full collapsed workspace. */
+	padding: 14px var(--pane-title-inset) 11px
+		calc(var(--cmdbar-clear) + var(--menu-title-gap));
 	border-bottom: 0;
 	background: var(--bg-page);
 	display: flex;
@@ -771,6 +767,9 @@ body,
 	min-width: 0;
 	flex-wrap: wrap;
 	position: relative;
+}
+.shell--drawer-open .pane__header {
+	padding-left: var(--pane-title-inset);
 }
 @media (max-width: 760px) {
 	.pane--plain {

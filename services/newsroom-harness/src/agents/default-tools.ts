@@ -946,7 +946,7 @@ function webSearchRequestBody(input: {
 			reasoning: { effort: 'low' },
 			max_output_tokens: webSearchOutputTokenLimit(input.query),
 			tools: [{ type: 'web_search' }],
-			tool_choice: 'auto',
+			tool_choice: 'required',
 			input: input.input
 		};
 		body.include = ['web_search_call.action.sources'];

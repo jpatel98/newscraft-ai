@@ -717,6 +717,7 @@ describe('citation and source-quality web research', () => {
 		expect(openAiBody).not.toHaveProperty('search_domain_filter');
 		expect(openAiBody).not.toHaveProperty('search_recency_filter');
 		expect(openAiBody.tools).toEqual([{ type: 'web_search' }]);
+		expect(openAiBody.tool_choice).toBe('required');
 	});
 
 	it('runs one bounded official-source retry for a high-risk schedule without primary evidence', async () => {

@@ -446,63 +446,63 @@
 				</article>
 			{/each}
 		</div>
-		{#if latestReadyAssistant}
-			<div
-				class="answer-utility"
-				data-testid="answer-utility-bar"
-				aria-label="Latest answer actions"
-			>
-				<div class="answer-utility__trust">
-					<span>{latestReadyCitations.length} citation{latestReadyCitations.length === 1 ? '' : 's'}</span>
-					{#if latestPrimaryCount > 0}
-						<span aria-hidden="true">·</span>
-						<span>{latestPrimaryCount} primary</span>
-					{/if}
-				</div>
-				<div class="answer-utility__actions">
+	</div>
+	{#if latestReadyAssistant}
+		<div
+			class="answer-utility"
+			data-testid="answer-utility-bar"
+			aria-label="Latest answer actions"
+		>
+			<div class="answer-utility__trust">
+				<span>{latestReadyCitations.length} citation{latestReadyCitations.length === 1 ? '' : 's'}</span>
+				{#if latestPrimaryCount > 0}
+					<span aria-hidden="true">·</span>
+					<span>{latestPrimaryCount} primary</span>
+				{/if}
+			</div>
+			<div class="answer-utility__actions">
+				<button
+					type="button"
+					class="msg__action msg__action--copy"
+					onclick={() => copy(latestReadyAssistant)}
+					aria-label="Copy answer"
+					title="Copy answer"
+				>
+					<Copy size="12" strokeWidth={1.6} aria-hidden="true" />
+					<span aria-live="polite">{copyButtonLabel(latestReadyAssistant)}</span>
+				</button>
+				{#if latestExportUrl}
+					<a
+						class="msg__action msg__action--export"
+						href={latestExportUrl}
+						download
+						onclick={() => void onExportAnswer?.(latestReadyAssistant.id, latestExportUrl)}
+					>
+						<Download size="12" strokeWidth={1.6} aria-hidden="true" />
+						<span>Markdown</span>
+					</a>
+				{/if}
+				{#if onUseAnswer}
+					<AnswerActions
+						messageId={`utility-${latestReadyAssistant.id}`}
+						onSelect={(action) => onUseAnswer?.(action, latestReadyAssistant.id)}
+					/>
+				{/if}
+				{#if latestReadyAssistant.id === lastAssistantId && onRegenerate}
 					<button
 						type="button"
-						class="msg__action msg__action--copy"
-						onclick={() => copy(latestReadyAssistant)}
-						aria-label="Copy answer"
-						title="Copy answer"
+						class="msg__action answer-utility__regenerate"
+						onclick={() => onRegenerate?.()}
+						aria-label="Regenerate reply"
+						title="Regenerate reply"
 					>
-						<Copy size="12" strokeWidth={1.6} aria-hidden="true" />
-						<span aria-live="polite">{copyButtonLabel(latestReadyAssistant)}</span>
+						<RotateCcw size="12" strokeWidth={1.6} aria-hidden="true" />
+						<span>Regenerate</span>
 					</button>
-					{#if latestExportUrl}
-						<a
-							class="msg__action msg__action--export"
-							href={latestExportUrl}
-							download
-							onclick={() => void onExportAnswer?.(latestReadyAssistant.id, latestExportUrl)}
-						>
-							<Download size="12" strokeWidth={1.6} aria-hidden="true" />
-							<span>Markdown</span>
-						</a>
-					{/if}
-					{#if onUseAnswer}
-						<AnswerActions
-							messageId={`utility-${latestReadyAssistant.id}`}
-							onSelect={(action) => onUseAnswer?.(action, latestReadyAssistant.id)}
-						/>
-					{/if}
-					{#if latestReadyAssistant.id === lastAssistantId && onRegenerate}
-						<button
-							type="button"
-							class="msg__action answer-utility__regenerate"
-							onclick={() => onRegenerate?.()}
-							aria-label="Regenerate reply"
-							title="Regenerate reply"
-						>
-							<RotateCcw size="12" strokeWidth={1.6} aria-hidden="true" />
-							<span>Regenerate</span>
-						</button>
-					{/if}
-				</div>
+				{/if}
 			</div>
-		{/if}
-	</div>
+		</div>
+	{/if}
 	{#if showJumpLatest}
 		<button
 			type="button"
