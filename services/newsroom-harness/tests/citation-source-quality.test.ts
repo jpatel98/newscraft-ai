@@ -658,6 +658,9 @@ describe('citation and source-quality web research', () => {
 
 	it('classifies web sources independently with the journalist source contract', () => {
 		expect(classifyEvidenceSource('City of Toronto', 'https://www.toronto.ca/news/mayor-statement')).toBe('official');
+		expect(classifyEvidenceSource('Japan Meteorological Agency', 'https://www.data.jma.go.jp/multi/quake/')).toBe(
+			'official'
+		);
 		expect(classifyEvidenceSource('TTC service advisory', 'https://www.ttc.ca/service-advisories')).toBe('official');
 		expect(classifyEvidenceSource('RCMP review', 'https://rcmp.ca/en/publications/review')).toBe('official');
 		expect(classifyEvidenceSource('Human Rights Watch', 'https://www.hrw.org/news/investigation')).toBe('primary');

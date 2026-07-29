@@ -179,6 +179,7 @@ function isSocialHost(host: string): boolean {
 function isOfficialSource(host: string): boolean {
 	return (
 		/(^|\.)(gov|mil)(\.[a-z]{2})?$/.test(host) ||
+		/(^|\.)go\.jp$/.test(host) ||
 		/(^|\.)(gc\.ca|canada\.ca|ontario\.ca|quebec\.ca|toronto\.ca)$/.test(host) ||
 		/(^|\.)(elections\.ca|bankofcanada\.ca|rcmp-grc\.gc\.ca|rcmp\.ca|tps\.ca|ttc\.ca)$/.test(host)
 	);

@@ -1244,6 +1244,9 @@ function namedDomainsForQuery(query: string): string[] {
 function officialDomainsForQuery(query: string): string[] {
 	const domains: string[] = [];
 	if (/\bfifa\b/i.test(query)) domains.push('fifa.com');
+	if (/\bjapan\b/i.test(query) && /\b(earthquakes?|seismic|tsunami|volcan(?:o|ic))\b/i.test(query)) {
+		domains.push('jma.go.jp', 'earthquake.usgs.gov');
+	}
 	if (/\b(bank of canada|boc)\b/i.test(query)) domains.push('bankofcanada.ca');
 	if (/\b(elections? canada|federal election)\b/i.test(query)) domains.push('elections.ca');
 	if (/\b(rcmp|royal canadian mounted police)\b/i.test(query)) domains.push('rcmp-grc.gc.ca');
@@ -1255,7 +1258,7 @@ function officialDomainsForQuery(query: string): string[] {
 }
 
 function sonarRecencyForQuery(query: string): 'day' | 'week' | undefined {
-	if (/\b(today|tonight|right now|past 24 hours?|last 24 hours?)\b/i.test(query)) return 'day';
+	if (/\b(today|tonight|right now|latest|newest|past 24 hours?|last 24 hours?)\b/i.test(query)) return 'day';
 	if (/\b(this week|past week|last week|past 7 days?|last 7 days?)\b/i.test(query)) return 'week';
 	return undefined;
 }
@@ -1263,6 +1266,7 @@ function sonarRecencyForQuery(query: string): 'day' | 'week' | undefined {
 function needsOfficialSourceRetry(query: string): boolean {
 	if (/\b(verify|verification|confirm|fact[- ]?check|official sources?|primary sources?)\b/i.test(query)) return true;
 	if (/\b(government|parliament|minister|ministry|department|agency|police|sheriff|court|legal|lawsuit|charges?|arrest|elections?|ballot|vote count)\b/i.test(query)) return true;
+	if (/\b(earthquakes?|seismic|tsunami|volcan(?:o|ic)|wildfires?|hurricanes?|tornado(?:es)?|flood(?:ing|s)?)\b/i.test(query)) return true;
 	if (/\b(schedule|fixtures?|kick[- ]?off|tip[- ]?off)\b/i.test(query)) return true;
 	return /\b(games?|matches?)\b[\s\S]*\b(today|tonight|tomorrow|this week)\b/i.test(query);
 }

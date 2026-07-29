@@ -1184,6 +1184,9 @@ describe('disciplined newsroom agent harness', () => {
 		expect(fetchMock).toHaveBeenCalledTimes(3);
 		expect(fetchMock.mock.calls.slice(0, 2).every(([url]) => String(url).includes('api.openai.com'))).toBe(true);
 		expect(String(fetchMock.mock.calls[2]?.[0])).toContain('api.perplexity.ai');
+		expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toMatchObject({
+			search_recency_filter: 'day'
+		});
 		expect(result.tool_calls).toEqual([
 			expect.objectContaining({ name: 'openai_web_search', status: 'ok', evidence_count: 1 })
 		]);
