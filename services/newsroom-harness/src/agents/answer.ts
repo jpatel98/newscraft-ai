@@ -43,7 +43,11 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 			noUsableEvidence: true
 		});
 		const visibleCaveats = input.outputStyle === 'chat' ? chatToolAnswerCaveats(input.prompt, caveats) : caveats;
-		const guarded = appendCaveats(input.outputStyle === 'chat' ? formatChatToolAnswer(input.prompt, answer) : answer.trim(), visibleCaveats);
+		const formattedAnswer =
+			input.outputStyle === 'chat'
+				? `**Unverified lead from the search**\n\n${formatChatToolAnswer(input.prompt, answer)}`
+				: answer.trim();
+		const guarded = appendCaveats(formattedAnswer, visibleCaveats);
 		return input.outputStyle === 'chat' ? cleanVisibleChatOutput(guarded, input.prompt) : guarded;
 	}
 	if (!evidence.length) {
@@ -178,7 +182,9 @@ function completeEvidenceStatement(item: EvidenceObject): string {
 			/[.!?](?:["')\]]+)?$/.test(sentence) &&
 			!looksLikeHeadlineBlob(sentence)
 	);
-	return complete?.replace(/\s*\[\d+\]\s*$/, '').trim() || '';
+	if (complete) return complete.replace(/\s*\[\d+\]\s*$/, '').trim();
+	if (candidate.length < 20 || looksLikeHeadlineBlob(candidate)) return '';
+	return ensureTerminalPunctuation(candidate.replace(/\s*\[\d+\]\s*$/, '').trim());
 }
 
 function sentenceCase(value: string): string {
@@ -225,7 +231,13 @@ function formatChatToolAnswer(prompt: string, answer: string): string {
 }
 
 function chatToolAnswerCaveats(prompt: string, caveats: string[]): string[] {
-	if (needsExplicitVerificationCaveat(prompt)) return caveats;
+	if (needsExplicitVerificationCaveat(prompt)) {
+		return caveats.map((item) =>
+			/^I couldn't verify this from readable sources right now\.$/i.test(item)
+				? 'This lead is not backed by readable source evidence yet.'
+				: item
+		);
+	}
 	return caveats.filter(
 		(item) =>
 			!/^I could not find reliable sources confirming this\b/i.test(item) &&
@@ -1029,9 +1041,6 @@ function publicCaveatsFor(
 	}
 	if (providerConfigurationLimitation) caveats.push(providerConfigurationLimitation);
 
-	if (blocked || unusableEvidence.length) {
-		caveats.push('Some candidate sources were blocked, paywalled, unavailable, or could not be read, and were not used as evidence.');
-	}
 	if (needsPrimaryConfirmation(prompt, evidence)) {
 		caveats.push('I could not confirm this from a readable official or primary source in the gathered material; verify before relying on it.');
 	}

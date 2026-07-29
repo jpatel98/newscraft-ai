@@ -540,8 +540,10 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat'
 		});
 
+		expect(answer).toContain('Unverified lead from the search');
 		expect(answer).toContain('The mayor announced a new transit plan last Tuesday.');
-		expect(answer).toContain("I couldn't verify this from readable sources right now.");
+		expect(answer).toContain('This lead is not backed by readable source evidence yet.');
+		expect(answer).not.toContain("I couldn't verify");
 		expect(answer).not.toContain('Provider returned');
 		expect(answer).not.toContain('tool');
 	});
@@ -628,6 +630,49 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).toContain('blocked, paywalled, unavailable, or unreadable');
 		expect(answer).not.toContain('HTTP 403');
 		expect(answer).not.toContain('url_fetch_read');
+	});
+
+	it('leads with usable findings and suppresses irrelevant failures from rejected candidates', () => {
+		const prompt = "what's the latest on earthquakes in Japan";
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence: [
+				normalizeEvidence({
+					source_name: 'Japan Meteorological Agency',
+					source_url: 'https://www.jma.go.jp/bosai/map.html#contents=earthquake_map',
+					accessed_at: '2026-07-29T16:49:00.000Z',
+					tool_used: 'openai_web_search',
+					title: 'Earthquake Information',
+					published_at: '2026-07-29T16:42:00.000Z',
+					extracted_text: 'A magnitude 4.7 earthquake occurred east of Aomori Prefecture at 16:38 JST',
+					summary: 'A magnitude 4.7 earthquake occurred east of Aomori Prefecture at 16:38 JST',
+					confidence: 0.92,
+					limitations: [],
+					source_kind: 'official'
+				}),
+				normalizeEvidence({
+					source_name: 'Candidate news outlet',
+					source_url: 'https://example.com/japan-earthquake',
+					accessed_at: '2026-07-29T16:49:00.000Z',
+					tool_used: 'url_fetch_read',
+					title: 'Access denied',
+					published_at: null,
+					extracted_text: '',
+					summary: '',
+					confidence: 0,
+					limitations: ['Source was blocked and could not be read.'],
+					source_kind: 'news_report'
+				})
+			],
+			limitations: ['A candidate source was blocked.'],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('A magnitude 4.7 earthquake occurred east of Aomori Prefecture at 16:38 JST. [1]');
+		expect(answer).not.toMatch(/blocked|paywall|unavailable|could not be read/i);
+		expect(answer).not.toContain("couldn't verify");
 	});
 
 	it('caveats claim verification when gathered evidence lacks a primary or official source', () => {

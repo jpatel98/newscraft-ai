@@ -1175,6 +1175,7 @@ function webSearchPrompt(
 		'Complete the research now. Do not ask for scope confirmation when a safe, bounded interpretation can answer the request; state the interpretation briefly and proceed.',
 		'For a broad top-news request, provide a concise mixed roundup using the newsroom home market when available. For an unqualified FIFA-games-today request, check official FIFA-run competitions across the date and state that scope. For a requested national public-policy roundup, include all government levels unless the user narrows the scope.',
 		'Lead with the direct answer. Add confirmed facts, disagreement, uncertainty, or a comparison table only when each is relevant; do not emit empty boilerplate sections.',
+		'Tell the user what the research found before discussing what could not be confirmed. A partial, source-backed answer is more useful than a generic access or verification disclaimer.',
 		isCurrentEventQuery(query)
 			? `Do not add a Current as of label; NewsCraft adds the local label outside the provider response.`
 			: 'Do not add a Current as of label unless the answer depends on changing or time-sensitive facts.',
@@ -1187,10 +1188,10 @@ function webSearchPrompt(
 		officialSourceOnly
 			? 'Use official or direct first-party sources for the answer. If none are readable, state that primary confirmation was not found.'
 			: 'Attribute reputable reporting when direct evidence is unavailable and state material uncertainty.',
-		'If no reliable readable source confirms a current-events or claim-verification request, say that plainly instead of giving a confident unsourced answer.',
+		'If no reliable readable source confirms a current-events or claim-verification request, clearly label any relevant search result as an unverified lead instead of presenting it as fact.',
 		'When reputable sources disagree, attribute each conclusion separately. Do not group sources or investigators together if their findings materially differ.',
 		'For local meetings or other obscure events, distinguish agendas and previews from confirmed outcomes; if no official minutes or first-party account confirms what happened, state that limitation explicitly.',
-		'If a requested source is paywalled, blocked, CAPTCHA-protected, unavailable, empty, or cannot be read, flag that limitation honestly without technical details.',
+		'Mention a paywall, block, CAPTCHA, unavailable page, or unreadable source only when the user requested that specific source or when it materially prevents answering. Do not mention failed candidate pages when other readable evidence answers the request.',
 		'If the request is an ambiguous follow-up and there is no clear referent, ask a brief clarifying question instead of guessing.',
 		'Avoid forums, social threads, old PDFs, and loosely related background unless the request asks for them.',
 		'Keep the answer concise, readable, and organized for a normal person scanning local news.',
