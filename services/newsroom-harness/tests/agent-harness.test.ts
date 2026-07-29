@@ -1251,6 +1251,118 @@ describe('disciplined newsroom agent harness', () => {
 		});
 	});
 
+	it('runs the official-source fallback when a general current-news search only finds secondary evidence', async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						search_results: [
+							{
+								url: 'https://www.japantimes.co.jp/news/2026/07/29/japan-earthquake/',
+								title: 'Japan earthquake update',
+								snippet: 'The Japan Times reported recent earthquake activity in Japan.',
+								date: '2026-07-29T14:30:00.000Z'
+							}
+						],
+						output: [
+							{
+								type: 'web_search_call',
+								action: {
+									sources: [
+										{
+											url: 'https://www.japantimes.co.jp/news/2026/07/29/japan-earthquake/',
+											title: 'Japan earthquake update'
+										}
+									]
+								}
+							},
+							{
+								type: 'message',
+								content: [
+									{
+										type: 'output_text',
+										text: 'The Japan Times reported recent earthquake activity in Japan.'
+									}
+								]
+							}
+						]
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						choices: [
+							{
+								message: {
+									content:
+										'Japan’s meteorological agency published an updated earthquake bulletin today [1].'
+								}
+							}
+						],
+						citations: ['https://www.data.jma.go.jp/multi/quake/?lang=en'],
+						search_results: [
+							{
+								url: 'https://www.data.jma.go.jp/multi/quake/?lang=en',
+								title: 'Japan Meteorological Agency earthquake information',
+								snippet: 'Updated earthquake bulletin for Japan.',
+								date: '2026-07-29T15:30:00.000Z'
+							}
+						]
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+			);
+		vi.stubGlobal('fetch', fetchMock);
+		const agent = new DisciplinedNewsroomAgent({
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['openai_web_search'],
+				model_provider: 'openai',
+				web_search_model: 'openai/gpt-5-mini',
+				model_policy: createModelPolicyConfig({
+					models: {
+						nano: 'openai/gpt-5-mini',
+						mini: 'openai/gpt-5-mini',
+						standard: 'openai/gpt-5-mini',
+						web_search: 'openai/gpt-5-mini'
+					}
+				})
+			},
+			modelProvider: 'openai',
+			modelApiKey: 'openai-key',
+			openAiApiKey: 'openai-key',
+			perplexityApiKey: 'perplexity-key'
+		});
+
+		const result = await agent.run("what's the latest on earthquakes in Japan", {
+			modelProvider: 'openai',
+			modelApiKey: 'openai-key',
+			openAiApiKey: 'openai-key',
+			perplexityApiKey: 'perplexity-key',
+			newsroomContext: { timezone: 'America/Toronto' },
+			outputStyle: 'chat'
+		});
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(String(fetchMock.mock.calls[0]?.[0])).toContain('api.openai.com');
+		expect(String(fetchMock.mock.calls[1]?.[0])).toContain('api.perplexity.ai');
+		expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+			search_domain_filter: ['jma.go.jp', 'earthquake.usgs.gov'],
+			search_recency_filter: 'day'
+		});
+		expect(result.final_answer).toContain('earthquake bulletin');
+		expect(result.final_answer).not.toContain('Japan Times');
+		expect(result.evidence).toEqual([
+			expect.objectContaining({
+				source_url: 'https://www.data.jma.go.jp/multi/quake?lang=en',
+				source_kind: 'official'
+			})
+		]);
+	});
+
 	it('does not truncate an accepted cited claim at an abbreviation', async () => {
 		const registry = new ToolRegistry();
 		registry.register({

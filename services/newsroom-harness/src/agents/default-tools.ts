@@ -328,15 +328,20 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			}
 
 			if (
-				selected.provider === 'perplexity' &&
 				needsOfficialSourceRetry(input.query) &&
 				!hasPrimaryEvidence(selected.evidence) &&
 				!context.signal?.aborted
 			) {
+				const officialProvider: ModelProvider = fallbackKey ? 'perplexity' : selected.provider;
+				const officialApiKey =
+					officialProvider === 'perplexity' ? fallbackKey || primaryApiKey : primaryApiKey;
 				const official = await interpretProviderWebSearch({
-					provider: 'perplexity',
-					apiKey: fallbackKey || primaryApiKey,
-					model: normalizeProviderModel('perplexity', 'perplexity/sonar'),
+					provider: officialProvider,
+					apiKey: officialApiKey,
+					model:
+						officialProvider === 'perplexity'
+							? normalizeProviderModel('perplexity', 'perplexity/sonar')
+							: primaryModel,
 					query: input.query,
 					newsroomContext: context.newsroomContext,
 					context,
