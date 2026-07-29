@@ -469,7 +469,7 @@ describe('planned agent loop', () => {
 		registry.register(
 			stubTool('openai_web_search', 'web_search_provider', () => ({
 				status: 'ok',
-				evidence: [evidenceItem(sourceUrl, searchText, null)],
+				evidence: [evidenceItem(sourceUrl, searchText, '2026-07-26T16:30:00.000Z')],
 				answer: `${searchText} [1]`
 			}))
 		);

@@ -482,6 +482,9 @@ export class DisciplinedNewsroomAgent {
 			output.status === 'ok' &&
 			this.stepCanBeQueued(NEWSROOM_TOOL_NAMES.urlFetchRead)
 		) {
+			const recoverCurrentEvidence =
+				context.conversationContext?.currentTurn?.freshness === 'current' &&
+				!evidence.some(isUsableEvidence);
 			const datedUsable = evidence.filter((item) => isUsableEvidence(item) && item.published_at).length;
 			if (datedUsable < 2) {
 				const queuedUrls = new Set(queue.map((item) => item.input));
@@ -489,7 +492,7 @@ export class DisciplinedNewsroomAgent {
 					.filter(
 						(item) =>
 							/^https?:\/\//i.test(item.source_url) &&
-							!item.published_at &&
+							(!item.published_at || recoverCurrentEvidence) &&
 							isUsableEvidence(item) &&
 							!queuedUrls.has(item.source_url)
 					)
