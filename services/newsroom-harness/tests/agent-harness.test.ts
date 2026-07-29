@@ -1413,6 +1413,23 @@ describe('disciplined newsroom agent harness', () => {
 			openAiApiKey: 'openai-key',
 			perplexityApiKey: 'perplexity-key',
 			newsroomContext: { timezone: 'America/Toronto' },
+			conversationContext: {
+				version: 1,
+				intent: 'research',
+				currentTurn: {
+					content: "what's the latest on earthquakes in Japan",
+					resolvedRequest: "what's the latest on earthquakes in Japan",
+					researchRequired: true,
+					freshness: 'current'
+				},
+				activeTopic: {
+					subject: "what's the latest on earthquakes in Japan",
+					location: 'Japan',
+					relevantDate: 'current'
+				}
+			},
+			routingPrompt:
+				"Current time in Toronto: Jul 29, 2026.\nGrounded conversation state follows.\nCurrent user question:\nwhat's the latest on earthquakes in Japan",
 			outputStyle: 'chat'
 		});
 

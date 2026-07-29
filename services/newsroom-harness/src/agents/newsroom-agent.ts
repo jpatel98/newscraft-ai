@@ -576,7 +576,12 @@ export class DisciplinedNewsroomAgent {
 			onAnswerDelta: context.onAnswerDelta
 		};
 		try {
-			const requestPrompt = context.routingPrompt?.trim() || prompt;
+			const resolvedCurrentRequest =
+				context.conversationContext?.currentTurn?.researchRequired &&
+				context.conversationContext.currentTurn.resolvedRequest.trim()
+					? context.conversationContext.currentTurn.resolvedRequest.trim()
+					: '';
+			const requestPrompt = resolvedCurrentRequest || context.routingPrompt?.trim() || prompt;
 			if (
 				context.documents?.length &&
 				!requestsExternalCorroboration(requestPrompt) &&
