@@ -514,6 +514,10 @@ function requestNeedsResearch(value: string): boolean {
 		return false;
 	}
 	return /\b(?:latest|current|today|tonight|right now|breaking|newest|news)\b/i.test(value) ||
+		(
+			/\b(?:weather|forecast|temperature|conditions?)\b/i.test(value) &&
+			!/\b(?:historical|history|climate|average|record|explain|why|teach|define)\b|^how (?:do|does|are|were|can)\b/i.test(value)
+		) ||
 		/\bupdates?\s+(?:on|about|from|regarding)\b/i.test(value) ||
 		/\b(?:past|last)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|years?)\b/i.test(value) ||
 		/\b(?:search|research|browse|look up|gather|verify|confirm|fact[- ]?check|sources?|citations?|coverage|reporting)\b/i.test(
@@ -524,6 +528,9 @@ function requestNeedsResearch(value: string): boolean {
 function isCurrentResearchRequest(value: string): boolean {
 	return /\b(?:latest|current|today|tonight|right now|breaking|newest|past 24 hours?|last 24 hours?)\b/i.test(
 		value
+	) || (
+		/\b(?:weather|forecast|temperature|conditions?)\b/i.test(value) &&
+		!/\b(?:historical|history|climate|average|record|explain|why|teach|define)\b|^how (?:do|does|are|were|can)\b/i.test(value)
 	);
 }
 

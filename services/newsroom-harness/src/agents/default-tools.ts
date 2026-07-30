@@ -20,6 +20,7 @@ import {
 	newsroomTimeContext,
 	newsroomTimeZone
 } from './time-context.js';
+import { weatherLookupTool } from './weather.js';
 
 const GENERIC_MONITOR_NAME_TERMS = new Set([
 	'media',
@@ -48,6 +49,7 @@ const WEB_SEARCH_DEADLINE_MS = 30_000;
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
 	for (const tool of [
+		weatherLookupTool(),
 		configuredSourceMonitorTool(),
 		sourceFeedFetcherTool(),
 		savedResearchReaderTool(),

@@ -6,7 +6,9 @@ import { normalizeEvidence } from '../src/agents/evidence.js';
 import { createModelPolicyConfig } from '../src/agents/model-policy.js';
 import { DisciplinedNewsroomAgent } from '../src/agents/newsroom-agent.js';
 import { routeNewsroomRequest } from '../src/agents/router.js';
+import { isCurrentEventQuery } from '../src/agents/time-context.js';
 import { ToolRegistry, type NewsroomTool, type ToolCategory } from '../src/agents/tools.js';
+import { weatherLocationFromQuery } from '../src/agents/weather.js';
 import { assessSourceQuality } from '../src/util/source-quality.js';
 
 afterEach(() => {
@@ -50,6 +52,7 @@ describe('disciplined newsroom agent harness', () => {
 			['Check the latest Toronto Police releases and summarize anything newsworthy', 'hybrid_research'],
 			['Scan our configured source monitors for updates', 'hybrid_research'],
 			['Latest Mark Carney news', 'web_search'],
+			["what's toronto weather", 'custom_tool'],
 			['what are the gas prices in toronto tomorrow', 'web_search'],
 			['can you find gas prices in Toronto for the past week and present it to me as a table?', 'web_search'],
 			['Who is the mayor of Toronto?', 'web_search'],
@@ -81,6 +84,153 @@ describe('disciplined newsroom agent harness', () => {
 				'Verify this police release against official sources and what other outlets are reporting: https://example.com/story'
 			).tools_to_use
 		).toEqual(['url_fetch_read', 'openai_web_search']);
+	});
+
+	it('routes ordinary weather questions through one structured official-data tool', () => {
+		for (const prompt of [
+			"what's toronto weather",
+			'what is the weather in Toronto?',
+			'Toronto forecast tomorrow',
+			'will it rain tomorrow in Toronto?'
+		]) {
+			expect(routeNewsroomRequest(prompt)).toMatchObject({
+				selected_mode: 'custom_tool',
+				tools_to_use: ['canadian_weather_lookup']
+			});
+			expect(weatherLocationFromQuery(prompt)?.toLowerCase()).toBe('toronto');
+		}
+
+		for (const prompt of ['Explain how weather forecasts are made', 'How do weather forecasts work?']) {
+			expect(routeNewsroomRequest(prompt)).toMatchObject({
+				selected_mode: 'direct_answer',
+				tools_to_use: []
+			});
+			expect(isCurrentEventQuery(prompt)).toBe(false);
+		}
+		expect(isCurrentEventQuery("what's toronto weather")).toBe(true);
+		expect(routeNewsroomRequest('Check official weather alerts for Toronto')).not.toMatchObject({
+			tools_to_use: ['canadian_weather_lookup']
+		});
+	});
+
+	it('answers Toronto weather from Environment Canada without a model or web search', async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						features: [
+							{
+								type: 'Feature',
+								properties: {
+									identifier: 'on-128',
+									name: { en: 'Toronto Island' },
+									region: { en: 'City of Toronto' },
+									url: { en: 'https://weather.gc.ca/en/location/index.html?coords=43.63,-79.39' }
+								}
+							},
+							{
+								type: 'Feature',
+								properties: {
+									lastUpdated: '2026-07-29T22:01:16Z',
+									identifier: 'on-143',
+									name: { en: 'Toronto' },
+									region: { en: 'City of Toronto' },
+									url: { en: 'https://weather.gc.ca/en/location/index.html?coords=43.65,-79.38' },
+									currentConditions: {
+										timestamp: { en: '2026-07-29T22:00:00Z' },
+										condition: { en: 'Partly Cloudy' },
+										temperature: { value: { en: 25.5 } },
+										relativeHumidity: { value: { en: 41 } },
+										wind: {
+											speed: { value: { en: 30 } },
+											gust: { value: { en: 40 } },
+											direction: { value: { en: 'NW' } }
+										}
+									},
+									forecastGroup: {
+										timestamp: { en: '2026-07-29T19:30:00Z' },
+										forecasts: [
+											{
+												period: { textForecastName: { en: 'Tonight' } },
+												textSummary: {
+													en: 'Clearing early this evening. Wind north 20 km/h gusting to 40. Low 16.'
+												}
+											}
+										]
+									}
+								}
+							}
+						]
+					}),
+					{ status: 200, headers: { 'content-type': 'application/geo+json' } }
+				)
+		);
+		vi.stubGlobal('fetch', fetchMock);
+
+		const result = await new DisciplinedNewsroomAgent().run("what's toronto weather", {
+			outputStyle: 'chat',
+			modelProvider: 'openai',
+			modelApiKey: 'fake-key',
+			openAiApiKey: 'fake-key'
+		});
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(String(fetchMock.mock.calls[0]?.[0])).toContain('name.en=toronto');
+		expect(result.tool_calls).toEqual([
+			expect.objectContaining({
+				name: 'canadian_weather_lookup',
+				status: 'ok',
+				evidence_count: 1
+			})
+		]);
+		expect(result.final_answer).toContain('Toronto weather: 25.5°C and partly cloudy.');
+		expect(result.final_answer).toContain('Humidity 41%; NW wind 30 km/h, gusting to 40 km/h.');
+		expect(result.final_answer).toContain('Tonight: Clearing early this evening.');
+		expect(result.final_answer).toContain('Low 16°C.');
+		expect(result.final_answer).toContain('[1]');
+		expect(result.final_answer).not.toContain("couldn't verify");
+		expect(result.final_answer).not.toContain('readable sources');
+	});
+
+	it('falls back to broad search only when structured weather data is unavailable', async () => {
+		const registry = new ToolRegistry();
+		registry.register(unavailableTool('canadian_weather_lookup', 'custom'));
+		registry.register(
+			stubTool(
+				'openai_web_search',
+				'web_search_provider',
+				'Toronto fallback weather evidence from a readable source.'
+			)
+		);
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['canadian_weather_lookup', 'openai_web_search']
+			}
+		});
+
+		const result = await agent.run("what's toronto weather", { outputStyle: 'chat' });
+
+		expect(result.tool_calls.map((call) => call.name)).toEqual([
+			'canadian_weather_lookup',
+			'openai_web_search'
+		]);
+		expect(result.final_answer).toContain('Toronto fallback weather evidence');
+
+		const legacyAllowlistResult = await new DisciplinedNewsroomAgent({
+			registry,
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['openai_web_search']
+			}
+		}).run("what's toronto weather", { outputStyle: 'chat' });
+
+		expect(legacyAllowlistResult.tool_calls).toEqual([
+			expect.objectContaining({ name: 'canadian_weather_lookup', status: 'skipped' }),
+			expect.objectContaining({ name: 'openai_web_search', status: 'ok' })
+		]);
+		expect(legacyAllowlistResult.final_answer).toContain('Toronto fallback weather evidence');
 	});
 
 	it('routes direct URL summaries through the explicit source fetcher path', () => {
