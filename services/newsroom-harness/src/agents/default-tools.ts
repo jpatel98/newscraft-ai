@@ -368,9 +368,6 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 
 			if (
 				isCurrentEarthquakeQuery(input.query) &&
-				(!selected.usable ||
-					!hasPrimaryEvidence(selected.evidence) ||
-					!hasSubstantiveCurrentAnswer(input.query, selected.outputText)) &&
 				!context.signal?.aborted
 			) {
 				const structured = await latestEarthquakeEvidence(input.query, context);

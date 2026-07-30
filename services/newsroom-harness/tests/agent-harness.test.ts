@@ -1251,6 +1251,112 @@ describe('disciplined newsroom agent harness', () => {
 		});
 	});
 
+	it('uses the official earthquake catalog even when model-selected evidence appears substantive', async () => {
+		const fetchMock = vi.fn(async (url: string | URL | Request) => {
+			const href = String(url);
+			if (href.includes('earthquake.usgs.gov/fdsnws/event/1/query')) {
+				return new Response(
+					JSON.stringify({
+						type: 'FeatureCollection',
+						features: [
+							{
+								properties: {
+									mag: 4.6,
+									place: '10 km W of Honmachi, Japan',
+									time: Date.parse('2026-07-29T13:22:34.716Z'),
+									url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-catalog-event',
+									title: 'M 4.6 - 10 km W of Honmachi, Japan',
+									status: 'reviewed'
+								},
+								geometry: { coordinates: [130.49, 32.51, 10] }
+							}
+						]
+					}),
+					{ status: 200, headers: { 'content-type': 'application/geo+json' } }
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					search_results: [
+						{
+							url: 'https://earthquake.usgs.gov/earthquakes/eventpage/model-selected',
+							title: 'M 9.9 - model-selected Japan result',
+							snippet: 'A magnitude 9.9 earthquake was listed in Japan at 12:30 JST on Jul 29.',
+							date: '2026-07-29T12:30:00.000Z'
+						}
+					],
+					output: [
+						{
+							type: 'message',
+							content: [
+								{
+									type: 'output_text',
+									text: 'A magnitude 9.9 earthquake was listed in Japan at 12:30 JST on Jul 29 [1].'
+								}
+							]
+						}
+					]
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		const agent = new DisciplinedNewsroomAgent({
+			config: {
+				...defaultAgentConfig(),
+				enabled_tools: ['openai_web_search'],
+				model_provider: 'openai',
+				web_search_model: 'openai/gpt-5-mini',
+				model_policy: createModelPolicyConfig({
+					models: {
+						nano: 'openai/gpt-5-mini',
+						mini: 'openai/gpt-5-mini',
+						standard: 'openai/gpt-5-mini',
+						web_search: 'openai/gpt-5-mini'
+					}
+				})
+			},
+			modelProvider: 'openai',
+			modelApiKey: 'openai-key',
+			openAiApiKey: 'openai-key'
+		});
+
+		const result = await agent.run("what's the latest on earthquakes in Japan", {
+			modelProvider: 'openai',
+			modelApiKey: 'openai-key',
+			openAiApiKey: 'openai-key',
+			conversationContext: {
+				version: 1,
+				intent: 'research',
+				currentTurn: {
+					content: "what's the latest on earthquakes in Japan",
+					resolvedRequest: "what's the latest on earthquakes in Japan",
+					researchRequired: true,
+					freshness: 'current'
+				},
+				activeTopic: {
+					subject: "what's the latest on earthquakes in Japan",
+					location: 'Japan',
+					relevantDate: 'current'
+				}
+			},
+			routingPrompt:
+				"Current time in Toronto: Jul 29, 2026.\nCurrent user question:\nwhat's the latest on earthquakes in Japan",
+			outputStyle: 'chat'
+		});
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(String(fetchMock.mock.calls[1]?.[0])).toContain('earthquake.usgs.gov/fdsnws/event/1/query');
+		expect(result.final_answer).toContain('magnitude 4.6 earthquake 10 km W of Honmachi, Japan');
+		expect(result.final_answer).not.toContain('magnitude 9.9');
+		expect(result.evidence).toEqual([
+			expect.objectContaining({
+				source_url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-catalog-event',
+				source_kind: 'official'
+			})
+		]);
+	});
+
 	it('runs a substantive fallback when a general current-news search only finds secondary evidence', async () => {
 		const fetchMock = vi
 			.fn()
