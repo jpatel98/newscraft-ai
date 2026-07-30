@@ -1353,40 +1353,48 @@ async function latestEarthquakeEvidence(
 ): Promise<{ answer: string; evidence: EvidenceObject[] } | null> {
 	const now = new Date();
 	const start = new Date(now.getTime() - 48 * 60 * 60 * 1000);
-	const url = new URL('https://earthquake.usgs.gov/fdsnws/event/1/query');
-	url.searchParams.set('format', 'geojson');
-	url.searchParams.set('starttime', start.toISOString());
-	url.searchParams.set('endtime', now.toISOString());
-	url.searchParams.set('minmagnitude', '2.5');
-	url.searchParams.set('orderby', 'time');
-	url.searchParams.set('limit', '500');
-	let response: Response;
-	try {
-		response = await fetch(url, {
-			headers: { accept: 'application/geo+json, application/json' },
-			signal: boundedSignal(context.signal, 12_000)
-		});
-	} catch {
-		return null;
-	}
-	if (!response.ok) return null;
-	const raw = (await response.json().catch(() => null)) as UsgsEarthquakeCollection | null;
-	if (!raw?.features?.length) return null;
 	const location = earthquakeLocationTerm(query);
-	const matching = raw.features
-		.filter((feature) => {
-			const place = feature.properties?.place || '';
-			return !location || place.toLowerCase().includes(location.toLowerCase());
-		})
-		.filter((feature) => {
-			const properties = feature.properties;
-			return (
-				Number.isFinite(properties?.mag) &&
-				Number.isFinite(properties?.time) &&
-				Boolean(properties?.place && properties?.url)
-			);
-		})
-		.slice(0, 5);
+	const queryUrl = new URL('https://earthquake.usgs.gov/fdsnws/event/1/query');
+	queryUrl.searchParams.set('format', 'geojson');
+	queryUrl.searchParams.set('starttime', start.toISOString());
+	queryUrl.searchParams.set('endtime', now.toISOString());
+	queryUrl.searchParams.set('minmagnitude', '2.5');
+	queryUrl.searchParams.set('orderby', 'time');
+	queryUrl.searchParams.set('limit', '500');
+	const urls = [
+		new URL('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'),
+		queryUrl
+	];
+	let matching: NonNullable<UsgsEarthquakeCollection['features']> = [];
+	for (const url of urls) {
+		try {
+			const response = await fetch(url, {
+				headers: { accept: 'application/geo+json, application/json' },
+				signal: boundedSignal(context.signal, 12_000)
+			});
+			if (!response.ok) continue;
+			const raw = (await response.json().catch(() => null)) as UsgsEarthquakeCollection | null;
+			if (!raw?.features?.length) continue;
+			matching = raw.features
+				.filter((feature) => {
+					const place = feature.properties?.place || '';
+					return !location || place.toLowerCase().includes(location.toLowerCase());
+				})
+				.filter((feature) => {
+					const properties = feature.properties;
+					return (
+						Number.isFinite(properties?.mag) &&
+						Number(properties?.mag) >= 2.5 &&
+						Number.isFinite(properties?.time) &&
+						Boolean(properties?.place && properties?.url)
+					);
+				})
+				.slice(0, 5);
+			if (matching.length) break;
+		} catch {
+			// Try the bounded query endpoint when the static real-time feed is unavailable.
+		}
+	}
 	if (!matching.length) return null;
 	const evidence = matching.map((feature, index) => {
 		const properties = feature.properties!;

@@ -1404,7 +1404,7 @@ describe('disciplined newsroom agent harness', () => {
 	it('uses the official earthquake catalog even when model-selected evidence appears substantive', async () => {
 		const fetchMock = vi.fn(async (url: string | URL | Request) => {
 			const href = String(url);
-			if (href.includes('earthquake.usgs.gov/fdsnws/event/1/query')) {
+			if (href.includes('earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson')) {
 				return new Response(
 					JSON.stringify({
 						type: 'FeatureCollection',
@@ -1496,7 +1496,9 @@ describe('disciplined newsroom agent harness', () => {
 		});
 
 		expect(fetchMock).toHaveBeenCalledTimes(2);
-		expect(String(fetchMock.mock.calls[1]?.[0])).toContain('earthquake.usgs.gov/fdsnws/event/1/query');
+		expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+			'earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'
+		);
 		expect(result.final_answer).toContain('magnitude 4.6 earthquake 10 km W of Honmachi, Japan');
 		expect(result.final_answer).not.toContain('magnitude 9.9');
 		expect(result.evidence).toEqual([
@@ -1693,7 +1695,9 @@ describe('disciplined newsroom agent harness', () => {
 		expect(String(fetchMock.mock.calls[0]?.[0])).toContain('api.openai.com');
 		expect(String(fetchMock.mock.calls[1]?.[0])).toContain('api.perplexity.ai');
 		expect(String(fetchMock.mock.calls[2]?.[0])).toContain('api.perplexity.ai');
-		expect(String(fetchMock.mock.calls[3]?.[0])).toContain('earthquake.usgs.gov/fdsnws/event/1/query');
+		expect(String(fetchMock.mock.calls[3]?.[0])).toContain(
+			'earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'
+		);
 		expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
 			search_recency_filter: 'day'
 		});
