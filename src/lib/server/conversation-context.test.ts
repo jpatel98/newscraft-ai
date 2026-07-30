@@ -60,6 +60,20 @@ describe('conversation context builder', () => {
 		expect(context.activeTopic?.subject).toContain('earthquakes in Japan');
 	});
 
+	it('treats an ordinary weather question as current structured research', () => {
+		const context = buildConversationContext({
+			messages: [message('m1', 'user', "what's toronto weather")],
+			currentRequest: "what's toronto weather",
+			currentMessageId: 'm1'
+		});
+
+		expect(context.currentTurn).toMatchObject({
+			resolvedRequest: "what's toronto weather",
+			researchRequired: true,
+			freshness: 'current'
+		});
+	});
+
 	it('keeps a conversational acknowledgement as the authoritative current turn', () => {
 		const context = buildConversationContext({
 			messages: [
@@ -86,6 +100,18 @@ describe('conversation context builder', () => {
 			researchRequired: false,
 			operation: 'send'
 		});
+	});
+
+	it('does not mistake a conceptual weather explanation for live conditions', () => {
+		const context = buildConversationContext({
+			messages: [],
+			currentRequest: 'How do weather forecasts work?'
+		});
+
+		expect(context.currentTurn).toMatchObject({
+			researchRequired: false
+		});
+		expect(context.currentTurn?.freshness).toBeUndefined();
 	});
 
 	it('does not confuse editorial update wording with a request for live updates', () => {

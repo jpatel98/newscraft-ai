@@ -93,6 +93,7 @@ export function planFromRoute(route: RouteDecision, prompt: string): ResearchPla
 }
 
 export function defaultStepLabel(tool: string, input = ''): string {
+	if (tool === NEWSROOM_TOOL_NAMES.weatherLookup) return 'Checking current weather';
 	if (tool === NEWSROOM_TOOL_NAMES.webSearch) return 'Searching recent coverage';
 	if (tool === NEWSROOM_TOOL_NAMES.sourceMonitor) return 'Checking configured sources';
 	if (tool === NEWSROOM_TOOL_NAMES.sourceFeedFetcher) return 'Reading source feeds';

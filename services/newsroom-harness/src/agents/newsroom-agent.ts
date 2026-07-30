@@ -120,6 +120,7 @@ interface QueuedStep {
 
 /** Tools whose failure should trigger a broad web-search fallback. */
 const WEB_SEARCH_FALLBACK_TOOLS = new Set<string>([
+	NEWSROOM_TOOL_NAMES.weatherLookup,
 	NEWSROOM_TOOL_NAMES.sourceMonitor,
 	NEWSROOM_TOOL_NAMES.sourceFeedFetcher,
 	NEWSROOM_TOOL_NAMES.urlFetchRead,
@@ -231,6 +232,7 @@ export class DisciplinedNewsroomAgent {
 				toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
 				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: publicReason });
 				skipStep(step, publicReason);
+				this.queueWebSearchFallback(queue, step, evidence, ledger);
 				emitPlan();
 				continue;
 			}
@@ -242,6 +244,7 @@ export class DisciplinedNewsroomAgent {
 				toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
 				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: publicReason });
 				skipStep(step, publicReason);
+				this.queueWebSearchFallback(queue, step, evidence, ledger);
 				emitPlan();
 				continue;
 			}
@@ -455,22 +458,7 @@ export class DisciplinedNewsroomAgent {
 	): number {
 		let queuedFetches = 0;
 
-		// Source tools failed and nothing usable exists yet → broaden with web search.
-		if (
-			WEB_SEARCH_FALLBACK_TOOLS.has(step.tool) &&
-			!evidence.some(isUsableEvidence) &&
-			this.stepCanBeQueued(NEWSROOM_TOOL_NAMES.webSearch) &&
-			!queue.some((item) => item.tool === NEWSROOM_TOOL_NAMES.webSearch) &&
-			ledger.canUse('web_search').ok
-		) {
-			queue.push({
-				id: `step_${queue.length + 1}`,
-				tool: NEWSROOM_TOOL_NAMES.webSearch,
-				input: '',
-				label: defaultStepLabel(NEWSROOM_TOOL_NAMES.webSearch),
-				status: 'pending'
-			});
-		}
+		this.queueWebSearchFallback(queue, step, evidence, ledger);
 
 		// Research updates need publication dates. Ordinary chat prioritizes
 		// latency, but a current-news chat must read undated discoveries before
@@ -512,6 +500,29 @@ export class DisciplinedNewsroomAgent {
 		}
 
 		return queuedFetches;
+	}
+
+	private queueWebSearchFallback(
+		queue: QueuedStep[],
+		step: QueuedStep,
+		evidence: EvidenceObject[],
+		ledger: ToolBudgetLedger
+	): void {
+		if (
+			WEB_SEARCH_FALLBACK_TOOLS.has(step.tool) &&
+			!evidence.some(isUsableEvidence) &&
+			this.stepCanBeQueued(NEWSROOM_TOOL_NAMES.webSearch) &&
+			!queue.some((item) => item.tool === NEWSROOM_TOOL_NAMES.webSearch) &&
+			ledger.canUse('web_search').ok
+		) {
+			queue.push({
+				id: `step_${queue.length + 1}`,
+				tool: NEWSROOM_TOOL_NAMES.webSearch,
+				input: '',
+				label: defaultStepLabel(NEWSROOM_TOOL_NAMES.webSearch),
+				status: 'pending'
+			});
+		}
 	}
 
 	private stepCanBeQueued(toolName: string): boolean {
@@ -781,6 +792,7 @@ function inputForTool(name: string, prompt: string, evidence: EvidenceObject[], 
 	const focused = input && input !== prompt ? input : '';
 	// URL-bearing tools should see URLs from both the planned input and the prompt.
 	const combined = focused ? `${focused}\n${prompt}` : prompt;
+	if (name === NEWSROOM_TOOL_NAMES.weatherLookup) return { query: focused || prompt };
 	if (name === NEWSROOM_TOOL_NAMES.sourceMonitor) return { query: combined, urls: urlsFromText(combined) };
 	if (name === NEWSROOM_TOOL_NAMES.sourceFeedFetcher) return { query: combined };
 	if (name === NEWSROOM_TOOL_NAMES.researchResultReader) return { latest: true };
