@@ -1351,6 +1351,10 @@ async function latestEarthquakeEvidence(
 	query: string,
 	context: ToolRunContext
 ): Promise<{ answer: string; evidence: EvidenceObject[] } | null> {
+	if (/\bjapan\b/i.test(query)) {
+		const japan = await latestJapanEarthquakeEvidence(query, context);
+		if (japan) return japan;
+	}
 	const now = new Date();
 	const start = new Date(now.getTime() - 48 * 60 * 60 * 1000);
 	const location = earthquakeLocationTerm(query);
@@ -1431,6 +1435,98 @@ async function latestEarthquakeEvidence(
 				: ['Latest listed events, newest first:', ...statements.map((statement) => `- ${statement}`)].join('\n'),
 		evidence
 	};
+}
+
+async function latestJapanEarthquakeEvidence(
+	query: string,
+	context: ToolRunContext
+): Promise<{ answer: string; evidence: EvidenceObject[] } | null> {
+	const now = new Date();
+	let raw: JmaEarthquakeBulletin[];
+	try {
+		const response = await fetch('https://www.jma.go.jp/bosai/quake/data/list.json', {
+			headers: { accept: 'application/json' },
+			signal: boundedSignal(context.signal, 12_000)
+		});
+		if (!response.ok) return null;
+		const parsed = await response.json().catch(() => null);
+		if (!Array.isArray(parsed)) return null;
+		raw = parsed as JmaEarthquakeBulletin[];
+	} catch {
+		return null;
+	}
+	const earliest = now.getTime() - 48 * 60 * 60 * 1000;
+	const seen = new Set<string>();
+	const matching = raw
+		.filter((item) => {
+			const magnitude = Number(item.mag);
+			const occurredAt = Date.parse(item.at || '');
+			const usable =
+				Boolean(item.eid && item.json && item.en_anm) &&
+				!seen.has(item.eid!) &&
+				Number.isFinite(magnitude) &&
+				magnitude >= 2.5 &&
+				Number.isFinite(occurredAt) &&
+				occurredAt >= earliest;
+			if (!usable) return false;
+			seen.add(item.eid!);
+			return true;
+		})
+		.slice(0, 5);
+	if (!matching.length) return null;
+	const evidence = matching.map((item, index) => {
+		const eventTime = new Date(item.at!);
+		const depth = jmaDepthKm(item.cod);
+		const detail = [
+			`JMA reports a magnitude ${Number(item.mag)} earthquake in ${item.en_anm}`,
+			`at ${earthquakeEventTime(eventTime, query)}`,
+			depth == null ? '' : `at a depth of ${compactNumber(depth)} km`,
+			item.maxi ? `with maximum JMA seismic intensity ${item.maxi}` : ''
+		]
+			.filter(Boolean)
+			.join(', ');
+		const summary = `${detail}.`;
+		return normalizeEvidence({
+			source_name: 'Japan Meteorological Agency',
+			source_url: `https://www.jma.go.jp/bosai/quake/data/${item.json}`,
+			accessed_at: now.toISOString(),
+			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+			title: `${item.en_ttl || 'Earthquake information'} — ${item.en_anm}`,
+			published_at: eventTime.toISOString(),
+			extracted_text: summary,
+			summary,
+			confidence: 0.95,
+			limitations: ['Earthquake bulletin values can be revised as JMA reviews new data.'],
+			source_kind: 'official',
+			citation_number: index + 1
+		});
+	});
+	const statements = evidence.map((item) => `${item.summary} [${item.citation_number}]`);
+	return {
+		answer:
+			statements.length === 1
+				? statements[0]
+				: ['Latest JMA bulletins, newest first:', ...statements.map((statement) => `- ${statement}`)].join('\n'),
+		evidence
+	};
+}
+
+type JmaEarthquakeBulletin = {
+	eid?: string | null;
+	at?: string | null;
+	en_anm?: string | null;
+	en_ttl?: string | null;
+	mag?: string | number | null;
+	maxi?: string | null;
+	cod?: string | null;
+	json?: string | null;
+};
+
+function jmaDepthKm(value: string | null | undefined): number | null {
+	const match = value?.match(/([+-]\d+)\/$/);
+	if (!match) return null;
+	const metres = Math.abs(Number(match[1]));
+	return Number.isFinite(metres) ? metres / 1000 : null;
 }
 
 type UsgsEarthquakeCollection = {

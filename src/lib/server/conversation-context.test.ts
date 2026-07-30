@@ -7,6 +7,8 @@ import {
 	conversationContextCompatibilityMessage
 } from './conversation-context';
 import { serializeToolMetadata } from '$lib/utils/tool-metadata';
+import { guardEvidenceForConversation } from '../../../services/newsroom-harness/src/agents/grounded-conversation';
+import { normalizeEvidence } from '../../../services/newsroom-harness/src/agents/evidence';
 
 const citation = (
 	number: number,
@@ -58,6 +60,42 @@ describe('conversation context builder', () => {
 		});
 		expect(context.recentTurns).toBeUndefined();
 		expect(context.activeTopic?.subject).toContain('earthquakes in Japan');
+	});
+
+	it('keeps fresh official earthquake events after building the production conversation context', () => {
+		const prompt = "what's the latest on earthquakes in Japan";
+		const context = buildConversationContext({
+			messages: [message('m1', 'user', prompt)],
+			currentRequest: prompt,
+			currentMessageId: 'm1'
+		});
+		const event = normalizeEvidence({
+			source_name: 'U.S. Geological Survey',
+			source_url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us6000tgt4',
+			accessed_at: new Date().toISOString(),
+			tool_used: 'openai_web_search',
+			title: 'M 4.8 - 7 km W of Honmachi, Japan',
+			published_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+			extracted_text:
+				'USGS lists a reviewed magnitude 4.8 earthquake 7 km W of Honmachi, Japan at Jul 30, 2026, 09:01 GMT+9.',
+			summary:
+				'USGS lists a reviewed magnitude 4.8 earthquake 7 km W of Honmachi, Japan at Jul 30, 2026, 09:01 GMT+9.',
+			confidence: 0.95,
+			limitations: ['Earthquake catalog values can be revised as agencies review new data.'],
+			source_kind: 'official',
+			citation_number: 1
+		});
+
+		const guarded = guardEvidenceForConversation([event], context);
+
+		expect(context.activeTopic).toMatchObject({
+			subject: prompt,
+			entities: ['Japan'],
+			location: 'Japan',
+			relevantDate: 'latest'
+		});
+		expect(guarded.evidence).toEqual([event]);
+		expect(guarded.excluded).toEqual([]);
 	});
 
 	it('treats an ordinary weather question as current structured research', () => {

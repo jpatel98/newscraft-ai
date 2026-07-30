@@ -1495,8 +1495,8 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat'
 		});
 
-		expect(fetchMock).toHaveBeenCalledTimes(2);
-		expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(String(fetchMock.mock.calls[2]?.[0])).toContain(
 			'earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'
 		);
 		expect(result.final_answer).toContain('magnitude 4.6 earthquake 10 km W of Honmachi, Japan');
@@ -1599,48 +1599,39 @@ describe('disciplined newsroom agent harness', () => {
 			)
 			.mockResolvedValueOnce(
 				new Response(
-					JSON.stringify({
-						type: 'FeatureCollection',
-						features: [
-							{
-								type: 'Feature',
-								properties: {
-									mag: 4.6,
-									place: '10 km W of Honmachi, Japan',
-									time: Date.parse('2026-07-29T13:22:34.716Z'),
-									url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-newest',
-									title: 'M 4.6 - 10 km W of Honmachi, Japan',
-									status: 'reviewed'
-								},
-								geometry: { type: 'Point', coordinates: [130.49, 32.51, 10] }
-							},
-							{
-								type: 'Feature',
-								properties: {
-									mag: 5.4,
-									place: '11 km N of Tsunagi, Japan',
-									time: Date.parse('2026-07-29T12:39:36.661Z'),
-									url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-older',
-									title: 'M 5.4 - 11 km N of Tsunagi, Japan',
-									status: 'reviewed'
-								},
-								geometry: { type: 'Point', coordinates: [130.48, 32.34, 10] }
-							},
-							{
-								type: 'Feature',
-								properties: {
-									mag: 3.1,
-									place: 'California',
-									time: Date.parse('2026-07-29T14:00:00.000Z'),
-									url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-unrelated',
-									title: 'M 3.1 - California',
-									status: 'reviewed'
-								},
-								geometry: { type: 'Point', coordinates: [-120, 35, 5] }
-							}
-						]
-					}),
-					{ status: 200, headers: { 'content-type': 'application/geo+json' } }
+					JSON.stringify([
+						{
+							eid: '20260729222234',
+							at: '2026-07-29T22:22:00+09:00',
+							en_anm: 'Kumamoto Region, Kumamoto Prefecture',
+							en_ttl: 'Earthquake and Seismic Intensity Information',
+							mag: '4.6',
+							maxi: '3',
+							cod: '+32.5+130.6-10000/',
+							json: '20260729222500_20260729222234_VXSE5k_1.json'
+						},
+						{
+							eid: '20260729213936',
+							at: '2026-07-29T21:39:00+09:00',
+							en_anm: 'Amakusa and Ashikita Region, Kumamoto Prefecture',
+							en_ttl: 'Earthquake and Seismic Intensity Information',
+							mag: '5.4',
+							maxi: '4',
+							cod: '+32.3+130.4-10000/',
+							json: '20260729214200_20260729213936_VXSE5k_1.json'
+						},
+						{
+							eid: '20260729213936',
+							at: '2026-07-29T21:39:00+09:00',
+							en_anm: 'Amakusa and Ashikita Region, Kumamoto Prefecture',
+							en_ttl: 'Duplicate bulletin',
+							mag: '5.4',
+							maxi: '4',
+							cod: '+32.3+130.4-10000/',
+							json: 'duplicate.json'
+						}
+					]),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
 				)
 			);
 		vi.stubGlobal('fetch', fetchMock);
@@ -1696,7 +1687,7 @@ describe('disciplined newsroom agent harness', () => {
 		expect(String(fetchMock.mock.calls[1]?.[0])).toContain('api.perplexity.ai');
 		expect(String(fetchMock.mock.calls[2]?.[0])).toContain('api.perplexity.ai');
 		expect(String(fetchMock.mock.calls[3]?.[0])).toContain(
-			'earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'
+			'www.jma.go.jp/bosai/quake/data/list.json'
 		);
 		expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
 			search_recency_filter: 'day'
@@ -1706,10 +1697,11 @@ describe('disciplined newsroom agent harness', () => {
 			search_domain_filter: ['jma.go.jp', 'earthquake.usgs.gov'],
 			search_recency_filter: 'day'
 		});
-		expect(result.final_answer).toContain('magnitude 4.6 earthquake 10 km W of Honmachi, Japan');
-		expect(result.final_answer).toContain('magnitude 5.4 earthquake 11 km N of Tsunagi, Japan');
+		expect(result.final_answer).toContain('magnitude 4.6 earthquake in Kumamoto Region, Kumamoto Prefecture');
+		expect(result.final_answer).toContain(
+			'magnitude 5.4 earthquake in Amakusa and Ashikita Region, Kumamoto Prefecture'
+		);
 		expect(result.final_answer.indexOf('magnitude 4.6')).toBeLessThan(result.final_answer.indexOf('magnitude 5.4'));
-		expect(result.final_answer).not.toContain('California');
 		expect(result.final_answer).not.toContain('Check the page');
 		expect(result.final_answer).not.toContain('Consult it');
 		expect(result.final_answer).not.toContain('I can pull');
@@ -1718,11 +1710,13 @@ describe('disciplined newsroom agent harness', () => {
 		expect(result.evidence).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
-					source_url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-newest',
+					source_url:
+						'https://www.jma.go.jp/bosai/quake/data/20260729222500_20260729222234_VXSE5k_1.json',
 					source_kind: 'official'
 				}),
 				expect.objectContaining({
-					source_url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us-older',
+					source_url:
+						'https://www.jma.go.jp/bosai/quake/data/20260729214200_20260729213936_VXSE5k_1.json',
 					source_kind: 'official'
 				})
 			])
