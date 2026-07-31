@@ -1188,7 +1188,7 @@ describe('disciplined newsroom agent harness', () => {
 							url: 'https://www.ontario.ca/page/forest-fires',
 							title: 'Forest fire updates',
 							snippet: 'Ontario reported 12 active wildfires.',
-							date: '2026-07-29T15:30:00.000Z'
+							date: new Date(Date.now() - 60 * 60 * 1000).toISOString()
 						}
 					]
 				}),
@@ -1227,7 +1227,6 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat',
 			onToolEvent: (event) => toolEvents.push(event as unknown as Record<string, unknown>)
 		});
-
 		expect(fetchMock).toHaveBeenCalledTimes(3);
 		expect(fetchMock.mock.calls.slice(0, 2).every(([url]) => String(url).includes('api.openai.com'))).toBe(true);
 		expect(String(fetchMock.mock.calls[2]?.[0])).toContain('api.perplexity.ai');

@@ -144,6 +144,147 @@ describe('general-purpose conversational research regressions', () => {
 		expect(result.evidence.map((item) => item.source_url)).toEqual(['https://ottawa.example/housing']);
 		expect(result.limitations.join(' ')).toContain('excluded');
 	});
+
+	it('runs a multi-angle coverage sweep for a broad current-news assignment', async () => {
+		const queries: string[] = [];
+		const agent = agentWithSearch(async (input) => {
+			queries.push(input.query);
+			const index = queries.length;
+			const item = evidence(
+				`Toronto development ${index}`,
+				`https://outlet${index}.example/toronto/development-${index}`,
+				`Toronto development ${index} was confirmed in a newly published report.`,
+				'news_report',
+				{ location: 'Toronto' }
+			);
+			item.citation_number = 1;
+			return {
+				status: 'ok',
+				evidence: [item],
+				answer: `Toronto development ${index} was confirmed in a newly published report [1].`
+			};
+		});
+
+		const result = await agent.run('Latest Toronto news', {
+			outputStyle: 'chat',
+			conversationContext: context('Latest Toronto news', 'Toronto')
+		});
+
+		expect(queries).toHaveLength(3);
+		expect(new Set(queries).size).toBe(3);
+		expect(queries.every((query) => query.includes('Latest Toronto news'))).toBe(true);
+		expect(result.plan.steps).toHaveLength(3);
+		expect(result.evidence.map((item) => item.citation_number)).toEqual([1, 2, 3]);
+		expect(result.final_answer).toContain('development 1');
+		expect(result.final_answer).toContain('development 2');
+		expect(result.final_answer).toContain('development 3');
+		expect(result.final_answer).toContain('[1]');
+		expect(result.final_answer).toContain('[2]');
+		expect(result.final_answer).toContain('[3]');
+	});
+
+	it('checks each requested outlet against the inherited broad-news assignment', async () => {
+		const queries: string[] = [];
+		const agent = agentWithSearch(async (input) => {
+			queries.push(input.query);
+			const cp24 = /\bCP24\b/i.test(input.query);
+			const item = evidence(
+				cp24 ? 'CP24 Toronto article' : 'Global News Toronto article',
+				cp24
+					? 'https://www.cp24.com/news/toronto/cp24-story'
+					: 'https://globalnews.ca/news/toronto/global-story',
+				cp24
+					? 'CP24 reported a current Toronto development.'
+					: 'Global News reported a current Toronto development.',
+				'news_report',
+				{ location: 'Toronto' }
+			);
+			item.citation_number = 1;
+			return {
+				status: 'ok',
+				evidence: [item],
+				answer: `${item.summary} [1]`
+			};
+		});
+
+		const result = await agent.run('can u check globalnews.ca or cp24', {
+			outputStyle: 'chat',
+			conversationContext: {
+				version: 1,
+				intent: 'research',
+				currentTurn: {
+					messageId: 'latest-user-message',
+					content: 'can u check globalnews.ca or cp24',
+					resolvedRequest: 'can u check globalnews.ca or cp24',
+					operation: 'send',
+					researchRequired: true
+				},
+				activeTopic: {
+					subject: 'Latest Toronto news',
+					location: 'Toronto',
+					relevantDate: 'latest',
+					requestedOutlets: ['Global News', 'CP24'],
+					directSourcesRequired: true
+				}
+			}
+		});
+
+		expect(queries).toHaveLength(2);
+		expect(queries.some((query) => query.includes('Global News'))).toBe(true);
+		expect(queries.some((query) => query.includes('CP24'))).toBe(true);
+		expect(queries.every((query) => query.includes('Latest Toronto news'))).toBe(true);
+		expect(result.evidence.map((item) => item.source_url)).toEqual([
+			'https://globalnews.ca/news/toronto/global-story',
+			'https://www.cp24.com/news/toronto/cp24-story'
+		]);
+		expect(result.final_answer).toContain('[1]');
+		expect(result.final_answer).toContain('[2]');
+		expect(result.limitations.join(' ')).not.toContain('CP24 was not found');
+	});
+
+	it('rejects generic media landing pages and names a missing requested outlet', async () => {
+		const agent = agentWithSearch(async () => ({
+			status: 'ok',
+			evidence: [
+				evidence(
+					'Player | 640 Toronto',
+					'https://globalnews.ca/radio/640toronto/player',
+					'Another Toronto latest item concerns a fatal shooting.',
+					'news_report',
+					{ location: 'Toronto' }
+				)
+			]
+		}));
+
+		const result = await agent.run('can u check globalnews.ca or cp24', {
+			outputStyle: 'chat',
+			conversationContext: {
+				version: 1,
+				intent: 'research',
+				currentTurn: {
+					content: 'can u check globalnews.ca or cp24',
+					resolvedRequest: 'can u check globalnews.ca or cp24',
+					operation: 'send',
+					researchRequired: true
+				},
+				activeTopic: {
+					subject: 'Latest Toronto news',
+					location: 'Toronto',
+					relevantDate: 'latest',
+					requestedOutlets: ['Global News', 'CP24'],
+					directSourcesRequired: true
+				}
+			}
+		});
+
+		expect(result.evidence).toEqual([]);
+		expect(result.limitations.join(' ')).toContain('Global News');
+		expect(result.limitations.join(' ')).toContain('CP24');
+		expect(result.final_answer).not.toContain('fatal shooting');
+		expect(result.final_answer).toContain(
+			'I did not find readable article-level coverage from Global News, CP24 in this research pass.'
+		);
+	});
 });
 
 function agentWithSearch(

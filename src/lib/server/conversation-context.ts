@@ -76,7 +76,8 @@ const ENTITY_STOP_WORDS = new Set([
 
 const PUBLISHER_ALIASES: Array<[string, RegExp]> = [
 	['CBC', /\bCBC(?:\s+News)?\b/i],
-	['Global News', /\bGlobal(?:\s+News)?\b/i],
+	['Global News', /\bGlobal(?:\s*News)?(?:\.ca)?\b/i],
+	['CP24', /\bCP24(?:\.com)?\b/i],
 	['CTV News', /\bCTV(?:\s+News)?\b/i],
 	['CityNews', /\bCityNews\b/i],
 	['Reuters', /\bReuters\b/i],
@@ -394,13 +395,22 @@ function buildTopic(
 	const entities = extractEntities(extractionText);
 	const location = extractLocation(extractionText);
 	const comparison = /\b(compare|comparison|versus|vs\.?|both|two outlets?|coverage)\b/i.test(extractionText);
+	const directPublisherRequest =
+		requestedOutlets.length > 0 &&
+		(comparison ||
+			/\b(?:check|search|browse|look at|use|from|by|reported?|reporting|coverage|articles?|outlets?)\b/i.test(
+				currentRequest
+			) ||
+			/\b(?:globalnews\.ca|cp24\.com|cbc\.ca|ctvnews\.ca|citynews\.ca|reuters\.com|apnews\.com)\b/i.test(
+				currentRequest
+			));
 	return {
 		subject,
 		...(entities.length ? { entities } : {}),
 		...(location ? { location } : {}),
 		...(relevantDate ? { relevantDate } : {}),
 		...(requestedOutlets.length ? { requestedOutlets } : {}),
-		...(comparison && requestedOutlets.length > 1 ? { directSourcesRequired: true } : {})
+		...(directPublisherRequest ? { directSourcesRequired: true } : {})
 	};
 }
 
@@ -556,6 +566,7 @@ function referencesPriorConversation(value: string, intent: ConversationIntent):
 	const normalized = value.replace(/\s+/g, ' ').trim();
 	if (looksLikeExplicitNewTopicRequest(normalized)) return false;
 	if (looksLikeAmbiguousFollowup(value)) return true;
+	if (looksLikeSourceSelectionFollowup(normalized)) return true;
 	if (
 		/\b(?:cited|provided|existing|earlier|prior)\s+(?:evidence|sources?|citations?)\b/i.test(normalized) ||
 		/\b(?:inherited evidence|last answer|sources? from (?:your|the) last answer)\b/i.test(normalized) ||
@@ -581,6 +592,7 @@ function isTopicDerivationFollowup(value: string): boolean {
 	if (looksLikeAmbiguousFollowup(value)) return true;
 	const normalized = value.replace(/\s+/g, ' ').trim();
 	return (
+		looksLikeSourceSelectionFollowup(normalized) ||
 		/\b(?:previous|earlier|above|same)\s+(?:answer|story|claim|status|source|citation|evidence)\b/i.test(
 			normalized
 		) ||
@@ -588,6 +600,32 @@ function isTopicDerivationFollowup(value: string): boolean {
 		/\b(?:inherited evidence|last answer|sources? from (?:your|the) last answer)\b/i.test(normalized) ||
 		/\bcitation\s*\[\d+\]/i.test(normalized) ||
 		/\b(?:already\s+)?in (?:this|the) thread\b/i.test(normalized)
+	);
+}
+
+function looksLikeSourceSelectionFollowup(value: string): boolean {
+	const normalized = value.replace(/\s+/g, ' ').trim();
+	if (!normalized || normalized.length > 220) return false;
+	if (
+		!/\b(?:CBC(?:\s+News)?|Global(?:\s*News)?(?:\.ca)?|CP24(?:\.com)?|CTV(?:\s+News)?|CityNews|Reuters|Associated Press|AP News|BBC(?:\s+News)?|(?:The\s+)?Guardian|Toronto Star|Globe and Mail)\b/i.test(
+			normalized
+		)
+	) {
+		return false;
+	}
+	if (
+		/\b(?:about|on|regarding)\s+(?:a|an|the)?\s*[A-Z0-9][\s\S]{8,}$/i.test(normalized) &&
+		!/\b(?:this|that|same|story|topic|coverage|reporting|answer)\b/i.test(normalized)
+	) {
+		return false;
+	}
+	return (
+		/^(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+)?(?:also\s+)?(?:check|search|browse|use|try|look at|include)\b/i.test(
+			normalized
+		) ||
+		/\b(?:from|by|on)\s+(?:globalnews\.ca|cp24(?:\.com)?|cbc\.ca|ctvnews\.ca|citynews\.ca)\b/i.test(
+			normalized
+		)
 	);
 }
 

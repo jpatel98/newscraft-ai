@@ -16,7 +16,8 @@ const GENERIC_TERMS = new Set([
 
 export function rankEvidenceForConversation(
 	evidence: EvidenceObject[],
-	context: ConversationContext | undefined
+	context: ConversationContext | undefined,
+	options: { includeCoverageCompleteness?: boolean } = {}
 ): RankedEvidenceResult {
 	const topic = context?.activeTopic;
 	if (!topic) {
@@ -57,6 +58,20 @@ export function rankEvidenceForConversation(
 	if (!accepted.length && evidence.length) {
 		limitations.push('The gathered evidence was about a different subject, location, time, or could not support a factual claim.');
 	}
+	if (
+		options.includeCoverageCompleteness !== false &&
+		topic.directSourcesRequired &&
+		topic.requestedOutlets?.length
+	) {
+		const missingOutlets = topic.requestedOutlets.filter(
+			(outlet) => !accepted.some(({ item }) => comesFromOutlet(item, outlet))
+		);
+		if (missingOutlets.length) {
+			limitations.push(
+				`No readable article-level evidence was found from ${missingOutlets.join(', ')}.`
+			);
+		}
+	}
 	return {
 		evidence: accepted.map(({ item }) => item),
 		excluded: excluded.map(({ item }) => item),
@@ -96,6 +111,8 @@ function rankEvidence(item: EvidenceObject, topic: ConversationTopic): EvidenceR
 	const unsupported =
 		item.readability === 'blocked' ||
 		!(item.supporting_excerpt || item.extracted_text || item.summary).trim();
+	const genericPublisherLanding =
+		(topic.directSourcesRequired || isCurrentTopic(topic)) && isGenericPublisherLanding(item);
 	const wrongTime = incompatibleTime(item, topic);
 	const noConversationFit =
 		subjectTerms.length > 0 &&
@@ -107,6 +124,7 @@ function rankEvidence(item: EvidenceObject, topic: ConversationTopic): EvidenceR
 	if (unsafe) hardReject = 'unsafe';
 	else if (structurallyInvalid) hardReject = 'invalid';
 	else if (unsupported) hardReject = 'unsupported';
+	else if (genericPublisherLanding) hardReject = 'unsupported';
 	else if (directPublisherMismatch) hardReject = 'wrong_entity';
 	else if (explicitLocationMismatch) hardReject = 'wrong_location';
 	else if (explicitEntityMismatch && subjectMatches === 0) hardReject = 'wrong_entity';
@@ -227,6 +245,20 @@ function comesFromOutlet(item: EvidenceObject, outlet: string): boolean {
 		(label.length >= 2 && (domain.includes(label) || label.includes(domain))) ||
 		(acronym.length >= 2 && domain.startsWith(acronym))
 	);
+}
+
+function isGenericPublisherLanding(item: EvidenceObject): boolean {
+	if (item.source_kind !== 'news_report' && item.source_kind !== 'media_report') return false;
+	let path = '';
+	try {
+		path = new URL(item.source_url).pathname.toLowerCase().replace(/\/+$/, '');
+	} catch {
+		return true;
+	}
+	if (!path) return true;
+	if (/\/(?:player|live|watch|listen|search|latest|videos?|radio)$/.test(path)) return true;
+	if (/\/radio\/[^/]+\/player$/.test(path)) return true;
+	return /\b(?:player|live stream|homepage|breaking, latest news)\b/i.test(item.title);
 }
 
 function publisherDomainLabel(value: string): string {

@@ -96,8 +96,7 @@ function chatAnswer(
 	toolAnswers: string[],
 	conversationContext?: ConversationContext
 ): string {
-	const freshest = evidence[0];
-	const rawToolAnswer = toolAnswers.find((item) => item.trim());
+	const rawToolAnswer = mergeToolAnswers(toolAnswers);
 	const documentEvidence = evidence.filter((item) => item.source_kind === 'user_document');
 	const answer = rawToolAnswer
 		? formatChatToolAnswer(prompt, rawToolAnswer)
@@ -107,6 +106,25 @@ function chatAnswer(
 	const caveats = publicCaveatsFor(prompt, evidence, unusableEvidence, limitations, { noUsableEvidence: false });
 	const publicationDate = publicationDateAnswer(prompt, evidence);
 	return appendCaveats([answer, publicationDate].filter(Boolean).join('\n\n'), caveats);
+}
+
+function mergeToolAnswers(toolAnswers: string[]): string {
+	const seen = new Set<string>();
+	const blocks: string[] = [];
+	for (const answer of toolAnswers) {
+		for (const block of answer.split(/\n{2,}/)) {
+			const trimmed = block.trim();
+			if (!trimmed) continue;
+			const key = trimmed
+				.replace(/\[\d+\]/g, '')
+				.replace(/\s+/g, ' ')
+				.toLowerCase();
+			if (!key || seen.has(key)) continue;
+			seen.add(key);
+			blocks.push(trimmed);
+		}
+	}
+	return blocks.join('\n\n');
 }
 
 function publicationDateAnswer(prompt: string, evidence: EvidenceObject[]): string {
@@ -550,7 +568,10 @@ function wantsDirectUrls(prompt: string): boolean {
 function chatNoLead(unusableEvidence: EvidenceObject[], limitations: string[] = []): string {
 	const notes = sourceIssueNotes(unusableEvidence).slice(0, 3);
 	const caveats = publicCaveatsFor('', [], unusableEvidence, limitations, { noUsableEvidence: true });
-	return [caveats[0] || "I couldn't verify this from readable sources right now.", ...notes]
+	return [
+		...(caveats.length ? caveats : ["I couldn't verify this from readable sources right now."]),
+		...notes
+	]
 		.filter(Boolean)
 		.join('\n');
 }
@@ -1016,6 +1037,9 @@ function publicCaveatsFor(
 	const providerConfigurationLimitation = combinedLimitations
 		.map(providerUnavailableLimitation)
 		.find((item): item is string => Boolean(item));
+	const missingOutletCoverage = combinedLimitations
+		.map(missingOutletCoverageLimitation)
+		.find((item): item is string => Boolean(item));
 	const blocked = combinedLimitations.some((item) => /paywall|subscription|login|captcha|blocked|unavailable|access denied|access was restricted|requires access|forbidden|could not be read/i.test(item));
 	if (options.noUsableEvidence) {
 		if (providerConfigurationLimitation) caveats.push(providerConfigurationLimitation);
@@ -1026,9 +1050,11 @@ function publicCaveatsFor(
 					: "I couldn't verify this from readable sources right now."
 			);
 		}
+		if (missingOutletCoverage) caveats.push(missingOutletCoverage);
 		return caveats;
 	}
 	if (providerConfigurationLimitation) caveats.push(providerConfigurationLimitation);
+	if (missingOutletCoverage) caveats.push(missingOutletCoverage);
 
 	if (needsPrimaryConfirmation(prompt, evidence)) {
 		caveats.push('I could not confirm this from a readable official or primary source in the gathered material; verify before relying on it.');
@@ -1062,6 +1088,8 @@ function appendCaveats(answer: string, caveats: string[]): string {
 function publicLimitationNote(value: string): string {
 	const providerUnavailable = providerUnavailableLimitation(value);
 	if (providerUnavailable) return providerUnavailable;
+	const missingOutletCoverage = missingOutletCoverageLimitation(value);
+	if (missingOutletCoverage) return missingOutletCoverage;
 	if (/paywall|subscription|login|captcha|blocked|access denied|forbidden|could not be read|unavailable/i.test(value)) {
 		return 'A candidate source was blocked, paywalled, unavailable, or could not be read. It was not used as evidence.';
 	}
@@ -1069,6 +1097,12 @@ function publicLimitationNote(value: string): string {
 		return 'No usable source material was available from one attempted source.';
 	}
 	return '';
+}
+
+function missingOutletCoverageLimitation(value: string): string | null {
+	const match = value.match(/^No readable article-level evidence was found from (.+)\.$/i);
+	if (!match) return null;
+	return `I did not find readable article-level coverage from ${match[1]} in this research pass.`;
 }
 
 function providerUnavailableLimitation(value: string): string | null {

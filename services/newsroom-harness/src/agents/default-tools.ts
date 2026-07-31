@@ -38,7 +38,8 @@ const NAMED_SOURCE_DOMAINS: Array<{ pattern: RegExp; domain: string }> = [
 	{ pattern: /\b(?:AP|Associated Press|AP News)\b/i, domain: 'apnews.com' },
 	{ pattern: /\bToronto Star\b/i, domain: 'thestar.com' },
 	{ pattern: /\b(?:The )?Globe and Mail\b/i, domain: 'theglobeandmail.com' },
-	{ pattern: /\bGlobal News\b/i, domain: 'globalnews.ca' },
+	{ pattern: /\bGlobal(?:\s*News)?(?:\.ca)?\b/i, domain: 'globalnews.ca' },
+	{ pattern: /\bCP24(?:\.com)?\b/i, domain: 'cp24.com' },
 	{ pattern: /\bCityNews\b/i, domain: 'citynews.ca' },
 	{ pattern: /\bBBC(?: News)?\b/i, domain: 'bbc.com' },
 	{ pattern: /\b(?:The )?Guardian\b/i, domain: 'theguardian.com' }

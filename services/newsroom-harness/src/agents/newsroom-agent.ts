@@ -202,7 +202,13 @@ export class DisciplinedNewsroomAgent {
 		}
 
 		const signal = combinedSignal(context.signal, decision.tool_budget.max_runtime_seconds);
-		const plan = await this.resolvePlan(researchPrompt, decision, context, signal);
+		const plan = await this.resolvePlan(
+			researchPrompt,
+			resolvedRoutingPrompt,
+			decision,
+			context,
+			signal
+		);
 		const queue: QueuedStep[] = plan.steps.map((step, index) => ({
 			id: `step_${index + 1}`,
 			tool: step.tool,
@@ -274,7 +280,10 @@ export class DisciplinedNewsroomAgent {
 				// verbatim, and a second stream after a failed one would garble output.
 				onAnswerDelta: toolAnswers.length === 0 && !answerStreamUsed ? forwardAnswerDelta : undefined
 			}, step.input);
-			const output = applyConversationGuard(rawOutput, context.conversationContext);
+			const normalizedOutput = context.documents?.length
+				? rawOutput
+				: rebaseToolOutputCitations(rawOutput, evidence);
+			const output = applyConversationGuard(normalizedOutput, context.conversationContext);
 			lastOutput = output;
 			const outputLimitations = output.limitations || [];
 			const publicDetail = output.status === 'ok' ? undefined : publicStepFailureDetail(outputLimitations);
@@ -299,11 +308,21 @@ export class DisciplinedNewsroomAgent {
 				evidenceDiagnostics: output.evidence_diagnostics,
 				diagnostics: output.diagnostics
 			});
+			if (
+				step.tool === NEWSROOM_TOOL_NAMES.webSearch &&
+				shouldStopRepeatedWebSearch(output) &&
+				queue.slice(index).some((item) => item.tool === NEWSROOM_TOOL_NAMES.webSearch)
+			) {
+				stoppedReason = 'live research capability unavailable';
+				skipRemaining(queue, index, 'Live research is temporarily unavailable.');
+				emitPlan();
+				break;
+			}
 
 			followUpFetches += this.queueFollowUps(
 				queue,
 				step,
-				rawOutput,
+				normalizedOutput,
 				evidence,
 				ledger,
 				context,
@@ -324,12 +343,12 @@ export class DisciplinedNewsroomAgent {
 		const finalGuard = guardEvidenceForConversation(evidence, context.conversationContext);
 		if (finalGuard.excluded.length) {
 			evidence.splice(0, evidence.length, ...finalGuard.evidence);
-			limitations.push(...finalGuard.limitations);
 			const groundedAnswers = toolAnswers
 				.map((answer) => retainAcceptedCitationClaims(answer, finalGuard.evidence))
 				.filter((answer): answer is string => Boolean(answer));
 			toolAnswers.splice(0, toolAnswers.length, ...groundedAnswers);
 		}
+		limitations.push(...finalGuard.limitations);
 		alignCitationSequence(evidence, toolAnswers);
 		if (!toolCalls.length && plan.steps.length) {
 			limitations.push('No selected tools were run.');
@@ -365,6 +384,7 @@ export class DisciplinedNewsroomAgent {
 	 */
 	private async resolvePlan(
 		prompt: string,
+		currentRequest: string,
 		decision: RouteDecision,
 		context: NewsroomAgentRunContext,
 		signal: AbortSignal
@@ -374,6 +394,10 @@ export class DisciplinedNewsroomAgent {
 			// Attached-document requests have a strict evidence order: read the
 			// document first, then search only when corroboration was requested.
 			return routedPlan;
+		}
+		if (!context.forcePlanner) {
+			const coveragePlan = coverageSweepPlan(routedPlan, currentRequest, context);
+			if (coveragePlan !== routedPlan) return coveragePlan;
 		}
 		const fallback = context.forcePlanner
 			? routedPlan
@@ -641,7 +665,9 @@ function documentRouteDecision(base: RouteDecision, prompt: string): RouteDecisi
 }
 
 function applyConversationGuard(output: ToolRunOutput, context: ConversationContext | undefined): ToolRunOutput {
-	const guarded = guardEvidenceForConversation(output.evidence || [], context);
+	const guarded = guardEvidenceForConversation(output.evidence || [], context, {
+		includeCoverageCompleteness: false
+	});
 	const limitations = [...(output.limitations || []), ...guarded.limitations];
 	return {
 		...output,
@@ -653,6 +679,45 @@ function applyConversationGuard(output: ToolRunOutput, context: ConversationCont
 				? retainAcceptedCitationClaims(output.answer, guarded.evidence)
 				: output.answer,
 		limitations
+	};
+}
+
+function rebaseToolOutputCitations(
+	output: ToolRunOutput,
+	existingEvidence: EvidenceObject[]
+): ToolRunOutput {
+	if (!output.evidence?.length) return output;
+	const used = new Set(
+		existingEvidence
+			.map((item) => item.citation_number)
+			.filter((number): number is number => Number.isInteger(number) && Number(number) > 0)
+	);
+	if (!used.size) return output;
+	let next = Math.max(...used) + 1;
+	const remap = new Map<number, number>();
+	const evidence = output.evidence.map((item) => {
+		const original = item.citation_number;
+		if (!original || !Number.isInteger(original)) return item;
+		let replacement = remap.get(original);
+		if (!replacement) {
+			while (used.has(next)) next += 1;
+			replacement = next;
+			next += 1;
+			used.add(replacement);
+			remap.set(original, replacement);
+		}
+		return { ...item, citation_number: replacement };
+	});
+	if (!remap.size) return { ...output, evidence };
+	return {
+		...output,
+		evidence,
+		answer: output.answer
+			? output.answer.replace(/\[(\d+)\]/g, (marker, rawNumber: string) => {
+					const replacement = remap.get(Number(rawNumber));
+					return replacement ? `[${replacement}]` : marker;
+				})
+			: output.answer
 	};
 }
 
@@ -912,6 +977,89 @@ function singleCallChatFollowupPlan(
 	}
 	const webSearch = plan.steps.find((step) => step.tool === NEWSROOM_TOOL_NAMES.webSearch);
 	return webSearch ? { ...plan, steps: [webSearch] } : plan;
+}
+
+function coverageSweepPlan(
+	plan: ResearchPlan,
+	currentRequest: string,
+	context: NewsroomAgentRunContext
+): ResearchPlan {
+	if (context.outputStyle !== 'chat' || !isBroadNewsCoverageRequest(currentRequest, context)) {
+		return plan;
+	}
+	const subject = context.conversationContext?.activeTopic?.subject.trim() || currentRequest.trim();
+	const requestedOutlets =
+		context.conversationContext?.activeTopic?.directSourcesRequired
+			? context.conversationContext.activeTopic.requestedOutlets || []
+			: [];
+	if (requestedOutlets.length) {
+		return {
+			source: 'router',
+			reason: 'The user requested a broad news assignment constrained to named publishers.',
+			steps: requestedOutlets.slice(0, 3).map((outlet) => ({
+				tool: NEWSROOM_TOOL_NAMES.webSearch,
+				input: [
+					subject,
+					`Search ${outlet} for the latest directly relevant coverage.`,
+					'Return specific article pages, not a homepage, section page, radio player, live stream, or generic landing page.'
+				].join(' '),
+				label: `Checking ${outlet}`
+			}))
+		};
+	}
+	return {
+		source: 'router',
+		reason: 'A broad current-news assignment needs independent coverage angles before synthesis.',
+		steps: [
+			{
+				tool: NEWSROOM_TOOL_NAMES.webSearch,
+				input: `${subject}. Search top and breaking developments across major local, national, and directly relevant news outlets. Return specific article pages.`,
+				label: 'Scanning top and breaking stories'
+			},
+			{
+				tool: NEWSROOM_TOOL_NAMES.webSearch,
+				input: `${subject}. Search official announcements and public-impact coverage, including government, public safety, transport, health, and education when relevant. Return specific source or article pages.`,
+				label: 'Checking public-impact developments'
+			},
+			{
+				tool: NEWSROOM_TOOL_NAMES.webSearch,
+				input: `${subject}. Search business, housing, culture, community, sports, and major-event coverage when relevant. Return specific article pages.`,
+				label: 'Checking other major coverage'
+			}
+		]
+	};
+}
+
+function shouldStopRepeatedWebSearch(output: ToolRunOutput): boolean {
+	if (output.status !== 'error' && output.status !== 'unavailable') return false;
+	const attempts = output.diagnostics?.attempts || [];
+	const terminalCategory = attempts.at(-1)?.failureCategory;
+	if (
+		terminalCategory &&
+		!['no_usable_sources', 'stream_interrupted', 'timeout', 'network'].includes(terminalCategory)
+	) {
+		return true;
+	}
+	return (output.limitations || []).some((item) =>
+		/not configured|api[_ -]?key is missing|authentication|unauthorized|forbidden/i.test(item)
+	);
+}
+
+function isBroadNewsCoverageRequest(
+	currentRequest: string,
+	context: NewsroomAgentRunContext
+): boolean {
+	const subject = context.conversationContext?.activeTopic?.subject || '';
+	const combined = `${subject}\n${currentRequest}`;
+	const asksForNews =
+		/\b(?:news|headlines|top stories|news roundup|what(?:'s| is) happening)\b/i.test(combined);
+	const asksForCurrentCoverage =
+		/\b(?:latest|today|tonight|current|breaking|newest|this morning|this afternoon)\b/i.test(
+			combined
+		) ||
+		context.conversationContext?.activeTopic?.relevantDate === 'current' ||
+		context.conversationContext?.activeTopic?.relevantDate === 'latest';
+	return asksForNews && asksForCurrentCoverage;
 }
 
 function firstUrlFromText(text: string): string | null {

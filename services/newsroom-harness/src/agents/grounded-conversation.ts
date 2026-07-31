@@ -37,7 +37,7 @@ export function formatConversationContext(context: ConversationContext | undefin
 					...(topic.requestedOutlets?.length
 						? [
 								`- Requested publishers: ${topic.requestedOutlets.join(', ')}${
-									topic.directSourcesRequired ? '; accept only their direct publisher pages for the comparison' : ''
+									topic.directSourcesRequired ? '; accept only direct article pages from those publishers' : ''
 								}`
 							]
 						: [])
@@ -81,9 +81,10 @@ export function formatConversationContext(context: ConversationContext | undefin
 
 export function guardEvidenceForConversation(
 	evidence: EvidenceObject[],
-	context: ConversationContext | undefined
+	context: ConversationContext | undefined,
+	options: { includeCoverageCompleteness?: boolean } = {}
 ): GroundedEvidenceResult {
-	const ranked = rankEvidenceForConversation(evidence, context);
+	const ranked = rankEvidenceForConversation(evidence, context, options);
 	return {
 		evidence: ranked.evidence,
 		excluded: ranked.excluded,

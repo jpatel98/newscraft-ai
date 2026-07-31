@@ -147,7 +147,7 @@ describe('planned agent loop', () => {
 		expect(result.plan.steps[0].status).toBe('ok');
 	});
 
-	it('uses the router plan for one-step chat research', async () => {
+	it('uses a deterministic multi-angle router plan for broad chat research', async () => {
 		const registry = new ToolRegistry();
 		const searchInputs: string[] = [];
 		registry.register(
@@ -180,7 +180,14 @@ describe('planned agent loop', () => {
 
 		expect(plannerCalls).toBe(0);
 		expect(result.plan.source).toBe('router');
-		expect(searchInputs).toEqual([prompt]);
+		expect(searchInputs).toHaveLength(3);
+		expect(new Set(searchInputs).size).toBe(3);
+		expect(searchInputs.every((input) => input.includes(prompt))).toBe(true);
+		expect(result.plan.steps.map((step) => step.label)).toEqual([
+			'Scanning top and breaking stories',
+			'Checking public-impact developments',
+			'Checking other major coverage'
+		]);
 	});
 
 	it('uses one web search for context follow-ups without explicit source requirements', async () => {

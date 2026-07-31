@@ -600,4 +600,40 @@ describe('conversation context builder', () => {
 			location: 'Toronto'
 		});
 	});
+
+	it('keeps the prior news assignment when a follow-up only changes the requested outlets', () => {
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Latest Toronto news'),
+				message(
+					'm2',
+					'assistant',
+					'Toronto council approved temporary traffic measures. [1]',
+					[
+						citation(1, {
+							title: 'Toronto traffic measures',
+							url: 'https://www.toronto.ca/news/traffic-measures',
+							domain: 'toronto.ca',
+							sourceType: 'official'
+						})
+					]
+				),
+				message('m3', 'user', 'can u check globalnews.ca or cp24')
+			],
+			currentRequest: 'can u check globalnews.ca or cp24',
+			currentMessageId: 'm3'
+		});
+
+		expect(context.currentTurn).toMatchObject({
+			content: 'can u check globalnews.ca or cp24',
+			resolvedRequest: 'can u check globalnews.ca or cp24',
+			researchRequired: true
+		});
+		expect(context.activeTopic).toMatchObject({
+			subject: 'Latest Toronto news',
+			location: 'Toronto',
+			requestedOutlets: ['Global News', 'CP24'],
+			directSourcesRequired: true
+		});
+	});
 });

@@ -249,13 +249,13 @@ function isOfficialSource(host: string): boolean {
 
 function isNewsSource(host: string, sourceName: string): boolean {
 	if (
-		/(^|\.)(reuters\.com|apnews\.com|cbc\.ca|ctvnews\.ca|globalnews\.ca|citynews\.ca|thestar\.com|theglobeandmail\.com|bbc\.(com|co\.uk)|theguardian\.com|aljazeera\.com|cnn\.com|nytimes\.com|washingtonpost\.com|espn\.com|sportsnet\.ca|tsn\.ca|theathletic\.com)$/.test(
+		/(^|\.)(reuters\.com|apnews\.com|cbc\.ca|ctvnews\.ca|globalnews\.ca|cp24\.com|citynews\.ca|thestar\.com|theglobeandmail\.com|bbc\.(com|co\.uk)|theguardian\.com|aljazeera\.com|cnn\.com|nytimes\.com|washingtonpost\.com|espn\.com|sportsnet\.ca|tsn\.ca|theathletic\.com)$/.test(
 			host
 		)
 	) {
 		return true;
 	}
-	return /\b(reuters|associated press|ap news|cbc news|ctv news|global news|citynews|toronto star|globe and mail|bbc news|guardian|news outlet|media report)\b/.test(
+	return /\b(reuters|associated press|ap news|cbc news|ctv news|global news|cp24|citynews|toronto star|globe and mail|bbc news|guardian|news outlet|media report)\b/.test(
 		sourceName
 	);
 }
