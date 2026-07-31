@@ -947,7 +947,7 @@ describe('newsroom agent runtime', () => {
 			}
 		);
 
-		expect(answer).toContain('official notice confirms');
+		expect(answer).toContain('program begins Monday');
 		expect(webQuery).toContain('The memo says the program begins Monday.');
 		expect(answer).toContain('[1]');
 		expect(answer).toContain('Attached document evidence');
@@ -1313,6 +1313,7 @@ function stubRuntimeTool(name: string, category: ToolCategory, text: string): Ne
 		input_schema: { type: 'object' },
 		output_schema: { type: 'object' },
 		async run() {
+			const now = new Date().toISOString();
 			return {
 				status: 'ok',
 				answer: text,
@@ -1320,10 +1321,10 @@ function stubRuntimeTool(name: string, category: ToolCategory, text: string): Ne
 					normalizeEvidence({
 						source_name: `${name} fixture`,
 						source_url: name === 'source_feed_fetcher' ? 'http://127.0.0.1/latest' : 'https://example.com/story',
-						accessed_at: '2026-07-04T12:00:00.000Z',
+						accessed_at: now,
 						tool_used: name,
 						title: `${name} result`,
-						published_at: '2026-07-04T11:00:00.000Z',
+						published_at: now,
 						extracted_text: text,
 						summary: text,
 						confidence: 0.8,

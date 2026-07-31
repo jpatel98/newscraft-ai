@@ -17,12 +17,47 @@ export interface AnswerGenerationInput {
 	toolAnswers?: string[];
 	outputStyle?: 'report' | 'chat';
 	conversationContext?: ConversationContext;
+	researchStepCount?: number;
+}
+
+export function enforceFinalCitationIntegrity(answer: string, evidence: EvidenceObject[]): string {
+	const byNumber = new Map<number, EvidenceObject[]>();
+	for (const item of evidence) {
+		if (!item.citation_number) continue;
+		byNumber.set(item.citation_number, [...(byNumber.get(item.citation_number) || []), item]);
+	}
+	const valid = new Set(
+		[...byNumber.entries()].filter(([, items]) => items.length === 1).map(([number]) => number)
+	);
+	const guarded = answer
+		.split('\n')
+		.filter((line) => {
+			const markers = Array.from(line.matchAll(/\[(\d+)\]/g), (match) => Number(match[1]));
+			return !markers.length || markers.every((number) => valid.has(number));
+		})
+		.join('\n')
+		.replace(/\n{3,}/g, '\n\n')
+		.trim();
+	const visible = Array.from(new Set(Array.from(guarded.matchAll(/\[(\d+)\]/g), (match) => Number(match[1]))));
+	if (!visible.length) return guarded;
+	const cited = visible.map((number) => byNumber.get(number)?.[0]).filter((item): item is EvidenceObject => Boolean(item));
+	const uncited = evidence.filter((item) => !cited.includes(item));
+	const ordered = [...cited, ...uncited];
+	const remap = new Map<number, number>();
+	for (const [index, item] of ordered.entries()) {
+		if (item.citation_number && !remap.has(item.citation_number)) remap.set(item.citation_number, index + 1);
+		item.citation_number = index + 1;
+	}
+	evidence.splice(0, evidence.length, ...ordered);
+	return guarded.replace(/\[(\d+)\]/g, (_marker, raw: string) => `[${remap.get(Number(raw))}]`);
 }
 
 export function generateFinalAnswer(input: AnswerGenerationInput): string {
 	const answerEvidence =
 		input.outputStyle === 'chat' ? withImplicitCitationNumbers(input.evidence) : input.evidence;
-	const sortedEvidence = sortEvidenceForPrompt(input.prompt, answerEvidence);
+	const sortedEvidence = answerEvidence.some((item) => item.temporal_scope)
+		? answerEvidence
+		: sortEvidenceForPrompt(input.prompt, answerEvidence);
 	const evidence = sortedEvidence.filter(isUsableEvidence);
 	const unusableEvidence = sortedEvidence.filter((item) => !isUsableEvidence(item));
 	if (input.decision.selected_mode === 'clarification_needed') {
@@ -61,7 +96,8 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 			unusableEvidence,
 			input.limitations,
 			input.toolAnswers || [],
-			input.conversationContext
+			input.conversationContext,
+			input.researchStepCount
 		);
 	}
 
@@ -94,37 +130,20 @@ function chatAnswer(
 	unusableEvidence: EvidenceObject[],
 	limitations: string[],
 	toolAnswers: string[],
-	conversationContext?: ConversationContext
+	conversationContext?: ConversationContext,
+	researchStepCount = toolAnswers.length
 ): string {
-	const rawToolAnswer = mergeToolAnswers(toolAnswers);
 	const documentEvidence = evidence.filter((item) => item.source_kind === 'user_document');
-	const answer = rawToolAnswer
-		? formatChatToolAnswer(prompt, rawToolAnswer)
-		: documentEvidence.length
+	const externalEvidence = evidence.filter((item) => item.source_kind !== 'user_document');
+	const singleToolAnswer = researchStepCount === 1 && toolAnswers.length === 1 ? toolAnswers[0] : '';
+	const answer = singleToolAnswer
+		? formatChatToolAnswer(prompt, singleToolAnswer)
+		: documentEvidence.length && !externalEvidence.length
 			? documentChatAnswer(documentEvidence, prompt)
-			: groundedEvidenceChatAnswer(prompt, evidence);
+			: groundedEvidenceChatAnswer(prompt, externalEvidence.length ? externalEvidence : evidence);
 	const caveats = publicCaveatsFor(prompt, evidence, unusableEvidence, limitations, { noUsableEvidence: false });
 	const publicationDate = publicationDateAnswer(prompt, evidence);
 	return appendCaveats([answer, publicationDate].filter(Boolean).join('\n\n'), caveats);
-}
-
-function mergeToolAnswers(toolAnswers: string[]): string {
-	const seen = new Set<string>();
-	const blocks: string[] = [];
-	for (const answer of toolAnswers) {
-		for (const block of answer.split(/\n{2,}/)) {
-			const trimmed = block.trim();
-			if (!trimmed) continue;
-			const key = trimmed
-				.replace(/\[\d+\]/g, '')
-				.replace(/\s+/g, ' ')
-				.toLowerCase();
-			if (!key || seen.has(key)) continue;
-			seen.add(key);
-			blocks.push(trimmed);
-		}
-	}
-	return blocks.join('\n\n');
 }
 
 function publicationDateAnswer(prompt: string, evidence: EvidenceObject[]): string {
@@ -137,7 +156,9 @@ function groundedEvidenceChatAnswer(
 	prompt: string,
 	evidence: EvidenceObject[]
 ): string {
-	const conflict = conflictingEvidenceStatement(evidence);
+	const conflict = /\b(?:verify|fact[- ]?check|confirm|is it true|status|active|in effect)\b/i.test(prompt)
+		? conflictingEvidenceStatement(evidence)
+		: '';
 	if (conflict) return conflict;
 
 	const statements = evidence
@@ -145,7 +166,10 @@ function groundedEvidenceChatAnswer(
 			const statement = completeEvidenceStatement(item);
 			if (!statement) return '';
 			const marker = item.citation_number ? ` [${item.citation_number}]` : '';
-			return `${statement}${marker}`;
+			const date = item.event_at || item.published_at;
+			const dateLabel = date ? new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date)) : '';
+			const fallback = item.temporal_scope === 'fallback' ? 'Earlier (last 24 hours) - ' : '';
+			return `${fallback}${dateLabel ? `${dateLabel}: ` : ''}${statement}${marker}`;
 		})
 		.filter(Boolean)
 		.slice(0, 6);
@@ -153,7 +177,7 @@ function groundedEvidenceChatAnswer(
 		return "I couldn't verify a complete claim from the remaining topic- and date-matched source text.";
 	}
 	if (statements.length === 1) return statements[0];
-	return ['**Confirmed from the usable evidence**', '', ...statements.map((statement) => `- ${statement}`)].join('\n');
+	return ['**Latest producer roundup**', '', ...statements.map((statement) => `- ${statement}`)].join('\n');
 }
 
 function conflictingEvidenceStatement(evidence: EvidenceObject[]): string {

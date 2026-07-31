@@ -1315,7 +1315,8 @@ describe('disciplined newsroom agent harness', () => {
 			}
 		});
 
-		expect(result.final_answer).toContain('U.S. Consulate in Toronto on Monday');
+		expect(result.final_answer).toContain("couldn't verify");
+		expect(result.evidence).toEqual([]);
 		expect(result.final_answer).not.toContain('unrelated stale claim');
 	});
 });

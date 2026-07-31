@@ -1,5 +1,5 @@
 import type { HarnessRepository } from '../db/repository.js';
-import { generateFinalAnswer } from './answer.js';
+import { enforceFinalCitationIntegrity, generateFinalAnswer } from './answer.js';
 import {
 	budgetKindForToolCategory,
 	mergeToolBudget,
@@ -11,6 +11,7 @@ import {
 	dedupeEvidence,
 	evidenceHasBlockingLimitation,
 	isUsableEvidence,
+	preparePublishableEvidence,
 	type EvidenceObject,
 	type EvidenceRanking
 } from './evidence.js';
@@ -32,6 +33,7 @@ import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest, type RouteDecision } from '.
 import type { NewsroomTool, ToolRegistry, ToolRunContext, ToolRunOutput } from './tools.js';
 import type { ModelProvider } from '../util/openai-complete.js';
 import type { ConversationContext, DocumentContext, NewsroomContext } from '@newscraft/shared';
+import { createNewsroomTemporalContext, isCurrentEventQuery, type NewsroomClock, type NewsroomTemporalContext } from './time-context.js';
 
 export interface NewsroomAgentRunContext {
 	repository?: HarnessRepository;
@@ -51,6 +53,8 @@ export interface NewsroomAgentRunContext {
 	routingPrompt?: string;
 	/** Force the model planner for diagnostics/eval comparisons. */
 	forcePlanner?: boolean;
+	/** One request-owned temporal contract; created from clock when omitted. */
+	temporalContext?: NewsroomTemporalContext;
 	onToolEvent?: (event: AgentToolEvent) => void;
 	/** Live answer-text deltas, forwarded from the first answer-producing tool. */
 	onAnswerDelta?: (delta: string) => void;
@@ -114,6 +118,7 @@ export interface DisciplinedNewsroomAgentOptions {
 	perplexityApiKey?: string;
 	/** Planner override, mainly for tests. Defaults to the model planner. */
 	planner?: PlannerFn;
+	clock?: NewsroomClock;
 }
 
 interface QueuedStep {
@@ -148,6 +153,12 @@ export class DisciplinedNewsroomAgent {
 		const routingPrompt = context.routingPrompt?.trim() || prompt;
 		const resolvedRoutingPrompt =
 			context.conversationContext?.currentTurn?.resolvedRequest.trim() || routingPrompt;
+		const temporalContext = context.temporalContext || createNewsroomTemporalContext({
+			now: (this.options.clock || (() => new Date()))(),
+			timeZone: context.newsroomContext?.timezone,
+			request: resolvedRoutingPrompt
+		});
+		context = { ...context, temporalContext };
 		const researchPrompt = documentResearchPrompt(
 			groundedResearchPrompt(resolvedRoutingPrompt, context.conversationContext),
 			context.documents
@@ -283,7 +294,8 @@ export class DisciplinedNewsroomAgent {
 			const normalizedOutput = context.documents?.length
 				? rawOutput
 				: rebaseToolOutputCitations(rawOutput, evidence);
-			const output = applyConversationGuard(normalizedOutput, context.conversationContext);
+			const conversationGuarded = applyConversationGuard(normalizedOutput, context.conversationContext, temporalContext);
+			const output = applyTemporalGuard(conversationGuarded, temporalContext, isCurrentEventQuery(resolvedRoutingPrompt));
 			lastOutput = output;
 			const outputLimitations = output.limitations || [];
 			const publicDetail = output.status === 'ok' ? undefined : publicStepFailureDetail(outputLimitations);
@@ -340,7 +352,7 @@ export class DisciplinedNewsroomAgent {
 		if (evidenceHasBlockingLimitation(evidence) && !limitations.some((item) => /blocked|unavailable/i.test(item))) {
 			limitations.push('One or more sources were blocked or unavailable.');
 		}
-		const finalGuard = guardEvidenceForConversation(evidence, context.conversationContext);
+		const finalGuard = guardEvidenceForConversation(evidence, context.conversationContext, { temporalContext });
 		if (finalGuard.excluded.length) {
 			evidence.splice(0, evidence.length, ...finalGuard.evidence);
 			const groundedAnswers = toolAnswers
@@ -349,27 +361,39 @@ export class DisciplinedNewsroomAgent {
 			toolAnswers.splice(0, toolAnswers.length, ...groundedAnswers);
 		}
 		limitations.push(...finalGuard.limitations);
+		const publishable = preparePublishableEvidence(evidence, temporalContext, isCurrentEventQuery(resolvedRoutingPrompt));
+		const orderedPublishable = context.documents?.length
+			? [
+					...publishable.accepted.filter((item) => item.source_kind !== 'user_document'),
+					...publishable.accepted.filter((item) => item.source_kind === 'user_document')
+				].map((item, index) => ({ ...item, citation_number: index + 1 }))
+			: publishable.accepted;
+		evidence.splice(0, evidence.length, ...orderedPublishable);
+		if (publishable.excluded.length) limitations.push(`${publishable.excluded.length} discovery, hub, unknown-date, or out-of-window source${publishable.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`);
 		alignCitationSequence(evidence, toolAnswers);
 		if (!toolCalls.length && plan.steps.length) {
 			limitations.push('No selected tools were run.');
 		}
 
 		const budget = ledger.snapshot();
+		let finalAnswer = generateFinalAnswer({
+			prompt: resolvedRoutingPrompt,
+			decision,
+			evidence,
+			limitations,
+			budget,
+			toolAnswers,
+			researchStepCount: toolCalls.length,
+			outputStyle: context.outputStyle,
+			conversationContext: context.conversationContext
+		});
+		if (context.outputStyle === 'chat') finalAnswer = enforceFinalCitationIntegrity(finalAnswer, evidence);
 		return {
 			prompt,
 			decision,
 			plan: planEvent(plan.source, queue),
 			evidence,
-			final_answer: generateFinalAnswer({
-				prompt: resolvedRoutingPrompt,
-				decision,
-				evidence,
-				limitations,
-				budget,
-				toolAnswers,
-				outputStyle: context.outputStyle,
-				conversationContext: context.conversationContext
-			}),
+			final_answer: finalAnswer,
 			limitations: [...new Set(limitations.filter(Boolean))],
 			tool_calls: toolCalls,
 			budget,
@@ -437,6 +461,7 @@ export class DisciplinedNewsroomAgent {
 				apiKey,
 				provider,
 				model: policy.model,
+				temporalContext: context.temporalContext!,
 				reasoningEffort: policy.reasoningEffort,
 				signal: plannerSignal(signal)
 			});
@@ -609,6 +634,7 @@ export class DisciplinedNewsroomAgent {
 			perplexityApiKey: context.perplexityApiKey || this.options.perplexityApiKey,
 			trigger: context.trigger,
 			newsroomContext: context.newsroomContext,
+			temporalContext: context.temporalContext,
 			conversationContext: context.conversationContext,
 			documents: context.documents,
 			signal: context.signal,
@@ -664,9 +690,10 @@ function documentRouteDecision(base: RouteDecision, prompt: string): RouteDecisi
 	};
 }
 
-function applyConversationGuard(output: ToolRunOutput, context: ConversationContext | undefined): ToolRunOutput {
+function applyConversationGuard(output: ToolRunOutput, context: ConversationContext | undefined, temporalContext?: NewsroomTemporalContext): ToolRunOutput {
 	const guarded = guardEvidenceForConversation(output.evidence || [], context, {
-		includeCoverageCompleteness: false
+		includeCoverageCompleteness: false,
+		temporalContext
 	});
 	const limitations = [...(output.limitations || []), ...guarded.limitations];
 	return {
@@ -678,6 +705,27 @@ function applyConversationGuard(output: ToolRunOutput, context: ConversationCont
 			output.answer && guarded.excluded.length
 				? retainAcceptedCitationClaims(output.answer, guarded.evidence)
 				: output.answer,
+		limitations
+	};
+}
+
+function applyTemporalGuard(
+	output: ToolRunOutput,
+	temporalContext: NewsroomTemporalContext,
+	currentRequest: boolean
+): ToolRunOutput {
+	if (!currentRequest) return output;
+	const prepared = preparePublishableEvidence(output.evidence || [], temporalContext, currentRequest);
+	if (!prepared.excluded.length) return output;
+	const limitations = [
+		...(output.limitations || []),
+		`${prepared.excluded.length} discovery, hub, unknown-date, or out-of-window source${prepared.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`
+	];
+	return {
+		...output,
+		status: output.status,
+		evidence: prepared.accepted,
+		answer: output.answer,
 		limitations
 	};
 }

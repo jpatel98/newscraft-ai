@@ -17,9 +17,11 @@ import { extractUrls, firstUrl } from '../util/text.js';
 import { assessSourceQuality } from '../util/source-quality.js';
 import {
 	isCurrentEventQuery,
+	formatNewsroomTemporalContext,
 	newsroomTimeContext,
 	newsroomTimeZone
 } from './time-context.js';
+import { NEWSROOM_CHARTER } from './roles.js';
 
 const GENERIC_MONITOR_NAME_TERMS = new Set([
 	'media',
@@ -888,6 +890,7 @@ async function interpretProviderWebSearch(input: {
 			query: input.query,
 			stream: false,
 			newsroomContext: input.newsroomContext,
+			temporalContext: input.context.temporalContext,
 			signal: searchSignal
 		});
 	} catch (err) {
@@ -921,7 +924,7 @@ async function interpretProviderWebSearch(input: {
 	}
 
 	const providerOutputText = extractProviderResponseText(input.provider, attempt.raw);
-	const outputText = canonicalizeTrackingUrlsInText(
+	let outputText = canonicalizeTrackingUrlsInText(
 		withProviderCitationMarkers(attempt.raw, providerOutputText)
 	);
 	let evidence = normalizeToolEvidence(
@@ -943,6 +946,7 @@ async function interpretProviderWebSearch(input: {
 		);
 		evidence = retainDatedCurrentEvidence(evidence, input.query);
 	}
+	outputText = reconcileDedupedCitationMarkers(outputText, attempt.raw, evidence);
 	const currentRequest = isCurrentEventQuery(input.query);
 	const usable = evidence.length > 0 || (!currentRequest && Boolean(outputText.trim()));
 	return {
@@ -964,6 +968,51 @@ async function interpretProviderWebSearch(input: {
 				}),
 		usable
 	};
+}
+
+function reconcileDedupedCitationMarkers(
+	text: string,
+	raw: ProviderSearchRaw,
+	evidence: EvidenceObject[]
+): string {
+	const retainedByUrl = new Map(
+		evidence
+			.filter((item) => item.citation_number)
+			.map((item) => [citationIdentityUrl(item.source_url), item.citation_number!] as const)
+	);
+	const response = raw as { citations?: Array<string | { url?: string }> };
+	const remap = new Map<number, number>();
+	const annotations = providerUrlAnnotations(raw);
+	if (annotations.length) {
+		const originalByUrl = new Map<string, number>();
+		for (const annotation of annotations) {
+			const providerIdentity = normalizedWebSourceUrl(annotation.url);
+			if (!originalByUrl.has(providerIdentity)) originalByUrl.set(providerIdentity, originalByUrl.size + 1);
+			const retained = retainedByUrl.get(citationIdentityUrl(annotation.url));
+			if (retained) remap.set(originalByUrl.get(providerIdentity)!, retained);
+		}
+	} else {
+		for (const [index, item] of (response.citations || []).entries()) {
+			const url = typeof item === 'string' ? item : item.url || '';
+			const retained = retainedByUrl.get(citationIdentityUrl(url));
+			if (retained) remap.set(index + 1, retained);
+		}
+	}
+	if (!remap.size) return text.replace(/\[(\d+)\]/g, '');
+	return text.replace(/\[(\d+)\]/g, (_marker, rawNumber: string) => {
+		const replacement = remap.get(Number(rawNumber));
+		return replacement ? `[${replacement}]` : '';
+	});
+}
+
+function citationIdentityUrl(value: string): string {
+	try {
+		const url = new URL(normalizedWebSourceUrl(value));
+		url.hash = '';
+		return url.toString().replace(/\/$/, '').toLowerCase();
+	} catch {
+		return value.trim().replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
+	}
 }
 
 function retryableSearchFailure(outcome: InterpretedProviderSearch): boolean {
@@ -1021,6 +1070,7 @@ async function performProviderWebSearch(input: {
 	query: string;
 	stream: boolean;
 	newsroomContext?: ToolRunContext['newsroomContext'];
+	temporalContext?: ToolRunContext['temporalContext'];
 	signal?: AbortSignal;
 	onAnswerDelta?: (delta: string) => void;
 }): Promise<ProviderSearchAttempt> {
@@ -1037,7 +1087,7 @@ async function performProviderWebSearch(input: {
 				model: input.model,
 				stream: input.stream,
 				query: input.query,
-				input: webSearchPrompt(input.query, input.newsroomContext)
+				input: webSearchPrompt(input.query, input.newsroomContext, input.temporalContext)
 			})
 		),
 		signal: input.signal
@@ -1079,6 +1129,7 @@ function webSearchRequestBody(input: {
 	if (input.provider === 'openai') {
 		const body: Record<string, unknown> = {
 			model: input.model,
+			instructions: NEWSROOM_CHARTER,
 			stream: input.stream,
 			reasoning: { effort: 'low' },
 			max_output_tokens: webSearchOutputTokenLimit(input.query),
@@ -1095,11 +1146,7 @@ function webSearchRequestBody(input: {
 		messages: [
 			{
 				role: 'system',
-				content: [
-					'You are NewsCraft AI, a newsroom research assistant.',
-					'Use Perplexity Sonar web grounding to answer with concise, source-backed current information.',
-					'Do not invent sources. If reliable results are missing, say so plainly.'
-				].join(' ')
+				content: NEWSROOM_CHARTER
 			},
 			{ role: 'user', content: input.input }
 		],
@@ -1123,10 +1170,13 @@ function boundedSignal(signal: AbortSignal | undefined, timeoutMs: number): Abor
 
 function webSearchPrompt(
 	query: string,
-	newsroomContext?: ToolRunContext['newsroomContext']
+	newsroomContext?: ToolRunContext['newsroomContext'],
+	temporalContext?: ToolRunContext['temporalContext']
 ): string {
 	const resolvedTimeZone = validTimeZone(newsroomContext?.timezone) || newsroomTimeZone();
-	const timeContext = newsroomTimeContext({ timeZone: resolvedTimeZone });
+	const timeContext = temporalContext
+		? formatNewsroomTemporalContext(temporalContext)
+		: newsroomTimeContext({ timeZone: resolvedTimeZone });
 	return [
 		timeContext,
 		...(newsroomContext?.homeMarket

@@ -1,6 +1,8 @@
 import type { RouteDecision } from './router.js';
 import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { completeProviderText, type ModelProvider } from '../util/openai-complete.js';
+import { NEWSROOM_CHARTER } from './roles.js';
+import { formatNewsroomTemporalContext, type NewsroomTemporalContext } from './time-context.js';
 
 /**
  * The planner turns a newsroom request into an explicit, bounded list of tool
@@ -43,6 +45,7 @@ export interface PlannerRequest {
 	model: string;
 	reasoningEffort?: 'low' | 'medium' | 'high';
 	signal?: AbortSignal;
+	temporalContext: NewsroomTemporalContext;
 }
 
 export type PlannerFn = (request: PlannerRequest) => Promise<ResearchPlan>;
@@ -123,6 +126,10 @@ function plannerInput(request: PlannerRequest): string {
 		: '- none configured';
 	const maxSteps = Math.max(1, Math.min(MAX_PLAN_STEPS, request.maxSteps));
 	return [
+		NEWSROOM_CHARTER,
+		'',
+		formatNewsroomTemporalContext(request.temporalContext),
+		'',
 		'You plan research steps for a newsroom assistant. Reply with JSON only, no prose, in this exact shape:',
 		'{"reason":"one short sentence","steps":[{"tool":"tool_name","input":"concrete query, URL, or instruction","label":"short human progress label"}]}',
 		'Rules:',

@@ -233,10 +233,13 @@ describe('general-purpose conversational research regressions', () => {
 		expect(queries.some((query) => query.includes('Global News'))).toBe(true);
 		expect(queries.some((query) => query.includes('CP24'))).toBe(true);
 		expect(queries.every((query) => query.includes('Latest Toronto news'))).toBe(true);
-		expect(result.evidence.map((item) => item.source_url)).toEqual([
-			'https://globalnews.ca/news/toronto/global-story',
-			'https://www.cp24.com/news/toronto/cp24-story'
-		]);
+		expect(result.evidence.map((item) => item.source_url)).toEqual(
+			expect.arrayContaining([
+				'https://globalnews.ca/news/toronto/global-story',
+				'https://www.cp24.com/news/toronto/cp24-story'
+			])
+		);
+		expect(result.evidence).toHaveLength(2);
 		expect(result.final_answer).toContain('[1]');
 		expect(result.final_answer).toContain('[2]');
 		expect(result.limitations.join(' ')).not.toContain('CP24 was not found');

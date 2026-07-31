@@ -221,9 +221,6 @@ function responseInputFromHistory(history: AgentMessage[]): {
 
 const enc = new TextEncoder();
 
-const FAST_SOURCE_SYSTEM =
-	'For source-backed or current-events requests, prioritize speed. Use a fast source budget: search once, read at most 4 highly relevant sources, avoid duplicate domains unless necessary, stop as soon as the answer is sufficiently supported, and answer within about 30 seconds. If sources are incomplete, provide the best supported answer with clear caveats instead of continuing to search.';
-
 const INTERACTIVE_WEB_SYSTEM =
 	'You are running inside the NewsCraft web chat, where the user expects live visible progress. For ordinary requests, avoid delegate_task, subagents, and skill_view; do the work directly with available browser, search, file, and terminal tools so progress streams back step by step. Only delegate or inspect skills when the user explicitly asks for subagents, parallel agents, or a named skill. If a tool path is slow or inconclusive, give the best current answer with caveats instead of waiting indefinitely.';
 
@@ -895,7 +892,6 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		else history.unshift(sys);
 	}
 	appendSystemInstruction(history, INTERACTIVE_WEB_SYSTEM);
-	appendSystemInstruction(history, FAST_SOURCE_SYSTEM);
 	if (body.output_action) appendSystemInstruction(history, OUTPUT_ACTION_PROMPTS[body.output_action]);
 	if (
 		conversationContext.activeTopic ||

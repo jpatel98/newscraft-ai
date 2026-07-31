@@ -1,4 +1,6 @@
 import { assessSourceQuality, type SourceQualityAssessment } from '../util/source-quality.js';
+import { createHash } from 'node:crypto';
+import type { NewsroomTemporalContext } from './time-context.js';
 
 export type JournalistSourceKind =
 	| 'official'
@@ -15,6 +17,8 @@ export type JournalistSourceKind =
 export type EvidenceSourceKind = JournalistSourceKind | 'internal' | 'media_report';
 
 export type EvidenceReadability = 'readable' | 'partial' | 'blocked';
+export type EvidencePageRole = 'article' | 'official_live' | 'hub' | 'document' | 'background';
+export type EvidenceTemporalScope = 'primary' | 'fallback' | 'background' | 'discovery';
 
 export interface EvidenceRanking {
 	score: number;
@@ -32,6 +36,7 @@ export interface EvidenceRanking {
 }
 
 export interface EvidenceObject {
+	evidence_id?: string;
 	source_name: string;
 	source_url: string;
 	accessed_at: string;
@@ -58,9 +63,12 @@ export interface EvidenceObject {
 		source_kind: EvidenceSourceKind;
 	};
 	uncertainty?: string[];
+	page_role?: EvidencePageRole;
+	temporal_scope?: EvidenceTemporalScope;
 }
 
 export interface EvidenceInput {
+	evidence_id?: string | null;
 	source_name?: string | null;
 	source_url?: string | null;
 	accessed_at?: string | null;
@@ -87,6 +95,8 @@ export interface EvidenceInput {
 	readability?: EvidenceReadability | null;
 	supporting_excerpt?: string | null;
 	uncertainty?: string[] | string | null;
+	page_role?: EvidencePageRole | null;
+	temporal_scope?: EvidenceTemporalScope | null;
 }
 
 export function normalizeEvidence(input: EvidenceInput, defaults: Partial<EvidenceObject> = {}): EvidenceObject {
@@ -109,7 +119,12 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 		defaults.supporting_excerpt ||
 		summarizeEvidenceText(text || summary || title, 520);
 
+	const pageRole = input.page_role || defaults.page_role || classifyEvidencePageRole(sourceUrl, title, sourceKind);
 	return {
+		evidence_id:
+			nonEmpty(input.evidence_id) ||
+			defaults.evidence_id ||
+			stableEvidenceId(sourceUrl, title, nonEmpty(input.published_at) || defaults.published_at || null),
 		source_name: sourceName,
 		source_url: sourceUrl,
 		accessed_at: accessedAt,
@@ -137,7 +152,9 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 			tool: toolUsed,
 			source_kind: sourceKind
 		},
-		uncertainty: normalizeLimitations(input.uncertainty ?? defaults.uncertainty ?? limitations)
+		uncertainty: normalizeLimitations(input.uncertainty ?? defaults.uncertainty ?? limitations),
+		page_role: pageRole,
+		temporal_scope: input.temporal_scope || defaults.temporal_scope
 	};
 }
 
@@ -173,13 +190,122 @@ export function dedupeEvidence(evidence: EvidenceObject[]): EvidenceObject[] {
 	const seen = new Set<string>();
 	const deduped: EvidenceObject[] = [];
 	for (const item of evidence) {
-		const citationKey = item.citation_number ? `\n${item.citation_number}` : '';
-		const key = `${item.source_url}\n${item.title}${citationKey}`.toLowerCase();
+		const key = canonicalEvidenceUrl(item.source_url);
 		if (seen.has(key)) continue;
 		seen.add(key);
 		deduped.push(item);
 	}
 	return deduped;
+}
+
+export function preparePublishableEvidence(
+	evidence: EvidenceObject[],
+	temporal: NewsroomTemporalContext,
+	currentRequest: boolean
+): { accepted: EvidenceObject[]; excluded: EvidenceObject[] } {
+	const accepted: EvidenceObject[] = [];
+	const excluded: EvidenceObject[] = [];
+	for (const raw of dedupeEvidence(evidence)) {
+		const item = { ...raw, citation_number: undefined };
+		if (item.source_url.startsWith('newsroom://')) {
+			item.temporal_scope = 'primary';
+			accepted.push(item);
+			continue;
+		}
+		const role = item.page_role || classifyEvidencePageRole(item.source_url, item.title, item.source_kind);
+		item.page_role = role;
+		if (!currentRequest) {
+			item.temporal_scope = 'primary';
+			accepted.push(item);
+			continue;
+		}
+		if (role === 'hub' || item.source_kind === 'social_post') {
+			item.temporal_scope = 'discovery';
+			excluded.push(item);
+			continue;
+		}
+		const timestamp = Date.parse(item.event_at || item.published_at || '');
+		const officialLive = role === 'official_live' && (item.source_kind === 'official' || item.source_kind === 'primary');
+		if (!Number.isFinite(timestamp)) {
+			if (officialLive) {
+				item.temporal_scope = 'primary';
+				accepted.push(item);
+			} else {
+				item.temporal_scope = 'background';
+				excluded.push(item);
+			}
+			continue;
+		}
+		const windowEndWithClockSkew = Date.parse(temporal.windowEnd) + 5 * 60 * 1000;
+		if (timestamp >= Date.parse(temporal.windowStart) && timestamp <= windowEndWithClockSkew) {
+			item.temporal_scope = 'primary';
+			accepted.push(item);
+			continue;
+		}
+		if (timestamp >= Date.parse(temporal.fallbackWindowStart) && timestamp <= windowEndWithClockSkew) {
+			item.temporal_scope = 'fallback';
+			accepted.push(item);
+			continue;
+		}
+		item.temporal_scope = 'background';
+		excluded.push(item);
+	}
+	accepted.sort((left, right) => {
+		const scope = scopeOrder(left.temporal_scope) - scopeOrder(right.temporal_scope);
+		if (scope) return scope;
+		const date = (Date.parse(right.event_at || right.published_at || '') || 0) - (Date.parse(left.event_at || left.published_at || '') || 0);
+		if (date) return date;
+		return canonicalEvidenceUrl(left.source_url).localeCompare(canonicalEvidenceUrl(right.source_url));
+	});
+	const storyKeys = new Set<string>();
+	const storyDeduped = accepted.filter((item) => {
+		const key = storySimilarityKey(item);
+		if (!key || !storyKeys.has(key)) {
+			if (key) storyKeys.add(key);
+			return true;
+		}
+		return false;
+	});
+	return {
+		accepted: storyDeduped.map((item, index) => ({ ...item, citation_number: index + 1 })),
+		excluded
+	};
+}
+
+export function classifyEvidencePageRole(
+	sourceUrl: string,
+	title: string,
+	sourceKind?: EvidenceSourceKind
+): EvidencePageRole {
+	let path = '';
+	try { path = new URL(sourceUrl).pathname.toLowerCase().replace(/\/+$/, ''); } catch { return 'background'; }
+	const text = `${path} ${title}`.toLowerCase();
+	if (/\.(?:pdf|docx?|xlsx?)$/.test(path) || /\b(?:pdf|report|agenda|minutes|document)\b/.test(title.toLowerCase())) return 'document';
+	if ((sourceKind === 'official' || sourceKind === 'primary') && /\b(?:live|status|alert|advisory|schedule|release|statement|bulletin)\b/.test(text)) return 'official_live';
+	if (!path || /^\/(?:news|toronto|canada|world|local|latest|search|video|videos|watch|listen|player)?$/.test(path) || /\b(?:homepage|section|latest news|player|video hub|search results)\b/.test(title.toLowerCase())) return 'hub';
+	if (sourceKind === 'news_report' || sourceKind === 'media_report') return 'article';
+	return 'background';
+}
+
+function stableEvidenceId(url: string, title: string, publishedAt: string | null): string {
+	return `ev_${createHash('sha256').update(`${canonicalEvidenceUrl(url)}\n${title.trim().toLowerCase()}\n${publishedAt || ''}`).digest('hex').slice(0, 16)}`;
+}
+
+function canonicalEvidenceUrl(value: string): string {
+	try {
+		const url = new URL(value);
+		url.hash = '';
+		for (const key of [...url.searchParams.keys()]) if (/^(?:utm_|fbclid|gclid)/i.test(key)) url.searchParams.delete(key);
+		return url.toString().replace(/\/$/, '').toLowerCase();
+	} catch { return value.trim().toLowerCase(); }
+}
+
+function storySimilarityKey(item: EvidenceObject): string {
+	return item.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function scopeOrder(scope: EvidenceTemporalScope | undefined): number {
+	return scope === 'primary' ? 0 : scope === 'fallback' ? 1 : 2;
 }
 
 export function assessEvidenceQuality(evidence: EvidenceObject): SourceQualityAssessment {

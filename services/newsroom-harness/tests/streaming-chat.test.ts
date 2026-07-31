@@ -204,7 +204,7 @@ function usableEvidence(name: string, text: string) {
 		accessed_at: '2026-06-09T12:00:00.000Z',
 		tool_used: name,
 		title: `${name} title`,
-		published_at: '2026-06-09T09:00:00.000Z',
+		published_at: new Date().toISOString(),
 		extracted_text: text,
 		summary: text,
 		confidence: 0.7,

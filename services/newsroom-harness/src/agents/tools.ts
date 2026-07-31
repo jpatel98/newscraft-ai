@@ -5,6 +5,7 @@ import type { RouteDecision } from './router.js';
 import type { ToolBudgetSnapshot } from './budget.js';
 import type { ModelProvider } from '../util/openai-complete.js';
 import type { ConversationContext, DocumentContext, NewsroomContext } from '@newscraft/shared';
+import type { NewsroomTemporalContext } from './time-context.js';
 
 export type ToolCategory =
 	| 'source_feed_fetcher'
@@ -42,6 +43,7 @@ export interface ToolRunContext {
 	perplexityApiKey?: string;
 	trigger?: 'manual' | 'schedule' | 'test';
 	newsroomContext?: NewsroomContext;
+	temporalContext?: NewsroomTemporalContext;
 	conversationContext?: ConversationContext;
 	documents?: DocumentContext[];
 	signal?: AbortSignal;

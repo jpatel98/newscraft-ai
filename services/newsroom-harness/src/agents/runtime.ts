@@ -16,7 +16,7 @@ import {
 } from './answer.js';
 import { formatConversationContext } from './grounded-conversation.js';
 import { routeNewsroomRequest } from './router.js';
-import { roleLabel, type NewsroomRole } from './roles.js';
+import { NEWSROOM_CHARTER, roleLabel, type NewsroomRole } from './roles.js';
 import {
 	DisciplinedNewsroomAgent,
 	type AgentPlanEvent,
@@ -35,8 +35,12 @@ import { firstUrl, promptFromChatMessages, splitForStreaming } from '../util/tex
 import type { HarnessRepository } from '../db/repository.js';
 import {
 	currentAsOfLabel,
+	createNewsroomTemporalContext,
+	formatNewsroomTemporalContext,
 	isCurrentEventQuery,
 	newsroomTimeContext,
+	type NewsroomClock,
+	type NewsroomTemporalContext,
 	type NewsroomTimeContextOptions
 } from './time-context.js';
 
@@ -51,6 +55,7 @@ export interface RuntimeControls {
 	agentConfig?: Partial<NewsroomAgentConfig>;
 	/** Tool registry override, mainly for tests. */
 	registry?: ToolRegistry;
+	clock?: NewsroomClock;
 }
 
 export interface RuntimeContext {
@@ -67,6 +72,7 @@ export interface RuntimeContext {
 	newsroomContext?: NewsroomContext;
 	conversationContext?: ConversationContext;
 	documents?: DocumentContext[];
+	temporalContext?: NewsroomTemporalContext;
 }
 
 export type RuntimeProgressEvent =
@@ -86,7 +92,7 @@ const MAX_FOLLOWUP_CONTEXT_MESSAGES = 4;
 const MAX_FOLLOWUP_MESSAGE_CHARS = 900;
 const MAX_FOLLOWUP_CONTEXT_CHARS = 2600;
 const DIRECT_CHAT_INSTRUCTIONS = [
-	'You are NewsCraft AI, a newsroom-focused assistant.',
+	NEWSROOM_CHARTER,
 	'Answer ordinary conversational, writing, planning, analysis, editing, and transformation prompts directly.',
 	'Do not claim that you browsed, searched, verified, checked sources, or accessed live information in this direct-answer mode.',
 	'If the user asks for current facts, live/news information, verification, source comparison, source-backed claims, browsing, URLs, or newsroom tool work, say briefly that NewsCraft should run a source-backed research pass instead of answering from memory.',
@@ -107,6 +113,7 @@ export class NewsroomAgentRuntime {
 	async completeChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): Promise<string> {
 		const prompt = promptFromChatMessages(messages);
 		const latestUserPrompt = latestUserPromptFromChatMessages(messages) || prompt;
+		context = this.withTemporalContext(context, latestUserPrompt);
 		if (isTitlePrompt(latestUserPrompt)) {
 			if (!this.modelApiKey()) return this.localChat(prompt);
 			return this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
@@ -133,19 +140,21 @@ export class NewsroomAgentRuntime {
 						{ timeZone: context.newsroomContext?.timezone },
 						context.newsroomContext,
 						context.documents,
-						context.conversationContext
+						context.conversationContext,
+						context.temporalContext
 					),
 					latestUserPrompt,
 					context
 				),
 			context.signal
 		);
-		return withCurrentAsOfLabel(answer, latestUserPrompt, context.newsroomContext?.timezone);
+		return withCurrentAsOfLabel(answer, latestUserPrompt, context.newsroomContext?.timezone, context.temporalContext);
 	}
 
 	async *streamChat(messages: GatewayChatMessage[], context: RuntimeContext = {}): AsyncGenerator<string> {
 		const prompt = promptFromChatMessages(messages);
 		const latestUserPrompt = latestUserPromptFromChatMessages(messages) || prompt;
+		context = this.withTemporalContext(context, latestUserPrompt);
 		if (isTitlePrompt(latestUserPrompt)) {
 			if (!this.modelApiKey()) {
 				for (const chunk of splitForStreaming(this.localChat(prompt))) yield chunk;
@@ -189,7 +198,8 @@ export class NewsroomAgentRuntime {
 			{ timeZone: context.newsroomContext?.timezone },
 			context.newsroomContext,
 			context.documents,
-			context.conversationContext
+			context.conversationContext,
+			context.temporalContext
 		),
 			latestUserPrompt,
 			context
@@ -197,6 +207,7 @@ export class NewsroomAgentRuntime {
 	}
 
 	async runMission(prompt: string, context: RuntimeContext): Promise<MissionRuntimeResult> {
+		context = this.withTemporalContext(context, prompt);
 		const assignment = this.triageEditorCommand(prompt, context);
 		const role = assignment.role;
 		const agent = new DisciplinedNewsroomAgent({
@@ -221,6 +232,7 @@ export class NewsroomAgentRuntime {
 			modelApiKey: this.modelApiKey(),
 			trigger: context.trigger,
 			newsroomContext: context.newsroomContext,
+			temporalContext: context.temporalContext,
 			conversationContext: context.conversationContext,
 			documents: context.documents,
 			signal: context.signal,
@@ -354,6 +366,7 @@ export class NewsroomAgentRuntime {
 			modelApiKey: this.modelApiKey(),
 			trigger: context.trigger,
 			newsroomContext: context.newsroomContext,
+			temporalContext: context.temporalContext,
 			conversationContext: context.conversationContext,
 			documents: context.documents,
 			signal: context.signal,
@@ -377,6 +390,18 @@ export class NewsroomAgentRuntime {
 			markers.has(citation.citationNumber)
 		);
 		context.onProgress?.({ type: 'citations', citations });
+	}
+
+	private withTemporalContext(context: RuntimeContext, request = ''): RuntimeContext {
+		if (context.temporalContext) return context;
+		return {
+			...context,
+			temporalContext: createNewsroomTemporalContext({
+				now: (this.controls.clock || (() => new Date()))(),
+				timeZone: context.newsroomContext?.timezone,
+				request
+			})
+		};
 	}
 
 	private emitInheritedCitationRecords(context: RuntimeContext, answer: string): void {
@@ -421,7 +446,7 @@ export class NewsroomAgentRuntime {
 	): AsyncGenerator<string> {
 		this.triageEditorCommand(routingPrompt, context);
 		const sanitizer = new StreamingAnswerSanitizer({ clean: (raw) => cleanVisibleChatOutput(raw, prompt) });
-		const currentAsOf = currentAsOfPrefix(routingPrompt, context.newsroomContext?.timezone);
+		const currentAsOf = currentAsOfPrefix(routingPrompt, context.newsroomContext?.timezone, context.temporalContext);
 		const bufferAuthoritativeAnswer = shouldBufferGroundedAnswer(
 			routingPrompt,
 			context.conversationContext
@@ -704,14 +729,14 @@ export class NewsroomAgentRuntime {
 	}
 }
 
-function currentAsOfPrefix(prompt: string, timeZone?: string): string {
+function currentAsOfPrefix(prompt: string, timeZone?: string, temporalContext?: NewsroomTemporalContext): string {
 	if (!isCurrentEventQuery(prompt)) return '';
-	return `**Current as of:** ${currentAsOfLabel({ timeZone })}`;
+	return `**Current as of:** ${currentAsOfLabel({ timeZone, now: temporalContext ? new Date(temporalContext.requestTimestamp) : undefined })}`;
 }
 
-function withCurrentAsOfLabel(answer: string, prompt: string, timeZone?: string): string {
+function withCurrentAsOfLabel(answer: string, prompt: string, timeZone?: string, temporalContext?: NewsroomTemporalContext): string {
 	if (!isCurrentEventQuery(prompt) || /\bCurrent as of\b/i.test(answer)) return answer;
-	return `${currentAsOfPrefix(prompt, timeZone)}\n\n${answer}`;
+	return `${currentAsOfPrefix(prompt, timeZone, temporalContext)}\n\n${answer}`;
 }
 
 function evidenceToFetchedSource(evidence: EvidenceObject): FetchedSource {
@@ -961,7 +986,8 @@ export function buildDisciplinedChatPrompt(
 	timeOptions: NewsroomTimeContextOptions = {},
 	newsroomContext?: NewsroomContext,
 	documents: DocumentContext[] = [],
-	conversationContext?: ConversationContext
+	conversationContext?: ConversationContext,
+	temporalContext?: NewsroomTemporalContext
 ): string {
 	const latestUserIndex = latestUserIndexFromChatMessages(messages);
 	const latestUserPrompt =
@@ -971,11 +997,15 @@ export function buildDisciplinedChatPrompt(
 	const groundedContext = formatConversationContext(conversationContext);
 	const priorContext = recentConversationContext(messages, latestUserIndex);
 	const systemInstructions = systemInstructionsFromChatMessages(messages);
-	const dateContext = newsroomTimeContext(timeOptions);
+	const dateContext = temporalContext
+		? formatNewsroomTemporalContext(temporalContext)
+		: newsroomTimeContext(timeOptions);
 	const structuredContext = structuredNewsroomContext(newsroomContext);
 	const documentContext = structuredDocumentContext(documents);
 	if (!priorContext) {
 		return [
+			NEWSROOM_CHARTER,
+			'',
 			dateContext,
 			...(structuredContext ? ['', structuredContext] : []),
 			...(documentContext ? ['', documentContext] : []),
@@ -988,6 +1018,8 @@ export function buildDisciplinedChatPrompt(
 	}
 
 	return [
+		NEWSROOM_CHARTER,
+		'',
 		dateContext,
 		...(structuredContext ? ['', structuredContext] : []),
 		...(documentContext ? ['', documentContext] : []),
@@ -1080,9 +1112,9 @@ function reconcileDocumentAndWebEvidence(
 	);
 	const documentEvidence = result.evidence.filter((item) => item.source_kind === 'user_document');
 	if (!webEvidence.length || !documentEvidence.length) return;
-	const maxWebCitation = Math.max(...webEvidence.map((item) => item.citation_number || 0));
+	for (const [index, item] of webEvidence.entries()) item.citation_number = index + 1;
 	for (const [index, item] of documentEvidence.entries()) {
-		item.citation_number = maxWebCitation + index + 1;
+		item.citation_number = webEvidence.length + index + 1;
 	}
 	const documentNotes = documentEvidence.slice(0, 3).map((item) => {
 		const excerpt = truncateEvidence(item.summary || item.extracted_text || item.title, 360);
@@ -1128,6 +1160,8 @@ function buildDirectChatPrompt(messages: GatewayChatMessage[], conversationConte
 	const priorContext = recentConversationContext(messages, latestUserIndex);
 	const systemInstructions = systemInstructionsFromChatMessages(messages);
 	return [
+		NEWSROOM_CHARTER,
+		'',
 		...(systemInstructions ? ['System and newsroom instructions:', systemInstructions, ''] : []),
 		...(groundedContext ? [groundedContext, ''] : []),
 		'Current user request:',

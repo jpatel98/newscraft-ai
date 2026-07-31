@@ -51,7 +51,7 @@ describe('citation and source-quality web research', () => {
 		expect(result.evidence?.[11]).toMatchObject({ title: 'Reuters story 12', published_at: null });
 	});
 
-	it('keeps a distinct evidence record for every Sonar marker even when URLs repeat', async () => {
+	it('deduplicates repeated Sonar URLs into one stable evidence record', async () => {
 		const repeatedUrl = 'https://www.reuters.com/world/repeated-source';
 		vi.stubGlobal(
 			'fetch',
@@ -66,8 +66,9 @@ describe('citation and source-quality web research', () => {
 
 		const result = await runWebSearch('Compare two claims in reporting');
 
-		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
-		expect(result.evidence?.map((source) => source.source_url)).toEqual([repeatedUrl, repeatedUrl]);
+		expect(result.answer).toContain('same source [1] [1]');
+		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1]);
+		expect(result.evidence?.map((source) => source.source_url)).toEqual([repeatedUrl]);
 	});
 
 	it('keeps dated evidence from the full requested seven-day window', async () => {
@@ -239,9 +240,9 @@ describe('citation and source-quality web research', () => {
 
 		expect(result.answer).toContain('Morning edition claim [1]');
 		expect(result.answer).toContain('Evening edition claim [2]');
-		expect(result.answer).toContain('Correction fragment claim [3]');
-		expect(result.evidence?.map((source) => source.source_url)).toEqual(urls);
-		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2, 3]);
+		expect(result.answer).toContain('Correction fragment claim [1]');
+		expect(result.evidence?.map((source) => source.source_url)).toEqual(urls.slice(0, 2));
+		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
 	});
 
 	it('dedupes exact and tracking-only repeated OpenAI annotations without losing visible resolution', async () => {

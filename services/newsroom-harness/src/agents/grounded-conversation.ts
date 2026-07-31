@@ -1,6 +1,7 @@
 import type { ConversationContext } from '@newscraft/shared';
 import type { EvidenceObject, EvidenceRanking } from './evidence.js';
 import { rankEvidenceForConversation } from './evidence-ranking.js';
+import type { NewsroomTemporalContext } from './time-context.js';
 
 export interface GroundedEvidenceResult {
 	evidence: EvidenceObject[];
@@ -82,7 +83,7 @@ export function formatConversationContext(context: ConversationContext | undefin
 export function guardEvidenceForConversation(
 	evidence: EvidenceObject[],
 	context: ConversationContext | undefined,
-	options: { includeCoverageCompleteness?: boolean } = {}
+	options: { includeCoverageCompleteness?: boolean; temporalContext?: NewsroomTemporalContext } = {}
 ): GroundedEvidenceResult {
 	const ranked = rankEvidenceForConversation(evidence, context, options);
 	return {

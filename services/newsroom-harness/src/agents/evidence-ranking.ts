@@ -1,5 +1,6 @@
 import type { ConversationContext, ConversationTopic } from '@newscraft/shared';
 import type { EvidenceObject, EvidenceRanking, EvidenceSourceKind } from './evidence.js';
+import type { NewsroomTemporalContext } from './time-context.js';
 
 export interface RankedEvidenceResult {
 	evidence: EvidenceObject[];
@@ -17,7 +18,7 @@ const GENERIC_TERMS = new Set([
 export function rankEvidenceForConversation(
 	evidence: EvidenceObject[],
 	context: ConversationContext | undefined,
-	options: { includeCoverageCompleteness?: boolean } = {}
+	options: { includeCoverageCompleteness?: boolean; temporalContext?: NewsroomTemporalContext } = {}
 ): RankedEvidenceResult {
 	const topic = context?.activeTopic;
 	if (!topic) {
@@ -41,7 +42,7 @@ export function rankEvidenceForConversation(
 	const accepted: Array<{ item: EvidenceObject; ranking: EvidenceRanking }> = [];
 	const excluded: Array<{ item: EvidenceObject; ranking: EvidenceRanking }> = [];
 	for (const item of evidence) {
-		const ranking = rankEvidence(item, topic);
+		const ranking = rankEvidence(item, topic, options.temporalContext);
 		if (ranking.eligible) accepted.push({ item, ranking });
 		else excluded.push({ item, ranking });
 	}
@@ -80,7 +81,7 @@ export function rankEvidenceForConversation(
 	};
 }
 
-function rankEvidence(item: EvidenceObject, topic: ConversationTopic): EvidenceRanking {
+function rankEvidence(item: EvidenceObject, topic: ConversationTopic, temporalContext?: NewsroomTemporalContext): EvidenceRanking {
 	const notes: string[] = [];
 	const text = normalize(
 		`${item.topic ?? ''} ${item.title} ${item.source_name} ${item.summary} ${item.extracted_text}`
@@ -113,7 +114,7 @@ function rankEvidence(item: EvidenceObject, topic: ConversationTopic): EvidenceR
 		!(item.supporting_excerpt || item.extracted_text || item.summary).trim();
 	const genericPublisherLanding =
 		(topic.directSourcesRequired || isCurrentTopic(topic)) && isGenericPublisherLanding(item);
-	const wrongTime = incompatibleTime(item, topic);
+	const wrongTime = incompatibleTime(item, topic, temporalContext);
 	const noConversationFit =
 		subjectTerms.length > 0 &&
 		subjectMatches === 0 &&
@@ -132,7 +133,7 @@ function rankEvidence(item: EvidenceObject, topic: ConversationTopic): EvidenceR
 	else if (noConversationFit) hardReject = 'wrong_subject';
 
 	const relevance = ratio(subjectMatches, subjectTerms.length, 0.45);
-	const freshness = freshnessScore(item, topic, notes);
+	const freshness = freshnessScore(item, topic, notes, temporalContext);
 	const sourceQuality = item.source_authority ?? sourceQualityFor(item.source_kind);
 	const directness = directnessScore(item, topic);
 	const readability = item.readability === 'readable' ? 1 : item.readability === 'partial' ? 0.55 : 0;
@@ -205,22 +206,26 @@ function baseRanking(item: EvidenceObject): EvidenceRanking {
 	};
 }
 
-function freshnessScore(item: EvidenceObject, topic: ConversationTopic, notes: string[]): number {
+function freshnessScore(item: EvidenceObject, topic: ConversationTopic, notes: string[], temporalContext?: NewsroomTemporalContext): number {
 	const date = Date.parse(item.event_at || item.published_at || '');
 	if (!Number.isFinite(date)) return 0.4;
 	if (!isCurrentTopic(topic)) return 0.8;
-	const ageHours = Math.abs(Date.now() - date) / 3_600_000;
+	const ageHours = Math.abs(referenceTime(temporalContext) - date) / 3_600_000;
 	if (ageHours <= 36) return 1;
 	if (ageHours <= 72) return 0.75;
 	notes.push('older evidence lowered freshness');
 	return 0.3;
 }
 
-function incompatibleTime(item: EvidenceObject, topic: ConversationTopic): boolean {
+function incompatibleTime(item: EvidenceObject, topic: ConversationTopic, temporalContext?: NewsroomTemporalContext): boolean {
 	if (!isCurrentTopic(topic)) return false;
 	const date = Date.parse(item.event_at || item.published_at || '');
 	if (!Number.isFinite(date)) return false;
-	return Math.abs(Date.now() - date) > 14 * 24 * 3_600_000;
+	return Math.abs(referenceTime(temporalContext) - date) > 14 * 24 * 3_600_000;
+}
+
+function referenceTime(temporalContext?: NewsroomTemporalContext): number {
+	return temporalContext ? Date.parse(temporalContext.requestTimestamp) : Date.now();
 }
 
 function isCurrentTopic(topic: ConversationTopic): boolean {
