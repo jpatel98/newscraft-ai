@@ -45,43 +45,41 @@ function message(
 describe('conversation context builder', () => {
 	it('starts current-events research from the initial user request', () => {
 		const context = buildConversationContext({
-			messages: [message('m1', 'user', "What's the latest on earthquakes in Japan?")],
-			currentRequest: "What's the latest on earthquakes in Japan?",
+			messages: [message('m1', 'user', "What's the latest on Ottawa's housing vote?")],
+			currentRequest: "What's the latest on Ottawa's housing vote?",
 			currentMessageId: 'm1'
 		});
 
 		expect(context.currentTurn).toEqual({
 			messageId: 'm1',
-			content: "What's the latest on earthquakes in Japan?",
-			resolvedRequest: "What's the latest on earthquakes in Japan?",
+			content: "What's the latest on Ottawa's housing vote?",
+			resolvedRequest: "What's the latest on Ottawa's housing vote?",
 			operation: 'send',
 			researchRequired: true,
 			freshness: 'current'
 		});
 		expect(context.recentTurns).toBeUndefined();
-		expect(context.activeTopic?.subject).toContain('earthquakes in Japan');
+		expect(context.activeTopic?.subject).toContain("Ottawa's housing vote");
 	});
 
-	it('keeps fresh official earthquake events after building the production conversation context', () => {
-		const prompt = "what's the latest on earthquakes in Japan";
+	it('keeps a fresh official current-news result after building conversation context', () => {
+		const prompt = "what's the latest on Ottawa's housing vote";
 		const context = buildConversationContext({
 			messages: [message('m1', 'user', prompt)],
 			currentRequest: prompt,
 			currentMessageId: 'm1'
 		});
 		const event = normalizeEvidence({
-			source_name: 'U.S. Geological Survey',
-			source_url: 'https://earthquake.usgs.gov/earthquakes/eventpage/us6000tgt4',
+			source_name: 'City of Ottawa',
+			source_url: 'https://ottawa.ca/council/housing-vote',
 			accessed_at: new Date().toISOString(),
 			tool_used: 'openai_web_search',
-			title: 'M 4.8 - 7 km W of Honmachi, Japan',
+			title: 'Ottawa housing vote',
 			published_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-			extracted_text:
-				'USGS lists a reviewed magnitude 4.8 earthquake 7 km W of Honmachi, Japan at Jul 30, 2026, 09:01 GMT+9.',
-			summary:
-				'USGS lists a reviewed magnitude 4.8 earthquake 7 km W of Honmachi, Japan at Jul 30, 2026, 09:01 GMT+9.',
+			extracted_text: 'Ottawa council approved the housing motion in a recorded vote.',
+			summary: 'Ottawa council approved the housing motion in a recorded vote.',
 			confidence: 0.95,
-			limitations: ['Earthquake catalog values can be revised as agencies review new data.'],
+			limitations: [],
 			source_kind: 'official',
 			citation_number: 1
 		});
@@ -90,26 +88,26 @@ describe('conversation context builder', () => {
 
 		expect(context.activeTopic).toMatchObject({
 			subject: prompt,
-			entities: ['Japan'],
-			location: 'Japan',
+			entities: ['Ottawa'],
+			location: 'Ottawa',
 			relevantDate: 'latest'
 		});
 		expect(guarded.evidence).toEqual([event]);
 		expect(guarded.excluded).toEqual([]);
 	});
 
-	it('treats an ordinary weather question as current structured research', () => {
+	it('treats an ordinary factual question as research without inventing freshness', () => {
 		const context = buildConversationContext({
-			messages: [message('m1', 'user', "what's toronto weather")],
-			currentRequest: "what's toronto weather",
+			messages: [message('m1', 'user', 'Who chairs the Ottawa transit commission?')],
+			currentRequest: 'Who chairs the Ottawa transit commission?',
 			currentMessageId: 'm1'
 		});
 
 		expect(context.currentTurn).toMatchObject({
-			resolvedRequest: "what's toronto weather",
-			researchRequired: true,
-			freshness: 'current'
+			resolvedRequest: 'Who chairs the Ottawa transit commission?',
+			researchRequired: true
 		});
+		expect(context.currentTurn?.freshness).toBeUndefined();
 	});
 
 	it('keeps a conversational acknowledgement as the authoritative current turn', () => {
@@ -127,6 +125,30 @@ describe('conversation context builder', () => {
 		expect(context.currentTurn?.researchRequired).toBe(false);
 	});
 
+	it('lets the newest correction override an earlier entity and location', () => {
+		const currentRequest = 'Correction: I mean the Halifax port reopening, not the Vancouver strike.';
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'What is the latest on the Vancouver port strike?'),
+				message('m2', 'assistant', 'I found Vancouver labour coverage [1].', [citation(1)]),
+				message('m3', 'user', currentRequest)
+			],
+			currentRequest,
+			currentMessageId: 'm3',
+			operation: 'retry'
+		});
+
+		expect(context.currentTurn).toMatchObject({
+			messageId: 'm3',
+			content: currentRequest,
+			resolvedRequest: currentRequest,
+			operation: 'retry',
+			researchRequired: true
+		});
+		expect(context.activeTopic?.subject).toBe(currentRequest);
+		expect(context.activeTopic?.location).toBe('Halifax');
+	});
+
 	it('does not force research for an ordinary writing request', () => {
 		const context = buildConversationContext({
 			messages: [],
@@ -140,10 +162,10 @@ describe('conversation context builder', () => {
 		});
 	});
 
-	it('does not mistake a conceptual weather explanation for live conditions', () => {
+	it('does not mistake a conceptual explanation for live research', () => {
 		const context = buildConversationContext({
 			messages: [],
-			currentRequest: 'How do weather forecasts work?'
+			currentRequest: 'How do municipal budgets work?'
 		});
 
 		expect(context.currentTurn).toMatchObject({

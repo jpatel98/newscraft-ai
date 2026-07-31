@@ -7,7 +7,13 @@ import {
 	type ToolBudgetSnapshot
 } from './budget.js';
 import { createDefaultToolRegistry } from './default-tools.js';
-import { dedupeEvidence, evidenceHasBlockingLimitation, isUsableEvidence, type EvidenceObject } from './evidence.js';
+import {
+	dedupeEvidence,
+	evidenceHasBlockingLimitation,
+	isUsableEvidence,
+	type EvidenceObject,
+	type EvidenceRanking
+} from './evidence.js';
 import {
 	createNewsroomAgentConfig,
 	type NewsroomAgentConfig
@@ -67,6 +73,7 @@ export interface AgentToolEvent {
 	status?: string;
 	detail?: string;
 	evidence?: EvidenceObject[];
+	evidenceDiagnostics?: EvidenceRanking[];
 	diagnostics?: ToolRunOutput['diagnostics'];
 }
 
@@ -120,7 +127,6 @@ interface QueuedStep {
 
 /** Tools whose failure should trigger a broad web-search fallback. */
 const WEB_SEARCH_FALLBACK_TOOLS = new Set<string>([
-	NEWSROOM_TOOL_NAMES.weatherLookup,
 	NEWSROOM_TOOL_NAMES.sourceMonitor,
 	NEWSROOM_TOOL_NAMES.sourceFeedFetcher,
 	NEWSROOM_TOOL_NAMES.urlFetchRead,
@@ -141,10 +147,7 @@ export class DisciplinedNewsroomAgent {
 	async run(prompt: string, context: NewsroomAgentRunContext = {}): Promise<NewsroomAgentRunResult> {
 		const routingPrompt = context.routingPrompt?.trim() || prompt;
 		const resolvedRoutingPrompt =
-			context.conversationContext?.currentTurn?.researchRequired &&
-			context.conversationContext.currentTurn.resolvedRequest.trim()
-				? context.conversationContext.currentTurn.resolvedRequest.trim()
-				: routingPrompt;
+			context.conversationContext?.currentTurn?.resolvedRequest.trim() || routingPrompt;
 		const researchPrompt = documentResearchPrompt(
 			groundedResearchPrompt(resolvedRoutingPrompt, context.conversationContext),
 			context.documents
@@ -293,6 +296,7 @@ export class DisciplinedNewsroomAgent {
 				status: output.status,
 				detail: publicDetail,
 				evidence: output.evidence || [],
+				evidenceDiagnostics: output.evidence_diagnostics,
 				diagnostics: output.diagnostics
 			});
 
@@ -588,10 +592,7 @@ export class DisciplinedNewsroomAgent {
 		};
 		try {
 			const resolvedCurrentRequest =
-				context.conversationContext?.currentTurn?.researchRequired &&
-				context.conversationContext.currentTurn.resolvedRequest.trim()
-					? context.conversationContext.currentTurn.resolvedRequest.trim()
-					: '';
+				context.conversationContext?.currentTurn?.resolvedRequest.trim() || '';
 			const requestPrompt = resolvedCurrentRequest || context.routingPrompt?.trim() || prompt;
 			if (
 				context.documents?.length &&
@@ -641,13 +642,16 @@ function documentRouteDecision(base: RouteDecision, prompt: string): RouteDecisi
 
 function applyConversationGuard(output: ToolRunOutput, context: ConversationContext | undefined): ToolRunOutput {
 	const guarded = guardEvidenceForConversation(output.evidence || [], context);
-	if (!guarded.excluded.length) return output;
 	const limitations = [...(output.limitations || []), ...guarded.limitations];
 	return {
 		...output,
 		status: output.status === 'ok' && output.evidence?.length && !guarded.evidence.length ? 'unavailable' : output.status,
 		evidence: guarded.evidence,
-		answer: output.answer ? retainAcceptedCitationClaims(output.answer, guarded.evidence) : undefined,
+		evidence_diagnostics: guarded.diagnostics,
+		answer:
+			output.answer && guarded.excluded.length
+				? retainAcceptedCitationClaims(output.answer, guarded.evidence)
+				: output.answer,
 		limitations
 	};
 }
@@ -792,7 +796,6 @@ function inputForTool(name: string, prompt: string, evidence: EvidenceObject[], 
 	const focused = input && input !== prompt ? input : '';
 	// URL-bearing tools should see URLs from both the planned input and the prompt.
 	const combined = focused ? `${focused}\n${prompt}` : prompt;
-	if (name === NEWSROOM_TOOL_NAMES.weatherLookup) return { query: focused || prompt };
 	if (name === NEWSROOM_TOOL_NAMES.sourceMonitor) return { query: combined, urls: urlsFromText(combined) };
 	if (name === NEWSROOM_TOOL_NAMES.sourceFeedFetcher) return { query: combined };
 	if (name === NEWSROOM_TOOL_NAMES.researchResultReader) return { latest: true };

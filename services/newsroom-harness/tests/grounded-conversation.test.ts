@@ -1,317 +1,186 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationContext } from '@newscraft/shared';
-import { guardEvidenceForConversation } from '../src/agents/grounded-conversation.js';
 import { normalizeEvidence } from '../src/agents/evidence.js';
+import { rankEvidenceForConversation } from '../src/agents/evidence-ranking.js';
+import { guardEvidenceForConversation } from '../src/agents/grounded-conversation.js';
 
-describe('grounded conversation guard', () => {
-	it('keeps explicitly attached document pages even when the prompt uses generic document wording', () => {
-		const documentPage = normalizeEvidence({
-			source_name: 'municipal-audit.pdf',
-			source_url: '/api/conversations/conversation-1/documents/document-1/download#page=1',
-			accessed_at: '2026-07-28T12:00:00.000Z',
-			tool_used: 'pdf_text_extractor',
-			title: 'municipal-audit.pdf, page 1',
-			published_at: null,
-			extracted_text: 'Procurement documentation was incomplete in 14 of 40 contracts.',
-			summary: 'Procurement documentation was incomplete in 14 of 40 contracts.',
-			confidence: 0.9,
-			limitations: [],
-			source_kind: 'user_document',
-			citation_number: 1,
-			document_page: 1
+describe('general-purpose evidence ranking', () => {
+	it('normalizes every source into the universal evidence contract', () => {
+		const evidence = normalizeEvidence({
+			source_name: 'City clerk',
+			source_url: 'https://example.gov/meeting',
+			tool_used: 'url_fetch_read',
+			title: 'Council meeting result',
+			published_at: '2026-07-30T13:00:00Z',
+			event_at: '2026-07-30T12:00:00Z',
+			location: 'Hamilton',
+			entities: ['Hamilton City Council'],
+			extracted_text: 'Hamilton City Council approved the transit pilot after a recorded vote.',
+			summary: 'Hamilton City Council approved the transit pilot.',
+			source_kind: 'official'
 		});
-		const context: ConversationContext = {
-			version: 1,
-			intent: 'research',
-			activeTopic: { subject: 'Summarize the attached audit in five bullets' }
-		};
 
-		const result = guardEvidenceForConversation([documentPage], context);
+		expect(evidence).toMatchObject({
+			topic: null,
+			entities: ['Hamilton City Council'],
+			location: 'Hamilton',
+			event_at: '2026-07-30T12:00:00Z',
+			source_authority: 0.95,
+			readability: 'partial',
+			supporting_excerpt: expect.stringContaining('Hamilton City Council'),
+			provenance: {
+				url: 'https://example.gov/meeting',
+				tool: 'url_fetch_read',
+				source_kind: 'official'
+			},
+			uncertainty: []
+		});
+	});
 
-		expect(result.evidence).toEqual([documentPage]);
+	it('ranks ordinary official and news sources while downgrading missing metadata', () => {
+		const context = researchContext('Latest Hamilton transit pilot vote', 'Hamilton');
+		const official = source({
+			title: 'Hamilton transit pilot vote',
+			url: 'https://hamilton.ca/transit-pilot',
+			text: 'Hamilton council approved the transit pilot in a recorded vote.',
+			kind: 'official',
+			location: 'Hamilton',
+			publishedAt: new Date().toISOString()
+		});
+		const report = source({
+			title: 'Council approves Hamilton transit pilot',
+			url: 'https://localnews.example/hamilton-transit',
+			text: 'A local report says Hamilton council approved the transit pilot.',
+			kind: 'news_report'
+		});
+
+		const result = rankEvidenceForConversation([report, official], context);
+
+		expect(result.evidence).toEqual([official, report]);
 		expect(result.excluded).toEqual([]);
+		expect(result.diagnostics[0].score).toBeGreaterThan(result.diagnostics[1].score);
+		expect(result.diagnostics[1].notes.join(' ')).toContain('missing location metadata');
 	});
 
-	it('rejects Santo Domingo baseball evidence for a Toronto ECCC weather follow-up', () => {
-		const context: ConversationContext = {
-			intent: 'verify',
-			activeTopic: {
-				subject: 'ECCC weather alert for Toronto on July 28, 2026',
-				entities: ['ECCC'],
-				location: 'Toronto',
-				relevantDate: '2026-07-28'
-			}
-		};
-		const weather = normalizeEvidence({
-			source_name: 'ECCC',
-			source_url: 'https://weather.gc.ca/warnings/report_e.html?on61',
-			accessed_at: '2026-07-28T12:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'Toronto weather alerts',
-			published_at: '2026-07-28',
-			extracted_text: 'ECCC lists Toronto weather alerts and warning status for July 28, 2026.',
-			summary: 'ECCC lists Toronto weather alerts and warning status.',
-			confidence: 0.9,
-			limitations: [],
-			source_kind: 'official',
-			citation_number: 1
-		});
-		const baseball = normalizeEvidence({
-			source_name: 'Sports feed',
-			source_url: 'https://example.com/santo-domingo-baseball',
-			accessed_at: '2026-07-28T12:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'Santo Domingo baseball schedule',
-			published_at: '2026-07-28',
-			extracted_text: 'Santo Domingo baseball clubs play tonight.',
-			summary: 'Santo Domingo baseball clubs play tonight.',
-			confidence: 0.8,
-			limitations: [],
-			source_kind: 'media_report',
-			citation_number: 2
+	it('keeps supported partial findings instead of reducing usable evidence to zero', () => {
+		const context = researchContext('Latest semiconductor plant announcement in Windsor', 'Windsor');
+		const partial = source({
+			title: 'Company confirms Windsor site',
+			url: 'https://company.example/news/windsor-site',
+			text: 'The company confirmed Windsor as the site but did not disclose the construction schedule.',
+			kind: 'primary'
 		});
 
-		const result = guardEvidenceForConversation([baseball, weather], context);
+		const result = rankEvidenceForConversation([partial], context);
 
-		expect(result.evidence).toEqual([weather]);
-		expect(result.excluded).toEqual([baseball]);
-		expect(result.limitations.join(' ')).toContain('excluded');
+		expect(result.evidence).toEqual([partial]);
+		expect(result.excluded).toEqual([]);
+		expect(result.diagnostics[0]).toMatchObject({ eligible: true });
+		expect(result.diagnostics[0].notes.join(' ')).toContain('missing date metadata');
 	});
 
-	it('requires direct publisher pages for named outlet comparisons', () => {
+	it('hard-rejects a clearly unrelated or wrong-location source', () => {
+		const context = researchContext('Latest housing vote in Ottawa', 'Ottawa');
+		const wrong = source({
+			title: 'Calgary arena financing vote',
+			url: 'https://example.com/calgary-arena',
+			text: 'Calgary council approved new financing for the downtown arena.',
+			kind: 'news_report',
+			location: 'Calgary'
+		});
+
+		const result = rankEvidenceForConversation([wrong], context);
+
+		expect(result.evidence).toEqual([]);
+		expect(result.excluded).toEqual([wrong]);
+		expect(result.diagnostics[0]).toMatchObject({
+			eligible: false,
+			hard_reject_reason: 'wrong_location'
+		});
+	});
+
+	it('preserves conversation-scoped private document evidence', () => {
+		const document = normalizeEvidence({
+			source_name: 'audit.pdf',
+			source_url: '/api/conversations/c1/documents/d1/download#page=2',
+			tool_used: 'pdf_text_extractor',
+			title: 'audit.pdf, page 2',
+			extracted_text: 'The audit found incomplete procurement records in 14 contracts.',
+			summary: 'The audit found incomplete procurement records in 14 contracts.',
+			source_kind: 'user_document',
+			document_page: 2
+		});
+		const context = researchContext('Summarize the attached audit findings');
+
+		expect(guardEvidenceForConversation([document], context).evidence).toEqual([document]);
+	});
+
+	it('requires direct publisher evidence only when the user explicitly requests it', () => {
 		const context: ConversationContext = {
-			intent: 'research',
+			...researchContext('Compare CBC and Reuters coverage of the housing announcement'),
 			activeTopic: {
-				subject: 'same-day CBC and Global News coverage of the Toronto housing announcement',
-				location: 'Toronto',
-				relevantDate: '2026-07-28',
-				requestedOutlets: ['CBC', 'Global News'],
+				subject: 'Compare CBC and Reuters coverage of the housing announcement',
+				requestedOutlets: ['CBC', 'Reuters'],
 				directSourcesRequired: true
 			}
 		};
-		const cbc = normalizeEvidence({
-			source_name: 'CBC News',
-			source_url: 'https://www.cbc.ca/news/canada/toronto/housing-announcement',
-			accessed_at: '2026-07-28T12:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'Toronto housing announcement',
-			published_at: '2026-07-28',
-			extracted_text: 'CBC reports on the Toronto housing announcement.',
-			summary: 'CBC reports on the Toronto housing announcement.',
-			confidence: 0.8,
-			limitations: [],
-			source_kind: 'news_report',
-			citation_number: 1
+		const cbc = source({
+			title: 'Housing announcement',
+			url: 'https://cbc.ca/news/housing-announcement',
+			text: 'CBC reports the government announced a housing program.',
+			kind: 'news_report'
 		});
-		const aggregator = normalizeEvidence({
-			source_name: 'Wire roundup',
-			source_url: 'https://example.com/roundup',
-			accessed_at: '2026-07-28T12:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'CBC and Global News coverage roundup',
-			published_at: '2026-07-28',
-			extracted_text: 'A roundup quotes CBC and Global News on Toronto housing.',
-			summary: 'A roundup quotes CBC and Global News on Toronto housing.',
-			confidence: 0.8,
-			limitations: [],
-			source_kind: 'media_report',
-			citation_number: 2
+		const aggregator = source({
+			title: 'Reuters housing summary',
+			url: 'https://aggregator.example/reuters-housing',
+			text: 'An aggregator summarizes the Reuters report on the housing program.',
+			kind: 'news_report'
 		});
 
-		const result = guardEvidenceForConversation([cbc, aggregator], context);
+		const result = rankEvidenceForConversation([aggregator, cbc], context);
 
 		expect(result.evidence).toEqual([cbc]);
 		expect(result.excluded).toEqual([aggregator]);
-		expect(result.limitations.join(' ')).toContain('Global News');
-	});
-
-	it('applies the current follow-up date instead of accepting stale inherited-topic evidence', () => {
-		const context: ConversationContext = {
-			intent: 'verify',
-			activeTopic: {
-				subject:
-					'ECCC weather alert for Toronto on May 1, 2026 Current follow-up: Is it still active on 2026-07-28?',
-				entities: ['ECCC'],
-				location: 'Toronto',
-				relevantDate: '2026-07-28'
-			}
-		};
-		const stale = normalizeEvidence({
-			source_name: 'ECCC',
-			source_url: 'https://weather.gc.ca/warnings/report_e.html?on61',
-			accessed_at: '2026-07-28T12:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'Toronto weather alerts',
-			published_at: '2026-05-01',
-			extracted_text: 'ECCC listed a Toronto weather alert on May 1, 2026.',
-			summary: 'ECCC listed a Toronto weather alert on May 1, 2026.',
-			confidence: 0.9,
-			limitations: [],
-			source_kind: 'official',
-			citation_number: 1
-		});
-		const current = normalizeEvidence({
-			source_name: 'ECCC',
-			source_url: 'https://weather.gc.ca/warnings/report_e.html?on61',
-			accessed_at: '2026-07-28T12:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'Toronto weather alerts',
-			published_at: '2026-07-28',
-			extracted_text: 'ECCC lists the Toronto warning status for July 28, 2026.',
-			summary: 'ECCC lists the Toronto warning status for July 28, 2026.',
-			confidence: 0.9,
-			limitations: [],
-			source_kind: 'official',
-			citation_number: 2
-		});
-
-		const result = guardEvidenceForConversation([stale, current], context);
-
-		expect(result.evidence).toEqual([current]);
-		expect(result.excluded).toEqual([stale]);
-	});
-
-	it('does not let an eleven-day-old alert establish current warning status', () => {
-		const context: ConversationContext = {
-			version: 1,
-			intent: 'verify',
-			activeTopic: {
-				subject: 'Is the Toronto heat warning currently active today?',
-				entities: ['Environment Canada'],
-				location: 'Toronto',
-				relevantDate: '2026-07-28'
-			}
-		};
-		const oldAlert = normalizeEvidence({
-			source_name: 'Environment Canada',
-			source_url: 'https://weather.gc.ca/warnings/report_e.html?on61',
-			accessed_at: '2026-07-28T16:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'Toronto heat warning',
-			published_at: '2026-07-17',
-			extracted_text: 'A heat warning was issued for Toronto on July 17, 2026.',
-			summary: 'A heat warning was issued for Toronto on July 17, 2026.',
-			confidence: 0.9,
-			limitations: [],
-			source_kind: 'official',
-			citation_number: 1
-		});
-
-		const result = guardEvidenceForConversation([oldAlert], context);
-
-		expect(result.evidence).toEqual([]);
-		expect(result.excluded).toEqual([oldAlert]);
-		expect(result.limitations.join(' ')).toContain('excluded');
-	});
-
-	it('does not let a two-day-old alert establish active-now status', () => {
-		const context: ConversationContext = {
-			version: 1,
-			intent: 'verify',
-			activeTopic: {
-				subject: 'Is the Toronto weather alert active now?',
-				location: 'Toronto',
-				relevantDate: '2026-07-28'
-			}
-		};
-		const oldAlert = normalizeEvidence({
-			source_name: 'Environment Canada',
-			source_url: 'https://weather.gc.ca/warnings/report_e.html?on61',
-			accessed_at: '2026-07-28T16:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'Toronto weather alert',
-			published_at: '2026-07-26',
-			extracted_text: 'An alert was issued for Toronto on July 26, 2026.',
-			summary: 'An alert was issued for Toronto on July 26, 2026.',
-			confidence: 0.9,
-			limitations: [],
-			source_kind: 'official'
-		});
-
-		expect(guardEvidenceForConversation([oldAlert], context).evidence).toEqual([]);
-	});
-
-	it('accepts a freshly accessed undated official live-status page', () => {
-		const context: ConversationContext = {
-			version: 1,
-			intent: 'verify',
-			activeTopic: {
-				subject: 'Is the Toronto weather alert active now?',
-				location: 'Toronto',
-				relevantDate: '2026-07-28'
-			}
-		};
-		const currentStatus = normalizeEvidence({
-			source_name: 'Environment Canada',
-			source_url: 'https://weather.gc.ca/warnings/report_e.html?on61',
-			accessed_at: '2026-07-28T16:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'Toronto weather alerts',
-			published_at: null,
-			extracted_text: 'No alerts in effect.',
-			summary: 'No alerts in effect.',
-			confidence: 0.9,
-			limitations: [],
-			source_kind: 'official'
-		});
-
-		expect(guardEvidenceForConversation([currentStatus], context).evidence).toEqual([currentStatus]);
-	});
-
-	it('rejects freshly fetched official evidence whose own text is dated two days earlier', () => {
-		const context: ConversationContext = {
-			version: 1,
-			intent: 'verify',
-			activeTopic: {
-				subject: 'Is the Toronto weather alert active now?',
-				location: 'Toronto',
-				relevantDate: '2026-07-28'
-			}
-		};
-		const staleStatus = normalizeEvidence({
-			source_name: 'Environment Canada',
-			source_url: 'https://weather.gc.ca/warnings/report_e.html?on61',
-			accessed_at: '2026-07-28T17:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'Toronto weather alerts',
-			published_at: null,
-			extracted_text: 'The displayed status timestamp is July 26, 2026, 5:58 a.m. EDT.',
-			summary: 'The displayed status timestamp is July 26, 2026, 5:58 a.m. EDT.',
-			confidence: 0.9,
-			limitations: [],
-			source_kind: 'official'
-		});
-
-		expect(guardEvidenceForConversation([staleStatus], context).evidence).toEqual([]);
-	});
-
-	it('rejects a generic province alert table that does not identify the requested city', () => {
-		const context: ConversationContext = {
-			version: 1,
-			intent: 'verify',
-			activeTopic: {
-				subject: 'current Toronto Environment Canada heat warning status today',
-				entities: ['Environment Canada', 'Toronto heat warning'],
-				location: 'Toronto',
-				relevantDate: '2026-07-28',
-				directSourcesRequired: true
-			}
-		};
-		const genericAlertTable = normalizeEvidence({
-			source_name: 'Environment Canada',
-			source_url:
-				'https://weather.gc.ca/index_e.html?alertTableFilterProv=ON&center=50.45%2C-104.617&layers=alert',
-			accessed_at: '2026-07-28T17:00:00.000Z',
-			tool_used: 'openai_web_search',
-			title: 'Weather Information - Environment Canada',
-			published_at: null,
-			extracted_text: 'The provincial active-alert table was updated at 12:36 p.m. EDT.',
-			summary: 'The provincial active-alert table was updated at 12:36 p.m. EDT.',
-			confidence: 0.8,
-			limitations: [],
-			source_kind: 'official'
-		});
-
-		expect(guardEvidenceForConversation([genericAlertTable], context).evidence).toEqual([]);
+		expect(result.diagnostics[1].hard_reject_reason).toBe('wrong_entity');
 	});
 });
+
+function researchContext(subject: string, location?: string): ConversationContext {
+	return {
+		version: 1,
+		intent: 'research',
+		currentTurn: {
+			content: subject,
+			resolvedRequest: subject,
+			operation: 'send',
+			researchRequired: true,
+			freshness: 'current'
+		},
+		activeTopic: {
+			subject,
+			...(location ? { location } : {}),
+			relevantDate: 'current'
+		}
+	};
+}
+
+function source(input: {
+	title: string;
+	url: string;
+	text: string;
+	kind: 'official' | 'primary' | 'news_report';
+	location?: string;
+	publishedAt?: string;
+}) {
+	return normalizeEvidence({
+		source_name: new URL(input.url).hostname,
+		source_url: input.url,
+		tool_used: 'openai_web_search',
+		title: input.title,
+		published_at: input.publishedAt ?? null,
+		extracted_text: input.text,
+		summary: input.text,
+		source_kind: input.kind,
+		location: input.location ?? null
+	});
+}

@@ -1,6 +1,6 @@
 import type { HarnessRepository } from '../db/repository.js';
 import type { NewsroomAgentConfig } from './harness-config.js';
-import type { EvidenceObject } from './evidence.js';
+import type { EvidenceObject, EvidenceRanking } from './evidence.js';
 import type { RouteDecision } from './router.js';
 import type { ToolBudgetSnapshot } from './budget.js';
 import type { ModelProvider } from '../util/openai-complete.js';
@@ -55,6 +55,8 @@ export interface ToolRunOutput {
 	answer?: string;
 	limitations?: string[];
 	raw?: unknown;
+	/** Internal-only explanation of evidence rank, downgrade, or hard rejection. */
+	evidence_diagnostics?: EvidenceRanking[];
 	diagnostics?: {
 		attempts: Array<{
 			role: 'primary' | 'retry' | 'fallback';
@@ -131,7 +133,15 @@ export const evidenceOutputSchema: JsonSchema = {
 					extracted_text: { type: 'string' },
 					summary: { type: 'string' },
 					confidence: { type: 'number' },
-					limitations: { type: 'array', items: { type: 'string' } }
+					limitations: { type: 'array', items: { type: 'string' } },
+					topic: { type: ['string', 'null'] },
+					entities: { type: 'array', items: { type: 'string' } },
+					location: { type: ['string', 'null'] },
+					event_at: { type: ['string', 'null'] },
+					source_authority: { type: 'number' },
+					readability: { type: 'string', enum: ['readable', 'partial', 'blocked'] },
+					supporting_excerpt: { type: 'string' },
+					uncertainty: { type: 'array', items: { type: 'string' } }
 				},
 				required: [
 					'source_name',

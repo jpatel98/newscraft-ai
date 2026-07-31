@@ -60,7 +60,6 @@ export function createNewsroomAgentConfig(overrides: Partial<NewsroomAgentConfig
 	return {
 		enabled_tools:
 			overrides.enabled_tools || [
-				NEWSROOM_TOOL_NAMES.weatherLookup,
 				NEWSROOM_TOOL_NAMES.sourceMonitor,
 				NEWSROOM_TOOL_NAMES.sourceFeedFetcher,
 				NEWSROOM_TOOL_NAMES.researchResultReader,

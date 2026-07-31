@@ -24,7 +24,6 @@ export interface RouterOptions {
 }
 
 export const NEWSROOM_TOOL_NAMES = {
-	weatherLookup: 'canadian_weather_lookup',
 	sourceMonitor: 'configured_source_monitor',
 	sourceFeedFetcher: 'source_feed_fetcher',
 	researchResultReader: 'saved_research_reader',
@@ -116,17 +115,6 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		);
 	}
 
-	if (mentionsWeatherConditions(text)) {
-		return decision(
-			'custom_tool',
-			'The request asks for current weather conditions or a short forecast, which should use structured weather data instead of broad article search.',
-			[NEWSROOM_TOOL_NAMES.weatherLookup],
-			budget,
-			'stop after official structured weather data is returned, or broaden only if that data is unavailable',
-			'a concise current weather answer grounded in official structured data'
-		);
-	}
-
 	const wantsOtherOutlets = mentionsOtherOutlets(text);
 	const wantsConfiguredSources = mentionsConfiguredSource(text);
 	const wantsCurrentSources = mentionsCurrentSourceCheck(text);
@@ -215,13 +203,24 @@ export function routeNewsroomRequest(prompt: string, options: RouterOptions = {}
 		);
 	}
 
+	if (/^(?:ok(?:ay)?|thanks?|thank you|got it|sounds good|yes|no)[.! ]*$/.test(text)) {
+		return decision(
+			'direct_answer',
+			'The request is a conversational acknowledgement that does not need research.',
+			[],
+			budget,
+			'stop without calling research tools',
+			'a brief conversational response'
+		);
+	}
+
 	return decision(
-		'direct_answer',
-		'No research trigger matched; producer chat defaults to a direct assistant answer.',
-		[],
+		'web_search',
+		'An ordinary factual newsroom request should use the general research capability when no narrower capability applies.',
+		[NEWSROOM_TOOL_NAMES.webSearch],
 		budget,
-		'stop without calling research tools',
-		'a direct NewsCraft answer without claiming live source checks'
+		'stop when enough relevant evidence exists or the research capability is unavailable',
+		'a sourced answer with explicit uncertainty when coverage is incomplete'
 	);
 }
 
@@ -332,15 +331,6 @@ function mentionsWritingPlanningAnalysisOrTransform(text: string): boolean {
 function mentionsFreshFacts(text: string): boolean {
 	return /\b(latest|current|currently|today|tonight|tomorrow|yesterday|this week|this month|recent|breaking|live|now|update|updates|news|alerts?|what happened|what's happening|what is happening|who is|who's|who are|when is|where is|result|score|price|prices|schedule|what (?:is|are|was|were) .+ referring to)\b/.test(
 		text
-	);
-}
-
-function mentionsWeatherConditions(text: string): boolean {
-	if (/\b(?:alerts?|warnings?|watches?|advisories|historical|history|climate|average|record)\b/.test(text)) return false;
-	if (/^(?:why|explain|teach|define|how (?:do|does|are|were|can)|write|draft|rewrite|edit|summarize|analyse|analyze)\b/.test(text)) return false;
-	return (
-		/\b(?:weather|forecast|temperature|conditions?)\b/.test(text) ||
-		/\b(?:is it|will it|chance of)\b[\s\S]{0,40}\b(?:rain(?:ing)?|snow(?:ing)?)\b/.test(text)
 	);
 }
 

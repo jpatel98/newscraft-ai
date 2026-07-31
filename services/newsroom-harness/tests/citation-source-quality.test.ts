@@ -494,7 +494,7 @@ describe('citation and source-quality web research', () => {
 			}
 		});
 
-		expect(answer).toContain('Current status unresolved');
+			expect(answer).toContain('remains uncertain');
 		expect(answer).toContain('conflict');
 		expect(answer).toContain('[1]');
 		expect(answer).toContain('[2]');
@@ -723,46 +723,31 @@ describe('citation and source-quality web research', () => {
 		expect(openAiBody.tool_choice).toBe('required');
 	});
 
-	it('runs one bounded official-source retry for a high-risk schedule without primary evidence', async () => {
+	it('does not run a topic-specific retry when the first search returns usable evidence', async () => {
 		const today = new Date().toISOString();
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValueOnce(
-				jsonResponse({
-					choices: [{ message: { content: 'A report lists a match [1].' } }],
-					citations: ['https://www.reuters.com/sports/reported-match'],
-					search_results: [
-						{ url: 'https://www.reuters.com/sports/reported-match', title: 'Reported match', date: today }
-					]
-				})
-			)
-			.mockResolvedValueOnce(
-				jsonResponse({
-					choices: [{ message: { content: 'The official schedule lists the match [1].' } }],
-					citations: ['https://www.fifa.com/tournaments/match-center'],
-					search_results: [
-						{
-							url: 'https://www.fifa.com/tournaments/match-center',
-							title: 'FIFA match schedule',
-							date: today
-						}
-					]
-				})
-			);
+		const fetchMock = vi.fn().mockResolvedValueOnce(
+			jsonResponse({
+				choices: [{ message: { content: 'Reuters reports that council approved the motion [1].' } }],
+				citations: ['https://www.reuters.com/world/americas/council-motion'],
+				search_results: [
+					{
+						url: 'https://www.reuters.com/world/americas/council-motion',
+						title: 'Council approves motion',
+						date: today
+					}
+				]
+			})
+		);
 		vi.stubGlobal('fetch', fetchMock);
 
-		const result = await runWebSearch('what fifa games are being played today');
+		const result = await runWebSearch('what happened in the council vote today');
 
-		expect(fetchMock).toHaveBeenCalledTimes(2);
-		expect(requestBody(fetchMock, 1)).toMatchObject({
-			search_domain_filter: ['fifa.com'],
-			search_recency_filter: 'day'
-		});
-		expect(result.answer).toBe('The official schedule lists the match [1].');
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(result.answer).toBe('Reuters reports that council approved the motion [1].');
 		expect(result.evidence).toEqual([
 			expect.objectContaining({
-				source_url: 'https://www.fifa.com/tournaments/match-center',
-				source_kind: 'primary',
+				source_url: 'https://www.reuters.com/world/americas/council-motion',
+				source_kind: 'news_report',
 				citation_number: 1,
 				published_at: today
 			})

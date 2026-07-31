@@ -103,7 +103,7 @@ function chatAnswer(
 		? formatChatToolAnswer(prompt, rawToolAnswer)
 		: documentEvidence.length
 			? documentChatAnswer(documentEvidence, prompt)
-			: groundedEvidenceChatAnswer(prompt, evidence, conversationContext);
+			: groundedEvidenceChatAnswer(prompt, evidence);
 	const caveats = publicCaveatsFor(prompt, evidence, unusableEvidence, limitations, { noUsableEvidence: false });
 	const publicationDate = publicationDateAnswer(prompt, evidence);
 	return appendCaveats([answer, publicationDate].filter(Boolean).join('\n\n'), caveats);
@@ -117,11 +117,10 @@ function publicationDateAnswer(prompt: string, evidence: EvidenceObject[]): stri
 
 function groundedEvidenceChatAnswer(
 	prompt: string,
-	evidence: EvidenceObject[],
-	conversationContext?: ConversationContext
+	evidence: EvidenceObject[]
 ): string {
-	const status = currentStatusStatement(prompt, evidence, conversationContext);
-	if (status) return status;
+	const conflict = conflictingEvidenceStatement(evidence);
+	if (conflict) return conflict;
 
 	const statements = evidence
 		.map((item) => {
@@ -139,34 +138,32 @@ function groundedEvidenceChatAnswer(
 	return ['**Confirmed from the usable evidence**', '', ...statements.map((statement) => `- ${statement}`)].join('\n');
 }
 
-function currentStatusStatement(
-	prompt: string,
-	evidence: EvidenceObject[],
-	conversationContext?: ConversationContext
-): string {
-	if (!/\b(current|currently|active|in effect|as of|now|today|latest)\b/i.test(prompt)) return '';
-	const requestedLocation = conversationContext?.activeTopic?.location?.trim().toLowerCase();
-	const inactive: string[] = [];
-	const active: string[] = [];
-	for (const item of evidence) {
-		const text = `${item.summary} ${item.extracted_text}`.replace(/\s+/g, ' ').trim();
-		if (requestedLocation && !text.toLowerCase().includes(requestedLocation)) continue;
-		const marker = item.citation_number ? ` [${item.citation_number}]` : '';
-		if (/\bno (?:weather )?alerts?(?: are| is)? in effect\b/i.test(text)) {
-			inactive.push(marker);
-			continue;
-		}
-		const activeMatch = text.match(
-			/\b((?:an?|the) (?:weather )?(?:warning|watch|advisory|alert) (?:is|remains) (?:active|in effect))\b/i
-		);
-		if (activeMatch) active.push(`${sentenceCase(activeMatch[1])}${marker}`);
-	}
-	if (inactive.length && active.length) {
-		return `**Current status unresolved:** Accepted sources conflict: one says no alerts are in effect${inactive.join('')}, while another says ${active[0]}.`;
-	}
-	if (inactive.length) return `**Current status:** The accepted source states that no alerts are in effect.${inactive[0]}`;
-	if (active.length) return `**Current status:** ${active[0]}.`;
-	return '';
+function conflictingEvidenceStatement(evidence: EvidenceObject[]): string {
+	if (evidence.length < 2) return '';
+	const negative = evidence.find((item) =>
+		/\b(?:no|not|never|denied|disputed|false|incorrect|did not|has not|have not|cannot|can't)\b/i.test(
+			`${item.summary} ${item.extracted_text}`
+		)
+	);
+	const affirmative = evidence.find(
+		(item) =>
+			item !== negative &&
+			!/\b(?:no|not|never|denied|disputed|false|incorrect|did not|has not|have not|cannot|can't)\b/i.test(
+				`${item.summary} ${item.extracted_text}`
+			)
+	);
+	if (!negative || !affirmative) return '';
+	const negativeClaim = completeEvidenceStatement(negative);
+	const affirmativeClaim = completeEvidenceStatement(affirmative);
+	if (!negativeClaim || !affirmativeClaim) return '';
+	const negativeMarker = negative.citation_number ? ` [${negative.citation_number}]` : '';
+	const affirmativeMarker = affirmative.citation_number ? ` [${affirmative.citation_number}]` : '';
+	return [
+		'**The available sources conflict, so this remains uncertain.**',
+		'',
+		`- ${affirmativeClaim}${affirmativeMarker}`,
+		`- ${negativeClaim}${negativeMarker}`
+	].join('\n');
 }
 
 function completeEvidenceStatement(item: EvidenceObject): string {
@@ -185,10 +182,6 @@ function completeEvidenceStatement(item: EvidenceObject): string {
 	if (complete) return complete.replace(/\s*\[\d+\]\s*$/, '').trim();
 	if (candidate.length < 20 || looksLikeHeadlineBlob(candidate)) return '';
 	return ensureTerminalPunctuation(candidate.replace(/\s*\[\d+\]\s*$/, '').trim());
-}
-
-function sentenceCase(value: string): string {
-	return value ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
 }
 
 function withImplicitCitationNumbers(evidence: EvidenceObject[]): EvidenceObject[] {
@@ -326,11 +319,7 @@ function excludesBanner(prompt: string): boolean {
 
 function teaseTextForContext(context: ConversationContext): string {
 	const topic = context.activeTopic;
-	const subject = (
-		topic?.location && /\b(?:weather\s+)?(?:alert|warning|watch|advisory)\b/i.test(topic.subject)
-			? `${topic.location} weather alert status`
-			: compactText(topic?.subject || 'this developing story', 96)
-	)
+	const subject = compactText(topic?.subject || 'this developing story', 96)
 		.replace(/\[\d+\]/g, '')
 		.replace(/[.!?]$/, '');
 	return ensureTerminalPunctuation(`What the latest confirmed evidence says about ${subject}`);

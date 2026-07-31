@@ -14,6 +14,23 @@ export type JournalistSourceKind =
 // JournalistSourceKind.
 export type EvidenceSourceKind = JournalistSourceKind | 'internal' | 'media_report';
 
+export type EvidenceReadability = 'readable' | 'partial' | 'blocked';
+
+export interface EvidenceRanking {
+	score: number;
+	eligible: boolean;
+	hard_reject_reason?: 'wrong_subject' | 'wrong_entity' | 'wrong_location' | 'wrong_time' | 'invalid' | 'unsafe' | 'unsupported';
+	factors: {
+		relevance: number;
+		freshness: number;
+		source_quality: number;
+		directness: number;
+		readability: number;
+		conversation_fit: number;
+	};
+	notes: string[];
+}
+
 export interface EvidenceObject {
 	source_name: string;
 	source_url: string;
@@ -28,6 +45,19 @@ export interface EvidenceObject {
 	source_kind?: EvidenceSourceKind;
 	citation_number?: number;
 	document_page?: number;
+	topic?: string | null;
+	entities?: string[];
+	location?: string | null;
+	event_at?: string | null;
+	source_authority?: number;
+	readability?: EvidenceReadability;
+	supporting_excerpt?: string;
+	provenance?: {
+		url: string;
+		tool: string;
+		source_kind: EvidenceSourceKind;
+	};
+	uncertainty?: string[];
 }
 
 export interface EvidenceInput {
@@ -49,6 +79,14 @@ export interface EvidenceInput {
 	document_page?: number | string | null;
 	url?: string | null;
 	fetchedAt?: string | null;
+	topic?: string | null;
+	entities?: string[] | null;
+	location?: string | null;
+	event_at?: string | null;
+	source_authority?: number | string | null;
+	readability?: EvidenceReadability | null;
+	supporting_excerpt?: string | null;
+	uncertainty?: string[] | string | null;
 }
 
 export function normalizeEvidence(input: EvidenceInput, defaults: Partial<EvidenceObject> = {}): EvidenceObject {
@@ -61,12 +99,21 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 	const accessedAt = nonEmpty(input.accessed_at) || nonEmpty(input.fetchedAt) || defaults.accessed_at || nowIso();
 	const limitations = normalizeLimitations(input.limitations ?? defaults.limitations);
 	const sourceKind = input.source_kind || defaults.source_kind || classifyEvidenceSource(sourceName, sourceUrl);
+	const readability =
+		input.readability ||
+		defaults.readability ||
+		readabilityFor(text || summary, limitations);
+	const toolUsed = nonEmpty(input.tool_used) || defaults.tool_used || 'unknown_tool';
+	const supportingExcerpt =
+		nonEmpty(input.supporting_excerpt) ||
+		defaults.supporting_excerpt ||
+		summarizeEvidenceText(text || summary || title, 520);
 
 	return {
 		source_name: sourceName,
 		source_url: sourceUrl,
 		accessed_at: accessedAt,
-		tool_used: nonEmpty(input.tool_used) || defaults.tool_used || 'unknown_tool',
+		tool_used: toolUsed,
 		title,
 		published_at: nonEmpty(input.published_at) || defaults.published_at || null,
 		extracted_text: text,
@@ -75,7 +122,22 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 		limitations,
 		source_kind: sourceKind,
 		citation_number: positiveInteger(input.citation_number ?? defaults.citation_number),
-		document_page: positiveInteger(input.document_page ?? defaults.document_page)
+		document_page: positiveInteger(input.document_page ?? defaults.document_page),
+		topic: nonEmpty(input.topic) || defaults.topic || null,
+		entities: normalizeStringList(input.entities ?? defaults.entities),
+		location: nonEmpty(input.location) || defaults.location || null,
+		event_at: nonEmpty(input.event_at) || defaults.event_at || null,
+		source_authority: normalizeConfidence(
+			input.source_authority ?? defaults.source_authority ?? sourceAuthorityFor(sourceKind)
+		),
+		readability,
+		supporting_excerpt: supportingExcerpt,
+		provenance: {
+			url: sourceUrl,
+			tool: toolUsed,
+			source_kind: sourceKind
+		},
+		uncertainty: normalizeLimitations(input.uncertainty ?? defaults.uncertainty ?? limitations)
 	};
 }
 
@@ -235,6 +297,27 @@ function normalizeLimitations(value: string[] | string | null | undefined): stri
 	if (!value) return [];
 	if (Array.isArray(value)) return value.filter(Boolean).map(String);
 	return [value].filter(Boolean).map(String);
+}
+
+function normalizeStringList(value: string[] | null | undefined): string[] {
+	if (!value) return [];
+	return Array.from(new Set(value.map((item) => item.trim()).filter(Boolean))).slice(0, 12);
+}
+
+function sourceAuthorityFor(kind: EvidenceSourceKind): number {
+	if (kind === 'official' || kind === 'primary' || kind === 'user_document') return 0.95;
+	if (kind === 'news_report' || kind === 'media_report') return 0.8;
+	if (kind === 'commercial') return 0.55;
+	if (kind === 'social_post') return 0.4;
+	if (kind === 'internal') return 0.7;
+	return 0.5;
+}
+
+function readabilityFor(text: string, limitations: string[]): EvidenceReadability {
+	if (limitations.some((item) => /login|captcha|paywall|blocked|access denied/i.test(item))) return 'blocked';
+	const length = text.replace(/\s+/g, ' ').trim().length;
+	if (length >= 80) return 'readable';
+	return length > 0 ? 'partial' : 'blocked';
 }
 
 function normalizeConfidence(value: number | string | null | undefined): number {

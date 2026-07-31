@@ -153,7 +153,7 @@ describe('newsroom harness server', () => {
 		expect(text.trim().endsWith('data: [DONE]')).toBe(true);
 	});
 
-	it('resolves the exact FIFA schedule regression through an official retry and citation SSE', async () => {
+	it('streams citations for a current-news answer without a topic-specific retry', async () => {
 		const nativeFetch = globalThis.fetch.bind(globalThis);
 		const today = new Date().toISOString();
 		let providerCalls = 0;
@@ -161,35 +161,19 @@ describe('newsroom harness server', () => {
 			const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 			if (!url.includes('api.perplexity.ai')) return nativeFetch(input, init);
 			providerCalls += 1;
-			return new Response(
-				JSON.stringify(
-					providerCalls === 1
-						? {
-								choices: [{ message: { content: 'A report lists one match [1].' } }],
-								citations: ['https://www.reuters.com/sports/reported-match'],
-								search_results: [
-									{
-										url: 'https://www.reuters.com/sports/reported-match',
-										title: 'Reported match',
-										date: today
-									}
-								]
+				return new Response(
+					JSON.stringify({
+						choices: [{ message: { content: 'Ottawa council approved the housing motion [1].' } }],
+						citations: ['https://council.example.gov/housing-motion'],
+						search_results: [
+							{
+								url: 'https://council.example.gov/housing-motion',
+								title: 'Ottawa housing motion',
+								snippet: 'Council approved the housing motion in a recorded vote.',
+								date: today
 							}
-							: {
-								choices: [
-									{ message: { content: 'FIFA lists the confirmed match and kickoff time [1].' } }
-								],
-								citations: ['https://inside.fifa.com/match-centre'],
-								search_results: [
-									{
-										url: 'https://inside.fifa.com/match-centre',
-										title: 'FIFA match schedule',
-										snippet: 'The confirmed match begins at 19:00 local time.',
-										date: today
-									}
-								]
-							}
-				),
+						]
+					}),
 				{ status: 200, headers: { 'content-type': 'application/json' } }
 			);
 		});
@@ -200,18 +184,18 @@ describe('newsroom harness server', () => {
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
 				stream: true,
-				messages: [{ role: 'user', content: 'what fifa games are being played today' }],
+					messages: [{ role: 'user', content: 'what happened in the Ottawa housing vote today' }],
 				newsroom_context: { timezone: 'America/Toronto' }
 			})
 		});
 		const text = await response.text();
 
 		expect(response.status).toBe(200);
-		expect(providerCalls).toBe(2);
+			expect(providerCalls).toBe(1);
 		expect(text).toContain('Current as of');
 		expect(text).toContain('event: agent.citations');
-		expect(text).toContain('https://inside.fifa.com/match-centre');
-		expect(text).toContain('"sourceType":"primary"');
+			expect(text).toContain('https://council.example.gov/housing-motion');
+			expect(text).toContain('"sourceType":"official"');
 		expect(text).not.toContain('No browser automation provider');
 	});
 

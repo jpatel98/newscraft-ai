@@ -20,7 +20,6 @@ import {
 	newsroomTimeContext,
 	newsroomTimeZone
 } from './time-context.js';
-import { weatherLookupTool } from './weather.js';
 
 const GENERIC_MONITOR_NAME_TERMS = new Set([
 	'media',
@@ -49,7 +48,6 @@ const WEB_SEARCH_DEADLINE_MS = 30_000;
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
 	for (const tool of [
-		weatherLookupTool(),
 		configuredSourceMonitorTool(),
 		sourceFeedFetcherTool(),
 		savedResearchReaderTool(),
@@ -249,11 +247,10 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			const attempts: NonNullable<ToolRunOutput['diagnostics']>['attempts'] = [];
 			const recordOutcome = (
 				outcome: InterpretedProviderSearch,
-				role: 'primary' | 'retry' | 'fallback' | 'official_source'
+				role: 'primary' | 'retry' | 'fallback'
 			) => {
-				const publicRole = role === 'official_source' ? 'fallback' : role;
 				attempts.push({
-					role: publicRole,
+					role,
 					provider: outcome.provider,
 					status: outcome.usable ? 'ok' : 'failed',
 					latencyMs: outcome.latencyMs,
@@ -312,10 +309,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 
 			const fallbackKey = context.perplexityApiKey || '';
 			if (
-				(!selected.usable ||
-					(needsOfficialSourceRetry(input.query) &&
-						(!hasPrimaryEvidence(selected.evidence) ||
-							!hasSubstantiveCurrentAnswer(input.query, selected.outputText)))) &&
+				!selected.usable &&
 				primaryProvider === 'openai' &&
 				fallbackKey &&
 				!context.signal?.aborted
@@ -329,74 +323,10 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					context
 				});
 				recordOutcome(fallback, 'fallback');
-				if (
-					fallback.usable &&
-					hasSubstantiveCurrentAnswer(input.query, fallback.outputText)
-				) {
-					selected = fallback;
-				}
+				if (fallback.usable) selected = fallback;
 			}
 
-			if (
-				needsOfficialSourceRetry(input.query) &&
-				(!hasPrimaryEvidence(selected.evidence) ||
-					!hasSubstantiveCurrentAnswer(input.query, selected.outputText)) &&
-				!context.signal?.aborted
-			) {
-				const officialProvider: ModelProvider = fallbackKey ? 'perplexity' : selected.provider;
-				const officialApiKey =
-					officialProvider === 'perplexity' ? fallbackKey || primaryApiKey : primaryApiKey;
-				const official = await interpretProviderWebSearch({
-					provider: officialProvider,
-					apiKey: officialApiKey,
-					model:
-						officialProvider === 'perplexity'
-							? normalizeProviderModel('perplexity', 'perplexity/sonar')
-							: primaryModel,
-					query: input.query,
-					newsroomContext: context.newsroomContext,
-					context,
-					officialSourceOnly: true
-				});
-				recordOutcome(official, 'official_source');
-				if (
-					official.usable &&
-					hasPrimaryEvidence(official.evidence) &&
-					hasSubstantiveCurrentAnswer(input.query, official.outputText)
-				) {
-					selected = official;
-				}
-			}
-
-			if (
-				isCurrentEarthquakeQuery(input.query) &&
-				!context.signal?.aborted
-			) {
-				const structured = await latestEarthquakeEvidence(input.query, context);
-				if (structured) {
-					selected = {
-						...selected,
-						raw: {},
-						outputText: structured.answer,
-						evidence: structured.evidence,
-						streamFailure: null,
-						upstreamStatus: 200,
-						failureCategory: undefined,
-						usable: true
-					};
-				}
-			}
-
-			let outputText = selected.outputText;
-			if (
-				selected.provider === 'perplexity' &&
-				needsOfficialSourceRetry(input.query) &&
-				!hasPrimaryEvidence(selected.evidence)
-			) {
-				const primaryStatus =
-					'**Primary-source status:** I did not find readable official or direct evidence in this search, so treat the attributed reporting as provisional.';
-				outputText = outputText.trim() ? `${outputText.trim()}\n\n${primaryStatus}` : primaryStatus;
-			}
+			const outputText = selected.outputText;
 			const answerText = outputText.trim();
 			const streamLimitations = selected.streamFailure
 				? ['Live research ended early. Treat this answer as incomplete.']
@@ -945,7 +875,6 @@ async function interpretProviderWebSearch(input: {
 	query: string;
 	newsroomContext?: ToolRunContext['newsroomContext'];
 	context: ToolRunContext;
-	officialSourceOnly?: boolean;
 }): Promise<InterpretedProviderSearch> {
 	const startedAt = Date.now();
 	const searchSignal = boundedSignal(input.context.signal, WEB_SEARCH_DEADLINE_MS);
@@ -958,7 +887,6 @@ async function interpretProviderWebSearch(input: {
 			query: input.query,
 			stream: false,
 			newsroomContext: input.newsroomContext,
-			officialSourceOnly: input.officialSourceOnly,
 			signal: searchSignal
 		});
 	} catch (err) {
@@ -1092,7 +1020,6 @@ async function performProviderWebSearch(input: {
 	query: string;
 	stream: boolean;
 	newsroomContext?: ToolRunContext['newsroomContext'];
-	officialSourceOnly?: boolean;
 	signal?: AbortSignal;
 	onAnswerDelta?: (delta: string) => void;
 }): Promise<ProviderSearchAttempt> {
@@ -1109,8 +1036,7 @@ async function performProviderWebSearch(input: {
 				model: input.model,
 				stream: input.stream,
 				query: input.query,
-				officialSourceOnly: input.officialSourceOnly,
-				input: webSearchPrompt(input.query, input.newsroomContext, input.officialSourceOnly)
+				input: webSearchPrompt(input.query, input.newsroomContext)
 			})
 		),
 		signal: input.signal
@@ -1148,7 +1074,6 @@ function webSearchRequestBody(input: {
 	stream: boolean;
 	input: string;
 	query: string;
-	officialSourceOnly?: boolean;
 }): Record<string, unknown> {
 	if (input.provider === 'openai') {
 		const body: Record<string, unknown> = {
@@ -1177,7 +1102,7 @@ function webSearchRequestBody(input: {
 			},
 			{ role: 'user', content: input.input }
 		],
-		...sonarSearchFilters(input.query, input.officialSourceOnly)
+		...sonarSearchFilters(input.query)
 	};
 }
 
@@ -1197,8 +1122,7 @@ function boundedSignal(signal: AbortSignal | undefined, timeoutMs: number): Abor
 
 function webSearchPrompt(
 	query: string,
-	newsroomContext?: ToolRunContext['newsroomContext'],
-	officialSourceOnly = false
+	newsroomContext?: ToolRunContext['newsroomContext']
 ): string {
 	const resolvedTimeZone = validTimeZone(newsroomContext?.timezone) || newsroomTimeZone();
 	const timeContext = newsroomTimeContext({ timeZone: resolvedTimeZone });
@@ -1214,7 +1138,7 @@ function webSearchPrompt(
 			: []),
 		'Search for source material relevant to this newsroom request.',
 		'Complete the research now. Do not ask for scope confirmation when a safe, bounded interpretation can answer the request; state the interpretation briefly and proceed.',
-		'For a broad top-news request, provide a concise mixed roundup using the newsroom home market when available. For an unqualified FIFA-games-today request, check official FIFA-run competitions across the date and state that scope. For a requested national public-policy roundup, include all government levels unless the user narrows the scope.',
+		'For a broad request, make a safe bounded interpretation, state it briefly, and use a representative mix of directly relevant sources.',
 		'Lead with the direct answer. Add confirmed facts, disagreement, uncertainty, or a comparison table only when each is relevant; do not emit empty boilerplate sections.',
 		'Tell the user what the research found before discussing what could not be confirmed. A partial, source-backed answer is more useful than a generic access or verification disclaimer.',
 		'For latest, current, or today requests, report the newest concrete findings in newest-to-oldest order. Include the event time or date and the key event facts when the sources provide them.',
@@ -1228,9 +1152,7 @@ function webSearchPrompt(
 			? 'For today/current/latest requests, cite only pages whose real publication timestamp is within the requested period, except an official live status or schedule page. Do not use an older dated article as today’s news.'
 			: '',
 		'Prefer primary or official sources and directly relevant local/reputable outlets.',
-		officialSourceOnly
-			? 'Use official or direct first-party sources for the answer. If none are readable, state that primary confirmation was not found.'
-			: 'Attribute reputable reporting when direct evidence is unavailable and state material uncertainty.',
+		'Attribute reputable reporting when direct evidence is unavailable and state material uncertainty.',
 		'If no reliable readable source confirms a current-events or claim-verification request, clearly label any relevant search result as an unverified lead instead of presenting it as fact.',
 		'When reputable sources disagree, attribute each conclusion separately. Do not group sources or investigators together if their findings materially differ.',
 		'For local meetings or other obscure events, distinguish agendas and previews from confirmed outcomes; if no official minutes or first-party account confirms what happened, state that limitation explicitly.',
@@ -1249,8 +1171,8 @@ function webSearchPrompt(
 	].join('\n');
 }
 
-function sonarSearchFilters(query: string, officialSourceOnly = false): Record<string, unknown> {
-	const domains = officialSourceOnly ? officialDomainsForQuery(query) : namedDomainsForQuery(query);
+function sonarSearchFilters(query: string): Record<string, unknown> {
+	const domains = namedDomainsForQuery(query);
 	const recency = sonarRecencyForQuery(query);
 	return {
 		...(domains.length ? { search_domain_filter: domains } : {}),
@@ -1285,287 +1207,10 @@ function namedDomainsForQuery(query: string): string[] {
 	return [...new Set([...named, ...explicit])].slice(0, 20);
 }
 
-function officialDomainsForQuery(query: string): string[] {
-	const domains: string[] = [];
-	if (/\bfifa\b/i.test(query)) domains.push('fifa.com');
-	if (/\bjapan\b/i.test(query) && /\b(earthquakes?|seismic|tsunami|volcan(?:o|ic))\b/i.test(query)) {
-		domains.push('jma.go.jp', 'earthquake.usgs.gov');
-	}
-	if (/\b(bank of canada|boc)\b/i.test(query)) domains.push('bankofcanada.ca');
-	if (/\b(elections? canada|federal election)\b/i.test(query)) domains.push('elections.ca');
-	if (/\b(rcmp|royal canadian mounted police)\b/i.test(query)) domains.push('rcmp-grc.gc.ca');
-	if (/\b(toronto police|tps)\b/i.test(query)) domains.push('tps.ca');
-	if (/\b(toronto|city hall|city council|mayor)\b/i.test(query)) domains.push('toronto.ca');
-	if (/\bontario\b/i.test(query)) domains.push('ontario.ca');
-	if (/\b(canada|federal government|parliament)\b/i.test(query)) domains.push('canada.ca');
-	return [...new Set(domains)].slice(0, 20);
-}
-
 function sonarRecencyForQuery(query: string): 'day' | 'week' | undefined {
 	if (/\b(today|tonight|right now|latest|newest|past 24 hours?|last 24 hours?)\b/i.test(query)) return 'day';
 	if (/\b(this week|past week|last week|past 7 days?|last 7 days?)\b/i.test(query)) return 'week';
 	return undefined;
-}
-
-function needsOfficialSourceRetry(query: string): boolean {
-	if (/\b(verify|verification|confirm|fact[- ]?check|official sources?|primary sources?)\b/i.test(query)) return true;
-	if (/\b(government|parliament|minister|ministry|department|agency|police|sheriff|court|legal|lawsuit|charges?|arrest|elections?|ballot|vote count)\b/i.test(query)) return true;
-	if (/\b(earthquakes?|seismic|tsunami|volcan(?:o|ic)|wildfires?|hurricanes?|tornado(?:es)?|flood(?:ing|s)?)\b/i.test(query)) return true;
-	if (/\b(schedule|fixtures?|kick[- ]?off|tip[- ]?off)\b/i.test(query)) return true;
-	return /\b(games?|matches?)\b[\s\S]*\b(today|tonight|tomorrow|this week)\b/i.test(query);
-}
-
-function hasSubstantiveCurrentAnswer(query: string, answer: string): boolean {
-	if (!isCurrentEventQuery(query)) return true;
-	const text = answer.replace(/\s+/g, ' ').trim();
-	if (!text) return false;
-	if (isCurrentEarthquakeQuery(query)) {
-		const hasMagnitude = /\b(?:magnitude|M)\s*\d+(?:\.\d+)?\b/i.test(text);
-		const hasEventTime =
-			/\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?|[A-Z]{2,5})?\b/i.test(text) ||
-			/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}\b/i.test(
-				text
-			);
-		const promisesFutureWork =
-			/\b(?:I can|I could|I(?:'|’)ll|let me)\b[\s\S]{0,120}\b(?:pull|fetch|find|check|look up|list)\b/i.test(
-				text
-			);
-		if (!hasMagnitude || !hasEventTime || promisesFutureWork) return false;
-	}
-	const directsUserToSource =
-		/\b(?:check|consult|monitor|visit|see)\b[\s\S]{0,100}\b(?:pages?|sites?|sources?|updates?|bulletins?|record)\b/i.test(
-			text
-		);
-	const directoryDescription =
-		/\b(?:authoritative|official record|ongoing source|real[- ]time data|minute[- ]by[- ]minute updates?)\b/i.test(
-			text
-		);
-	return !(directsUserToSource && directoryDescription);
-}
-
-function isCurrentEarthquakeQuery(query: string): boolean {
-	return isCurrentEventQuery(query) && /\b(?:earthquakes?|seismic activity|tremors?)\b/i.test(query);
-}
-
-async function latestEarthquakeEvidence(
-	query: string,
-	context: ToolRunContext
-): Promise<{ answer: string; evidence: EvidenceObject[] } | null> {
-	if (/\bjapan\b/i.test(query)) {
-		const japan = await latestJapanEarthquakeEvidence(query, context);
-		if (japan) return japan;
-	}
-	const now = new Date();
-	const start = new Date(now.getTime() - 48 * 60 * 60 * 1000);
-	const location = earthquakeLocationTerm(query);
-	const queryUrl = new URL('https://earthquake.usgs.gov/fdsnws/event/1/query');
-	queryUrl.searchParams.set('format', 'geojson');
-	queryUrl.searchParams.set('starttime', start.toISOString());
-	queryUrl.searchParams.set('endtime', now.toISOString());
-	queryUrl.searchParams.set('minmagnitude', '2.5');
-	queryUrl.searchParams.set('orderby', 'time');
-	queryUrl.searchParams.set('limit', '500');
-	const urls = [
-		new URL('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'),
-		queryUrl
-	];
-	let matching: NonNullable<UsgsEarthquakeCollection['features']> = [];
-	for (const url of urls) {
-		try {
-			const response = await fetch(url, {
-				headers: { accept: 'application/geo+json, application/json' },
-				signal: boundedSignal(context.signal, 12_000)
-			});
-			if (!response.ok) continue;
-			const raw = (await response.json().catch(() => null)) as UsgsEarthquakeCollection | null;
-			if (!raw?.features?.length) continue;
-			matching = raw.features
-				.filter((feature) => {
-					const place = feature.properties?.place || '';
-					return !location || place.toLowerCase().includes(location.toLowerCase());
-				})
-				.filter((feature) => {
-					const properties = feature.properties;
-					return (
-						Number.isFinite(properties?.mag) &&
-						Number(properties?.mag) >= 2.5 &&
-						Number.isFinite(properties?.time) &&
-						Boolean(properties?.place && properties?.url)
-					);
-				})
-				.slice(0, 5);
-			if (matching.length) break;
-		} catch {
-			// Try the bounded query endpoint when the static real-time feed is unavailable.
-		}
-	}
-	if (!matching.length) return null;
-	const evidence = matching.map((feature, index) => {
-		const properties = feature.properties!;
-		const depth = Number(feature.geometry?.coordinates?.[2]);
-		const eventTime = new Date(Number(properties.time));
-		const detail = [
-			`USGS lists a ${properties.status === 'reviewed' ? 'reviewed ' : ''}magnitude ${properties.mag} earthquake ${properties.place}`,
-			`at ${earthquakeEventTime(eventTime, query)}`,
-			Number.isFinite(depth) ? `at a depth of ${compactNumber(depth)} km` : ''
-		]
-			.filter(Boolean)
-			.join(', ');
-		const summary = `${detail}.`;
-		return normalizeEvidence({
-			source_name: 'U.S. Geological Survey',
-			source_url: properties.url!,
-			accessed_at: now.toISOString(),
-			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
-			title: properties.title || `Magnitude ${properties.mag} earthquake near ${properties.place}`,
-			published_at: eventTime.toISOString(),
-			extracted_text: summary,
-			summary,
-			confidence: properties.status === 'reviewed' ? 0.95 : 0.85,
-			limitations: ['Earthquake catalog values can be revised as agencies review new data.'],
-			source_kind: 'official',
-			citation_number: index + 1
-		});
-	});
-	const statements = evidence.map((item) => `${item.summary} [${item.citation_number}]`);
-	return {
-		answer:
-			statements.length === 1
-				? statements[0]
-				: ['Latest listed events, newest first:', ...statements.map((statement) => `- ${statement}`)].join('\n'),
-		evidence
-	};
-}
-
-async function latestJapanEarthquakeEvidence(
-	query: string,
-	context: ToolRunContext
-): Promise<{ answer: string; evidence: EvidenceObject[] } | null> {
-	const now = new Date();
-	let raw: JmaEarthquakeBulletin[];
-	try {
-		const response = await fetch('https://www.jma.go.jp/bosai/quake/data/list.json', {
-			headers: { accept: 'application/json' },
-			signal: boundedSignal(context.signal, 12_000)
-		});
-		if (!response.ok) return null;
-		const parsed = await response.json().catch(() => null);
-		if (!Array.isArray(parsed)) return null;
-		raw = parsed as JmaEarthquakeBulletin[];
-	} catch {
-		return null;
-	}
-	const earliest = now.getTime() - 48 * 60 * 60 * 1000;
-	const seen = new Set<string>();
-	const matching = raw
-		.filter((item) => {
-			const magnitude = Number(item.mag);
-			const occurredAt = Date.parse(item.at || '');
-			const usable =
-				Boolean(item.eid && item.json && item.en_anm) &&
-				!seen.has(item.eid!) &&
-				Number.isFinite(magnitude) &&
-				magnitude >= 2.5 &&
-				Number.isFinite(occurredAt) &&
-				occurredAt >= earliest;
-			if (!usable) return false;
-			seen.add(item.eid!);
-			return true;
-		})
-		.slice(0, 5);
-	if (!matching.length) return null;
-	const evidence = matching.map((item, index) => {
-		const eventTime = new Date(item.at!);
-		const depth = jmaDepthKm(item.cod);
-		const detail = [
-			`JMA reports a magnitude ${Number(item.mag)} earthquake in ${item.en_anm}`,
-			`at ${earthquakeEventTime(eventTime, query)}`,
-			depth == null ? '' : `at a depth of ${compactNumber(depth)} km`,
-			item.maxi ? `with maximum JMA seismic intensity ${item.maxi}` : ''
-		]
-			.filter(Boolean)
-			.join(', ');
-		const summary = `${detail}.`;
-		return normalizeEvidence({
-			source_name: 'Japan Meteorological Agency',
-			source_url: `https://www.jma.go.jp/bosai/quake/data/${item.json}`,
-			accessed_at: now.toISOString(),
-			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
-			title: `${item.en_ttl || 'Earthquake information'} — ${item.en_anm}`,
-			published_at: eventTime.toISOString(),
-			extracted_text: summary,
-			summary,
-			confidence: 0.95,
-			limitations: ['Earthquake bulletin values can be revised as JMA reviews new data.'],
-			source_kind: 'official',
-			citation_number: index + 1
-		});
-	});
-	const statements = evidence.map((item) => `${item.summary} [${item.citation_number}]`);
-	return {
-		answer:
-			statements.length === 1
-				? statements[0]
-				: ['Latest JMA bulletins, newest first:', ...statements.map((statement) => `- ${statement}`)].join('\n'),
-		evidence
-	};
-}
-
-type JmaEarthquakeBulletin = {
-	eid?: string | null;
-	at?: string | null;
-	en_anm?: string | null;
-	en_ttl?: string | null;
-	mag?: string | number | null;
-	maxi?: string | null;
-	cod?: string | null;
-	json?: string | null;
-};
-
-function jmaDepthKm(value: string | null | undefined): number | null {
-	const match = value?.match(/([+-]\d+)\/$/);
-	if (!match) return null;
-	const metres = Math.abs(Number(match[1]));
-	return Number.isFinite(metres) ? metres / 1000 : null;
-}
-
-type UsgsEarthquakeCollection = {
-	features?: Array<{
-		properties?: {
-			mag?: number | null;
-			place?: string | null;
-			time?: number | null;
-			url?: string | null;
-			title?: string | null;
-			status?: string | null;
-		};
-		geometry?: { coordinates?: number[] | null };
-	}>;
-};
-
-function earthquakeLocationTerm(query: string): string {
-	const match = query.match(
-		/\b(?:in|near|around)\s+([\p{L}][\p{L}\p{M} .'-]{1,60}?)(?=\s+(?:today|tonight|right now|currently|latest|newest)\b|[?.!,]|$)/iu
-	);
-	return match?.[1]?.trim() || '';
-}
-
-function earthquakeEventTime(value: Date, query: string): string {
-	const timeZone = /\bjapan\b/i.test(query) ? 'Asia/Tokyo' : 'UTC';
-	return new Intl.DateTimeFormat('en-CA', {
-		timeZone,
-		year: 'numeric',
-		month: 'short',
-		day: 'numeric',
-		hour: '2-digit',
-		minute: '2-digit',
-		hour12: false,
-		timeZoneName: 'short'
-	}).format(value);
-}
-
-function compactNumber(value: number): string {
-	return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
 }
 
 function requestsExternalCorroboration(query: string): boolean {
