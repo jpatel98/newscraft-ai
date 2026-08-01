@@ -122,6 +122,21 @@ describe('citation and source-quality web research', () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
+	it('does not repeat an identical broad search after a provider timeout', async () => {
+		const fetchMock = vi.fn(async () => {
+			throw new DOMException('Timed out', 'TimeoutError');
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const result = await runWebSearch('Latest Toronto news briefing across major outlets', { provider: 'openai' });
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(result.status).toBe('unavailable');
+		expect(result.diagnostics?.attempts).toEqual([
+			expect.objectContaining({ role: 'primary', status: 'failed', failureCategory: 'timeout' })
+		]);
+	});
+
 	it('excludes encyclopedia results unless the user explicitly requests them', async () => {
 		const officialUrl = 'https://www.who.int/news/item/17-10-2023-hospital-statement';
 		const wikipediaUrl = 'https://en.wikipedia.org/wiki/Hospital_explosion';

@@ -49,6 +49,7 @@ const NAMED_SOURCE_DOMAINS: Array<{ pattern: RegExp; domain: string }> = [
 	{ pattern: /\b(?:The )?Guardian\b/i, domain: 'theguardian.com' }
 ];
 const WEB_SEARCH_DEADLINE_MS = 30_000;
+const BROAD_WEB_SEARCH_DEADLINE_MS = 75_000;
 
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
@@ -853,7 +854,12 @@ async function interpretProviderWebSearch(input: {
 	context: ToolRunContext;
 }): Promise<InterpretedProviderSearch> {
 	const startedAt = Date.now();
-	const searchSignal = boundedSignal(input.context.signal, WEB_SEARCH_DEADLINE_MS);
+	const searchSignal = boundedSignal(
+		input.context.signal,
+		isBroadResearchRequest(input.query, input.context.researchContract)
+			? BROAD_WEB_SEARCH_DEADLINE_MS
+			: WEB_SEARCH_DEADLINE_MS
+	);
 	let attempt: ProviderSearchAttempt;
 	try {
 		attempt = await performProviderWebSearch({
@@ -1016,6 +1022,7 @@ function retryableSearchFailure(outcome: InterpretedProviderSearch): boolean {
 	return (
 		!outcome.usable &&
 		outcome.failureCategory !== 'aborted' &&
+		outcome.failureCategory !== 'timeout' &&
 		outcome.failureCategory !== 'no_usable_sources' &&
 		outcome.failureCategory !== 'not_configured' &&
 		outcome.failureCategory !== 'model_configuration'
