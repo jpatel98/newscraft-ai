@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CitationRecord } from '@newscraft/shared';
 import type { MessageRow } from './db/conversations';
+import type { PersistedSource } from '$lib/utils/stream-events';
 import {
 	buildConversationContext,
 	conversationContextProvenanceMessageIds,
@@ -28,14 +29,15 @@ function message(
 	id: string,
 	role: MessageRow['role'],
 	content: string,
-	citations: CitationRecord[] = []
+	citations: CitationRecord[] = [],
+	sources: PersistedSource[] = []
 ): MessageRow {
 	return {
 		id,
 		conversationId: 'conversation-1',
 		role,
 		content,
-		toolCalls: serializeToolMetadata([], [], citations),
+		toolCalls: serializeToolMetadata([], sources, citations),
 		partial: 0,
 		resumeClaimedAt: null,
 		createdAt: Number(id.replace(/\D/g, '')) || 1
@@ -50,13 +52,18 @@ describe('conversation context builder', () => {
 			currentMessageId: 'm1'
 		});
 
-		expect(context.currentTurn).toEqual({
+		expect(context.currentTurn).toMatchObject({
 			messageId: 'm1',
 			content: "What's the latest on Ottawa's housing vote?",
 			resolvedRequest: "What's the latest on Ottawa's housing vote?",
 			operation: 'send',
 			researchRequired: true,
 			freshness: 'current'
+		});
+		expect(context.currentTurn?.researchContract).toMatchObject({
+			location: 'Ottawa',
+			temporalWindow: { kind: 'current' },
+			subject: "What's the latest on Ottawa's housing vote?"
 		});
 		expect(context.recentTurns).toBeUndefined();
 		expect(context.activeTopic?.subject).toContain("Ottawa's housing vote");
@@ -147,6 +154,37 @@ describe('conversation context builder', () => {
 		});
 		expect(context.activeTopic?.subject).toBe(currentRequest);
 		expect(context.activeTopic?.location).toBe('Halifax');
+		expect(context.currentTurn?.researchContract).toMatchObject({
+			subject: expect.stringContaining('Halifax port reopening'),
+			location: 'Halifax'
+		});
+	});
+
+	it('retains an uncited direct source lead for an exact follow-up', () => {
+		const leadUrl = 'https://www.ctvnews.ca/toronto/article-about-the-lead';
+		const lead: PersistedSource = {
+			id: leadUrl,
+			url: leadUrl,
+			title: 'CTV News Toronto port update',
+			domain: 'ctvnews.ca',
+			status: 'discovered',
+			detail: 'Direct article candidate found during discovery.',
+			firstSeenAt: 1,
+			lastSeenAt: 2,
+			used: false
+		};
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Find the latest Toronto assignment-desk stories today.'),
+				message('m2', 'assistant', 'I found a promising CTV News Toronto article lead, but it was not cited.', [], [lead])
+			],
+			currentRequest: 'Follow up on the CTV lead you found and open that exact article.'
+		});
+
+		expect(context.lastSourceBackedAnswer?.leads).toEqual(
+			expect.arrayContaining([expect.objectContaining({ url: leadUrl, domain: 'ctvnews.ca', used: false })])
+		);
+		expect(conversationContextCompatibilityMessage(context)).toContain(leadUrl);
 	});
 
 	it('does not force research for an ordinary writing request', () => {

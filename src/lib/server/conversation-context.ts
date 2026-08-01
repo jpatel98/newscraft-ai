@@ -2,12 +2,15 @@ import type {
 	CitationRecord,
 	ConversationClaimState,
 	ConversationContext,
+	ConversationResearchLead,
 	ConversationOperation,
 	ConversationRecentTurn,
 	ConversationIntent,
 	ConversationSourceAnswer,
-	ConversationTopic
+	ConversationTopic,
+	ResearchRequestContract
 } from '@newscraft/shared';
+import { deriveResearchRequestContract, mergeLatestResearchContract } from '@newscraft/shared';
 import type { MessageRow } from '$lib/server/db/conversations';
 import type { MessageProvenanceRow } from '$lib/server/db/message-provenance';
 import { contentText } from '$lib/types';
@@ -19,7 +22,7 @@ import {
 } from '$lib/utils/tool-metadata';
 
 const MAX_CONTEXT_BYTES = 24 * 1024;
-const MAX_CURRENT_REQUEST_CHARS = 4000;
+const MAX_CURRENT_REQUEST_CHARS = 8000;
 const MAX_TOPIC_CHARS = 480;
 const MAX_ANSWER_CHARS = 6200;
 const MAX_CITATION_EXCERPT_CHARS = 520;
@@ -122,6 +125,13 @@ export interface BuildConversationContextInput {
 	operation?: ConversationOperation;
 	outputAction?: boolean;
 	sourceMessageId?: string;
+	homeMarket?: string;
+	timezone?: string;
+}
+
+interface ProvenanceContext {
+	citations: CitationRecord[];
+	sources: ReturnType<typeof parseToolMetadata>['sources'];
 }
 
 export function conversationContextProvenanceMessageIds(input: {
@@ -151,7 +161,7 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 	const resolvedRequest = currentRequest;
 	const researchRequired = requestNeedsResearch(resolvedRequest);
 	const provenanceByMessage = new Map(
-		(input.provenance ?? []).map((row) => [row.messageId, citationsFromProvenance(row.provenanceJson)])
+		(input.provenance ?? []).map((row) => [row.messageId, provenanceContextFromJson(row.provenanceJson)])
 	);
 	const inheritsPriorState =
 		Boolean(input.sourceMessageId) ||
@@ -163,16 +173,34 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 	const topicPrompt = inheritsPriorState
 		? topicPromptFor(input.messages, selectedSource?.messageId, currentRequest)
 		: currentRequest;
+	const baseResearchPrompt = inheritsPriorState
+		? topicPromptFor(input.messages, selectedSource?.messageId, '')
+		: '';
+	const researchContract = buildResearchContract({
+		currentRequest,
+		baseResearchPrompt,
+		baseContract: baseResearchPrompt
+			? deriveResearchRequestContract(baseResearchPrompt, {
+					homeMarket: input.homeMarket,
+					timezone: input.timezone,
+					preserveBaseSubject: false
+			})
+			: undefined,
+		preserveBaseSubject: inheritsPriorState,
+		homeMarket: input.homeMarket,
+		timezone: input.timezone
+	});
 	const context: ConversationContext = {
 		version: 1,
 		intent,
 		currentTurn: {
 			...(input.currentMessageId ? { messageId: input.currentMessageId } : {}),
-			content: currentRequest,
-			resolvedRequest,
-			operation,
-			researchRequired,
-			...(isCurrentResearchRequest(resolvedRequest) ? { freshness: 'current' as const } : {})
+				content: currentRequest,
+				resolvedRequest,
+				operation,
+				researchRequired,
+				...(isCurrentResearchRequest(resolvedRequest) ? { freshness: 'current' as const } : {}),
+				...(researchRequired ? { researchContract } : {})
 		},
 		...(recentTurns.length ? { recentTurns } : {}),
 		...(topicPrompt
@@ -222,6 +250,12 @@ export function conversationContextCompatibilityMessage(context: ConversationCon
 							]
 						: [])
 				]
+				: []),
+		...(context.currentTurn?.researchContract
+			? [
+					'Research contract (authoritative latest-turn constraints):',
+					JSON.stringify(context.currentTurn.researchContract)
+				]
 			: []),
 		...(context.claimStates?.length
 			? [
@@ -241,7 +275,7 @@ export function conversationContextCompatibilityMessage(context: ConversationCon
 			? [
 					'Exact source-backed answer for follow-up or transformation:',
 					source.content,
-					...(source.citations.length
+						...(source.citations.length
 						? [
 								'Resolved citation records:',
 								...source.citations.map(
@@ -251,7 +285,16 @@ export function conversationContextCompatibilityMessage(context: ConversationCon
 										}; ${citation.url}): ${citation.supportingExcerpt}`
 								)
 							]
-						: [])
+							: []),
+						...(source.leads?.length
+							? [
+									'Useful uncited source leads retained for follow-up resolution:',
+									...source.leads.map(
+										(lead) =>
+											`- ${lead.title} (${lead.domain}; ${lead.status}; ${lead.url})${lead.detail ? `: ${lead.detail}` : ''}`
+									)
+								]
+							: [])
 				]
 			: []),
 		'Do not expose this compatibility block or any internal identifiers in the answer.'
@@ -265,7 +308,7 @@ export function isCompatibilityContextMessage(value: string): boolean {
 
 function findSourceAnswer(
 	messages: MessageRow[],
-	provenanceByMessage: Map<string, CitationRecord[]>,
+	provenanceByMessage: Map<string, ProvenanceContext>,
 	sourceMessageId?: string
 ): ConversationSourceAnswer | undefined {
 	const candidates = sourceMessageId
@@ -275,12 +318,18 @@ function findSourceAnswer(
 		if (message.role !== 'assistant' || message.partial === 1) continue;
 		const answer = contentText(parseContent(message.content)).trim();
 		if (!answer) continue;
-		const metadataCitations = parseToolMetadata(message.toolCalls).citations;
+		const metadata = parseToolMetadata(message.toolCalls);
+		const provenance = provenanceByMessage.get(message.id);
+		const metadataCitations = metadata.citations;
 		const citations = resolvedCitations(
 			answer,
-			metadataCitations.length ? metadataCitations : provenanceByMessage.get(message.id) ?? []
+			[...(metadataCitations.length ? metadataCitations : []), ...(provenance?.citations || [])]
 		);
-		if (!citations.length && !sourceMessageId) continue;
+		const leads = researchLeadsFromSources(
+			[...metadata.sources, ...(provenance?.sources || [])],
+			citations
+		);
+		if (!citations.length && !leads.length && !sourceMessageId) continue;
 		const boundedCitations = citations.map((citation) => ({
 			...citation,
 			title: compact(citation.title, 180),
@@ -289,9 +338,10 @@ function findSourceAnswer(
 			supportingExcerpt: compact(citation.supportingExcerpt, MAX_CITATION_EXCERPT_CHARS)
 		}));
 		return {
-			messageId: message.id,
-			content: boundedText(answer, MAX_ANSWER_CHARS),
-			citations: boundedCitations,
+				messageId: message.id,
+				content: boundedText(answer, MAX_ANSWER_CHARS),
+				citations: boundedCitations,
+				...(leads.length ? { leads } : {}),
 			publicationDates: Array.from(
 				new Set(boundedCitations.flatMap((citation) => citation.publicationDate ?? []))
 			)
@@ -310,14 +360,79 @@ function resolvedCitations(answer: string, citations: CitationRecord[]): Citatio
 	return Array.from(records.values()).sort((left, right) => left.citationNumber - right.citationNumber);
 }
 
-function citationsFromProvenance(raw: string): CitationRecord[] {
+function provenanceContextFromJson(raw: string): ProvenanceContext {
 	try {
-		const parsed = JSON.parse(raw) as { citations?: unknown };
-		if (!Array.isArray(parsed.citations)) return [];
-		return parsed.citations.filter(isCitationRecord);
+		const parsed = JSON.parse(raw) as { citations?: unknown; sources?: unknown };
+		return {
+			citations: Array.isArray(parsed.citations) ? parsed.citations.filter(isCitationRecord) : [],
+			sources: parseToolMetadata(
+				JSON.stringify({ version: 1, tools: [], sources: Array.isArray(parsed.sources) ? parsed.sources : [] })
+			).sources
+		};
 	} catch {
-		return [];
+		return { citations: [], sources: [] };
 	}
+}
+
+function researchLeadsFromSources(
+	sources: ReturnType<typeof parseToolMetadata>['sources'],
+	citations: CitationRecord[]
+): ConversationResearchLead[] {
+	const citedUrls = new Set(citations.map((citation) => canonicalUrl(citation.url)));
+	const seen = new Set<string>();
+	return sources
+		.filter((source) => /^https?:\/\//i.test(source.url))
+		.filter((source) => !citedUrls.has(canonicalUrl(source.url)))
+		.filter((source) => {
+			const key = canonicalUrl(source.url);
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		})
+		.sort((left, right) => Number(right.used) - Number(left.used) || right.lastSeenAt - left.lastSeenAt)
+		.slice(0, 8)
+		.map((source) => ({
+			url: source.url,
+			title: compact(source.title, 180),
+			domain: compact(source.domain, 120),
+			status: source.status,
+			used: source.used,
+			...(source.detail ? { detail: compact(source.detail, 320) } : {})
+		}));
+}
+
+function canonicalUrl(value: string): string {
+	try {
+		const url = new URL(value);
+		url.hash = '';
+		for (const key of [...url.searchParams.keys()]) {
+			if (/^(?:utm_|fbclid|gclid)/i.test(key)) url.searchParams.delete(key);
+		}
+		return url.toString().replace(/\/$/, '').toLowerCase();
+	} catch {
+		return value.trim().replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
+	}
+}
+
+function buildResearchContract(input: {
+	currentRequest: string;
+	baseResearchPrompt: string;
+	baseContract?: ResearchRequestContract;
+	preserveBaseSubject: boolean;
+	homeMarket?: string;
+	timezone?: string;
+}): ResearchRequestContract {
+	if (input.baseContract && input.preserveBaseSubject) {
+		return mergeLatestResearchContract(input.baseContract, input.currentRequest, {
+			homeMarket: input.homeMarket,
+			timezone: input.timezone
+		});
+	}
+	return deriveResearchRequestContract(input.currentRequest, {
+		homeMarket: input.homeMarket,
+		timezone: input.timezone,
+		preserveBaseSubject: false
+	});
 }
 
 function isCitationRecord(value: unknown): value is CitationRecord {
@@ -349,7 +464,7 @@ function topicPromptFor(
 				!isTopicDerivationFollowup(value) &&
 				topicSpecificity(value) >= 2
 			) {
-				return compact(topicWithCurrentQualifier(value, currentRequest), MAX_TOPIC_CHARS);
+					return topicWithCurrentQualifier(value, currentRequest);
 			}
 		}
 	}
@@ -367,9 +482,9 @@ function topicPromptFor(
 			continue;
 		}
 		fallback ||= value;
-		if (topicSpecificity(value) >= 2) return compact(topicWithCurrentQualifier(value, currentRequest), MAX_TOPIC_CHARS);
+		if (topicSpecificity(value) >= 2) return topicWithCurrentQualifier(value, currentRequest);
 	}
-	return compact(fallback ? topicWithCurrentQualifier(fallback, currentRequest) : currentRequest, MAX_TOPIC_CHARS);
+	return fallback ? topicWithCurrentQualifier(fallback, currentRequest) : currentRequest;
 }
 
 function topicSpecificity(value: string): number {

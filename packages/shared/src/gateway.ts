@@ -9,6 +9,83 @@ export type CitationSourceType =
 	| 'commercial'
 	| 'unknown';
 
+export type ResearchEvidenceStatus =
+	| 'discovery'
+	| 'accepted'
+	| 'rejected'
+	| 'unreadable'
+	| 'cited';
+
+export type ResearchPageType =
+	| 'article'
+	| 'official_live'
+	| 'hub'
+	| 'document'
+	| 'event_listing'
+	| 'traffic_aggregator'
+	| 'homepage'
+	| 'category'
+	| 'search'
+	| 'forum'
+	| 'social'
+	| 'unknown';
+
+export type ResearchPartialAnswerPolicy =
+	| 'verified_subset'
+	| 'verified_subset_with_leads'
+	| 'must_meet_count';
+
+export interface ResearchTemporalWindow {
+	kind: 'current' | 'relative' | 'absolute' | 'unspecified';
+	phrase?: string;
+	start?: string;
+	end?: string;
+	timezone?: string;
+	label?: string;
+}
+
+/**
+ * Provider-neutral control-plane state derived from the authoritative latest
+ * user turn. It deliberately keeps editorial constraints out of a truncated
+ * prose topic so every research provider and tool sees the same contract.
+ */
+export interface ResearchRequestContract {
+	version: 1;
+	subject: string;
+	location?: string;
+	homeMarket?: string;
+	temporalWindow: ResearchTemporalWindow;
+	requestedItemCount?: number;
+	includedDesks: string[];
+	includedCategories: string[];
+	excludedDesks: string[];
+	excludedCategories: string[];
+	excludedSourceTypes: string[];
+	excludedPageTypes: ResearchPageType[];
+	namedOutlets: string[];
+	namedDomains: string[];
+	requiredOutputFields: string[];
+	partialAnswerPolicy: ResearchPartialAnswerPolicy;
+	allowFewerThanRequested: boolean;
+	referenceUrls: string[];
+}
+
+export interface ResearchSourceProfile {
+	majorPublisherDomains?: string[];
+	officialSourceDomains?: string[];
+	relevantDesks?: string[];
+}
+
+export interface ConversationResearchLead {
+	url: string;
+	title: string;
+	domain: string;
+	status: ResearchEvidenceStatus | string;
+	used: boolean;
+	detail?: string;
+	publicationDate?: string | null;
+}
+
 export interface CitationRecord {
 	citationNumber: number;
 	title: string;
@@ -24,6 +101,7 @@ export interface NewsroomContext {
 	timezone: string;
 	homeMarket?: string;
 	preferredDomains?: string[];
+	sourceProfile?: ResearchSourceProfile;
 }
 
 export type ConversationIntent = 'research' | 'verify' | 'correct' | 'transform';
@@ -52,6 +130,8 @@ export interface ConversationSourceAnswer {
 	messageId: string;
 	content: string;
 	citations: CitationRecord[];
+	/** Bounded direct-source leads retained even when they were not cited. */
+	leads?: ConversationResearchLead[];
 	publicationDates?: string[];
 }
 
@@ -69,6 +149,8 @@ export interface ConversationCurrentTurn {
 	researchRequired: boolean;
 	/** Current/latest results must be ordered newest-first and pass freshness checks. */
 	freshness?: 'current';
+	/** Structured control-plane contract for this authoritative latest turn. */
+	researchContract?: ResearchRequestContract;
 }
 
 export interface ConversationRecentTurn {

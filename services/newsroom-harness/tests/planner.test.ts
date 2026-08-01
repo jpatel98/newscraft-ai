@@ -123,7 +123,17 @@ describe('planned agent loop', () => {
 		const planEvents: AgentPlanEvent[] = [];
 		const agent = new DisciplinedNewsroomAgent({
 			registry,
-			config: { enabled_tools: ['openai_web_search'], planner_enabled: true },
+			config: {
+				enabled_tools: ['openai_web_search'],
+				planner_enabled: true,
+				default_tool_budget: {
+					max_total_tool_calls: 6,
+					max_custom_tool_calls: 1,
+					max_web_searches: 4,
+					max_browser_tasks: 1,
+					max_runtime_seconds: 30
+				}
+			},
 			planner: async () => ({
 				source: 'model',
 				reason: 'One focused search.',
@@ -159,7 +169,17 @@ describe('planned agent loop', () => {
 		let plannerCalls = 0;
 		const agent = new DisciplinedNewsroomAgent({
 			registry,
-			config: { enabled_tools: ['openai_web_search'], planner_enabled: true },
+			config: {
+				enabled_tools: ['openai_web_search'],
+				planner_enabled: true,
+				default_tool_budget: {
+					max_total_tool_calls: 6,
+					max_custom_tool_calls: 1,
+					max_web_searches: 4,
+					max_browser_tasks: 1,
+					max_runtime_seconds: 30
+				}
+			},
 			planner: async () => {
 				plannerCalls += 1;
 				return {
@@ -171,7 +191,8 @@ describe('planned agent loop', () => {
 				};
 			}
 		});
-		const prompt = 'What are the top news stories today?';
+		const prompt =
+			'Broad Toronto assignment-desk briefing requesting six verified non-sports stories published or updated today, with direct article/official citations; exclude sports, event listings, traffic aggregators, hubs, homepages, category pages and forums.';
 
 		const result = await agent.run(prompt, {
 			openAiApiKey: 'test-key',
@@ -180,14 +201,18 @@ describe('planned agent loop', () => {
 
 		expect(plannerCalls).toBe(0);
 		expect(result.plan.source).toBe('router');
-		expect(searchInputs).toHaveLength(3);
-		expect(new Set(searchInputs).size).toBe(3);
-		expect(searchInputs.every((input) => input.includes(prompt))).toBe(true);
+		expect(searchInputs.length).toBeGreaterThanOrEqual(3);
+		expect(new Set(searchInputs).size).toBe(searchInputs.length);
+		expect(searchInputs.every((input) => /Broad Toronto/i.test(input))).toBe(true);
+		expect(searchInputs.every((input) => !/\bsports\b/i.test(input))).toBe(true);
 		expect(result.plan.steps.map((step) => step.label)).toEqual([
-			'Scanning top and breaking stories',
-			'Checking public-impact developments',
-			'Checking other major coverage'
+			'Scanning major publisher coverage',
+			'Checking official public-impact sources',
+			'Checking relevant assignment desks',
+			'Cross-checking independent coverage'
 		]);
+		expect(new Set(result.plan.steps.map((step) => step.laneId)).size).toBe(result.plan.steps.length);
+		expect(new Set(result.plan.steps.map((step) => step.lanePurpose)).size).toBe(result.plan.steps.length);
 	});
 
 	it('uses one web search for context follow-ups without explicit source requirements', async () => {

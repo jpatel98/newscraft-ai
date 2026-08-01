@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ConversationContext } from '@newscraft/shared';
+import { deriveResearchRequestContract, type ConversationContext } from '@newscraft/shared';
 import { normalizeEvidence } from '../src/agents/evidence.js';
 import { rankEvidenceForConversation } from '../src/agents/evidence-ranking.js';
 import { guardEvidenceForConversation } from '../src/agents/grounded-conversation.js';
@@ -97,6 +97,40 @@ describe('general-purpose evidence ranking', () => {
 			eligible: false,
 			hard_reject_reason: 'wrong_location'
 		});
+	});
+
+	it('uses the structured latest-turn contract instead of a stale prose topic', () => {
+		const request = 'Latest port reopening update in Halifax';
+		const context = researchContext('Latest port reopening update in Vancouver', 'Vancouver');
+		context.currentTurn = {
+			...context.currentTurn!,
+			content: request,
+			resolvedRequest: request,
+			researchContract: deriveResearchRequestContract(request, {
+				homeMarket: 'Halifax',
+				timezone: 'America/Toronto'
+			})
+		};
+		const halifax = source({
+			title: 'Halifax port reopens',
+			url: 'https://example.com/halifax-port',
+			text: 'The Halifax port reopened after the safety inspection.',
+			kind: 'news_report',
+			location: 'Halifax'
+		});
+		const vancouver = source({
+			title: 'Vancouver port strike continues',
+			url: 'https://example.com/vancouver-port',
+			text: 'The Vancouver port strike continues.',
+			kind: 'news_report',
+			location: 'Vancouver'
+		});
+
+		const result = rankEvidenceForConversation([vancouver, halifax], context);
+
+		expect(result.evidence).toEqual([halifax]);
+		expect(result.excluded).toEqual([vancouver]);
+		expect(result.diagnostics.find((item) => item.hard_reject_reason === 'wrong_location')).toBeDefined();
 	});
 
 	it('preserves conversation-scoped private document evidence', () => {

@@ -248,10 +248,13 @@ export class NewsroomAgentRuntime {
 				if (event.type === 'tool_started') {
 					context.onProgress?.({ type: 'tool', id, name: event.tool, status: 'running', detail: event.detail });
 				}
-				if (event.type === 'tool_completed') {
-					for (const item of event.evidence || []) {
-						context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item), stepId: event.stepId });
-					}
+					if (event.type === 'tool_completed') {
+						for (const item of event.evidence || []) {
+							context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item), stepId: event.stepId });
+						}
+						for (const item of (event.discoveryLeads || []).filter(usefulDiscoveryLead)) {
+							context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item, false), stepId: event.stepId });
+						}
 					context.onProgress?.({
 						type: 'tool',
 						id,
@@ -271,7 +274,7 @@ export class NewsroomAgentRuntime {
 		// Emit the citation records for the text that is actually persisted and
 		// shown to the producer. Synthesis may remap or remove invalid markers.
 		this.emitCitationRecords(result.evidence, markdown, context);
-		const sources = result.evidence.map(evidenceToFetchedSource);
+		const sources = result.evidence.map((item) => evidenceToFetchedSource(item));
 		return { role, markdown, sources, evidence: result.evidence };
 	}
 
@@ -556,6 +559,9 @@ export class NewsroomAgentRuntime {
 			for (const item of event.evidence || []) {
 				context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item), stepId: event.stepId });
 			}
+			for (const item of (event.discoveryLeads || []).filter(usefulDiscoveryLead)) {
+				context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item, false), stepId: event.stepId });
+			}
 			context.onProgress?.({
 				type: 'tool',
 				id,
@@ -594,7 +600,8 @@ export class NewsroomAgentRuntime {
 					formatNewsroomTemporalContext(context.temporalContext || createNewsroomTemporalContext({ request: prompt })),
 					'You write the final output for a NewsCraft research update.',
 					'The prompt is the output contract. Follow it exactly.',
-					'Use the normalized evidence ledger below as the only factual basis. Synthesize once across all research passes; never concatenate provider mini-answers or repeat the same story in separate blocks.',
+						'Use the normalized evidence ledger below as the only factual basis. Synthesize once across all research passes; never concatenate provider mini-answers or repeat the same story in separate blocks.',
+						'Treat the structured request contract in the input as binding. Do not add excluded desks, categories, source types, page roles, or locations to reach a requested count; return the verified subset when coverage is thin.',
 					'Keep citation markers attached to the claims they support. Do not invent citation numbers or cite a source that does not support the claim.',
 					'Do not add default NewsCraft sections, internal process notes, or boilerplate unless the prompt asks for them.',
 					'Use only the provided evidence. If the evidence is insufficient, say so in the requested format or as plainly as possible.',
@@ -748,7 +755,7 @@ function withCurrentAsOfLabel(answer: string, prompt: string, timeZone?: string,
 	return `${currentAsOfPrefix(prompt, timeZone, temporalContext)}\n\n${answer}`;
 }
 
-function evidenceToFetchedSource(evidence: EvidenceObject): FetchedSource {
+function evidenceToFetchedSource(evidence: EvidenceObject, usedOverride?: boolean): FetchedSource {
 	const contentText = evidence.extracted_text || evidence.summary || evidence.title;
 	return {
 		url: evidence.source_url,
@@ -760,9 +767,16 @@ function evidenceToFetchedSource(evidence: EvidenceObject): FetchedSource {
 		contentHash: createHash('sha256').update(`${evidence.source_url}\n${contentText}`).digest('hex'),
 		contentType: evidence.source_url.startsWith('newsroom://') ? 'text/markdown' : null,
 		statusCode: evidence.confidence > 0 ? 200 : null,
-		used: evidence.confidence > 0,
+		used: usedOverride ?? (evidence.ledger_status !== 'rejected' && evidence.confidence > 0),
 		metadata: evidence.published_at ? { publishedAt: evidence.published_at } : null
 	};
+}
+
+function usefulDiscoveryLead(evidence: EvidenceObject): boolean {
+	if (evidence.readability === 'blocked' || evidence.confidence <= 0) return false;
+	if (!evidence.supporting_excerpt && !evidence.extracted_text && !evidence.summary) return false;
+	if (/wrong subject|wrong location|wrong entity|excluded desk|excluded category|excluded source|excluded page|unsafe|invalid/i.test(evidence.rejection_reason || '')) return false;
+	return evidence.page_role === 'article' || evidence.page_role === 'official_live';
 }
 
 function isSimpleGreeting(prompt: string): boolean {
@@ -861,7 +875,8 @@ function missionSynthesisInput(
 				.join('\n\n')
 		: 'No usable evidence was gathered.';
 	const limitations = result.limitations.length ? result.limitations.join('\n') : 'None recorded.';
-	return `${temporalContext ? `${formatNewsroomTemporalContext(temporalContext)}\n\n` : ''}Research prompt:
+	const contract = result.research_contract ? `Structured request contract:\n${JSON.stringify(result.research_contract)}\n\n` : '';
+	return `${temporalContext ? `${formatNewsroomTemporalContext(temporalContext)}\n\n` : ''}${contract}Research prompt:
 ${prompt}
 
 Evidence gathered for this run:

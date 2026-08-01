@@ -4,7 +4,7 @@ import type { EvidenceObject, EvidenceRanking } from './evidence.js';
 import type { RouteDecision } from './router.js';
 import type { ToolBudgetSnapshot } from './budget.js';
 import type { ModelProvider } from '../util/openai-complete.js';
-import type { ConversationContext, DocumentContext, NewsroomContext } from '@newscraft/shared';
+import type { ConversationContext, DocumentContext, NewsroomContext, ResearchRequestContract } from '@newscraft/shared';
 import type { NewsroomTemporalContext } from './time-context.js';
 
 export type ToolCategory =
@@ -45,6 +45,7 @@ export interface ToolRunContext {
 	newsroomContext?: NewsroomContext;
 	temporalContext?: NewsroomTemporalContext;
 	conversationContext?: ConversationContext;
+	researchContract?: ResearchRequestContract;
 	documents?: DocumentContext[];
 	signal?: AbortSignal;
 	/** Live answer-text deltas for streaming surfaces; tools may ignore it. */
@@ -54,6 +55,8 @@ export interface ToolRunContext {
 export interface ToolRunOutput {
 	status: 'ok' | 'unavailable' | 'blocked' | 'error';
 	evidence?: EvidenceObject[];
+	/** Useful direct-source leads retained for continuity even when not publishable. */
+	discovery_leads?: EvidenceObject[];
 	answer?: string;
 	limitations?: string[];
 	raw?: unknown;
@@ -143,7 +146,15 @@ export const evidenceOutputSchema: JsonSchema = {
 					source_authority: { type: 'number' },
 					readability: { type: 'string', enum: ['readable', 'partial', 'blocked'] },
 					supporting_excerpt: { type: 'string' },
-					uncertainty: { type: 'array', items: { type: 'string' } }
+					uncertainty: { type: 'array', items: { type: 'string' } },
+					canonical_url: { type: 'string' },
+					updated_at: { type: ['string', 'null'] },
+					publisher: { type: ['string', 'null'] },
+					desk: { type: ['string', 'null'] },
+					categories: { type: 'array', items: { type: 'string' } },
+					page_role: { type: 'string' },
+					ledger_status: { type: 'string' },
+					rejection_reason: { type: ['string', 'null'] }
 				},
 				required: [
 					'source_name',
@@ -159,6 +170,7 @@ export const evidenceOutputSchema: JsonSchema = {
 				]
 			}
 		},
+		discovery_leads: { type: 'array', items: { type: 'object' } },
 		limitations: { type: 'array', items: { type: 'string' } }
 	},
 	required: ['status']

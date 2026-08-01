@@ -15,6 +15,13 @@ import {
 	type EvidenceObject,
 	type EvidenceRanking
 } from './evidence.js';
+import { filterEvidenceForResearchContract } from './research-policy.js';
+import {
+	buildProducerCoverageLanes,
+	coverageOverlap,
+	reformulateCoverageQuery,
+	type CoverageLane
+} from './coverage-planner.js';
 import {
 	createNewsroomAgentConfig,
 	type NewsroomAgentConfig
@@ -32,7 +39,15 @@ import {
 import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest, type RouteDecision } from './router.js';
 import type { NewsroomTool, ToolRegistry, ToolRunContext, ToolRunOutput } from './tools.js';
 import type { ModelProvider } from '../util/openai-complete.js';
-import type { ConversationContext, DocumentContext, NewsroomContext } from '@newscraft/shared';
+import {
+	deriveResearchRequestContract,
+	mergeLatestResearchContract,
+	researchContractWithTemporalWindow,
+	type ConversationContext,
+	type DocumentContext,
+	type NewsroomContext,
+	type ResearchRequestContract
+} from '@newscraft/shared';
 import { createNewsroomTemporalContext, isCurrentEventQuery, type NewsroomClock, type NewsroomTemporalContext } from './time-context.js';
 
 export interface NewsroomAgentRunContext {
@@ -55,6 +70,8 @@ export interface NewsroomAgentRunContext {
 	forcePlanner?: boolean;
 	/** One request-owned temporal contract; created from clock when omitted. */
 	temporalContext?: NewsroomTemporalContext;
+	/** One request-owned latest-turn research contract. */
+	researchContract?: ResearchRequestContract;
 	onToolEvent?: (event: AgentToolEvent) => void;
 	/** Live answer-text deltas, forwarded from the first answer-producing tool. */
 	onAnswerDelta?: (delta: string) => void;
@@ -77,6 +94,7 @@ export interface AgentToolEvent {
 	status?: string;
 	detail?: string;
 	evidence?: EvidenceObject[];
+	discoveryLeads?: EvidenceObject[];
 	evidenceDiagnostics?: EvidenceRanking[];
 	diagnostics?: ToolRunOutput['diagnostics'];
 }
@@ -88,6 +106,8 @@ export interface AgentPlanStepEvent {
 	tool: string;
 	label: string;
 	status: AgentPlanStepStatus;
+	laneId?: string;
+	lanePurpose?: string;
 	detail?: string;
 }
 
@@ -99,6 +119,7 @@ export interface AgentPlanEvent {
 export interface NewsroomAgentRunResult {
 	prompt: string;
 	decision: RouteDecision;
+	research_contract?: ResearchRequestContract;
 	plan: AgentPlanEvent;
 	evidence: EvidenceObject[];
 	final_answer: string;
@@ -106,6 +127,7 @@ export interface NewsroomAgentRunResult {
 	tool_calls: AgentToolCallRecord[];
 	budget: ToolBudgetSnapshot;
 	stopped_reason: string;
+	discovery_leads?: EvidenceObject[];
 }
 
 export interface DisciplinedNewsroomAgentOptions {
@@ -128,6 +150,9 @@ interface QueuedStep {
 	label: string;
 	status: AgentPlanStepStatus;
 	detail?: string;
+	laneId?: string;
+	lanePurpose?: string;
+	reformulated?: boolean;
 }
 
 /** Tools whose failure should trigger a broad web-search fallback. */
@@ -158,9 +183,44 @@ export class DisciplinedNewsroomAgent {
 			timeZone: context.newsroomContext?.timezone,
 			request: resolvedRoutingPrompt
 		});
-		context = { ...context, temporalContext };
+		const legacyTopicContract = context.conversationContext?.activeTopic?.subject
+			? deriveResearchRequestContract(context.conversationContext.activeTopic.subject, {
+					homeMarket: context.conversationContext.activeTopic.location || context.newsroomContext?.homeMarket,
+					timezone: temporalContext.timeZone,
+					preserveBaseSubject: false
+				})
+			: undefined;
+		const baseResearchContract =
+			context.researchContract ||
+			context.conversationContext?.currentTurn?.researchContract ||
+			(legacyTopicContract
+				? mergeLatestResearchContract(legacyTopicContract, resolvedRoutingPrompt, {
+						homeMarket: context.newsroomContext?.homeMarket || context.conversationContext?.activeTopic?.location,
+					timezone: temporalContext.timeZone
+				})
+				: deriveResearchRequestContract(resolvedRoutingPrompt, {
+						homeMarket: context.newsroomContext?.homeMarket,
+					timezone: temporalContext.timeZone,
+					preserveBaseSubject: false
+				}));
+		const contractWithContinuityLeads = {
+			...baseResearchContract,
+			referenceUrls: [
+				...new Set([
+					...baseResearchContract.referenceUrls,
+					...(context.conversationContext?.lastSourceBackedAnswer?.leads || []).map((lead) => lead.url)
+				])
+			]
+		};
+		const researchContract = researchContractWithTemporalWindow(contractWithContinuityLeads, {
+				start: temporalContext.windowStart,
+				end: temporalContext.windowEnd,
+				timezone: temporalContext.timeZone,
+				label: temporalContext.windowLabel
+			});
+		context = { ...context, temporalContext, researchContract };
 		const researchPrompt = documentResearchPrompt(
-			groundedResearchPrompt(resolvedRoutingPrompt, context.conversationContext),
+			groundedResearchPrompt(withKnownLeadReference(resolvedRoutingPrompt, context.conversationContext), context.conversationContext),
 			context.documents
 		);
 		let decision = routeNewsroomRequest(resolvedRoutingPrompt, {
@@ -194,6 +254,7 @@ export class DisciplinedNewsroomAgent {
 			return {
 				prompt,
 				decision,
+				research_contract: researchContract,
 				plan: { source: 'router', steps: [] },
 				evidence,
 				final_answer: generateFinalAnswer({
@@ -225,6 +286,8 @@ export class DisciplinedNewsroomAgent {
 			tool: step.tool,
 			input: step.input,
 			label: step.label,
+			...(step.laneId ? { laneId: step.laneId } : {}),
+			...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {}),
 			status: 'pending'
 		}));
 		const emitPlan = () => context.onPlanEvent?.(planEvent(plan.source, queue));
@@ -233,6 +296,11 @@ export class DisciplinedNewsroomAgent {
 		let stoppedReason = '';
 		let followUpFetches = 0;
 		let lastOutput: ToolRunOutput | null = null;
+		const discoveryLeads: EvidenceObject[] = [];
+		const searchedEvidence: EvidenceObject[] = [];
+		const coverageLanes = buildProducerCoverageLanes(researchContract, context.newsroomContext, {
+			maxLanes: Math.min(6, Math.max(1, this.config.default_tool_budget.max_web_searches))
+		});
 		let index = 0;
 		while (index < queue.length) {
 			const step = queue[index];
@@ -294,14 +362,18 @@ export class DisciplinedNewsroomAgent {
 			const normalizedOutput = context.documents?.length
 				? rawOutput
 				: rebaseToolOutputCitations(rawOutput, evidence);
-			const conversationGuarded = applyConversationGuard(normalizedOutput, context.conversationContext, temporalContext);
+			const contractGuarded = applyResearchContractGuard(normalizedOutput, researchContract);
+			const conversationGuarded = applyConversationGuard(contractGuarded, context.conversationContext, temporalContext);
 			const output = applyTemporalGuard(conversationGuarded, temporalContext, isCurrentEventQuery(resolvedRoutingPrompt));
 			lastOutput = output;
 			const outputLimitations = output.limitations || [];
 			const publicDetail = output.status === 'ok' ? undefined : publicStepFailureDetail(outputLimitations);
 			limitations.push(...outputLimitations);
+			discoveryLeads.push(...(output.discovery_leads || []));
 			if (output.answer) toolAnswers.push(output.answer);
 			evidence.splice(0, evidence.length, ...dedupeEvidence([...evidence, ...(output.evidence || [])]));
+			const overlapAction = coverageActionForStep(step, output.evidence || [], searchedEvidence, queue, index, coverageLanes, researchContract);
+			searchedEvidence.push(...(output.evidence || []));
 			toolCalls.push({
 				name: tool.name,
 				status: output.status,
@@ -309,7 +381,7 @@ export class DisciplinedNewsroomAgent {
 				evidence_count: output.evidence?.length || 0
 			});
 			step.status = output.status === 'ok' ? 'ok' : 'failed';
-			step.detail = publicDetail;
+			step.detail = publicDetail || step.detail;
 			context.onToolEvent?.({
 				type: 'tool_completed',
 				tool: tool.name,
@@ -317,9 +389,16 @@ export class DisciplinedNewsroomAgent {
 				status: output.status,
 				detail: publicDetail,
 				evidence: output.evidence || [],
+				discoveryLeads: output.discovery_leads || [],
 				evidenceDiagnostics: output.evidence_diagnostics,
 				diagnostics: output.diagnostics
 			});
+			if (overlapAction === 'stop') {
+				stoppedReason = 'coverage lanes overlapped after a reformulation; research stopped early';
+				skipRemaining(queue, index, 'Coverage was already represented by earlier research lanes.');
+				emitPlan();
+				break;
+			}
 			if (
 				step.tool === NEWSROOM_TOOL_NAMES.webSearch &&
 				shouldStopRepeatedWebSearch(output) &&
@@ -370,6 +449,12 @@ export class DisciplinedNewsroomAgent {
 			: publishable.accepted;
 		evidence.splice(0, evidence.length, ...orderedPublishable);
 		if (publishable.excluded.length) limitations.push(`${publishable.excluded.length} discovery, hub, unknown-date, or out-of-window source${publishable.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`);
+		discoveryLeads.push(...publishable.excluded);
+		if (researchContract.requestedItemCount && evidence.length < researchContract.requestedItemCount) {
+			limitations.push(
+				`Only ${evidence.length} of ${researchContract.requestedItemCount} requested item${researchContract.requestedItemCount === 1 ? '' : 's'} met the contract; returning the verified subset.`
+			);
+		}
 		alignCitationSequence(evidence, toolAnswers);
 		if (!toolCalls.length && plan.steps.length) {
 			limitations.push('No selected tools were run.');
@@ -386,18 +471,21 @@ export class DisciplinedNewsroomAgent {
 			researchStepCount: toolCalls.length,
 			outputStyle: context.outputStyle,
 			conversationContext: context.conversationContext
-		});
-		if (context.outputStyle === 'chat') finalAnswer = enforceFinalCitationIntegrity(finalAnswer, evidence);
-		return {
+			});
+			if (context.outputStyle === 'chat') finalAnswer = enforceFinalCitationIntegrity(finalAnswer, evidence);
+			markCitedEvidence(evidence, finalAnswer);
+			return {
 			prompt,
 			decision,
+			research_contract: researchContract,
 			plan: planEvent(plan.source, queue),
 			evidence,
 			final_answer: finalAnswer,
 			limitations: [...new Set(limitations.filter(Boolean))],
 			tool_calls: toolCalls,
 			budget,
-			stopped_reason: stoppedReason || completionStopReason(decision, lastOutput, evidence)
+			stopped_reason: stoppedReason || completionStopReason(decision, lastOutput, evidence),
+			discovery_leads: dedupeEvidence(discoveryLeads).slice(0, 16)
 		};
 	}
 
@@ -420,7 +508,13 @@ export class DisciplinedNewsroomAgent {
 			return routedPlan;
 		}
 		if (!context.forcePlanner) {
-			const coveragePlan = coverageSweepPlan(routedPlan, currentRequest, context);
+			const coveragePlan = coverageSweepPlan(
+				routedPlan,
+				currentRequest,
+				context,
+				context.researchContract,
+				this.config.default_tool_budget.max_web_searches
+			);
 			if (coveragePlan !== routedPlan) return coveragePlan;
 		}
 		const fallback = context.forcePlanner
@@ -461,7 +555,8 @@ export class DisciplinedNewsroomAgent {
 				apiKey,
 				provider,
 				model: policy.model,
-				temporalContext: context.temporalContext!,
+					temporalContext: context.temporalContext!,
+				researchContract: context.researchContract,
 				reasoningEffort: policy.reasoningEffort,
 				signal: plannerSignal(signal)
 			});
@@ -636,6 +731,7 @@ export class DisciplinedNewsroomAgent {
 			newsroomContext: context.newsroomContext,
 			temporalContext: context.temporalContext,
 			conversationContext: context.conversationContext,
+			researchContract: context.researchContract,
 			documents: context.documents,
 			signal: context.signal,
 			onAnswerDelta: context.onAnswerDelta
@@ -696,6 +792,12 @@ function applyConversationGuard(output: ToolRunOutput, context: ConversationCont
 		temporalContext
 	});
 	const limitations = [...(output.limitations || []), ...guarded.limitations];
+	const rejectedByConversation = guarded.excluded.map((item) => ({
+		...item,
+		ledger_status: 'rejected' as const,
+		temporal_scope: 'discovery' as const,
+		rejection_reason: item.rejection_reason || 'wrong subject, entity, location, or time for the conversation'
+	}));
 	return {
 		...output,
 		status: output.status === 'ok' && output.evidence?.length && !guarded.evidence.length ? 'unavailable' : output.status,
@@ -705,7 +807,23 @@ function applyConversationGuard(output: ToolRunOutput, context: ConversationCont
 			output.answer && guarded.excluded.length
 				? retainAcceptedCitationClaims(output.answer, guarded.evidence)
 				: output.answer,
+		discovery_leads: dedupeEvidence([...(output.discovery_leads || []), ...rejectedByConversation]),
 		limitations
+	};
+}
+
+function applyResearchContractGuard(
+	output: ToolRunOutput,
+	contract: ResearchRequestContract | undefined
+): ToolRunOutput {
+	const guarded = filterEvidenceForResearchContract(output.evidence || [], contract);
+	if (!guarded.excluded.length) return output;
+	return {
+		...output,
+		status: output.status === 'ok' && !guarded.accepted.length ? 'unavailable' : output.status,
+		evidence: guarded.accepted,
+		discovery_leads: dedupeEvidence([...(output.discovery_leads || []), ...guarded.excluded]),
+		limitations: [...(output.limitations || []), ...guarded.limitations]
 	};
 }
 
@@ -726,6 +844,7 @@ function applyTemporalGuard(
 		status: output.status,
 		evidence: prepared.accepted,
 		answer: output.answer,
+		discovery_leads: dedupeEvidence([...(output.discovery_leads || []), ...prepared.excluded]),
 		limitations
 	};
 }
@@ -825,6 +944,43 @@ function citationNumbersIn(value: string): number[] {
 		.filter((number) => Number.isInteger(number) && number > 0);
 }
 
+function markCitedEvidence(evidence: EvidenceObject[], answer: string): void {
+	const cited = new Set(citationNumbersIn(answer));
+	for (const item of evidence) {
+		if (item.citation_number && cited.has(item.citation_number)) item.ledger_status = 'cited';
+		else if (item.ledger_status !== 'rejected') item.ledger_status = 'accepted';
+	}
+}
+
+function coverageActionForStep(
+	step: QueuedStep,
+	candidates: EvidenceObject[],
+	previous: EvidenceObject[],
+	queue: QueuedStep[],
+	fromIndex: number,
+	lanes: CoverageLane[],
+	contract: ResearchRequestContract
+): 'continue' | 'stop' {
+	if (step.tool !== NEWSROOM_TOOL_NAMES.webSearch || !step.laneId || !candidates.length || !previous.length) return 'continue';
+	const overlap = coverageOverlap(candidates, previous);
+	if (overlap.candidateCount === 0 || overlap.ratio < 0.75) return 'continue';
+	if (step.reformulated) return 'stop';
+	const nextLane = queue.slice(fromIndex).find(
+		(item) => item.status === 'pending' && item.tool === NEWSROOM_TOOL_NAMES.webSearch && item.laneId
+	);
+	if (!nextLane) return 'stop';
+	const lane = lanes.find((candidate) => candidate.id === nextLane.laneId);
+	if (!lane || nextLane.reformulated) return 'stop';
+	nextLane.input = reformulateCoverageQuery(
+		lane,
+		contract,
+		`${overlap.candidateCount} candidate URLs overlapped earlier coverage; target a source purpose not represented yet`
+	);
+	nextLane.reformulated = true;
+	nextLane.detail = 'Reformulated around an uncovered source lane after overlapping results.';
+	return 'continue';
+}
+
 function alignCitationSequence(evidence: EvidenceObject[], toolAnswers: string[]): void {
 	const usedNumbers = new Set(
 		evidence
@@ -880,6 +1036,23 @@ function groundedResearchPrompt(prompt: string, context: ConversationContext | u
 	].join('\n');
 }
 
+function withKnownLeadReference(prompt: string, context: ConversationContext | undefined): string {
+	if (/https?:\/\//i.test(prompt)) return prompt;
+	const leads = context?.lastSourceBackedAnswer?.leads || [];
+	if (!leads.length) return prompt;
+	const words = new Set((prompt.toLowerCase().match(/[a-z0-9]{3,}/g) || []).filter((word) => !['the', 'this', 'that', 'lead', 'story', 'one'].includes(word)));
+	const scored = leads
+		.map((lead) => {
+			const text = `${lead.title} ${lead.domain}`.toLowerCase();
+			const score = [...words].reduce((total, word) => total + (text.includes(word) ? 1 : 0), 0);
+			return { lead, score };
+		})
+		.sort((left, right) => right.score - left.score);
+	const match = scored[0];
+	if (!match || (match.score === 0 && leads.length > 1)) return prompt;
+	return `${prompt}\n\nContinuity source lead to resolve exactly if it matches the request: ${match.lead.url}`;
+}
+
 function documentResearchPrompt(prompt: string, documents: DocumentContext[] | undefined): string {
 	if (!documents?.length) return prompt;
 	const documentText = documents
@@ -928,6 +1101,8 @@ function planEvent(source: 'model' | 'router', queue: QueuedStep[]): AgentPlanEv
 			tool: step.tool,
 			label: step.label,
 			status: step.status,
+			...(step.laneId ? { laneId: step.laneId } : {}),
+			...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {}),
 			...(step.detail ? { detail: step.detail } : {})
 		}))
 	};
@@ -1030,56 +1205,37 @@ function singleCallChatFollowupPlan(
 function coverageSweepPlan(
 	plan: ResearchPlan,
 	currentRequest: string,
-	context: NewsroomAgentRunContext
+	context: NewsroomAgentRunContext,
+	contract?: ResearchRequestContract,
+	maxWebSearches = 4
 ): ResearchPlan {
-	if (context.outputStyle !== 'chat' || !isBroadNewsCoverageRequest(currentRequest, context)) {
+	const effectiveContract = contract || context.researchContract;
+	const namedOutletOnly = isNamedOutletOnlyRequest(currentRequest, effectiveContract);
+	if (context.outputStyle !== 'chat' || (!namedOutletOnly && !isBroadNewsCoverageRequest(currentRequest, context, effectiveContract))) {
 		return plan;
 	}
-	const subject = context.conversationContext?.activeTopic?.subject.trim() || currentRequest.trim();
-	const requestedOutlets =
-		context.conversationContext?.activeTopic?.directSourcesRequired
-			? context.conversationContext.activeTopic.requestedOutlets || []
-			: [];
-	const dateHint = context.temporalContext
-		? `Prioritize readable sources published or events reported on ${context.temporalContext.localDate}; use the prior 24 hours only as explicitly labeled fallback.`
-		: '';
-	if (requestedOutlets.length) {
-		return {
-			source: 'router',
-			reason: 'The user requested a broad news assignment constrained to named publishers.',
-			steps: requestedOutlets.slice(0, 3).map((outlet) => ({
-				tool: NEWSROOM_TOOL_NAMES.webSearch,
-				input: [
-					subject,
-					`Search ${outlet} for the latest directly relevant coverage.`,
-					dateHint,
-					'Return specific article pages, not a homepage, section page, radio player, live stream, or generic landing page.'
-				].join(' '),
-				label: `Checking ${outlet}`
-			}))
-		};
-	}
+	if (!effectiveContract) return plan;
+	const lanes = buildProducerCoverageLanes(effectiveContract, context.newsroomContext, {
+		maxLanes: Math.min(4, Math.max(1, maxWebSearches)),
+		namedOnly: namedOutletOnly
+	});
+	if (!lanes.length) return plan;
 	return {
 		source: 'router',
-		reason: 'A broad current-news assignment needs independent coverage angles before synthesis.',
-		steps: [
-			{
-				tool: NEWSROOM_TOOL_NAMES.webSearch,
-				input: `${subject}. Search top and breaking developments across major local, national, and directly relevant news outlets. ${dateHint} Return specific article pages.`,
-				label: 'Scanning top and breaking stories'
-			},
-			{
-				tool: NEWSROOM_TOOL_NAMES.webSearch,
-				input: `${subject}. Search official announcements and public-impact coverage, including government, public safety, transport, health, and education when relevant. ${dateHint} Return specific source or article pages.`,
-				label: 'Checking public-impact developments'
-			},
-			{
-				tool: NEWSROOM_TOOL_NAMES.webSearch,
-				input: `${subject}. Search business, housing, culture, community, sports, and major-event coverage when relevant. ${dateHint} Return specific article pages.`,
-				label: 'Checking other major coverage'
-			}
-		]
+		reason: 'A broad current-news assignment needs independent coverage lanes before one final synthesis.',
+		steps: lanes.map((lane) => ({
+			tool: NEWSROOM_TOOL_NAMES.webSearch,
+			input: lane.query,
+			label: lane.label,
+			laneId: lane.id,
+			lanePurpose: `${lane.sourcePurpose}: ${lane.purpose}`
+		}))
 	};
+}
+
+function isNamedOutletOnlyRequest(currentRequest: string, contract?: ResearchRequestContract): boolean {
+	if (!contract || (!contract.namedOutlets.length && !contract.namedDomains.length)) return false;
+	return !/\b(?:briefing|roundup|headlines?|stories|items?|assignment desk|news)\b/i.test(currentRequest);
 }
 
 function shouldStopRepeatedWebSearch(output: ToolRunOutput): boolean {
@@ -1099,18 +1255,21 @@ function shouldStopRepeatedWebSearch(output: ToolRunOutput): boolean {
 
 function isBroadNewsCoverageRequest(
 	currentRequest: string,
-	context: NewsroomAgentRunContext
+	context: NewsroomAgentRunContext,
+	contract?: ResearchRequestContract
 ): boolean {
-	const subject = context.conversationContext?.activeTopic?.subject || '';
+	const subject = contract?.subject || context.conversationContext?.activeTopic?.subject || '';
 	const combined = `${subject}\n${currentRequest}`;
 	const asksForNews =
-		/\b(?:news|headlines|top stories|news roundup|what(?:'s| is) happening)\b/i.test(combined);
+		/\b(?:news|headlines|top stories|news roundup|briefing|assignment desk|stories|headlines|what(?:'s| is) happening)\b/i.test(combined);
 	const asksForCurrentCoverage =
 		/\b(?:latest|today|tonight|current|breaking|newest|this morning|this afternoon)\b/i.test(
 			combined
 		) ||
 		context.conversationContext?.activeTopic?.relevantDate === 'current' ||
-		context.conversationContext?.activeTopic?.relevantDate === 'latest';
+		context.conversationContext?.activeTopic?.relevantDate === 'latest' ||
+		contract?.temporalWindow.kind === 'current' ||
+		contract?.temporalWindow.kind === 'relative';
 	return asksForNews && asksForCurrentCoverage;
 }
 

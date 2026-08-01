@@ -52,11 +52,12 @@ import {
 	saveMessageProvenance
 } from '$lib/server/db/message-provenance';
 import { newId } from '$lib/utils/id';
-import type {
-	CitationRecord,
-	ConversationContext,
-	DocumentContext,
-	NewsroomContext
+import {
+	mergeLatestResearchContract,
+	type CitationRecord,
+	type ConversationContext,
+	type DocumentContext,
+	type NewsroomContext
 } from '@newscraft/shared';
 import { getNewsroomProfile } from '$lib/server/documents/profiles';
 import { getConversationDocumentService } from '$lib/server/documents/runtime';
@@ -930,6 +931,16 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			);
 		}
 		throw cause;
+	}
+	if (conversationContext.currentTurn?.researchContract) {
+		conversationContext.currentTurn.researchContract = mergeLatestResearchContract(
+			conversationContext.currentTurn.researchContract,
+			currentRequest,
+			{
+				homeMarket: researchContext.newsroomContext.homeMarket,
+				timezone: researchContext.newsroomContext.timezone
+			}
+		);
 	}
 
 	const upstreamAbort = new AbortController();

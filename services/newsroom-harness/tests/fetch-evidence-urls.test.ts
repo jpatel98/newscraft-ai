@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { deriveResearchRequestContract } from '@newscraft/shared';
 
 const fetchSourceUrlMock = vi.fn();
 
@@ -97,6 +98,32 @@ describe('fetchEvidenceUrls', () => {
 		expect(evidence[1].limitations).toContain('Source could not be read during this run.');
 		expect(evidence[1].confidence).toBe(0);
 		expect(evidence[0].extracted_text).not.toBe('');
+	});
+
+	it('filters excluded hubs, search pages, forums, and event pages before metadata fetch', async () => {
+		fetchSourceUrlMock.mockImplementation(async (url: string) => stubSource(url));
+		const prompt =
+			'Toronto stories published today with direct article citations; exclude hubs, forums, Reddit and search pages.';
+		const researchContract = deriveResearchRequestContract(prompt, {
+			homeMarket: 'Toronto',
+			timezone: 'America/Toronto'
+		});
+		const urls = [
+			'https://www.cbc.ca/news/canada/toronto/direct-story',
+			'https://www.cbc.ca/news',
+			'https://www.cbc.ca/search?q=toronto',
+			'https://www.reddit.com/r/toronto/comments/story',
+			'https://events.example/toronto-calendar'
+		];
+
+		const evidence = await fetchEvidenceUrls(urls, 'openai_web_search', {
+			...context,
+			prompt,
+			researchContract
+		} as Parameters<typeof fetchEvidenceUrls>[2]);
+
+		expect(fetchSourceUrlMock).toHaveBeenCalledTimes(1);
+		expect(evidence.map((item) => item.source_url)).toEqual([urls[0]]);
 	});
 });
 

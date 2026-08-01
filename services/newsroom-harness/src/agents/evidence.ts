@@ -1,5 +1,6 @@
 import { assessSourceQuality, type SourceQualityAssessment } from '../util/source-quality.js';
 import { createHash } from 'node:crypto';
+import type { ResearchEvidenceStatus } from '@newscraft/shared';
 import type { NewsroomTemporalContext } from './time-context.js';
 
 export type JournalistSourceKind =
@@ -17,7 +18,19 @@ export type JournalistSourceKind =
 export type EvidenceSourceKind = JournalistSourceKind | 'internal' | 'media_report';
 
 export type EvidenceReadability = 'readable' | 'partial' | 'blocked';
-export type EvidencePageRole = 'article' | 'official_live' | 'hub' | 'document' | 'background';
+export type EvidencePageRole =
+	| 'article'
+	| 'official_live'
+	| 'hub'
+	| 'document'
+	| 'background'
+	| 'event_listing'
+	| 'traffic_aggregator'
+	| 'homepage'
+	| 'category'
+	| 'search'
+	| 'forum'
+	| 'social';
 export type EvidenceTemporalScope = 'primary' | 'fallback' | 'background' | 'discovery';
 
 export interface EvidenceRanking {
@@ -37,12 +50,15 @@ export interface EvidenceRanking {
 
 export interface EvidenceObject {
 	evidence_id?: string;
+	canonical_url: string;
 	source_name: string;
+	publisher?: string | null;
 	source_url: string;
 	accessed_at: string;
 	tool_used: string;
 	title: string;
 	published_at: string | null;
+	updated_at?: string | null;
 	extracted_text: string;
 	summary: string;
 	confidence: number;
@@ -53,6 +69,8 @@ export interface EvidenceObject {
 	topic?: string | null;
 	entities?: string[];
 	location?: string | null;
+	desk?: string | null;
+	categories?: string[];
 	event_at?: string | null;
 	source_authority?: number;
 	readability?: EvidenceReadability;
@@ -65,16 +83,21 @@ export interface EvidenceObject {
 	uncertainty?: string[];
 	page_role?: EvidencePageRole;
 	temporal_scope?: EvidenceTemporalScope;
+	ledger_status: ResearchEvidenceStatus;
+	rejection_reason?: string;
 }
 
 export interface EvidenceInput {
 	evidence_id?: string | null;
+	canonical_url?: string | null;
 	source_name?: string | null;
+	publisher?: string | null;
 	source_url?: string | null;
 	accessed_at?: string | null;
 	tool_used?: string | null;
 	title?: string | null;
 	published_at?: string | null;
+	updated_at?: string | null;
 	extracted_text?: string | null;
 	contentText?: string | null;
 	text?: string | null;
@@ -90,6 +113,8 @@ export interface EvidenceInput {
 	topic?: string | null;
 	entities?: string[] | null;
 	location?: string | null;
+	desk?: string | null;
+	categories?: string[] | null;
 	event_at?: string | null;
 	source_authority?: number | string | null;
 	readability?: EvidenceReadability | null;
@@ -97,10 +122,13 @@ export interface EvidenceInput {
 	uncertainty?: string[] | string | null;
 	page_role?: EvidencePageRole | null;
 	temporal_scope?: EvidenceTemporalScope | null;
+	ledger_status?: ResearchEvidenceStatus | null;
+	rejection_reason?: string | null;
 }
 
 export function normalizeEvidence(input: EvidenceInput, defaults: Partial<EvidenceObject> = {}): EvidenceObject {
 	const sourceUrl = nonEmpty(input.source_url) || nonEmpty(input.url) || defaults.source_url || 'about:blank';
+	const canonicalUrl = nonEmpty(input.canonical_url) || defaults.canonical_url || canonicalEvidenceUrl(sourceUrl);
 	const title = nonEmpty(input.title) || defaults.title || sourceNameFromUrl(sourceUrl);
 	const text = nonEmpty(input.extracted_text) || nonEmpty(input.contentText) || nonEmpty(input.text) || '';
 	const summary = nonEmpty(input.summary) || nonEmpty(input.snippet) || summarizeEvidenceText(text || title);
@@ -120,17 +148,23 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 		summarizeEvidenceText(text || summary || title, 520);
 
 	const pageRole = input.page_role || defaults.page_role || classifyEvidencePageRole(sourceUrl, title, sourceKind);
+	const categories = normalizeStringList(input.categories ?? defaults.categories);
+	const inferredCategories = categories.length ? categories : inferEvidenceCategories(`${title} ${text} ${sourceUrl}`);
+	const ledgerStatus = input.ledger_status || defaults.ledger_status || 'discovery';
 	return {
 		evidence_id:
 			nonEmpty(input.evidence_id) ||
 			defaults.evidence_id ||
 			stableEvidenceId(sourceUrl, title, nonEmpty(input.published_at) || defaults.published_at || null),
+		canonical_url: canonicalUrl,
 		source_name: sourceName,
+		publisher: nonEmpty(input.publisher) || defaults.publisher || sourceName,
 		source_url: sourceUrl,
 		accessed_at: accessedAt,
 		tool_used: toolUsed,
 		title,
 		published_at: nonEmpty(input.published_at) || defaults.published_at || null,
+		updated_at: nonEmpty(input.updated_at) || defaults.updated_at || null,
 		extracted_text: text,
 		summary,
 		confidence: normalizeConfidence(input.confidence ?? defaults.confidence ?? 0.5),
@@ -141,6 +175,8 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 		topic: nonEmpty(input.topic) || defaults.topic || null,
 		entities: normalizeStringList(input.entities ?? defaults.entities),
 		location: nonEmpty(input.location) || defaults.location || null,
+		desk: nonEmpty(input.desk) || defaults.desk || inferredCategories[0] || null,
+		categories: inferredCategories,
 		event_at: nonEmpty(input.event_at) || defaults.event_at || null,
 		source_authority: normalizeConfidence(
 			input.source_authority ?? defaults.source_authority ?? sourceAuthorityFor(sourceKind)
@@ -154,7 +190,11 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 		},
 		uncertainty: normalizeLimitations(input.uncertainty ?? defaults.uncertainty ?? limitations),
 		page_role: pageRole,
-		temporal_scope: input.temporal_scope || defaults.temporal_scope
+		temporal_scope: input.temporal_scope || defaults.temporal_scope,
+		ledger_status: ledgerStatus,
+		...(input.rejection_reason || defaults.rejection_reason
+			? { rejection_reason: nonEmpty(input.rejection_reason) || defaults.rejection_reason }
+			: {})
 	};
 }
 
@@ -190,7 +230,7 @@ export function dedupeEvidence(evidence: EvidenceObject[]): EvidenceObject[] {
 	const seen = new Set<string>();
 	const deduped: EvidenceObject[] = [];
 	for (const item of evidence) {
-		const key = canonicalEvidenceUrl(item.source_url);
+		const key = item.canonical_url || canonicalEvidenceUrl(item.source_url);
 		if (seen.has(key)) continue;
 		seen.add(key);
 		deduped.push(item);
@@ -206,9 +246,10 @@ export function preparePublishableEvidence(
 	const accepted: EvidenceObject[] = [];
 	const excluded: EvidenceObject[] = [];
 	for (const raw of dedupeEvidence(evidence)) {
-		const item = { ...raw, citation_number: undefined };
+		const item = { ...raw, citation_number: undefined, ledger_status: 'discovery' as ResearchEvidenceStatus };
 		if (item.source_url.startsWith('newsroom://')) {
 			item.temporal_scope = 'primary';
+			item.ledger_status = 'accepted';
 			accepted.push(item);
 			continue;
 		}
@@ -216,38 +257,48 @@ export function preparePublishableEvidence(
 		item.page_role = role;
 		if (!currentRequest) {
 			item.temporal_scope = 'primary';
+			item.ledger_status = 'accepted';
 			accepted.push(item);
 			continue;
 		}
 		if (role === 'hub' || item.source_kind === 'social_post') {
 			item.temporal_scope = 'discovery';
+			item.ledger_status = 'rejected';
+			item.rejection_reason = role === 'hub' ? 'hub or landing page is discovery-only' : 'social source is excluded';
 			excluded.push(item);
 			continue;
 		}
 		const timestamp = Date.parse(item.event_at || item.published_at || '');
 		const officialLive = role === 'official_live' && (item.source_kind === 'official' || item.source_kind === 'primary');
 		if (!Number.isFinite(timestamp)) {
-			if (officialLive) {
-				item.temporal_scope = 'primary';
-				accepted.push(item);
-			} else {
-				item.temporal_scope = 'background';
-				excluded.push(item);
+				if (officialLive) {
+					item.temporal_scope = 'primary';
+					item.ledger_status = 'accepted';
+					accepted.push(item);
+				} else {
+					item.temporal_scope = 'background';
+					item.ledger_status = 'rejected';
+					item.rejection_reason = 'publication or event time is unknown';
+					excluded.push(item);
 			}
 			continue;
 		}
 		const windowEndWithClockSkew = Date.parse(temporal.windowEnd) + 5 * 60 * 1000;
 		if (timestamp >= Date.parse(temporal.windowStart) && timestamp <= windowEndWithClockSkew) {
 			item.temporal_scope = 'primary';
+			item.ledger_status = 'accepted';
 			accepted.push(item);
 			continue;
 		}
 		if (timestamp >= Date.parse(temporal.fallbackWindowStart) && timestamp <= windowEndWithClockSkew) {
 			item.temporal_scope = 'fallback';
+			item.ledger_status = 'accepted';
 			accepted.push(item);
 			continue;
 		}
 		item.temporal_scope = 'background';
+		item.ledger_status = 'rejected';
+		item.rejection_reason = 'publication or event time is outside the request window';
 		excluded.push(item);
 	}
 	accepted.sort((left, right) => {
@@ -282,7 +333,13 @@ export function classifyEvidencePageRole(
 	const text = `${path} ${title}`.toLowerCase();
 	if (/\.(?:pdf|docx?|xlsx?)$/.test(path) || /\b(?:pdf|report|agenda|minutes|document)\b/.test(title.toLowerCase())) return 'document';
 	if ((sourceKind === 'official' || sourceKind === 'primary') && /\b(?:live|status|alert|advisory|schedule|release|statement|bulletin)\b/.test(text)) return 'official_live';
+	if (/(?:event|calendar|whatson|whats-on|things-to-do)/.test(path) || /\b(?:event listing|calendar listing)\b/i.test(title)) return 'event_listing';
+	if (/(?:traffic|commute|roadconditions|511)/.test(path) || /\btraffic aggregator\b/i.test(title)) return 'traffic_aggregator';
+	if (/(?:forum|community)/.test(path) || /\bforum\b/i.test(title)) return 'forum';
+	if (/(?:search|tag|category|section)/.test(path)) return /search/.test(path) ? 'search' : 'category';
+	if (sourceKind === 'social_post' || /\b(?:social|reddit)\b/i.test(title)) return sourceKind === 'social_post' ? 'social' : 'forum';
 	if (!path || /^\/(?:news|toronto|canada|world|local|latest|search|video|videos|watch|listen|player)?$/.test(path) || /\b(?:homepage|section|latest news|player|video hub|search results)\b/.test(title.toLowerCase())) return 'hub';
+	if (sourceKind === 'official' || sourceKind === 'primary') return 'official_live';
 	if (sourceKind === 'news_report' || sourceKind === 'media_report') return 'article';
 	return 'background';
 }
@@ -291,7 +348,7 @@ function stableEvidenceId(url: string, title: string, publishedAt: string | null
 	return `ev_${createHash('sha256').update(`${canonicalEvidenceUrl(url)}\n${title.trim().toLowerCase()}\n${publishedAt || ''}`).digest('hex').slice(0, 16)}`;
 }
 
-function canonicalEvidenceUrl(value: string): string {
+export function canonicalEvidenceUrl(value: string): string {
 	try {
 		const url = new URL(value);
 		url.hash = '';
@@ -428,6 +485,33 @@ function normalizeLimitations(value: string[] | string | null | undefined): stri
 function normalizeStringList(value: string[] | null | undefined): string[] {
 	if (!value) return [];
 	return Array.from(new Set(value.map((item) => item.trim()).filter(Boolean))).slice(0, 12);
+}
+
+export function inferEvidenceCategories(value: string): string[] {
+	const categories = [
+		'politics',
+		'government',
+		'business',
+		'economy',
+		'health',
+		'public safety',
+		'crime',
+		'courts',
+		'transit',
+		'traffic',
+		'weather',
+		'education',
+		'housing',
+		'environment',
+		'community',
+		'culture',
+		'entertainment',
+		'technology',
+		'sports',
+		'events'
+	];
+	const normalized = value.toLowerCase();
+	return categories.filter((category) => new RegExp(`\\b${category.replace(/\s+/g, '\\s+')}\\b`, 'i').test(normalized));
 }
 
 function sourceAuthorityFor(kind: EvidenceSourceKind): number {

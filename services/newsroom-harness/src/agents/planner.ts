@@ -3,6 +3,7 @@ import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { completeProviderText, type ModelProvider } from '../util/openai-complete.js';
 import { NEWSROOM_CHARTER } from './roles.js';
 import { formatNewsroomTemporalContext, type NewsroomTemporalContext } from './time-context.js';
+import { formatResearchRequestContract, type ResearchRequestContract } from '@newscraft/shared';
 
 /**
  * The planner turns a newsroom request into an explicit, bounded list of tool
@@ -16,6 +17,8 @@ export interface PlannedStep {
 	tool: string;
 	input: string;
 	label: string;
+	laneId?: string;
+	lanePurpose?: string;
 }
 
 export interface ResearchPlan {
@@ -46,6 +49,7 @@ export interface PlannerRequest {
 	reasoningEffort?: 'low' | 'medium' | 'high';
 	signal?: AbortSignal;
 	temporalContext: NewsroomTemporalContext;
+	researchContract?: ResearchRequestContract;
 }
 
 export type PlannerFn = (request: PlannerRequest) => Promise<ResearchPlan>;
@@ -66,7 +70,10 @@ export async function planResearchSteps(request: PlannerRequest): Promise<Resear
 	return parseResearchPlan(raw, request);
 }
 
-export function parseResearchPlan(raw: string, request: Pick<PlannerRequest, 'tools' | 'maxSteps'>): ResearchPlan {
+export function parseResearchPlan(
+	raw: string,
+	request: Pick<PlannerRequest, 'tools' | 'maxSteps' | 'researchContract'>
+): ResearchPlan {
 	const parsed = parsePlannerJson(JSON.parse(extractJsonObject(raw)));
 	const allowed = new Set(request.tools.map((tool) => tool.name));
 	const maxSteps = Math.max(1, Math.min(MAX_PLAN_STEPS, request.maxSteps));
@@ -75,7 +82,11 @@ export function parseResearchPlan(raw: string, request: Pick<PlannerRequest, 'to
 		return {
 			tool: step.tool,
 			input: step.input.trim(),
-			label: sanitizeStepLabel(step.label) || defaultStepLabel(step.tool, step.input)
+			label: sanitizeStepLabel(step.label) || defaultStepLabel(step.tool, step.input),
+			...(typeof step.laneId === 'string' && step.laneId.trim() ? { laneId: step.laneId.trim().slice(0, 80) } : {}),
+			...(typeof step.lanePurpose === 'string' && step.lanePurpose.trim()
+				? { lanePurpose: step.lanePurpose.trim().slice(0, 180) }
+				: {})
 		};
 	});
 	if (!steps.length) throw new Error('planner returned no usable steps');
@@ -137,6 +148,12 @@ function plannerInput(request: PlannerRequest): string {
 		'- input is what the tool acts on: a focused search query (not the raw request), a URL to read, or feed URLs.',
 		'- label is shown to the user while the step runs (e.g. "Checking Toronto police releases"). Never mention tool, adapter, or model names in labels.',
 		'- For current events, prefer configured/official sources before broad web search when a configured monitor clearly matches.',
+		...(request.researchContract
+			? [
+					`- The structured request contract below is authoritative. Preserve its subject, location, time window, count, direct-page requirement, and every exclusion in every step; never add a category the contract excludes.`,
+					`- Structured request contract: ${formatResearchRequestContract(request.researchContract)}`
+				]
+			: []),
 		'- For latest/current requests, search the requested time window and put the newest supported developments first. Older background is not a latest update.',
 		'- For a broad latest/news roundup, plan bounded discovery, official/public-impact, and corroboration passes when the budget permits; each pass should gather findings for one final synthesis, never a separate answer.',
 		`- Make the local date explicit in current-news queries (${request.temporalContext.localDate}) and require specific readable article or official pages rather than publisher hubs or result pages.`,
@@ -185,7 +202,9 @@ function parsePlannerJson(value: unknown): { reason?: string; steps: PlannedStep
 		const tool = boundedString(item.tool, 'planner step tool', 1, 120);
 		const input = boundedString(item.input, 'planner step input', 1, 600);
 		const label = boundedString(item.label, 'planner step label', 1, 120);
-		return { tool, input, label };
+		const laneId = typeof item.laneId === 'string' ? item.laneId : undefined;
+		const lanePurpose = typeof item.lanePurpose === 'string' ? item.lanePurpose : undefined;
+		return { tool, input, label, ...(laneId ? { laneId } : {}), ...(lanePurpose ? { lanePurpose } : {}) };
 	});
 	return {
 		reason: typeof record.reason === 'string' ? record.reason : undefined,

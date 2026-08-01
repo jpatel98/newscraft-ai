@@ -1,4 +1,4 @@
-import type { ConversationContext, ConversationTopic } from '@newscraft/shared';
+import type { ConversationContext, ConversationTopic, ResearchRequestContract } from '@newscraft/shared';
 import type { EvidenceObject, EvidenceRanking, EvidenceSourceKind } from './evidence.js';
 import type { NewsroomTemporalContext } from './time-context.js';
 
@@ -20,7 +20,7 @@ export function rankEvidenceForConversation(
 	context: ConversationContext | undefined,
 	options: { includeCoverageCompleteness?: boolean; temporalContext?: NewsroomTemporalContext } = {}
 ): RankedEvidenceResult {
-	const topic = context?.activeTopic;
+	const topic = contractTopic(context?.currentTurn?.researchContract) || context?.activeTopic;
 	if (!topic) {
 		const ranked = evidence
 			.map((item) => ({ item, ranking: baseRanking(item) }))
@@ -112,8 +112,8 @@ function rankEvidence(item: EvidenceObject, topic: ConversationTopic, temporalCo
 	const unsupported =
 		item.readability === 'blocked' ||
 		!(item.supporting_excerpt || item.extracted_text || item.summary).trim();
-	const genericPublisherLanding =
-		(topic.directSourcesRequired || isCurrentTopic(topic)) && isGenericPublisherLanding(item);
+		const genericPublisherLanding =
+			(topic.directSourcesRequired || isCurrentTopic(topic)) && isGenericPublisherLanding(item);
 	const wrongTime = incompatibleTime(item, topic, temporalContext);
 	const noConversationFit =
 		subjectTerms.length > 0 &&
@@ -122,7 +122,8 @@ function rankEvidence(item: EvidenceObject, topic: ConversationTopic, temporalCo
 		locationMatches === 0;
 
 	let hardReject: EvidenceRanking['hard_reject_reason'];
-	if (unsafe) hardReject = 'unsafe';
+		if (item.ledger_status === 'rejected') hardReject = 'unsupported';
+		else if (unsafe) hardReject = 'unsafe';
 	else if (structurallyInvalid) hardReject = 'invalid';
 	else if (unsupported) hardReject = 'unsupported';
 	else if (genericPublisherLanding) hardReject = 'unsupported';
@@ -210,7 +211,12 @@ function freshnessScore(item: EvidenceObject, topic: ConversationTopic, notes: s
 	const date = Date.parse(item.event_at || item.published_at || '');
 	if (!Number.isFinite(date)) return 0.4;
 	if (!isCurrentTopic(topic)) return 0.8;
-	const ageHours = Math.abs(referenceTime(temporalContext) - date) / 3_600_000;
+	const reference = referenceTime(temporalContext);
+	if (!Number.isFinite(reference)) {
+		notes.push('request-scoped temporal context was unavailable; freshness was not asserted');
+		return 0.4;
+	}
+	const ageHours = Math.abs(reference - date) / 3_600_000;
 	if (ageHours <= 36) return 1;
 	if (ageHours <= 72) return 0.75;
 	notes.push('older evidence lowered freshness');
@@ -221,11 +227,23 @@ function incompatibleTime(item: EvidenceObject, topic: ConversationTopic, tempor
 	if (!isCurrentTopic(topic)) return false;
 	const date = Date.parse(item.event_at || item.published_at || '');
 	if (!Number.isFinite(date)) return false;
-	return Math.abs(referenceTime(temporalContext) - date) > 14 * 24 * 3_600_000;
+	const reference = referenceTime(temporalContext);
+	return Number.isFinite(reference) && Math.abs(reference - date) > 14 * 24 * 3_600_000;
 }
 
 function referenceTime(temporalContext?: NewsroomTemporalContext): number {
-	return temporalContext ? Date.parse(temporalContext.requestTimestamp) : Date.now();
+	return temporalContext ? Date.parse(temporalContext.requestTimestamp) : Number.NaN;
+}
+
+function contractTopic(contract: ResearchRequestContract | undefined): ConversationTopic | undefined {
+	if (!contract) return undefined;
+	const current = contract.temporalWindow.kind === 'current' || contract.temporalWindow.kind === 'relative';
+	return {
+		subject: `${contract.subject}${current ? ` ${contract.temporalWindow.phrase || 'current'}` : ''}`.trim(),
+		...(contract.location ? { location: contract.location } : {}),
+		...(contract.namedOutlets.length ? { requestedOutlets: contract.namedOutlets, directSourcesRequired: true } : {}),
+		...(current ? { relevantDate: 'current' as const } : {})
+	};
 }
 
 function isCurrentTopic(topic: ConversationTopic): boolean {

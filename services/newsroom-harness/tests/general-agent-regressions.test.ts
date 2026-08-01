@@ -142,7 +142,7 @@ describe('general-purpose conversational research regressions', () => {
 		});
 
 		expect(result.evidence.map((item) => item.source_url)).toEqual(['https://ottawa.example/housing']);
-		expect(result.limitations.join(' ')).toContain('excluded');
+		expect(result.limitations.join(' ')).toMatch(/excluded|wrong location/i);
 	});
 
 	it('runs a multi-angle coverage sweep for a broad current-news assignment', async () => {

@@ -1,5 +1,6 @@
 import { generateFinalAnswer } from './answer.js';
 import { isUsableEvidence, normalizeEvidence, normalizeToolEvidence, type EvidenceObject } from './evidence.js';
+import { filterEvidenceForResearchContract, isResearchUrlAllowed } from './research-policy.js';
 import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { evidenceOutputSchema, ToolRegistry, type NewsroomTool, type ToolRunContext, type ToolRunOutput } from './tools.js';
 import { resolveModelPolicy } from './model-policy.js';
@@ -22,6 +23,7 @@ import {
 	newsroomTimeZone
 } from './time-context.js';
 import { NEWSROOM_CHARTER } from './roles.js';
+import { deriveResearchRequestContract, formatResearchRequestContract, type ResearchRequestContract } from '@newscraft/shared';
 
 const GENERIC_MONITOR_NAME_TERMS = new Set([
 	'media',
@@ -329,7 +331,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				if (fallback.usable) selected = fallback;
 			}
 
-			const outputText = selected.outputText;
+				const outputText = selected.outputText;
 			const answerText = outputText.trim();
 			const streamLimitations = selected.streamFailure
 				? ['Live research ended early. Treat this answer as incomplete.']
@@ -344,28 +346,31 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				fallbackSucceeded,
 				finalOutcome: selected.evidence.length ? 'sourced' : answerText ? 'unsourced' : 'failed'
 			};
-			if (selected.evidence.length) {
-				return {
-					status: 'ok',
-					evidence: selected.evidence,
-					answer: outputText,
+				if (selected.evidence.length) {
+					return {
+						status: 'ok',
+						evidence: selected.evidence,
+						discovery_leads: selected.discoveryLeads,
+						answer: outputText,
 					limitations: streamLimitations,
 					raw: { output_text: outputText },
 					diagnostics
 				};
 			}
 			if (answerText && !isCurrentEventQuery(input.query)) {
-				return {
-					status: 'ok',
-					evidence: selected.evidence,
+					return {
+						status: 'ok',
+						evidence: selected.evidence,
+						discovery_leads: selected.discoveryLeads,
 					answer: answerText,
 					limitations: ['No usable source links were returned.', ...streamLimitations],
 					raw: { output_text: outputText },
 					diagnostics
 				};
 			}
-			return {
-				status: selected.upstreamStatus && selected.upstreamStatus >= 400 ? 'error' : 'unavailable',
+				return {
+					status: selected.upstreamStatus && selected.upstreamStatus >= 400 ? 'error' : 'unavailable',
+					discovery_leads: selected.discoveryLeads,
 				limitations: [
 					selected.upstreamStatus
 						? publicProviderFailure(providerLabel(selected.provider), selected.upstreamStatus)
@@ -586,9 +591,12 @@ export async function fetchEvidenceUrls(
 	toolUsed: string,
 	context: ToolRunContext
 ): Promise<EvidenceObject[]> {
+	const fetchableUrls = urls.filter((url) =>
+		isAllowedResearchSource(url, context.prompt, context.researchContract)
+	);
 	const byHost = new Map<string, Array<{ url: string; index: number }>>();
-	for (let i = 0; i < urls.length; i++) {
-		const url = urls[i];
+	for (let i = 0; i < fetchableUrls.length; i++) {
+		const url = fetchableUrls[i];
 		let host: string;
 		try {
 			host = new URL(url).host.toLowerCase();
@@ -600,7 +608,7 @@ export async function fetchEvidenceUrls(
 		byHost.set(host, bucket);
 	}
 
-	const results: EvidenceObject[] = new Array(urls.length);
+	const results: EvidenceObject[] = new Array(fetchableUrls.length);
 
 	async function fetchBucket(bucket: Array<{ url: string; index: number }>): Promise<void> {
 		for (const { url, index } of bucket) {
@@ -732,30 +740,38 @@ function metadataFetchSignal(signal: AbortSignal | undefined): AbortSignal {
 	return timeout;
 }
 
-function retainDatedCurrentEvidence(evidence: EvidenceObject[], query: string): EvidenceObject[] {
-	if (!isCurrentEventQuery(query)) return evidence;
-	const maxAgeDays = requestedRecencyDays(query);
-	const earliest = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
-	return evidence.filter((item) => {
-		if (item.published_at) {
-			const publishedAt = Date.parse(item.published_at);
-			return Number.isFinite(publishedAt) && publishedAt >= earliest;
-		}
+function retainDatedCurrentEvidence(
+	evidence: EvidenceObject[],
+	query: string,
+	temporalContext?: ToolRunContext['temporalContext']
+): { accepted: EvidenceObject[]; excluded: EvidenceObject[] } {
+	if (!isCurrentEventQuery(query) || !temporalContext) return { accepted: evidence, excluded: [] };
+	const windowEnd = Date.parse(temporalContext.windowEnd) + 5 * 60 * 1000;
+	const primaryStart = Date.parse(temporalContext.windowStart);
+	const fallbackStart = Date.parse(temporalContext.fallbackWindowStart);
+	const accepted: EvidenceObject[] = [];
+	const excluded: EvidenceObject[] = [];
+	for (const item of evidence) {
+		const timestamp = Date.parse(item.published_at || item.updated_at || item.event_at || '');
 		const livePrimary =
 			(item.source_kind === 'official' || item.source_kind === 'primary') &&
-			/\b(?:alert|warning|watch|advisory|status|schedule|fixture|score|match)\b/i.test(
-				`${query} ${item.title}`
-			);
-		return livePrimary;
-	});
-}
-
-function requestedRecencyDays(query: string): number {
-	const explicitDays = query.match(/\b(\d{1,2})(?: calendar)? days?\b/i);
-	if (explicitDays) return Math.min(32, Math.max(2, Number(explicitDays[1]) + 1));
-	if (/\b(?:this|past|last) week\b|\bseven(?: calendar)? days\b/i.test(query)) return 8;
-	if (/\b(?:two weeks?|fortnight|fourteen(?: calendar)? days)\b/i.test(query)) return 15;
-	return 2;
+			(item.page_role === 'official_live' ||
+				/\b(?:alert|warning|watch|advisory|status|schedule|fixture|score|match)\b/i.test(`${query} ${item.title}`));
+		if (livePrimary || (Number.isFinite(timestamp) && timestamp >= primaryStart && timestamp <= windowEnd) ||
+			(Number.isFinite(timestamp) && timestamp >= fallbackStart && timestamp <= windowEnd)) {
+			accepted.push(item);
+			continue;
+		}
+		excluded.push({
+			...item,
+			ledger_status: 'rejected',
+			temporal_scope: 'discovery',
+			rejection_reason: Number.isFinite(timestamp)
+				? 'publication or update time is outside the request-scoped freshness window'
+				: 'publication or update time is unknown'
+		});
+	}
+	return { accepted, excluded };
 }
 
 function sourceFetchSignal(signal: AbortSignal | undefined): AbortSignal {
@@ -864,6 +880,7 @@ type InterpretedProviderSearch = {
 	raw: ProviderSearchRaw;
 	outputText: string;
 	evidence: EvidenceObject[];
+	discoveryLeads: EvidenceObject[];
 	streamFailure: string | null;
 	latencyMs: number;
 	upstreamStatus?: number;
@@ -889,9 +906,10 @@ async function interpretProviderWebSearch(input: {
 			model: input.model,
 			query: input.query,
 			stream: false,
-			newsroomContext: input.newsroomContext,
-			temporalContext: input.context.temporalContext,
-			signal: searchSignal
+				newsroomContext: input.newsroomContext,
+				temporalContext: input.context.temporalContext,
+				researchContract: input.context.researchContract,
+				signal: searchSignal
 		});
 	} catch (err) {
 		if (input.context.signal?.aborted) throw err;
@@ -900,7 +918,8 @@ async function interpretProviderWebSearch(input: {
 			model: input.model,
 			raw: {},
 			outputText: '',
-			evidence: [],
+				evidence: [],
+				discoveryLeads: [],
 			streamFailure: null,
 			latencyMs: Math.max(0, Date.now() - startedAt),
 			failureCategory: searchExceptionCategory(err, input.context.signal),
@@ -915,6 +934,7 @@ async function interpretProviderWebSearch(input: {
 			raw: attempt.raw,
 			outputText: '',
 			evidence: [],
+			discoveryLeads: [],
 			streamFailure: attempt.streamFailure,
 			latencyMs: attempt.latencyMs,
 			upstreamStatus: attempt.response.status,
@@ -927,6 +947,13 @@ async function interpretProviderWebSearch(input: {
 	let outputText = canonicalizeTrackingUrlsInText(
 		withProviderCitationMarkers(attempt.raw, providerOutputText)
 	);
+	const researchContract =
+		input.context.researchContract ||
+		deriveResearchRequestContract(input.query, {
+			homeMarket: input.newsroomContext?.homeMarket,
+			timezone: input.context.temporalContext?.timeZone,
+			preserveBaseSubject: false
+		});
 	let evidence = normalizeToolEvidence(
 		{ evidence: extractProviderWebSources(attempt.raw, providerOutputText) },
 		NEWSROOM_TOOL_NAMES.webSearch,
@@ -937,17 +964,33 @@ async function interpretProviderWebSearch(input: {
 			limitations: ['Broad web-search evidence; verify important claims against primary sources.']
 		}
 	);
-	evidence = evidence.filter((item) => isAllowedResearchSource(item.source_url, input.query));
-	if (needsPublicationMetadata(input.query)) {
+	const discoveryLeads: EvidenceObject[] = [];
+	const urlAllowed = evidence.filter((item) => isAllowedResearchSource(item.source_url, input.query, researchContract));
+	discoveryLeads.push(
+		...evidence
+			.filter((item) => !urlAllowed.some((allowed) => allowed.canonical_url === item.canonical_url))
+			.map((item) => ({
+				...item,
+				ledger_status: 'rejected' as const,
+				temporal_scope: 'discovery' as const,
+				rejection_reason: 'source URL is not allowed by the research contract'
+			}))
+	);
+	const contractFiltered = filterEvidenceForResearchContract(urlAllowed, researchContract);
+	evidence = contractFiltered.accepted;
+	discoveryLeads.push(...contractFiltered.excluded);
+	if (needsPublicationMetadata(input.query) || researchContract.temporalWindow.kind === 'current' || researchContract.temporalWindow.kind === 'relative') {
 		evidence = await enrichMissingPublicationMetadata(
 			evidence,
 			{ ...input.context, signal: searchSignal },
 			input.query
 		);
-		evidence = retainDatedCurrentEvidence(evidence, input.query);
+		const dated = retainDatedCurrentEvidence(evidence, input.query, input.context.temporalContext);
+		evidence = dated.accepted;
+		discoveryLeads.push(...dated.excluded);
 	}
 	outputText = reconcileDedupedCitationMarkers(outputText, attempt.raw, evidence);
-	const currentRequest = isCurrentEventQuery(input.query);
+	const currentRequest = isCurrentEventQuery(input.query) || ['current', 'relative'].includes(researchContract.temporalWindow.kind);
 	const usable = evidence.length > 0 || (!currentRequest && Boolean(outputText.trim()));
 	return {
 		provider: input.provider,
@@ -955,6 +998,7 @@ async function interpretProviderWebSearch(input: {
 		raw: attempt.raw,
 		outputText,
 		evidence,
+		discoveryLeads,
 		streamFailure: attempt.streamFailure,
 		latencyMs: attempt.latencyMs,
 		upstreamStatus: attempt.response.status,
@@ -1071,6 +1115,7 @@ async function performProviderWebSearch(input: {
 	stream: boolean;
 	newsroomContext?: ToolRunContext['newsroomContext'];
 	temporalContext?: ToolRunContext['temporalContext'];
+	researchContract?: ResearchRequestContract;
 	signal?: AbortSignal;
 	onAnswerDelta?: (delta: string) => void;
 }): Promise<ProviderSearchAttempt> {
@@ -1086,8 +1131,9 @@ async function performProviderWebSearch(input: {
 				provider: input.provider,
 				model: input.model,
 				stream: input.stream,
-				query: input.query,
-				input: webSearchPrompt(input.query, input.newsroomContext, input.temporalContext)
+					query: input.query,
+					input: webSearchPrompt(input.query, input.newsroomContext, input.temporalContext, input.researchContract),
+					researchContract: input.researchContract
 			})
 		),
 		signal: input.signal
@@ -1125,6 +1171,7 @@ function webSearchRequestBody(input: {
 	stream: boolean;
 	input: string;
 	query: string;
+	researchContract?: ResearchRequestContract;
 }): Record<string, unknown> {
 	if (input.provider === 'openai') {
 		const body: Record<string, unknown> = {
@@ -1150,7 +1197,7 @@ function webSearchRequestBody(input: {
 			},
 			{ role: 'user', content: input.input }
 		],
-		...sonarSearchFilters(input.query)
+		...sonarSearchFilters(input.query, input.researchContract)
 	};
 }
 
@@ -1171,7 +1218,8 @@ function boundedSignal(signal: AbortSignal | undefined, timeoutMs: number): Abor
 function webSearchPrompt(
 	query: string,
 	newsroomContext?: ToolRunContext['newsroomContext'],
-	temporalContext?: ToolRunContext['temporalContext']
+	temporalContext?: ToolRunContext['temporalContext'],
+	researchContract?: ResearchRequestContract
 ): string {
 	const resolvedTimeZone = validTimeZone(newsroomContext?.timezone) || newsroomTimeZone();
 	const timeContext = temporalContext
@@ -1185,8 +1233,9 @@ function webSearchPrompt(
 		...(newsroomContext?.preferredDomains?.length
 			? [
 					`Prefer useful evidence from these newsroom domains when relevant, without excluding stronger official or direct evidence: ${newsroomContext.preferredDomains.join(', ')}.`
-				]
-			: []),
+					]
+				: []),
+		...(researchContract ? [`Structured request contract (binding): ${formatResearchRequestContract(researchContract)}`] : []),
 		'Apply the Browsing workflow in the newsroom charter. Treat this provider as discovery and retrieval, not as the final editor.',
 		'Use provider-neutral natural-language queries. Work through broad discovery, official/public-impact checks when relevant, and focused corroboration before stopping when results become repetitive.',
 		'Open promising result pages and prefer readable article or official pages over snippets, homepages, section pages, search pages, player pages, forums, or social posts.',
@@ -1225,8 +1274,8 @@ function webSearchPrompt(
 	].join('\n');
 }
 
-function sonarSearchFilters(query: string): Record<string, unknown> {
-	const domains = namedDomainsForQuery(query);
+function sonarSearchFilters(query: string, researchContract?: ResearchRequestContract): Record<string, unknown> {
+	const domains = [...new Set([...(researchContract?.namedDomains || []), ...namedDomainsForQuery(query)])];
 	const recency = sonarRecencyForQuery(query);
 	return {
 		...(domains.length ? { search_domain_filter: domains } : {}),
@@ -1243,14 +1292,12 @@ function needsPublicationMetadata(query: string): boolean {
 	);
 }
 
-function isAllowedResearchSource(url: string, query: string): boolean {
-	if (/\b(?:wikipedia|reddit)\b/i.test(query)) return true;
-	try {
-		const host = new URL(url).hostname.toLowerCase();
-		return !/(^|\.)(?:wikipedia\.org|reddit\.com)$/.test(host);
-	} catch {
-		return true;
-	}
+export function isAllowedResearchSource(
+	url: string,
+	_query: string,
+	researchContract?: ResearchRequestContract
+): boolean {
+	return isResearchUrlAllowed(url, researchContract);
 }
 
 function namedDomainsForQuery(query: string): string[] {

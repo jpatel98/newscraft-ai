@@ -219,7 +219,7 @@ function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {
 				id: event.source.url,
 				url: event.source.url,
 				title: event.source.title,
-				status: event.source.used ? 'used' : 'skipped',
+					status: event.source.used ? 'used' : 'discovered',
 				detail: event.source.summary,
 				...(event.stepId ? { stepId: event.stepId } : {})
 			}
