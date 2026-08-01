@@ -5,6 +5,7 @@ import { createDefaultToolRegistry } from '../src/agents/default-tools.js';
 import { classifyEvidenceSource, normalizeEvidence } from '../src/agents/evidence.js';
 import { createNewsroomAgentConfig } from '../src/agents/harness-config.js';
 import { createModelPolicyConfig } from '../src/agents/model-policy.js';
+import { NEWSROOM_CHARTER, NEWSROOM_CHARTER_VERSION } from '../src/agents/roles.js';
 import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest } from '../src/agents/router.js';
 import type { ToolRunContext } from '../src/agents/tools.js';
 
@@ -722,6 +723,38 @@ describe('citation and source-quality web research', () => {
 		expect(openAiBody).not.toHaveProperty('search_recency_filter');
 		expect(openAiBody.tools).toEqual([{ type: 'web_search' }]);
 		expect(openAiBody.tool_choice).toBe('required');
+	});
+
+	it('gives every web-search provider the canonical browsing workflow', async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				choices: [{ message: { content: 'A readable article was found.' } }],
+				citations: ['https://www.cbc.ca/news/story'],
+				search_results: [
+					{
+						url: 'https://www.cbc.ca/news/story',
+						title: 'CBC article',
+						snippet: 'A dated article excerpt.',
+						date: '2026-07-31T14:00:00.000Z'
+					}
+				]
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+
+		await runWebSearch('Latest Toronto news today');
+		const sonarBody = requestBody(fetchMock, 0);
+		const sonarText = JSON.stringify(sonarBody.messages);
+		expect(NEWSROOM_CHARTER_VERSION).toBe('1.1.0');
+		expect(sonarText).toContain('Treat the search provider as a retrieval mechanism');
+		expect(sonarText).toContain('Search-result snippets, previews, publisher landing pages');
+		expect(sonarText).toContain('Return normalized research notes');
+
+		fetchMock.mockClear();
+		await runWebSearch('Latest Toronto news today', { provider: 'openai' });
+		const openAiBody = requestBody(fetchMock, 0);
+		expect(openAiBody.instructions).toBe(NEWSROOM_CHARTER);
+		expect(String(openAiBody.input)).toContain('Return normalized research notes');
 	});
 
 	it('does not run a topic-specific retry when the first search returns usable evidence', async () => {

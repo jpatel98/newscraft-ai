@@ -12,7 +12,8 @@ import { AssignmentDesk, type AssignmentDeskDecision } from './assignment-desk.j
 import {
 	cleanVisibleChatOutput,
 	directCitationLinksFromConversation,
-	draftNewsroomOcvoFromConversation
+	draftNewsroomOcvoFromConversation,
+	enforceFinalCitationIntegrity
 } from './answer.js';
 import { formatConversationContext } from './grounded-conversation.js';
 import { routeNewsroomRequest } from './router.js';
@@ -266,9 +267,11 @@ export class NewsroomAgentRuntime {
 			}
 		});
 		reconcileDocumentAndWebEvidence(result, context.documents);
-		this.emitCitationRecords(result.evidence, result.final_answer, context);
-		const sources = result.evidence.map(evidenceToFetchedSource);
 		const markdown = await this.synthesizeMissionOutput(prompt, result, context);
+		// Emit the citation records for the text that is actually persisted and
+		// shown to the producer. Synthesis may remap or remove invalid markers.
+		this.emitCitationRecords(result.evidence, markdown, context);
+		const sources = result.evidence.map(evidenceToFetchedSource);
 		return { role, markdown, sources, evidence: result.evidence };
 	}
 
@@ -587,8 +590,12 @@ export class NewsroomAgentRuntime {
 				apiKey: this.modelApiKey(),
 				model: decision.model,
 				instructions: [
+					NEWSROOM_CHARTER,
+					formatNewsroomTemporalContext(context.temporalContext || createNewsroomTemporalContext({ request: prompt })),
 					'You write the final output for a NewsCraft research update.',
 					'The prompt is the output contract. Follow it exactly.',
+					'Use the normalized evidence ledger below as the only factual basis. Synthesize once across all research passes; never concatenate provider mini-answers or repeat the same story in separate blocks.',
+					'Keep citation markers attached to the claims they support. Do not invent citation numbers or cite a source that does not support the claim.',
 					'Do not add default NewsCraft sections, internal process notes, or boilerplate unless the prompt asks for them.',
 					'Use only the provided evidence. If the evidence is insufficient, say so in the requested format or as plainly as possible.',
 					'For current-events and claim-verification requests, include an honest caveat when no reliable readable source confirms the claim, or when only weak/secondary evidence is available.',
@@ -597,13 +604,15 @@ export class NewsroomAgentRuntime {
 					'Never invent publication dates. If a source says Published: NOT FOUND, write Date: Not found or omit the date; never use the accessed/run time as the publication date.',
 					'Return only the research update.'
 				].join('\n'),
-				input: missionSynthesisInput(prompt, result),
+				input: missionSynthesisInput(prompt, result, context.temporalContext),
 				reasoningEffort: decision.reasoningEffort,
 				disableSearch: true,
 				signal: context.signal
 			});
 			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
-			return text.trim() || result.final_answer;
+			const synthesized = text.trim();
+			if (!synthesized) return result.final_answer;
+			return enforceFinalCitationIntegrity(synthesized, result.evidence) || result.final_answer;
 		} catch {
 			this.emitModelPolicyEvent(decision, context, 'model.call.failed');
 			return result.final_answer;
@@ -826,18 +835,25 @@ function clarificationAnswer(prompt: string): string {
 	return 'Could you clarify the story, source, or newsroom task you want me to work on?';
 }
 
-function missionSynthesisInput(prompt: string, result: NewsroomAgentRunResult): string {
+function missionSynthesisInput(
+	prompt: string,
+	result: NewsroomAgentRunResult,
+	temporalContext?: NewsroomTemporalContext
+): string {
 	const evidence = result.evidence.length
 		? result.evidence
 				.map((item, index) =>
 					[
-						`Source ${index + 1}: ${item.title}`,
+						`Evidence ${item.evidence_id || `ev_${index + 1}`} (citation ${item.citation_number || index + 1}): ${item.title}`,
 						`URL: ${item.source_url}`,
+						`Page role: ${item.page_role || 'unknown'}; temporal scope: ${item.temporal_scope || 'unspecified'}`,
 						item.published_at
 							? `Published: ${item.published_at}`
 							: 'Published: NOT FOUND IN SOURCE METADATA. Do not infer this from the accessed/run time.',
+						item.event_at ? `Event time: ${item.event_at}` : '',
 						`Accessed: ${item.accessed_at} (retrieval time only; not a publication date)`,
-						`Text: ${truncateEvidence(item.extracted_text || item.summary || item.title)}`
+						`Supporting excerpt: ${truncateEvidence(item.supporting_excerpt || item.extracted_text || item.summary || item.title)}`,
+						item.limitations.length ? `Limitations: ${item.limitations.join('; ')}` : ''
 					]
 						.filter(Boolean)
 						.join('\n')
@@ -845,7 +861,7 @@ function missionSynthesisInput(prompt: string, result: NewsroomAgentRunResult): 
 				.join('\n\n')
 		: 'No usable evidence was gathered.';
 	const limitations = result.limitations.length ? result.limitations.join('\n') : 'None recorded.';
-	return `Research prompt:
+	return `${temporalContext ? `${formatNewsroomTemporalContext(temporalContext)}\n\n` : ''}Research prompt:
 ${prompt}
 
 Evidence gathered for this run:

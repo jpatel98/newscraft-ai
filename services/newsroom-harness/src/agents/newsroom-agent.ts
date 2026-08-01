@@ -1040,6 +1040,9 @@ function coverageSweepPlan(
 		context.conversationContext?.activeTopic?.directSourcesRequired
 			? context.conversationContext.activeTopic.requestedOutlets || []
 			: [];
+	const dateHint = context.temporalContext
+		? `Prioritize readable sources published or events reported on ${context.temporalContext.localDate}; use the prior 24 hours only as explicitly labeled fallback.`
+		: '';
 	if (requestedOutlets.length) {
 		return {
 			source: 'router',
@@ -1049,6 +1052,7 @@ function coverageSweepPlan(
 				input: [
 					subject,
 					`Search ${outlet} for the latest directly relevant coverage.`,
+					dateHint,
 					'Return specific article pages, not a homepage, section page, radio player, live stream, or generic landing page.'
 				].join(' '),
 				label: `Checking ${outlet}`
@@ -1061,17 +1065,17 @@ function coverageSweepPlan(
 		steps: [
 			{
 				tool: NEWSROOM_TOOL_NAMES.webSearch,
-				input: `${subject}. Search top and breaking developments across major local, national, and directly relevant news outlets. Return specific article pages.`,
+				input: `${subject}. Search top and breaking developments across major local, national, and directly relevant news outlets. ${dateHint} Return specific article pages.`,
 				label: 'Scanning top and breaking stories'
 			},
 			{
 				tool: NEWSROOM_TOOL_NAMES.webSearch,
-				input: `${subject}. Search official announcements and public-impact coverage, including government, public safety, transport, health, and education when relevant. Return specific source or article pages.`,
+				input: `${subject}. Search official announcements and public-impact coverage, including government, public safety, transport, health, and education when relevant. ${dateHint} Return specific source or article pages.`,
 				label: 'Checking public-impact developments'
 			},
 			{
 				tool: NEWSROOM_TOOL_NAMES.webSearch,
-				input: `${subject}. Search business, housing, culture, community, sports, and major-event coverage when relevant. Return specific article pages.`,
+				input: `${subject}. Search business, housing, culture, community, sports, and major-event coverage when relevant. ${dateHint} Return specific article pages.`,
 				label: 'Checking other major coverage'
 			}
 		]

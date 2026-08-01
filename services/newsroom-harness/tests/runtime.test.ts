@@ -4,6 +4,7 @@ import {
 	NewsroomAgentRuntime,
 	type RuntimeProgressEvent
 } from '../src/agents/runtime.js';
+import { NEWSROOM_CHARTER } from '../src/agents/roles.js';
 import type { ConversationContext } from '@newscraft/shared';
 import { normalizeEvidence } from '../src/agents/evidence.js';
 import { createModelPolicyConfig } from '../src/agents/model-policy.js';
@@ -1183,6 +1184,91 @@ describe('newsroom agent runtime', () => {
 				selected_mode: 'web_search',
 				tools_to_use: ['openai_web_search']
 			}
+		});
+	});
+
+	it('passes the canonical charter and normalized temporal evidence into mission synthesis', async () => {
+		const frozenNow = new Date('2026-07-31T17:20:00.000Z');
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ output_text: 'Fresh Toronto item [1].' }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const registry = new ToolRegistry();
+		registry.register({
+			name: 'openai_web_search',
+			description: 'fixture web search',
+			when_to_use: 'test only',
+			category: 'web_search_provider',
+			input_schema: { type: 'object' },
+			output_schema: { type: 'object' },
+			async run(_input, context) {
+				expect(context.temporalContext?.localDate).toBe('2026-07-31');
+				return {
+					status: 'ok',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'CBC News',
+							source_url: 'https://www.cbc.ca/news/canada/toronto/fresh-story',
+							title: 'Fresh Toronto item',
+							published_at: '2026-07-31T16:30:00.000Z',
+							accessed_at: frozenNow.toISOString(),
+							extracted_text: 'A fresh Toronto development was reported Friday.',
+							summary: 'A fresh Toronto development was reported Friday.',
+							tool_used: 'openai_web_search',
+							source_kind: 'news_report',
+							limitations: []
+						})
+					]
+				};
+			}
+		});
+
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'openai',
+			modelApiKey: 'fake-key',
+			openAiApiKey: 'fake-key',
+			registry,
+			clock: () => frozenNow,
+			agentConfig: {
+				enabled_tools: ['openai_web_search'],
+				planner_enabled: false,
+				model_provider: 'openai',
+				model_policy: createModelPolicyConfig({
+					models: {
+						nano: 'openai/gpt-5-mini',
+						mini: 'openai/gpt-5-mini',
+						standard: 'openai/gpt-5-mini',
+						web_search: 'openai/gpt-5-mini'
+					}
+				})
+			}
+		});
+		const progress: RuntimeProgressEvent[] = [];
+
+		const result = await runtime.runMission('Latest Toronto news', {
+			trigger: 'manual',
+			modelProvider: 'openai',
+			newsroomContext: { timezone: 'America/Toronto' },
+			onProgress: (event) => progress.push(event)
+		});
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const body = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body || '{}')) as Record<string, unknown>;
+		expect(body.instructions).toContain(NEWSROOM_CHARTER);
+		expect(String(body.instructions)).toContain('2026-07-31');
+		expect(String(body.input)).toContain('Evidence ev_');
+		expect(String(body.input)).toContain('Page role: article; temporal scope: primary');
+		expect(String(body.input)).toContain('Accessed: 2026-07-31T17:20:00.000Z (retrieval time only');
+		expect(result.markdown).toContain('Fresh Toronto item [1].');
+		expect(progress.find((event) => event.type === 'citations')).toMatchObject({
+			type: 'citations',
+			citations: [expect.objectContaining({ citationNumber: 1, title: 'Fresh Toronto item' })]
 		});
 	});
 

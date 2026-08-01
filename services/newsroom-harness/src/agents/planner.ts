@@ -138,6 +138,8 @@ function plannerInput(request: PlannerRequest): string {
 		'- label is shown to the user while the step runs (e.g. "Checking Toronto police releases"). Never mention tool, adapter, or model names in labels.',
 		'- For current events, prefer configured/official sources before broad web search when a configured monitor clearly matches.',
 		'- For latest/current requests, search the requested time window and put the newest supported developments first. Older background is not a latest update.',
+		'- For a broad latest/news roundup, plan bounded discovery, official/public-impact, and corroboration passes when the budget permits; each pass should gather findings for one final synthesis, never a separate answer.',
+		`- Make the local date explicit in current-news queries (${request.temporalContext.localDate}) and require specific readable article or official pages rather than publisher hubs or result pages.`,
 		'- Never invent URLs. Only read URLs that appear in the request.',
 		'- For multi-part questions, you may plan one focused web search per distinct part.',
 		'Available tools:',

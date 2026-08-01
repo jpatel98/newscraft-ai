@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 export type NewsroomRole = 'assignment_desk' | 'research' | 'monitoring' | 'assistant';
 
 export const NEWSROOM_REPORT_INSTRUCTIONS = readPrompt('newsroom-report.md');
-export const NEWSROOM_CHARTER_VERSION = '1.0.0';
+export const NEWSROOM_CHARTER_VERSION = '1.1.0';
 export const NEWSROOM_CHARTER = readPrompt('newsroom-charter.md');
 
 function readPrompt(name: string): string {

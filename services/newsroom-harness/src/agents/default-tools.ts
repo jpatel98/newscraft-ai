@@ -1187,7 +1187,10 @@ function webSearchPrompt(
 					`Prefer useful evidence from these newsroom domains when relevant, without excluding stronger official or direct evidence: ${newsroomContext.preferredDomains.join(', ')}.`
 				]
 			: []),
-		'Search for source material relevant to this newsroom request.',
+		'Apply the Browsing workflow in the newsroom charter. Treat this provider as discovery and retrieval, not as the final editor.',
+		'Use provider-neutral natural-language queries. Work through broad discovery, official/public-impact checks when relevant, and focused corroboration before stopping when results become repetitive.',
+		'Open promising result pages and prefer readable article or official pages over snippets, homepages, section pages, search pages, player pages, forums, or social posts.',
+		'Return normalized research notes for the synthesis desk, not a standalone user-facing roundup. For each useful candidate, preserve its canonical URL, page role, source date or event date, a short supporting passage, and any uncertainty or access limitation.',
 		'Complete the research now. Do not ask for scope confirmation when a safe, bounded interpretation can answer the request; state the interpretation briefly and proceed.',
 		'For a broad request, make a safe bounded interpretation, state it briefly, and use a representative mix of directly relevant sources.',
 		'Lead with the direct answer. Add confirmed facts, disagreement, uncertainty, or a comparison table only when each is relevant; do not emit empty boilerplate sections.',
