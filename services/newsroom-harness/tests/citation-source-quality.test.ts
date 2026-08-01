@@ -796,6 +796,7 @@ describe('citation and source-quality web research', () => {
 		const openAiBody = requestBody(fetchMock, 0);
 		expect(openAiBody.instructions).toBe(NEWSROOM_CHARTER);
 		expect(String(openAiBody.input)).toContain('Return normalized research notes');
+		expect(openAiBody.max_output_tokens).toBe(4_000);
 	});
 
 	it('does not run a topic-specific retry when the first search returns usable evidence', async () => {

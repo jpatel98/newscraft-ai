@@ -314,6 +314,21 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 
 			const outputText = selected.outputText;
 			const answerText = outputText.trim();
+			if (isBroadResearchRequest(input.query, context.researchContract) && selected.evidence.length <= 1) {
+				console.warn(
+					'NewsCraft broad web research returned thin evidence',
+					JSON.stringify({
+						traceId: context.runId || null,
+						provider: selected.provider,
+						upstreamStatus: selected.upstreamStatus || null,
+						failureCategory: selected.failureCategory || null,
+						outputCharacters: answerText.length,
+						evidenceCount: selected.evidence.length,
+						datedEvidenceCount: selected.evidence.filter((item) => Boolean(item.published_at || item.updated_at)).length,
+						discoveryLeadCount: selected.discoveryLeads.length
+					})
+				);
+			}
 			const streamLimitations = selected.streamFailure
 				? ['Live research ended early. Treat this answer as incomplete.']
 				: [];
@@ -1115,7 +1130,7 @@ function webSearchRequestBody(input: {
 			instructions: NEWSROOM_CHARTER,
 			stream: input.stream,
 			reasoning: { effort: 'low' },
-			max_output_tokens: webSearchOutputTokenLimit(input.query),
+			max_output_tokens: webSearchOutputTokenLimit(input.query, input.researchContract),
 			tools: [{ type: 'web_search' }],
 			tool_choice: 'required',
 			input: input.input
@@ -1137,12 +1152,47 @@ function webSearchRequestBody(input: {
 	};
 }
 
-function webSearchOutputTokenLimit(query: string): number {
-	return /\b(?:nine|ten|eleven|twelve|1[0-2])\b[\s\S]{0,100}\b(?:items?|citations?|sources?|announcements?|stories?)\b/i.test(
-		query
-	)
-		? 2_400
-		: 1_200;
+function webSearchOutputTokenLimit(query: string, researchContract?: ResearchRequestContract): number {
+	const requestedCount =
+		researchContract?.requestedItemCount ||
+		requestedItemCountFromText(query) ||
+		(isBroadResearchRequest(query, researchContract) ? 5 : 1);
+	if (requestedCount >= 8) return 4_800;
+	if (requestedCount >= 5) return 4_000;
+	if (requestedCount >= 3) return 3_200;
+	return 2_000;
+}
+
+function requestedItemCountFromText(query: string): number | null {
+	const range = query.match(/\b(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\b[\s\S]{0,80}\b(?:items?|sources?|announcements?|stories?|updates?)\b/i);
+	if (range) return Math.min(12, Math.max(Number(range[1]), Number(range[2])));
+	const numeric = query.match(/\b(\d{1,2})\b[\s\S]{0,80}\b(?:items?|sources?|announcements?|stories?|updates?)\b/i);
+	if (numeric) return Math.min(12, Number(numeric[1]));
+	const wordValues: Record<string, number> = {
+		one: 1,
+		two: 2,
+		three: 3,
+		four: 4,
+		five: 5,
+		six: 6,
+		seven: 7,
+		eight: 8,
+		nine: 9,
+		ten: 10,
+		eleven: 11,
+		twelve: 12
+	};
+	const word = query.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b[\s\S]{0,80}\b(?:items?|sources?|announcements?|stories?|updates?)\b/i);
+	return word ? wordValues[word[1].toLowerCase()] : null;
+}
+
+function isBroadResearchRequest(query: string, researchContract?: ResearchRequestContract): boolean {
+	return (
+		(researchContract?.requestedItemCount || 0) >= 3 ||
+		(requestedItemCountFromText(query) || 0) >= 3 ||
+		/\b(?:briefing|roundup|top stories|assignment desk|scan broadly|major outlets|multiple outlets)\b/i.test(query) ||
+		/\blatest\b[\s\S]{0,60}\b(?:news|stories|updates)\b/i.test(query)
+	);
 }
 
 function boundedSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {

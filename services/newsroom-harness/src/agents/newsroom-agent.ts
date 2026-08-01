@@ -448,7 +448,7 @@ export class DisciplinedNewsroomAgent {
 				].map((item, index) => ({ ...item, citation_number: index + 1 }))
 			: publishable.accepted;
 		evidence.splice(0, evidence.length, ...orderedPublishable);
-		if (publishable.excluded.length) limitations.push(`${publishable.excluded.length} discovery, hub, unknown-date, or out-of-window source${publishable.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`);
+		if (publishable.excluded.length) limitations.push(`${publishable.excluded.length} discovery, hub, or out-of-window source${publishable.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`);
 		discoveryLeads.push(...publishable.excluded);
 		if (researchContract.requestedItemCount && evidence.length < researchContract.requestedItemCount) {
 			limitations.push(
