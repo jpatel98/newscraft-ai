@@ -320,6 +320,8 @@ describe('producer-grade research architecture', () => {
 		const citedNumbers = [...result.final_answer.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]));
 		expect(citedNumbers.every((number) => result.evidence.some((item) => item.citation_number === number))).toBe(true);
 		expect(result.evidence.map((item) => item.citation_number)).toEqual(Array.from({ length: 6 }, (_, index) => index + 1));
+		expect(result.final_answer).toContain('**Why it matters:**');
+		expect(result.final_answer).toMatch(/Aug 1, 2026, \d{1,2}:\d{2} [ap]\.m\. EDT/);
 	});
 
 	it('gracefully returns a thin verified subset and stops after overlapping lanes', async () => {

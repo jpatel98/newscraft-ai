@@ -18,6 +18,7 @@ export interface AnswerGenerationInput {
 	outputStyle?: 'report' | 'chat';
 	conversationContext?: ConversationContext;
 	researchStepCount?: number;
+	timeZone?: string;
 }
 
 export function enforceFinalCitationIntegrity(answer: string, evidence: EvidenceObject[]): string {
@@ -97,7 +98,8 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 			input.limitations,
 			input.toolAnswers || [],
 			input.conversationContext,
-			input.researchStepCount
+			input.researchStepCount,
+			input.timeZone
 		);
 	}
 
@@ -131,7 +133,8 @@ function chatAnswer(
 	limitations: string[],
 	toolAnswers: string[],
 	conversationContext?: ConversationContext,
-	researchStepCount = toolAnswers.length
+	researchStepCount = toolAnswers.length,
+	timeZone?: string
 ): string {
 	const documentEvidence = evidence.filter((item) => item.source_kind === 'user_document');
 	const externalEvidence = evidence.filter((item) => item.source_kind !== 'user_document');
@@ -140,7 +143,7 @@ function chatAnswer(
 		? formatChatToolAnswer(prompt, singleToolAnswer)
 		: documentEvidence.length && !externalEvidence.length
 			? documentChatAnswer(documentEvidence, prompt)
-			: groundedEvidenceChatAnswer(prompt, externalEvidence.length ? externalEvidence : evidence);
+			: groundedEvidenceChatAnswer(prompt, externalEvidence.length ? externalEvidence : evidence, timeZone);
 	const caveats = publicCaveatsFor(prompt, evidence, unusableEvidence, limitations, { noUsableEvidence: false });
 	const publicationDate = publicationDateAnswer(prompt, evidence);
 	return appendCaveats([answer, publicationDate].filter(Boolean).join('\n\n'), caveats);
@@ -154,13 +157,15 @@ function publicationDateAnswer(prompt: string, evidence: EvidenceObject[]): stri
 
 function groundedEvidenceChatAnswer(
 	prompt: string,
-	evidence: EvidenceObject[]
+	evidence: EvidenceObject[],
+	timeZone?: string
 ): string {
 	const conflict = /\b(?:verify|fact[- ]?check|confirm|is it true|status|active|in effect)\b/i.test(prompt)
 		? conflictingEvidenceStatement(evidence)
 		: '';
 	if (conflict) return conflict;
 
+	const producerBriefing = isProducerRoundupPrompt(prompt);
 	const statements = producerRoundupSelection(prompt, evidence)
 		.map((item) => {
 			const statement = completeEvidenceStatement(item);
@@ -168,8 +173,14 @@ function groundedEvidenceChatAnswer(
 			const marker = item.citation_number ? ` [${item.citation_number}]` : '';
 			const directUrl = wantsDirectUrls(prompt) ? ` — ${item.source_url}` : '';
 			const date = item.event_at || item.published_at;
-			const dateLabel = date ? new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date)) : '';
+			const dateLabel = date ? producerTimestamp(date, timeZone) : '';
 			const fallback = item.temporal_scope === 'fallback' ? 'Earlier (last 24 hours) - ' : '';
+			if (producerBriefing) {
+				const headline = item.title && !statement.toLowerCase().includes(item.title.toLowerCase())
+					? `**${item.title}** — `
+					: '';
+				return `${fallback}${dateLabel ? `${dateLabel}: ` : ''}${headline}${statement} **Why it matters:** ${producerWhyItMatters(item)}${marker}${directUrl}`;
+			}
 			return `${fallback}${dateLabel ? `${dateLabel}: ` : ''}${statement}${marker}${directUrl}`;
 		})
 		.filter(Boolean)
@@ -182,7 +193,7 @@ function groundedEvidenceChatAnswer(
 }
 
 function producerRoundupSelection(prompt: string, evidence: EvidenceObject[]): EvidenceObject[] {
-	if (!/\b(?:briefing|roundup|headlines|top stories|latest .*news|assignment desk|newsroom producer)\b/i.test(prompt)) {
+	if (!isProducerRoundupPrompt(prompt)) {
 		return evidence;
 	}
 	const rank = (items: EvidenceObject[]) => [...items].sort((left, right) => {
@@ -193,7 +204,15 @@ function producerRoundupSelection(prompt: string, evidence: EvidenceObject[]): E
 	const primary = evidence.filter((item) => item.temporal_scope !== 'fallback' && item.temporal_scope !== 'background');
 	const fallback = evidence.filter((item) => !primary.includes(item));
 	const strongPrimary = rank(primary.filter((item) => editorialConsequenceScore(item) >= 0));
-	const selected = strongPrimary.slice(0, 6);
+	const selected: EvidenceObject[] = [];
+	const publisherCounts = new Map<string, number>();
+	for (const item of strongPrimary) {
+		const publisher = evidencePublisherKey(item);
+		if ((publisherCounts.get(publisher) || 0) >= 2) continue;
+		selected.push(item);
+		publisherCounts.set(publisher, (publisherCounts.get(publisher) || 0) + 1);
+		if (selected.length >= 6) break;
+	}
 	if (selected.length < 5) {
 		selected.push(...rank(primary.filter((item) => !selected.includes(item))).slice(0, 5 - selected.length));
 	}
@@ -201,6 +220,61 @@ function producerRoundupSelection(prompt: string, evidence: EvidenceObject[]): E
 		selected.push(...rank(fallback).slice(0, 5 - selected.length));
 	}
 	return selected.sort((left, right) => evidenceTimestamp(right) - evidenceTimestamp(left));
+}
+
+function isProducerRoundupPrompt(prompt: string): boolean {
+	return /\b(?:briefing|roundup|headlines|top stories|latest .*news|assignment desk|newsroom producer)\b/i.test(prompt);
+}
+
+function evidencePublisherKey(item: EvidenceObject): string {
+	const publisher = item.publisher || item.source_name;
+	if (publisher?.trim()) return publisher.trim().toLowerCase();
+	try {
+		return new URL(item.source_url).hostname.replace(/^www\./, '').toLowerCase();
+	} catch {
+		return item.source_url.toLowerCase();
+	}
+}
+
+function producerTimestamp(value: string, timeZone?: string): string {
+	const parsed = new Date(value);
+	if (!Number.isFinite(parsed.getTime())) return value;
+	try {
+		return new Intl.DateTimeFormat('en-CA', {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit',
+			timeZone: timeZone || 'UTC',
+			timeZoneName: 'short'
+		}).format(parsed);
+	} catch {
+		return parsed.toISOString();
+	}
+}
+
+function producerWhyItMatters(item: EvidenceObject): string {
+	const text = `${item.title} ${item.summary} ${item.extracted_text}`.toLowerCase();
+	if (/\b(?:weather|rainfall|storm|flood|heat|snow|warning)\b/.test(text)) {
+		return 'It can affect public safety, travel and near-term newsroom planning.';
+	}
+	if (/\b(?:transit|ttc|streetcar|subway|bus|rail|traffic|road)\b/.test(text)) {
+		return 'It has immediate implications for transportation safety or service.';
+	}
+	if (/\b(?:health|hospital|virus|injur|doctor|patient|medical)\b/.test(text)) {
+		return 'It signals a public-health or injury trend with direct local impact.';
+	}
+	if (/\b(?:housing|supportive homes|shelter|rent|homeless)\b/.test(text)) {
+		return 'It affects housing access and the delivery of essential city services.';
+	}
+	if (/\b(?:charged|arrest|assault|shoot|stabb|hate|police|court|investigat)\b/.test(text)) {
+		return 'It is a public-safety story with potential community and accountability follow-up.';
+	}
+	if (/\b(?:council|government|mayor|minister|policy|budget|infrastructure|education|school)\b/.test(text)) {
+		return 'It could change public services, spending or daily life in the city.';
+	}
+	return 'It is a consequential local development worth assignment-desk follow-up.';
 }
 
 function editorialConsequenceScore(item: EvidenceObject): number {

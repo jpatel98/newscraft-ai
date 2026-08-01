@@ -109,9 +109,18 @@ export interface DiscoveredSourceItems {
  * publication metadata. Feed/index pages are discovery inputs, never the URL
  * cited for an individual finding.
  */
-export async function discoverSourceItems(url: string, signal?: AbortSignal): Promise<DiscoveredSourceItems> {
+export async function discoverSourceItems(
+	url: string,
+	signal?: AbortSignal,
+	options: { trustedSourceIndex?: boolean } = {}
+): Promise<DiscoveredSourceItems> {
 	const fetched = await politeFetch(url, {
 		signal,
+		// Configured newsroom feeds are explicit, operator-owned discovery
+		// inputs. Avoid spending their whole serverless fetch budget on an
+		// optional robots request before the feed itself is read. User-supplied
+		// URLs continue through the normal robots-aware path.
+		robots: options.trustedSourceIndex ? { respect: false } : undefined,
 		cache: DEFAULT_SOURCE_CACHE ? { store: DEFAULT_SOURCE_CACHE } : undefined,
 		archive: { webArchive: DEFAULT_ARCHIVE_ENABLED },
 		ssrf: { allowPrivateNetwork: ALLOW_PRIVATE_SOURCE_FETCH }

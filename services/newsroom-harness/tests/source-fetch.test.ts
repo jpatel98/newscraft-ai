@@ -340,4 +340,24 @@ describe('source extraction', () => {
 		]);
 		expect(discovered.items.every((item) => item.provenance.sourceUrl === 'https://publisher.test/toronto/feed/')).toBe(true);
 	});
+
+	it('does not spend a trusted configured-feed timeout on a separate robots request', async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(
+				'<rss><channel><item><title>Toronto update</title><link>https://publisher.test/news/update</link><description>A substantive Toronto update.</description><pubDate>Sat, 01 Aug 2026 18:00:00 GMT</pubDate></item></channel></rss>',
+				{ status: 200, headers: { 'content-type': 'application/rss+xml' } }
+			)
+		);
+		vi.stubGlobal('fetch', fetchMock);
+
+		const discovered = await discoverSourceItems(
+			'https://publisher.test/toronto/feed/',
+			undefined,
+			{ trustedSourceIndex: true }
+		);
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(String(fetchMock.mock.calls[0][0])).toBe('https://publisher.test/toronto/feed/');
+		expect(discovered.items[0].url).toBe('https://publisher.test/news/update');
+	});
 });

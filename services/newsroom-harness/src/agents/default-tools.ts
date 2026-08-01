@@ -164,29 +164,72 @@ export async function fetchSourceIndexEvidence(
 	const batches = await Promise.all(
 		uniqueUrls.map(async (url) => {
 			try {
-				const discovered = await discoverSourceItems(url, sourceFetchSignal(context.signal));
-				return evidenceFromDiscoveredSource(
-					discovered,
-					toolUsed,
-					context,
-					sourceLabels.get(url),
-					sourceKinds.get(url)
+				const discovered = await discoverSourceItems(
+					url,
+					sourceFetchSignal(context.signal),
+					{ trustedSourceIndex: toolUsed === NEWSROOM_TOOL_NAMES.sourceMonitor }
 				);
-			} catch {
-				return [];
+				return {
+					evidence: evidenceFromDiscoveredSource(
+						discovered,
+						toolUsed,
+						context,
+						sourceLabels.get(url),
+						sourceKinds.get(url)
+					),
+					failureCategory: null as string | null,
+					host: new URL(url).hostname
+				};
+			} catch (error) {
+				return {
+					evidence: [] as EvidenceObject[],
+					failureCategory: sourceDiscoveryFailureCategory(error),
+					host: safeSourceHost(url)
+				};
 			}
 		})
 	);
+	const failures = batches.filter((batch) => batch.failureCategory);
+	if (failures.length && !batches.some((batch) => batch.evidence.length)) {
+		console.warn(
+			'NewsCraft source-index discovery returned no evidence',
+			JSON.stringify({
+				tool: toolUsed,
+				sourceCount: uniqueUrls.length,
+				failures: failures.reduce<Record<string, number>>((counts, failure) => {
+					const category = failure.failureCategory || 'unknown';
+					counts[category] = (counts[category] || 0) + 1;
+					return counts;
+				}, {}),
+				hosts: failures.map((failure) => failure.host).filter(Boolean).slice(0, 8)
+			})
+		);
+	}
 	const interleaved: EvidenceObject[] = [];
 	for (let itemIndex = 0; itemIndex < MAX_ITEMS_PER_SOURCE_INDEX; itemIndex += 1) {
 		for (const batch of batches) {
-			const item = batch[itemIndex];
+			const item = batch.evidence[itemIndex];
 			if (!item) continue;
 			interleaved.push(item);
 			if (interleaved.length >= MAX_DISCOVERY_EVIDENCE) return interleaved;
 		}
 	}
 	return interleaved;
+}
+
+function sourceDiscoveryFailureCategory(error: unknown): string {
+	if (error instanceof DOMException && error.name === 'AbortError') return 'timeout_or_abort';
+	if (error instanceof Error && /abort|timeout/i.test(`${error.name} ${error.message}`)) return 'timeout_or_abort';
+	if (error instanceof TypeError) return 'network';
+	return 'source_fetch_error';
+}
+
+function safeSourceHost(url: string): string {
+	try {
+		return new URL(url).hostname;
+	} catch {
+		return 'invalid-url';
+	}
 }
 
 function evidenceFromDiscoveredSource(

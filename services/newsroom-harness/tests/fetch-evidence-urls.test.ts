@@ -177,6 +177,11 @@ describe('fetchSourceIndexEvidence', () => {
 		expect(evidence.map((item) => item.provenance?.url)).toEqual([
 			feeds[0], feeds[1], feeds[0], feeds[1]
 		]);
+		expect(discoverSourceItemsMock).toHaveBeenCalledWith(
+			feeds[0],
+			expect.any(AbortSignal),
+			{ trustedSourceIndex: true }
+		);
 	});
 
 	it('keeps market aliases such as TTC while excluding off-market feed items', async () => {

@@ -470,11 +470,12 @@ export class DisciplinedNewsroomAgent {
 			toolAnswers,
 			researchStepCount: toolCalls.length,
 			outputStyle: context.outputStyle,
-			conversationContext: context.conversationContext
-			});
-			if (context.outputStyle === 'chat') finalAnswer = enforceFinalCitationIntegrity(finalAnswer, evidence);
-			markCitedEvidence(evidence, finalAnswer);
-			return {
+			conversationContext: context.conversationContext,
+			timeZone: temporalContext.timeZone
+		});
+		if (context.outputStyle === 'chat') finalAnswer = enforceFinalCitationIntegrity(finalAnswer, evidence);
+		markCitedEvidence(evidence, finalAnswer);
+		return {
 			prompt,
 			decision,
 			research_contract: researchContract,
