@@ -37,7 +37,7 @@ export interface HarnessConfigValidation {
 	warnings: string[];
 }
 
-export type ModelProviderSelectionMode = 'explicit' | 'fallback' | 'disabled';
+export type ModelProviderSelectionMode = 'explicit' | 'default' | 'disabled';
 
 export interface ModelProviderSelection {
 	mode: ModelProviderSelectionMode;
@@ -164,25 +164,11 @@ function resolveModelProvider(params: {
 			provider: 'openai',
 			modelApiKey: params.openAiApiKey || '',
 			selection: {
-				mode: 'fallback',
+				mode: 'default',
 				source: 'default',
 				selected: 'openai',
 				requested: null,
-				reason: 'Using OpenAI as the primary research provider because its API key is available.'
-			}
-		};
-	}
-
-	if (perplexityEnabled) {
-		return {
-			provider: 'perplexity',
-			modelApiKey: params.perplexityApiKey || '',
-			selection: {
-				mode: 'fallback',
-				source: 'default',
-				selected: 'perplexity',
-				requested: null,
-				reason: 'Falling back to Perplexity because OpenAI is not configured.'
+				reason: 'Using OpenAI as the default research provider because its API key is available.'
 			}
 		};
 	}

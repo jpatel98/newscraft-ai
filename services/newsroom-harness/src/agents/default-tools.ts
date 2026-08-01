@@ -252,7 +252,7 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			const attempts: NonNullable<ToolRunOutput['diagnostics']>['attempts'] = [];
 			const recordOutcome = (
 				outcome: InterpretedProviderSearch,
-				role: 'primary' | 'retry' | 'fallback'
+				role: 'primary' | 'retry'
 			) => {
 				attempts.push({
 					role,
@@ -312,38 +312,13 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				if (retry.usable) selected = retry;
 			}
 
-			const fallbackKey = context.perplexityApiKey || '';
-			if (
-				!selected.usable &&
-				primaryProvider === 'openai' &&
-				fallbackKey &&
-				!context.signal?.aborted
-			) {
-				const fallback = await interpretProviderWebSearch({
-					provider: 'perplexity',
-					apiKey: fallbackKey,
-					model: normalizeProviderModel('perplexity', 'perplexity/sonar'),
-					query: input.query,
-					newsroomContext: context.newsroomContext,
-					context
-				});
-				recordOutcome(fallback, 'fallback');
-				if (fallback.usable) selected = fallback;
-			}
-
-				const outputText = selected.outputText;
+			const outputText = selected.outputText;
 			const answerText = outputText.trim();
 			const streamLimitations = selected.streamFailure
 				? ['Live research ended early. Treat this answer as incomplete.']
 				: [];
-			const fallbackUsed = attempts.some((attempt) => attempt.role === 'fallback');
-			const fallbackSucceeded = attempts.some(
-				(attempt) => attempt.role === 'fallback' && attempt.status === 'ok'
-			);
 			const diagnostics: NonNullable<ToolRunOutput['diagnostics']> = {
 				attempts,
-				fallbackUsed,
-				fallbackSucceeded,
 				finalOutcome: selected.evidence.length ? 'sourced' : answerText ? 'unsourced' : 'failed'
 			};
 				if (selected.evidence.length) {
@@ -1101,8 +1076,6 @@ function failedSearchDiagnostics(
 				failureCategory
 			}
 		],
-		fallbackUsed: false,
-		fallbackSucceeded: false,
 		finalOutcome: 'failed'
 	};
 }

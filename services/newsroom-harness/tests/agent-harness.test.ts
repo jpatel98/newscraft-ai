@@ -1163,37 +1163,14 @@ describe('disciplined newsroom agent harness', () => {
 		expect(result.final_answer).not.toContain('I could not find readable source material');
 	});
 
-	it('retries primary research and falls back to sourced Sonar evidence for a current-news request', async () => {
+	it('retries primary research and stops without a provider fallback for a current-news request', async () => {
 		const fetchMock = vi.fn(async (url: string | URL | Request) => {
 			const href = String(url);
-			if (href.includes('api.openai.com')) {
-				return new Response(JSON.stringify({ error: { message: 'temporary upstream failure' } }), {
-					status: 503,
-					headers: { 'content-type': 'application/json' }
-				});
-			}
-			return new Response(
-				JSON.stringify({
-					choices: [
-						{
-							message: {
-								content:
-									'Ontario reported 12 active wildfires in its 15:30 EDT update today [1].'
-							}
-						}
-					],
-					citations: ['https://www.ontario.ca/page/forest-fires'],
-					search_results: [
-						{
-							url: 'https://www.ontario.ca/page/forest-fires',
-							title: 'Forest fire updates',
-							snippet: 'Ontario reported 12 active wildfires.',
-							date: new Date(Date.now() - 60 * 60 * 1000).toISOString()
-						}
-					]
-				}),
-				{ status: 200, headers: { 'content-type': 'application/json' } }
-			);
+			if (!href.includes('api.openai.com')) throw new Error(`unexpected provider call: ${href}`);
+			return new Response(JSON.stringify({ error: { message: 'temporary upstream failure' } }), {
+				status: 503,
+				headers: { 'content-type': 'application/json' }
+			});
 		});
 		vi.stubGlobal('fetch', fetchMock);
 		const toolEvents: Array<Record<string, unknown>> = [];
@@ -1227,27 +1204,19 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat',
 			onToolEvent: (event) => toolEvents.push(event as unknown as Record<string, unknown>)
 		});
-		expect(fetchMock).toHaveBeenCalledTimes(3);
-		expect(fetchMock.mock.calls.slice(0, 2).every(([url]) => String(url).includes('api.openai.com'))).toBe(true);
-		expect(String(fetchMock.mock.calls[2]?.[0])).toContain('api.perplexity.ai');
-		expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toMatchObject({
-			search_recency_filter: 'day'
-		});
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock.mock.calls.every(([url]) => String(url).includes('api.openai.com'))).toBe(true);
 		expect(result.tool_calls).toEqual([
-			expect.objectContaining({ name: 'openai_web_search', status: 'ok', evidence_count: 1 })
+			expect.objectContaining({ name: 'openai_web_search', status: 'error', evidence_count: 0 })
 		]);
-		expect(result.final_answer).toContain('12 active wildfires');
-		expect(result.final_answer).not.toContain("couldn't verify");
-		expect(result.evidence).toHaveLength(1);
+		expect(result.final_answer).toMatch(/couldn't|could not|unable|source/i);
+		expect(result.evidence).toHaveLength(0);
 		const completed = toolEvents.find((event) => event.type === 'tool_completed');
 		expect(completed?.diagnostics).toMatchObject({
-			fallbackUsed: true,
-			fallbackSucceeded: true,
-			finalOutcome: 'sourced',
+			finalOutcome: 'failed',
 			attempts: [
 				{ role: 'primary', provider: 'openai', status: 'failed', upstreamStatus: 503 },
-				{ role: 'retry', provider: 'openai', status: 'failed', upstreamStatus: 503 },
-				{ role: 'fallback', provider: 'perplexity', status: 'ok', sourceCount: 1 }
+				{ role: 'retry', provider: 'openai', status: 'failed', upstreamStatus: 503 }
 			]
 		});
 	});

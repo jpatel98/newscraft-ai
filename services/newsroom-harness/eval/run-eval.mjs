@@ -8,8 +8,8 @@
  *              envelope shape. Safe for CI. NEWSROOM_EVAL_MODE=fixture (default
  *              when no selected provider key is configured).
  *
- *   full     — Requires the selected provider key (PERPLEXITY_API_KEY or
- *              OPENAI_API_KEY). Runs against a live harness and records real
+ *   full     — Requires the selected provider key (OPENAI_API_KEY by default;
+ *              PERPLEXITY_API_KEY only when explicitly selected). Runs against a live harness and records real
  *              latency, citation presence, and answer quality. Also runs
  *              router-fallback vs planner side-by-side when
  *              NEWSROOM_EVAL_COMPARE_PLANNER is set.
@@ -104,17 +104,8 @@ function resolveModelProvider({ requested, openAiApiKey, perplexityApiKey }) {
     return {
       provider: 'openai',
       configured: true,
-      selection: 'fallback',
-      reason: 'Using OpenAI as the primary research provider.'
-    };
-  }
-
-  if (perplexityEnabled) {
-    return {
-      provider: 'perplexity',
-      configured: true,
-      selection: 'fallback',
-      reason: 'Falling back to Perplexity because OPENAI_API_KEY is not configured.'
+      selection: 'default',
+      reason: 'Using OpenAI as the default research provider.'
     };
   }
 

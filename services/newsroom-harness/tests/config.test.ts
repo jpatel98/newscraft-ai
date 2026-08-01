@@ -97,7 +97,7 @@ describe('harness config', () => {
 		expect(validateHarnessConfig(config).errors).toEqual([]);
 	});
 
-	it('uses OpenAI as primary when both keys are available', () => {
+	it('uses OpenAI as the default when both keys are available', () => {
 		process.env.OPENAI_API_KEY = 'openai-key';
 		process.env.PERPLEXITY_API_KEY = 'perplexity-key';
 		delete process.env.NEWSROOM_MODEL_PROVIDER;
@@ -108,7 +108,7 @@ describe('harness config', () => {
 		expect(config.modelApiKey).toBe('openai-key');
 		expect(config.perplexityApiKey).toBe('perplexity-key');
 		expect(config.providerSelection).toMatchObject({
-			mode: 'fallback',
+			mode: 'default',
 			source: 'default',
 			selected: 'openai',
 			requested: null
@@ -125,26 +125,26 @@ describe('harness config', () => {
 		expect(config.modelProvider).toBe('openai');
 		expect(config.modelApiKey).toBe('openai-key');
 		expect(config.providerSelection).toMatchObject({
-			mode: 'fallback',
+			mode: 'default',
 			source: 'default',
 			selected: 'openai',
 			requested: null
 		});
 	});
 
-	it('uses Perplexity when OpenAI is not configured', () => {
+	it('does not auto-select Perplexity when OpenAI is not configured', () => {
 		process.env.PERPLEXITY_API_KEY = 'perplexity-key';
 		delete process.env.OPENAI_API_KEY;
 		delete process.env.NEWSROOM_MODEL_PROVIDER;
 
 		const config = loadConfig();
 
-		expect(config.modelProvider).toBe('perplexity');
-		expect(config.modelApiKey).toBe('perplexity-key');
+		expect(config.modelProvider).toBe('openai');
+		expect(config.modelApiKey).toBe('');
 		expect(config.providerSelection).toMatchObject({
-			mode: 'fallback',
+			mode: 'disabled',
 			source: 'default',
-			selected: 'perplexity',
+			selected: 'openai',
 			requested: null
 		});
 	});

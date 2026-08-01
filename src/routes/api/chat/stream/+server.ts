@@ -278,8 +278,6 @@ function researchDiagnosticsFromTools(tools: StreamToolCall[]): Record<string, u
 		: [];
 	return {
 		attempts,
-		fallbackUsed: value.fallbackUsed === true,
-		fallbackSucceeded: value.fallbackSucceeded === true,
 		finalOutcome: typeof value.finalOutcome === 'string' ? value.finalOutcome : 'unknown'
 	};
 }

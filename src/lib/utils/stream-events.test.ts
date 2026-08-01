@@ -114,7 +114,7 @@ describe('StreamEventState', () => {
 		]);
 	});
 
-	it('preserves sanitized research fallback diagnostics for durable provenance', () => {
+	it('preserves sanitized single-provider research diagnostics for durable provenance', () => {
 		const state = new StreamEventState();
 		state.apply(
 			'agent.tool.progress',
@@ -133,7 +133,7 @@ describe('StreamEventState', () => {
 				status: 'ok',
 				result: {
 					count: 1,
-					research: {
+						research: {
 						attempts: [
 							{
 								role: 'primary',
@@ -145,16 +145,14 @@ describe('StreamEventState', () => {
 								failureCategory: 'http_5xx'
 							},
 							{
-								role: 'fallback',
-								provider: 'perplexity',
-								status: 'ok',
+								role: 'retry',
+								provider: 'openai',
+								status: 'failed',
 								latencyMs: 5000,
-								sourceCount: 1
+								sourceCount: 0
 							}
 						],
-						fallbackUsed: true,
-						fallbackSucceeded: true,
-						finalOutcome: 'sourced'
+						finalOutcome: 'failed'
 					}
 				}
 			}),
@@ -164,12 +162,10 @@ describe('StreamEventState', () => {
 		expect(state.toolCalls()[0]?.result).toMatchObject({
 			count: 1,
 			research: {
-				fallbackUsed: true,
-				fallbackSucceeded: true,
-				finalOutcome: 'sourced',
+				finalOutcome: 'failed',
 				attempts: [
 					{ provider: 'openai', failureCategory: 'http_5xx' },
-					{ provider: 'perplexity', status: 'ok', sourceCount: 1 }
+					{ provider: 'openai', status: 'failed', sourceCount: 0 }
 				]
 			}
 		});

@@ -64,7 +64,7 @@ export interface ToolRunOutput {
 	evidence_diagnostics?: EvidenceRanking[];
 	diagnostics?: {
 		attempts: Array<{
-			role: 'primary' | 'retry' | 'fallback';
+			role: 'primary' | 'retry';
 			provider: ModelProvider;
 			status: 'ok' | 'failed';
 			latencyMs: number;
@@ -72,8 +72,6 @@ export interface ToolRunOutput {
 			upstreamStatus?: number;
 			failureCategory?: string;
 		}>;
-		fallbackUsed: boolean;
-		fallbackSucceeded: boolean;
 		finalOutcome: 'sourced' | 'unsourced' | 'failed';
 	};
 }
