@@ -10,7 +10,7 @@
 		}
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.json",
+		"build": "tsc -b tsconfig.json --force",
 		"test": "vitest run --config vitest.config.ts"
 	},
 	"devDependencies": {
