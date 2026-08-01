@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ToolBudgetLedger, mergeToolBudget } from '../src/agents/budget.js';
-import { cleanVisibleChatOutput, generateFinalAnswer } from '../src/agents/answer.js';
+import {
+	cleanVisibleChatOutput,
+	enforceFinalCitationIntegrity,
+	generateFinalAnswer
+} from '../src/agents/answer.js';
 import { createDefaultToolRegistry } from '../src/agents/default-tools.js';
 import { classifyEvidenceSource, normalizeEvidence } from '../src/agents/evidence.js';
 import { createNewsroomAgentConfig } from '../src/agents/harness-config.js';
@@ -683,6 +687,43 @@ describe('citation and source-quality web research', () => {
 		expect(answer).toContain('https://publisher.test/2026/08/01/ttc-collision');
 		expect(answer).not.toContain('Cute puppy');
 		expect(answer).not.toContain('Live research is temporarily unavailable');
+	});
+
+	it('repairs provider-local duplicate citation numbers before final integrity filtering', () => {
+		const prompt =
+			'Give me a same-day briefing of the latest consequential Toronto news, each with a direct article URL.';
+		const evidence = Array.from({ length: 5 }, (_, index) =>
+			normalizeEvidence({
+				source_name: `Toronto Publisher ${index + 1}`,
+				source_url: `https://publisher${index + 1}.test/2026/08/01/story-${index + 1}`,
+				tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+				title: `Consequential Toronto story ${index + 1}`,
+				extracted_text: `Toronto officials confirmed a consequential public-impact development in story ${index + 1}.`,
+				summary: `Toronto officials confirmed a consequential public-impact development in story ${index + 1}.`,
+				published_at: `2026-08-01T${String(19 - index).padStart(2, '0')}:00:00.000Z`,
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'news_report',
+				citation_number: 1,
+				temporal_scope: 'primary',
+				ledger_status: 'accepted'
+			})
+		);
+
+		const generated = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence,
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat'
+		});
+		const guarded = enforceFinalCitationIntegrity(generated, evidence);
+
+		expect(new Set(evidence.map((item) => item.citation_number)).size).toBe(5);
+		expect(guarded.match(/^- /gm)).toHaveLength(5);
+		expect(guarded).toContain('https://publisher1.test/2026/08/01/story-1');
+		expect(guarded).toContain('https://publisher5.test/2026/08/01/story-5');
 	});
 
 	it('preserves an explicit publication date encoded in a direct article URL', async () => {

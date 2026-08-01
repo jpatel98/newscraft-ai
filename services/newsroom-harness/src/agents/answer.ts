@@ -263,19 +263,23 @@ function completeEvidenceStatement(item: EvidenceObject): string {
 }
 
 function withImplicitCitationNumbers(evidence: EvidenceObject[]): EvidenceObject[] {
-	const used = new Set(
-		evidence
-			.map((item) => item.citation_number)
-			.filter((number): number is number => Number.isInteger(number) && Number(number) > 0)
-	);
+	const used = new Set<number>();
 	let next = 1;
 	return evidence.map((item) => {
-		if (item.citation_number != null) return item;
+		const existing = item.citation_number;
+		if (existing != null && Number.isInteger(existing) && existing > 0 && !used.has(existing)) {
+			used.add(existing);
+			return item;
+		}
 		while (used.has(next)) next += 1;
 		const citationNumber = next;
 		used.add(citationNumber);
 		next += 1;
-		return { ...item, citation_number: citationNumber };
+		// Citation integrity runs against the caller-owned evidence ledger after
+		// answer generation. Keep that ledger synchronized while repairing
+		// missing or duplicate provider-local citation numbers.
+		item.citation_number = citationNumber;
+		return item;
 	});
 }
 
