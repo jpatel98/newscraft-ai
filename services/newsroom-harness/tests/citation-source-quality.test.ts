@@ -259,6 +259,51 @@ describe('citation and source-quality web research', () => {
 		expect(result.evidence?.every((source) => !source.extracted_text.includes('No source excerpt was returned'))).toBe(true);
 	});
 
+	it('maps ordered OpenAI research notes when URL annotations omit character offsets', async () => {
+		const urls = [
+			'https://www.cbc.ca/news/canada/toronto/council-housing-vote-1.2',
+			'https://toronto.citynews.ca/2026/08/01/transit-service-restored/'
+		];
+		const notes = [
+			'Toronto council approved a housing measure after a recorded vote. Published August 1, 2026.',
+			'The TTC restored subway service after resolving a signal issue. Updated August 1, 2026.'
+		];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string | URL | Request) => {
+				if (String(url).includes('api.openai.com')) {
+					return jsonResponse({
+						output_text: notes.join('\n'),
+						output: [{
+							type: 'message',
+							content: [{
+								type: 'output_text',
+								text: notes.join('\n'),
+								annotations: urls.map((sourceUrl, index) => ({
+									type: 'url_citation',
+									url: sourceUrl,
+									title: `Direct article ${index + 1}`
+								}))
+							}]
+						}]
+					});
+				}
+				return new Response('', { status: 403 });
+			})
+		);
+
+		const temporalContext = createNewsroomTemporalContext({
+			now: new Date('2026-08-01T18:00:00.000Z'),
+			timeZone: 'America/Toronto',
+			request: 'Latest Toronto news today'
+		});
+		const result = await runWebSearch('Latest Toronto news today', { provider: 'openai', temporalContext });
+
+		expect(result.status).toBe('ok');
+		expect(result.evidence?.map((source) => source.extracted_text)).toEqual(notes);
+		expect(result.evidence?.map((source) => source.published_at)).toEqual(['2026-08-01', '2026-08-01']);
+	});
+
 	it('preserves meaningful query-string and fragment identity for OpenAI annotations', async () => {
 		const urls = [
 			'https://example.com/story?edition=morning',

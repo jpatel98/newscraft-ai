@@ -246,7 +246,7 @@ export function preparePublishableEvidence(
 	const accepted: EvidenceObject[] = [];
 	const excluded: EvidenceObject[] = [];
 	for (const raw of dedupeEvidence(evidence)) {
-		const hasCitationLinkedExcerpt = Boolean(raw.citation_number && raw.supporting_excerpt?.trim());
+		const hasCitationLinkedExcerpt = hasMeaningfulCitationExcerpt(raw);
 		const item = { ...raw, citation_number: undefined, ledger_status: 'discovery' as ResearchEvidenceStatus };
 		if (item.source_url.startsWith('newsroom://')) {
 			item.temporal_scope = 'primary';
@@ -352,6 +352,14 @@ export function preparePublishableEvidence(
 		accepted: storyDeduped.map((item, index) => ({ ...item, citation_number: index + 1 })),
 		excluded
 	};
+}
+
+function hasMeaningfulCitationExcerpt(item: EvidenceObject): boolean {
+	const excerpt = item.supporting_excerpt?.replace(/\s+/g, ' ').trim() || '';
+	if (!item.citation_number || excerpt.length < 40) return false;
+	if (/^No source excerpt was returned\b/i.test(excerpt)) return false;
+	const normalizedExcerpt = excerpt.toLowerCase();
+	return normalizedExcerpt !== item.title.trim().toLowerCase() && normalizedExcerpt !== item.source_url.trim().toLowerCase();
 }
 
 export function classifyEvidencePageRole(

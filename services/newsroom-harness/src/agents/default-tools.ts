@@ -1488,13 +1488,19 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 					})
 				);
 			}
-			for (const annotation of orderedUrlAnnotations(content.annotations || [])) {
+			const contentAnnotations = orderedUrlAnnotations(content.annotations || []);
+			for (const [annotationIndex, annotation] of contentAnnotations.entries()) {
 				const key = normalizedWebSourceUrl(annotation.url);
 				if (!annotationNumberByUrl.has(key)) annotationNumberByUrl.set(key, annotationNumberByUrl.size + 1);
 				if (seenAnnotationUrls.has(key)) continue;
 				seenAnnotationUrls.add(key);
 				const matchingResult = resultByUrl.get(key);
-				const supportingExcerpt = supportingExcerptForAnnotation(outputText, annotation);
+				const supportingExcerpt = supportingExcerptForAnnotation(
+					outputText,
+					annotation,
+					annotationIndex,
+					contentAnnotations.length
+				);
 				citedSources.push(
 					webSource(
 						annotation.url,
@@ -1693,21 +1699,41 @@ function compactWebSourceTitle(title: string, url: string, maxLength: number): s
 	return compactToolText(value, maxLength);
 }
 
-function supportingExcerptForAnnotation(outputText: string, annotation: UrlAnnotation): string {
+function supportingExcerptForAnnotation(
+	outputText: string,
+	annotation: UrlAnnotation,
+	annotationIndex = 0,
+	annotationCount = 1
+): string {
 	const start = Math.max(0, Math.min(outputText.length, Number(annotation.start_index ?? 0)));
 	const end = Math.max(start, Math.min(outputText.length, Number(annotation.end_index ?? start)));
-	const annotated = compactToolText(outputText.slice(start, end), 420);
-	if (annotated.length >= 20) return annotated;
+	const hasOffsets = Number.isFinite(annotation.start_index) && Number.isFinite(annotation.end_index) && end > start;
+	if (hasOffsets) {
+		const annotated = compactToolText(outputText.slice(start, end), 420);
+		if (annotated.length >= 20) return annotated;
 
-	const before = outputText.slice(0, start);
-	const after = outputText.slice(end);
-	const sentenceStart = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('. '), before.lastIndexOf('! '), before.lastIndexOf('? '));
-	const sentenceEndCandidates = [after.indexOf('\n'), after.indexOf('. '), after.indexOf('! '), after.indexOf('? ')]
-		.filter((index) => index >= 0);
-	const sentenceEnd = sentenceEndCandidates.length ? Math.min(...sentenceEndCandidates) + end + 1 : outputText.length;
-	const surrounding = compactToolText(outputText.slice(sentenceStart >= 0 ? sentenceStart + 1 : 0, sentenceEnd), 420);
-	if (surrounding.length >= 20) return surrounding;
-	return 'No source excerpt was returned; open the original source to inspect the supporting passage.';
+		const before = outputText.slice(0, start);
+		const after = outputText.slice(end);
+		const sentenceStart = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('. '), before.lastIndexOf('! '), before.lastIndexOf('? '));
+		const sentenceEndCandidates = [after.indexOf('\n'), after.indexOf('. '), after.indexOf('! '), after.indexOf('? ')]
+			.filter((index) => index >= 0);
+		const sentenceEnd = sentenceEndCandidates.length ? Math.min(...sentenceEndCandidates) + end + 1 : outputText.length;
+		const surrounding = compactToolText(outputText.slice(sentenceStart >= 0 ? sentenceStart + 1 : 0, sentenceEnd), 420);
+		if (surrounding.length >= 20) return surrounding;
+	}
+
+	// Some Responses API web-search annotations preserve URL order but omit
+	// character offsets. The canonical browsing prompt requests one normalized
+	// research note per candidate, so map ordered citations to ordered
+	// substantive notes before giving up on the source passage.
+	const orderedNotes = outputText
+		.split(/\n+/)
+		.map((line) => compactToolText(line, 420))
+		.filter((line) => line.length >= 40 && !/^(?:research notes?|sources?|findings?|latest producer roundup)$/i.test(line));
+	if (annotationCount > 0 && orderedNotes.length >= annotationCount) {
+		return orderedNotes[Math.min(annotationIndex, orderedNotes.length - 1)];
+	}
+	return '';
 }
 
 function publicationDateFromCitationText(value: string): string | null {
