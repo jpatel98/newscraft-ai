@@ -86,7 +86,7 @@ function evidenceForLane(query: string): EvidenceObject[] {
 			})
 		];
 	}
-	if (/Search the relevant assignment desks/i.test(query)) {
+	if (/Search (?:the relevant assignment desks|established local publishers across)/i.test(query)) {
 		return [
 			article({
 				url: 'https://www.citynews.ca/2026/08/01/toronto-community-program',
@@ -217,8 +217,13 @@ describe('producer-grade research architecture', () => {
 		});
 		expect(lanes[0].query).toContain('latest consequential Toronto stories');
 		expect(lanes[0].query).toContain('cbc.ca, ctvnews.ca');
-		expect(lanes[1].query).toContain('toronto.ca');
+		expect(lanes[1].sourcePurpose).toBe('desk_focus');
+		expect(lanes[2].query).toContain('toronto.ca');
 		expect(lanes.every((lane) => !/Act as|Return five|Do not cite|coverage is incomplete/i.test(lane.query))).toBe(true);
+
+		const boundedLanes = buildProducerCoverageLanes(contract, { homeMarket: 'Toronto' }, { maxLanes: 2 });
+		expect(boundedLanes.map((lane) => lane.sourcePurpose)).toEqual(['major_publishers', 'desk_focus']);
+		expect(boundedLanes[1].targetDesks).toEqual(expect.arrayContaining(['public safety', 'government', 'housing']));
 	});
 
 	it('accepts unfamiliar direct article paths without admitting hubs or documents', () => {
@@ -252,8 +257,8 @@ describe('producer-grade research architecture', () => {
 		}, { maxLanes: 5 });
 		expect(lanes.map((lane) => lane.sourcePurpose)).toEqual([
 			'major_publishers',
-			'official_public_impact',
 			'desk_focus',
+			'official_public_impact',
 			'corroboration'
 		]);
 		expect(new Set(lanes.map((lane) => lane.query)).size).toBe(lanes.length);

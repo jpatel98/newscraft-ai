@@ -207,8 +207,8 @@ describe('planned agent loop', () => {
 		expect(searchInputs.every((input) => !/\bsports\b/i.test(input))).toBe(true);
 		expect(result.plan.steps.map((step) => step.label)).toEqual([
 			'Scanning major publisher coverage',
+			'Checking public safety and government desks',
 			'Checking official public-impact sources',
-			'Checking relevant assignment desks',
 			'Cross-checking independent coverage'
 		]);
 		expect(new Set(result.plan.steps.map((step) => step.laneId)).size).toBe(result.plan.steps.length);

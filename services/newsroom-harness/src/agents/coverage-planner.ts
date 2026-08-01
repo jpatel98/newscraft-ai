@@ -15,6 +15,17 @@ export interface CoveragePlanOptions {
 	namedOnly?: boolean;
 }
 
+const DEFAULT_PRIORITY_DESKS = [
+	'public safety',
+	'government',
+	'housing',
+	'transit',
+	'health',
+	'education',
+	'business',
+	'community'
+];
+
 /**
  * Build distinct producer coverage lanes from the structured request. The
  * lane vocabulary is generic: a named incident, city, sport, or desk is data
@@ -86,9 +97,27 @@ export function buildProducerCoverageLanes(
 		add(
 			'major_publishers',
 			'Scanning major publisher coverage',
-			'Find the strongest directly relevant reporting across major publishers in the home market and wider desk.',
+			'Find the newest consequential local articles across at least five distinct established news publishers serving the market. Use publisher homepages or sections only to discover and open direct article pages.',
 			'major_publishers',
 			[],
+			domainHints
+		);
+	}
+
+	if (lanes.length < maxLanes) {
+		const priorityDesks = includedDesks.length
+			? includedDesks
+			: DEFAULT_PRIORITY_DESKS.filter((desk) => !isExcluded(desk, contract));
+		add(
+			'desk_focus',
+			priorityDesks.length
+				? `Checking ${priorityDesks.slice(0, 2).join(' and ')} desks`
+				: 'Checking relevant assignment desks',
+			priorityDesks.length
+				? `Search established local publishers across the ${priorityDesks.slice(0, 8).join(', ')} desks for distinct consequential articles.`
+				: 'Search established local publishers across relevant assignment desks for distinct consequential articles.',
+			'desk_focus',
+			priorityDesks,
 			domainHints
 		);
 	}
@@ -97,25 +126,10 @@ export function buildProducerCoverageLanes(
 		add(
 			'official_public_impact',
 			'Checking official public-impact sources',
-			'Check official or first-party releases, public notices, and other sources with direct impact on the assignment.',
+			'Check official or first-party releases and live updates that confirm or materially extend consequential stories in the assignment; do not treat generic notices, job pages, documents, or event listings as stories.',
 			'official_public_impact',
 			['public impact'],
 			officialHints
-		);
-	}
-
-	if (lanes.length < maxLanes) {
-		add(
-			'desk_focus',
-			includedDesks.length
-				? `Checking ${includedDesks.slice(0, 2).join(' and ')} desks`
-				: 'Checking relevant assignment desks',
-			includedDesks.length
-				? `Search the relevant ${includedDesks.slice(0, 4).join(', ')} desks for distinct stories not already covered.`
-				: 'Search the relevant assignment desks for distinct stories not already covered by major publishers or official sources.',
-			'desk_focus',
-			includedDesks,
-			domainHints
 		);
 	}
 
