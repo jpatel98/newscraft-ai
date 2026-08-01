@@ -316,6 +316,16 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 			const outputText = selected.outputText;
 			const answerText = outputText.trim();
 			if (isBroadResearchRequest(input.query, context.researchContract) && selected.evidence.length <= 1) {
+				const rejectionReasons = selected.discoveryLeads.reduce<Record<string, number>>((counts, item) => {
+					const reason = item.rejection_reason || 'unspecified';
+					counts[reason] = (counts[reason] || 0) + 1;
+					return counts;
+				}, {});
+				const rejectedPageRoles = selected.discoveryLeads.reduce<Record<string, number>>((counts, item) => {
+					const role = item.page_role || 'unspecified';
+					counts[role] = (counts[role] || 0) + 1;
+					return counts;
+				}, {});
 				console.warn(
 					'NewsCraft broad web research returned thin evidence',
 					JSON.stringify({
@@ -326,7 +336,9 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 						outputCharacters: answerText.length,
 						evidenceCount: selected.evidence.length,
 						datedEvidenceCount: selected.evidence.filter((item) => Boolean(item.published_at || item.updated_at)).length,
-						discoveryLeadCount: selected.discoveryLeads.length
+						discoveryLeadCount: selected.discoveryLeads.length,
+						rejectionReasons,
+						rejectedPageRoles
 					})
 				);
 			}
