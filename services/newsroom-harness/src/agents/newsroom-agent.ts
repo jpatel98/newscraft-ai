@@ -837,7 +837,7 @@ function applyTemporalGuard(
 	if (!prepared.excluded.length) return output;
 	const limitations = [
 		...(output.limitations || []),
-		`${prepared.excluded.length} discovery, hub, unknown-date, or out-of-window source${prepared.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`
+		`${prepared.excluded.length} discovery, hub, or out-of-window source${prepared.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`
 	];
 	return {
 		...output,

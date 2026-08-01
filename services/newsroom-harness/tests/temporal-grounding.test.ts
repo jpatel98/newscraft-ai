@@ -30,6 +30,51 @@ describe('request-scoped temporal grounding and citation integrity', () => {
 		]));
 	});
 
+	it('keeps date-only current articles and labels readable unknown-date articles as partial evidence', () => {
+		const dateOnly = normalizeEvidence({
+			source_name: 'Toronto Star',
+			source_kind: 'news_report',
+			source_url: 'https://www.thestar.com/news/gta/date-only-current-story.html',
+			title: 'Date-only current Toronto story',
+			published_at: '2026-07-31',
+			extracted_text: 'The outlet published a consequential Toronto update on the current local newsroom date.',
+			summary: 'A consequential Toronto update published on the current local newsroom date.',
+			accessed_at: frozenNow.toISOString(),
+			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+			confidence: 0.8,
+			limitations: []
+		});
+		const unknownDate = normalizeEvidence({
+			source_name: 'CBC News',
+			source_kind: 'news_report',
+			source_url: 'https://www.cbc.ca/news/canada/toronto/readable-current-lead-1.1',
+			title: 'Readable Toronto lead with unknown publication time',
+			published_at: null,
+			extracted_text: 'CBC reports a new Toronto development, but the provider did not return its publication time.',
+			summary: 'A readable, citation-linked Toronto development with an unknown publication time.',
+			supporting_excerpt: 'CBC reports a new Toronto development, but the provider did not return its publication time.',
+			citation_number: 1,
+			accessed_at: frozenNow.toISOString(),
+			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+			confidence: 0.7,
+			limitations: []
+		});
+
+		const prepared = preparePublishableEvidence([dateOnly, unknownDate], temporal, true);
+
+		expect(prepared.excluded).toHaveLength(0);
+		expect(prepared.accepted).toEqual([
+			expect.objectContaining({ title: dateOnly.title, temporal_scope: 'primary', ledger_status: 'accepted' }),
+			expect.objectContaining({
+				title: unknownDate.title,
+				temporal_scope: 'background',
+				ledger_status: 'accepted',
+				uncertainty: expect.arrayContaining(['publication time unknown'])
+			})
+		]);
+		expect(prepared.accepted[1].limitations.join(' ')).toContain('do not present this source as confirmed');
+	});
+
 	it('synthesizes three search passes once and assigns only contiguous supporting citations', async () => {
 		const registry = new ToolRegistry();
 		const batches = [fixtureEvidence().slice(0, 3), fixtureEvidence().slice(3, 5), fixtureEvidence().slice(5)];

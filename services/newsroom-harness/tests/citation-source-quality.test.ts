@@ -7,6 +7,7 @@ import { createNewsroomAgentConfig } from '../src/agents/harness-config.js';
 import { createModelPolicyConfig } from '../src/agents/model-policy.js';
 import { NEWSROOM_CHARTER, NEWSROOM_CHARTER_VERSION } from '../src/agents/roles.js';
 import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest } from '../src/agents/router.js';
+import { createNewsroomTemporalContext, type NewsroomTemporalContext } from '../src/agents/time-context.js';
 import type { ToolRunContext } from '../src/agents/tools.js';
 
 afterEach(() => {
@@ -201,6 +202,46 @@ describe('citation and source-quality web research', () => {
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
 		expect(result.evidence?.map((source) => source.source_url)).toEqual(urls);
 		expect(result.evidence?.some((source) => source.source_url === 'https://example.com/action-only')).toBe(false);
+	});
+
+	it('preserves OpenAI citation claim text and explicit publication dates when no snippets are returned', async () => {
+		const urls = [
+			'https://www.cbc.ca/news/canada/toronto/council-housing-vote-1.1',
+			'https://toronto.citynews.ca/2026/08/01/transit-service-update/'
+		];
+		const segments = [
+			'Toronto council approved the housing measure. Published August 1, 2026.',
+			'The TTC restored service after a signal issue. Updated August 1, 2026.'
+		];
+		const text = segments.join('\n');
+		const fetchMock = vi.fn(async (url: string | URL | Request) => {
+			if (String(url).includes('api.openai.com')) {
+				return jsonResponse({
+					output_text: text,
+					output: [
+						{
+							type: 'message',
+							content: [{ type: 'output_text', text, annotations: annotationFixtures(text, segments, urls) }]
+						}
+					]
+				});
+			}
+			return new Response('', { status: 403 });
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const temporalContext = createNewsroomTemporalContext({
+			now: new Date('2026-08-01T18:00:00.000Z'),
+			timeZone: 'America/Toronto',
+			request: 'Latest Toronto news today'
+		});
+		const result = await runWebSearch('Latest Toronto news today', { provider: 'openai', temporalContext });
+
+		expect(result.status).toBe('ok');
+		expect(result.evidence).toHaveLength(2);
+		expect(result.evidence?.map((source) => source.published_at)).toEqual(['2026-08-01', '2026-08-01']);
+		expect(result.evidence?.map((source) => source.extracted_text)).toEqual(segments);
+		expect(result.evidence?.every((source) => !source.extracted_text.includes('No source excerpt was returned'))).toBe(true);
 	});
 
 	it('preserves meaningful query-string and fragment identity for OpenAI annotations', async () => {
@@ -880,6 +921,7 @@ async function runWebSearch(
 	options: {
 		provider?: 'perplexity' | 'openai';
 		newsroomContext?: ToolRunContext['newsroomContext'];
+		temporalContext?: NewsroomTemporalContext;
 		signal?: AbortSignal;
 	} = {}
 ) {
@@ -890,6 +932,7 @@ async function runWebSearch(
 		toolContext(query, {
 			provider,
 			newsroomContext: options.newsroomContext,
+			temporalContext: options.temporalContext,
 			signal: options.signal
 		})
 	);
@@ -900,6 +943,7 @@ function toolContext(
 	options: {
 		provider?: 'perplexity' | 'openai';
 		newsroomContext?: ToolRunContext['newsroomContext'];
+		temporalContext?: NewsroomTemporalContext;
 		documents?: ToolRunContext['documents'];
 		signal?: AbortSignal;
 	} = {}
@@ -930,6 +974,7 @@ function toolContext(
 		openAiApiKey: provider === 'openai' ? 'fake-key' : '',
 		trigger: 'test',
 		newsroomContext: options.newsroomContext,
+		temporalContext: options.temporalContext,
 		documents: options.documents,
 		signal: options.signal
 	};

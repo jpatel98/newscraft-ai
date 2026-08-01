@@ -715,40 +715,6 @@ function metadataFetchSignal(signal: AbortSignal | undefined): AbortSignal {
 	return timeout;
 }
 
-function retainDatedCurrentEvidence(
-	evidence: EvidenceObject[],
-	query: string,
-	temporalContext?: ToolRunContext['temporalContext']
-): { accepted: EvidenceObject[]; excluded: EvidenceObject[] } {
-	if (!isCurrentEventQuery(query) || !temporalContext) return { accepted: evidence, excluded: [] };
-	const windowEnd = Date.parse(temporalContext.windowEnd) + 5 * 60 * 1000;
-	const primaryStart = Date.parse(temporalContext.windowStart);
-	const fallbackStart = Date.parse(temporalContext.fallbackWindowStart);
-	const accepted: EvidenceObject[] = [];
-	const excluded: EvidenceObject[] = [];
-	for (const item of evidence) {
-		const timestamp = Date.parse(item.published_at || item.updated_at || item.event_at || '');
-		const livePrimary =
-			(item.source_kind === 'official' || item.source_kind === 'primary') &&
-			(item.page_role === 'official_live' ||
-				/\b(?:alert|warning|watch|advisory|status|schedule|fixture|score|match)\b/i.test(`${query} ${item.title}`));
-		if (livePrimary || (Number.isFinite(timestamp) && timestamp >= primaryStart && timestamp <= windowEnd) ||
-			(Number.isFinite(timestamp) && timestamp >= fallbackStart && timestamp <= windowEnd)) {
-			accepted.push(item);
-			continue;
-		}
-		excluded.push({
-			...item,
-			ledger_status: 'rejected',
-			temporal_scope: 'discovery',
-			rejection_reason: Number.isFinite(timestamp)
-				? 'publication or update time is outside the request-scoped freshness window'
-				: 'publication or update time is unknown'
-		});
-	}
-	return { accepted, excluded };
-}
-
 function sourceFetchSignal(signal: AbortSignal | undefined): AbortSignal {
 	const timeout = AbortSignal.timeout(sourceFetchTimeoutMs());
 	if (signal && typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
@@ -960,9 +926,6 @@ async function interpretProviderWebSearch(input: {
 			{ ...input.context, signal: searchSignal },
 			input.query
 		);
-		const dated = retainDatedCurrentEvidence(evidence, input.query, input.context.temporalContext);
-		evidence = dated.accepted;
-		discoveryLeads.push(...dated.excluded);
 	}
 	outputText = reconcileDedupedCitationMarkers(outputText, attempt.raw, evidence);
 	const currentRequest = isCurrentEventQuery(input.query) || ['current', 'relative'].includes(researchContract.temporalWindow.kind);
@@ -1462,16 +1425,19 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 				if (seenAnnotationUrls.has(key)) continue;
 				seenAnnotationUrls.add(key);
 				const matchingResult = resultByUrl.get(key);
+				const supportingExcerpt = supportingExcerptForAnnotation(outputText, annotation);
 				citedSources.push(
 					webSource(
 						annotation.url,
 						annotation.title || matchingResult?.title || annotation.url,
-						supportingExcerptForAnnotation(
-							matchingResult?.content || matchingResult?.snippet || ''
-						),
+						matchingResult?.content || matchingResult?.snippet || supportingExcerpt,
 						{
 							citationNumber: annotationNumberByUrl.get(key),
-							publishedAt: matchingResult?.date || matchingResult?.last_updated || null
+							supportingExcerpt,
+							publishedAt:
+								matchingResult?.date ||
+								matchingResult?.last_updated ||
+								publicationDateFromCitationText(supportingExcerpt)
 						}
 					)
 				);
@@ -1554,6 +1520,7 @@ type WebSourceCandidate = {
 	confidence: number;
 	published_at: string | null;
 	citation_number?: number;
+	supporting_excerpt?: string;
 };
 
 function uniqueWebSources(sources: WebSourceCandidate[]): WebSourceCandidate[] {
@@ -1577,7 +1544,7 @@ function webSource(
 	url: string,
 	title: string,
 	snippet = '',
-	options: { publishedAt?: string | null; citationNumber?: number } = {}
+	options: { publishedAt?: string | null; citationNumber?: number; supportingExcerpt?: string } = {}
 ): WebSourceCandidate {
 	const canonicalUrl = normalizedWebSourceUrl(url);
 	const sourceSummary = compactToolText(snippet, 220);
@@ -1592,7 +1559,8 @@ function webSource(
 		limitations: ['Provider web_search result; cite and verify source page before publication.'],
 		confidence: 0.6,
 		published_at: options.publishedAt || publicationDateFromUrl(canonicalUrl),
-		citation_number: options.citationNumber
+		citation_number: options.citationNumber,
+		supporting_excerpt: options.supportingExcerpt
 	};
 }
 
@@ -1656,10 +1624,31 @@ function compactWebSourceTitle(title: string, url: string, maxLength: number): s
 	return compactToolText(value, maxLength);
 }
 
-function supportingExcerptForAnnotation(fallback = ''): string {
-	const sourceExcerpt = compactToolText(fallback, 260);
-	if (sourceExcerpt.length >= 20) return sourceExcerpt;
+function supportingExcerptForAnnotation(outputText: string, annotation: UrlAnnotation): string {
+	const start = Math.max(0, Math.min(outputText.length, Number(annotation.start_index ?? 0)));
+	const end = Math.max(start, Math.min(outputText.length, Number(annotation.end_index ?? start)));
+	const annotated = compactToolText(outputText.slice(start, end), 420);
+	if (annotated.length >= 20) return annotated;
+
+	const before = outputText.slice(0, start);
+	const after = outputText.slice(end);
+	const sentenceStart = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('. '), before.lastIndexOf('! '), before.lastIndexOf('? '));
+	const sentenceEndCandidates = [after.indexOf('\n'), after.indexOf('. '), after.indexOf('! '), after.indexOf('? ')]
+		.filter((index) => index >= 0);
+	const sentenceEnd = sentenceEndCandidates.length ? Math.min(...sentenceEndCandidates) + end + 1 : outputText.length;
+	const surrounding = compactToolText(outputText.slice(sentenceStart >= 0 ? sentenceStart + 1 : 0, sentenceEnd), 420);
+	if (surrounding.length >= 20) return surrounding;
 	return 'No source excerpt was returned; open the original source to inspect the supporting passage.';
+}
+
+function publicationDateFromCitationText(value: string): string | null {
+	const match = value.match(
+		/\b(?:published|posted|updated)(?:\s+on)?\s*(?:at\s+)?(?:[:,-]\s*)?((?:20\d{2}-\d{2}-\d{2})|(?:[A-Z][a-z]{2,8}\.?\s+\d{1,2},?\s+20\d{2}))/i
+	);
+	if (!match) return null;
+	const normalized = match[1].replace(/\b([A-Z][a-z]{2})\./, '$1');
+	const parsed = new Date(normalized);
+	return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
 
 function compactToolText(value: string, maxLength: number): string {

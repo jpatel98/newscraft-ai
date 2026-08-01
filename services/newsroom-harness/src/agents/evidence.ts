@@ -246,6 +246,7 @@ export function preparePublishableEvidence(
 	const accepted: EvidenceObject[] = [];
 	const excluded: EvidenceObject[] = [];
 	for (const raw of dedupeEvidence(evidence)) {
+		const hasCitationLinkedExcerpt = Boolean(raw.citation_number && raw.supporting_excerpt?.trim());
 		const item = { ...raw, citation_number: undefined, ledger_status: 'discovery' as ResearchEvidenceStatus };
 		if (item.source_url.startsWith('newsroom://')) {
 			item.temporal_scope = 'primary';
@@ -268,19 +269,49 @@ export function preparePublishableEvidence(
 			excluded.push(item);
 			continue;
 		}
-		const timestamp = Date.parse(item.event_at || item.published_at || '');
+		const rawTimestamp = item.event_at || item.updated_at || item.published_at || '';
+		const dateOnlyScope = /^\d{4}-\d{2}-\d{2}$/.test(rawTimestamp)
+			? temporalScopeForLocalDate(rawTimestamp, temporal)
+			: null;
+		const timestamp = Date.parse(rawTimestamp);
 		const officialLive = role === 'official_live' && (item.source_kind === 'official' || item.source_kind === 'primary');
 		if (!Number.isFinite(timestamp)) {
-				if (officialLive) {
-					item.temporal_scope = 'primary';
-					item.ledger_status = 'accepted';
-					accepted.push(item);
-				} else {
-					item.temporal_scope = 'background';
-					item.ledger_status = 'rejected';
+			if (officialLive) {
+				item.temporal_scope = 'primary';
+				item.ledger_status = 'accepted';
+				accepted.push(item);
+			} else if (
+				role === 'article' &&
+				isUsableEvidence(item) &&
+				hasCitationLinkedExcerpt
+			) {
+				item.temporal_scope = 'background';
+				item.ledger_status = 'accepted';
+				item.limitations = [...new Set([
+					...item.limitations,
+					'Publication or update time is unknown; do not present this source as confirmed within the requested freshness window.'
+				])];
+				item.uncertainty = [...new Set([...(item.uncertainty || []), 'publication time unknown'])];
+				accepted.push(item);
+			} else {
+				item.temporal_scope = 'background';
+				item.ledger_status = 'rejected';
 					item.rejection_reason = 'publication or event time is unknown';
 					excluded.push(item);
 			}
+			continue;
+		}
+		if (dateOnlyScope === 'primary' || dateOnlyScope === 'fallback') {
+			item.temporal_scope = dateOnlyScope;
+			item.ledger_status = 'accepted';
+			accepted.push(item);
+			continue;
+		}
+		if (dateOnlyScope === 'background') {
+			item.temporal_scope = 'background';
+			item.ledger_status = 'rejected';
+			item.rejection_reason = 'publication or event date is outside the request window';
+			excluded.push(item);
 			continue;
 		}
 		const windowEndWithClockSkew = Date.parse(temporal.windowEnd) + 5 * 60 * 1000;
@@ -363,6 +394,26 @@ function storySimilarityKey(item: EvidenceObject): string {
 
 function scopeOrder(scope: EvidenceTemporalScope | undefined): number {
 	return scope === 'primary' ? 0 : scope === 'fallback' ? 1 : 2;
+}
+
+function temporalScopeForLocalDate(
+	date: string,
+	temporal: NewsroomTemporalContext
+): Extract<EvidenceTemporalScope, 'primary' | 'fallback' | 'background'> {
+	if (date === temporal.localDate) return 'primary';
+	const fallbackDate = new Intl.DateTimeFormat('en-CA', {
+		timeZone: temporal.timeZone,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit'
+	})
+		.formatToParts(new Date(temporal.fallbackWindowStart))
+		.reduce<Record<string, string>>((parts, part) => {
+			if (part.type === 'year' || part.type === 'month' || part.type === 'day') parts[part.type] = part.value;
+			return parts;
+		}, {});
+	const fallbackLocalDate = `${fallbackDate.year}-${fallbackDate.month}-${fallbackDate.day}`;
+	return date >= fallbackLocalDate && date <= temporal.localDate ? 'fallback' : 'background';
 }
 
 export function assessEvidenceQuality(evidence: EvidenceObject): SourceQualityAssessment {
