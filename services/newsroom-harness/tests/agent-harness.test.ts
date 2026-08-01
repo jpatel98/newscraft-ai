@@ -563,7 +563,10 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat'
 		});
 
-		expect(result.tool_calls).toEqual([expect.objectContaining({ name: 'openai_web_search', status: 'unavailable' })]);
+		expect(result.tool_calls).toEqual(expect.arrayContaining([
+			expect.objectContaining({ name: 'configured_source_monitor', status: 'skipped' }),
+			expect.objectContaining({ name: 'openai_web_search', status: 'unavailable' })
+		]));
 		expect(result.final_answer).toBe('Live research is temporarily unavailable.');
 		expect(result.final_answer).not.toMatch(/Perplexity|provider|PERPLEXITY_API_KEY/i);
 		expect(result.final_answer).not.toContain('I could not find reliable sources confirming this in the gathered material.');

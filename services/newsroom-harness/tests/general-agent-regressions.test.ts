@@ -173,7 +173,11 @@ describe('general-purpose conversational research regressions', () => {
 		expect(queries).toHaveLength(3);
 		expect(new Set(queries).size).toBe(3);
 		expect(queries.every((query) => query.includes('Latest Toronto news'))).toBe(true);
-		expect(result.plan.steps).toHaveLength(3);
+		expect(result.plan.steps).toHaveLength(4);
+		expect(result.plan.steps[0]).toMatchObject({
+			tool: 'configured_source_monitor',
+			label: 'Scanning direct newsroom sources'
+		});
 		expect(result.evidence.map((item) => item.citation_number)).toEqual([1, 2, 3]);
 		expect(result.final_answer).toContain('development 1');
 		expect(result.final_answer).toContain('development 2');

@@ -1,10 +1,17 @@
 import { generateFinalAnswer } from './answer.js';
-import { isUsableEvidence, normalizeEvidence, normalizeToolEvidence, type EvidenceObject } from './evidence.js';
+import {
+	isUsableEvidence,
+	normalizeEvidence,
+	normalizeToolEvidence,
+	type EvidenceObject,
+	type EvidenceSourceKind
+} from './evidence.js';
 import { filterEvidenceForResearchContract, isResearchUrlAllowed } from './research-policy.js';
 import { NEWSROOM_TOOL_NAMES } from './router.js';
 import { evidenceOutputSchema, ToolRegistry, type NewsroomTool, type ToolRunContext, type ToolRunOutput } from './tools.js';
 import { resolveModelPolicy } from './model-policy.js';
-import { fetchSourceUrl } from '../tools/sources.js';
+import { discoverSourceItems, fetchSourceUrl, type DiscoveredSourceItems } from '../tools/sources.js';
+import type { SourceItem } from '../tools/source-adapters/index.js';
 import {
 	extractProviderResponseText,
 	normalizeProviderModel,
@@ -85,14 +92,20 @@ function configuredSourceMonitorTool(): NewsroomTool<{ query: string; urls?: str
 		output_schema: evidenceOutputSchema,
 		async run(input, context) {
 			const monitors = selectMonitors(input.query, context);
-			const urls = [...new Set([...(input.urls || []), ...monitors.map((monitor) => monitor.url)])].slice(0, 3);
+			const urls = [...new Set([...(input.urls || []), ...monitors.map((monitor) => monitor.url)])].slice(0, 8);
 			if (!urls.length) {
 				return {
 					status: 'unavailable',
 					limitations: ['No configured source monitor matched the request.']
 				};
 			}
-			const evidence = await fetchEvidenceUrls(urls, NEWSROOM_TOOL_NAMES.sourceMonitor, context);
+			const evidence = await fetchSourceIndexEvidence(
+				urls,
+				NEWSROOM_TOOL_NAMES.sourceMonitor,
+				context,
+				new Map(monitors.map((monitor) => [monitor.url, monitor.name])),
+				new Map(monitors.map((monitor) => [monitor.url, monitor.kind as EvidenceSourceKind]))
+			);
 			return withStatusFromEvidence(evidence, urls.length);
 		}
 	};
@@ -121,10 +134,164 @@ function sourceFeedFetcherTool(): NewsroomTool<{ query: string; urls?: string[] 
 					limitations: ['No URL or feed was supplied for the source/feed fetcher.']
 				};
 			}
-			const evidence = await fetchEvidenceUrls(urls, NEWSROOM_TOOL_NAMES.sourceFeedFetcher, context);
+			const evidence = await fetchSourceIndexEvidence(
+				urls,
+				NEWSROOM_TOOL_NAMES.sourceFeedFetcher,
+				context
+			);
 			return withStatusFromEvidence(evidence, urls.length);
 		}
 	};
+}
+
+const MAX_DISCOVERY_EVIDENCE = 32;
+const MAX_ITEMS_PER_SOURCE_INDEX = 5;
+const MAX_SOURCE_INDEX_CANDIDATES = 15;
+
+/**
+ * Expand feeds and source indexes into item-level evidence so the cited URL is
+ * the direct story, never the feed or publisher landing page. Sources are
+ * interleaved to keep a broad briefing from being monopolized by one outlet.
+ */
+export async function fetchSourceIndexEvidence(
+	urls: string[],
+	toolUsed: string,
+	context: ToolRunContext,
+	sourceLabels: ReadonlyMap<string, string> = new Map(),
+	sourceKinds: ReadonlyMap<string, EvidenceSourceKind> = new Map()
+): Promise<EvidenceObject[]> {
+	const uniqueUrls = [...new Set(urls)].slice(0, 8);
+	const batches = await Promise.all(
+		uniqueUrls.map(async (url) => {
+			try {
+				const discovered = await discoverSourceItems(url, sourceFetchSignal(context.signal));
+				return evidenceFromDiscoveredSource(
+					discovered,
+					toolUsed,
+					context,
+					sourceLabels.get(url),
+					sourceKinds.get(url)
+				);
+			} catch {
+				return [];
+			}
+		})
+	);
+	const interleaved: EvidenceObject[] = [];
+	for (let itemIndex = 0; itemIndex < MAX_ITEMS_PER_SOURCE_INDEX; itemIndex += 1) {
+		for (const batch of batches) {
+			const item = batch[itemIndex];
+			if (!item) continue;
+			interleaved.push(item);
+			if (interleaved.length >= MAX_DISCOVERY_EVIDENCE) return interleaved;
+		}
+	}
+	return interleaved;
+}
+
+function evidenceFromDiscoveredSource(
+	discovered: DiscoveredSourceItems,
+	toolUsed: string,
+	context: ToolRunContext,
+	sourceLabel?: string,
+	sourceKindOverride?: EvidenceSourceKind
+): EvidenceObject[] {
+	const feedLike = discovered.adapter === 'rss' || discovered.adapter === 'atom';
+	const candidates = discovered.items
+		.filter((item) => !feedLike || !sameSourceUrl(item.url, discovered.sourceUrl))
+		.filter((item) => !feedLike || sourceItemMatchesLocation(item, context.researchContract?.location))
+		.filter((item) => !feedLike || !isOpinionOrCommentaryItem(item))
+		.filter((item) => isAllowedResearchSource(item.url, context.prompt, context.researchContract))
+		.sort(compareSourceItemsNewestFirst)
+		.slice(0, MAX_SOURCE_INDEX_CANDIDATES);
+	const normalized = candidates
+		.map((item) => sourceItemToEvidence(item, discovered, toolUsed, context, sourceLabel, sourceKindOverride))
+		.filter(isUsableEvidence);
+	return filterEvidenceForResearchContract(normalized, context.researchContract)
+		.accepted
+		.slice(0, MAX_ITEMS_PER_SOURCE_INDEX);
+}
+
+function sourceItemToEvidence(
+	item: SourceItem,
+	discovered: DiscoveredSourceItems,
+	toolUsed: string,
+	context: ToolRunContext,
+	sourceLabel?: string,
+	sourceKindOverride?: EvidenceSourceKind
+): EvidenceObject {
+	const articleUrl = item.url;
+	const sourceName = sourceLabel || sourceNameFromUrl(articleUrl);
+	const sourceKind = sourceKindOverride ||
+		(discovered.adapter === 'rss' || discovered.adapter === 'atom' ? 'news_report' : undefined);
+	const evidence = normalizeEvidence({
+		source_name: sourceName,
+		publisher: sourceName,
+		source_url: articleUrl,
+		accessed_at: discovered.fetchedAt,
+		tool_used: toolUsed,
+		title: item.title,
+		published_at: item.publishedAt,
+		updated_at: item.updatedAt,
+		extracted_text: item.contentText || item.summary,
+		summary: item.summary || item.contentText,
+		confidence: 0.82,
+		limitations: [],
+		...(sourceKind ? { source_kind: sourceKind } : {}),
+		...(sourceKind
+			? { page_role: sourceKind === 'official' || sourceKind === 'primary' ? 'official_live' as const : 'article' as const }
+			: {}),
+		...(context.researchContract?.location || context.newsroomContext?.homeMarket
+			? { location: context.researchContract?.location || context.newsroomContext?.homeMarket }
+			: {})
+	});
+	return {
+		...evidence,
+		provenance: {
+			url: discovered.sourceUrl,
+			tool: toolUsed,
+			source_kind: evidence.source_kind || 'unknown'
+		}
+	};
+}
+
+const LOCATION_ALIASES: Record<string, string[]> = {
+	toronto: ['gta', 'scarborough', 'etobicoke', 'north york', 'east york', 'ttc']
+};
+
+function sourceItemMatchesLocation(item: SourceItem, location?: string): boolean {
+	if (!location?.trim()) return true;
+	const normalizedLocation = location.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+	const text = `${item.title} ${item.summary} ${item.contentText}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+	const terms = [normalizedLocation, ...(LOCATION_ALIASES[normalizedLocation] || [])];
+	return terms.some((term) => new RegExp(`(?:^|\\s)${escapeRegularExpression(term).replace(/ /g, '\\s+')}(?:$|\\s)`, 'i').test(text));
+}
+
+function isOpinionOrCommentaryItem(item: SourceItem): boolean {
+	let path = '';
+	try {
+		path = new URL(item.url).pathname;
+	} catch {
+		return false;
+	}
+	return /\/(?:opinion|columnists?|commentary|letters?)(?:\/|$)/i.test(path);
+}
+
+function escapeRegularExpression(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function compareSourceItemsNewestFirst(left: SourceItem, right: SourceItem): number {
+	return (Date.parse(right.updatedAt || right.publishedAt || '') || 0) -
+		(Date.parse(left.updatedAt || left.publishedAt || '') || 0);
+}
+
+function sameSourceUrl(left: string, right: string): boolean {
+	try {
+		return new URL(left).toString() === new URL(right).toString();
+	} catch {
+		return left === right;
+	}
 }
 
 function savedResearchReaderTool(): NewsroomTool<{ latest?: boolean }> {

@@ -40,18 +40,46 @@ export interface NewsroomAgentConfig {
 
 const DEFAULT_SOURCE_MONITORS: SourceMonitorConfig[] = [
 	{
-		name: 'Toronto Police Service news releases',
-		url: 'https://www.tps.ca/media-centre/news-releases/',
-		kind: 'official',
-		priority: 10,
-		tags: ['toronto', 'police', 'public safety', 'releases']
+		name: 'Global News Toronto',
+		url: 'https://globalnews.ca/toronto/feed/',
+		kind: 'media_report',
+		priority: 9,
+		tags: ['toronto', 'gta', 'local news', 'publisher', 'briefing']
 	},
 	{
 		name: 'City of Toronto news releases',
-		url: 'https://www.toronto.ca/news/',
+		url: 'https://www.toronto.ca/news/feed/',
 		kind: 'official',
 		priority: 8,
 		tags: ['toronto', 'city', 'municipal', 'releases']
+	},
+	{
+		name: 'CityNews Toronto',
+		url: 'https://toronto.citynews.ca/feed/',
+		kind: 'media_report',
+		priority: 8,
+		tags: ['toronto', 'gta', 'local news', 'publisher', 'briefing']
+	},
+	{
+		name: 'Toronto Sun local news',
+		url: 'https://torontosun.com/category/news/local-news/feed.xml',
+		kind: 'media_report',
+		priority: 7,
+		tags: ['toronto', 'gta', 'local news', 'publisher', 'briefing']
+	},
+	{
+		name: 'Ontario Newsroom',
+		url: 'https://news.ontario.ca/newsroom/en/rss/allnews.rss',
+		kind: 'official',
+		priority: 7,
+		tags: ['toronto', 'ontario', 'provincial', 'government', 'releases', 'briefing']
+	},
+	{
+		name: 'The Local Toronto',
+		url: 'https://thelocal.to/feed/',
+		kind: 'media_report',
+		priority: 5,
+		tags: ['toronto', 'gta', 'local news', 'publisher', 'briefing']
 	}
 ];
 

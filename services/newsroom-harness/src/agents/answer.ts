@@ -161,15 +161,16 @@ function groundedEvidenceChatAnswer(
 		: '';
 	if (conflict) return conflict;
 
-	const statements = evidence
+	const statements = producerRoundupSelection(prompt, evidence)
 		.map((item) => {
 			const statement = completeEvidenceStatement(item);
 			if (!statement) return '';
 			const marker = item.citation_number ? ` [${item.citation_number}]` : '';
+			const directUrl = wantsDirectUrls(prompt) ? ` — ${item.source_url}` : '';
 			const date = item.event_at || item.published_at;
 			const dateLabel = date ? new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date)) : '';
 			const fallback = item.temporal_scope === 'fallback' ? 'Earlier (last 24 hours) - ' : '';
-			return `${fallback}${dateLabel ? `${dateLabel}: ` : ''}${statement}${marker}`;
+			return `${fallback}${dateLabel ? `${dateLabel}: ` : ''}${statement}${marker}${directUrl}`;
 		})
 		.filter(Boolean)
 		.slice(0, 6);
@@ -178,6 +179,41 @@ function groundedEvidenceChatAnswer(
 	}
 	if (statements.length === 1) return statements[0];
 	return ['**Latest producer roundup**', '', ...statements.map((statement) => `- ${statement}`)].join('\n');
+}
+
+function producerRoundupSelection(prompt: string, evidence: EvidenceObject[]): EvidenceObject[] {
+	if (!/\b(?:briefing|roundup|headlines|top stories|latest .*news|assignment desk|newsroom producer)\b/i.test(prompt)) {
+		return evidence;
+	}
+	const rank = (items: EvidenceObject[]) => [...items].sort((left, right) => {
+		const priority = editorialConsequenceScore(right) - editorialConsequenceScore(left);
+		if (priority) return priority;
+		return evidenceTimestamp(right) - evidenceTimestamp(left);
+	});
+	const primary = evidence.filter((item) => item.temporal_scope !== 'fallback' && item.temporal_scope !== 'background');
+	const fallback = evidence.filter((item) => !primary.includes(item));
+	const strongPrimary = rank(primary.filter((item) => editorialConsequenceScore(item) >= 0));
+	const selected = strongPrimary.slice(0, 6);
+	if (selected.length < 5) {
+		selected.push(...rank(primary.filter((item) => !selected.includes(item))).slice(0, 5 - selected.length));
+	}
+	if (selected.length < 5) {
+		selected.push(...rank(fallback).slice(0, 5 - selected.length));
+	}
+	return selected.sort((left, right) => evidenceTimestamp(right) - evidenceTimestamp(left));
+}
+
+function editorialConsequenceScore(item: EvidenceObject): number {
+	const text = `${item.title} ${item.summary} ${item.extracted_text}`.toLowerCase();
+	let score = (item.source_authority || 0.5) * 2;
+	if (/\b(?:emergency|warning|evacuat|outage|fire|shoot|stabb|killed|death|injur|hospital|charged|arrest|investigat|court|fraud|assault|public safety)\b/i.test(text)) score += 3;
+	if (/\b(?:council|government|mayor|minister|policy|budget|election|housing|transit|health|education|business|economy|infrastructure|strike|weather statement)\b/i.test(text)) score += 2;
+	if (/\b(?:puppy|pet adoption|cute as|horoscope|recipe|celebrity|lottery|contest|gift guide)\b/i.test(text)) score -= 4;
+	return score;
+}
+
+function evidenceTimestamp(item: EvidenceObject): number {
+	return Date.parse(item.event_at || item.updated_at || item.published_at || '') || 0;
 }
 
 function conflictingEvidenceStatement(evidence: EvidenceObject[]): string {
@@ -586,6 +622,7 @@ function wantsTable(prompt: string): boolean {
 
 function wantsDirectUrls(prompt: string): boolean {
 	return /\b(?:exact|direct|raw)\s+(?:links?|urls?)\b/i.test(prompt) ||
+		/\bdirect\s+(?:article(?:\s+or\s+official)?|official)\s+(?:links?|urls?)\b/i.test(prompt) ||
 		/\b(?:give|show|list|include)\b[\s\S]{0,40}\b(?:links?|urls?)\b/i.test(prompt);
 }
 
@@ -1077,7 +1114,6 @@ function publicCaveatsFor(
 		if (missingOutletCoverage) caveats.push(missingOutletCoverage);
 		return caveats;
 	}
-	if (providerConfigurationLimitation) caveats.push(providerConfigurationLimitation);
 	if (missingOutletCoverage) caveats.push(missingOutletCoverage);
 
 	if (needsPrimaryConfirmation(prompt, evidence)) {
@@ -1090,6 +1126,12 @@ function publicCaveatsFor(
 }
 
 function needsPrimaryConfirmation(prompt: string, evidence: EvidenceObject[]): boolean {
+	if (
+		/\b(?:briefing|roundup|headlines|top stories|latest .*news|assignment desk|newsroom producer)\b/i.test(prompt) &&
+		!/\b(?:verify|confirm|fact[- ]?check|what .* officially said|is (?:this|that|it) true)\b/i.test(prompt)
+	) {
+		return false;
+	}
 	if (!needsExplicitVerificationCaveat(prompt)) return false;
 	return !evidence.some((item) => item.source_kind === 'official' || item.source_kind === 'primary');
 }

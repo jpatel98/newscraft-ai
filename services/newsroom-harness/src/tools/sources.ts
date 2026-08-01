@@ -71,6 +71,49 @@ export interface FetchedSource {
 	robots?: PoliteFetchRobotsResult;
 }
 
+export interface DiscoveredSourceItems {
+	sourceUrl: string;
+	fetchedAt: string;
+	contentType: string | null;
+	statusCode: number | null;
+	adapter: SourceAdapterKind;
+	items: SourceItem[];
+}
+
+/**
+ * Read a source index through the same polite-fetch and adapter path used for
+ * article retrieval, while preserving every discovered item's direct URL and
+ * publication metadata. Feed/index pages are discovery inputs, never the URL
+ * cited for an individual finding.
+ */
+export async function discoverSourceItems(url: string, signal?: AbortSignal): Promise<DiscoveredSourceItems> {
+	const fetched = await politeFetch(url, {
+		signal,
+		cache: DEFAULT_SOURCE_CACHE ? { store: DEFAULT_SOURCE_CACHE } : undefined,
+		archive: { webArchive: DEFAULT_ARCHIVE_ENABLED },
+		ssrf: { allowPrivateNetwork: ALLOW_PRIVATE_SOURCE_FETCH }
+	});
+	const adapter = selectSourceAdapter({ url, contentType: fetched.contentType, body: fetched.body });
+	const items = await adapter.discover({
+		url,
+		body: fetched.body,
+		contentType: fetched.contentType,
+		fetchedAt: fetched.fetchedAt,
+		statusCode: fetched.statusCode,
+		contentHash: fetched.cache.contentHash,
+		archiveSnapshotUrl: fetched.archiveSnapshot.ok ? fetched.archiveSnapshot.snapshotUrl : null,
+		cache: fetched.cache
+	});
+	return {
+		sourceUrl: url,
+		fetchedAt: fetched.fetchedAt,
+		contentType: fetched.contentType,
+		statusCode: fetched.statusCode,
+		adapter: adapter.kind,
+		items
+	};
+}
+
 export async function fetchSourceUrl(url: string, signal?: AbortSignal): Promise<FetchedSource> {
 	const fetched = await politeFetch(url, {
 		signal,

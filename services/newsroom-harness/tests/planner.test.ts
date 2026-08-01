@@ -206,6 +206,7 @@ describe('planned agent loop', () => {
 		expect(searchInputs.every((input) => /Broad Toronto/i.test(input))).toBe(true);
 		expect(searchInputs.every((input) => !/\bsports\b/i.test(input))).toBe(true);
 		expect(result.plan.steps.map((step) => step.label)).toEqual([
+			'Scanning direct newsroom sources',
 			'Scanning major publisher coverage',
 			'Checking public safety and government desks',
 			'Checking official public-impact sources',

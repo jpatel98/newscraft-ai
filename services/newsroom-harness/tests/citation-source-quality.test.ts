@@ -641,6 +641,50 @@ describe('citation and source-quality web research', () => {
 		expect(cleanVisibleChatOutput(answer, 'Summarize the story.')).not.toContain('https://example.com/story');
 	});
 
+	it('prioritizes consequential same-day producer items and includes requested direct URLs', () => {
+		const prompt =
+			'Give me a same-day briefing of the latest consequential Toronto news, each with a direct article or official URL.';
+		const inputs = [
+			['weather-warning', 'Toronto weather warning affects evening travel', 'A weather warning is in effect for Toronto and could disrupt evening travel.'],
+			['council-housing', 'Toronto council approves housing policy', 'Toronto council approved a housing policy affecting thousands of residents.'],
+			['ttc-collision', 'Pedestrian injured in TTC collision', 'A pedestrian was taken to hospital after a collision involving a TTC streetcar.'],
+			['fraud-charges', 'Police lay fraud charges', 'Toronto police charged two people in a fraud investigation.'],
+			['hospital-plan', 'Hospital announces emergency capacity plan', 'A Toronto hospital announced an emergency capacity plan for this weekend.'],
+			['cute-puppy', 'Cute puppy needs a home', 'A cute puppy is available for pet adoption in Toronto.']
+		];
+		const evidence = inputs.map(([slug, title, summary], index) =>
+			normalizeEvidence({
+				source_name: 'Toronto Publisher',
+				source_url: `https://publisher.test/2026/08/01/${slug}`,
+				tool_used: NEWSROOM_TOOL_NAMES.sourceMonitor,
+				title,
+				extracted_text: summary,
+				summary,
+				published_at: `2026-08-01T${String(18 - index).padStart(2, '0')}:00:00.000Z`,
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'news_report',
+				citation_number: index + 1,
+				temporal_scope: 'primary',
+				ledger_status: 'accepted'
+			})
+		);
+
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence,
+			limitations: ['OpenAI web_search is not configured because OPENAI_API_KEY is missing.'],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain('https://publisher.test/2026/08/01/weather-warning');
+		expect(answer).toContain('https://publisher.test/2026/08/01/ttc-collision');
+		expect(answer).not.toContain('Cute puppy');
+		expect(answer).not.toContain('Live research is temporarily unavailable');
+	});
+
 	it('preserves an explicit publication date encoded in a direct article URL', async () => {
 		const url = 'https://www.bankofcanada.ca/2024/01/fad-press-release-2024-01-24/';
 		vi.stubGlobal(

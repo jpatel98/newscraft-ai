@@ -1220,16 +1220,36 @@ function coverageSweepPlan(
 		namedOnly: namedOutletOnly
 	});
 	if (!lanes.length) return plan;
+	const market = effectiveContract.location || effectiveContract.homeMarket || context.newsroomContext?.homeMarket || '';
+	const sourceScanInput = [
+		effectiveContract.subject,
+		market,
+		'current publisher feeds and configured primary-source monitors',
+		effectiveContract.excludedCategories.length
+			? `Exclude: ${effectiveContract.excludedCategories.join(', ')}.`
+			: ''
+	]
+		.filter(Boolean)
+		.join(' ');
 	return {
 		source: 'router',
-		reason: 'A broad current-news assignment needs independent coverage lanes before one final synthesis.',
-		steps: lanes.map((lane) => ({
-			tool: NEWSROOM_TOOL_NAMES.webSearch,
-			input: lane.query,
-			label: lane.label,
-			laneId: lane.id,
-			lanePurpose: `${lane.sourcePurpose}: ${lane.purpose}`
-		}))
+		reason: 'A broad current-news assignment needs direct source indexes plus independent coverage lanes before one final synthesis.',
+		steps: [
+			{
+				tool: NEWSROOM_TOOL_NAMES.sourceMonitor,
+				input: sourceScanInput,
+				label: 'Scanning direct newsroom sources',
+				laneId: 'direct_source_indexes',
+				lanePurpose: 'publisher and primary-source feeds: discover direct, dated story pages before broad search'
+			},
+			...lanes.map((lane) => ({
+				tool: NEWSROOM_TOOL_NAMES.webSearch,
+				input: lane.query,
+				label: lane.label,
+				laneId: lane.id,
+				lanePurpose: `${lane.sourcePurpose}: ${lane.purpose}`
+			}))
+		]
 	};
 }
 

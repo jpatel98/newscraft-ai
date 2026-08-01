@@ -7,7 +7,7 @@ vi.mock('node:dns/promises', () => ({
 	})
 }));
 
-import { fetchSourceUrl, extractSourceText, sourceFromText } from '../src/tools/sources.js';
+import { discoverSourceItems, fetchSourceUrl, extractSourceText, sourceFromText } from '../src/tools/sources.js';
 import { NEWSCRAFT_USER_AGENT, politeFetch, resetPoliteFetchStateForTests } from '../src/tools/polite-fetch.js';
 
 afterEach(() => {
@@ -286,5 +286,34 @@ describe('source extraction', () => {
 
 		expect(source.contentText).toContain('Published: 2026-05-30T13:00:00.000Z');
 		expect(source.contentText).not.toContain(source.fetchedAt);
+	});
+
+	it('discovers direct feed-item URLs and dates without collapsing them into the feed URL', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL) => {
+				if (String(input).endsWith('/robots.txt')) return new Response('', { status: 404 });
+				return new Response(
+					`<rss><channel>
+						<item><title>First Toronto article</title><link>https://publisher.test/news/first</link><description>Direct supporting details for the first Toronto story.</description><pubDate>Sat, 01 Aug 2026 18:00:00 GMT</pubDate></item>
+						<item><title>Second Toronto article</title><link>https://publisher.test/news/second</link><description>Direct supporting details for the second Toronto story.</description><pubDate>Sat, 01 Aug 2026 17:00:00 GMT</pubDate></item>
+					</channel></rss>`,
+					{ status: 200, headers: { 'content-type': 'application/rss+xml' } }
+				);
+			})
+		);
+
+		const discovered = await discoverSourceItems('https://publisher.test/toronto/feed/');
+
+		expect(discovered.adapter).toBe('rss');
+		expect(discovered.items.map((item) => item.url)).toEqual([
+			'https://publisher.test/news/first',
+			'https://publisher.test/news/second'
+		]);
+		expect(discovered.items.map((item) => item.publishedAt)).toEqual([
+			'2026-08-01T18:00:00.000Z',
+			'2026-08-01T17:00:00.000Z'
+		]);
+		expect(discovered.items.every((item) => item.provenance.sourceUrl === 'https://publisher.test/toronto/feed/')).toBe(true);
 	});
 });

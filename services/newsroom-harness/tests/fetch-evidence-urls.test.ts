@@ -2,16 +2,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deriveResearchRequestContract } from '@newscraft/shared';
 
 const fetchSourceUrlMock = vi.fn();
+const discoverSourceItemsMock = vi.fn();
 
 vi.mock('../src/tools/sources.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../src/tools/sources.js')>();
 	return {
 		...actual,
-		fetchSourceUrl: (...args: Parameters<typeof actual.fetchSourceUrl>) => fetchSourceUrlMock(...args)
+		fetchSourceUrl: (...args: Parameters<typeof actual.fetchSourceUrl>) => fetchSourceUrlMock(...args),
+		discoverSourceItems: (...args: Parameters<typeof actual.discoverSourceItems>) => discoverSourceItemsMock(...args)
 	};
 });
 
-const { fetchEvidenceUrls, sourceFetchTimeoutMs } = await import('../src/agents/default-tools.js');
+const { fetchEvidenceUrls, fetchSourceIndexEvidence, sourceFetchTimeoutMs } = await import('../src/agents/default-tools.js');
 
 function stubSource(url: string) {
 	return {
@@ -35,6 +37,7 @@ const context = { signal: undefined } as Parameters<typeof fetchEvidenceUrls>[2]
 
 afterEach(() => {
 	fetchSourceUrlMock.mockReset();
+	discoverSourceItemsMock.mockReset();
 	vi.unstubAllEnvs();
 });
 
@@ -124,6 +127,108 @@ describe('fetchEvidenceUrls', () => {
 
 		expect(fetchSourceUrlMock).toHaveBeenCalledTimes(1);
 		expect(evidence.map((item) => item.source_url)).toEqual([urls[0]]);
+	});
+});
+
+describe('fetchSourceIndexEvidence', () => {
+	it('emits diverse item-level citations from direct publisher feeds, never feed URLs', async () => {
+		discoverSourceItemsMock.mockImplementation(async (url: string) => ({
+			sourceUrl: url,
+			fetchedAt: '2026-08-01T18:30:00.000Z',
+			contentType: 'application/rss+xml',
+			statusCode: 200,
+			adapter: 'rss',
+			items: [0, 1].map((index) => ({
+				id: `${url}-${index}`,
+				url: `${url.replace(/\/feed\/?$/, '')}/story-${index + 1}`,
+				title: `Toronto publisher story ${index + 1}`,
+				summary: `The publisher reports substantive direct details for Toronto story ${index + 1} today.`,
+				contentText: `The publisher reports substantive direct details for Toronto story ${index + 1} today.`,
+				publishedAt: `2026-08-01T1${8 - index}:00:00.000Z`,
+				updatedAt: null,
+				provenance: { adapter: 'rss', sourceUrl: url, discoveredAt: '2026-08-01T18:30:00.000Z' }
+			}))
+		}));
+		const prompt = 'Latest consequential Toronto news today; exclude sports and cite direct articles.';
+		const researchContract = deriveResearchRequestContract(prompt, {
+			homeMarket: 'Toronto',
+			timezone: 'America/Toronto'
+		});
+		const feeds = ['https://one.test/feed/', 'https://two.test/feed/'];
+
+		const evidence = await fetchSourceIndexEvidence(feeds, 'configured_source_monitor', {
+			...context,
+			prompt,
+			researchContract,
+			newsroomContext: { timezone: 'America/Toronto', homeMarket: 'Toronto' }
+		} as Parameters<typeof fetchSourceIndexEvidence>[2], new Map([
+			[feeds[0], 'Publisher One'],
+			[feeds[1], 'Publisher Two']
+		]));
+
+		expect(evidence.map((item) => item.source_name)).toEqual([
+			'Publisher One',
+			'Publisher Two',
+			'Publisher One',
+			'Publisher Two'
+		]);
+		expect(evidence.every((item) => !feeds.includes(item.source_url))).toBe(true);
+		expect(evidence.every((item) => item.page_role === 'article' && item.published_at)).toBe(true);
+		expect(evidence.map((item) => item.provenance?.url)).toEqual([
+			feeds[0], feeds[1], feeds[0], feeds[1]
+		]);
+	});
+
+	it('keeps market aliases such as TTC while excluding off-market feed items', async () => {
+		discoverSourceItemsMock.mockResolvedValue({
+			sourceUrl: 'https://publisher.test/feed/',
+			fetchedAt: '2026-08-01T18:30:00.000Z',
+			contentType: 'application/rss+xml',
+			statusCode: 200,
+			adapter: 'rss',
+			items: [
+				{
+					id: 'ttc',
+					url: 'https://publisher.test/news/ttc-streetcar-collision',
+					title: 'Pedestrian injured after collision with TTC streetcar',
+					summary: 'Emergency crews responded after the collision on King Street East.',
+					contentText: 'Emergency crews responded after the collision on King Street East.',
+					publishedAt: '2026-08-01T18:00:00.000Z',
+					updatedAt: null,
+					provenance: { adapter: 'rss', sourceUrl: 'https://publisher.test/feed/', discoveredAt: '2026-08-01T18:30:00.000Z' }
+				},
+				{
+					id: 'hamilton',
+					url: 'https://publisher.test/news/hamilton-assault',
+					title: 'Hamilton police investigate fatal assault',
+					summary: 'Investigators responded on Wentworth Street in Hamilton.',
+					contentText: 'Investigators responded on Wentworth Street in Hamilton.',
+					publishedAt: '2026-08-01T17:00:00.000Z',
+					updatedAt: null,
+					provenance: { adapter: 'rss', sourceUrl: 'https://publisher.test/feed/', discoveredAt: '2026-08-01T18:30:00.000Z' }
+				}
+			]
+		});
+		const prompt = 'Latest consequential Toronto news today with direct articles.';
+		const researchContract = deriveResearchRequestContract(prompt, {
+			homeMarket: 'Toronto',
+			timezone: 'America/Toronto'
+		});
+
+		const evidence = await fetchSourceIndexEvidence(
+			['https://publisher.test/feed/'],
+			'configured_source_monitor',
+			{
+				...context,
+				prompt,
+				researchContract,
+				newsroomContext: { timezone: 'America/Toronto', homeMarket: 'Toronto' }
+			} as Parameters<typeof fetchSourceIndexEvidence>[2]
+		);
+
+		expect(evidence.map((item) => item.title)).toEqual([
+			'Pedestrian injured after collision with TTC streetcar'
+		]);
 	});
 });
 

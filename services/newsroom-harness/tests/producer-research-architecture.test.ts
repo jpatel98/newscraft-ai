@@ -301,6 +301,10 @@ describe('producer-grade research architecture', () => {
 		});
 		const result = await agent.run(REQUEST, { outputStyle: 'chat' });
 
+		expect(result.plan.steps[0]).toMatchObject({
+			tool: 'configured_source_monitor',
+			label: 'Scanning direct newsroom sources'
+		});
 		expect(calls).toBe(4);
 		expect(result.evidence.length).toBe(6);
 		expect(result.evidence.every((item) => item.page_role === 'article' || item.page_role === 'official_live')).toBe(true);
