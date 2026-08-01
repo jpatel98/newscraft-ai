@@ -207,11 +207,19 @@ function producerRoundupSelection(prompt: string, evidence: EvidenceObject[]): E
 		return evidence;
 	}
 	const rank = (items: EvidenceObject[]) => [...items].sort((left, right) => {
-		const priority = editorialConsequenceScore(right) - editorialConsequenceScore(left);
-		if (priority) return priority;
-		return evidenceTimestamp(right) - evidenceTimestamp(left);
+		const recency = evidenceTimestamp(right) - evidenceTimestamp(left);
+		if (recency) return recency;
+		return editorialConsequenceScore(right) - editorialConsequenceScore(left);
 	});
-	const primary = evidence.filter((item) => item.temporal_scope !== 'fallback' && item.temporal_scope !== 'background');
+	const sameDayRequired = requiresSameDayEvidence(prompt);
+	const primary = evidence.filter((item) => {
+		if (item.temporal_scope === 'fallback' || item.temporal_scope === 'background') return false;
+		// A live or official page without a publication/update time can be useful
+		// context, but it cannot satisfy an explicit same-day producer assignment.
+		// The temporal guard marks verified in-window evidence as primary.
+		if (sameDayRequired) return item.temporal_scope === 'primary' && evidenceTimestamp(item) > 0;
+		return true;
+	});
 	const fallback = evidence.filter((item) => !primary.includes(item));
 	const strongPrimary = rank(primary.filter((item) => editorialConsequenceScore(item) >= 0));
 	const selected: EvidenceObject[] = [];
@@ -234,7 +242,7 @@ function producerRoundupSelection(prompt: string, evidence: EvidenceObject[]): E
 			if (selected.length >= 6) break;
 		}
 	}
-	if (selected.length < 5 && !requiresSameDayEvidence(prompt)) {
+	if (selected.length < 5 && !sameDayRequired) {
 		for (const item of rank(fallback).filter((candidate) => editorialConsequenceScore(candidate) >= 0)) {
 			addUnique(item);
 			if (selected.length >= 5) break;
@@ -262,7 +270,7 @@ function sameProducerStory(left: EvidenceObject, right: EvidenceObject): boolean
 	const rightTerms = producerStoryTerms(right.title);
 	if (!leftTerms.size || !rightTerms.size) return false;
 	const overlap = [...leftTerms].filter((term) => rightTerms.has(term)).length;
-	return overlap >= 3 && overlap / Math.min(leftTerms.size, rightTerms.size) >= 0.4;
+	return overlap >= 3 && overlap / Math.min(leftTerms.size, rightTerms.size) >= 1 / 3;
 }
 
 function producerStoryTerms(value: string): Set<string> {

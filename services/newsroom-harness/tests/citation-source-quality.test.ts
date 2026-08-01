@@ -693,10 +693,12 @@ describe('citation and source-quality web research', () => {
 		const prompt =
 			'Give me a same-day Toronto briefing for August 1, 2026 with direct article URLs. If coverage is incomplete, say what you found.';
 		const inputs = [
-			['https://one.test/2026/08/01/east-york-church', 'Man tossed rocks through East York church window', 'Investigators are treating the church incidents as hate-motivated mischief.', '2026-08-01T20:25:00.000Z', 'primary'],
+			['https://one.test/2026/08/01/east-york-church', 'Man allegedly tossed rocks through East York church window three times', 'Investigators are treating the church incidents as hate-motivated mischief.', '2026-08-01T20:25:00.000Z', 'primary'],
 			['https://two.test/2026/08/01/east-york-church', 'Man charged after rocks thrown through East York church window', 'Police charged a man after rocks were thrown through an East York church window.', '2026-08-01T20:15:00.000Z', 'primary'],
 			['https://three.test/2026/08/01/weather', 'Toronto under heavy rainfall statement', 'A special weather statement warns of heavy rainfall in Toronto.', '2026-08-01T19:38:00.000Z', 'primary'],
-			['https://four.test/2026/07/27/old-story', 'Older Toronto background story', 'An older background story was published several days ago.', '2026-07-27T12:00:00.000Z', 'background']
+			['https://four.test/2026/08/01/streetcar-collision', 'Pedestrian seriously injured after TTC streetcar collision', 'A pedestrian was taken to hospital after a TTC streetcar collision.', '2026-08-01T18:45:00.000Z', 'primary'],
+			['https://five.test/live/annual-plan', '2026 annual transit plan', 'The transit agency publishes its annual network plan.', null, 'primary'],
+			['https://six.test/2026/07/27/old-story', 'Older Toronto background story', 'An older background story was published several days ago.', '2026-07-27T12:00:00.000Z', 'background']
 		] as const;
 		const evidence = inputs.map(([url, title, summary, publishedAt, temporalScope], index) =>
 			normalizeEvidence({
@@ -728,7 +730,11 @@ describe('citation and source-quality web research', () => {
 
 		expect(answer.match(/east-york-church/g)).toHaveLength(1);
 		expect(answer).toContain('https://three.test/2026/08/01/weather');
+		expect(answer).toContain('https://four.test/2026/08/01/streetcar-collision');
+		expect(answer.indexOf('/weather')).toBeLessThan(answer.indexOf('/streetcar-collision'));
+		expect(answer).not.toContain('/live/annual-plan');
 		expect(answer).not.toContain('2026/07/27/old-story');
+		expect(answer).toContain('Coverage is incomplete; I found 3 distinct same-day items');
 	});
 
 	it('repairs provider-local duplicate citation numbers before final integrity filtering', () => {
