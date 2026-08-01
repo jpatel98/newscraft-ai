@@ -372,7 +372,18 @@ export function classifyEvidencePageRole(
 	if (!path || /^\/(?:news|toronto|canada|world|local|latest|search|video|videos|watch|listen|player)?$/.test(path) || /\b(?:homepage|section|latest news|player|video hub|search results)\b/.test(title.toLowerCase())) return 'hub';
 	if (sourceKind === 'official' || sourceKind === 'primary') return 'official_live';
 	if (sourceKind === 'news_report' || sourceKind === 'media_report') return 'article';
+	if (looksLikeDirectArticlePath(path)) return 'article';
 	return 'background';
+}
+
+function looksLikeDirectArticlePath(path: string): boolean {
+	const segments = path.split('/').filter(Boolean);
+	if (!segments.length) return false;
+	const finalSegment = segments.at(-1) || '';
+	if (/^20\d{2}$/.test(finalSegment) || /^(?:index|default|home|latest|news|local|world|canada|toronto)$/.test(finalSegment)) return false;
+	if (/\/20\d{2}\/(?:0?[1-9]|1[0-2])\/(?:0?[1-9]|[12]\d|3[01])\//.test(`${path}/`)) return true;
+	if (segments.length >= 2 && /(?:^|\/)(?:article|articles|story|stories|news|local)\//.test(path)) return true;
+	return finalSegment.split(/[-_]/).filter((part) => part.length > 1).length >= 4;
 }
 
 function stableEvidenceId(url: string, title: string, publishedAt: string | null): string {

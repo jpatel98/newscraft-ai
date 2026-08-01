@@ -7,13 +7,15 @@ import {
 } from '@newscraft/shared';
 import { draftNewsroomOcvoFromConversation } from '../src/agents/answer.js';
 import { buildProducerCoverageLanes } from '../src/agents/coverage-planner.js';
-import { normalizeEvidence, type EvidenceObject } from '../src/agents/evidence.js';
+import { classifyEvidencePageRole, normalizeEvidence, type EvidenceObject } from '../src/agents/evidence.js';
 import { DisciplinedNewsroomAgent } from '../src/agents/newsroom-agent.js';
 import { ToolRegistry, type NewsroomTool, type ToolCategory, type ToolRunOutput } from '../src/agents/tools.js';
 
 const NOW = '2026-08-01T16:00:00.000Z';
 const REQUEST =
 	'Broad Toronto assignment-desk briefing requesting six verified non-sports stories published or updated today, with direct article/official citations; exclude sports, event listings, traffic aggregators, homepages, category pages, hubs, forums, Reddit and evergreen material.';
+const VERBOSE_PRODUCER_REQUEST =
+	'Act as a Toronto newsroom producer. Give me a same-day briefing for August 1, 2026 in America/Toronto of the latest consequential Toronto stories. Search broadly across major local outlets and official sources. Exclude sports. Return five to eight items, newest first, each with published or updated time, why it matters, and a direct article or official URL. Do not cite homepages, section pages, aggregators, social posts, or event listings. If coverage is incomplete, say what you found instead of failing.';
 
 function contractFor(request = REQUEST): ResearchRequestContract {
 	return deriveResearchRequestContract(request, { timezone: 'America/Toronto', homeMarket: 'Toronto' });
@@ -194,6 +196,41 @@ function excludedFixtureEvidence(): EvidenceObject[] {
 }
 
 describe('producer-grade research architecture', () => {
+	it('separates a verbose producer assignment from search and output instructions', () => {
+		const contract = contractFor(VERBOSE_PRODUCER_REQUEST);
+		expect(contract.subject).toBe('latest consequential Toronto stories');
+		expect(contract).toMatchObject({
+			location: 'Toronto',
+			requestedItemCount: 8,
+			allowFewerThanRequested: true
+		});
+		expect(contract.excludedCategories).toContain('sports');
+		expect(contract.requiredOutputFields).toEqual(expect.arrayContaining([
+			'direct_article_or_official_citations',
+			'publication_time'
+		]));
+
+		const lanes = buildProducerCoverageLanes(contract, {
+			homeMarket: 'Toronto',
+			preferredDomains: ['cbc.ca', 'ctvnews.ca'],
+			sourceProfile: { officialSourceDomains: ['toronto.ca'] }
+		});
+		expect(lanes[0].query).toContain('latest consequential Toronto stories');
+		expect(lanes[0].query).toContain('cbc.ca, ctvnews.ca');
+		expect(lanes[1].query).toContain('toronto.ca');
+		expect(lanes.every((lane) => !/Act as|Return five|Do not cite|coverage is incomplete/i.test(lane.query))).toBe(true);
+	});
+
+	it('accepts unfamiliar direct article paths without admitting hubs or documents', () => {
+		expect(classifyEvidencePageRole(
+			'https://localpublisher.example/news/toronto/council-approves-housing-measure',
+			'Toronto council approves housing measure',
+			'unknown'
+		)).toBe('article');
+		expect(classifyEvidencePageRole('https://localpublisher.example/news', 'Latest news', 'unknown')).toBe('hub');
+		expect(classifyEvidencePageRole('https://localpublisher.example/files/council-report.pdf', 'Council report', 'unknown')).toBe('document');
+	});
+
 	it('derives a durable latest-turn contract and distinct compliant coverage lanes', () => {
 		const contract = contractFor();
 		expect(contract).toMatchObject({

@@ -113,7 +113,7 @@ export function deriveResearchRequestContract(
 	]);
 	const temporalWindow = temporalWindowFor(text, options.timezone, base?.temporalWindow);
 	const allowFewerThanRequested =
-		/\b(?:allow|fewer than|less than|up to|at most|partial|verified subset|if available|when available)\b/i.test(text) ||
+		/\b(?:allow|fewer than|less than|up to|at most|partial|verified subset|if available|when available|coverage is incomplete|coverage is thin|say what (?:you|was) found)\b/i.test(text) ||
 		base?.allowFewerThanRequested === true;
 	const partialAnswerPolicy: ResearchPartialAnswerPolicy = allowFewerThanRequested
 		? 'verified_subset_with_leads'
@@ -196,10 +196,15 @@ export function isCorrectionOrConstraintTurn(value: string): boolean {
 }
 
 function subjectFromRequest(value: string): string {
-	let subject = value
+	const assignment = primaryAssignmentSentence(value);
+	let subject = assignment
 		.replace(/https?:\/\/\S+/gi, ' ')
 		.replace(/^\s*(?:correction|actually|i mean)\s*[:,-]?\s*/i, '')
 		.replace(/^\s*i mean\s*[:,-]?\s*/i, '')
+		.replace(
+			/^\s*(?:give|provide|prepare|create|write|send|show)\s+(?:me|us)\s+(?:an?\s+)?(?:(?:same[- ]day|daily|morning|evening|current|latest)\s+)?(?:(?:newsroom|news|producer|assignment[- ]desk)\s+)?(?:briefing|brief|roundup|digest|update)\s+(?:(?:for|as of|dated)\s+.{1,160}?\s+)?(?:of|about|on)\s+(?:the\s+)?/i,
+			''
+		)
 		.replace(/\b(?:published|updated|posted|issued|reported)(?:\s+(?:or|and)\s+(?:published|updated|posted|issued|reported))*\s+(?:today|tonight|yesterday|this week|in the last[^,;.]+)\b/gi, ' ')
 		.replace(/\b(?:direct|specific|readable)\s+(?:(?:article)(?:\/official)?|official)\s+(?:page|citations?|sources?)\b/gi, ' ')
 		.replace(/\b(?:requesting|asking for)\s+(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:(?:verified|non[- ]sports?|same[- ]day|direct)\s+)*(?:news\s+)?(?:stories|items|briefs?|headlines?|updates?)\b/gi, ' ')
@@ -212,6 +217,22 @@ function subjectFromRequest(value: string): string {
 		.trim();
 	if (!subject || /^(?:exclude|excluding|without|allow|also|and|but|please)\b/i.test(subject)) return value.trim();
 	return subject.slice(0, 2000).trim();
+}
+
+/**
+ * Keep the assignment itself separate from search strategy and presentation
+ * instructions. The structured contract carries those constraints in their
+ * own fields; repeating them in the subject pollutes every downstream query.
+ */
+function primaryAssignmentSentence(value: string): string {
+	const withoutRole = value
+		.replace(/^\s*act as\b[^.!?]{0,240}[.!?]\s*/i, '')
+		.trim();
+	const sentences = withoutRole.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).filter(Boolean);
+	const assignment = sentences.find(
+		(sentence) => !/^(?:search|scan|check|look up|return|format|rank|sort|include|exclude|excluding|without|do not|don't|cite|use|if\b|when\b)\b/i.test(sentence)
+	);
+	return assignment || withoutRole || value.trim();
 }
 
 function extractRequestedItemCount(value: string): number | undefined {

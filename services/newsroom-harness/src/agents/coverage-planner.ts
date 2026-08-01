@@ -56,7 +56,7 @@ export function buildProducerCoverageLanes(
 			sourcePurpose,
 			targetDesks,
 			domainHints: hints,
-			query: laneQuery(contract, market, purpose, targetDesks)
+			query: laneQuery(contract, market, purpose, targetDesks, hints)
 		});
 	};
 
@@ -164,10 +164,19 @@ function laneQuery(
 	contract: ResearchRequestContract,
 	market: string,
 	purpose: string,
-	targetDesks: string[]
+	targetDesks: string[],
+	domainHints: string[]
 ): string {
 	const location = market ? ` in ${market}` : '';
 	const deskHint = targetDesks.length ? ` Target desks: ${targetDesks.join(', ')}.` : '';
+	const sourceHint = domainHints.length
+		? ` Check these relevant source domains as part of the sweep: ${domainHints.slice(0, 12).join(', ')}.`
+		: '';
+	const temporalHint = contract.temporalWindow.start && contract.temporalWindow.end
+		? ` Freshness window: ${contract.temporalWindow.start} through ${contract.temporalWindow.end}${contract.temporalWindow.label ? ` (${contract.temporalWindow.label})` : ''}.`
+		: contract.temporalWindow.phrase
+			? ` Freshness window: ${contract.temporalWindow.phrase}.`
+			: '';
 	const referenceHint = contract.referenceUrls.length
 		? ` Resolve matching reference leads directly when relevant: ${contract.referenceUrls.slice(0, 4).join(', ')}.`
 		: '';
@@ -176,6 +185,8 @@ function laneQuery(
 		location,
 		purpose,
 		deskHint,
+		sourceHint,
+		temporalHint,
 		referenceHint,
 		'Search the request window. Return direct article or official pages with publication/update times and supporting excerpts.',
 		'Apply the structured request contract for exclusions and the partial-answer policy.'
