@@ -689,6 +689,48 @@ describe('citation and source-quality web research', () => {
 		expect(answer).not.toContain('Live research is temporarily unavailable');
 	});
 
+	it('keeps same-day briefings unique and never pads them with stale background', () => {
+		const prompt =
+			'Give me a same-day Toronto briefing for August 1, 2026 with direct article URLs. If coverage is incomplete, say what you found.';
+		const inputs = [
+			['https://one.test/2026/08/01/east-york-church', 'Man tossed rocks through East York church window', 'Investigators are treating the church incidents as hate-motivated mischief.', '2026-08-01T20:25:00.000Z', 'primary'],
+			['https://two.test/2026/08/01/east-york-church', 'Man charged after rocks thrown through East York church window', 'Police charged a man after rocks were thrown through an East York church window.', '2026-08-01T20:15:00.000Z', 'primary'],
+			['https://three.test/2026/08/01/weather', 'Toronto under heavy rainfall statement', 'A special weather statement warns of heavy rainfall in Toronto.', '2026-08-01T19:38:00.000Z', 'primary'],
+			['https://four.test/2026/07/27/old-story', 'Older Toronto background story', 'An older background story was published several days ago.', '2026-07-27T12:00:00.000Z', 'background']
+		] as const;
+		const evidence = inputs.map(([url, title, summary, publishedAt, temporalScope], index) =>
+			normalizeEvidence({
+				source_name: `Publisher ${index + 1}`,
+				source_url: url,
+				tool_used: NEWSROOM_TOOL_NAMES.sourceMonitor,
+				title,
+				extracted_text: summary,
+				summary,
+				published_at: publishedAt,
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'news_report',
+				citation_number: index + 1,
+				temporal_scope: temporalScope,
+				ledger_status: 'accepted'
+			})
+		);
+
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence,
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat',
+			timeZone: 'America/Toronto'
+		});
+
+		expect(answer.match(/east-york-church/g)).toHaveLength(1);
+		expect(answer).toContain('https://three.test/2026/08/01/weather');
+		expect(answer).not.toContain('2026/07/27/old-story');
+	});
+
 	it('repairs provider-local duplicate citation numbers before final integrity filtering', () => {
 		const prompt =
 			'Give me a same-day briefing of the latest consequential Toronto news, each with a direct article URL.';
@@ -721,7 +763,7 @@ describe('citation and source-quality web research', () => {
 		const guarded = enforceFinalCitationIntegrity(generated, evidence);
 
 		expect(new Set(evidence.map((item) => item.citation_number)).size).toBe(5);
-		expect(guarded.match(/^- /gm)).toHaveLength(5);
+		expect(new Set(guarded.match(/https:\/\/publisher\d\.test\/2026\/08\/01\/story-\d/g))).toHaveLength(5);
 		expect(guarded).toContain('https://publisher1.test/2026/08/01/story-1');
 		expect(guarded).toContain('https://publisher5.test/2026/08/01/story-5');
 	});

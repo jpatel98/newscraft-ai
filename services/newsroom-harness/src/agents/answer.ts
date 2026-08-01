@@ -188,6 +188,16 @@ function groundedEvidenceChatAnswer(
 	if (!statements.length) {
 		return "I couldn't verify a complete claim from the remaining topic- and date-matched source text.";
 	}
+	if (producerBriefing) {
+		return [
+			'**Latest producer roundup**',
+			'',
+			...statements.map((statement) => `- ${statement}`),
+			...(statements.length < 5
+				? ['', `Coverage is incomplete; I found ${statements.length} distinct same-day item${statements.length === 1 ? '' : 's'} that met the source and freshness requirements.`]
+				: [])
+		].join('\n');
+	}
 	if (statements.length === 1) return statements[0];
 	return ['**Latest producer roundup**', '', ...statements.map((statement) => `- ${statement}`)].join('\n');
 }
@@ -206,18 +216,29 @@ function producerRoundupSelection(prompt: string, evidence: EvidenceObject[]): E
 	const strongPrimary = rank(primary.filter((item) => editorialConsequenceScore(item) >= 0));
 	const selected: EvidenceObject[] = [];
 	const publisherCounts = new Map<string, number>();
-	for (const item of strongPrimary) {
+	const addUnique = (item: EvidenceObject, publisherLimit?: number): boolean => {
+		if (selected.some((existing) => sameProducerStory(existing, item))) return false;
 		const publisher = evidencePublisherKey(item);
-		if ((publisherCounts.get(publisher) || 0) >= 2) continue;
+		if (publisherLimit && (publisherCounts.get(publisher) || 0) >= publisherLimit) return false;
 		selected.push(item);
 		publisherCounts.set(publisher, (publisherCounts.get(publisher) || 0) + 1);
+		return true;
+	};
+	for (const item of strongPrimary) {
+		addUnique(item, 2);
 		if (selected.length >= 6) break;
 	}
-	if (selected.length < 5) {
-		selected.push(...rank(primary.filter((item) => !selected.includes(item))).slice(0, 5 - selected.length));
+	if (selected.length < 6) {
+		for (const item of strongPrimary) {
+			addUnique(item);
+			if (selected.length >= 6) break;
+		}
 	}
-	if (selected.length < 5) {
-		selected.push(...rank(fallback).slice(0, 5 - selected.length));
+	if (selected.length < 5 && !requiresSameDayEvidence(prompt)) {
+		for (const item of rank(fallback).filter((candidate) => editorialConsequenceScore(candidate) >= 0)) {
+			addUnique(item);
+			if (selected.length >= 5) break;
+		}
 	}
 	return selected.sort((left, right) => evidenceTimestamp(right) - evidenceTimestamp(left));
 }
@@ -234,6 +255,29 @@ function evidencePublisherKey(item: EvidenceObject): string {
 	} catch {
 		return item.source_url.toLowerCase();
 	}
+}
+
+function sameProducerStory(left: EvidenceObject, right: EvidenceObject): boolean {
+	const leftTerms = producerStoryTerms(left.title);
+	const rightTerms = producerStoryTerms(right.title);
+	if (!leftTerms.size || !rightTerms.size) return false;
+	const overlap = [...leftTerms].filter((term) => rightTerms.has(term)).length;
+	return overlap >= 3 && overlap / Math.min(leftTerms.size, rightTerms.size) >= 0.4;
+}
+
+function producerStoryTerms(value: string): Set<string> {
+	const ignored = new Set([
+		'against', 'after', 'allegedly', 'following', 'from', 'into', 'latest', 'local',
+		'man', 'news', 'over', 'suspected', 'the', 'three', 'toronto', 'with'
+	]);
+	return new Set(
+		(value.toLowerCase().match(/[a-z0-9]{3,}/g) || [])
+			.filter((term) => !ignored.has(term))
+	);
+}
+
+function requiresSameDayEvidence(prompt: string): boolean {
+	return /\b(?:same[- ]day|today|tonight)\b|\bfor\s+[A-Z][a-z]{2,8}\s+\d{1,2},\s+20\d{2}\b/i.test(prompt);
 }
 
 function producerTimestamp(value: string, timeZone?: string): string {
@@ -323,7 +367,7 @@ function completeEvidenceStatement(item: EvidenceObject): string {
 		.replace(/^\([a-z0-9.-]+\)\s*/i, '')
 		.replace(/^\d+[.)]\s*/, '')
 		.trim();
-	if (!candidate || /(?:\.\.\.|…)(?:\s*\[\d+\])?$/.test(candidate)) return '';
+	if (!candidate) return evidenceHeadlineStatement(item);
 	const sentences = candidate.split(/(?<=[.!?])\s+/);
 	const complete = sentences.find(
 		(sentence) =>
@@ -332,8 +376,14 @@ function completeEvidenceStatement(item: EvidenceObject): string {
 			!looksLikeHeadlineBlob(sentence)
 	);
 	if (complete) return complete.replace(/\s*\[\d+\]\s*$/, '').trim();
-	if (candidate.length < 20 || looksLikeHeadlineBlob(candidate)) return '';
+	if (/(?:\.\.\.|…)(?:\s*\[\d+\])?$/.test(candidate)) return evidenceHeadlineStatement(item);
+	if (candidate.length < 20 || looksLikeHeadlineBlob(candidate)) return evidenceHeadlineStatement(item);
 	return ensureTerminalPunctuation(candidate.replace(/\s*\[\d+\]\s*$/, '').trim());
+}
+
+function evidenceHeadlineStatement(item: EvidenceObject): string {
+	const title = item.title.trim();
+	return title.length >= 20 ? ensureTerminalPunctuation(title) : '';
 }
 
 function withImplicitCitationNumbers(evidence: EvidenceObject[]): EvidenceObject[] {
