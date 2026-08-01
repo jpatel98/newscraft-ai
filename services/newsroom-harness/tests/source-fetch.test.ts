@@ -7,7 +7,13 @@ vi.mock('node:dns/promises', () => ({
 	})
 }));
 
-import { discoverSourceItems, fetchSourceUrl, extractSourceText, sourceFromText } from '../src/tools/sources.js';
+import {
+	discoverSourceItems,
+	fetchSourceUrl,
+	extractSourceText,
+	sourceFetchRuntimeDefaults,
+	sourceFromText
+} from '../src/tools/sources.js';
 import { NEWSCRAFT_USER_AGENT, politeFetch, resetPoliteFetchStateForTests } from '../src/tools/polite-fetch.js';
 
 afterEach(() => {
@@ -17,6 +23,24 @@ afterEach(() => {
 });
 
 describe('source extraction', () => {
+	it('avoids filesystem cache and implicit archiving in stateless serverless runtimes', () => {
+		expect(sourceFetchRuntimeDefaults({ VERCEL: '1' })).toEqual({
+			useFileCache: false,
+			archiveEnabled: false
+		});
+		expect(
+			sourceFetchRuntimeDefaults({
+				VERCEL: '1',
+				NEWSROOM_SOURCE_CACHE_DIR: '/tmp/newscraft-cache',
+				NEWSROOM_ARCHIVE_SNAPSHOT: '1'
+			})
+		).toEqual({
+			useFileCache: true,
+			cacheRoot: '/tmp/newscraft-cache',
+			archiveEnabled: true
+		});
+	});
+
 	it('summarizes section pages as headline lists instead of navigation text', () => {
 		const html = `
 			<html>

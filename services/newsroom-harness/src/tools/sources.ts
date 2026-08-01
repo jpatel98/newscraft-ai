@@ -45,10 +45,33 @@ export type {
 const MAX_SOURCE_TEXT_CHARS = 8_000;
 const MAX_SOURCE_SUMMARY_CHARS = 420;
 const MAX_SOURCE_LINE_CHARS = 650;
-const DEFAULT_SOURCE_CACHE = process.env.VITEST === 'true'
-	? undefined
-	: createFilePoliteFetchCache(process.env.NEWSROOM_SOURCE_CACHE_DIR);
-const DEFAULT_ARCHIVE_ENABLED = process.env.NEWSROOM_ARCHIVE_SNAPSHOT !== '0' && process.env.VITEST !== 'true';
+
+export function sourceFetchRuntimeDefaults(env: NodeJS.ProcessEnv = process.env): {
+	useFileCache: boolean;
+	cacheRoot?: string;
+	archiveEnabled: boolean;
+} {
+	const cacheRoot = env.NEWSROOM_SOURCE_CACHE_DIR?.trim() || undefined;
+	const statelessRuntime =
+		env.VERCEL === '1' ||
+		Boolean(env.AWS_LAMBDA_FUNCTION_NAME) ||
+		/^AWS_Lambda_/i.test(env.AWS_EXECUTION_ENV || '');
+	return {
+		useFileCache: Boolean(cacheRoot) || !statelessRuntime,
+		...(cacheRoot ? { cacheRoot } : {}),
+		archiveEnabled:
+			env.NEWSROOM_ARCHIVE_SNAPSHOT === '1' ||
+			(!statelessRuntime && env.NEWSROOM_ARCHIVE_SNAPSHOT !== '0')
+	};
+}
+
+const SOURCE_FETCH_RUNTIME_DEFAULTS = sourceFetchRuntimeDefaults();
+const DEFAULT_SOURCE_CACHE =
+	process.env.VITEST === 'true' || !SOURCE_FETCH_RUNTIME_DEFAULTS.useFileCache
+		? undefined
+		: createFilePoliteFetchCache(SOURCE_FETCH_RUNTIME_DEFAULTS.cacheRoot);
+const DEFAULT_ARCHIVE_ENABLED =
+	process.env.VITEST !== 'true' && SOURCE_FETCH_RUNTIME_DEFAULTS.archiveEnabled;
 const ALLOW_PRIVATE_SOURCE_FETCH =
 	process.env.NEWSROOM_ALLOW_PRIVATE_SOURCE_FETCH === '1' || process.env.VITEST === 'true';
 

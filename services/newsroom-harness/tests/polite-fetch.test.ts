@@ -142,6 +142,41 @@ describe('politeFetch', () => {
 		expect(secondHeaders.get('if-modified-since')).toBe('Sun, 24 May 2026 12:00:00 GMT');
 	});
 
+	it('keeps a successful source response when the optional cache is unavailable', async () => {
+		const cache = {
+			read: vi.fn(async () => {
+				throw new Error('read-only cache');
+			}),
+			write: vi.fn(async () => {
+				throw new Error('read-only cache');
+			})
+		};
+		const fetchMock = vi.fn(async () =>
+			new Response('live newsroom body', {
+				status: 200,
+				headers: { 'content-type': 'text/plain' }
+			})
+		);
+
+		const result = await politeFetch('https://example.test/live-story', {
+			fetchImpl: fetchMock as typeof fetch,
+			rateLimit: { hostDelayMs: 0 },
+			robots: { respect: false },
+			ssrf: { resolveHost: async () => ['93.184.216.34'] },
+			cache: { store: cache }
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			statusCode: 200,
+			body: 'live newsroom body',
+			cacheStatus: 'bypass'
+		});
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(cache.read).toHaveBeenCalledTimes(1);
+		expect(cache.write).toHaveBeenCalledTimes(1);
+	});
+
 	it('can request a web.archive.org snapshot for fetched documents', async () => {
 		const fetchMock = vi.fn(async () => new Response('archive me', { status: 200 }));
 		const archiveFetch = vi.fn(async () => {

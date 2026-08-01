@@ -177,7 +177,16 @@ export async function politeFetch(url: string, options: PoliteFetchOptions = {})
 	await assertSafeFetchTarget(parsed, options);
 	const fetchImpl = options.fetchImpl ?? fetch;
 	const cacheStore = options.cache?.store;
-	const cachedEntry = options.cache?.read === false || !cacheStore ? null : await cacheStore.read(url);
+	let cachedEntry: PoliteFetchCachedEntry | null = null;
+	if (options.cache?.read !== false && cacheStore) {
+		try {
+			cachedEntry = await cacheStore.read(url);
+		} catch {
+			// A cache is an optimization. Read-only/stateless runtimes and a
+			// damaged cache must never prevent a live source fetch.
+			cachedEntry = null;
+		}
+	}
 	const robots = await checkRobots(url, options);
 
 	if (!robots.allowed) {
@@ -248,6 +257,7 @@ export async function politeFetch(url: string, options: PoliteFetchOptions = {})
 	const cache = cacheMetadata(response, body);
 	const contentType = response.headers.get('content-type');
 	const archiveSnapshot = await archiveFetchedDocument(url, fetchedAt, response.status, contentType, cache, body, options, cachedEntry);
+	let cacheStatus: PoliteFetchCacheStatus = cacheStore ? (response.ok ? 'stored' : 'miss') : 'bypass';
 	const result: PoliteFetchResult = {
 		url,
 		fetchedAt,
@@ -257,21 +267,28 @@ export async function politeFetch(url: string, options: PoliteFetchOptions = {})
 		statusCode: response.status,
 		ok: response.ok,
 		cache,
-		cacheStatus: cacheStore ? (response.ok ? 'stored' : 'miss') : 'bypass',
+		cacheStatus,
 		archiveSnapshot,
 		robots,
 	};
 
 	if (cacheStore && options.cache?.write !== false && response.ok) {
-		await cacheStore.write({
-			url,
-			fetchedAt,
-			statusCode: response.status,
-			contentType: result.contentType,
-			body,
-			cache,
-			archiveSnapshot,
-		});
+		try {
+			await cacheStore.write({
+				url,
+				fetchedAt,
+				statusCode: response.status,
+				contentType: result.contentType,
+				body,
+				cache,
+				archiveSnapshot,
+			});
+		} catch {
+			// Preserve the successful network response when the optional cache
+			// cannot be written (for example on a serverless read-only volume).
+			cacheStatus = 'bypass';
+			result.cacheStatus = cacheStatus;
+		}
 	}
 
 	return result;
