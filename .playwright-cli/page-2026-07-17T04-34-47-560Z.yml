@@ -1,0 +1,201 @@
+- generic [active] [ref=f1e1]:
+  - link "Skip to content" [ref=f1e2] [cursor=pointer]:
+    - /url: "#main"
+  - navigation "Primary" [ref=f1e3]:
+    - generic [ref=f1e4]:
+      - link "NewsCraft AI home" [ref=f1e5] [cursor=pointer]:
+        - /url: /
+        - text: NewsCraft AI
+      - link "Open Agent" [ref=f1e7] [cursor=pointer]:
+        - /url: https://agent.newscraftai.com
+  - main [ref=f1e8]:
+    - region [ref=f1e9]:
+      - generic [ref=f1e10]:
+        - generic [ref=f1e11]:
+          - generic [ref=f1e12]: Newsroom agent · live research · editorial drafts
+          - heading "Ask naturally. Get answers your newsroom can use." [level=1] [ref=f1e13]
+          - paragraph [ref=f1e14]: NewsCraft AI is a chat-first agent for producers, editors, and reporters. It answers ordinary requests directly, then switches into source-backed research when a question needs current facts, verification, or coverage comparison.
+          - generic [ref=f1e15]:
+            - link "Open Agent" [ref=f1e16] [cursor=pointer]:
+              - /url: https://agent.newscraftai.com
+            - link "See what it does →" [ref=f1e17] [cursor=pointer]:
+              - /url: "#agent"
+          - generic [ref=f1e18]:
+            - generic [ref=f1e19]: Direct chat
+            - generic [ref=f1e21]: Live source checks
+            - generic [ref=f1e23]: Briefs, tables, scripts
+        - complementary "NewsCraft AI chat preview" [ref=f1e25]:
+          - generic [ref=f1e26]: agent.newscraftai.com · live thread
+          - generic [ref=f1e31]:
+            - generic [ref=f1e32]: Compare how two outlets are covering this story and give me a table.
+            - generic [ref=f1e34]:
+              - generic [ref=f1e35]: NewsCraft AInow
+              - generic [ref=f1e36]:
+                - generic [ref=f1e37]: Research routed
+                - generic [ref=f1e39]: Sources checked
+              - img "Coverage comparison table preview" [ref=f1e41]:
+                - generic [ref=f1e42]: Outlet
+                - generic [ref=f1e43]: Lead angle
+                - generic [ref=f1e44]: Still open
+                - generic [ref=f1e45]: CBC
+                - generic [ref=f1e46]: Policy impact
+                - generic [ref=f1e47]: Official timing
+                - generic [ref=f1e48]: CTV
+                - generic [ref=f1e49]: Local reaction
+                - generic [ref=f1e50]: Primary document
+    - region "NewsCraft AI product surface" [ref=f1e51]:
+      - generic [ref=f1e52]:
+        - generic [ref=f1e53]: Built around the work a newsroom repeats every day
+        - generic [ref=f1e54]:
+          - generic [ref=f1e55]: CHAT
+          - generic [ref=f1e56]: SEARCH
+          - generic [ref=f1e57]: COMPARE
+          - generic [ref=f1e58]: BRIEF
+          - generic [ref=f1e59]: TABLE
+          - generic [ref=f1e60]: PLAN
+    - region [ref=f1e61]:
+      - generic [ref=f1e62]:
+        - generic [ref=f1e63]:
+          - generic [ref=f1e64]: The agent
+          - heading "Chat like ChatGPT. Work like a newsroom." [level=2] [ref=f1e65]
+          - paragraph [ref=f1e66]: Ask for help with a story, source, beat, pitch, script, rundown, or table. NewsCraft decides whether the request can be answered directly or needs a research pass first.
+          - list [ref=f1e67]:
+            - listitem [ref=f1e68]: Answers normal writing, planning, editing, and analysis prompts directly
+            - listitem [ref=f1e69]: Routes current facts, verification, and coverage questions through research tools
+            - listitem [ref=f1e70]: Keeps caveats visible when sources are weak, blocked, or incomplete
+        - article "Agent capabilities preview" [ref=f1e72]:
+          - generic [ref=f1e73]: Agent modes
+          - generic [ref=f1e75]:
+            - generic [ref=f1e76]: Direct answer
+            - strong [ref=f1e77]: Rewrite this intro for a 6 p.m. producer brief.
+            - paragraph [ref=f1e78]: Drafts, edits, outlines, brainstorms, and explains without pretending to browse.
+          - generic [ref=f1e79]:
+            - generic [ref=f1e80]: Research pass
+            - strong [ref=f1e81]: What are the latest confirmed updates?
+            - paragraph [ref=f1e82]: Searches live sources, compares coverage, and returns the answer with limits.
+          - generic [ref=f1e83]:
+            - generic [ref=f1e84]: Structured output
+            - strong [ref=f1e85]: Give me a table and three follow-up questions.
+            - paragraph [ref=f1e86]: Turns findings into tables, bullets, briefs, interview questions, and scripts.
+    - region [ref=f1e87]:
+      - generic [ref=f1e88]:
+        - generic [ref=f1e89]:
+          - generic [ref=f1e90]: Source-backed research
+          - heading "When facts move, the agent checks before it answers." [level=2] [ref=f1e91]
+          - paragraph [ref=f1e92]: For live news, schedules, claims, or source comparison, NewsCraft runs a visible research path. It can search the web, read supplied URLs, use configured source monitors, and separate useful evidence from unreliable material.
+          - list [ref=f1e93]:
+            - listitem [ref=f1e94]: Live web search for current facts and related coverage
+            - listitem [ref=f1e95]: URL and source-feed reading for material you provide
+            - listitem [ref=f1e96]: Clear language when a source is paywalled, blocked, stale, or not enough
+        - article "Research answer preview" [ref=f1e98]:
+          - generic [ref=f1e99]: Research answer · source-backed
+          - generic [ref=f1e100]: What changed since the last update?
+          - paragraph [ref=f1e101]: NewsCraft found the newest usable source, separated it from older coverage, and flagged one unresolved claim that still needs a primary confirmation.
+          - generic [ref=f1e102]:
+            - generic [ref=f1e103]: ✓
+            - generic [ref=f1e104]: Evidence captured · caveats included · ready to verify before air
+    - region [ref=f1e105]:
+      - generic [ref=f1e106]:
+        - generic [ref=f1e107]:
+          - generic [ref=f1e108]: Output formats
+          - heading "Turn messy reporting material into usable desk output." [level=2] [ref=f1e109]
+          - paragraph [ref=f1e110]: NewsCraft is not just a search box. It helps shape the result into the format a producer, assignment editor, reporter, or anchor can actually use.
+          - list [ref=f1e111]:
+            - listitem [ref=f1e112]: Producer briefs, story plans, explainers, and rundowns
+            - listitem [ref=f1e113]: Coverage comparisons with claim, angle, and gap columns
+            - listitem [ref=f1e114]: Headlines, interview questions, scripts, and concise tables
+        - article "NewsCraft output examples" [ref=f1e116]:
+          - generic [ref=f1e117]:
+            - generic [ref=f1e118]: Brief
+            - strong [ref=f1e119]: Confirmed facts, context, open questions
+          - generic [ref=f1e120]:
+            - generic [ref=f1e121]: Compare
+            - strong [ref=f1e122]: Outlet angle, sourcing, missing pieces
+          - generic [ref=f1e123]:
+            - generic [ref=f1e124]: Table
+            - strong [ref=f1e125]: Rows, columns, times, venues, notes
+          - generic [ref=f1e126]:
+            - generic [ref=f1e127]: Draft
+            - strong [ref=f1e128]: Scripts, intros, headlines, interview asks
+    - region [ref=f1e129]:
+      - generic [ref=f1e130]:
+        - generic [ref=f1e131]:
+          - generic [ref=f1e132]: Workflow
+          - heading "One thread from question to usable answer." [level=2] [ref=f1e133]
+          - paragraph [ref=f1e134]: Start with a plain-language request. NewsCraft plans the route, shows progress when it researches, and returns an answer shaped for editorial use. The final judgment stays with the journalist.
+          - list [ref=f1e135]:
+            - listitem [ref=f1e136]: 01 · Ask about a story, source, beat, or newsroom task
+            - listitem [ref=f1e137]: 02 · Let the agent answer directly or run a source-backed pass
+            - listitem [ref=f1e138]: 03 · Copy, regenerate, refine, or turn the answer into another format
+        - article "NewsCraft workflow preview" [ref=f1e140]:
+          - generic [ref=f1e142]:
+            - generic [ref=f1e143]: NewsCraft AIthread
+            - generic [ref=f1e144]: Ask for the latest on a story, compare two outlets, draft a producer brief, or turn the result into a table without leaving the conversation.
+          - separator [ref=f1e145]
+          - generic [ref=f1e146]: Open at agent.newscraftai.com
+    - region [ref=f1e148]:
+      - generic [ref=f1e149]:
+        - heading "A faster first pass for serious newsroom work." [level=2] [ref=f1e150]
+        - paragraph [ref=f1e151]: Use NewsCraft to move from question to source-aware answer, from rough notes to a brief, and from scattered coverage to a clearer editorial plan.
+        - generic [ref=f1e152]:
+          - link "Open Agent" [ref=f1e153] [cursor=pointer]:
+            - /url: https://agent.newscraftai.com
+          - link "agent.newscraftai.com →" [ref=f1e154] [cursor=pointer]:
+            - /url: https://agent.newscraftai.com
+  - contentinfo [ref=f1e155]:
+    - generic [ref=f1e156]:
+      - generic [ref=f1e157]:
+        - generic [ref=f1e158]:
+          - img "NewsCraft AI" [ref=f1e159]
+          - paragraph [ref=f1e160]: A newsroom agent for live editorial work.
+        - generic [ref=f1e161]:
+          - generic [ref=f1e162]: Product
+          - list [ref=f1e163]:
+            - listitem [ref=f1e164]:
+              - link "Agent" [ref=f1e165] [cursor=pointer]:
+                - /url: "#agent"
+            - listitem [ref=f1e166]:
+              - link "Research" [ref=f1e167] [cursor=pointer]:
+                - /url: "#research"
+            - listitem [ref=f1e168]:
+              - link "Outputs" [ref=f1e169] [cursor=pointer]:
+                - /url: "#outputs"
+            - listitem [ref=f1e170]:
+              - link "Open agent" [ref=f1e171] [cursor=pointer]:
+                - /url: https://agent.newscraftai.com
+        - generic [ref=f1e172]:
+          - generic [ref=f1e173]: Use cases
+          - list [ref=f1e174]:
+            - listitem [ref=f1e175]:
+              - link "Current facts" [ref=f1e176] [cursor=pointer]:
+                - /url: "#research"
+            - listitem [ref=f1e177]:
+              - link "Producer briefs" [ref=f1e178] [cursor=pointer]:
+                - /url: "#outputs"
+            - listitem [ref=f1e179]:
+              - link "Coverage tables" [ref=f1e180] [cursor=pointer]:
+                - /url: "#outputs"
+        - generic [ref=f1e181]:
+          - generic [ref=f1e182]: For newsrooms
+          - list [ref=f1e183]:
+            - listitem [ref=f1e184]:
+              - link "Producers" [ref=f1e185] [cursor=pointer]:
+                - /url: "#agent"
+            - listitem [ref=f1e186]:
+              - link "Editors" [ref=f1e187] [cursor=pointer]:
+                - /url: "#agent"
+            - listitem [ref=f1e188]:
+              - link "Reporters" [ref=f1e189] [cursor=pointer]:
+                - /url: "#agent"
+        - generic [ref=f1e190]:
+          - generic [ref=f1e191]: Contact
+          - list [ref=f1e192]:
+            - listitem [ref=f1e193]:
+              - link "Workspace" [ref=f1e194] [cursor=pointer]:
+                - /url: https://agent.newscraftai.com
+            - listitem [ref=f1e195]:
+              - link "hello@newscraftai.com" [ref=f1e196] [cursor=pointer]:
+                - /url: mailto:hello@newscraftai.com
+      - generic [ref=f1e197]:
+        - generic [ref=f1e198]: © 2026 NewsCraft AI
+        - generic [ref=f1e199]: Made for journalists

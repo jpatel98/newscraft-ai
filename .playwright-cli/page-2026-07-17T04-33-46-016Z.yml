@@ -1,0 +1,13 @@
+- generic [ref=e4]:
+  - generic [ref=e5]: NewsCraft · Sign in
+  - heading "Welcome back." [level=1] [ref=e6]
+  - paragraph [ref=e7]: Sign in to continue your newsroom research.
+  - generic [ref=e8]:
+    - generic [ref=e9]: Email
+    - textbox "Email" [ref=e10]
+  - generic [ref=e11]:
+    - generic [ref=e12]: Password
+    - textbox "Password" [active] [ref=e13]
+  - button "Sign in" [ref=e14] [cursor=pointer]
+  - link "New to NewsCraft? Create an account" [ref=e15] [cursor=pointer]:
+    - /url: /signup
