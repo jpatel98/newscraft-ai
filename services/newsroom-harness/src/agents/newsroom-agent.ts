@@ -30,12 +30,22 @@ import { formatConversationContext, guardEvidenceForConversation } from './groun
 import { resolveModelPolicy, type ModelPolicyDecision } from './model-policy.js';
 import {
 	defaultStepLabel,
+	chooseNextLoopActions,
+	deterministicNextLoopDecision,
 	planFromRoute,
 	planResearchSteps,
 	readingLabelForUrl,
+	type LoopAction,
+	type LoopDecision,
+	type LoopDecisionFn,
 	type PlannerFn,
+	type PlannedStep,
 	type ResearchPlan
 } from './planner.js';
+import { NewsroomEvidenceLedger } from './evidence-ledger.js';
+import { evaluateContractSatisfaction, type ContractSatisfaction } from './contract-satisfaction.js';
+import { buildNewsroomPromptLayers } from './prompt-stack.js';
+import { discoverNewsroomSkills, skillInstructions } from './skills.js';
 import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest, type RouteDecision } from './router.js';
 import type { NewsroomTool, ToolRegistry, ToolRunContext, ToolRunOutput } from './tools.js';
 import type { ModelProvider } from '../util/openai-complete.js';
@@ -138,8 +148,10 @@ export interface DisciplinedNewsroomAgentOptions {
 	modelApiKey?: string;
 	openAiApiKey?: string;
 	perplexityApiKey?: string;
-	/** Planner override, mainly for tests. Defaults to the model planner. */
+	/** Legacy complete-plan override, mainly for tests and offline diagnostics. */
 	planner?: PlannerFn;
+	/** Bounded loop-controller override, mainly for deterministic tests. */
+	loopDecision?: LoopDecisionFn;
 	clock?: NewsroomClock;
 }
 
@@ -153,6 +165,7 @@ interface QueuedStep {
 	laneId?: string;
 	lanePurpose?: string;
 	reformulated?: boolean;
+	parallelGroup?: string;
 }
 
 /** Tools whose failure should trigger a broad web-search fallback. */
@@ -164,6 +177,9 @@ const WEB_SEARCH_FALLBACK_TOOLS = new Set<string>([
 ]);
 const MAX_FOLLOW_UP_FETCHES = 2;
 const PLANNER_TIMEOUT_MS = 10_000;
+const MAX_LOOP_ITERATIONS = 4;
+const MAX_LOOP_ACTIONS_PER_ITERATION = 2;
+const LOOP_DECISION_TIMEOUT_MS = 8_000;
 
 export class DisciplinedNewsroomAgent {
 	private readonly config: NewsroomAgentConfig;
@@ -274,6 +290,16 @@ export class DisciplinedNewsroomAgent {
 		}
 
 		const signal = combinedSignal(context.signal, decision.tool_budget.max_runtime_seconds);
+		if (this.shouldUseBoundedLoop(context)) {
+			return this.runBoundedLoop({
+				prompt,
+				researchPrompt,
+				resolvedRoutingPrompt,
+				decision,
+				context,
+				signal
+			});
+		}
 		const plan = await this.resolvePlan(
 			researchPrompt,
 			resolvedRoutingPrompt,
@@ -298,7 +324,7 @@ export class DisciplinedNewsroomAgent {
 		let lastOutput: ToolRunOutput | null = null;
 		const discoveryLeads: EvidenceObject[] = [];
 		const searchedEvidence: EvidenceObject[] = [];
-		const coverageLanes = buildProducerCoverageLanes(researchContract, context.newsroomContext, {
+		const coverageLanes = buildProducerCoverageLanes(researchContract!, context.newsroomContext, {
 			maxLanes: Math.min(6, Math.max(1, this.config.default_tool_budget.max_web_searches))
 		});
 		let index = 0;
@@ -491,9 +517,603 @@ export class DisciplinedNewsroomAgent {
 	}
 
 	/**
-	 * Plan the run: a model planner proposes concrete steps when allowed; the
-	 * regex router's decision is the deterministic fallback and stays the spine
-	 * for budgets and answer generation either way.
+	 * Run the default bounded observe-act-observe controller. The first action
+	 * comes from the deterministic route only to establish a safe offline
+	 * starting point; every later action is selected from normalized evidence,
+	 * the request contract, and the remaining budgets.
+	 */
+	private async runBoundedLoop(input: {
+		prompt: string;
+		researchPrompt: string;
+		resolvedRoutingPrompt: string;
+		decision: RouteDecision;
+		context: NewsroomAgentRunContext;
+		signal: AbortSignal;
+	}): Promise<NewsroomAgentRunResult> {
+		const { prompt, researchPrompt, resolvedRoutingPrompt, decision, context, signal } = input;
+		const researchContract = context.researchContract;
+		const ledger = new ToolBudgetLedger(
+			mergeToolBudget({
+				...this.config.default_tool_budget,
+				...decision.tool_budget
+			})
+		);
+		const evidenceLedger = new NewsroomEvidenceLedger();
+		const evidence: EvidenceObject[] = [];
+		const limitations: string[] = [];
+		const toolAnswers: string[] = [];
+		const toolCalls: AgentToolCallRecord[] = [];
+		const discoveryLeads: EvidenceObject[] = [];
+		const searchedEvidence: EvidenceObject[] = [];
+		const observations: string[] = [];
+		const skills = discoverNewsroomSkills({
+			request: resolvedRoutingPrompt,
+			contract: researchContract,
+			conversationContext: context.conversationContext,
+			documents: context.documents
+		});
+		const routedPlan = planFromRoute(decision, researchPrompt);
+		const fallbackPlan = context.documents?.length
+			? routedPlan
+			: coverageSweepPlan(
+				routedPlan,
+				resolvedRoutingPrompt,
+				context,
+				researchContract,
+				this.config.default_tool_budget.max_web_searches
+			);
+		const queue: QueuedStep[] = [];
+		let nextStepNumber = 1;
+		let planSource: AgentPlanEvent['source'] = 'router';
+		let stoppedReason = '';
+		let lastOutput: ToolRunOutput | null = null;
+		let answerStreamUsed = false;
+		let followUpFetches = 0;
+		let loopIteration = 0;
+		const coverageLanes = buildProducerCoverageLanes(researchContract!, context.newsroomContext, {
+			maxLanes: Math.min(6, Math.max(1, this.config.default_tool_budget.max_web_searches))
+		});
+		const forwardAnswerDelta = context.onAnswerDelta
+			? (delta: string) => {
+					answerStreamUsed = true;
+					context.onAnswerDelta?.(delta);
+				}
+			: undefined;
+
+		const emitPlan = () => context.onPlanEvent?.(planEvent(planSource, queue));
+		const appendActions = (actions: LoopAction[], parallelGroup?: string): number => {
+			let added = 0;
+			const existing = new Set(queue.map((step) => `${step.tool}\n${step.input}`));
+			for (const action of actions) {
+				if (action.kind !== 'research') continue;
+				const key = `${action.tool}\n${action.input}`;
+				if (existing.has(key)) continue;
+				existing.add(key);
+				queue.push({
+					id: `step_${nextStepNumber++}`,
+					tool: action.tool,
+					input: action.input,
+					label: action.label,
+					status: 'pending',
+					...(action.laneId ? { laneId: action.laneId } : {}),
+					...(action.lanePurpose ? { lanePurpose: action.lanePurpose } : {}),
+					...(parallelGroup ? { parallelGroup } : {})
+				});
+				added += 1;
+			}
+			return added;
+		};
+
+		// A source index and a broad search are independent reads. Keep the
+		// initial pair bounded and parallel where the route does not require a
+		// document or direct URL read first.
+		const firstCount =
+			!context.onAnswerDelta &&
+			fallbackPlan.steps.length > 1 &&
+			!context.documents?.length &&
+			fallbackPlan.steps[0]?.tool !== NEWSROOM_TOOL_NAMES.urlFetchRead &&
+			fallbackPlan.steps[0]?.tool !== NEWSROOM_TOOL_NAMES.pdfTextExtractor
+				? 2
+				: Math.min(1, fallbackPlan.steps.length);
+		if (firstCount) {
+			appendActions(
+				fallbackPlan.steps.slice(0, firstCount).map((step) => ({
+					kind: 'research' as const,
+					tool: step.tool,
+					input: step.input,
+					label: step.label,
+					...(step.laneId ? { laneId: step.laneId } : {}),
+					...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {})
+				})),
+				firstCount > 1 ? 'initial_parallel' : undefined
+			);
+		}
+		if (context.onAnswerDelta && fallbackPlan.steps.length > firstCount) {
+			// Streaming surfaces require a stable first answer-producing tool. Keep
+			// the remaining deterministic route steps queued serially so a later
+			// tool can still contribute evidence without receiving a second delta
+			// sink or interleaving text with the first tool.
+			appendActions(
+				fallbackPlan.steps.slice(firstCount).map((step) => ({
+					kind: 'research' as const,
+					tool: step.tool,
+					input: step.input,
+					label: step.label,
+					...(step.laneId ? { laneId: step.laneId } : {}),
+					...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {})
+				}))
+			);
+		}
+		emitPlan();
+
+		let index = 0;
+		while (true) {
+			while (index < queue.length && !stoppedReason) {
+				if (signal.aborted || ledger.isRuntimeExhausted()) {
+					stoppedReason = signal.aborted ? 'latest request interrupted the research loop' : 'max_runtime_seconds exhausted';
+					limitations.push(stoppedReason);
+					skipRemaining(queue, index, 'Research stopped before completion.');
+					emitPlan();
+					break;
+				}
+
+				const first = queue[index++];
+				const batch: QueuedStep[] = [first];
+				if (first.parallelGroup) {
+					while (index < queue.length && queue[index].parallelGroup === first.parallelGroup) {
+						batch.push(queue[index++]);
+					}
+				}
+
+				const ready: Array<{
+					step: QueuedStep;
+					tool: NewsroomTool;
+					budgetKind: ReturnType<typeof budgetKindForToolCategory>;
+				}> = [];
+				let budgetStopReason = '';
+				for (const step of batch) {
+					if (!this.config.enabled_tools.includes(step.tool)) {
+						const reason = `Tool disabled by harness config: ${step.tool}`;
+						const publicReason = 'This research step is not available.';
+						limitations.push(reason);
+						toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
+						context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: publicReason });
+						skipStep(step, publicReason);
+						this.queueWebSearchFallback(queue, step, evidence, ledger);
+						continue;
+					}
+					const tool = this.registry.get(step.tool);
+					if (!tool) {
+						const reason = `Tool is not registered: ${step.tool}`;
+						const publicReason = 'This research step is not available.';
+						limitations.push(reason);
+						toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
+						context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: publicReason });
+						skipStep(step, publicReason);
+						this.queueWebSearchFallback(queue, step, evidence, ledger);
+						continue;
+					}
+					const budgetKind = budgetKindForToolCategory(tool.category);
+					const allowed = ledger.canUse(budgetKind);
+					if (!allowed.ok) {
+						budgetStopReason ||= allowed.reason;
+						skipStep(step, 'Research limit reached.');
+						continue;
+					}
+					ledger.consume(budgetKind);
+					step.status = 'running';
+					ready.push({ step, tool, budgetKind });
+				}
+				emitPlan();
+
+				const runResults = await Promise.all(
+					ready.map(async ({ step, tool }) => {
+						try {
+							const rawOutput = await this.runTool(
+								tool,
+								prompt,
+								decision,
+								[...evidence],
+								ledger.snapshot(),
+								{
+									...context,
+									signal,
+									onAnswerDelta:
+										ready.length === 1 && toolAnswers.length === 0 && !answerStreamUsed
+											? forwardAnswerDelta
+											: undefined
+								},
+								step.input
+							);
+							return { step, tool, rawOutput };
+						} catch (error) {
+							return {
+								step,
+								tool,
+								rawOutput: {
+									status: 'error' as const,
+									limitations: [
+										`${tool.name} failed: ${error instanceof Error ? error.message : String(error)}`
+									]
+								}
+							};
+						}
+					})
+				);
+
+				for (const { step, tool, rawOutput } of runResults) {
+					const normalizedOutput = context.documents?.length
+						? rawOutput
+						: rebaseToolOutputCitations(rawOutput, evidence);
+					const contractGuarded = applyResearchContractGuard(normalizedOutput, researchContract);
+					const conversationGuarded = applyConversationGuard(contractGuarded, context.conversationContext, context.temporalContext);
+					const output = applyTemporalGuard(
+						conversationGuarded,
+						context.temporalContext!,
+						isCurrentEventQuery(resolvedRoutingPrompt)
+					);
+					lastOutput = output;
+					const outputLimitations = output.limitations || [];
+					const publicDetail = output.status === 'ok' ? undefined : publicStepFailureDetail(outputLimitations);
+					limitations.push(...outputLimitations);
+					discoveryLeads.push(...(output.discovery_leads || []));
+					evidenceLedger.add(output.evidence || []);
+					evidenceLedger.add(output.discovery_leads || []);
+					evidence.splice(0, evidence.length, ...evidenceLedger.accepted());
+					if (output.answer) toolAnswers.push(output.answer);
+					const outputEvidence = output.evidence || [];
+					const overlapAction = coverageActionForStep(
+						step,
+						outputEvidence,
+						searchedEvidence,
+						queue,
+						index,
+						coverageLanes,
+						researchContract!
+					);
+					searchedEvidence.push(...outputEvidence);
+					toolCalls.push({
+						name: tool.name,
+						status: output.status,
+						limitations: outputLimitations,
+						evidence_count: outputEvidence.length
+					});
+					step.status = output.status === 'ok' ? 'ok' : 'failed';
+					step.detail = publicDetail || step.detail;
+					observations.push(
+						`${tool.name}: ${output.status}; ${outputEvidence.length} normalized evidence item${outputEvidence.length === 1 ? '' : 's'}${outputLimitations.length ? `; ${outputLimitations.slice(0, 2).join('; ')}` : ''}`
+					);
+					context.onToolEvent?.({
+						type: 'tool_completed',
+						tool: tool.name,
+						stepId: step.id,
+						status: output.status,
+						detail: publicDetail,
+						evidence: outputEvidence,
+						discoveryLeads: output.discovery_leads || [],
+						evidenceDiagnostics: output.evidence_diagnostics,
+						diagnostics: output.diagnostics
+					});
+
+					if (overlapAction === 'stop') {
+						stoppedReason = 'coverage lanes overlapped after a reformulation; research stopped early';
+						skipRemaining(queue, index, 'Coverage was already represented by earlier research lanes.');
+						break;
+					}
+					if (
+						step.tool === NEWSROOM_TOOL_NAMES.webSearch &&
+						shouldStopRepeatedWebSearch(output) &&
+						queue.slice(index).some((item) => item.tool === NEWSROOM_TOOL_NAMES.webSearch)
+					) {
+						stoppedReason = 'live research capability unavailable';
+						skipRemaining(queue, index, 'Live research is temporarily unavailable.');
+						break;
+					}
+
+					followUpFetches += this.queueFollowUps(
+						queue,
+						step,
+						normalizedOutput,
+						evidence,
+						ledger,
+						context,
+						followUpFetches
+					);
+					if (step.tool === NEWSROOM_TOOL_NAMES.briefGenerator) stoppedReason = 'final synthesis completed';
+					if (output.status === 'blocked' && !hasPendingSteps(queue, index)) {
+						stoppedReason = 'source is blocked or requires interaction/login/paywall access';
+					}
+				}
+				emitPlan();
+				if (budgetStopReason) {
+					stoppedReason = budgetStopReason;
+					limitations.push(budgetStopReason);
+					skipRemaining(queue, index, 'Research limit reached.');
+					emitPlan();
+				}
+			}
+
+			if (stoppedReason) break;
+			if (signal.aborted) {
+				stoppedReason = 'latest request interrupted the research loop';
+				limitations.push(stoppedReason);
+				break;
+			}
+			const evaluation = evaluateContractSatisfaction({
+				request: resolvedRoutingPrompt,
+				contract: researchContract,
+				evidence,
+				documents: context.documents,
+				answer: toolAnswers.at(-1)
+			});
+			if (evaluation.hard_rejects.length) {
+				observations.push(`contract evaluator rejected ${evaluation.hard_rejects.length} unsafe, invalid, or mismatched evidence item(s)`);
+			}
+			if (loopIteration >= MAX_LOOP_ITERATIONS) {
+				stoppedReason = 'max_loop_iterations exhausted';
+				limitations.push(stoppedReason);
+				break;
+			}
+
+			const attempted = new Set(
+				queue
+					.filter((step) => step.status !== 'pending')
+					.map((step) => `${step.tool}\n${step.input}`)
+			);
+			const next = await this.nextLoopDecision({
+				request: resolvedRoutingPrompt,
+				decision,
+				context,
+				evaluation,
+				skills,
+				iteration: loopIteration + 1,
+				attempted,
+				fallbackSteps: fallbackPlan.steps,
+				observations,
+				ledger,
+				signal
+			});
+			loopIteration += 1;
+			if (next.actions.some((action) => action.kind === 'synthesize')) {
+				planSource = next.source;
+				stoppedReason = next.actions.find((action) => action.kind === 'synthesize')?.reason || 'final synthesis selected';
+				emitPlan();
+				break;
+			}
+			const filteredActions = next.actions.filter(
+				(action): action is Extract<LoopAction, { kind: 'research' }> =>
+					action.kind === 'research' && !attempted.has(`${action.tool}\n${action.input}`)
+			);
+			if (!filteredActions.length) {
+				stoppedReason = 'no untried safe research action remains';
+				break;
+			}
+			planSource = next.source;
+			const allParallel = filteredActions.length > 1 && filteredActions.every((action) => action.parallel === true);
+			appendActions(filteredActions, allParallel ? `loop_${loopIteration}` : undefined);
+			emitPlan();
+		}
+
+		if (evidenceHasBlockingLimitation(evidence) && !limitations.some((item) => /blocked|unavailable/i.test(item))) {
+			limitations.push('One or more sources were blocked or unavailable.');
+		}
+		const finalGuard = guardEvidenceForConversation(evidence, context.conversationContext, {
+			temporalContext: context.temporalContext
+		});
+		if (finalGuard.excluded.length) {
+			evidence.splice(0, evidence.length, ...finalGuard.evidence);
+			const groundedAnswers = toolAnswers
+				.map((answer) => retainAcceptedCitationClaims(answer, finalGuard.evidence))
+				.filter((answer): answer is string => Boolean(answer));
+			toolAnswers.splice(0, toolAnswers.length, ...groundedAnswers);
+		}
+		limitations.push(...finalGuard.limitations);
+		const publishable = preparePublishableEvidence(evidence, context.temporalContext!, isCurrentEventQuery(resolvedRoutingPrompt));
+		const orderedPublishable = context.documents?.length
+			? [
+					...publishable.accepted.filter((item) => item.source_kind !== 'user_document'),
+					...publishable.accepted.filter((item) => item.source_kind === 'user_document')
+				].map((item, itemIndex) => ({ ...item, citation_number: itemIndex + 1 }))
+			: publishable.accepted;
+		evidence.splice(0, evidence.length, ...orderedPublishable);
+		if (publishable.excluded.length) {
+			limitations.push(
+				`${publishable.excluded.length} discovery, hub, or out-of-window source${publishable.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`
+			);
+			discoveryLeads.push(...publishable.excluded);
+		}
+		const finalEvaluation = evaluateContractSatisfaction({
+			request: resolvedRoutingPrompt,
+			contract: researchContract,
+			evidence,
+			documents: context.documents,
+			answer: toolAnswers.at(-1)
+		});
+		limitations.push(...finalEvaluation.gaps);
+		if (researchContract?.requestedItemCount && evidence.length < researchContract.requestedItemCount) {
+			limitations.push(
+				`Only ${evidence.length} of ${researchContract.requestedItemCount} requested item${researchContract.requestedItemCount === 1 ? '' : 's'} met the contract; returning the verified subset.`
+			);
+		}
+		alignCitationSequence(evidence, toolAnswers);
+		if (!toolCalls.length && fallbackPlan.steps.length) limitations.push('No selected tools were run.');
+
+		const budget = ledger.snapshot();
+		let finalAnswer = generateFinalAnswer({
+			prompt: resolvedRoutingPrompt,
+			decision,
+			evidence,
+			limitations,
+			budget,
+			toolAnswers,
+			researchStepCount: toolCalls.length,
+			outputStyle: context.outputStyle,
+			conversationContext: context.conversationContext,
+			timeZone: context.temporalContext?.timeZone
+		});
+		if (context.outputStyle === 'chat') finalAnswer = enforceFinalCitationIntegrity(finalAnswer, evidence);
+		markCitedEvidence(evidence, finalAnswer);
+		return {
+			prompt,
+			decision,
+			research_contract: researchContract,
+			plan: planEvent(planSource, queue),
+			evidence,
+			final_answer: finalAnswer,
+			limitations: [...new Set(limitations.filter(Boolean))],
+			tool_calls: toolCalls,
+			budget,
+			stopped_reason:
+				stoppedReason ||
+					completionStopReason(decision, lastOutput, evidence),
+			discovery_leads: dedupeEvidence(discoveryLeads).slice(0, 16)
+		};
+	}
+
+	private shouldUseBoundedLoop(context: NewsroomAgentRunContext): boolean {
+		return this.config.planner_enabled && !this.options.planner && !context.forcePlanner;
+	}
+
+	private async nextLoopDecision(input: {
+		request: string;
+		decision: RouteDecision;
+		context: NewsroomAgentRunContext;
+		evaluation: ContractSatisfaction;
+		skills: ReturnType<typeof discoverNewsroomSkills>;
+		iteration: number;
+		attempted: ReadonlySet<string>;
+		fallbackSteps: PlannedStep[];
+		observations: readonly string[];
+		ledger: ToolBudgetLedger;
+		signal: AbortSignal;
+	}): Promise<LoopDecision> {
+		const fallback = deterministicNextLoopDecision({
+			fallbackSteps: input.fallbackSteps,
+			attempted: input.attempted,
+			maxActions: MAX_LOOP_ACTIONS_PER_ITERATION,
+			preferSynthesis: !input.evaluation.likely_to_improve
+		});
+		const provider = this.modelProvider(input.context);
+		const apiKey =
+			input.context.modelApiKey ||
+			this.options.modelApiKey ||
+			(provider === 'openai' ? input.context.openAiApiKey || this.options.openAiApiKey : '');
+		const policy = resolveModelPolicy(this.config.model_policy, 'interactive_chat', {
+			trigger: input.context.trigger
+		});
+		const loopRequest = this.loopDecisionRequest({
+			...input,
+			apiKey,
+			provider,
+			model: policy.model || '',
+			reasoningEffort: policy.reasoningEffort
+		});
+		if (this.options.loopDecision) {
+			try {
+				return await this.options.loopDecision(loopRequest);
+			} catch (error) {
+				this.appendPlannerEvent(input.context, 'loop.decision.fallback', {
+					iteration: input.iteration,
+					error: error instanceof Error ? error.message : String(error),
+					source: 'router'
+				});
+				return fallback;
+			}
+		}
+		if (!apiKey || !policy.allowed || !policy.model || isPlaceholderModelKey(apiKey)) return fallback;
+		this.appendPlannerEvent(
+			input.context,
+			'loop.decision.selected',
+			{ iteration: input.iteration, model: policy.model, reason: policy.reason },
+			policy
+		);
+		try {
+			const decision = await chooseNextLoopActions({
+			...loopRequest,
+			apiKey,
+			provider,
+			model: policy.model,
+			reasoningEffort: policy.reasoningEffort,
+			signal: loopSignal(input.signal)
+		});
+			return decision;
+		} catch (error) {
+			this.appendPlannerEvent(input.context, 'loop.decision.fallback', {
+				iteration: input.iteration,
+				error: error instanceof Error ? error.message : String(error),
+				source: 'router'
+			});
+			return fallback;
+		}
+	}
+
+	private loopDecisionRequest(input: {
+		request: string;
+		decision: RouteDecision;
+		context: NewsroomAgentRunContext;
+		evaluation: ContractSatisfaction;
+		skills: ReturnType<typeof discoverNewsroomSkills>;
+		iteration: number;
+		attempted: ReadonlySet<string>;
+		fallbackSteps: PlannedStep[];
+		observations: readonly string[];
+		ledger: ToolBudgetLedger;
+		signal: AbortSignal;
+		apiKey?: string;
+		provider?: ModelProvider;
+		model?: string;
+		reasoningEffort?: 'low' | 'medium' | 'high';
+	}): Parameters<LoopDecisionFn>[0] {
+		const tools = this.loopToolCatalog();
+		const selectedSkill = input.skills[0];
+		return {
+			request: input.request,
+			route: input.decision,
+			tools,
+			skills: input.skills.map((skill) => ({ id: skill.id, summary: skill.summary })),
+			promptLayers: buildNewsroomPromptLayers({
+				request: input.request,
+				temporalContext: input.context.temporalContext!,
+				contract: input.context.researchContract,
+				conversationContext: input.context.conversationContext,
+				newsroomContext: input.context.newsroomContext,
+				documents: input.context.documents,
+				skills: input.skills,
+				tools,
+				iteration: input.iteration,
+				maxIterations: MAX_LOOP_ITERATIONS,
+				budget: input.ledger.snapshot(),
+				observations: input.observations,
+				gaps: input.evaluation.gaps,
+				disclosedSkill: selectedSkill ? skillInstructions(selectedSkill.id, input.skills) : undefined
+			}),
+			evaluation: input.evaluation,
+			iteration: input.iteration,
+			maxIterations: MAX_LOOP_ITERATIONS,
+			maxActions: MAX_LOOP_ACTIONS_PER_ITERATION,
+			attempted: input.attempted,
+			apiKey: input.apiKey || '',
+			...(input.provider ? { provider: input.provider } : {}),
+			model: input.model || '',
+			...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {})
+		};
+	}
+
+	private loopToolCatalog(): Array<{ name: string; when_to_use: string }> {
+		return this.registry
+			.list()
+			.filter(
+				(tool) =>
+					this.config.enabled_tools.includes(tool.name) &&
+					tool.category !== 'newsroom_brief_generator' &&
+					tool.category !== 'browser_automation_provider'
+			)
+			.map((tool) => ({ name: tool.name, when_to_use: tool.when_to_use }));
+	}
+
+	/**
+	 * Legacy offline/failure fallback: explicit planner overrides may propose a
+	 * complete plan, while the bounded loop owns normal adaptive runs.
 	 */
 	private async resolvePlan(
 		prompt: string,
@@ -753,6 +1373,7 @@ export class DisciplinedNewsroomAgent {
 			}
 			return await tool.run(inputForTool(tool.name, requestPrompt, evidence, stepInput), toolContext);
 		} catch (err) {
+			if (context.signal?.aborted) throw err;
 			return {
 				status: 'error',
 				limitations: [`${tool.name} failed: ${err instanceof Error ? err.message : String(err)}`]
@@ -1143,8 +1764,16 @@ function hasEnoughEvidence(evidence: EvidenceObject[], mode: RouteDecision['sele
 
 function plannerSignal(signal: AbortSignal): AbortSignal {
 	const timeout = AbortSignal.timeout(PLANNER_TIMEOUT_MS);
-	if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
-	return timeout;
+	return combineAbortSignals([signal, timeout]);
+}
+
+function loopSignal(signal: AbortSignal): AbortSignal {
+	const timeout = AbortSignal.timeout(LOOP_DECISION_TIMEOUT_MS);
+	return combineAbortSignals([signal, timeout]);
+}
+
+function isPlaceholderModelKey(value: string): boolean {
+	return /^(?:test|fake|fixture|openai|perplexity)(?:[-_].*)?key$/i.test(value.trim());
 }
 
 function publicStepFailureDetail(limitations: string[]): string | undefined {
@@ -1174,8 +1803,21 @@ function publicStepFailureDetail(limitations: string[]): string | undefined {
 
 function combinedSignal(signal: AbortSignal | undefined, maxRuntimeSeconds: number): AbortSignal {
 	const timeout = AbortSignal.timeout(Math.max(1, maxRuntimeSeconds) * 1000);
-	if (signal && typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
-	return timeout;
+	return signal ? combineAbortSignals([signal, timeout]) : timeout;
+}
+
+function combineAbortSignals(signals: AbortSignal[]): AbortSignal {
+	if (typeof AbortSignal.any === 'function') return AbortSignal.any(signals);
+	const controller = new AbortController();
+	const abort = () => controller.abort();
+	for (const signal of signals) {
+		if (signal.aborted) {
+			controller.abort();
+			break;
+		}
+		signal.addEventListener('abort', abort, { once: true });
+	}
+	return controller.signal;
 }
 
 function usesSingleCallChatPlan(

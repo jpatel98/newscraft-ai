@@ -4,13 +4,15 @@ import { completeProviderText, type ModelProvider } from '../util/openai-complet
 import { NEWSROOM_CHARTER } from './roles.js';
 import { formatNewsroomTemporalContext, type NewsroomTemporalContext } from './time-context.js';
 import { formatResearchRequestContract, type ResearchRequestContract } from '@newscraft/shared';
+import type { ContractSatisfaction } from './contract-satisfaction.js';
+import type { NewsroomPromptLayers } from './prompt-stack.js';
+import type { NewsroomSkillId } from './skills.js';
 
 /**
- * The planner turns a newsroom request into an explicit, bounded list of tool
- * steps. The regex router stays as the offline/no-model fallback and its
- * decision remains the spine for budgets, output mode, and answer generation;
- * the planner refines *which* tools run, with concrete per-step inputs and
- * human-facing progress labels.
+ * Legacy planning helpers turn a newsroom request into an explicit, bounded
+ * list of tool steps. Normal runs use the bounded loop controller below;
+ * complete-plan planning and the regex router remain offline/failure fallbacks
+ * with concrete per-step inputs and human-facing progress labels.
  */
 
 export interface PlannedStep {
@@ -26,6 +28,48 @@ export interface ResearchPlan {
 	reason: string;
 	source: 'model' | 'router';
 }
+
+export type LoopAction =
+	| {
+			kind: 'research';
+			tool: string;
+			input: string;
+			label: string;
+			skill?: NewsroomSkillId;
+			parallel?: boolean;
+			laneId?: string;
+			lanePurpose?: string;
+	  }
+	| {
+			kind: 'synthesize';
+			reason?: string;
+	  };
+
+export interface LoopDecision {
+	actions: LoopAction[];
+	reason: string;
+	source: 'model' | 'router';
+}
+
+export interface LoopDecisionRequest {
+	request: string;
+	route: RouteDecision;
+	tools: PlannerToolInfo[];
+	skills: Array<{ id: NewsroomSkillId; summary: string }>;
+	promptLayers: NewsroomPromptLayers;
+	evaluation: ContractSatisfaction;
+	iteration: number;
+	maxIterations: number;
+	maxActions: number;
+	attempted: ReadonlySet<string>;
+	apiKey: string;
+	provider?: ModelProvider;
+	model: string;
+	reasoningEffort?: 'low' | 'medium' | 'high';
+	signal?: AbortSignal;
+}
+
+export type LoopDecisionFn = (request: LoopDecisionRequest) => Promise<LoopDecision>;
 
 export interface PlannerToolInfo {
 	name: string;
@@ -55,6 +99,7 @@ export interface PlannerRequest {
 export type PlannerFn = (request: PlannerRequest) => Promise<ResearchPlan>;
 
 const MAX_PLAN_STEPS = 4;
+const MAX_LOOP_ACTIONS = 2;
 
 export async function planResearchSteps(request: PlannerRequest): Promise<ResearchPlan> {
 	const raw = await completeProviderText({
@@ -104,6 +149,109 @@ export function planFromRoute(route: RouteDecision, prompt: string): ResearchPla
 		reason: route.reason,
 		source: 'router'
 	};
+}
+
+/** Ask the model for the next bounded observe-act action set. */
+export async function chooseNextLoopActions(request: LoopDecisionRequest): Promise<LoopDecision> {
+	const raw = await completeProviderText({
+		provider: request.provider,
+		apiKey: request.apiKey,
+		model: request.model,
+		input: loopDecisionInput(request),
+		instructions: [
+			NEWSROOM_CHARTER,
+			'You are the bounded newsroom loop controller.',
+			'Choose only read-only research actions or the final synthesis action.',
+			'Never choose shell, browser-control, filesystem, messaging, scheduling, deployment, memory-writing, or credential actions.',
+			'Reply with JSON only; do not write an answer or claim facts.'
+		].join('\n'),
+		reasoningEffort: request.reasoningEffort || 'low',
+		maxOutputTokens: 500,
+		disableSearch: true,
+		signal: request.signal
+	});
+	return parseLoopDecision(raw, request);
+}
+
+export function parseLoopDecision(
+	raw: string,
+	request: Pick<LoopDecisionRequest, 'tools' | 'skills' | 'maxActions'>
+): LoopDecision {
+	const value = JSON.parse(extractJsonObject(raw)) as Record<string, unknown>;
+	const allowedTools = new Set(request.tools.map((tool) => tool.name));
+	const allowedSkills = new Set(request.skills.map((skill) => skill.id));
+	const rawActions = Array.isArray(value.actions)
+		? value.actions
+		: typeof value.action === 'string'
+			? [{ kind: value.action, tool: value.tool, input: value.input, label: value.label, skill: value.skill }]
+			: [];
+	if (!rawActions.length) throw new Error('loop decision returned no action');
+	const maxActions = Math.max(1, Math.min(MAX_LOOP_ACTIONS, request.maxActions));
+	const actions: LoopAction[] = [];
+	const seen = new Set<string>();
+	for (const rawAction of rawActions.slice(0, maxActions)) {
+		if (!rawAction || typeof rawAction !== 'object' || Array.isArray(rawAction)) {
+			throw new Error('loop action must be an object');
+		}
+		const action = rawAction as Record<string, unknown>;
+		const kind = typeof action.kind === 'string' ? action.kind : typeof action.action === 'string' ? action.action : '';
+		if (kind === 'synthesize' || kind === 'stop' || kind === 'finish') {
+			actions.push({ kind: 'synthesize', reason: boundedOptional(action.reason, 220) });
+			break;
+		}
+		if (kind !== 'research') throw new Error(`unsupported loop action: ${kind || 'missing kind'}`);
+		const tool = boundedString(action.tool, 'loop action tool', 1, 120);
+		if (!allowedTools.has(tool)) throw new Error(`loop action tool is not available: ${tool}`);
+		const input = boundedString(action.input || '', 'loop action input', 1, 700);
+		const key = `${tool}\n${input}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		const skill = typeof action.skill === 'string' && allowedSkills.has(action.skill as NewsroomSkillId)
+			? (action.skill as NewsroomSkillId)
+			: undefined;
+		actions.push({
+			kind: 'research',
+			tool,
+			input,
+			label: sanitizeStepLabel(typeof action.label === 'string' ? action.label : '') || defaultStepLabel(tool, input),
+			...(skill ? { skill } : {}),
+			...(action.parallel === true ? { parallel: true } : {}),
+			...(typeof action.laneId === 'string' && action.laneId.trim() ? { laneId: action.laneId.trim().slice(0, 80) } : {}),
+			...(typeof action.lanePurpose === 'string' && action.lanePurpose.trim()
+				? { lanePurpose: action.lanePurpose.trim().slice(0, 180) }
+				: {})
+		});
+	}
+	if (!actions.length) throw new Error('loop decision contained no usable action');
+	return {
+		actions,
+		reason: boundedOptional(value.reason, 300) || 'Continue only when another bounded research action can improve the verified answer.',
+		source: 'model'
+	};
+}
+
+/** Deterministic offline/failure fallback: consume the next safe route step. */
+export function deterministicNextLoopDecision(input: {
+	fallbackSteps: PlannedStep[];
+	attempted: ReadonlySet<string>;
+	maxActions?: number;
+	preferSynthesis?: boolean;
+}): LoopDecision {
+	if (input.preferSynthesis) {
+		return { actions: [{ kind: 'synthesize', reason: 'The deterministic evaluator found no higher-value safe research step.' }], reason: 'Synthesize the verified subset.', source: 'router' };
+	}
+	const candidates = input.fallbackSteps.filter((step) => !input.attempted.has(`${step.tool}\n${step.input}`));
+	const maxActions = Math.max(1, Math.min(MAX_LOOP_ACTIONS, input.maxActions || 1));
+	const actions = candidates.slice(0, maxActions).map((step) => ({
+		kind: 'research' as const,
+		tool: step.tool,
+		input: step.input,
+		label: step.label,
+		...(maxActions > 1 ? { parallel: true } : {})
+	}));
+	return actions.length
+		? { actions, reason: 'Use the next deterministic route step as an offline-safe fallback.', source: 'router' }
+		: { actions: [{ kind: 'synthesize', reason: 'No untried safe research step remains.' }], reason: 'Synthesize the verified subset.', source: 'router' };
 }
 
 export function defaultStepLabel(tool: string, input = ''): string {
@@ -169,6 +317,30 @@ function plannerInput(request: PlannerRequest): string {
 	].join('\n');
 }
 
+function loopDecisionInput(request: LoopDecisionRequest): string {
+	const tools = request.tools.map((tool) => `- ${tool.name}: ${tool.when_to_use}`).join('\n') || '- none';
+	const skills = request.skills.map((skill) => `- ${skill.id}: ${skill.summary}`).join('\n') || '- none';
+	const gaps = request.evaluation.gaps.length ? request.evaluation.gaps.map((gap) => `- ${gap}`).join('\n') : '- none recorded';
+	return [
+		request.promptLayers.stable,
+		request.promptLayers.context,
+		request.promptLayers.volatile,
+		'Loop decision contract:',
+		`- Iteration ${request.iteration} of ${request.maxIterations}; at most ${Math.max(1, Math.min(MAX_LOOP_ACTIONS, request.maxActions))} actions.`,
+		`- Already attempted action keys: ${[...request.attempted].slice(-12).join(' | ') || 'none'}`,
+		`- Current contract completeness: ${request.evaluation.completeness.toFixed(2)}.`,
+		`- Can synthesize now: ${request.evaluation.can_synthesize ? 'yes' : 'no'}.`,
+		'Remaining gaps:',
+		gaps,
+		'Allowed progressive-disclosure skills:',
+		skills,
+		'Allowed read-only tools:',
+		tools,
+		'Return exactly this shape: {"reason":"short rationale","actions":[{"kind":"research","tool":"registered_tool","input":"focused query or URL","label":"short progress label","skill":"skill_id","parallel":true}]} or {"reason":"...","actions":[{"kind":"synthesize"}]}.',
+		`Current request: ${request.request}`
+	].join('\n\n');
+}
+
 function sanitizeStepLabel(value: string): string {
 	return value
 		.replace(/https?:\/\/\S+/gi, '')
@@ -218,4 +390,10 @@ function boundedString(value: unknown, label: string, min: number, max: number):
 	if (trimmed.length < min) throw new Error(`${label} is required`);
 	if (trimmed.length > max) throw new Error(`${label} is too long`);
 	return trimmed;
+}
+
+function boundedOptional(value: unknown, max: number): string | undefined {
+	if (typeof value !== 'string') return undefined;
+	const trimmed = value.trim();
+	return trimmed ? trimmed.slice(0, max) : undefined;
 }

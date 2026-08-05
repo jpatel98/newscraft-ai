@@ -19,7 +19,7 @@ interface SourceMonitorConfig {
 export interface NewsroomAgentConfig {
 	enabled_tools: string[];
 	model_provider: ModelProvider;
-	/** Model-driven step planning; the regex router remains the fallback. */
+	/** Enables the bounded observe-act-observe controller; legacy planning remains an explicit fallback. */
 	planner_enabled: boolean;
 	default_tool_budget: ToolBudget;
 	source_priority: Array<'official' | 'primary' | 'source_monitor' | 'internal' | 'media_report' | 'unknown'>;
