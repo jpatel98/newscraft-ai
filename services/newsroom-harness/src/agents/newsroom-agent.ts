@@ -12,11 +12,14 @@ import {
 	evidenceHasBlockingLimitation,
 	isUsableEvidence,
 	preparePublishableEvidence,
+	clusterEvidence,
+	type EvidenceStoryCluster,
 	type EvidenceObject,
 	type EvidenceRanking
 } from './evidence.js';
 import { filterEvidenceForResearchContract } from './research-policy.js';
 import {
+	buildRequirementCoverageLanes,
 	buildProducerCoverageLanes,
 	coverageOverlap,
 	reformulateCoverageQuery,
@@ -35,6 +38,7 @@ import {
 	planFromRoute,
 	planResearchSteps,
 	readingLabelForUrl,
+	researchActionKey,
 	type LoopAction,
 	type LoopDecision,
 	type LoopDecisionFn,
@@ -43,7 +47,12 @@ import {
 	type ResearchPlan
 } from './planner.js';
 import { NewsroomEvidenceLedger } from './evidence-ledger.js';
-import { evaluateContractSatisfaction, type ContractSatisfaction } from './contract-satisfaction.js';
+import {
+	evaluateContractSatisfaction,
+	type ContractSatisfaction,
+	type RequirementCoverage,
+	type RequirementExecutionState
+} from './contract-satisfaction.js';
 import { buildNewsroomPromptLayers } from './prompt-stack.js';
 import { discoverNewsroomSkills, skillInstructions } from './skills.js';
 import { NEWSROOM_TOOL_NAMES, routeNewsroomRequest, type RouteDecision } from './router.js';
@@ -52,6 +61,7 @@ import type { ModelProvider } from '../util/openai-complete.js';
 import {
 	deriveResearchRequestContract,
 	mergeLatestResearchContract,
+	researchRequirementsForContract,
 	researchContractWithTemporalWindow,
 	type ConversationContext,
 	type DocumentContext,
@@ -91,6 +101,8 @@ export interface NewsroomAgentRunContext {
 
 interface AgentToolCallRecord {
 	name: string;
+	step_id?: string;
+	requirement_id?: string;
 	status: ToolRunOutput['status'] | 'skipped';
 	limitations: string[];
 	evidence_count: number;
@@ -118,12 +130,16 @@ export interface AgentPlanStepEvent {
 	status: AgentPlanStepStatus;
 	laneId?: string;
 	lanePurpose?: string;
+	requirementId?: string;
+	phase?: 'discovery' | 'official' | 'corroboration';
 	detail?: string;
 }
 
 export interface AgentPlanEvent {
 	source: 'model' | 'router';
 	steps: AgentPlanStepEvent[];
+	requirementCoverage?: RequirementCoverage[];
+	assignmentStatus?: 'executing' | 'complete' | 'partial' | 'incomplete' | 'exhausted';
 }
 
 export interface NewsroomAgentRunResult {
@@ -138,6 +154,9 @@ export interface NewsroomAgentRunResult {
 	budget: ToolBudgetSnapshot;
 	stopped_reason: string;
 	discovery_leads?: EvidenceObject[];
+	requirement_coverage: RequirementCoverage[];
+	story_clusters: EvidenceStoryCluster[];
+	assignment_status: 'complete' | 'partial' | 'incomplete' | 'exhausted';
 }
 
 export interface DisciplinedNewsroomAgentOptions {
@@ -164,6 +183,10 @@ interface QueuedStep {
 	detail?: string;
 	laneId?: string;
 	lanePurpose?: string;
+	requirementId?: string;
+	phase?: 'discovery' | 'official' | 'corroboration';
+	capability?: 'web_search' | 'source_monitor' | 'direct_read' | 'corroboration';
+	intentKey?: string;
 	reformulated?: boolean;
 	parallelGroup?: string;
 }
@@ -267,6 +290,12 @@ export class DisciplinedNewsroomAgent {
 			decision.selected_mode === 'direct_answer'
 		) {
 			const budget = ledger.snapshot();
+			const directEvaluation = evaluateContractSatisfaction({
+				request: resolvedRoutingPrompt,
+				contract: researchContract,
+				evidence,
+				documents: context.documents
+			});
 			return {
 				prompt,
 				decision,
@@ -285,7 +314,10 @@ export class DisciplinedNewsroomAgent {
 				limitations,
 				tool_calls: toolCalls,
 				budget,
-				stopped_reason: decision.selected_mode
+				stopped_reason: decision.selected_mode,
+				requirement_coverage: directEvaluation.requirement_coverage,
+				story_clusters: [],
+				assignment_status: 'complete'
 			};
 		}
 
@@ -314,6 +346,10 @@ export class DisciplinedNewsroomAgent {
 			label: step.label,
 			...(step.laneId ? { laneId: step.laneId } : {}),
 			...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {}),
+			...(step.requirementId ? { requirementId: step.requirementId } : {}),
+			...(step.phase ? { phase: step.phase } : {}),
+			...(step.capability ? { capability: step.capability } : {}),
+			...(step.intentKey ? { intentKey: step.intentKey } : {}),
 			status: 'pending'
 		}));
 		const emitPlan = () => context.onPlanEvent?.(planEvent(plan.source, queue));
@@ -324,9 +360,16 @@ export class DisciplinedNewsroomAgent {
 		let lastOutput: ToolRunOutput | null = null;
 		const discoveryLeads: EvidenceObject[] = [];
 		const searchedEvidence: EvidenceObject[] = [];
-		const coverageLanes = buildProducerCoverageLanes(researchContract!, context.newsroomContext, {
-			maxLanes: Math.min(6, Math.max(1, this.config.default_tool_budget.max_web_searches))
-		});
+		const coverageLanes = researchRequirementsForContract(researchContract!).length === 1
+			? buildProducerCoverageLanes(researchContract!, context.newsroomContext, {
+					maxLanes: Math.min(6, Math.max(1, this.config.default_tool_budget.max_web_searches)),
+					namedOnly: true
+				})
+			: buildRequirementCoverageLanes(researchContract!, context.newsroomContext, {
+					maxLanes: Math.min(8, Math.max(1, this.config.default_tool_budget.max_web_searches)),
+					includeOfficial: true,
+					includeCorroboration: true
+				});
 		let index = 0;
 		while (index < queue.length) {
 			const step = queue[index];
@@ -343,7 +386,7 @@ export class DisciplinedNewsroomAgent {
 				const reason = `Tool disabled by harness config: ${step.tool}`;
 				const publicReason = 'This research step is not available.';
 				limitations.push(reason);
-				toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
+				toolCalls.push({ name: step.tool, step_id: step.id, ...(step.requirementId ? { requirement_id: step.requirementId } : {}), status: 'skipped', limitations: [reason], evidence_count: 0 });
 				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: publicReason });
 				skipStep(step, publicReason);
 				this.queueWebSearchFallback(queue, step, evidence, ledger);
@@ -355,7 +398,7 @@ export class DisciplinedNewsroomAgent {
 				const reason = `Tool is not registered: ${step.tool}`;
 				const publicReason = 'This research step is not available.';
 				limitations.push(reason);
-				toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
+				toolCalls.push({ name: step.tool, step_id: step.id, ...(step.requirementId ? { requirement_id: step.requirementId } : {}), status: 'skipped', limitations: [reason], evidence_count: 0 });
 				context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: publicReason });
 				skipStep(step, publicReason);
 				this.queueWebSearchFallback(queue, step, evidence, ledger);
@@ -390,7 +433,11 @@ export class DisciplinedNewsroomAgent {
 				: rebaseToolOutputCitations(rawOutput, evidence);
 			const contractGuarded = applyResearchContractGuard(normalizedOutput, researchContract);
 			const conversationGuarded = applyConversationGuard(contractGuarded, context.conversationContext, temporalContext);
-			const output = applyTemporalGuard(conversationGuarded, temporalContext, isCurrentEventQuery(resolvedRoutingPrompt));
+			const output = annotateRequirementOutput(
+				applyTemporalGuard(conversationGuarded, temporalContext, isCurrentEventQuery(resolvedRoutingPrompt)),
+				step.requirementId,
+				researchContract
+			);
 			lastOutput = output;
 			const outputLimitations = output.limitations || [];
 			const publicDetail = output.status === 'ok' ? undefined : publicStepFailureDetail(outputLimitations);
@@ -398,10 +445,13 @@ export class DisciplinedNewsroomAgent {
 			discoveryLeads.push(...(output.discovery_leads || []));
 			if (output.answer) toolAnswers.push(output.answer);
 			evidence.splice(0, evidence.length, ...dedupeEvidence([...evidence, ...(output.evidence || [])]));
-			const overlapAction = coverageActionForStep(step, output.evidence || [], searchedEvidence, queue, index, coverageLanes, researchContract);
+			const coverageCandidates = [...(output.evidence || []), ...(output.discovery_leads || [])];
+			const overlapAction = coverageActionForStep(step, coverageCandidates, searchedEvidence, queue, index, coverageLanes, researchContract);
 			searchedEvidence.push(...(output.evidence || []));
 			toolCalls.push({
 				name: tool.name,
+				step_id: step.id,
+				...(step.requirementId ? { requirement_id: step.requirementId } : {}),
 				status: output.status,
 				limitations: outputLimitations,
 				evidence_count: output.evidence?.length || 0
@@ -487,6 +537,19 @@ export class DisciplinedNewsroomAgent {
 		}
 
 		const budget = ledger.snapshot();
+		const finalEvaluation = evaluateContractSatisfaction({
+			request: resolvedRoutingPrompt,
+			contract: researchContract,
+			evidence,
+			documents: context.documents,
+			answer: toolAnswers.at(-1),
+			requirementExecution: requirementExecutionForQueue(queue, researchContract),
+			sharedBudgetExhausted: sharedBudgetExhausted(ledger)
+		});
+		limitations.push(...finalEvaluation.gaps);
+		const finalContract = contractWithCoverage(researchContract, finalEvaluation.requirement_coverage);
+		const assignmentStatus = assignmentStatusForCoverage(finalEvaluation.requirement_coverage, budget, stoppedReason);
+		const storyClusters = clusterEvidence(evidence).clusters;
 		let finalAnswer = generateFinalAnswer({
 			prompt: resolvedRoutingPrompt,
 			decision,
@@ -497,22 +560,28 @@ export class DisciplinedNewsroomAgent {
 			researchStepCount: toolCalls.length,
 			outputStyle: context.outputStyle,
 			conversationContext: context.conversationContext,
-			timeZone: temporalContext.timeZone
+			timeZone: temporalContext.timeZone,
+			researchContract: finalContract,
+			requirementCoverage: finalEvaluation.requirement_coverage,
+			storyClusters
 		});
 		if (context.outputStyle === 'chat') finalAnswer = enforceFinalCitationIntegrity(finalAnswer, evidence);
 		markCitedEvidence(evidence, finalAnswer);
 		return {
 			prompt,
 			decision,
-			research_contract: researchContract,
-			plan: planEvent(plan.source, queue),
+			research_contract: finalContract,
+			plan: planEvent(plan.source, queue, finalEvaluation.requirement_coverage, assignmentStatus),
 			evidence,
 			final_answer: finalAnswer,
 			limitations: [...new Set(limitations.filter(Boolean))],
 			tool_calls: toolCalls,
 			budget,
 			stopped_reason: stoppedReason || completionStopReason(decision, lastOutput, evidence),
-			discovery_leads: dedupeEvidence(discoveryLeads).slice(0, 16)
+			discovery_leads: dedupeEvidence(discoveryLeads).slice(0, 16),
+			requirement_coverage: finalEvaluation.requirement_coverage,
+			story_clusters: storyClusters,
+			assignment_status: assignmentStatus
 		};
 	}
 
@@ -570,9 +639,19 @@ export class DisciplinedNewsroomAgent {
 		let answerStreamUsed = false;
 		let followUpFetches = 0;
 		let loopIteration = 0;
-		const coverageLanes = buildProducerCoverageLanes(researchContract!, context.newsroomContext, {
-			maxLanes: Math.min(6, Math.max(1, this.config.default_tool_budget.max_web_searches))
-		});
+		const coverageLanes = researchRequirementsForContract(researchContract!).length === 1
+			? buildProducerCoverageLanes(researchContract!, context.newsroomContext, {
+					maxLanes: Math.min(6, Math.max(1, this.config.default_tool_budget.max_web_searches)),
+					namedOnly: true
+				})
+			: buildRequirementCoverageLanes(researchContract!, context.newsroomContext, {
+					maxLanes: Math.max(
+						researchRequirementsForContract(researchContract!).length,
+						Math.min(8, Math.max(1, this.config.default_tool_budget.max_web_searches))
+					),
+					includeOfficial: true,
+					includeCorroboration: true
+				});
 		const forwardAnswerDelta = context.onAnswerDelta
 			? (delta: string) => {
 					answerStreamUsed = true;
@@ -583,10 +662,10 @@ export class DisciplinedNewsroomAgent {
 		const emitPlan = () => context.onPlanEvent?.(planEvent(planSource, queue));
 		const appendActions = (actions: LoopAction[], parallelGroup?: string): number => {
 			let added = 0;
-			const existing = new Set(queue.map((step) => `${step.tool}\n${step.input}`));
+			const existing = new Set(queue.map((step) => researchActionKey(step)));
 			for (const action of actions) {
 				if (action.kind !== 'research') continue;
-				const key = `${action.tool}\n${action.input}`;
+				const key = researchActionKey(action);
 				if (existing.has(key)) continue;
 				existing.add(key);
 				queue.push({
@@ -597,6 +676,10 @@ export class DisciplinedNewsroomAgent {
 					status: 'pending',
 					...(action.laneId ? { laneId: action.laneId } : {}),
 					...(action.lanePurpose ? { lanePurpose: action.lanePurpose } : {}),
+					...(action.requirementId ? { requirementId: action.requirementId } : {}),
+					...(action.phase ? { phase: action.phase } : {}),
+					...(action.capability ? { capability: action.capability } : {}),
+					...(action.intentKey ? { intentKey: action.intentKey } : {}),
 					...(parallelGroup ? { parallelGroup } : {})
 				});
 				added += 1;
@@ -623,7 +706,11 @@ export class DisciplinedNewsroomAgent {
 					input: step.input,
 					label: step.label,
 					...(step.laneId ? { laneId: step.laneId } : {}),
-					...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {})
+					...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {}),
+					...(step.requirementId ? { requirementId: step.requirementId } : {}),
+					...(step.phase ? { phase: step.phase } : {}),
+					...(step.capability ? { capability: step.capability } : {}),
+					...(step.intentKey ? { intentKey: step.intentKey } : {})
 				})),
 				firstCount > 1 ? 'initial_parallel' : undefined
 			);
@@ -640,7 +727,11 @@ export class DisciplinedNewsroomAgent {
 					input: step.input,
 					label: step.label,
 					...(step.laneId ? { laneId: step.laneId } : {}),
-					...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {})
+					...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {}),
+					...(step.requirementId ? { requirementId: step.requirementId } : {}),
+					...(step.phase ? { phase: step.phase } : {}),
+					...(step.capability ? { capability: step.capability } : {}),
+					...(step.intentKey ? { intentKey: step.intentKey } : {})
 				}))
 			);
 		}
@@ -676,7 +767,7 @@ export class DisciplinedNewsroomAgent {
 						const reason = `Tool disabled by harness config: ${step.tool}`;
 						const publicReason = 'This research step is not available.';
 						limitations.push(reason);
-						toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
+						toolCalls.push({ name: step.tool, step_id: step.id, ...(step.requirementId ? { requirement_id: step.requirementId } : {}), status: 'skipped', limitations: [reason], evidence_count: 0 });
 						context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: publicReason });
 						skipStep(step, publicReason);
 						this.queueWebSearchFallback(queue, step, evidence, ledger);
@@ -687,7 +778,7 @@ export class DisciplinedNewsroomAgent {
 						const reason = `Tool is not registered: ${step.tool}`;
 						const publicReason = 'This research step is not available.';
 						limitations.push(reason);
-						toolCalls.push({ name: step.tool, status: 'skipped', limitations: [reason], evidence_count: 0 });
+						toolCalls.push({ name: step.tool, step_id: step.id, ...(step.requirementId ? { requirement_id: step.requirementId } : {}), status: 'skipped', limitations: [reason], evidence_count: 0 });
 						context.onToolEvent?.({ type: 'tool_skipped', tool: step.tool, stepId: step.id, detail: publicReason });
 						skipStep(step, publicReason);
 						this.queueWebSearchFallback(queue, step, evidence, ledger);
@@ -747,10 +838,14 @@ export class DisciplinedNewsroomAgent {
 						: rebaseToolOutputCitations(rawOutput, evidence);
 					const contractGuarded = applyResearchContractGuard(normalizedOutput, researchContract);
 					const conversationGuarded = applyConversationGuard(contractGuarded, context.conversationContext, context.temporalContext);
-					const output = applyTemporalGuard(
-						conversationGuarded,
-						context.temporalContext!,
-						isCurrentEventQuery(resolvedRoutingPrompt)
+					const output = annotateRequirementOutput(
+						applyTemporalGuard(
+							conversationGuarded,
+							context.temporalContext!,
+							isCurrentEventQuery(resolvedRoutingPrompt)
+						),
+						step.requirementId,
+						researchContract
 					);
 					lastOutput = output;
 					const outputLimitations = output.limitations || [];
@@ -762,9 +857,10 @@ export class DisciplinedNewsroomAgent {
 					evidence.splice(0, evidence.length, ...evidenceLedger.accepted());
 					if (output.answer) toolAnswers.push(output.answer);
 					const outputEvidence = output.evidence || [];
+					const coverageCandidates = [...outputEvidence, ...(output.discovery_leads || [])];
 					const overlapAction = coverageActionForStep(
 						step,
-						outputEvidence,
+						coverageCandidates,
 						searchedEvidence,
 						queue,
 						index,
@@ -774,6 +870,8 @@ export class DisciplinedNewsroomAgent {
 					searchedEvidence.push(...outputEvidence);
 					toolCalls.push({
 						name: tool.name,
+						step_id: step.id,
+						...(step.requirementId ? { requirement_id: step.requirementId } : {}),
 						status: output.status,
 						limitations: outputLimitations,
 						evidence_count: outputEvidence.length
@@ -844,7 +942,9 @@ export class DisciplinedNewsroomAgent {
 				contract: researchContract,
 				evidence,
 				documents: context.documents,
-				answer: toolAnswers.at(-1)
+				answer: toolAnswers.at(-1),
+				requirementExecution: requirementExecutionForQueue(queue, researchContract),
+				sharedBudgetExhausted: sharedBudgetExhausted(ledger)
 			});
 			if (evaluation.hard_rejects.length) {
 				observations.push(`contract evaluator rejected ${evaluation.hard_rejects.length} unsafe, invalid, or mismatched evidence item(s)`);
@@ -858,7 +958,7 @@ export class DisciplinedNewsroomAgent {
 			const attempted = new Set(
 				queue
 					.filter((step) => step.status !== 'pending')
-					.map((step) => `${step.tool}\n${step.input}`)
+					.map((step) => researchActionKey(step))
 			);
 			const next = await this.nextLoopDecision({
 				request: resolvedRoutingPrompt,
@@ -882,7 +982,7 @@ export class DisciplinedNewsroomAgent {
 			}
 			const filteredActions = next.actions.filter(
 				(action): action is Extract<LoopAction, { kind: 'research' }> =>
-					action.kind === 'research' && !attempted.has(`${action.tool}\n${action.input}`)
+					action.kind === 'research' && !attempted.has(researchActionKey(action))
 			);
 			if (!filteredActions.length) {
 				stoppedReason = 'no untried safe research action remains';
@@ -926,8 +1026,10 @@ export class DisciplinedNewsroomAgent {
 			request: resolvedRoutingPrompt,
 			contract: researchContract,
 			evidence,
-			documents: context.documents,
-			answer: toolAnswers.at(-1)
+				documents: context.documents,
+				answer: toolAnswers.at(-1),
+			requirementExecution: requirementExecutionForQueue(queue, researchContract),
+			sharedBudgetExhausted: sharedBudgetExhausted(ledger)
 		});
 		limitations.push(...finalEvaluation.gaps);
 		if (researchContract?.requestedItemCount && evidence.length < researchContract.requestedItemCount) {
@@ -939,6 +1041,9 @@ export class DisciplinedNewsroomAgent {
 		if (!toolCalls.length && fallbackPlan.steps.length) limitations.push('No selected tools were run.');
 
 		const budget = ledger.snapshot();
+		const finalContract = contractWithCoverage(researchContract, finalEvaluation.requirement_coverage);
+		const assignmentStatus = assignmentStatusForCoverage(finalEvaluation.requirement_coverage, budget, stoppedReason);
+		const storyClusters = clusterEvidence(evidence).clusters;
 		let finalAnswer = generateFinalAnswer({
 			prompt: resolvedRoutingPrompt,
 			decision,
@@ -949,15 +1054,18 @@ export class DisciplinedNewsroomAgent {
 			researchStepCount: toolCalls.length,
 			outputStyle: context.outputStyle,
 			conversationContext: context.conversationContext,
-			timeZone: context.temporalContext?.timeZone
+			timeZone: context.temporalContext?.timeZone,
+			researchContract: finalContract,
+			requirementCoverage: finalEvaluation.requirement_coverage,
+			storyClusters
 		});
 		if (context.outputStyle === 'chat') finalAnswer = enforceFinalCitationIntegrity(finalAnswer, evidence);
 		markCitedEvidence(evidence, finalAnswer);
 		return {
 			prompt,
 			decision,
-			research_contract: researchContract,
-			plan: planEvent(planSource, queue),
+			research_contract: finalContract,
+			plan: planEvent(planSource, queue, finalEvaluation.requirement_coverage, assignmentStatus),
 			evidence,
 			final_answer: finalAnswer,
 			limitations: [...new Set(limitations.filter(Boolean))],
@@ -966,7 +1074,10 @@ export class DisciplinedNewsroomAgent {
 			stopped_reason:
 				stoppedReason ||
 					completionStopReason(decision, lastOutput, evidence),
-			discovery_leads: dedupeEvidence(discoveryLeads).slice(0, 16)
+			discovery_leads: dedupeEvidence(discoveryLeads).slice(0, 16),
+			requirement_coverage: finalEvaluation.requirement_coverage,
+			story_clusters: storyClusters,
+			assignment_status: assignmentStatus
 		};
 	}
 
@@ -1261,6 +1372,10 @@ export class DisciplinedNewsroomAgent {
 						tool: NEWSROOM_TOOL_NAMES.urlFetchRead,
 						input: candidate.source_url,
 						label: readingLabelForUrl(candidate.source_url),
+						...(step.requirementId ? { requirementId: step.requirementId } : {}),
+						phase: 'corroboration',
+						capability: 'direct_read',
+						intentKey: `${step.requirementId || step.id}:direct_read:${candidate.canonical_url || candidate.source_url}`,
 						status: 'pending'
 					});
 					queuedFetches += 1;
@@ -1449,6 +1564,33 @@ function applyResearchContractGuard(
 	};
 }
 
+/** Attach the queue lane identity after a tool has returned normalized evidence. */
+function annotateRequirementOutput(
+	output: ToolRunOutput,
+	requirementId: string | undefined,
+	contract: ResearchRequestContract | undefined
+): ToolRunOutput {
+	if (!requirementId || !contract || !output.evidence?.length) return output;
+	const requirement = researchRequirementsForContract(contract).find((item) => item.id === requirementId);
+	if (!requirement) return output;
+	const evidence = output.evidence.map((item) => {
+		if (item.requirement_ids?.length && !item.requirement_ids.includes(requirement.id)) return item;
+		if (requirement.geography && item.location && !sameLaneLocation(item.location, requirement.geography)) return item;
+		return {
+			...item,
+			requirement_ids: [...new Set([...(item.requirement_ids || []), requirement.id])]
+		};
+	});
+	return { ...output, evidence };
+}
+
+function sameLaneLocation(left: string, right: string): boolean {
+	const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+	const a = normalize(left);
+	const b = normalize(right);
+	return a === b || a.includes(b) || b.includes(a);
+}
+
 function applyTemporalGuard(
 	output: ToolRunOutput,
 	temporalContext: NewsroomTemporalContext,
@@ -1586,7 +1728,10 @@ function coverageActionForStep(
 	if (step.tool !== NEWSROOM_TOOL_NAMES.webSearch || !step.laneId || !candidates.length || !previous.length) return 'continue';
 	const overlap = coverageOverlap(candidates, previous);
 	if (overlap.candidateCount === 0 || overlap.ratio < 0.75) return 'continue';
-	if (step.reformulated) return 'stop';
+	// A single repeated candidate is a genuine exhausted lane. Multiple
+	// overlapping candidates can still be useful corroboration for a producer
+	// assignment, so let the remaining capability lanes run once.
+	if (step.reformulated && candidates.length <= 1) return 'stop';
 	const nextLane = queue.slice(fromIndex).find(
 		(item) => item.status === 'pending' && item.tool === NEWSROOM_TOOL_NAMES.webSearch && item.laneId
 	);
@@ -1715,9 +1860,88 @@ function inputForTool(name: string, prompt: string, evidence: EvidenceObject[], 
 	return { prompt, evidence };
 }
 
-function planEvent(source: 'model' | 'router', queue: QueuedStep[]): AgentPlanEvent {
+function requirementExecutionForQueue(
+	queue: QueuedStep[],
+	contract: ResearchRequestContract | undefined
+): Record<string, RequirementExecutionState> {
+	const state: Record<string, RequirementExecutionState> = {};
+	for (const requirement of contract ? researchRequirementsForContract(contract) : []) {
+		state[requirement.id] = { executedActions: 0, skippedActions: 0, exhausted: false };
+	}
+	for (const step of queue) {
+		if (!step.requirementId || !state[step.requirementId]) continue;
+		const current = state[step.requirementId];
+		if (step.status === 'skipped') {
+			current.skippedActions = (current.skippedActions || 0) + 1;
+			if (/limit|exhaust|budget|stopped|unavailable|not available/i.test(step.detail || '')) current.exhausted = true;
+		} else if (step.status !== 'pending') {
+			current.executedActions = (current.executedActions || 0) + 1;
+		}
+	}
+	return state;
+}
+
+function sharedBudgetExhausted(ledger: ToolBudgetLedger): boolean {
+	const snapshot = ledger.snapshot();
+	return snapshot.exhausted || snapshot.remaining.total_tool_calls === 0 || snapshot.remaining.web_searches === 0 || snapshot.remaining.elapsed_seconds === 0;
+}
+
+function contractWithCoverage(
+	contract: ResearchRequestContract | undefined,
+	coverage: RequirementCoverage[]
+): ResearchRequestContract | undefined {
+	if (!contract) return undefined;
+	const rows = new Map(coverage.map((row) => [row.requirement_id, row]));
+	const requirements = researchRequirementsForContract(contract).map((requirement) => {
+		const row = rows.get(requirement.id);
+		if (!row) return requirement;
+		return {
+			...requirement,
+			completionState: row.state,
+			completion: {
+				state: row.state,
+				acceptedCount: row.accepted_count,
+				requestedCount: row.requested_count,
+				gaps: row.gaps,
+				likelyToImprove: row.likely_to_improve,
+				executedActions: row.executed_actions,
+				skippedActions: row.skipped_actions,
+				exhausted: row.budget_exhausted
+			}
+		};
+	});
+	return { ...contract, requirements };
+}
+
+function assignmentStatusForCoverage(
+	coverage: RequirementCoverage[],
+	budget: ToolBudgetSnapshot,
+	stoppedReason: string
+): 'complete' | 'partial' | 'incomplete' | 'exhausted' {
+	if (!coverage.length || coverage.every((row) => row.state === 'satisfied')) return 'complete';
+	if (
+		budget.exhausted ||
+		budget.remaining.total_tool_calls === 0 ||
+		budget.remaining.web_searches === 0 ||
+		budget.remaining.elapsed_seconds === 0 ||
+		/exhausted|limit reached|budget|runtime|no untried/i.test(stoppedReason)
+	) {
+		return 'exhausted';
+	}
+	if (coverage.some((row) => row.accepted_count > 0 || row.state === 'partial')) return 'partial';
+	return 'incomplete';
+}
+
+function planEvent(
+	source: 'model' | 'router',
+	queue: QueuedStep[],
+	requirementCoverage?: RequirementCoverage[],
+	assignmentStatus: AgentPlanEvent['assignmentStatus'] = 'executing'
+): AgentPlanEvent {
 	return {
 		source,
+		assignmentStatus,
+		...(requirementCoverage ? { requirementCoverage } : {}),
 		steps: queue.map((step) => ({
 			id: step.id,
 			tool: step.tool,
@@ -1725,6 +1949,8 @@ function planEvent(source: 'model' | 'router', queue: QueuedStep[]): AgentPlanEv
 			status: step.status,
 			...(step.laneId ? { laneId: step.laneId } : {}),
 			...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {}),
+			...(step.requirementId ? { requirementId: step.requirementId } : {}),
+			...(step.phase ? { phase: step.phase } : {}),
 			...(step.detail ? { detail: step.detail } : {})
 		}))
 	};
@@ -1858,15 +2084,23 @@ function coverageSweepPlan(
 		return plan;
 	}
 	if (!effectiveContract) return plan;
-	const lanes = buildProducerCoverageLanes(effectiveContract, context.newsroomContext, {
-		maxLanes: Math.min(4, Math.max(1, maxWebSearches)),
-		namedOnly: namedOutletOnly
-	});
+	const requirementCount = researchRequirementsForContract(effectiveContract).length;
+	const lanes = namedOutletOnly || requirementCount === 1
+		? buildProducerCoverageLanes(effectiveContract, context.newsroomContext, {
+				maxLanes: Math.min(6, Math.max(1, maxWebSearches)),
+				namedOnly: true
+			})
+		: buildRequirementCoverageLanes(effectiveContract, context.newsroomContext, {
+				maxLanes: Math.max(requirementCount, Math.min(8, Math.max(1, maxWebSearches))),
+				includeOfficial: true,
+				includeCorroboration: true
+			});
 	if (!lanes.length) return plan;
-	const market = effectiveContract.location || effectiveContract.homeMarket || context.newsroomContext?.homeMarket || '';
+	const requirementSummary = researchRequirementsForContract(effectiveContract)
+		.map((requirement) => `${requirement.label}: ${requirement.subject} (${requirement.requestedItemCount})`)
+		.join('; ');
 	const sourceScanInput = [
-		effectiveContract.subject,
-		market,
+		requirementSummary,
 		'current publisher feeds and configured primary-source monitors',
 		effectiveContract.excludedCategories.length
 			? `Exclude: ${effectiveContract.excludedCategories.join(', ')}.`
@@ -1883,14 +2117,20 @@ function coverageSweepPlan(
 				input: sourceScanInput,
 				label: 'Scanning direct newsroom sources',
 				laneId: 'direct_source_indexes',
-				lanePurpose: 'publisher and primary-source feeds: discover direct, dated story pages before broad search'
+				lanePurpose: 'publisher and primary-source feeds: discover direct, dated story pages before broad search',
+				capability: 'source_monitor',
+				intentKey: 'all-requirements:source-monitor:discovery'
 			},
 			...lanes.map((lane) => ({
 				tool: NEWSROOM_TOOL_NAMES.webSearch,
 				input: lane.query,
 				label: lane.label,
 				laneId: lane.id,
-				lanePurpose: `${lane.sourcePurpose}: ${lane.purpose}`
+				lanePurpose: `${lane.sourcePurpose}: ${lane.purpose}`,
+				...(lane.requirementId ? { requirementId: lane.requirementId } : {}),
+				...(lane.phase ? { phase: lane.phase } : {}),
+				...(lane.capability ? { capability: lane.capability } : {}),
+				...(lane.intentKey ? { intentKey: lane.intentKey } : {})
 			}))
 		]
 	};

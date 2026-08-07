@@ -44,11 +44,28 @@ export interface PlanStep {
 	label: string;
 	status: PlanStepStatus;
 	detail?: string;
+	requirementId?: string;
+	phase?: 'discovery' | 'official' | 'corroboration';
+}
+
+export interface PlanRequirementCoverage {
+	requirement_id: string;
+	label: string;
+	requested_count: number;
+	accepted_count: number;
+	state: string;
+	gaps: string[];
+	likely_to_improve: boolean;
+	executed_actions: number;
+	skipped_actions: number;
+	budget_exhausted: boolean;
 }
 
 export interface StreamPlanUpdate {
 	source: 'model' | 'router';
 	steps: PlanStep[];
+	requirementCoverage?: PlanRequirementCoverage[];
+	assignmentStatus?: string;
 }
 
 export interface StreamEventUpdate {
@@ -396,10 +413,34 @@ export class StreamEventState {
 				? (rawStatus as PlanStepStatus)
 				: 'pending';
 			const detail = stringValue(obj.detail) ?? undefined;
-			return [{ id, label, status, ...(detail ? { detail } : {}) }];
+			const requirementId = stringValue(obj.requirementId ?? obj.requirement_id) ?? undefined;
+			const phaseValue = stringValue(obj.phase);
+			const phase = phaseValue === 'discovery' || phaseValue === 'official' || phaseValue === 'corroboration' ? phaseValue : undefined;
+			return [{ id, label, status, ...(detail ? { detail } : {}), ...(requirementId ? { requirementId } : {}), ...(phase ? { phase } : {}) }];
 		});
 		if (!steps.length) return [];
-		return [{ plan: { source, steps } }];
+		const rawCoverage = arrayValue(payload.requirementCoverage ?? payload.requirement_coverage);
+		const requirementCoverage = rawCoverage.flatMap((raw) => {
+			const obj = objectValue(raw);
+			if (!obj) return [];
+			const id = stringValue(obj.requirement_id ?? obj.requirementId);
+			const label = stringValue(obj.label);
+			if (!id || !label) return [];
+			return [{
+				requirement_id: id,
+				label,
+				requested_count: numberValue(obj.requested_count ?? obj.requestedCount) || 0,
+				accepted_count: numberValue(obj.accepted_count ?? obj.acceptedCount) || 0,
+				state: stringValue(obj.state) || 'pending',
+				gaps: arrayValue(obj.gaps).map((gap) => stringValue(gap)).filter((gap): gap is string => Boolean(gap)),
+				likely_to_improve: obj.likely_to_improve === true || obj.likelyToImprove === true,
+				executed_actions: numberValue(obj.executed_actions ?? obj.executedActions) || 0,
+				skipped_actions: numberValue(obj.skipped_actions ?? obj.skippedActions) || 0,
+				budget_exhausted: obj.budget_exhausted === true || obj.budgetExhausted === true
+			}];
+		});
+		const assignmentStatus = stringValue(payload.assignmentStatus ?? payload.assignment_status) ?? undefined;
+		return [{ plan: { source, steps, ...(requirementCoverage.length ? { requirementCoverage } : {}), ...(assignmentStatus ? { assignmentStatus } : {}) } }];
 	}
 
 	private applyAgentTool(payload: JsonObject, now: number): StreamEventUpdate[] {

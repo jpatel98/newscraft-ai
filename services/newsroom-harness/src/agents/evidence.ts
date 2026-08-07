@@ -83,8 +83,21 @@ export interface EvidenceObject {
 	uncertainty?: string[];
 	page_role?: EvidencePageRole;
 	temporal_scope?: EvidenceTemporalScope;
+	/** Requirements for which this normalized source is valid evidence. */
+	requirement_ids?: string[];
+	/** Stable story cluster shared by corroborating publisher/official sources. */
+	story_cluster_id?: string;
 	ledger_status: ResearchEvidenceStatus;
 	rejection_reason?: string;
+}
+
+export interface EvidenceStoryCluster {
+	id: string;
+	title: string;
+	requirement_ids: string[];
+	evidence_ids: string[];
+	primary_evidence_id: string;
+	corroborating_evidence_ids: string[];
 }
 
 export interface EvidenceInput {
@@ -122,6 +135,8 @@ export interface EvidenceInput {
 	uncertainty?: string[] | string | null;
 	page_role?: EvidencePageRole | null;
 	temporal_scope?: EvidenceTemporalScope | null;
+	requirement_ids?: string[] | null;
+	story_cluster_id?: string | null;
 	ledger_status?: ResearchEvidenceStatus | null;
 	rejection_reason?: string | null;
 }
@@ -151,6 +166,7 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 	const categories = normalizeStringList(input.categories ?? defaults.categories);
 	const inferredCategories = categories.length ? categories : inferEvidenceCategories(`${title} ${text} ${sourceUrl}`);
 	const ledgerStatus = input.ledger_status || defaults.ledger_status || 'discovery';
+	const requirementIds = normalizeStringList(input.requirement_ids ?? defaults.requirement_ids);
 	return {
 		evidence_id:
 			nonEmpty(input.evidence_id) ||
@@ -191,6 +207,8 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 		uncertainty: normalizeLimitations(input.uncertainty ?? defaults.uncertainty ?? limitations),
 		page_role: pageRole,
 		temporal_scope: input.temporal_scope || defaults.temporal_scope,
+		requirement_ids: requirementIds,
+		story_cluster_id: nonEmpty(input.story_cluster_id) || defaults.story_cluster_id,
 		ledger_status: ledgerStatus,
 		...(input.rejection_reason || defaults.rejection_reason
 			? { rejection_reason: nonEmpty(input.rejection_reason) || defaults.rejection_reason }
@@ -227,22 +245,81 @@ export function normalizeToolEvidence(
 }
 
 export function dedupeEvidence(evidence: EvidenceObject[]): EvidenceObject[] {
-	const seen = new Set<string>();
-	const deduped: EvidenceObject[] = [];
+	const byUrl = new Map<string, EvidenceObject>();
 	for (const item of evidence) {
 		const key = item.canonical_url || canonicalEvidenceUrl(item.source_url);
-		if (seen.has(key)) continue;
-		seen.add(key);
-		deduped.push(item);
+		const existing = byUrl.get(key);
+		if (!existing) {
+			byUrl.set(key, item);
+			continue;
+		}
+		const requirementIds = [...new Set([...(existing.requirement_ids || []), ...(item.requirement_ids || [])])];
+		byUrl.set(key, {
+			...existing,
+			...(requirementIds.length ? { requirement_ids: requirementIds } : {}),
+			...(existing.supporting_excerpt && existing.supporting_excerpt.length >= (item.supporting_excerpt || '').length
+				? {}
+				: { supporting_excerpt: item.supporting_excerpt }),
+			limitations: [...new Set([...existing.limitations, ...item.limitations])],
+			uncertainty: [...new Set([...(existing.uncertainty || []), ...(item.uncertainty || [])])]
+		});
 	}
-	return deduped;
+	return [...byUrl.values()];
+}
+
+/**
+ * Cluster substantially similar stories without dropping corroborating
+ * sources. Counts and producer bullets use one cluster as one story; the
+ * evidence ledger keeps every direct source in that cluster for provenance.
+ */
+export function clusterEvidence(evidence: EvidenceObject[]): {
+	evidence: EvidenceObject[];
+	clusters: EvidenceStoryCluster[];
+} {
+	const normalized = dedupeEvidence(evidence);
+	const clusters: Array<{ cluster: EvidenceStoryCluster; items: EvidenceObject[] }> = [];
+	for (const item of normalized) {
+		const match = clusters.find(({ items }) => items.some((candidate) => sameStoryCluster(candidate, item)));
+		if (match) {
+			match.items.push(item);
+			match.cluster.evidence_ids.push(item.evidence_id || stableEvidenceId(item.source_url, item.title, item.published_at));
+			match.cluster.requirement_ids = [...new Set([
+				...match.cluster.requirement_ids,
+				...(item.requirement_ids || [])
+			])];
+			const itemEvidenceId = item.evidence_id || stableEvidenceId(item.source_url, item.title, item.published_at);
+			if (itemEvidenceId !== match.cluster.primary_evidence_id) {
+				match.cluster.corroborating_evidence_ids.push(itemEvidenceId);
+			}
+			continue;
+		}
+		const id = stableStoryClusterId(item);
+		const evidenceId = item.evidence_id || stableEvidenceId(item.source_url, item.title, item.published_at);
+		clusters.push({
+			cluster: {
+				id,
+				title: item.title,
+				requirement_ids: [...(item.requirement_ids || [])],
+				evidence_ids: [evidenceId],
+				primary_evidence_id: evidenceId,
+				corroborating_evidence_ids: []
+			},
+			items: [item]
+		});
+	}
+	const clusterById = new Map(clusters.map(({ cluster }) => [cluster.id, cluster]));
+	const annotated = normalized.map((item) => {
+		const owner = clusters.find(({ items }) => items.includes(item))?.cluster;
+		return owner ? { ...item, story_cluster_id: owner.id } : item;
+	});
+	return { evidence: annotated, clusters: [...clusterById.values()] };
 }
 
 export function preparePublishableEvidence(
 	evidence: EvidenceObject[],
 	temporal: NewsroomTemporalContext,
 	currentRequest: boolean
-): { accepted: EvidenceObject[]; excluded: EvidenceObject[] } {
+): { accepted: EvidenceObject[]; excluded: EvidenceObject[]; storyClusters: EvidenceStoryCluster[] } {
 	const accepted: EvidenceObject[] = [];
 	const excluded: EvidenceObject[] = [];
 	for (const raw of dedupeEvidence(evidence)) {
@@ -296,8 +373,8 @@ export function preparePublishableEvidence(
 			} else {
 				item.temporal_scope = 'background';
 				item.ledger_status = 'rejected';
-					item.rejection_reason = 'publication or event time is unknown';
-					excluded.push(item);
+				item.rejection_reason = 'publication or event time is unknown';
+				excluded.push(item);
 			}
 			continue;
 		}
@@ -339,18 +416,11 @@ export function preparePublishableEvidence(
 		if (date) return date;
 		return canonicalEvidenceUrl(left.source_url).localeCompare(canonicalEvidenceUrl(right.source_url));
 	});
-	const storyKeys = new Set<string>();
-	const storyDeduped = accepted.filter((item) => {
-		const key = storySimilarityKey(item);
-		if (!key || !storyKeys.has(key)) {
-			if (key) storyKeys.add(key);
-			return true;
-		}
-		return false;
-	});
+	const clustered = clusterEvidence(accepted);
 	return {
-		accepted: storyDeduped.map((item, index) => ({ ...item, citation_number: index + 1 })),
-		excluded
+		accepted: clustered.evidence.map((item, index) => ({ ...item, citation_number: index + 1 })),
+		excluded,
+		storyClusters: clustered.clusters
 	};
 }
 
@@ -408,7 +478,32 @@ export function canonicalEvidenceUrl(value: string): string {
 }
 
 function storySimilarityKey(item: EvidenceObject): string {
-	return item.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+	return [...storyTerms(item.title)].sort().join(' ');
+}
+
+function sameStoryCluster(left: EvidenceObject, right: EvidenceObject): boolean {
+	if (left.canonical_url === right.canonical_url) return true;
+	if (left.requirement_ids?.length && right.requirement_ids?.length &&
+		!left.requirement_ids.some((id) => right.requirement_ids?.includes(id))) return false;
+	const leftTerms = storyTerms(left.title);
+	const rightTerms = storyTerms(right.title);
+	if (!leftTerms.size || !rightTerms.size) return false;
+	const overlap = [...leftTerms].filter((term) => rightTerms.has(term)).length;
+	const union = new Set([...leftTerms, ...rightTerms]).size;
+	return overlap >= 3 && (overlap / Math.min(leftTerms.size, rightTerms.size) >= 0.6 || overlap / union >= 0.55);
+}
+
+function storyTerms(value: string): Set<string> {
+	const ignored = new Set([
+	'against', 'after', 'allegedly', 'breaking', 'from', 'into', 'latest', 'local', 'news',
+	'over', 'reported', 'reports', 'says', 'the', 'today', 'update', 'with'
+	]);
+	return new Set((value.toLowerCase().match(/[a-z0-9]{3,}/g) || []).filter((term) => !ignored.has(term)));
+}
+
+function stableStoryClusterId(item: EvidenceObject): string {
+	const key = storySimilarityKey(item) || item.evidence_id || item.canonical_url;
+	return `story_${createHash('sha256').update(key).digest('hex').slice(0, 16)}`;
 }
 
 function scopeOrder(scope: EvidenceTemporalScope | undefined): number {

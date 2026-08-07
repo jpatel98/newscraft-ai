@@ -80,7 +80,13 @@ export type RuntimeProgressEvent =
 	| { type: 'tool'; id: string; name: string; status: string; detail?: string; result?: unknown }
 	| { type: 'source'; source: FetchedSource; stepId?: string }
 	| { type: 'citations'; citations: CitationRecord[] }
-	| { type: 'plan'; planSource: AgentPlanEvent['source']; steps: AgentPlanStepEvent[] };
+	| {
+			type: 'plan';
+			planSource: AgentPlanEvent['source'];
+			steps: AgentPlanStepEvent[];
+			requirementCoverage?: AgentPlanEvent['requirementCoverage'];
+			assignmentStatus?: AgentPlanEvent['assignmentStatus'];
+		};
 
 export interface MissionRuntimeResult {
 	role: NewsroomRole;
@@ -237,7 +243,14 @@ export class NewsroomAgentRuntime {
 			conversationContext: context.conversationContext,
 			documents: context.documents,
 			signal: context.signal,
-			onPlanEvent: (event) => context.onProgress?.({ type: 'plan', planSource: event.source, steps: event.steps }),
+			onPlanEvent: (event) =>
+				context.onProgress?.({
+					type: 'plan',
+					planSource: event.source,
+					steps: event.steps,
+					...(event.requirementCoverage ? { requirementCoverage: event.requirementCoverage } : {}),
+					...(event.assignmentStatus ? { assignmentStatus: event.assignmentStatus } : {})
+				}),
 			onToolEvent: (event) => {
 				// Include stepId in the tool-call id so each plan step that uses
 				// the same tool gets a distinct DB row (e.g. web-search fallback
@@ -585,6 +598,11 @@ export class NewsroomAgentRuntime {
 		result: NewsroomAgentRunResult,
 		context: RuntimeContext
 	): Promise<string> {
+		// Multi-requirement output is already rendered from the normalized
+		// requirement matrix and citation ledger. A second free-form rewrite could
+		// silently merge or omit a requested lane, so keep the deterministic
+		// sectioned answer authoritative.
+		if ((result.research_contract?.requirements?.length || 0) > 1) return result.final_answer;
 		if (!this.modelApiKey()) return result.final_answer;
 		const task = context.trigger === 'schedule' ? 'scheduled_research_update' : 'manual_research_update';
 		const decision = this.modelDecision(task, context);
@@ -876,10 +894,16 @@ function missionSynthesisInput(
 		: 'No usable evidence was gathered.';
 	const limitations = result.limitations.length ? result.limitations.join('\n') : 'None recorded.';
 	const contract = result.research_contract ? `Structured request contract:\n${JSON.stringify(result.research_contract)}\n\n` : '';
+	const coverage = result.requirement_coverage?.length
+		? `Requirement coverage matrix:\n${JSON.stringify(result.requirement_coverage)}\n\n`
+		: '';
+	const clusters = result.story_clusters?.length
+		? `Story clusters (one story may have corroborating evidence):\n${JSON.stringify(result.story_clusters)}\n\n`
+		: '';
 	return `${temporalContext ? `${formatNewsroomTemporalContext(temporalContext)}\n\n` : ''}${contract}Research prompt:
 ${prompt}
 
-Evidence gathered for this run:
+${coverage}${clusters}Evidence gathered for this run:
 ${evidence}
 
 Limitations:

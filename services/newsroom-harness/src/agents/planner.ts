@@ -21,6 +21,10 @@ export interface PlannedStep {
 	label: string;
 	laneId?: string;
 	lanePurpose?: string;
+	requirementId?: string;
+	phase?: 'discovery' | 'official' | 'corroboration';
+	capability?: 'web_search' | 'source_monitor' | 'direct_read' | 'corroboration';
+	intentKey?: string;
 }
 
 export interface ResearchPlan {
@@ -39,6 +43,10 @@ export type LoopAction =
 			parallel?: boolean;
 			laneId?: string;
 			lanePurpose?: string;
+			requirementId?: string;
+			phase?: 'discovery' | 'official' | 'corroboration';
+			capability?: 'web_search' | 'source_monitor' | 'direct_read' | 'corroboration';
+			intentKey?: string;
 	  }
 	| {
 			kind: 'synthesize';
@@ -129,10 +137,18 @@ export function parseResearchPlan(
 			input: step.input.trim(),
 			label: sanitizeStepLabel(step.label) || defaultStepLabel(step.tool, step.input),
 			...(typeof step.laneId === 'string' && step.laneId.trim() ? { laneId: step.laneId.trim().slice(0, 80) } : {}),
-			...(typeof step.lanePurpose === 'string' && step.lanePurpose.trim()
-				? { lanePurpose: step.lanePurpose.trim().slice(0, 180) }
-				: {})
-		};
+				...(typeof step.lanePurpose === 'string' && step.lanePurpose.trim()
+					? { lanePurpose: step.lanePurpose.trim().slice(0, 180) }
+					: {}),
+				...(typeof step.requirementId === 'string' && step.requirementId.trim()
+					? { requirementId: step.requirementId.trim().slice(0, 120) }
+					: {}),
+				...(isResearchPhase(step.phase) ? { phase: step.phase } : {}),
+				...(isResearchCapability(step.capability) ? { capability: step.capability } : {}),
+				...(typeof step.intentKey === 'string' && step.intentKey.trim()
+					? { intentKey: step.intentKey.trim().slice(0, 180) }
+					: {})
+			};
 	});
 	if (!steps.length) throw new Error('planner returned no usable steps');
 	return { steps, reason: (parsed.reason || '').trim(), source: 'model' };
@@ -203,7 +219,15 @@ export function parseLoopDecision(
 		const tool = boundedString(action.tool, 'loop action tool', 1, 120);
 		if (!allowedTools.has(tool)) throw new Error(`loop action tool is not available: ${tool}`);
 		const input = boundedString(action.input || '', 'loop action input', 1, 700);
-		const key = `${tool}\n${input}`;
+		const key = researchActionKey({
+			tool,
+			input,
+			laneId: typeof action.laneId === 'string' ? action.laneId : undefined,
+			requirementId: typeof action.requirementId === 'string' ? action.requirementId : undefined,
+			phase: isResearchPhase(action.phase) ? action.phase : undefined,
+			capability: isResearchCapability(action.capability) ? action.capability : undefined,
+			intentKey: typeof action.intentKey === 'string' ? action.intentKey : undefined
+		});
 		if (seen.has(key)) continue;
 		seen.add(key);
 		const skill = typeof action.skill === 'string' && allowedSkills.has(action.skill as NewsroomSkillId)
@@ -217,9 +241,17 @@ export function parseLoopDecision(
 			...(skill ? { skill } : {}),
 			...(action.parallel === true ? { parallel: true } : {}),
 			...(typeof action.laneId === 'string' && action.laneId.trim() ? { laneId: action.laneId.trim().slice(0, 80) } : {}),
-			...(typeof action.lanePurpose === 'string' && action.lanePurpose.trim()
-				? { lanePurpose: action.lanePurpose.trim().slice(0, 180) }
-				: {})
+				...(typeof action.lanePurpose === 'string' && action.lanePurpose.trim()
+					? { lanePurpose: action.lanePurpose.trim().slice(0, 180) }
+					: {}),
+				...(typeof action.requirementId === 'string' && action.requirementId.trim()
+					? { requirementId: action.requirementId.trim().slice(0, 120) }
+					: {}),
+				...(isResearchPhase(action.phase) ? { phase: action.phase } : {}),
+				...(isResearchCapability(action.capability) ? { capability: action.capability } : {}),
+				...(typeof action.intentKey === 'string' && action.intentKey.trim()
+					? { intentKey: action.intentKey.trim().slice(0, 180) }
+					: {})
 		});
 	}
 	if (!actions.length) throw new Error('loop decision contained no usable action');
@@ -240,13 +272,19 @@ export function deterministicNextLoopDecision(input: {
 	if (input.preferSynthesis) {
 		return { actions: [{ kind: 'synthesize', reason: 'The deterministic evaluator found no higher-value safe research step.' }], reason: 'Synthesize the verified subset.', source: 'router' };
 	}
-	const candidates = input.fallbackSteps.filter((step) => !input.attempted.has(`${step.tool}\n${step.input}`));
+	const candidates = input.fallbackSteps.filter((step) => !input.attempted.has(researchActionKey(step)));
 	const maxActions = Math.max(1, Math.min(MAX_LOOP_ACTIONS, input.maxActions || 1));
 	const actions = candidates.slice(0, maxActions).map((step) => ({
 		kind: 'research' as const,
 		tool: step.tool,
 		input: step.input,
 		label: step.label,
+		...(step.laneId ? { laneId: step.laneId } : {}),
+		...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {}),
+		...(step.requirementId ? { requirementId: step.requirementId } : {}),
+		...(step.phase ? { phase: step.phase } : {}),
+		...(step.capability ? { capability: step.capability } : {}),
+		...(step.intentKey ? { intentKey: step.intentKey } : {}),
 		...(maxActions > 1 ? { parallel: true } : {})
 	}));
 	return actions.length
@@ -303,10 +341,10 @@ function plannerInput(request: PlannerRequest): string {
 				]
 			: []),
 		'- For latest/current requests, search the requested time window and put the newest supported developments first. Older background is not a latest update.',
-		'- For a broad latest/news roundup, plan bounded discovery, official/public-impact, and corroboration passes when the budget permits; each pass should gather findings for one final synthesis, never a separate answer.',
+			'- For a broad latest/news roundup, preserve every independently requested requirement as its own lane. Schedule one discovery action per requirement before official/public-impact or corroboration repetition; all passes gather findings for one final synthesis, never separate answers.',
 		`- Make the local date explicit in current-news queries (${request.temporalContext.localDate}) and require specific readable article or official pages rather than publisher hubs or result pages.`,
 		'- Never invent URLs. Only read URLs that appear in the request.',
-		'- For multi-part questions, you may plan one focused web search per distinct part.',
+		'- For multi-part questions, preserve every requirement as its own lane. Schedule one discovery action per requirement before official or corroboration repetition.',
 		'Available tools:',
 		tools,
 		'Configured source monitors:',
@@ -327,9 +365,17 @@ function loopDecisionInput(request: LoopDecisionRequest): string {
 		request.promptLayers.volatile,
 		'Loop decision contract:',
 		`- Iteration ${request.iteration} of ${request.maxIterations}; at most ${Math.max(1, Math.min(MAX_LOOP_ACTIONS, request.maxActions))} actions.`,
-		`- Already attempted action keys: ${[...request.attempted].slice(-12).join(' | ') || 'none'}`,
+		`- Already attempted semantic action keys: ${[...request.attempted].slice(-12).join(' | ') || 'none'}`,
 		`- Current contract completeness: ${request.evaluation.completeness.toFixed(2)}.`,
 		`- Can synthesize now: ${request.evaluation.can_synthesize ? 'yes' : 'no'}.`,
+		...(request.evaluation.requirement_coverage?.length
+			? [
+					'Requirement coverage matrix:',
+					...request.evaluation.requirement_coverage.map(
+						(row) => `- ${row.requirement_id} ${row.state}: ${row.accepted_count}/${row.requested_count}; likely_to_improve=${row.likely_to_improve ? 'yes' : 'no'}`
+					)
+				]
+			: []),
 		'Remaining gaps:',
 		gaps,
 		'Allowed progressive-disclosure skills:',
@@ -339,6 +385,45 @@ function loopDecisionInput(request: LoopDecisionRequest): string {
 		'Return exactly this shape: {"reason":"short rationale","actions":[{"kind":"research","tool":"registered_tool","input":"focused query or URL","label":"short progress label","skill":"skill_id","parallel":true}]} or {"reason":"...","actions":[{"kind":"synthesize"}]}.',
 		`Current request: ${request.request}`
 	].join('\n\n');
+}
+
+/**
+ * Stable identity for a research action. Queue deduplication must represent
+ * the requirement and capability being attempted, not the model's wording.
+ */
+export function researchActionKey(input: {
+	tool: string;
+	input: string;
+	requirementId?: string;
+	laneId?: string;
+	phase?: string;
+	capability?: string;
+	intentKey?: string;
+}): string {
+	const laneRequirement = input.laneId?.match(/^(.+?)_(?:discovery|official|corroboration|independent)$/i)?.[1] || '';
+	const requirement = input.requirementId || laneRequirement;
+	const phase = input.phase || (input.laneId?.match(/(?:discovery|official|corroboration)/i)?.[0] ?? '');
+	const capability = input.capability || input.tool;
+	const intent = input.intentKey || normalizeResearchIntent(input.input);
+	return [input.tool.toLowerCase().trim(), requirement.toLowerCase(), phase.toLowerCase(), capability.toLowerCase(), intent].join('|');
+}
+
+function normalizeResearchIntent(value: string): string {
+	const stopwords = new Set([
+		'a', 'an', 'and', 'as', 'at', 'be', 'by', 'check', 'checking', 'current', 'direct', 'find', 'for', 'from',
+		'get', 'headlines', 'latest', 'news', 'newest', 'of', 'on', 'one', 'open', 'pass', 'publishers', 'read',
+		'recent', 'return', 'search', 'scanning', 'stories', 'story', 'the', 'this', 'to', 'updates', 'use', 'with'
+	]);
+	const words = (value.toLowerCase().match(/[a-z0-9]{3,}/g) || []).filter((word) => !stopwords.has(word));
+	return [...new Set(words)].sort().slice(0, 40).join(',');
+}
+
+function isResearchPhase(value: unknown): value is 'discovery' | 'official' | 'corroboration' {
+	return value === 'discovery' || value === 'official' || value === 'corroboration';
+}
+
+function isResearchCapability(value: unknown): value is 'web_search' | 'source_monitor' | 'direct_read' | 'corroboration' {
+	return value === 'web_search' || value === 'source_monitor' || value === 'direct_read' || value === 'corroboration';
 }
 
 function sanitizeStepLabel(value: string): string {
@@ -376,7 +461,21 @@ function parsePlannerJson(value: unknown): { reason?: string; steps: PlannedStep
 		const label = boundedString(item.label, 'planner step label', 1, 120);
 		const laneId = typeof item.laneId === 'string' ? item.laneId : undefined;
 		const lanePurpose = typeof item.lanePurpose === 'string' ? item.lanePurpose : undefined;
-		return { tool, input, label, ...(laneId ? { laneId } : {}), ...(lanePurpose ? { lanePurpose } : {}) };
+		const requirementId = typeof item.requirementId === 'string' ? item.requirementId : undefined;
+		const phase = isResearchPhase(item.phase) ? item.phase : undefined;
+		const capability = isResearchCapability(item.capability) ? item.capability : undefined;
+		const intentKey = typeof item.intentKey === 'string' ? item.intentKey : undefined;
+		return {
+			tool,
+			input,
+			label,
+			...(laneId ? { laneId } : {}),
+			...(lanePurpose ? { lanePurpose } : {}),
+			...(requirementId ? { requirementId } : {}),
+			...(phase ? { phase } : {}),
+			...(capability ? { capability } : {}),
+			...(intentKey ? { intentKey } : {})
+		};
 	});
 	return {
 		reason: typeof record.reason === 'string' ? record.reason : undefined,

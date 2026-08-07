@@ -20,11 +20,28 @@ export interface PlanStep {
 	detail?: string;
 	/** Sources attributed to this step, in arrival order. */
 	sources?: PlanStepSource[];
+	requirementId?: string;
+	phase?: 'discovery' | 'official' | 'corroboration';
+}
+
+export interface PlanRequirementCoverage {
+	requirement_id: string;
+	label: string;
+	requested_count: number;
+	accepted_count: number;
+	state: string;
+	gaps: string[];
+	likely_to_improve: boolean;
+	executed_actions: number;
+	skipped_actions: number;
+	budget_exhausted: boolean;
 }
 
 export interface ActivePlan {
 	source: 'model' | 'router';
 	steps: PlanStep[];
+	requirementCoverage?: PlanRequirementCoverage[];
+	assignmentStatus?: string;
 }
 
 interface ToolProgress {

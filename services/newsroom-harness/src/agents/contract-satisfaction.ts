@@ -1,5 +1,11 @@
-import type { DocumentContext, ResearchRequestContract } from '@newscraft/shared';
-import { isUsableEvidence, type EvidenceObject } from './evidence.js';
+import {
+	researchRequirementsForContract,
+	type DocumentContext,
+	type ResearchRequirementCompletionState,
+	type ResearchRequestContract
+} from '@newscraft/shared';
+import { classifyEvidencePageRole, isUsableEvidence, type EvidenceObject } from './evidence.js';
+import { matchEvidenceToRequirement } from './research-policy.js';
 
 export type ContractHardRejectReason =
 	| 'unsafe'
@@ -17,12 +23,33 @@ export interface ContractHardReject {
 	detail: string;
 }
 
+export interface RequirementExecutionState {
+	executedActions?: number;
+	skippedActions?: number;
+	exhausted?: boolean;
+}
+
+export interface RequirementCoverage {
+	requirement_id: string;
+	label: string;
+	requested_count: number;
+	accepted_count: number;
+	gaps: string[];
+	state: ResearchRequirementCompletionState;
+	likely_to_improve: boolean;
+	executed_actions: number;
+	skipped_actions: number;
+	budget_exhausted: boolean;
+}
+
 export interface ContractSatisfactionInput {
 	request: string;
 	contract?: ResearchRequestContract;
 	evidence: EvidenceObject[];
 	documents?: DocumentContext[];
 	answer?: string;
+	requirementExecution?: Record<string, RequirementExecutionState>;
+	sharedBudgetExhausted?: boolean;
 }
 
 export interface ContractSatisfaction {
@@ -34,19 +61,18 @@ export interface ContractSatisfaction {
 	completeness: number;
 	can_synthesize: boolean;
 	likely_to_improve: boolean;
+	requirement_coverage: RequirementCoverage[];
 }
 
 /**
- * Deterministic control-plane evaluation. Quality concerns such as weak
- * authority, missing metadata, thin diversity, and incomplete count coverage
- * are penalties or visible gaps; only safety, validity, private leakage,
- * clear request mismatches, and unsupported citation claims are hard rejects.
+ * Deterministic control-plane evaluation. A multi-requirement turn is only
+ * complete when each independently requested lane is complete; one usable
+ * source cannot satisfy the whole assignment.
  */
 export function evaluateContractSatisfaction(input: ContractSatisfactionInput): ContractSatisfaction {
 	const hardRejects: ContractHardReject[] = [];
 	const accepted: EvidenceObject[] = [];
 	const penalties: string[] = [];
-	const gaps: string[] = [];
 	const contract = input.contract;
 
 	for (const item of input.evidence) {
@@ -71,36 +97,71 @@ export function evaluateContractSatisfaction(input: ContractSatisfactionInput): 
 	}
 
 	const usable = accepted.filter(isUsableEvidence);
-	const requestedCount = contract?.requestedItemCount;
-	if (!usable.length) gaps.push('no readable evidence currently supports the request');
-
-	if (contract?.temporalWindow.kind === 'current' || contract?.temporalWindow.kind === 'relative') {
-		if (!usable.some((item) => item.published_at || item.updated_at || item.event_at)) {
-			gaps.push('current evidence still needs a source publication, update, or event timestamp');
+	const requirements = contract ? researchRequirementsForContract(contract) : [];
+	const requirementCoverage = requirements.map((requirement) => {
+		const execution = input.requirementExecution?.[requirement.id] || {};
+		const laneEvidence = usable.filter((item) => evidenceBelongsToRequirement(item, requirement, contract));
+		const uniqueStories = new Set(laneEvidence.map((item) => item.story_cluster_id || item.canonical_url));
+		const acceptedCount = uniqueStories.size;
+		const gaps: string[] = [];
+		if (!acceptedCount) {
+			gaps.push(
+				requirements.length === 1
+					? 'no readable evidence currently supports the request'
+					: 'no readable evidence currently supports this requirement'
+			);
 		}
+		if (acceptedCount < requirement.requestedItemCount) {
+			gaps.push(`coverage is ${acceptedCount} of ${requirement.requestedItemCount} requested items`);
+		}
+		const missingOutlets = requirement.namedOutlets.filter(
+			(outlet) => !laneEvidence.some((item) => sourceMatchesOutlet(item, outlet))
+		);
+		if (missingOutlets.length) gaps.push(`missing readable direct coverage from: ${missingOutlets.join(', ')}`);
+		const directRequired = requirement.outputExpectations.some((field) => /direct.*citation|article.*official/i.test(field)) ||
+			contract?.requiredOutputFields.some((field) => /direct.*citation|article.*official/i.test(field));
+		if (directRequired && !laneEvidence.some((item) => item.page_role === 'article' || item.page_role === 'official_live')) {
+			gaps.push('a direct article or official page is still required');
+		}
+		const terminal = Boolean(execution.exhausted || input.sharedBudgetExhausted);
+		const state = completionState({
+			acceptedCount,
+			requestedCount: requirement.requestedItemCount,
+			gaps,
+			executedActions: execution.executedActions || 0,
+			skippedActions: execution.skippedActions || 0,
+			terminal
+		});
+		return {
+			requirement_id: requirement.id,
+			label: requirement.label,
+			requested_count: requirement.requestedItemCount,
+			accepted_count: acceptedCount,
+			gaps: [...new Set(gaps)],
+			state,
+			likely_to_improve: state === 'pending' || state === 'partial' || state === 'incomplete',
+			executed_actions: execution.executedActions || 0,
+			skipped_actions: execution.skippedActions || 0,
+			budget_exhausted: Boolean(execution.exhausted || input.sharedBudgetExhausted)
+		};
+	});
+
+	const gaps: string[] = [];
+	if (!requirements.length && !usable.length) gaps.push('no readable evidence currently supports the request');
+	for (const coverage of requirementCoverage) {
+		for (const gap of coverage.gaps) gaps.push(requirementCoverage.length === 1 ? gap : `${coverage.label}: ${gap}`);
+	}
+	if (contract && (contract.temporalWindow.kind === 'current' || contract.temporalWindow.kind === 'relative') && !usable.some((item) => item.published_at || item.updated_at || item.event_at)) {
+		gaps.push('current evidence still needs a source publication, update, or event timestamp');
 	}
 
-	if (requestedCount && usable.length < requestedCount) {
-		gaps.push(`coverage is ${usable.length} of ${requestedCount} requested items`);
-	}
-
-	if (contract?.namedOutlets?.length) {
-		const missing = contract.namedOutlets.filter((outlet) => !usable.some((item) => sourceMatchesOutlet(item, outlet)));
-		if (missing.length) gaps.push(`missing readable direct coverage from: ${missing.join(', ')}`);
-	}
-
-	if (contract?.requiredOutputFields.some((field) => /direct.*citation|article.*official/i.test(field))) {
-		const directPages = usable.filter((item) => item.page_role === 'article' || item.page_role === 'official_live');
-		if (!directPages.length) gaps.push('a direct article or official page is still required');
-	}
-
-	const completeness = requestedCount
-		? Math.min(1, usable.length / Math.max(1, requestedCount))
-		: usable.length
-			? 1
-			: 0;
-	const criticalGap = gaps.some((gap) => /no readable|direct article|missing readable direct|timestamp/i.test(gap));
-	const canSynthesize = usable.length > 0;
+	const requestedCount = contract?.requestedItemCount;
+	const totalRequested = requirementCoverage.reduce((total, coverage) => total + coverage.requested_count, 0) || requestedCount || 0;
+	const totalAccepted = requirementCoverage.reduce((total, coverage) => total + coverage.accepted_count, 0) || usable.length;
+	const completeness = totalRequested ? Math.min(1, totalAccepted / Math.max(1, totalRequested)) : usable.length ? 1 : 0;
+	const allSatisfied = requirementCoverage.length > 0 && requirementCoverage.every((coverage) => coverage.state === 'satisfied');
+	const criticalGap = gaps.some((gap) => /no readable|direct article|missing readable direct|timestamp|wrong location/i.test(gap));
+	const canSynthesize = usable.length > 0 || allSatisfied || Boolean(input.sharedBudgetExhausted);
 	return {
 		accepted: usable,
 		hard_rejects: hardRejects,
@@ -109,8 +170,36 @@ export function evaluateContractSatisfaction(input: ContractSatisfactionInput): 
 		...(requestedCount ? { requested_count: requestedCount } : {}),
 		completeness,
 		can_synthesize: canSynthesize,
-		likely_to_improve: !canSynthesize || criticalGap || (requestedCount ? usable.length < requestedCount : false)
+		likely_to_improve: !allSatisfied && (Boolean(input.sharedBudgetExhausted) ? false : requirementCoverage.some((coverage) => coverage.likely_to_improve) || criticalGap),
+		requirement_coverage: requirementCoverage
 	};
+}
+
+function completionState(input: {
+	acceptedCount: number;
+	requestedCount: number;
+	gaps: string[];
+	executedActions: number;
+	skippedActions: number;
+	terminal: boolean;
+}): ResearchRequirementCompletionState {
+	if (input.acceptedCount >= input.requestedCount && !input.gaps.some((gap) => /missing readable|direct article/i.test(gap))) return 'satisfied';
+	if (input.terminal) return input.acceptedCount ? 'exhausted' : input.executedActions ? 'incomplete' : 'skipped';
+	if (input.acceptedCount > 0) return 'partial';
+	if (input.executedActions > 0) return 'incomplete';
+	if (input.skippedActions > 0) return 'skipped';
+	return 'pending';
+}
+
+function evidenceBelongsToRequirement(
+	item: EvidenceObject,
+	requirement: ReturnType<typeof researchRequirementsForContract>[number],
+	contract: ResearchRequestContract | undefined
+): boolean {
+	if (item.requirement_ids?.includes(requirement.id)) return true;
+	if (!contract) return false;
+	const role = item.page_role || classifyEvidencePageRole(item.source_url, item.title, item.source_kind);
+	return matchEvidenceToRequirement(item, role, requirement, contract).accepted;
 }
 
 function hardRejectReason(
@@ -132,12 +221,19 @@ function hardRejectReason(
 		return { reason: 'unsupported_citation', detail: item.rejection_reason || 'evidence cannot support a factual citation' };
 	}
 
-	const contract = input.contract;
-	if (contract?.location && item.location && !sameLocation(item.location, contract.location)) {
-		return { reason: 'wrong_location', detail: `evidence location ${item.location} does not match ${contract.location}` };
-	}
-	if (contract?.subject && item.topic && !subjectOverlap(item.topic, contract.subject) && !subjectOverlap(item.title, contract.subject)) {
-		return { reason: 'wrong_subject', detail: 'evidence subject does not match the authoritative request' };
+	if (input.contract?.requirements?.length) {
+		const role = item.page_role || classifyEvidencePageRole(item.source_url, item.title, item.source_kind);
+		if (!input.contract.requirements.some((requirement) => matchEvidenceToRequirement(item, role, requirement, input.contract!).accepted)) {
+			return { reason: 'wrong_subject', detail: 'evidence does not match any requested requirement' };
+		}
+	} else {
+		const contract = input.contract;
+		if (contract?.location && item.location && !sameLocation(item.location, contract.location)) {
+			return { reason: 'wrong_location', detail: `evidence location ${item.location} does not match ${contract.location}` };
+		}
+		if (contract?.subject && item.topic && !subjectOverlap(item.topic, contract.subject) && !subjectOverlap(item.title, contract.subject)) {
+			return { reason: 'wrong_subject', detail: 'evidence subject does not match the authoritative request' };
+		}
 	}
 	if (input.answer && hasUnsupportedCitation(input.answer, input.evidence)) {
 		return { reason: 'unsupported_citation', detail: 'answer contains a citation marker with no ledger entry' };

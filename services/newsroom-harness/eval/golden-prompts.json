@@ -505,5 +505,28 @@
       "requires_caveat_on_no_evidence": false,
       "requires_unknown_publication_date_label": true
     }
+  },
+  {
+    "id": "multi-requirement-toronto-ontario-canada-international",
+    "class": "current_events",
+    "description": "Regression — one turn with four independently required geographic deliverables",
+    "prompt": "What are the latest developing stories in Toronto? And give me the latest developing stories in Ontario. And then one for Canada national, and then one for international.",
+    "latency_class": "research",
+    "trust_trap": true,
+    "checks": {
+      "requires_citation": true,
+      "requires_plan_events": true,
+      "must_not_leak_tool_names": true,
+      "must_not_leak_adapter_names": true,
+      "must_not_leak_ids": true,
+      "requires_requirement_sections": [
+        { "label": "Toronto local", "count": 3 },
+        { "label": "Ontario provincial", "count": 3 },
+        { "label": "Canada national", "count": 1 },
+        { "label": "International", "count": 1 }
+      ],
+      "forbids_scope_bleed": true,
+      "requires_complete_coverage_labels": true
+    }
   }
 ]

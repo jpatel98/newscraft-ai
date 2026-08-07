@@ -1,4 +1,9 @@
-import type { NewsroomContext, ResearchRequestContract } from '@newscraft/shared';
+import {
+	researchRequirementsForContract,
+	type NewsroomContext,
+	type ResearchRequestContract,
+	type ResearchRequirement
+} from '@newscraft/shared';
 
 export interface CoverageLane {
 	id: string;
@@ -8,11 +13,26 @@ export interface CoverageLane {
 	sourcePurpose: 'major_publishers' | 'official_public_impact' | 'desk_focus' | 'named_sources' | 'corroboration';
 	domainHints: string[];
 	query: string;
+	/** The independently requested deliverable this lane serves. */
+	requirementId?: string;
+	/** Discovery must precede official/corroboration repetition. */
+	phase?: 'discovery' | 'official' | 'corroboration';
+	/** Provider-neutral capability identity used for semantic deduplication. */
+	capability?: 'web_search' | 'source_monitor' | 'direct_read' | 'corroboration';
+	/** Stable intent key; wording changes must not create a new lane. */
+	intentKey?: string;
 }
 
 export interface CoveragePlanOptions {
 	maxLanes?: number;
 	namedOnly?: boolean;
+}
+
+export interface RequirementCoveragePlanOptions {
+	/** Maximum number of search lanes after every requirement has a discovery lane. */
+	maxLanes?: number;
+	includeOfficial?: boolean;
+	includeCorroboration?: boolean;
 }
 
 const DEFAULT_PRIORITY_DESKS = [
@@ -145,6 +165,173 @@ export function buildProducerCoverageLanes(
 	}
 
 	return lanes;
+}
+
+/**
+ * Build the breadth-first plan for a normalized multi-requirement contract.
+ * The first pass is deliberately one independent discovery opportunity per
+ * requirement. Additional source-purpose passes are appended only after that
+ * invariant is satisfied, so a broad assignment cannot spend its budget
+ * repeatedly scanning the first market it happened to mention.
+ */
+export function buildRequirementCoverageLanes(
+	contract: ResearchRequestContract,
+	newsroomContext?: NewsroomContext,
+	options: RequirementCoveragePlanOptions = {}
+): CoverageLane[] {
+	const requirements = researchRequirementsForContract(contract);
+	if (!requirements.length) return [];
+	const maxLanes = Math.max(requirements.length, Math.min(8, options.maxLanes ?? requirements.length + 2));
+	const lanes = requirements.map((requirement) => requirementDiscoveryLane(requirement, contract, newsroomContext));
+	const extras: CoverageLane[] = [];
+	const includeOfficial = options.includeOfficial !== false;
+	const includeCorroboration = options.includeCorroboration !== false;
+	if (includeOfficial) {
+		for (const requirement of requirements) {
+			extras.push(requirementOfficialLane(requirement, contract, newsroomContext));
+		}
+	}
+	if (includeCorroboration) {
+		for (const requirement of requirements) {
+			extras.push(requirementCorroborationLane(requirement, contract, newsroomContext));
+		}
+	}
+	for (const requirement of requirements) {
+		extras.push(requirementIndependentLane(requirement, contract, newsroomContext));
+	}
+	return [...lanes, ...extras.slice(0, Math.max(0, maxLanes - lanes.length))];
+}
+
+function requirementDiscoveryLane(
+	requirement: ResearchRequirement,
+	contract: ResearchRequestContract,
+	newsroomContext?: NewsroomContext
+): CoverageLane {
+	const domains = unique([
+		...(requirement.namedDomains || []),
+		...(newsroomContext?.sourceProfile?.majorPublisherDomains || []),
+		...(newsroomContext?.preferredDomains || [])
+	]);
+	return {
+		id: `requirement_${requirement.id}_discovery`,
+		label: `Discovering ${requirement.label}`,
+		purpose: `Find distinct, current direct article coverage for the ${requirement.label} deliverable.`,
+		targetDesks: requirement.includedCategories,
+		sourcePurpose: requirement.namedOutlets.length || requirement.namedDomains.length ? 'named_sources' : 'major_publishers',
+		domainHints: domains,
+		query: requirementQuery(requirement, contract, 'discovery', domains),
+		requirementId: requirement.id,
+		phase: 'discovery',
+		capability: 'web_search',
+		intentKey: `${requirement.id}:discovery:web_search`
+	};
+}
+
+function requirementOfficialLane(
+	requirement: ResearchRequirement,
+	contract: ResearchRequestContract,
+	newsroomContext?: NewsroomContext
+): CoverageLane {
+	const domains = unique([
+		...(requirement.namedDomains || []),
+		...(newsroomContext?.sourceProfile?.officialSourceDomains || [])
+	]);
+	return {
+		id: `requirement_${requirement.id}_official`,
+		label: `Checking official ${requirement.label} sources`,
+		purpose: `Check first-party releases or live updates that confirm or materially extend this deliverable.`,
+		targetDesks: requirement.includedCategories,
+		sourcePurpose: 'official_public_impact',
+		domainHints: domains,
+		query: requirementQuery(requirement, contract, 'official', domains),
+		requirementId: requirement.id,
+		phase: 'official',
+		capability: 'web_search',
+		intentKey: `${requirement.id}:official:web_search`
+	};
+}
+
+function requirementCorroborationLane(
+	requirement: ResearchRequirement,
+	contract: ResearchRequestContract,
+	newsroomContext?: NewsroomContext
+): CoverageLane {
+	const domains = unique([
+		...(requirement.namedDomains || []),
+		...(newsroomContext?.sourceProfile?.majorPublisherDomains || []),
+		...(newsroomContext?.sourceProfile?.officialSourceDomains || [])
+	]);
+	return {
+		id: `requirement_${requirement.id}_corroboration`,
+		label: `Cross-checking ${requirement.label}`,
+		purpose: `Cross-check the strongest candidate stories against independent direct or official pages and fill uncovered item gaps.`,
+		targetDesks: requirement.includedCategories,
+		sourcePurpose: 'corroboration',
+		domainHints: domains,
+		query: requirementQuery(requirement, contract, 'corroboration', domains),
+		requirementId: requirement.id,
+		phase: 'corroboration',
+		capability: 'corroboration',
+		intentKey: `${requirement.id}:corroboration:web_search`
+	};
+}
+
+function requirementIndependentLane(
+	requirement: ResearchRequirement,
+	contract: ResearchRequestContract,
+	newsroomContext?: NewsroomContext
+): CoverageLane {
+	const domains = unique([
+		...(requirement.namedDomains || []),
+		...(newsroomContext?.sourceProfile?.majorPublisherDomains || [])
+	]);
+	return {
+		id: `requirement_${requirement.id}_independent`,
+		label: `Checking an independent ${requirement.label} lane`,
+		purpose: `Use a separate publisher or desk search to fill only remaining gaps in this deliverable.`,
+		targetDesks: requirement.includedCategories,
+		sourcePurpose: 'desk_focus',
+		domainHints: domains,
+		query: requirementQuery(requirement, contract, 'independent', domains),
+		requirementId: requirement.id,
+		phase: 'corroboration',
+		capability: 'web_search',
+		intentKey: `${requirement.id}:independent:web_search`
+	};
+}
+
+function requirementQuery(
+	requirement: ResearchRequirement,
+	contract: ResearchRequestContract,
+	phase: CoverageLane['phase'] | 'independent',
+	domains: string[]
+): string {
+	const scope = [requirement.geography, requirement.level].filter(Boolean).join(' ');
+	const temporal = requirement.temporalWindow.phrase || requirement.temporalWindow.label || contract.temporalWindow.phrase;
+	const phaseInstruction = phase === 'discovery'
+		? 'Search established local publishers across relevant assignment desks for distinct consequential articles.'
+		: phase === 'official'
+			? 'Check official or first-party releases and live updates that confirm or materially extend consequential stories.'
+			: phase === 'independent'
+				? 'Search a second independent publisher lane for uncovered consequential articles.'
+				: 'Cross-check the strongest candidate stories against independent direct article or official pages.';
+	const constraints = [
+		requirement.excludedCategories.length ? `Exclude ${requirement.excludedCategories.join(', ')}` : '',
+		requirement.excludedSourceTypes.length ? `Exclude source types ${requirement.excludedSourceTypes.join(', ')}` : '',
+		requirement.namedOutlets.length ? `Prefer ${requirement.namedOutlets.join(', ')}` : '',
+		domains.length ? `Useful domains: ${domains.slice(0, 6).join(', ')}` : ''
+	].filter(Boolean);
+	return [
+		`Requirement ${requirement.id}: ${requirement.subject}`,
+		scope ? `Scope: ${scope}.` : 'Scope: the explicitly requested subject without adding a location.',
+		`Find ${requirement.requestedItemCount} distinct item${requirement.requestedItemCount === 1 ? '' : 's'} for this requirement.`,
+		temporal ? `Freshness window: ${temporal}.` : '',
+		`Pass: ${phase}.`,
+		phaseInstruction,
+		...constraints,
+		'Open direct article or official pages; do not return search-result pages, hubs, or isolated snippets as the story.',
+		'Keep this lane separate from every other requirement in the request.'
+	].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 
 export function coverageOverlap(

@@ -196,7 +196,14 @@ function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {
 		return;
 	}
 	if (event.type === 'plan') {
-		res.write(agentPlanFrame({ source: event.planSource, steps: event.steps }));
+		res.write(
+			agentPlanFrame({
+				source: event.planSource,
+				steps: event.steps,
+				...(event.requirementCoverage ? { requirementCoverage: event.requirementCoverage } : {}),
+				...(event.assignmentStatus ? { assignmentStatus: event.assignmentStatus } : {})
+			})
+		);
 		return;
 	}
 	if (event.type === 'tool') {

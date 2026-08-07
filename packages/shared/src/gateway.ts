@@ -44,13 +44,77 @@ export interface ResearchTemporalWindow {
 	label?: string;
 }
 
+export type ResearchRequirementLevel =
+	| 'local'
+	| 'regional'
+	| 'provincial'
+	| 'national'
+	| 'international'
+	| 'global';
+
+export type ResearchOutputType =
+	| 'answer'
+	| 'producer_roundup'
+	| 'story_list'
+	| 'comparison'
+	| 'document_summary'
+	| 'brief'
+	| 'custom';
+
+export type ResearchRequirementCompletionState =
+	| 'pending'
+	| 'executed'
+	| 'partial'
+	| 'satisfied'
+	| 'incomplete'
+	| 'skipped'
+	| 'exhausted';
+
+export interface ResearchRequirementCompletion {
+	state: ResearchRequirementCompletionState;
+	acceptedCount: number;
+	requestedCount: number;
+	gaps: string[];
+	likelyToImprove: boolean;
+	executedActions: number;
+	skippedActions: number;
+	exhausted: boolean;
+}
+
+/**
+ * One independently answerable deliverable in the latest user turn. The
+ * legacy contract fields below remain available for older gateways, while
+ * new callers should use requirements as the authoritative request shape.
+ */
+export interface ResearchRequirement {
+	id: string;
+	label: string;
+	subject: string;
+	geography?: string;
+	level?: ResearchRequirementLevel;
+	requestedItemCount: number;
+	countExplicit: boolean;
+	temporalWindow: ResearchTemporalWindow;
+	outputExpectations: string[];
+	includedCategories: string[];
+	excludedCategories: string[];
+	excludedSourceTypes: string[];
+	excludedPageTypes: ResearchPageType[];
+	namedOutlets: string[];
+	namedDomains: string[];
+	referenceUrls: string[];
+	completionState: ResearchRequirementCompletionState;
+	completion?: ResearchRequirementCompletion;
+}
+
 /**
  * Provider-neutral control-plane state derived from the authoritative latest
  * user turn. It deliberately keeps editorial constraints out of a truncated
  * prose topic so every research provider and tool sees the same contract.
  */
 export interface ResearchRequestContract {
-	version: 1;
+	/** Version 1 remains valid for callers that do not send requirements. */
+	version: 1 | 2;
 	subject: string;
 	location?: string;
 	homeMarket?: string;
@@ -68,6 +132,9 @@ export interface ResearchRequestContract {
 	partialAnswerPolicy: ResearchPartialAnswerPolicy;
 	allowFewerThanRequested: boolean;
 	referenceUrls: string[];
+	/** Optional for backwards-compatible v1 contracts; normalized runs always populate it. */
+	requirements?: ResearchRequirement[];
+	outputType?: ResearchOutputType;
 }
 
 export interface ResearchSourceProfile {

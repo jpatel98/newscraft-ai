@@ -37,6 +37,9 @@
 	// last completed/failed label if all are done.
 	const summaryLabel = $derived.by(() => {
 		if (!plan) return '';
+		if (plan.requirementCoverage?.length && plan.assignmentStatus && plan.assignmentStatus !== 'executing') {
+			return plan.assignmentStatus === 'complete' ? 'Coverage complete' : 'Coverage incomplete';
+		}
 		const running = plan.steps.find((s) => s.status === 'running');
 		if (running) return running.label;
 		const all = plan.steps;
@@ -50,6 +53,9 @@
 	const totalSteps = $derived(plan?.steps.length ?? 0);
 	const doneCount = $derived(plan?.steps.filter((s) => s.status === 'ok' || s.status === 'skipped').length ?? 0);
 	const hasFailures = $derived((plan?.steps.filter((s) => s.status === 'failed').length ?? 0) > 0);
+	const coverageTotal = $derived(plan?.requirementCoverage?.length ?? 0);
+	const coverageDone = $derived(plan?.requirementCoverage?.filter((row) => row.state === 'satisfied').length ?? 0);
+	const hasCoverage = $derived(coverageTotal > 0);
 
 	function toggle() {
 		expanded = !expanded;
@@ -79,14 +85,14 @@
 				<span class="plan-timeline__chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
 				<span class="plan-timeline__summary-label">{summaryLabel}</span>
 				{#if !activeTurn || !chat.streaming}
-					<span class="plan-timeline__summary-count">{doneCount}/{totalSteps}</span>
+					<span class="plan-timeline__summary-count">{hasCoverage ? `${coverageDone}/${coverageTotal}` : `${doneCount}/${totalSteps}`}</span>
 				{/if}
 			{:else}
 				<!-- Expanded live header while still running -->
 				<span class="pulse__dots plan-timeline__dots" aria-hidden="true"
 					><span></span><span></span><span></span></span
 				>
-				<span class="plan-timeline__head-label">Researching</span>
+				<span class="plan-timeline__head-label">{hasCoverage ? `${coverageDone}/${coverageTotal} sections covered` : 'Researching'}</span>
 				<span class="plan-timeline__chevron plan-timeline__chevron--right" aria-hidden="true">▾</span>
 			{/if}
 		</button>

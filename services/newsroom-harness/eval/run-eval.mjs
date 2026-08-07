@@ -47,7 +47,7 @@ const comparePlanner = process.env.NEWSROOM_EVAL_COMPARE_PLANNER === '1';
 const harnessUrl = process.env.NEWSROOM_HARNESS_URL || 'http://127.0.0.1:8650';
 const harnessApiKey = process.env.NEWSROOM_HARNESS_API_KEY || process.env.AGENT_GATEWAY_API_KEY || '';
 const promptFilter = process.env.NEWSROOM_EVAL_PROMPT_ID || null; // run only one prompt id
-const EXPECTED_PROMPT_COUNT = 24;
+const EXPECTED_PROMPT_COUNT = 25;
 const LIVE_MIN_PASS_COUNT = 21;
 const ORIGINAL_PROMPT_IDS = [
   'current-events-canada',
@@ -181,6 +181,7 @@ function fixtureRunResult(promptEntry) {
   const isObscure = id === 'current-events-no-evidence-obscure';
   const isNoEvidence = id === 'claim-verification-no-evidence';
   const isPaywalled = id === 'paywalled-source';
+  const isMultiRequirement = id === 'multi-requirement-toronto-ontario-canada-international';
   const hasDocuments = Array.isArray(promptEntry.documents) && promptEntry.documents.length > 0;
   const usesBroadSearch =
     promptClass === 'current_events' ||
@@ -207,7 +208,24 @@ function fixtureRunResult(promptEntry) {
 
   // Evidence / citations
   let citations = [];
-  if (id === 'citation-integrity-more-than-eight') {
+  if (isMultiRequirement) {
+    citations = [
+      ['Toronto transit expansion announced', 'toronto-transit-1', 'news_report'],
+      ['Toronto housing intake changes approved', 'toronto-housing-2', 'news_report'],
+      ['Toronto health network opens urgent clinic', 'toronto-health-3', 'news_report'],
+      ['Ontario wildfire response expands', 'ontario-wildfire-4', 'news_report'],
+      ['Ontario schools add heat protections', 'ontario-schools-5', 'news_report'],
+      ['Ontario energy regulator opens review', 'ontario-energy-6', 'official'],
+      ['Canada federal budget talks resume', 'canada-budget-7', 'news_report'],
+      ['International shipping corridor reopens', 'international-shipping-8', 'news_report']
+    ].map(([title, slug, sourceType], index) => fixtureCitation(index + 1, {
+      url: `https://fixture.example/${slug}`,
+      title,
+      sourceType,
+      publicationDate: '2026-08-05',
+      supportingExcerpt: `${title}. The readable report describes what changed and why the development matters to the affected public.`
+    }));
+  } else if (id === 'citation-integrity-more-than-eight') {
     const document = promptEntry.documents[0];
     citations = document.pages.map((page, index) =>
       fixtureCitation(index + 1, {
@@ -334,6 +352,20 @@ function fixtureRunResult(promptEntry) {
     answerText = 'I was unable to find specific coverage of this topic. No official or primary evidence was found, so the claim remains unverified. Please verify directly with local sources before publishing.';
   } else if (isPaywalled) {
     answerText = 'The linked Globe and Mail page appears to be behind a paywall or is unavailable. I could not extract content from this source. Please obtain access directly before publication.';
+  } else if (isMultiRequirement) {
+    const sections = [
+      ['Toronto local', 0, 3],
+      ['Ontario provincial', 3, 6],
+      ['Canada national', 6, 7],
+      ['International', 7, 8]
+    ];
+    answerText = sections.map(([label, start, end]) => [
+      `### ${label}`,
+      `Coverage: Complete — ${end - start}/${end - start} requested item${end - start === 1 ? '' : 's'}`,
+      ...citations.slice(start, end).map((citation) =>
+        `- **${citation.title}** — What happened: ${citation.supportingExcerpt} Why it matters: the change affects the relevant public and warrants continued attention. Source time: Aug 5, 2026, 12:00 p.m. EDT [${citation.citationNumber}]`
+      )
+    ].join('\n')).join('\n\n');
   } else if (id === 'citation-integrity-more-than-eight') {
     answerText = `Twelve announcements were identified: ${citations.map((citation) => `item ${citation.citationNumber} [${citation.citationNumber}]`).join('; ')}.`;
   } else if (id === 'fifa-schedule-official-evidence') {
@@ -884,6 +916,42 @@ function evalResult(promptEntry, run, budget) {
       pass: flagged,
       detail: flagged ? 'paywall/block flagged' : 'no paywall or block flag found'
     });
+  }
+
+  if (Array.isArray(checks.requires_requirement_sections)) {
+    const sectionChecks = checks.requires_requirement_sections.map(({ label, count }) => {
+      const start = run.answer.indexOf(`### ${label}`);
+      const next = checks.requires_requirement_sections
+        .map(({ label: candidate }) => run.answer.indexOf(`### ${candidate}`))
+        .filter((position) => position > start)
+        .sort((left, right) => left - right)[0];
+      const body = start >= 0 ? run.answer.slice(start, next ?? undefined) : '';
+      const bulletCount = (body.match(/^- \*\*/gm) || []).length;
+      const complete = new RegExp(`Coverage:\\s+Complete\\s+—\\s+${count}/${count} requested`).test(body);
+      return { label, pass: start >= 0 && bulletCount === count && complete, detail: `${bulletCount}/${count} bullets; complete=${complete}` };
+    });
+    results.push(...sectionChecks.map((check) => ({ name: `requirement_section_${check.label}`, ...check })));
+  }
+
+  if (checks.forbids_scope_bleed && Array.isArray(checks.requires_requirement_sections)) {
+    const scopeNames = checks.requires_requirement_sections.map(({ label }) => label.split(' ')[0]);
+    const bleed = checks.requires_requirement_sections.some(({ label }) => {
+      const start = run.answer.indexOf(`### ${label}`);
+      const next = checks.requires_requirement_sections
+        .map(({ label: candidate }) => run.answer.indexOf(`### ${candidate}`))
+        .filter((position) => position > start)
+        .sort((left, right) => left - right)[0];
+      const body = start >= 0 ? run.answer.slice(start, next ?? undefined) : '';
+      return scopeNames.some((scope) => scope !== label.split(' ')[0] && new RegExp(`\\b${scope}\\b`, 'i').test(body));
+    });
+    results.push({ name: 'no_requirement_scope_bleed', pass: !bleed, detail: bleed ? 'a section contains another requested geography' : 'section geographies remain isolated' });
+  }
+
+  if (checks.requires_complete_coverage_labels) {
+    const completeLabels = Array.isArray(checks.requires_requirement_sections)
+      ? checks.requires_requirement_sections.every(({ label }) => new RegExp(`### ${label}[\\s\\S]*?Coverage:\\s+Complete`, 'i').test(run.answer))
+      : false;
+    results.push({ name: 'complete_coverage_labels', pass: completeLabels, detail: completeLabels ? 'all requested sections are complete' : 'one or more requested sections lack a complete label' });
   }
 
   const passed = results.every((result) => result.pass);

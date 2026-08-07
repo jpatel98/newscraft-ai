@@ -1,11 +1,17 @@
 import type { ToolBudgetSnapshot } from './budget.js';
-import type { ConversationContext } from '@newscraft/shared';
+import {
+	researchRequirementsForContract,
+	type ConversationContext,
+	type ResearchRequestContract
+} from '@newscraft/shared';
 import {
 	assessEvidenceQuality,
 	isUsableEvidence,
 	type EvidenceObject,
 	type EvidenceSourceKind
 } from './evidence.js';
+import type { EvidenceStoryCluster } from './evidence.js';
+import type { RequirementCoverage } from './contract-satisfaction.js';
 import type { RouteDecision } from './router.js';
 
 export interface AnswerGenerationInput {
@@ -19,6 +25,9 @@ export interface AnswerGenerationInput {
 	conversationContext?: ConversationContext;
 	researchStepCount?: number;
 	timeZone?: string;
+	researchContract?: ResearchRequestContract;
+	requirementCoverage?: RequirementCoverage[];
+	storyClusters?: EvidenceStoryCluster[];
 }
 
 export function enforceFinalCitationIntegrity(answer: string, evidence: EvidenceObject[]): string {
@@ -69,6 +78,16 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 	}
 	if (input.decision.selected_mode === 'direct_answer') {
 		return directAnswerFallback(input.prompt);
+	}
+	const requirements = input.researchContract ? researchRequirementsForContract(input.researchContract) : [];
+	if (requirements.length > 1) {
+		return multiRequirementChatAnswer({
+			...input,
+			evidence: sortedEvidence,
+			requirements,
+			unusableEvidence,
+			storyClusters: input.storyClusters || []
+		});
 	}
 	if (!evidence.length && input.toolAnswers?.length) {
 		const answer = input.toolAnswers
@@ -124,6 +143,96 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		'## Uncertainty',
 		uncertaintyNotes.join('\n')
 	].join('\n');
+}
+
+interface MultiRequirementAnswerInput extends AnswerGenerationInput {
+	requirements: ReturnType<typeof researchRequirementsForContract>;
+	unusableEvidence: EvidenceObject[];
+	storyClusters: EvidenceStoryCluster[];
+}
+
+/** Render independently requested deliverables as independent newsroom sections. */
+function multiRequirementChatAnswer(input: MultiRequirementAnswerInput): string {
+	const coverage = new Map((input.requirementCoverage || []).map((row) => [row.requirement_id, row]));
+	const evidenceById = new Map(input.evidence.map((item) => [item.evidence_id || item.source_url, item]));
+	const clustersById = new Map(input.storyClusters.map((cluster) => [cluster.id, cluster]));
+	const sections = input.requirements.map((requirement) => {
+		const row = coverage.get(requirement.id);
+		const laneEvidence = input.evidence
+			.filter((item) => evidenceMatchesRequirementForAnswer(item, requirement))
+			.sort((left, right) => evidenceTimestamp(right) - evidenceTimestamp(left));
+		const selected: EvidenceObject[] = [];
+		const seenStories = new Set<string>();
+		for (const item of laneEvidence) {
+			const storyKey = item.story_cluster_id || item.canonical_url || item.source_url;
+			if (seenStories.has(storyKey)) continue;
+			seenStories.add(storyKey);
+			selected.push(item);
+			if (selected.length >= requirement.requestedItemCount) break;
+		}
+		const requested = row?.requested_count || requirement.requestedItemCount;
+		const accepted = row?.accepted_count ?? selected.length;
+		const state = row?.state || (accepted >= requested ? 'satisfied' : accepted ? 'partial' : 'incomplete');
+		const gaps = row?.gaps || (accepted < requested ? [`coverage is ${accepted} of ${requested} requested items`] : []);
+		const status = coverageStatusLabel(state, accepted, requested, gaps);
+		const bullets = selected.map((item) => {
+			const cluster = item.story_cluster_id ? clustersById.get(item.story_cluster_id) : undefined;
+			const corroborators = (cluster?.corroborating_evidence_ids || [])
+				.map((id) => evidenceById.get(id))
+				.filter((candidate): candidate is EvidenceObject => Boolean(candidate) && candidate !== item)
+				.map((candidate) => candidate.citation_number)
+				.filter((number): number is number => Number.isInteger(number));
+			const title = sourceDisplayTitle(item, 150);
+			const what = substantiveStorySummary(item);
+			const when = item.event_at || item.updated_at || item.published_at;
+			const sourceTime = when ? producerTimestamp(when, input.timeZone) : 'not found in readable source metadata';
+			const primaryCitation = item.citation_number ? ` [${item.citation_number}]` : '';
+			const corroboration = corroborators.length ? ` Corroborated by ${corroborators.map((number) => `[${number}]`).join(', ')}.` : '';
+			return `- **${title}** — What happened: ${what} Why it matters: ${producerWhyItMatters(item)} Source time: ${sourceTime}.${primaryCitation}${corroboration}`;
+		});
+		if (!bullets.length) {
+			bullets.push('- No readable, requirement-matched story evidence was available for this section.');
+		}
+		return [`### ${requirement.label}`, `Coverage: ${status}`, ...bullets].join('\n');
+	});
+	const caveats = input.unusableEvidence.length
+		? ['Some attempted sources were blocked, unavailable, or unreadable and were not used as evidence.']
+		: [];
+	return [...sections, ...caveats].join('\n\n');
+}
+
+function evidenceMatchesRequirementForAnswer(
+	item: EvidenceObject,
+	requirement: ReturnType<typeof researchRequirementsForContract>[number]
+): boolean {
+	if (item.requirement_ids?.length) return item.requirement_ids.includes(requirement.id);
+	if (!requirement.geography) return true;
+	const location = item.location?.toLowerCase().trim();
+	const geography = requirement.geography.toLowerCase().trim();
+	if (location) return location === geography || location.includes(geography) || geography.includes(location);
+	const text = `${item.title} ${item.summary} ${item.topic} ${item.source_url}`.toLowerCase();
+	return text.includes(geography);
+}
+
+function coverageStatusLabel(
+	state: string,
+	accepted: number,
+	requested: number,
+	gaps: string[]
+): string {
+	const label = state === 'satisfied' ? 'Complete' : state === 'exhausted' ? 'Budget exhausted' : state === 'skipped' ? 'Skipped' : state === 'partial' ? 'Partial' : 'Incomplete';
+	const gapText = gaps.length ? `; ${gaps.slice(0, 2).join('; ')}` : '';
+	return `${label} — ${accepted}/${requested} requested item${requested === 1 ? '' : 's'}${gapText}`;
+}
+
+function substantiveStorySummary(item: EvidenceObject): string {
+	const statement = completeEvidenceStatement(item);
+	const words = statement.match(/\b[\p{L}\p{N}][\p{L}\p{N}'’-]*\b/gu)?.length || 0;
+	if (words >= 9) return statement;
+	const title = sourceDisplayTitle(item, 150);
+	const excerpt = compactText(item.summary || item.extracted_text || '', 240);
+	if (excerpt && excerpt !== title) return `The readable source excerpt says “${excerpt}” but does not provide enough context for a fuller summary.`;
+	return `The readable source identifies “${title},” but its available text is too thin for a fuller summary.`;
 }
 
 function chatAnswer(
