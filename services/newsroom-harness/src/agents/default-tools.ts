@@ -1,5 +1,11 @@
 import { generateFinalAnswer } from './answer.js';
 import {
+	citationNumbersInGroundedAnswer,
+	groundedAnswerFromEvidence,
+	hasMalformedCitationSyntax,
+	renderGroundedAnswer
+} from './grounded-answer.js';
+import {
 	isUsableEvidence,
 	normalizeEvidence,
 	normalizeToolEvidence,
@@ -20,7 +26,6 @@ import {
 	providerTextUrl,
 	type ModelProvider
 } from '../util/openai-complete.js';
-import { readChatCompletionStream, readOpenAiResponseStream } from '../util/openai-stream.js';
 import { extractUrls, firstUrl } from '../util/text.js';
 import { assessSourceQuality } from '../util/source-quality.js';
 import {
@@ -552,31 +557,35 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 					})
 				);
 			}
-			const streamLimitations = selected.streamFailure
-				? ['Live research ended early. Treat this answer as incomplete.']
-				: [];
 			const diagnostics: NonNullable<ToolRunOutput['diagnostics']> = {
 				attempts,
 				finalOutcome: selected.evidence.length ? 'sourced' : answerText ? 'unsourced' : 'failed'
 			};
 				if (selected.evidence.length) {
+					const structured = groundedAnswerFromEvidence(selected.evidence, { kind: 'bullet' });
+					const renderedAnswer = renderGroundedAnswer(structured.answer, structured.ledger);
 					return {
 						status: 'ok',
 						evidence: selected.evidence,
 						discovery_leads: selected.discoveryLeads,
-						answer: outputText,
-					limitations: streamLimitations,
+						answer: renderedAnswer,
+						limitations: [],
 					raw: { output_text: outputText },
 					diagnostics
 				};
 			}
-			if (answerText && !isCurrentEventQuery(input.query)) {
+			if (
+				answerText &&
+				!isCurrentEventQuery(input.query) &&
+				citationNumbersInGroundedAnswer(answerText).length === 0 &&
+				!hasMalformedCitationSyntax(answerText)
+			) {
 					return {
 						status: 'ok',
 						evidence: selected.evidence,
 						discovery_leads: selected.discoveryLeads,
 					answer: answerText,
-					limitations: ['No usable source links were returned.', ...streamLimitations],
+						limitations: ['No usable source links were returned.'],
 					raw: { output_text: outputText },
 					diagnostics
 				};
@@ -1049,7 +1058,6 @@ type ProviderSearchRaw = { error?: { message?: string }; [key: string]: unknown 
 type ProviderSearchAttempt = {
 	response: Response;
 	raw: ProviderSearchRaw;
-	streamFailure: string | null;
 	latencyMs: number;
 };
 
@@ -1060,7 +1068,6 @@ type InterpretedProviderSearch = {
 	outputText: string;
 	evidence: EvidenceObject[];
 	discoveryLeads: EvidenceObject[];
-	streamFailure: string | null;
 	latencyMs: number;
 	upstreamStatus?: number;
 	failureCategory?: string;
@@ -1089,7 +1096,6 @@ async function interpretProviderWebSearch(input: {
 			apiKey: input.apiKey,
 			model: input.model,
 			query: input.query,
-			stream: false,
 				newsroomContext: input.newsroomContext,
 				temporalContext: input.context.temporalContext,
 				researchContract: input.context.researchContract,
@@ -1102,9 +1108,8 @@ async function interpretProviderWebSearch(input: {
 			model: input.model,
 			raw: {},
 			outputText: '',
-				evidence: [],
-				discoveryLeads: [],
-			streamFailure: null,
+			evidence: [],
+			discoveryLeads: [],
 			latencyMs: Math.max(0, Date.now() - startedAt),
 			failureCategory: searchExceptionCategory(err, input.context.signal),
 			usable: false
@@ -1119,7 +1124,6 @@ async function interpretProviderWebSearch(input: {
 			outputText: '',
 			evidence: [],
 			discoveryLeads: [],
-			streamFailure: attempt.streamFailure,
 			latencyMs: attempt.latencyMs,
 			upstreamStatus: attempt.response.status,
 			failureCategory: httpFailureCategory(attempt.response.status),
@@ -1128,9 +1132,7 @@ async function interpretProviderWebSearch(input: {
 	}
 
 	const providerOutputText = extractProviderResponseText(input.provider, attempt.raw);
-	let outputText = canonicalizeTrackingUrlsInText(
-		withProviderCitationMarkers(attempt.raw, providerOutputText)
-	);
+	let outputText = canonicalizeTrackingUrlsInText(providerOutputText);
 	const researchContract =
 		input.context.researchContract ||
 		deriveResearchRequestContract(input.query, {
@@ -1170,7 +1172,14 @@ async function interpretProviderWebSearch(input: {
 			input.query
 		);
 	}
-	outputText = reconcileDedupedCitationMarkers(outputText, attempt.raw, evidence);
+	if (evidence.length) {
+		const structured = groundedAnswerFromEvidence(evidence, { kind: 'bullet' });
+		outputText = renderGroundedAnswer(structured.answer, structured.ledger);
+	} else if (citationNumbersInGroundedAnswer(outputText).length || hasMalformedCitationSyntax(outputText)) {
+		// A provider answer without a normalized evidence record is not allowed
+		// to carry citation-like syntax into the tool boundary.
+		outputText = '';
+	}
 	const currentRequest = isCurrentEventQuery(input.query) || ['current', 'relative'].includes(researchContract.temporalWindow.kind);
 	const usable = evidence.length > 0 || (!currentRequest && Boolean(outputText.trim()));
 	return {
@@ -1180,64 +1189,16 @@ async function interpretProviderWebSearch(input: {
 		outputText,
 		evidence,
 		discoveryLeads,
-		streamFailure: attempt.streamFailure,
 		latencyMs: attempt.latencyMs,
 		upstreamStatus: attempt.response.status,
 		...(usable
 			? {}
 			: {
 					failureCategory:
-						attempt.streamFailure && !outputText.trim()
-							? 'stream_interrupted'
-							: 'no_usable_sources'
+					'no_usable_sources'
 				}),
 		usable
 	};
-}
-
-function reconcileDedupedCitationMarkers(
-	text: string,
-	raw: ProviderSearchRaw,
-	evidence: EvidenceObject[]
-): string {
-	const retainedByUrl = new Map(
-		evidence
-			.filter((item) => item.citation_number)
-			.map((item) => [citationIdentityUrl(item.source_url), item.citation_number!] as const)
-	);
-	const response = raw as { citations?: Array<string | { url?: string }> };
-	const remap = new Map<number, number>();
-	const annotations = providerUrlAnnotations(raw);
-	if (annotations.length) {
-		const originalByUrl = new Map<string, number>();
-		for (const annotation of annotations) {
-			const providerIdentity = normalizedWebSourceUrl(annotation.url);
-			if (!originalByUrl.has(providerIdentity)) originalByUrl.set(providerIdentity, originalByUrl.size + 1);
-			const retained = retainedByUrl.get(citationIdentityUrl(annotation.url));
-			if (retained) remap.set(originalByUrl.get(providerIdentity)!, retained);
-		}
-	} else {
-		for (const [index, item] of (response.citations || []).entries()) {
-			const url = typeof item === 'string' ? item : item.url || '';
-			const retained = retainedByUrl.get(citationIdentityUrl(url));
-			if (retained) remap.set(index + 1, retained);
-		}
-	}
-	if (!remap.size) return text.replace(/\[(\d+)\]/g, '');
-	return text.replace(/\[(\d+)\]/g, (_marker, rawNumber: string) => {
-		const replacement = remap.get(Number(rawNumber));
-		return replacement ? `[${replacement}]` : '';
-	});
-}
-
-function citationIdentityUrl(value: string): string {
-	try {
-		const url = new URL(normalizedWebSourceUrl(value));
-		url.hash = '';
-		return url.toString().replace(/\/$/, '').toLowerCase();
-	} catch {
-		return value.trim().replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
-	}
 }
 
 function retryableSearchFailure(outcome: InterpretedProviderSearch): boolean {
@@ -1292,12 +1253,10 @@ async function performProviderWebSearch(input: {
 	apiKey: string;
 	model: string;
 	query: string;
-	stream: boolean;
 	newsroomContext?: ToolRunContext['newsroomContext'];
 	temporalContext?: ToolRunContext['temporalContext'];
 	researchContract?: ResearchRequestContract;
 	signal?: AbortSignal;
-	onAnswerDelta?: (delta: string) => void;
 }): Promise<ProviderSearchAttempt> {
 	const startedAtMs = Date.now();
 	const response = await fetch(providerTextUrl(input.provider), {
@@ -1310,7 +1269,7 @@ async function performProviderWebSearch(input: {
 			webSearchRequestBody({
 				provider: input.provider,
 				model: input.model,
-				stream: input.stream,
+				stream: false,
 					query: input.query,
 					input: webSearchPrompt(input.query, input.newsroomContext, input.temporalContext, input.researchContract),
 					researchContract: input.researchContract
@@ -1318,29 +1277,10 @@ async function performProviderWebSearch(input: {
 		),
 		signal: input.signal
 	});
-	let raw: ProviderSearchRaw = {};
-	let streamFailure: string | null = null;
-	if (response.ok && input.stream && response.body && input.onAnswerDelta) {
-		const streamed = await (
-			input.provider === 'openai'
-				? readOpenAiResponseStream(response.body, input.onAnswerDelta)
-				: readChatCompletionStream(response.body, input.onAnswerDelta)
-		).catch((err) => ({
-			response: null,
-			status: 'interrupted' as const,
-			error: err instanceof Error ? err.message : String(err)
-		}));
-		raw = (streamed.response as ProviderSearchRaw) || {};
-		if (streamed.status === 'failed' || streamed.status === 'interrupted') {
-			streamFailure = streamed.error || `web search stream ${streamed.status}`;
-		}
-	} else {
-		raw = (await response.json().catch(() => ({}))) as ProviderSearchRaw;
-	}
+	const raw = (await response.json().catch(() => ({}))) as ProviderSearchRaw;
 	return {
 		response,
 		raw,
-		streamFailure,
 		latencyMs: Math.max(0, Date.now() - startedAtMs)
 	};
 }
@@ -1734,30 +1674,6 @@ function extractProviderWebSources(raw: unknown, outputText: string) {
 				(left, right) => (left.citation_number ?? Number.MAX_SAFE_INTEGER) - (right.citation_number ?? Number.MAX_SAFE_INTEGER)
 			)
 		: uniqueWebSources(actionSources);
-}
-
-function withProviderCitationMarkers(raw: unknown, outputText: string): string {
-	if (!outputText.trim()) return outputText;
-	const annotations = providerUrlAnnotations(raw);
-	if (!annotations.length) return outputText;
-	const numberByUrl = new Map<string, number>();
-	const insertions: Array<{ index: number; marker: string }> = [];
-	for (const annotation of annotations) {
-		const key = normalizedWebSourceUrl(annotation.url);
-		if (!numberByUrl.has(key)) numberByUrl.set(key, numberByUrl.size + 1);
-		const citationNumber = numberByUrl.get(key);
-		if (!citationNumber) continue;
-		const end = Math.max(0, Math.min(outputText.length, Number(annotation.end_index ?? outputText.length)));
-		const nearby = outputText.slice(Math.max(0, end - 8), Math.min(outputText.length, end + 8));
-		if (new RegExp(`\\[${citationNumber}\\]`).test(nearby)) continue;
-		insertions.push({ index: end, marker: ` [${citationNumber}]` });
-	}
-	if (!insertions.length) return outputText;
-	let marked = outputText;
-	for (const insertion of insertions.sort((left, right) => right.index - left.index)) {
-		marked = `${marked.slice(0, insertion.index)}${insertion.marker}${marked.slice(insertion.index)}`;
-	}
-	return marked;
 }
 
 function providerUrlAnnotations(raw: unknown): UrlAnnotation[] {

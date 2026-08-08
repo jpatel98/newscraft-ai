@@ -5,7 +5,11 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from './schema';
 import { settings } from './schema';
 
-const databaseUrl = env.DATABASE_URL || 'postgres://invalid:invalid@127.0.0.1:1/invalid';
+const testDatabaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
+// The explicitly scoped integration-test database wins when supplied, even
+// if a developer shell also has a production DATABASE_URL configured.
+const configuredDatabaseUrl = testDatabaseUrl || env.DATABASE_URL;
+const databaseUrl = configuredDatabaseUrl || 'postgres://invalid:invalid@127.0.0.1:1/invalid';
 const poolMax = Number.parseInt(env.DATABASE_POOL_MAX || '', 10);
 export const DEFAULT_ORGANIZATION_ID = 'org_default';
 const DEFAULT_ORGANIZATION_NAME = 'Newsroom';
@@ -62,7 +66,7 @@ export async function ensureDefaultOrganizationForAccount(
 
 let migrated: Promise<void> | null = null;
 export async function ensureMigrated(): Promise<void> {
-	if (!env.DATABASE_URL) {
+	if (!configuredDatabaseUrl) {
 		throw new Error('DATABASE_URL is required. Configure a hosted Postgres database before starting NewsCraft.');
 	}
 	if (migrated) return migrated;

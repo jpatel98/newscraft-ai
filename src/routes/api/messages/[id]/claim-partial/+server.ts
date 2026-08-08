@@ -1,0 +1,27 @@
+import { error, json, type RequestHandler } from '@sveltejs/kit';
+import { claimPartialAssistantMessage, getConversation, getMessageById } from '$lib/server/db/conversations';
+
+interface Body {
+	conversation_id: string;
+}
+
+export const POST: RequestHandler = async ({ params, request, locals }) => {
+	if (!locals.user) throw error(401, 'unauthorized');
+	const messageId = params.id;
+	if (!messageId) throw error(400, 'message id required');
+
+	let body: Body;
+	try {
+		body = (await request.json()) as Body;
+	} catch {
+		throw error(400, 'invalid json');
+	}
+	const convo = body.conversation_id ? await getConversation(locals.user.id, body.conversation_id) : undefined;
+	if (!convo) throw error(404, 'conversation not found');
+	const msg = await getMessageById(messageId);
+	if (!msg || msg.conversationId !== convo.id) throw error(404, 'message not found');
+
+	const claimToken = await claimPartialAssistantMessage(messageId, convo.id);
+	if (!claimToken) throw error(409, 'partial claim unavailable');
+	return json({ claim_token: claimToken });
+};

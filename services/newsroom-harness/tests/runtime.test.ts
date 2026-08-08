@@ -1,15 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	buildDisciplinedChatPrompt,
+	citationRecordsFromEvidence,
 	NewsroomAgentRuntime,
 	type RuntimeProgressEvent
 } from '../src/agents/runtime.js';
-import { NEWSROOM_CHARTER } from '../src/agents/roles.js';
 import type { ConversationContext } from '@newscraft/shared';
 import { normalizeEvidence } from '../src/agents/evidence.js';
 import { createModelPolicyConfig } from '../src/agents/model-policy.js';
 import { ToolRegistry, type NewsroomTool, type ToolCategory } from '../src/agents/tools.js';
 import { newsroomTimeContext } from '../src/agents/time-context.js';
+import {
+	groundedAnswerFromClaims,
+	groundedClaimFromEvidence,
+	normalizeGroundedEvidence,
+	renderGroundedAnswer
+} from '../src/agents/grounded-answer.js';
 import { openDatabase, type HarnessDb } from '../src/db/database.js';
 import { HarnessRepository } from '../src/db/repository.js';
 
@@ -25,6 +31,114 @@ afterEach(() => {
 });
 
 describe('newsroom agent runtime', () => {
+	it('records a complete citation excerpt when extracted text is only a clipped prefix', () => {
+		const complete = 'Toronto’s Salsa on St. Clair is hosting a community dance program this weekend.';
+		const citations = citationRecordsFromEvidence([
+			normalizeEvidence({
+				source_name: 'Community source',
+				source_url: 'https://example.com/community-runtime',
+				accessed_at: '2026-08-07T12:00:00.000Z',
+				tool_used: 'openai_web_search',
+				title: 'Community dance program',
+				extracted_text: 'Toronto’s Salsa on St.',
+				summary: complete,
+				supporting_excerpt: complete,
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'news_report',
+				citation_number: 1
+			})
+		]);
+
+		expect(citations[0]?.supportingExcerpt).toBe(complete);
+	});
+
+	it('assigns distinct contiguous records when providers reuse a local citation number', () => {
+		const evidence = [
+			normalizeEvidence({
+				source_name: 'First provider source',
+				source_url: 'https://example.com/first-provider-source',
+				accessed_at: '2026-08-07T12:00:00.000Z',
+				tool_used: 'openai_web_search',
+				title: 'First provider source',
+				extracted_text: 'The first source confirms the morning announcement.',
+				summary: 'The first source confirms the morning announcement.',
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'news_report',
+				citation_number: 1
+			}),
+			normalizeEvidence({
+				source_name: 'Second provider source',
+				source_url: 'https://example.com/second-provider-source',
+				accessed_at: '2026-08-07T12:00:00.000Z',
+				tool_used: 'openai_web_search',
+				title: 'Second provider source',
+				extracted_text: 'The second source confirms the afternoon update.',
+				summary: 'The second source confirms the afternoon update.',
+				confidence: 0.9,
+				limitations: [],
+				source_kind: 'news_report',
+				citation_number: 1
+			})
+		];
+
+		const citations = citationRecordsFromEvidence(evidence);
+		expect(citations.map((citation) => citation.citationNumber)).toEqual([1, 2]);
+		expect(citations.map((citation) => citation.url)).toEqual([
+			'https://example.com/first-provider-source',
+			'https://example.com/second-provider-source'
+		]);
+	});
+
+	it('shares final visual citation order with citation metadata and accepts internal source URLs', () => {
+		const older = normalizeEvidence({
+			evidence_id: 'older-order',
+			source_name: 'Older source',
+			source_url: 'https://example.com/older-order',
+			accessed_at: '2026-08-08T12:00:00.000Z',
+			tool_used: 'test',
+			title: 'Older source',
+			extracted_text: 'The older authority confirmed the original plan.',
+			summary: 'The older authority confirmed the original plan.',
+			confidence: 0.9,
+			limitations: [],
+			source_kind: 'official',
+			citation_number: 2
+		});
+		const newer = normalizeEvidence({
+			evidence_id: 'newer-order',
+			source_name: 'Newer source',
+			source_url: 'newsroom://provided-notes/newer-order',
+			accessed_at: '2026-08-08T12:00:00.000Z',
+			tool_used: 'test',
+			title: 'Newer source',
+			extracted_text: 'The newer producer report confirmed the follow-up plan.',
+			summary: 'The newer producer report confirmed the follow-up plan.',
+			confidence: 0.9,
+			limitations: [],
+			source_kind: 'user_document',
+			citation_number: 1
+		});
+		const evidence = [older, newer];
+		const ledger = normalizeGroundedEvidence(evidence);
+		const newerClaim = groundedClaimFromEvidence(newer, ledger);
+		const olderClaim = groundedClaimFromEvidence(older, ledger);
+		expect(newerClaim && olderClaim).toBeTruthy();
+		const rendered = renderGroundedAnswer(
+			groundedAnswerFromClaims([newerClaim!, olderClaim!]),
+			ledger
+		);
+		const citations = citationRecordsFromEvidence(evidence, rendered);
+
+		expect(rendered).toContain('The newer producer report confirmed the follow-up plan. [1]');
+		expect(rendered).toContain('The older authority confirmed the original plan. [2]');
+		expect(citations.map((citation) => [citation.citationNumber, citation.url])).toEqual([
+			[1, 'newsroom://provided-notes/newer-order'],
+			[2, 'https://example.com/older-order']
+		]);
+	});
+
 	it('answers simple greetings without running disciplined research', async () => {
 		const runtime = new NewsroomAgentRuntime({
 			maxToolCalls: 1,
@@ -90,7 +204,7 @@ describe('newsroom agent runtime', () => {
 			async () =>
 				new Response(
 					JSON.stringify({
-						choices: [{ message: { content: 'Producer brief: confirmed facts remain attributed [1].' } }]
+						choices: [{ message: { content: 'Producer brief: confirmed facts remain attributed [99] and malformed [1.' } }]
 					}),
 					{ status: 200, headers: { 'content-type': 'application/json' } }
 				)
@@ -115,8 +229,41 @@ describe('newsroom agent runtime', () => {
 		const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
 		const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
 		expect(answer).toContain('Producer brief');
+		expect(answer).not.toContain('[99]');
+		expect(answer).not.toContain('[1.');
 		expect(body.disable_search).toBe(true);
 		expect(body).not.toHaveProperty('tools');
+	});
+
+	it('strips raw provider citation markers from direct streaming before persistence can consume them', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: 'Producer brief: confirmed facts remain attributed [99] and malformed [1.' } }]
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+			)
+		);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: ''
+		});
+		let answer = '';
+		for await (const chunk of runtime.streamChat([
+			{ role: 'user', content: 'Turn the previous answer into a producer brief without researching again.' }
+		])) {
+			answer += chunk;
+		}
+
+		expect(answer).toContain('Producer brief');
+		expect(answer).not.toMatch(/\[99\]|\[1\.?/u);
 	});
 
 	it('keeps current newsroom prompts on the research tool path', async () => {
@@ -1187,7 +1334,7 @@ describe('newsroom agent runtime', () => {
 		});
 	});
 
-	it('passes the canonical charter and normalized temporal evidence into mission synthesis', async () => {
+	it('uses normalized temporal evidence directly without a free-form mission rewrite', async () => {
 		const frozenNow = new Date('2026-07-31T17:20:00.000Z');
 		const fetchMock = vi.fn(async () =>
 			new Response(JSON.stringify({ output_text: 'Fresh Toronto item [1].' }), {
@@ -1258,14 +1405,8 @@ describe('newsroom agent runtime', () => {
 			onProgress: (event) => progress.push(event)
 		});
 
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-		const body = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body || '{}')) as Record<string, unknown>;
-		expect(body.instructions).toContain(NEWSROOM_CHARTER);
-		expect(String(body.instructions)).toContain('2026-07-31');
-		expect(String(body.input)).toContain('Evidence ev_');
-		expect(String(body.input)).toContain('Page role: article; temporal scope: primary');
-		expect(String(body.input)).toContain('Accessed: 2026-07-31T17:20:00.000Z (retrieval time only');
-		expect(result.markdown).toContain('Fresh Toronto item [1].');
+			expect(fetchMock).not.toHaveBeenCalled();
+		expect(result.markdown).toContain('[Fresh Toronto item](https://www.cbc.ca/news/canada/toronto/fresh-story)');
 		expect(progress.find((event) => event.type === 'citations')).toMatchObject({
 			type: 'citations',
 			citations: [expect.objectContaining({ citationNumber: 1, title: 'Fresh Toronto item' })]
@@ -1302,8 +1443,8 @@ describe('newsroom agent runtime', () => {
 				expect.objectContaining({
 					agent: 'model_policy',
 					payload: expect.objectContaining({
-						task: 'scheduled_research_update',
-						reason: 'Scheduled model calls are disabled by model policy.'
+							task: 'web_search',
+							reason: 'Scheduled web search is disabled by model policy.'
 					})
 				})
 			])

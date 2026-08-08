@@ -1,4 +1,4 @@
-import type { CitationRecord, CitationSourceType } from '@newscraft/shared';
+import { isCitationUrl, type CitationRecord, type CitationSourceType } from '@newscraft/shared';
 import type { PersistedSource, StreamToolCall } from './stream-events';
 
 interface ToolMetadataEnvelope {
@@ -207,6 +207,9 @@ function domainOf(url: string): string {
 
 function sanitizeSourceUrl(value: string): string | null {
 	const trimmed = value.trim();
+	if (/^(?:newsroom|document|attachment):\/\//i.test(trimmed)) {
+		return isCitationUrl(trimmed) ? trimmed : null;
+	}
 	if (trimmed.startsWith('/api/') && !trimmed.startsWith('//')) {
 		try {
 			const url = new URL(trimmed, 'https://newscraft.local');
@@ -498,7 +501,7 @@ export function isInspectableCitationRecord(
 	citation: CitationRecord | undefined
 ): citation is CitationRecord {
 	if (!citation) return false;
-	const validUrl = /^https?:\/\//i.test(citation.url) || citation.url.startsWith('/api/');
+	const validUrl = isCitationUrl(citation.url);
 	return Boolean(
 		citation.title.trim() &&
 			!/^unknown source$/i.test(citation.title.trim()) &&

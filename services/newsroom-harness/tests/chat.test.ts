@@ -93,6 +93,31 @@ describe('responses transport', () => {
 		]);
 		expect(JSON.parse(response.body).output_text).toBe('NewsCraft ready.');
 	});
+
+	it('serializes an answer replacement as the sole Responses output authority', async () => {
+		const runtime = fakeRuntime({
+			streamChat: (async function* (_messages, context) {
+				yield 'Draft claim.';
+				context.onProgress?.({ type: 'answer_replace', content: 'Authoritative claim [1].' });
+			}) as NewsroomAgentRuntime['streamChat']
+		});
+		const response = new CaptureResponse();
+
+		await writeResponses(
+			response as unknown as ServerResponse,
+			{ input: 'Research this.', stream: true },
+			runtime,
+			new AbortController().signal
+		);
+
+		const frames = response.body;
+		expect(frames).toContain('event: agent.answer.replace');
+		const completed = frames.match(/event: response.completed\ndata: ([\s\S]*?)\n\n/);
+		expect(completed).not.toBeNull();
+		expect(JSON.parse(completed?.[1] || '{}').response.output[0].content[0].text).toBe(
+			'Authoritative claim [1].'
+		);
+	});
 });
 
 function fakeRuntime(overrides: {

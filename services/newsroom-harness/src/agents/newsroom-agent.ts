@@ -1,5 +1,8 @@
 import type { HarnessRepository } from '../db/repository.js';
-import { enforceFinalCitationIntegrity, generateFinalAnswer } from './answer.js';
+import {
+	citationMarkersInText,
+	generateFinalAnswer
+} from './answer.js';
 import {
 	budgetKindForToolCategory,
 	mergeToolBudget,
@@ -30,6 +33,7 @@ import {
 	type NewsroomAgentConfig
 } from './harness-config.js';
 import { formatConversationContext, guardEvidenceForConversation } from './grounded-conversation.js';
+import { hasMalformedCitationSyntax } from './grounded-answer.js';
 import { resolveModelPolicy, type ModelPolicyDecision } from './model-policy.js';
 import {
 	defaultStepLabel,
@@ -276,14 +280,6 @@ export class DisciplinedNewsroomAgent {
 		const limitations: string[] = [];
 		const toolAnswers: string[] = [];
 		const toolCalls: AgentToolCallRecord[] = [];
-		let answerStreamUsed = false;
-		const forwardAnswerDelta = context.onAnswerDelta
-			? (delta: string) => {
-					answerStreamUsed = true;
-					context.onAnswerDelta?.(delta);
-				}
-			: undefined;
-
 		if (
 			decision.selected_mode === 'answer_from_memory' ||
 			decision.selected_mode === 'clarification_needed' ||
@@ -423,14 +419,11 @@ export class DisciplinedNewsroomAgent {
 			const rawOutput = await this.runTool(tool, prompt, decision, evidence, ledger.snapshot(), {
 				...context,
 				signal,
-				// Only one tool may stream answer text: the final answer uses the
-				// first non-empty tool answer, so later answers never reach the user
-				// verbatim, and a second stream after a failed one would garble output.
-				onAnswerDelta: toolAnswers.length === 0 && !answerStreamUsed ? forwardAnswerDelta : undefined
+				// Provider-authored sourced prose is never streamed before the
+				// structured claim ledger has been validated.
+				onAnswerDelta: undefined
 			}, step.input);
-			const normalizedOutput = context.documents?.length
-				? rawOutput
-				: rebaseToolOutputCitations(rawOutput, evidence);
+				const normalizedOutput = discardProviderCitationAnswer(rawOutput);
 			const contractGuarded = applyResearchContractGuard(normalizedOutput, researchContract);
 			const conversationGuarded = applyConversationGuard(contractGuarded, context.conversationContext, temporalContext);
 			const output = annotateRequirementOutput(
@@ -510,10 +503,7 @@ export class DisciplinedNewsroomAgent {
 		const finalGuard = guardEvidenceForConversation(evidence, context.conversationContext, { temporalContext });
 		if (finalGuard.excluded.length) {
 			evidence.splice(0, evidence.length, ...finalGuard.evidence);
-			const groundedAnswers = toolAnswers
-				.map((answer) => retainAcceptedCitationClaims(answer, finalGuard.evidence))
-				.filter((answer): answer is string => Boolean(answer));
-			toolAnswers.splice(0, toolAnswers.length, ...groundedAnswers);
+			toolAnswers.splice(0, toolAnswers.length);
 		}
 		limitations.push(...finalGuard.limitations);
 		const publishable = preparePublishableEvidence(evidence, temporalContext, isCurrentEventQuery(resolvedRoutingPrompt));
@@ -524,6 +514,7 @@ export class DisciplinedNewsroomAgent {
 				].map((item, index) => ({ ...item, citation_number: index + 1 }))
 			: publishable.accepted;
 		evidence.splice(0, evidence.length, ...orderedPublishable);
+		dropProviderCitationAnswers(toolAnswers);
 		if (publishable.excluded.length) limitations.push(`${publishable.excluded.length} discovery, hub, or out-of-window source${publishable.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`);
 		discoveryLeads.push(...publishable.excluded);
 		if (researchContract.requestedItemCount && evidence.length < researchContract.requestedItemCount) {
@@ -531,7 +522,6 @@ export class DisciplinedNewsroomAgent {
 				`Only ${evidence.length} of ${researchContract.requestedItemCount} requested item${researchContract.requestedItemCount === 1 ? '' : 's'} met the contract; returning the verified subset.`
 			);
 		}
-		alignCitationSequence(evidence, toolAnswers);
 		if (!toolCalls.length && plan.steps.length) {
 			limitations.push('No selected tools were run.');
 		}
@@ -565,7 +555,6 @@ export class DisciplinedNewsroomAgent {
 			requirementCoverage: finalEvaluation.requirement_coverage,
 			storyClusters
 		});
-		if (context.outputStyle === 'chat') finalAnswer = enforceFinalCitationIntegrity(finalAnswer, evidence);
 		markCitedEvidence(evidence, finalAnswer);
 		return {
 			prompt,
@@ -636,7 +625,6 @@ export class DisciplinedNewsroomAgent {
 		let planSource: AgentPlanEvent['source'] = 'router';
 		let stoppedReason = '';
 		let lastOutput: ToolRunOutput | null = null;
-		let answerStreamUsed = false;
 		let followUpFetches = 0;
 		let loopIteration = 0;
 		const coverageLanes = researchRequirementsForContract(researchContract!).length === 1
@@ -652,13 +640,6 @@ export class DisciplinedNewsroomAgent {
 					includeOfficial: true,
 					includeCorroboration: true
 				});
-		const forwardAnswerDelta = context.onAnswerDelta
-			? (delta: string) => {
-					answerStreamUsed = true;
-					context.onAnswerDelta?.(delta);
-				}
-			: undefined;
-
 		const emitPlan = () => context.onPlanEvent?.(planEvent(planSource, queue));
 		const appendActions = (actions: LoopAction[], parallelGroup?: string): number => {
 			let added = 0;
@@ -691,7 +672,6 @@ export class DisciplinedNewsroomAgent {
 		// initial pair bounded and parallel where the route does not require a
 		// document or direct URL read first.
 		const firstCount =
-			!context.onAnswerDelta &&
 			fallbackPlan.steps.length > 1 &&
 			!context.documents?.length &&
 			fallbackPlan.steps[0]?.tool !== NEWSROOM_TOOL_NAMES.urlFetchRead &&
@@ -713,26 +693,6 @@ export class DisciplinedNewsroomAgent {
 					...(step.intentKey ? { intentKey: step.intentKey } : {})
 				})),
 				firstCount > 1 ? 'initial_parallel' : undefined
-			);
-		}
-		if (context.onAnswerDelta && fallbackPlan.steps.length > firstCount) {
-			// Streaming surfaces require a stable first answer-producing tool. Keep
-			// the remaining deterministic route steps queued serially so a later
-			// tool can still contribute evidence without receiving a second delta
-			// sink or interleaving text with the first tool.
-			appendActions(
-				fallbackPlan.steps.slice(firstCount).map((step) => ({
-					kind: 'research' as const,
-					tool: step.tool,
-					input: step.input,
-					label: step.label,
-					...(step.laneId ? { laneId: step.laneId } : {}),
-					...(step.lanePurpose ? { lanePurpose: step.lanePurpose } : {}),
-					...(step.requirementId ? { requirementId: step.requirementId } : {}),
-					...(step.phase ? { phase: step.phase } : {}),
-					...(step.capability ? { capability: step.capability } : {}),
-					...(step.intentKey ? { intentKey: step.intentKey } : {})
-				}))
 			);
 		}
 		emitPlan();
@@ -809,10 +769,9 @@ export class DisciplinedNewsroomAgent {
 								{
 									...context,
 									signal,
-									onAnswerDelta:
-										ready.length === 1 && toolAnswers.length === 0 && !answerStreamUsed
-											? forwardAnswerDelta
-											: undefined
+										// Structured evidence is authoritative only after the loop
+										// completes; never stream provider-authored cited prose.
+										onAnswerDelta: undefined
 								},
 								step.input
 							);
@@ -833,9 +792,7 @@ export class DisciplinedNewsroomAgent {
 				);
 
 				for (const { step, tool, rawOutput } of runResults) {
-					const normalizedOutput = context.documents?.length
-						? rawOutput
-						: rebaseToolOutputCitations(rawOutput, evidence);
+					const normalizedOutput = discardProviderCitationAnswer(rawOutput);
 					const contractGuarded = applyResearchContractGuard(normalizedOutput, researchContract);
 					const conversationGuarded = applyConversationGuard(contractGuarded, context.conversationContext, context.temporalContext);
 					const output = annotateRequirementOutput(
@@ -1002,10 +959,7 @@ export class DisciplinedNewsroomAgent {
 		});
 		if (finalGuard.excluded.length) {
 			evidence.splice(0, evidence.length, ...finalGuard.evidence);
-			const groundedAnswers = toolAnswers
-				.map((answer) => retainAcceptedCitationClaims(answer, finalGuard.evidence))
-				.filter((answer): answer is string => Boolean(answer));
-			toolAnswers.splice(0, toolAnswers.length, ...groundedAnswers);
+			toolAnswers.splice(0, toolAnswers.length);
 		}
 		limitations.push(...finalGuard.limitations);
 		const publishable = preparePublishableEvidence(evidence, context.temporalContext!, isCurrentEventQuery(resolvedRoutingPrompt));
@@ -1016,6 +970,7 @@ export class DisciplinedNewsroomAgent {
 				].map((item, itemIndex) => ({ ...item, citation_number: itemIndex + 1 }))
 			: publishable.accepted;
 		evidence.splice(0, evidence.length, ...orderedPublishable);
+		dropProviderCitationAnswers(toolAnswers);
 		if (publishable.excluded.length) {
 			limitations.push(
 				`${publishable.excluded.length} discovery, hub, or out-of-window source${publishable.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`
@@ -1037,7 +992,6 @@ export class DisciplinedNewsroomAgent {
 				`Only ${evidence.length} of ${researchContract.requestedItemCount} requested item${researchContract.requestedItemCount === 1 ? '' : 's'} met the contract; returning the verified subset.`
 			);
 		}
-		alignCitationSequence(evidence, toolAnswers);
 		if (!toolCalls.length && fallbackPlan.steps.length) limitations.push('No selected tools were run.');
 
 		const budget = ledger.snapshot();
@@ -1059,7 +1013,6 @@ export class DisciplinedNewsroomAgent {
 			requirementCoverage: finalEvaluation.requirement_coverage,
 			storyClusters
 		});
-		if (context.outputStyle === 'chat') finalAnswer = enforceFinalCitationIntegrity(finalAnswer, evidence);
 		markCitedEvidence(evidence, finalAnswer);
 		return {
 			prompt,
@@ -1470,7 +1423,7 @@ export class DisciplinedNewsroomAgent {
 			researchContract: context.researchContract,
 			documents: context.documents,
 			signal: context.signal,
-			onAnswerDelta: context.onAnswerDelta
+			onAnswerDelta: undefined
 		};
 		try {
 			const resolvedCurrentRequest =
@@ -1542,7 +1495,7 @@ function applyConversationGuard(output: ToolRunOutput, context: ConversationCont
 		evidence_diagnostics: guarded.diagnostics,
 		answer:
 			output.answer && guarded.excluded.length
-				? retainAcceptedCitationClaims(output.answer, guarded.evidence)
+				? undefined
 				: output.answer,
 		discovery_leads: dedupeEvidence([...(output.discovery_leads || []), ...rejectedByConversation]),
 		limitations
@@ -1598,118 +1551,51 @@ function applyTemporalGuard(
 ): ToolRunOutput {
 	if (!currentRequest) return output;
 	const prepared = preparePublishableEvidence(output.evidence || [], temporalContext, currentRequest);
-	if (!prepared.excluded.length) return output;
+	const uncertain = prepared.accepted.filter((item) => item.temporal_scope === 'background');
+	const accepted = prepared.accepted.filter((item) => item.temporal_scope !== 'background');
+	if (!prepared.excluded.length && !uncertain.length) return output;
+	const rejected = [
+		...prepared.excluded,
+		...uncertain.map((item) => ({
+			...item,
+			ledger_status: 'rejected' as const,
+			temporal_scope: 'discovery' as const,
+			rejection_reason: 'publication or update time is unknown for the current request'
+		}))
+	];
 	const limitations = [
 		...(output.limitations || []),
-		`${prepared.excluded.length} discovery, hub, or out-of-window source${prepared.excluded.length === 1 ? ' was' : 's were'} excluded from publishable claims.`
+		`${rejected.length} discovery, hub, or out-of-window source${rejected.length === 1 ? ' was' : 's were'} excluded from publishable claims.`
 	];
 	return {
 		...output,
 		status: output.status,
-		evidence: prepared.accepted,
+		evidence: accepted,
 		answer: output.answer,
-		discovery_leads: dedupeEvidence([...(output.discovery_leads || []), ...prepared.excluded]),
+		discovery_leads: dedupeEvidence([...(output.discovery_leads || []), ...rejected]),
 		limitations
 	};
 }
 
-function rebaseToolOutputCitations(
-	output: ToolRunOutput,
-	existingEvidence: EvidenceObject[]
-): ToolRunOutput {
-	if (!output.evidence?.length) return output;
-	const used = new Set(
-		existingEvidence
-			.map((item) => item.citation_number)
-			.filter((number): number is number => Number.isInteger(number) && Number(number) > 0)
+function discardProviderCitationAnswer(output: ToolRunOutput): ToolRunOutput {
+	if (!output.answer) return output;
+	const hasCitationSyntax =
+		citationMarkersInText(output.answer).length > 0 || hasMalformedCitationSyntax(output.answer);
+	return hasCitationSyntax ? { ...output, answer: undefined } : output;
+}
+
+function dropProviderCitationAnswers(toolAnswers: string[]): void {
+	toolAnswers.splice(
+		0,
+		toolAnswers.length,
+		...toolAnswers.filter(
+			(answer) => citationMarkersInText(answer).length === 0 && !hasMalformedCitationSyntax(answer)
+		)
 	);
-	if (!used.size) return output;
-	let next = Math.max(...used) + 1;
-	const remap = new Map<number, number>();
-	const evidence = output.evidence.map((item) => {
-		const original = item.citation_number;
-		if (!original || !Number.isInteger(original)) return item;
-		let replacement = remap.get(original);
-		if (!replacement) {
-			while (used.has(next)) next += 1;
-			replacement = next;
-			next += 1;
-			used.add(replacement);
-			remap.set(original, replacement);
-		}
-		return { ...item, citation_number: replacement };
-	});
-	if (!remap.size) return { ...output, evidence };
-	return {
-		...output,
-		evidence,
-		answer: output.answer
-			? output.answer.replace(/\[(\d+)\]/g, (marker, rawNumber: string) => {
-					const replacement = remap.get(Number(rawNumber));
-					return replacement ? `[${replacement}]` : marker;
-				})
-			: output.answer
-	};
-}
-
-function retainAcceptedCitationClaims(answer: string, evidence: EvidenceObject[]): string | undefined {
-	const accepted = new Set(
-		evidence
-			.map((item) => item.citation_number)
-			.filter((number): number is number => number != null)
-	);
-	if (!accepted.size) return undefined;
-
-	const markers = citationNumbersIn(answer);
-	if (
-		markers.length &&
-		markers.every((number) => accepted.has(number)) &&
-		isSubstantiveCitedClaim(answer)
-	) {
-		return answer.trim();
-	}
-	if (!markers.length) return undefined;
-
-	const claims = splitCitedClaims(answer)
-		.map((claim) => claim.trim())
-		.filter(Boolean)
-		.filter((claim) => {
-			const claimMarkers = citationNumbersIn(claim);
-			return (
-				claimMarkers.length > 0 &&
-				claimMarkers.every((number) => accepted.has(number)) &&
-				isSubstantiveCitedClaim(claim)
-			);
-		});
-	return claims.length ? claims.join('\n\n') : undefined;
-}
-
-function splitCitedClaims(value: string): string[] {
-	return value
-		.replace(/((?:\s*\[\d+\])+(?:[.!?])?)(?:\s+|$)/g, '$1\n')
-		.split(/\n+/);
-}
-
-function isSubstantiveCitedClaim(value: string): boolean {
-	const prose = value
-		.replace(/\[\d+\]/g, ' ')
-		.replace(/https?:\/\/\S+/gi, ' ')
-		.replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b/gi, ' ')
-		.replace(/[*_#`()]/g, ' ')
-		.replace(/\s+/g, ' ')
-		.trim();
-	const words = prose.match(/\b[\p{L}\p{N}][\p{L}\p{N}'’.-]*\b/gu)?.length ?? 0;
-	return prose.length >= 24 && words >= 5;
-}
-
-function citationNumbersIn(value: string): number[] {
-	return [...value.matchAll(/\[(\d+)\]/g)]
-		.map((match) => Number(match[1]))
-		.filter((number) => Number.isInteger(number) && number > 0);
 }
 
 function markCitedEvidence(evidence: EvidenceObject[], answer: string): void {
-	const cited = new Set(citationNumbersIn(answer));
+	const cited = new Set(citationMarkersInText(answer));
 	for (const item of evidence) {
 		if (item.citation_number && cited.has(item.citation_number)) item.ledger_status = 'cited';
 		else if (item.ledger_status !== 'rejected') item.ledger_status = 'accepted';
@@ -1746,48 +1632,6 @@ function coverageActionForStep(
 	nextLane.reformulated = true;
 	nextLane.detail = 'Reformulated around an uncovered source lane after overlapping results.';
 	return 'continue';
-}
-
-function alignCitationSequence(evidence: EvidenceObject[], toolAnswers: string[]): void {
-	const usedNumbers = new Set(
-		evidence
-			.map((item) => item.citation_number)
-			.filter((number): number is number => number != null)
-	);
-	let nextNumber = 1;
-	for (const item of evidence) {
-		if (item.citation_number != null) continue;
-		while (usedNumbers.has(nextNumber)) nextNumber += 1;
-		item.citation_number = nextNumber;
-		usedNumbers.add(nextNumber);
-		nextNumber += 1;
-	}
-	const accepted = new Set(
-		evidence
-			.map((item) => item.citation_number)
-			.filter((number): number is number => number != null)
-	);
-	for (let index = toolAnswers.length - 1; index >= 0; index -= 1) {
-		const markers = citationNumbersIn(toolAnswers[index]);
-		if (!markers.some((number) => !accepted.has(number))) continue;
-		const grounded = retainAcceptedCitationClaims(toolAnswers[index], evidence);
-		if (grounded) toolAnswers[index] = grounded;
-		else toolAnswers.splice(index, 1);
-	}
-
-	const remap = new Map<number, number>();
-	for (const item of evidence) {
-		const original = item.citation_number;
-		if (original == null) continue;
-		if (!remap.has(original)) remap.set(original, remap.size + 1);
-		item.citation_number = remap.get(original);
-	}
-	for (let index = 0; index < toolAnswers.length; index += 1) {
-		toolAnswers[index] = toolAnswers[index].replace(/\[(\d+)\]/g, (marker, rawNumber: string) => {
-			const next = remap.get(Number(rawNumber));
-			return next ? `[${next}]` : marker;
-		});
-	}
 }
 
 function groundedResearchPrompt(prompt: string, context: ConversationContext | undefined): string {

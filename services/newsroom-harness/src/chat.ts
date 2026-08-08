@@ -12,6 +12,7 @@ import {
 	chatCompletionDeltaFrame,
 	agentCitationsFrame,
 	agentPlanFrame,
+	agentAnswerReplaceFrame,
 	agentToolProgressFrame,
 	sseFrame
 } from './util/sse.js';
@@ -109,7 +110,10 @@ export async function writeResponses(
 			newsroomContext: body.newsroom_context,
 			conversationContext: body.conversation_context,
 			documents: body.documents,
-			onProgress: (event) => writeProgress(res, event)
+			onProgress: (event) => {
+				if (event.type === 'answer_replace') output = event.content;
+				writeProgress(res, event);
+			}
 		})) {
 			if (signal.aborted) break;
 			if (!delta) continue;
@@ -191,6 +195,10 @@ function responseInputContentToChatContent(item: GatewayResponseInputMessage): G
 }
 
 function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {
+	if (event.type === 'answer_replace') {
+		res.write(agentAnswerReplaceFrame({ content: event.content }));
+		return;
+	}
 	if (event.type === 'citations') {
 		res.write(agentCitationsFrame({ citations: event.citations }));
 		return;

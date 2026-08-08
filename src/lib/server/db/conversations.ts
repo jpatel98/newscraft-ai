@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, isNull, lt, or } from 'drizzle-orm';
 import { db, ensureDefaultOrganizationForAccount } from './index';
-import { conversations, messages } from './schema';
+import { conversations, messageProvenance, messages } from './schema';
 import { newId } from '$lib/utils/id';
 import type { ContentPart, MessageContent } from '$lib/types';
 
@@ -181,45 +181,126 @@ export async function getMessageById(id: string): Promise<MessageRow | undefined
 	return row;
 }
 
-export async function appendMessageContent(id: string, chunk: string): Promise<void> {
-	if (!chunk) return;
-	const row = await getMessageById(id);
-	if (!row) return;
-	const parsed = parseContent(row.content);
-	let next: MessageContent;
-	if (typeof parsed === 'string') {
-		next = parsed + chunk;
-	} else {
-		const parts = [...parsed];
-		const last = parts[parts.length - 1];
-		if (last && last.type === 'text') {
-			parts[parts.length - 1] = { type: 'text', text: last.text + chunk };
-		} else {
-			parts.push({ type: 'text', text: chunk });
+/**
+ * Atomically commits every resumed assistant route. The claim token and
+ * partial predicate form the compare-and-set contract: a stale retry cannot
+ * append, replace, finalize, or rewrite provenance after another owner wins.
+ */
+export async function finalizeResumedAssistantMessage(input: {
+	id: string;
+	conversationId: string;
+	claimToken: number;
+	mode: 'append' | 'replace' | 'discard';
+	content?: MessageContent;
+	appendContent?: string;
+	toolCalls: string | null;
+	provenanceJson: string;
+	partial: 0 | 1;
+	now?: number;
+}): Promise<MessageRow | undefined> {
+	const now = input.now ?? Date.now();
+	return db.transaction(async (tx: any) => {
+		const [current] = (await tx
+			.select()
+			.from(messages)
+			.where(
+				and(
+					eq(messages.id, input.id),
+					eq(messages.conversationId, input.conversationId),
+					eq(messages.role, 'assistant'),
+					eq(messages.partial, 1),
+					eq(messages.resumeClaimedAt, input.claimToken)
+				)
+			)
+			.limit(1)) as MessageRow[];
+		if (!current) return undefined;
+		if (input.mode === 'replace' && input.content === undefined) {
+			throw new Error('replacement content is required for resumed assistant finalization');
 		}
-		next = parts;
+		const nextContent =
+			input.mode === 'replace'
+				? input.content!
+				: input.mode === 'append'
+					? appendMessageContentValue(parseContent(current.content), input.appendContent || '')
+					: parseContent(current.content);
+		const committed = (await tx
+			.update(messages)
+			.set({
+				content: serializeContent(nextContent),
+				toolCalls: input.toolCalls,
+				partial: input.partial,
+				resumeClaimedAt: null
+			})
+			.where(
+				and(
+					eq(messages.id, input.id),
+					eq(messages.conversationId, input.conversationId),
+					eq(messages.role, 'assistant'),
+					eq(messages.partial, 1),
+					eq(messages.resumeClaimedAt, input.claimToken)
+				)
+			)
+			.returning()) as MessageRow[];
+		if (!committed.length) return undefined;
+
+		await tx
+			.insert(messageProvenance)
+			.values({
+				messageId: input.id,
+				conversationId: input.conversationId,
+				provenanceJson: input.provenanceJson,
+				createdAt: now,
+				updatedAt: now
+			})
+			.onConflictDoUpdate({
+				target: messageProvenance.messageId,
+				set: {
+					conversationId: input.conversationId,
+					provenanceJson: input.provenanceJson,
+					updatedAt: now
+				}
+			});
+		await tx.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, input.conversationId));
+		return committed[0];
+	});
+}
+
+function appendMessageContentValue(current: MessageContent, chunk: string): MessageContent {
+	if (!chunk) return current;
+	if (typeof current === 'string') return current + chunk;
+	const parts = [...current];
+	const last = parts[parts.length - 1];
+	if (last && last.type === 'text') {
+		parts[parts.length - 1] = { type: 'text', text: last.text + chunk };
+	} else {
+		parts.push({ type: 'text', text: chunk });
 	}
-	const now = Date.now();
-	await db.update(messages).set({ content: serializeContent(next) }).where(eq(messages.id, id));
-	await db.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, row.conversationId));
+	return parts;
 }
 
-export async function finalizeMessage(id: string): Promise<void> {
-	await db.update(messages).set({ partial: 0, resumeClaimedAt: null }).where(eq(messages.id, id));
-}
-
-export async function setMessageToolCalls(id: string, toolCalls: string | null): Promise<void> {
-	await db.update(messages).set({ toolCalls }).where(eq(messages.id, id));
-}
-
-export async function clearMessagePartial(id: string): Promise<MessageRow | undefined> {
-	await db.update(messages).set({ partial: 0, resumeClaimedAt: null }).where(eq(messages.id, id));
-	return getMessageById(id);
+/**
+ * Discards a partial row only for its current owner. This delegates to the
+ * same transaction as append/replace finalization so metadata and provenance
+ * cannot be committed independently of clearing the claim.
+ */
+export async function discardPartialAssistantMessage(input: {
+	id: string;
+	conversationId: string;
+	claimToken: number;
+	toolCalls: string | null;
+	provenanceJson: string;
+	now?: number;
+}): Promise<MessageRow | undefined> {
+	return finalizeResumedAssistantMessage({
+		...input,
+		mode: 'discard',
+		partial: 0
+	});
 }
 
 const RESUME_CLAIM_TTL_MS = 5 * 60 * 1000;
 
-export async function claimPartialAssistantMessage(id: string, conversationId: string): Promise<boolean> {
+export async function claimPartialAssistantMessage(id: string, conversationId: string): Promise<number | null> {
 	const now = Date.now();
 	const cutoff = now - RESUME_CLAIM_TTL_MS;
 	const claimed = await db
@@ -234,15 +315,8 @@ export async function claimPartialAssistantMessage(id: string, conversationId: s
 				or(isNull(messages.resumeClaimedAt), lt(messages.resumeClaimedAt, cutoff))
 			)
 		)
-		.returning({ id: messages.id });
-	return claimed.length > 0;
-}
-
-export async function releasePartialAssistantMessageClaim(id: string): Promise<void> {
-	await db
-		.update(messages)
-		.set({ resumeClaimedAt: null })
-		.where(and(eq(messages.id, id), eq(messages.partial, 1)));
+		.returning({ claimToken: messages.resumeClaimedAt });
+	return claimed[0]?.claimToken ?? null;
 }
 
 export async function lastAssistantMessage(conversationId: string): Promise<MessageRow | undefined> {

@@ -11,6 +11,8 @@ describe('chat regeneration context', () => {
 		expect(source).toContain('query: currentRequest');
 		expect(source).toContain('answerForLatestUser(existingMessages)');
 		expect(source).toContain("message.role !== 'assistant' || message.partial !== 1");
+		expect(source).toContain('assistantReplacement !== null');
+		expect(source).toContain('finalizeResumedAssistantMessage');
 		expect(source).not.toContain('lastAssistantMessage(convoId)');
 		expect(source.indexOf('the saved user request changed before retry')).toBeLessThan(
 			source.indexOf('deleteMessagesFrom(convoId, existingAnswer.id)')

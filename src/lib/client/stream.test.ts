@@ -113,6 +113,99 @@ describe('streamChat error contract', () => {
 		expect(onDelta).toHaveBeenCalledWith('Hello');
 	});
 
+	it('forwards authoritative answer replacements without appending the draft', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				sseResponse(
+					'event: response.output_text.delta\n' +
+						'data: {"delta":"Draft claim."}\n\n' +
+						'event: agent.answer.replace\n' +
+						'data: {"content":"Authoritative claim [1]."}\n\n' +
+						'event: response.completed\n' +
+						'data: {"response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Authoritative claim [1]."}]}]}}\n\n' +
+						'data: [DONE]\n\n'
+				)
+			)
+		);
+		const onDelta = vi.fn();
+		const onReplace = vi.fn();
+
+		await streamChat({ conversation_id: 'convo_1', content: 'Research this.' }, { onDelta, onReplace });
+
+		expect(onDelta).toHaveBeenCalledWith('Draft claim.');
+		expect(onReplace).toHaveBeenCalledWith('Authoritative claim [1].');
+	});
+
+	it('applies replacement events as reducer state instead of concatenating draft deltas', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				sseResponse(
+					'event: response.output_text.delta\n' +
+						'data: {"delta":"Claim ."}\n\n' +
+						'event: agent.answer.replace\n' +
+						'data: {"content":"Claim."}\n\n' +
+						'event: response.completed\n' +
+						'data: {"response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Claim."}]}]}}\n\n' +
+						'data: [DONE]\n\n'
+				)
+			)
+		);
+		const rawDeltas: string[] = [];
+		let clientText = '';
+
+		await streamChat(
+			{ conversation_id: 'convo_1', content: 'Research this.' },
+			{
+				onDelta(delta) {
+					rawDeltas.push(delta);
+					clientText += delta;
+				},
+				onReplace(replacement) {
+					clientText = replacement;
+				}
+			}
+		);
+
+		expect(rawDeltas).toEqual(['Claim .']);
+		expect(rawDeltas.join('')).not.toBe('Claim.');
+		expect(clientText).toBe('Claim.');
+	});
+
+	it('keeps a large canonical replacement intact in client reducer state', async () => {
+		const canonical = 's'.repeat(262_144);
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				sseResponse(
+					'event: response.output_text.delta\n' +
+						'data: {"delta":"Draft"}\n\n' +
+						'event: agent.answer.replace\n' +
+						`data: ${JSON.stringify({ content: canonical })}\n\n` +
+						'event: response.completed\n' +
+						'data: {"response":{"output":[{"type":"message","content":[{"type":"output_text","text":"completed"}]}]}}\n\n' +
+						'data: [DONE]\n\n'
+				)
+			)
+		);
+		let clientText = '';
+		await streamChat(
+			{ conversation_id: 'convo_1', content: 'Research this.' },
+			{
+				onDelta(delta) {
+					clientText += delta;
+				},
+				onReplace(replacement) {
+					clientText = replacement;
+				}
+			}
+		);
+
+		expect(clientText).toBe(canonical);
+		expect(clientText.length).toBe(262_144);
+	});
+
 	it('rejects a plan-only stream that closes before a completed answer', async () => {
 		vi.stubGlobal(
 			'fetch',

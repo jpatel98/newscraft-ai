@@ -13,23 +13,28 @@ import {
 import { expandAgentSkill, listAgentCommands } from '$lib/server/agent/bridge';
 import {
 	addMessage,
-	appendMessageContent,
 	claimPartialAssistantMessage,
 	createConversation,
 	deleteMessagesFrom,
-	finalizeMessage,
+	finalizeResumedAssistantMessage,
 	getConversation,
 	getMessageById,
 	getMessages,
 	parseContent,
-	releasePartialAssistantMessageClaim,
-	setMessageToolCalls
 } from '$lib/server/db/conversations';
 import { generateConversationTitle } from '$lib/server/conversation-title';
 import { contentText, type ChatCommand, type ContentPart, type AgentCommand, type MessageContent } from '$lib/types';
 import { readSSE } from '$lib/utils/sse-client';
 import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
-import { StreamEventState, sseFrame, type PersistedSource, type StreamToolCall } from '$lib/utils/stream-events';
+import {
+	sanitizeCitationEventData,
+	sanitizeUnresolvedCitationMarkers,
+	StreamingCitationSanitizer,
+	StreamEventState,
+	sseFrame,
+	type PersistedSource,
+	type StreamToolCall
+} from '$lib/utils/stream-events';
 import {
 	mergeToolMetadata,
 	citationNumbersInText,
@@ -504,6 +509,7 @@ async function localGatewayFailureResponse(
 	convoId: string,
 	detail: string,
 	resumeMessageId: string | null | undefined,
+	resumeClaimToken: number | null | undefined,
 	traceId: string
 ): Promise<Response> {
 	const startedAt = Date.now();
@@ -520,24 +526,40 @@ async function localGatewayFailureResponse(
 	);
 	const text = gatewayUnavailableMessage(detail);
 	if (resumeMessageId) {
-		await appendMessageContent(resumeMessageId, `\n\n${text}`);
-		await finalizeMessage(resumeMessageId);
+		if (!resumeClaimToken) throw error(409, 'resume claim lost');
 		const row = await getMessageById(resumeMessageId);
 		const metadata = parseToolMetadata(row?.toolCalls);
-		await persistAnswerProvenance({
-			conversationId: convoId,
+		const answerText = `${row ? contentText(parseContent(row.content)) : ''}\n\n${text}`.trim();
+		const endedAt = Date.now();
+		const provenanceJson = serializeAnswerProvenance({
 			messageId: resumeMessageId,
+			conversationId: convoId,
 			tools: metadata.tools,
 			sources: metadata.sources,
 			citations: metadata.citations,
 			startedAt,
-			assistantChars: row ? contentText(parseContent(row.content)).length : text.length,
-			answerText: row ? contentText(parseContent(row.content)) : text,
+			endedAt,
+			assistantChars: answerText.length,
+			answerText,
 			done: true,
 			finishStatus: 'failed',
+			events: {},
 			transport: 'local_gateway_failure',
-			traceId
+			reasoningEffort: undefined,
+			model: undefined
 		});
+		const committed = await finalizeResumedAssistantMessage({
+			id: resumeMessageId,
+			conversationId: convoId,
+			claimToken: resumeClaimToken,
+			mode: 'append',
+			appendContent: `\n\n${text}`,
+			toolCalls: serializeToolMetadata(metadata.tools, metadata.sources, metadata.citations),
+			provenanceJson,
+			partial: 0,
+			now: endedAt
+		});
+		if (!committed) throw error(409, 'resume claim lost');
 		return localTextStream(convoId, `\n\n${text}`, traceId);
 	}
 	return localAssistantResponse(convoId, text, traceId);
@@ -676,6 +698,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	});
 
 	let resumeMessageId: string | null = null;
+	let resumeClaimToken: number | null = null;
 	let visibleUserMessageId: string | null = null;
 	let outputActionSource:
 		| Awaited<ReturnType<typeof getMessageById>>
@@ -710,7 +733,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (!isLatestUnfinishedAssistant(existingMessages, target.id)) {
 			throw error(409, 'only the latest unfinished answer can be resumed');
 		}
-		if (!(await claimPartialAssistantMessage(messageId, convoId))) throw error(409, 'already resuming');
+		resumeClaimToken = await claimPartialAssistantMessage(messageId, convoId);
+		if (!resumeClaimToken) throw error(409, 'already resuming');
 		resumeMessageId = messageId;
 	} else if (isRegenerate || isRetry) {
 		const existingMessages = await getMessages(convoId);
@@ -919,6 +943,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					convoId,
 					'newsroom context unavailable',
 					resumeMessageId,
+					resumeClaimToken,
 					traceId
 				);
 			}
@@ -998,6 +1023,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			convoId,
 			err instanceof Error ? err.message : String(err),
 			resumeMessageId,
+			resumeClaimToken,
 			traceId
 		);
 	}
@@ -1008,113 +1034,176 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			convoId,
 			`Agent ${upstream.status || 502}: ${text || upstream.statusText}`,
 			resumeMessageId,
+			resumeClaimToken,
 			traceId
 		);
 	}
 	const upstreamBody = upstream.body;
 
 	let assistantBuf = '';
+	let assistantReplacement: string | null = null;
 	let done = false;
-	let persisted = false;
+	let persistencePromise: Promise<Awaited<ReturnType<typeof getMessageById>>> | null = null;
 	let sentDone = false;
+	let activeController: ReadableStreamDefaultController<Uint8Array> | null = null;
 	const streamState = new StreamEventState();
+	const inheritedCitations = inheritedMetadata?.citations ?? [];
+	const activeCitationRecords = () =>
+		mergeToolMetadata(null, [], [], [...inheritedCitations, ...streamState.citationList()]).citations;
+	const citationSanitizer = new StreamingCitationSanitizer(inheritedCitations);
 	const streamStats: Record<string, number> = {};
 	let upstreamModel: string | undefined;
+	let preserveSanitizedAssistant: string | null = null;
+
+	function canonicalAssistantText(): string {
+		return sanitizeUnresolvedCitationMarkers(assistantBuf, activeCitationRecords());
+	}
+
+	function enqueueCitationDelta(controller: ReadableStreamDefaultController<Uint8Array>, delta: string): void {
+		if (!delta) return;
+		controller.enqueue(
+			enc.encode(sseFrame('response.output_text.delta', JSON.stringify({ delta })))
+		);
+	}
+
+	function enqueueCitationReplacement(
+		controller: ReadableStreamDefaultController<Uint8Array>,
+		content: string
+	): void {
+		controller.enqueue(enc.encode(sseFrame('agent.answer.replace', JSON.stringify({ content }))));
+	}
+
+	function tryEnqueueCitationBoundary(
+		controller: ReadableStreamDefaultController<Uint8Array>,
+		flush: () => string
+	): void {
+		const tail = flush();
+		try {
+			enqueueCitationDelta(controller, tail);
+			const canonical = canonicalAssistantText();
+			if (citationSanitizer.emitted && citationSanitizer.emitted !== canonical) {
+				enqueueCitationReplacement(controller, canonical);
+			}
+			preserveSanitizedAssistant = canonical;
+		} catch {
+			// A consumer cancellation may close the controller before the route's
+			// cancellation hook runs. Persistence still uses the same canonical value.
+			preserveSanitizedAssistant = canonicalAssistantText();
+		}
+	}
 
 	async function persistAssistant(finishStatus?: 'completed' | 'partial' | 'failed' | 'cancelled') {
-		if (persisted) return undefined;
-		persisted = true;
-		const capturedToolCalls = streamState.toolCalls();
-		const captured = mergeToolMetadata(
-			inheritedMetadata
-				? serializeToolMetadata([], inheritedMetadata.sources, inheritedMetadata.citations)
-				: null,
-			capturedToolCalls,
-			streamState.sourceList(),
-			streamState.citationList()
-		);
-		const capturedSources = captured.sources;
-		const capturedCitations = body.output_action
-			? citationRecordsUsedInAnswer(assistantBuf, captured.citations)
-			: captured.citations;
-		const resolvedFinishStatus = resolveResearchFinishStatus({
-			requested: finishStatus,
-			researchRequired: conversationContext.currentTurn?.researchRequired === true,
-			sourceCount: capturedSources.length,
-			citationCount: capturedCitations.length
-		});
-		if (resumeMessageId) {
-			const existingRow = await getMessageById(resumeMessageId);
-			const merged = mergeToolMetadata(
-				existingRow?.toolCalls ?? null,
+		if (persistencePromise) return persistencePromise;
+		persistencePromise = (async () => {
+			// The stream boundary is defensive as well as the harness boundary:
+			// provider-local or malformed markers cannot become durable authority
+			// merely because an upstream event bypassed structured synthesis.
+			assistantBuf = preserveSanitizedAssistant ?? canonicalAssistantText();
+			const capturedToolCalls = streamState.toolCalls();
+			const captured = mergeToolMetadata(
+				inheritedMetadata
+					? serializeToolMetadata([], inheritedMetadata.sources, inheritedMetadata.citations)
+					: null,
 				capturedToolCalls,
-				capturedSources,
-				capturedCitations
+				streamState.sourceList(),
+				streamState.citationList()
 			);
-			const provenanceTools = merged.tools;
-			const provenanceSources = merged.sources;
-			const provenanceCitations = merged.citations;
-			if (assistantBuf) await appendMessageContent(resumeMessageId, assistantBuf);
-			if (capturedToolCalls.length || capturedSources.length || capturedCitations.length) {
-				await setMessageToolCalls(
-					resumeMessageId,
-					serializeToolMetadata(merged.tools, merged.sources, merged.citations)
+			const capturedSources = captured.sources;
+			const capturedCitations = body.output_action
+				? citationRecordsUsedInAnswer(assistantBuf, captured.citations)
+				: captured.citations;
+			const resolvedFinishStatus = resolveResearchFinishStatus({
+				requested: finishStatus,
+				researchRequired: conversationContext.currentTurn?.researchRequired === true,
+				sourceCount: capturedSources.length,
+				citationCount: capturedCitations.length
+			});
+			if (resumeMessageId) {
+				if (!resumeClaimToken) return await getMessageById(resumeMessageId);
+				const existingRow = await getMessageById(resumeMessageId);
+				const merged = mergeToolMetadata(
+					existingRow?.toolCalls ?? null,
+					capturedToolCalls,
+					capturedSources,
+					capturedCitations
 				);
-			}
-			if (done) await finalizeMessage(resumeMessageId);
-			else await releasePartialAssistantMessageClaim(resumeMessageId);
-			const row = await getMessageById(resumeMessageId);
-			if (row) {
-				await persistAnswerProvenance({
+				const provenanceTools = merged.tools;
+				const provenanceSources = merged.sources;
+				const provenanceCitations = merged.citations;
+				// A replacement resets the visible draft, but later deltas still belong
+				// to that authoritative answer. Persist the complete post-replacement
+				// buffer so the CAS commit cannot lose or duplicate the tail.
+				const appendContent = assistantReplacement === null ? assistantBuf : '';
+				const answerText =
+					assistantReplacement !== null
+						? assistantBuf
+						: `${existingRow ? contentText(parseContent(existingRow.content)) : ''}${appendContent}`;
+				const endedAt = Date.now();
+				const provenanceJson = serializeAnswerProvenance({
+					messageId: resumeMessageId,
 					conversationId: convoId,
-					messageId: row.id,
 					tools: provenanceTools,
 					sources: provenanceSources,
 					citations: provenanceCitations,
+					answerText,
 					startedAt: requestStartedAt,
-					assistantChars: contentText(parseContent(row.content)).length,
-					answerText: contentText(parseContent(row.content)),
+					endedAt,
+					assistantChars: answerText.length,
 					done,
 					finishStatus: resolvedFinishStatus,
 					events: streamStats,
 					transport,
 					reasoningEffort,
-					model: upstreamModel,
-					traceId
+					model: upstreamModel
 				});
+				const committed = await finalizeResumedAssistantMessage({
+					id: resumeMessageId,
+					conversationId: convoId,
+					claimToken: resumeClaimToken,
+					mode: assistantReplacement !== null ? 'replace' : 'append',
+					...(assistantReplacement !== null ? { content: assistantBuf } : { appendContent }),
+					toolCalls: serializeToolMetadata(provenanceTools, provenanceSources, provenanceCitations),
+					provenanceJson,
+					partial: done ? 0 : 1,
+					now: endedAt
+				});
+				// A retry that lost the claim observes the already-authoritative row;
+				// it never appends its own draft or writes a second provenance record.
+				return committed ?? (await getMessageById(resumeMessageId));
 			}
+			if (!assistantBuf && capturedToolCalls.length === 0 && capturedCitations.length === 0) return undefined;
+			const row = await addMessage({
+				conversationId: convoId,
+				role: 'assistant',
+				content: assistantBuf,
+				partial: !done,
+				toolCalls: serializeToolMetadata(capturedToolCalls, capturedSources, capturedCitations)
+			});
+			await persistAnswerProvenance({
+				conversationId: convoId,
+				messageId: row.id,
+				tools: capturedToolCalls,
+				sources: capturedSources,
+				citations: capturedCitations,
+				startedAt: requestStartedAt,
+				assistantChars: assistantBuf.length,
+				answerText: assistantBuf,
+				done,
+				finishStatus: resolvedFinishStatus,
+				events: streamStats,
+				transport,
+				reasoningEffort,
+				model: upstreamModel,
+				traceId
+			});
 			return row;
-		}
-		if (!assistantBuf && capturedToolCalls.length === 0 && capturedCitations.length === 0) return undefined;
-		const row = await addMessage({
-			conversationId: convoId,
-			role: 'assistant',
-			content: assistantBuf,
-			partial: !done,
-			toolCalls: serializeToolMetadata(capturedToolCalls, capturedSources, capturedCitations)
-		});
-		await persistAnswerProvenance({
-			conversationId: convoId,
-			messageId: row.id,
-			tools: capturedToolCalls,
-			sources: capturedSources,
-			citations: capturedCitations,
-			startedAt: requestStartedAt,
-			assistantChars: assistantBuf.length,
-			answerText: assistantBuf,
-			done,
-			finishStatus: resolvedFinishStatus,
-			events: streamStats,
-			transport,
-			reasoningEffort,
-			model: upstreamModel,
-			traceId
-		});
-		return row;
+		})();
+		return persistencePromise;
 	}
 
 	const stream = new ReadableStream<Uint8Array>({
 		async start(controller) {
+			activeController = controller;
 			controller.enqueue(
 				enc.encode(
 					`event: agent.meta\ndata: ${JSON.stringify({
@@ -1129,15 +1218,41 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					streamStats[ev.event || 'message'] = (streamStats[ev.event || 'message'] ?? 0) + 1;
 					upstreamModel ??= modelFromSseData(ev.data);
 					for (const update of streamState.apply(ev.event, ev.data)) {
+						if (update.replace !== undefined) {
+							assistantBuf = update.replace;
+							assistantReplacement = update.replace;
+							done = true;
+						}
 						if (update.delta) assistantBuf += update.delta;
-						if (update.done) done = true;
 						if (update.failed) throw new Error(update.failed);
+						if (update.done) done = true;
 					}
 					if (ev.data === '[DONE]') {
 						sentDone = true;
 						continue;
 					}
-					controller.enqueue(enc.encode(sseFrame(ev.event, ev.data)));
+					const citationsForStream = activeCitationRecords();
+					const releasedAfterCitation =
+						ev.event === 'agent.citations'
+							? citationSanitizer.setCitations(citationsForStream)
+							: '';
+					const safeEventData = sanitizeCitationEventData(
+						ev.event,
+						ev.data,
+						citationsForStream,
+						citationSanitizer
+					);
+					controller.enqueue(enc.encode(sseFrame(ev.event, safeEventData)));
+					if (releasedAfterCitation) {
+						controller.enqueue(
+							enc.encode(
+								sseFrame(
+									'response.output_text.delta',
+									JSON.stringify({ delta: releasedAfterCitation })
+								)
+							)
+						);
+					}
 				}
 			} catch (e) {
 				recordChatDiagnostic(convoId, 'chat.stream_error', {
@@ -1147,10 +1262,18 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					assistantChars: assistantBuf.length,
 					events: streamStats
 				});
+				tryEnqueueCitationBoundary(controller, () => citationSanitizer.abort());
 				await persistAssistant('failed');
 				controller.error(e);
 				return;
 			}
+
+			// Do not let an unfinished marker disappear from the live stream while
+			// persistence reconciles the raw accumulated buffer. The same sanitizer
+			// is used here and in persistAssistant, so this tail is emitted exactly
+			// once and has the same result as the durable answer.
+			const citationTail = citationSanitizer.flush();
+			enqueueCitationDelta(controller, citationTail);
 
 			if (done && !assistantBuf.trim()) {
 				const fallback = conversationContext.currentTurn?.researchRequired
@@ -1162,6 +1285,12 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				);
 			}
 			const assistantRow = await persistAssistant(done ? 'completed' : 'partial');
+			if (
+				(assistantReplacement !== null || citationSanitizer.emitted) &&
+				citationSanitizer.emitted !== assistantBuf
+			) {
+				enqueueCitationReplacement(controller, assistantBuf);
+			}
 			const citationMarkers = citationNumbersInText(assistantBuf);
 			const citationRecords = assistantRow
 				? parseToolMetadata(assistantRow.toolCalls).citations
@@ -1221,14 +1350,24 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			if (sentDone || done) controller.enqueue(enc.encode('data: [DONE]\n\n'));
 			controller.close();
 		},
-		cancel() {
+			async cancel() {
 			recordChatDiagnostic(convoId, 'chat.stream_cancel', {
 				trace_id: traceId,
 				elapsedMs: Date.now() - requestStartedAt,
 				assistantChars: assistantBuf.length
 			});
 			upstreamAbort.abort();
-			void persistAssistant('cancelled');
+			if (activeController) tryEnqueueCitationBoundary(activeController, () => citationSanitizer.abort());
+			try {
+				await persistAssistant('cancelled');
+			} catch (error) {
+				recordChatDiagnostic(convoId, 'chat.stream_cancel_persist_error', {
+					trace_id: traceId,
+					errorName: error instanceof Error ? error.name : 'Error',
+					assistantChars: assistantBuf.length
+				});
+				throw error;
+			}
 		}
 	});
 

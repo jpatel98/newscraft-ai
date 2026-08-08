@@ -319,7 +319,13 @@ describe('producer-grade research architecture', () => {
 		expect(result.evidence.some((item) => item.source_kind === 'official')).toBe(true);
 		const citedNumbers = [...result.final_answer.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]));
 		expect(citedNumbers.every((number) => result.evidence.some((item) => item.citation_number === number))).toBe(true);
-		expect(result.evidence.map((item) => item.citation_number)).toEqual(Array.from({ length: 6 }, (_, index) => index + 1));
+		const evidenceNumbers = result.evidence.map((item) => item.citation_number);
+		expect(new Set(evidenceNumbers).size).toBe(result.evidence.length);
+		expect([...evidenceNumbers].sort((left, right) => (left || 0) - (right || 0))).toEqual(
+			Array.from({ length: 6 }, (_, index) => index + 1)
+		);
+		const firstAppearance = citedNumbers.filter((number, index) => citedNumbers.indexOf(number) === index);
+		expect(firstAppearance).toEqual([...firstAppearance].sort((left, right) => left - right));
 		expect(result.final_answer).toContain('**Why it matters:**');
 		expect(result.final_answer).toMatch(/Aug 1, 2026, \d{1,2}:\d{2} [ap]\.m\. EDT/);
 	});

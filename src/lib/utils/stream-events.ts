@@ -1,4 +1,4 @@
-import type { CitationRecord, CitationSourceType } from '@newscraft/shared';
+import { isCitationUrl, type CitationRecord, type CitationSourceType } from '@newscraft/shared';
 
 export interface StreamToolCall {
 	id: string;
@@ -70,6 +70,7 @@ export interface StreamPlanUpdate {
 
 export interface StreamEventUpdate {
 	delta?: string;
+	replace?: string;
 	done?: boolean;
 	failed?: string;
 	title?: string;
@@ -129,8 +130,662 @@ const CITATION_SOURCE_TYPES = new Set<CitationSourceType>([
 function citationUrl(value: unknown): string | null {
 	const url = stringValue(value);
 	if (!url) return null;
-	if (/^https?:\/\//i.test(url) || url.startsWith('/api/')) return url;
+	if (isCitationUrl(url)) return url;
 	return null;
+}
+
+function isEscaped(value: string, index: number): boolean {
+	let slashes = 0;
+	for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) slashes += 1;
+	return slashes % 2 === 1;
+}
+
+function findSquareClose(value: string, open: number): number | null {
+	let depth = 0;
+	for (let index = open; index < value.length; index += 1) {
+		if (value[index] === '[' && !isEscaped(value, index)) depth += 1;
+		else if (value[index] === ']' && !isEscaped(value, index)) {
+			depth -= 1;
+			if (depth === 0) return index;
+		}
+	}
+	return null;
+}
+
+function findDestinationClose(value: string, open: number): number | null {
+	let depth = 0;
+	for (let index = open; index < value.length; index += 1) {
+		if (value[index] === '(' && !isEscaped(value, index)) depth += 1;
+		else if (value[index] === ')' && !isEscaped(value, index)) {
+			depth -= 1;
+			if (depth === 0) return index;
+		}
+	}
+	return null;
+}
+
+function safeMarkdownDestination(raw: string, image: boolean): boolean {
+	const destination = raw.trim();
+	if (!destination) return false;
+	if (/[\u0000-\u001f\u007f\u2028\u2029]/u.test(raw)) return false;
+	const title = '(?:"[^"\\r\\n]*"|\'[^\'\\r\\n]*\'|\\([^()\\r\\n]*\\))';
+	const angleMatch = destination.match(new RegExp(`^<([^<>\\r\\n]+)>(?:\\s+${title})?$`, 'u'));
+	const bareMatch = destination.match(new RegExp(`^(\\S+)(?:\\s+${title})?$`, 'u'));
+	const target = angleMatch ? angleMatch[1] : bareMatch?.[1];
+	if (!target) return false;
+	let decodedTarget = target;
+	try {
+		for (let pass = 0; pass < 3; pass += 1) {
+			const decoded = decodeURIComponent(decodedTarget);
+			if (decoded === decodedTarget) break;
+			decodedTarget = decoded;
+		}
+	} catch {
+		return false;
+	}
+	if (/[\u0000-\u001f\u007f\u2028\u2029]/u.test(decodedTarget)) return false;
+	const decodedScheme = decodedTarget.match(/^([a-z][a-z0-9+.-]*):/iu)?.[1]?.toLowerCase();
+	const allowedInternal = !image && (isCitationUrl(target) || isCitationUrl(decodedTarget));
+	if (allowedInternal) return true;
+	if (decodedScheme && !new Set(['http', 'https', 'mailto', 'tel']).has(decodedScheme)) return false;
+	try {
+		const url = new URL(target, 'https://newscraft.local');
+		const allowed = image ? new Set(['http:', 'https:']) : new Set(['http:', 'https:', 'mailto:', 'tel:']);
+		return allowed.has(url.protocol);
+	} catch {
+		return false;
+	}
+}
+
+function isNumericArrayInterior(value: string): boolean {
+	return /^\d+(?:\s*,\s*\d+)+(?:\s*,\s*)?$/u.test(value);
+}
+
+function isNumericArrayPrefix(value: string): boolean {
+	return /^\[\d+(?:\s*,\s*\d+)*(?:\s*,\s*)?$/u.test(value) && /,/u.test(value);
+}
+
+function containsUnresolvedNumericPrefix(value: string): boolean {
+	for (let index = 0; index < value.length; index += 1) {
+		if (value[index] !== '[' || isEscaped(value, index)) continue;
+		const suffix = value.slice(index);
+		if (/^\[\d/u.test(suffix) && !isNumericArrayPrefix(suffix)) return true;
+	}
+	return false;
+}
+
+function canonicalizeCitationText(value: string): string {
+	return value
+		.replace(/[ \t]+([,.;:!?])/gu, '$1')
+		.replace(/[ \t]{2,}/gu, ' ');
+}
+
+function codeDelimiter(value: string, start: number): string | null {
+	if (value[start] !== '`' || isEscaped(value, start)) return null;
+	let end = start + 1;
+	while (value[end] === '`') end += 1;
+	return '`'.repeat(end - start);
+}
+
+function findCodeClose(value: string, start: number, delimiter: string): number | null {
+	for (let index = start; index <= value.length - delimiter.length; index += 1) {
+		if (value.startsWith(delimiter, index)) return index;
+	}
+	return null;
+}
+
+function degradedMarkdownLabel(interior: string, known: ReadonlySet<number>, depth: number): string {
+	if (/^\d+$/u.test(interior)) {
+		const citationNumber = Number(interior);
+		return known.has(citationNumber) ? `[${citationNumber}]` : '';
+	}
+	if (/^\d/u.test(interior) && !isNumericArrayInterior(interior)) return '';
+	return renderMarkdown(interior, known, true, true, depth + 1);
+}
+
+type PendingMarkdownKind = 'bracket' | 'destination';
+
+interface PendingMarkdownConstruct {
+	kind: PendingMarkdownKind;
+	start: number;
+	open: number;
+}
+
+interface MarkdownRenderState {
+	pending?: PendingMarkdownConstruct;
+}
+
+const MAX_PENDING_MARKDOWN_LENGTH = 64 * 1024;
+const MAX_REJECTED_LABEL_LENGTH = 4096;
+const TOKENIZER_FEED_CHUNK_LENGTH = 4096;
+
+interface RejectedMarkdownConstruct {
+	kind: PendingMarkdownKind;
+	replacement: string;
+	citationNumber?: number;
+	depth: number;
+	escaped: boolean;
+	invalid: boolean;
+	squareClosed: boolean;
+}
+
+function boundedDegradedMarkdownLabel(
+	interior: string,
+	known: ReadonlySet<number>,
+	depth: number
+): { replacement: string; citationNumber?: number } {
+	const numeric = interior.match(/^(\d+)$/u);
+	if (numeric) {
+		const citationNumber = Number(numeric[1]);
+		return { replacement: known.has(citationNumber) ? `[${citationNumber}]` : '', citationNumber };
+	}
+	if (interior.length > MAX_REJECTED_LABEL_LENGTH || /^\d/u.test(interior)) return { replacement: '' };
+	const replacement = degradedMarkdownLabel(interior, known, depth);
+	return replacement.length <= MAX_REJECTED_LABEL_LENGTH ? { replacement } : { replacement: '' };
+}
+
+function scanDestinationFragment(
+	value: string,
+	open: number
+): Pick<RejectedMarkdownConstruct, 'depth' | 'escaped' | 'invalid'> {
+	let depth = 0;
+	let escaped = false;
+	let invalid = false;
+	for (let index = open; index < value.length; index += 1) {
+		const character = value[index];
+		if (escaped) {
+			escaped = false;
+			continue;
+		}
+		if (character === '\\') {
+			escaped = true;
+			continue;
+		}
+		if (/^[\u0000-\u001f\u007f\u2028\u2029]$/u.test(character)) invalid = true;
+		if (character === '(') depth += 1;
+		else if (character === ')') depth = Math.max(0, depth - 1);
+	}
+	return { depth, escaped, invalid };
+}
+
+/**
+ * The single Markdown/citation tokenizer used by both complete and streaming
+ * sanitation. It only classifies a bracket construct after its matching
+ * bracket/destination is known; the streaming mode additionally keeps a
+ * one-character bracket lookahead and a safe link prefix visible.
+ */
+function renderMarkdown(
+	value: string,
+	known: ReadonlySet<number>,
+	final: boolean,
+	nested = false,
+	depth = 0,
+	state: MarkdownRenderState = {}
+): string {
+	if (depth > 32) return '';
+	let output = '';
+	let cursor = 0;
+	while (cursor < value.length) {
+		const delimiter = codeDelimiter(value, cursor);
+		if (delimiter) {
+			const close = findCodeClose(value, cursor + delimiter.length, delimiter);
+			if (close === null) return `${output}${value.slice(cursor)}`;
+			const end = close + delimiter.length;
+			output += value.slice(cursor, end);
+			cursor = end;
+			continue;
+		}
+		if (value[cursor] === '!' && value[cursor + 1] === '[' && !isEscaped(value, cursor)) {
+			// Let the bracket tokenizer own the image opener so `![alt](` is
+			// buffered as one construct rather than exposing `!` first.
+			cursor += 1;
+			continue;
+		}
+		if (value[cursor] === '!' && value[cursor + 1] === undefined && !final) {
+			state.pending = { kind: 'bracket', start: cursor, open: cursor };
+			return output;
+		}
+
+		if (value[cursor] !== '[' || isEscaped(value, cursor)) {
+			output += value[cursor];
+			cursor += 1;
+			continue;
+		}
+
+		const close = findSquareClose(value, cursor);
+		if (close === null) {
+			const suffix = value.slice(cursor);
+			if (suffix === '[' || containsUnresolvedNumericPrefix(suffix)) {
+				if (!final) {
+					const image = cursor > 0 && value[cursor - 1] === '!' && !isEscaped(value, cursor - 1);
+					state.pending = { kind: 'bracket', start: image ? cursor - 1 : cursor, open: cursor };
+					return output;
+				}
+				const punctuation = suffix.match(/^\[(\d+)([\s\S]*)$/u)?.[2] ?? '';
+				return /^[\s.!?:;…—–-]*$/u.test(punctuation) ? `${output}${punctuation}` : output;
+			}
+			if (final || nested) return output + suffix;
+			const image = cursor > 0 && value[cursor - 1] === '!' && !isEscaped(value, cursor - 1);
+			state.pending = { kind: 'bracket', start: image ? cursor - 1 : cursor, open: cursor };
+			return output;
+		}
+
+		const interior = value.slice(cursor + 1, close);
+		const next = value[close + 1];
+		const image = cursor > 0 && value[cursor - 1] === '!' && !isEscaped(value, cursor - 1);
+		const constructStart = image ? cursor - 1 : cursor;
+		if (next === '(') {
+			const destinationClose = findDestinationClose(value, close + 1);
+			if (destinationClose === null) {
+				if (final) {
+					output += degradedMarkdownLabel(interior, known, depth);
+					return output;
+				}
+				state.pending = { kind: 'destination', start: constructStart, open: close + 1 };
+				return output;
+			}
+
+			const destination = value.slice(close + 2, destinationClose);
+			if (safeMarkdownDestination(destination, image)) {
+				output += value.slice(constructStart, destinationClose + 1);
+			} else {
+				output += degradedMarkdownLabel(interior, known, depth);
+			}
+			cursor = destinationClose + 1;
+			continue;
+		}
+
+		if (/^\d/u.test(interior)) {
+			if (/^\d+$/u.test(interior)) {
+				// A marker at the event boundary needs one lookahead so `[1](`
+				// cannot expose an unauthorized citation before its destination.
+				if (!final && !nested && next === undefined) {
+					state.pending = { kind: 'bracket', start: constructStart, open: cursor };
+					return output;
+				}
+				if (known.has(Number(interior))) output += `[${Number(interior)}]`;
+			} else if (isNumericArrayInterior(interior)) {
+				const array = `${image ? '!' : ''}${value.slice(cursor, close + 1)}`;
+				if (!final && !nested && next === undefined) {
+					state.pending = { kind: 'bracket', start: constructStart, open: cursor };
+					return output;
+				}
+				output += array;
+			}
+			cursor = close + 1;
+			continue;
+		}
+
+		const sanitizedInterior = renderMarkdown(interior, known, final, true, depth + 1);
+		const bracketed = sanitizedInterior || !interior.trim() ? `[${sanitizedInterior}]` : '';
+		if (!final && !nested && next === undefined) {
+			state.pending = { kind: 'bracket', start: constructStart, open: cursor };
+			return output;
+		}
+		output += `${image ? '!' : ''}${bracketed}`;
+		cursor = close + 1;
+	}
+	return output;
+}
+
+class IncrementalMarkdownTokenizer {
+	private citations: CitationRecord[];
+	private source = '';
+	private emittedText = '';
+	private canonicalText = '';
+	private hasEmitted = false;
+	private finished = false;
+	private rejected?: RejectedMarkdownConstruct;
+	private pendingCharacters = 0;
+
+	constructor(citations: ReadonlyArray<CitationRecord> = []) {
+		this.citations = [...citations];
+	}
+
+	setCitations(citations: ReadonlyArray<CitationRecord>): string {
+		this.citations = [...citations];
+		return this.reconcile(false);
+	}
+
+	replace(value: string): string {
+		this.source = '';
+		this.emittedText = '';
+		this.canonicalText = '';
+		this.hasEmitted = false;
+		this.finished = false;
+		this.rejected = undefined;
+		this.pendingCharacters = 0;
+		return this.push(value);
+	}
+
+	push(value: string): string {
+		if (this.finished || !value) return '';
+		let output = '';
+		for (let offset = 0; offset < value.length; offset += TOKENIZER_FEED_CHUNK_LENGTH) {
+			const chunk = value.slice(offset, offset + TOKENIZER_FEED_CHUNK_LENGTH);
+			if (this.rejected) output += this.consumeRejectedChunk(chunk);
+			else {
+				this.source += chunk;
+				output += this.reconcile(false);
+			}
+		}
+		return output;
+	}
+
+	flush(): string {
+		if (this.finished) return '';
+		const known = new Set(this.citations.map((citation) => citation.citationNumber));
+		if (this.rejected) {
+			this.appendRejectedReplacement(known, this.rejected.squareClosed || this.rejected.kind === 'destination');
+		}
+		this.finished = true;
+		return this.reconcile(true);
+	}
+
+	abort(): string {
+		return this.flush();
+	}
+
+	get emitted(): string {
+		return this.emittedText;
+	}
+
+	/** Bytes retained for an unresolved/rejected construct, excluding safe answer text. */
+	get bufferedCharacters(): number {
+		return this.rejected ? 0 : this.pendingCharacters;
+	}
+
+	private reconcile(final: boolean): string {
+		if (this.rejected) {
+			this.canonicalText = this.emittedText;
+			return '';
+		}
+		const known = new Set(this.citations.map((citation) => citation.citationNumber));
+		const state: MarkdownRenderState = {};
+		const rendered = final
+			? canonicalizeCitationText(renderMarkdown(this.source, known, true))
+			: renderMarkdown(this.source, known, false, false, 0, state);
+		this.canonicalText = rendered;
+		if (!final && state.pending) {
+			this.pendingCharacters = this.source.length - state.pending.start;
+			if (this.pendingCharacters > MAX_PENDING_MARKDOWN_LENGTH) {
+				// Bound only the unresolved construct. Confirmed text before it has
+				// already been emitted; the rejected state consumes later bytes
+				// without retaining them until its balanced close.
+				this.activateRejected(state.pending, known);
+			}
+		} else {
+			this.pendingCharacters = 0;
+		}
+		if (!rendered.startsWith(this.emittedText)) return '';
+		let delta = rendered.slice(this.emittedText.length);
+		if (!this.hasEmitted) delta = delta.replace(/^\s+/u, '');
+		if (delta) {
+			this.hasEmitted = true;
+			this.emittedText += delta;
+		}
+		return delta;
+	}
+
+	get canonical(): string {
+		return this.canonicalText;
+	}
+
+	private activateRejected(pending: PendingMarkdownConstruct, known: ReadonlySet<number>): void {
+		const source = this.source;
+		if (pending.kind === 'destination') {
+			const squareClose = pending.open - 1;
+			const interiorStart = source[pending.start] === '!' ? pending.start + 2 : pending.start + 1;
+			const interior = source.slice(interiorStart, squareClose);
+			const label = boundedDegradedMarkdownLabel(interior, known, 0);
+			const scan = scanDestinationFragment(source, pending.open);
+			this.rejected = {
+				kind: 'destination',
+				replacement: label.replacement,
+				...(label.citationNumber !== undefined ? { citationNumber: label.citationNumber } : {}),
+				...scan,
+				squareClosed: true
+			};
+		} else {
+			const scan = this.scanRejectedBracket(source, pending.open);
+			this.rejected = {
+				kind: 'bracket',
+				replacement: scan.replacement,
+				...(scan.citationNumber !== undefined ? { citationNumber: scan.citationNumber } : {}),
+				depth: scan.depth,
+				escaped: scan.escaped,
+				invalid: scan.invalid,
+				squareClosed: scan.squareClosed
+			};
+		}
+		this.source = source.slice(0, pending.start);
+		this.pendingCharacters = 0;
+	}
+
+	private scanRejectedBracket(
+		value: string,
+		open: number
+	): Pick<RejectedMarkdownConstruct, 'depth' | 'escaped' | 'invalid' | 'squareClosed' | 'replacement' | 'citationNumber'> {
+		let depth = 0;
+		let escaped = false;
+		let invalid = false;
+		let squareClosed = false;
+		let close = -1;
+		for (let index = open; index < value.length; index += 1) {
+			const character = value[index];
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (character === '\\') {
+				escaped = true;
+				continue;
+			}
+			if (/^[\u0000-\u001f\u007f\u2028\u2029]$/u.test(character)) invalid = true;
+			if (character === '[') depth += 1;
+			else if (character === ']') {
+				depth = Math.max(0, depth - 1);
+				if (depth === 0) {
+					squareClosed = true;
+					close = index;
+					break;
+				}
+			}
+		}
+		const interiorStart = open + 1;
+		const interior = close >= 0 ? value.slice(interiorStart, close) : '';
+		const label = close >= 0 ? boundedDegradedMarkdownLabel(interior, this.knownCitations(), 0) : { replacement: '' };
+		return {
+			depth,
+			escaped,
+			invalid,
+			squareClosed,
+			replacement: label.replacement,
+			...(label.citationNumber !== undefined ? { citationNumber: label.citationNumber } : {})
+		};
+	}
+
+	private consumeRejectedChunk(value: string): string {
+		let offset = 0;
+		while (this.rejected && offset < value.length) {
+			const rejected = this.rejected;
+			if (rejected.kind === 'destination') {
+				while (offset < value.length) {
+					const character = value[offset++];
+					if (rejected.escaped) {
+						rejected.escaped = false;
+						continue;
+					}
+					if (character === '\\') {
+						rejected.escaped = true;
+						continue;
+					}
+					if (/^[\u0000-\u001f\u007f\u2028\u2029]$/u.test(character)) rejected.invalid = true;
+					if (character === '(') rejected.depth += 1;
+					else if (character === ')') {
+						rejected.depth -= 1;
+						if (rejected.depth === 0) {
+							this.rejected = undefined;
+							this.source += this.replacementForRejected(rejected);
+							break;
+						}
+					}
+				}
+				if (this.rejected) return '';
+				break;
+			}
+
+			while (offset < value.length && this.rejected) {
+				const character = value[offset++];
+				if (rejected.squareClosed) {
+					if (character === '(') {
+						this.rejected = {
+							...rejected,
+							kind: 'destination',
+							depth: 1,
+							escaped: false,
+							squareClosed: true
+						};
+						break;
+					}
+					this.source += this.replacementForRejected(rejected);
+					this.rejected = undefined;
+					offset -= 1;
+					break;
+				}
+				if (rejected.escaped) {
+					rejected.escaped = false;
+					continue;
+				}
+				if (character === '\\') {
+					rejected.escaped = true;
+					continue;
+				}
+				if (/^[\u0000-\u001f\u007f\u2028\u2029]$/u.test(character)) rejected.invalid = true;
+				if (character === '[') rejected.depth += 1;
+				else if (character === ']') {
+					rejected.depth = Math.max(0, rejected.depth - 1);
+					if (rejected.depth === 0) rejected.squareClosed = true;
+				}
+			}
+		}
+		if (offset < value.length) this.source += value.slice(offset);
+		return this.reconcile(false);
+	}
+
+	private appendRejectedReplacement(known: ReadonlySet<number>, emit: boolean): void {
+		const rejected = this.rejected;
+		if (!rejected) return;
+		if (emit) this.source += this.replacementForRejected(rejected, known);
+		this.rejected = undefined;
+		this.pendingCharacters = 0;
+	}
+
+	private replacementForRejected(
+		rejected: RejectedMarkdownConstruct,
+		known = this.knownCitations()
+	): string {
+		if (rejected.citationNumber !== undefined) {
+			return known.has(rejected.citationNumber) ? `[${rejected.citationNumber}]` : '';
+		}
+		return rejected.replacement;
+	}
+
+	private knownCitations(): ReadonlySet<number> {
+		return new Set(this.citations.map((citation) => citation.citationNumber));
+	}
+}
+
+/** Streaming façade over the shared incremental tokenizer. */
+export class StreamingCitationSanitizer extends IncrementalMarkdownTokenizer {}
+
+/**
+ * Remove provider-authored citation syntax unless the stream has already
+ * supplied the exact inspectable record for that number. This is a transport
+ * safety net; structured research answers should arrive with canonical
+ * citation records before their authoritative replacement is emitted.
+ */
+export function sanitizeUnresolvedCitationMarkers(
+	value: string,
+	citations: ReadonlyArray<CitationRecord>
+): string {
+	const tokenizer = new IncrementalMarkdownTokenizer(citations);
+	tokenizer.push(value);
+	tokenizer.flush();
+	return tokenizer.canonical.trim();
+}
+
+/** Rewrites only text-bearing SSE fields after the same stateful marker check. */
+export function sanitizeCitationEventData(
+	event: string,
+	data: string,
+	citations: ReadonlyArray<CitationRecord>,
+	stream?: StreamingCitationSanitizer
+): string {
+	const payload = parseJsonObject(data);
+	if (!payload) {
+		if (event === 'agent.answer.replace' || event === 'agent.answer_replace') {
+			return stream ? stream.replace(data) : sanitizeUnresolvedCitationMarkers(data, citations);
+		}
+		if (event === 'message' || event === 'response.output_text.delta') {
+			return stream ? stream.push(data) : sanitizeUnresolvedCitationMarkers(data, citations);
+		}
+		return data;
+	}
+	const sanitize = (value: unknown, replacement = false): unknown => {
+		if (typeof value !== 'string') return value;
+		if (stream) return replacement ? stream.replace(value) : stream.push(value);
+		return sanitizeUnresolvedCitationMarkers(value, citations);
+	};
+
+	if (event === 'agent.answer.replace' || event === 'agent.answer_replace') {
+		if (typeof payload.content !== 'string') return data;
+		return JSON.stringify({ ...payload, content: sanitize(payload.content, true) });
+	}
+	if (event === 'message') {
+		const choices = arrayValue(payload.choices).map((rawChoice) => {
+			const choice = objectValue(rawChoice);
+			if (!choice) return rawChoice;
+			const delta = objectValue(choice.delta);
+			const message = objectValue(choice.message);
+			return {
+				...choice,
+				...(delta && typeof delta.content === 'string'
+					? { delta: { ...delta, content: sanitize(delta.content) } }
+					: {}),
+				...(message && typeof message.content === 'string'
+					? { message: { ...message, content: sanitize(message.content) } }
+					: {})
+			};
+		});
+		return JSON.stringify({ ...payload, choices });
+	}
+	if (event === 'response.output_text.delta' && typeof payload.delta === 'string') {
+		return JSON.stringify({ ...payload, delta: sanitize(payload.delta) });
+	}
+	if (event === 'response.output_item.added' || event === 'response.output_item.done' || event === 'response.completed') {
+		const rewriteOutputItem = (rawItem: unknown): unknown => {
+			const item = objectValue(rawItem);
+			if (!item) return rawItem;
+			const content = arrayValue(item.content).map((rawPart) => {
+				const part = objectValue(rawPart);
+				if (!part || typeof part.text !== 'string') return rawPart;
+				return { ...part, text: sanitize(part.text) };
+			});
+			return {
+				...item,
+				...(content.length ? { content } : {}),
+				...(typeof item.text === 'string' ? { text: sanitize(item.text) } : {})
+			};
+		};
+		const response = objectValue(payload.response);
+		if (response && Array.isArray(response.output)) {
+			return JSON.stringify({ ...payload, response: { ...response, output: response.output.map(rewriteOutputItem) } });
+		}
+		if (Array.isArray(payload.output)) return JSON.stringify({ ...payload, output: payload.output.map(rewriteOutputItem) });
+		if (payload.item) return JSON.stringify({ ...payload, item: rewriteOutputItem(payload.item) });
+	}
+	return data;
 }
 
 function citationFromValue(value: unknown): CitationRecord | null {
@@ -340,6 +995,13 @@ export class StreamEventState {
 			return title ? [{ title }] : [];
 		}
 		if (!payload) return [];
+
+		if (event === 'agent.answer.replace' || event === 'agent.answer_replace') {
+			const content = rawString(payload.content);
+			if (content === null) return [];
+			this.textDeltaSeen = true;
+			return [{ replace: content }];
+		}
 
 		if (event === 'message') {
 			const delta = chatDelta(payload);

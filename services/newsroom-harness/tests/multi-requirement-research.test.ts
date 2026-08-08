@@ -181,11 +181,15 @@ describe('general multi-requirement research architecture', () => {
 		const clusterWithCorroboration = result.story_clusters.find((cluster) => cluster.corroborating_evidence_ids.length > 0);
 		expect(clusterWithCorroboration).toBeDefined();
 		expect(clusterWithCorroboration?.evidence_ids.length).toBeGreaterThan(1);
-		expect(result.evidence.map((item) => item.citation_number)).toEqual(
-			Array.from({ length: result.evidence.length }, (_, index) => index + 1)
-		);
-		const markers = [...result.final_answer.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]));
-		expect(markers.every((number) => result.evidence.some((item) => item.citation_number === number))).toBe(true);
+			const evidenceNumbers = result.evidence.map((item) => item.citation_number);
+			expect(new Set(evidenceNumbers).size).toBe(result.evidence.length);
+			expect([...evidenceNumbers].sort((left, right) => (left || 0) - (right || 0))).toEqual(
+				Array.from({ length: result.evidence.length }, (_, index) => index + 1)
+			);
+			const markers = [...result.final_answer.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]));
+			expect(markers.every((number) => result.evidence.some((item) => item.citation_number === number))).toBe(true);
+			const firstAppearance = markers.filter((number, index) => markers.indexOf(number) === index);
+			expect(firstAppearance).toEqual([...firstAppearance].sort((left, right) => left - right));
 		expect(requirements.every((requirement) =>
 			result.evidence.filter((item) => item.requirement_ids?.includes(requirement.id)).every((item) =>
 				!requirement.geography || item.location === requirement.geography

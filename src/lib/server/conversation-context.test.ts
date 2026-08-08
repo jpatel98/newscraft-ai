@@ -212,6 +212,147 @@ describe('conversation context builder', () => {
 		expect(context.currentTurn?.freshness).toBeUndefined();
 	});
 
+	it('routes cut-off-answer diagnostics to the preceding source-backed answer', () => {
+		const currentRequest = 'Why is the text cut off?';
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Find the latest Toronto community stories.'),
+				message('m2', 'assistant', 'Toronto’s Salsa on St. [1]', [
+					citation(1, {
+						supportingExcerpt:
+							'Toronto’s Salsa on St. Clair is hosting a community dance program this weekend.'
+					})
+				])
+			],
+			currentRequest
+		});
+
+		expect(context.intent).toBe('diagnostic');
+		expect(context.currentTurn?.researchRequired).toBe(false);
+		expect(context.lastSourceBackedAnswer?.messageId).toBe('m2');
+	});
+
+	it.each([
+		'Why did the answer stop before the citation?',
+		'Why is the response truncated before the citation?',
+		'Why did your last answer stop before the citation?',
+		'Why is the source snippet incomplete?',
+		'Why is the citation line clipped?'
+	])('recognizes answer-integrity diagnostics: %s', (currentRequest) => {
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Find the latest Toronto community stories.'),
+				message('m2', 'assistant', 'Toronto’s Salsa on St. [1]', [citation(1, {
+					supportingExcerpt:
+						'Toronto’s Salsa on St. Clair is hosting a community dance program this weekend.'
+				})])
+			],
+			currentRequest
+		});
+
+		expect(context.intent).toBe('diagnostic');
+		expect(context.currentTurn?.researchRequired).toBe(false);
+		expect(context.lastSourceBackedAnswer?.messageId).toBe('m2');
+	});
+
+	it('does not classify a missing source-document question as an answer diagnostic', () => {
+		const context = buildConversationContext({
+			messages: [message('m1', 'user', 'Find the latest Toronto community stories.')],
+			currentRequest: 'What happened to missing source documents?'
+		});
+
+		expect(context.intent).not.toBe('diagnostic');
+		expect(context.currentTurn?.researchRequired).toBe(true);
+		expect(context.lastSourceBackedAnswer).toBeUndefined();
+	});
+
+	it('does not classify a missing citation in a report as an answer diagnostic without an answer reference', () => {
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Find the latest Toronto community stories.'),
+				message('m2', 'assistant', 'Toronto’s Salsa on St. Clair is hosting a community dance program [1].', [citation(1)])
+			],
+			currentRequest: 'Why is a missing citation in the report?'
+		});
+
+		expect(context.intent).not.toBe('diagnostic');
+		expect(context.currentTurn?.researchRequired).toBe(true);
+	});
+
+	it('falls back to ordinary handling when no preceding assistant answer exists', () => {
+		const context = buildConversationContext({
+			messages: [message('m1', 'user', 'Find the latest Toronto community stories.')],
+			currentRequest: 'Why is the text cut off?'
+		});
+
+		expect(context.intent).toBe('research');
+		expect(context.currentTurn?.researchRequired).toBe(true);
+		expect(context.lastSourceBackedAnswer).toBeUndefined();
+	});
+
+	it('does not bind a diagnostic when the current message id is stale or missing', () => {
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Find the latest Toronto community stories.'),
+				message('m2', 'assistant', 'Toronto’s Salsa on St. [1]', [citation(1)])
+			],
+			currentRequest: 'Why is the text cut off?',
+			currentMessageId: 'missing-current-message'
+		});
+
+		expect(context.intent).toBe('research');
+		expect(context.currentTurn?.researchRequired).toBe(true);
+		expect(context.lastSourceBackedAnswer).toBeUndefined();
+	});
+
+	it('does not walk backward past an intervening assistant response for diagnostics', () => {
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Find the latest Toronto community stories.'),
+				message('m2', 'assistant', 'Toronto’s Salsa on St. [1]', [citation(1)]),
+				message('m3', 'user', 'Thanks.'),
+				message('m4', 'assistant', 'You are welcome.')
+			],
+			currentRequest: 'Why is the text cut off?'
+		});
+
+		expect(context.intent).toBe('research');
+		expect(context.currentTurn?.researchRequired).toBe(true);
+		expect(context.lastSourceBackedAnswer).toBeUndefined();
+	});
+
+	it('does not walk backward past an intervening user turn for diagnostics', () => {
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Find the latest Toronto community stories.'),
+				message('m2', 'assistant', 'Toronto’s Salsa on St. [1]', [citation(1)]),
+				message('m3', 'user', 'I have another question first.')
+			],
+			currentRequest: 'Why did the answer stop before the citation?'
+		});
+
+		expect(context.intent).toBe('research');
+		expect(context.currentTurn?.researchRequired).toBe(true);
+		expect(context.lastSourceBackedAnswer).toBeUndefined();
+	});
+
+	it('ignores an explicit stale source id when a diagnostic has no immediate answer', () => {
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Find the latest Toronto community stories.'),
+				message('m2', 'assistant', 'Toronto’s Salsa on St. [1]', [citation(1)]),
+				message('m3', 'user', 'I have another question first.')
+			],
+			currentRequest: 'Why did the answer stop before the citation?',
+			sourceMessageId: 'm2'
+		});
+
+		expect(context.intent).toBe('research');
+		expect(context.currentTurn?.researchRequired).toBe(true);
+		expect(context.lastSourceBackedAnswer).toBeUndefined();
+		expect(context.sourceMessageId).toBeUndefined();
+	});
+
 	it('does not confuse editorial update wording with a request for live updates', () => {
 		const context = buildConversationContext({
 			messages: [],

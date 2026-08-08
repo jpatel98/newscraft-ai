@@ -1,6 +1,7 @@
 import type { ToolBudgetSnapshot } from './budget.js';
 import {
 	researchRequirementsForContract,
+	type CitationRecord,
 	type ConversationContext,
 	type ResearchRequestContract
 } from '@newscraft/shared';
@@ -13,6 +14,21 @@ import {
 import type { EvidenceStoryCluster } from './evidence.js';
 import type { RequirementCoverage } from './contract-satisfaction.js';
 import type { RouteDecision } from './router.js';
+import {
+	completeGroundedEvidenceStatement,
+	groundedAnswerFromClaims,
+	groundedClaimFromEvidence,
+	citationNumbersInGroundedAnswer,
+	hasMalformedCitationSyntax,
+	normalizeGroundedEvidence,
+	renderGroundedAnswer,
+	validateGroundedClaim,
+	evidenceIdentity,
+	type GroundedAnswerBlock,
+	type GroundedClaim,
+	type GroundedEvidenceLedger,
+	type GroundedPresentation
+} from './grounded-answer.js';
 
 export interface AnswerGenerationInput {
 	prompt: string;
@@ -30,37 +46,65 @@ export interface AnswerGenerationInput {
 	storyClusters?: EvidenceStoryCluster[];
 }
 
+/**
+ * Conservative safety net for legacy/provider output. It never repairs
+ * free-form prose. Invalid or malformed output is replaced by a deterministic
+ * claim ledger render.
+ */
 export function enforceFinalCitationIntegrity(answer: string, evidence: EvidenceObject[]): string {
-	const byNumber = new Map<number, EvidenceObject[]>();
-	for (const item of evidence) {
-		if (!item.citation_number) continue;
-		byNumber.set(item.citation_number, [...(byNumber.get(item.citation_number) || []), item]);
+	const ledger = normalizeGroundedEvidence(evidence);
+	// A free-form answer cannot prove that each visible claim is supported by
+	// the exact retained evidence set. Structured callers render directly from
+	// GroundedAnswer; this legacy boundary therefore rejects every citation-like
+	// answer instead of accepting a provider's placement by marker number.
+	if (!answer.trim() || citationNumbersInGroundedAnswer(answer).length || hasMalformedCitationSyntax(answer)) {
+		return renderEvidenceFallback(ledger);
 	}
-	const valid = new Set(
-		[...byNumber.entries()].filter(([, items]) => items.length === 1).map(([number]) => number)
-	);
-	const guarded = answer
-		.split('\n')
-		.filter((line) => {
-			const markers = Array.from(line.matchAll(/\[(\d+)\]/g), (match) => Number(match[1]));
-			return !markers.length || markers.every((number) => valid.has(number));
-		})
-		.join('\n')
-		.replace(/\n{3,}/g, '\n\n')
-		.trim();
-	const visible = Array.from(new Set(Array.from(guarded.matchAll(/\[(\d+)\]/g), (match) => Number(match[1]))));
-	if (!visible.length) return guarded;
-	const cited = visible.map((number) => byNumber.get(number)?.[0]).filter((item): item is EvidenceObject => Boolean(item));
-	const uncited = evidence.filter((item) => !cited.includes(item));
-	const ordered = [...cited, ...uncited];
-	const remap = new Map<number, number>();
-	for (const [index, item] of ordered.entries()) {
-		if (item.citation_number && !remap.has(item.citation_number)) remap.set(item.citation_number, index + 1);
-		item.citation_number = index + 1;
-	}
-	evidence.splice(0, evidence.length, ...ordered);
-	return guarded.replace(/\[(\d+)\]/g, (_marker, raw: string) => `[${remap.get(Number(raw))}]`);
+	return answer.trim();
 }
+
+/** Diagnostic-only compatibility check for already persisted legacy answers. */
+export function incompleteCitationNumbers(answer: string, citations: CitationRecord[]): number[] {
+	const visible = answer.replace(/\[(\d+)\](?!\()/g, '').trim();
+	if (!visible) return [];
+	const normalizedVisible = diagnosticComparable(visible);
+	return citations
+		.filter((citation) => citation.supportingExcerpt)
+		.filter((citation) => {
+			const excerpt = diagnosticComparable(citation.supportingExcerpt);
+			return Boolean(excerpt && normalizedVisible && excerpt.startsWith(`${normalizedVisible} `));
+		})
+		.map((citation) => citation.citationNumber)
+		.sort((left, right) => left - right);
+}
+
+function renderEvidenceFallback(ledger: GroundedEvidenceLedger): string {
+	const claims = ledger.evidence
+		.slice(0, 6)
+		.flatMap((item) => {
+			const claim = groundedClaimFromEvidence(item, ledger, {
+				presentation: { kind: ledger.evidence.length === 1 ? 'paragraph' : 'bullet' }
+			});
+			return claim ? [claim] : [];
+		});
+	return renderGroundedAnswer(groundedAnswerFromClaims(claims), ledger);
+}
+
+function diagnosticComparable(value: string): string {
+	return value
+		.replace(/\[(\d+)\](?!\()/g, '')
+		.replace(/^\s*(?:#{1,6}\s+|[-*•]\s+|\d+[.)]\s+)/u, '')
+		.replace(/\*\*([^*\n]+)\*\*/g, '$1')
+		.replace(/\u0060([^\u0060\n]+)\u0060/g, '$1')
+		.replace(/\s+/gu, ' ')
+		.trim()
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, ' ')
+		.replace(/\s+/gu, ' ')
+		.trim();
+}
+
+export const completeEvidenceStatement = completeGroundedEvidenceStatement;
 
 export function generateFinalAnswer(input: AnswerGenerationInput): string {
 	const answerEvidence =
@@ -90,8 +134,18 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 		});
 	}
 	if (!evidence.length && input.toolAnswers?.length) {
-		const answer = input.toolAnswers
-			.filter((item) => item.trim())
+		const safeToolAnswers = input.toolAnswers.filter(
+			(item) =>
+				item.trim() &&
+				citationNumbersInGroundedAnswer(item).length === 0 &&
+				!hasMalformedCitationSyntax(item)
+		);
+		if (!safeToolAnswers.length) {
+			return input.outputStyle === 'chat'
+				? chatNoLead(unusableEvidence, input.limitations)
+				: noPublishableLeadReport(unusableEvidence, input.limitations);
+		}
+		const answer = safeToolAnswers
 			.join('\n\n')
 			.replace(/\s*\[\d+\]/g, '');
 		const caveats = publicCaveatsFor(input.prompt, evidence, unusableEvidence, input.limitations, {
@@ -115,34 +169,30 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 			evidence,
 			unusableEvidence,
 			input.limitations,
-			input.toolAnswers || [],
-			input.conversationContext,
-			input.researchStepCount,
 			input.timeZone
 		);
 	}
 
 	const briefItems = evidence.map((item) => briefItemFor(item));
 	const lead = leadParagraph(input.prompt, evidence, briefItems);
-	const sourceNotes = [
-		...evidence.map((item) => {
-			const note = sourceNoteFor(item);
-			return `- ${formatSourceLink(item)} - ${kindLabel(item)}; ${publicationDateLabel(item)}.${note ? ` ${note}` : ''}`;
-		}),
-		...sourceIssueNotes(unusableEvidence, input.limitations)
-	];
 	const uncertaintyNotes = uncertaintyNotesFor(input.prompt, evidence, unusableEvidence);
 
-	return [
-		'## Summary',
-		lead,
-		'',
-		'## Sources',
-		sourceNotes.join('\n'),
-		'',
-		'## Uncertainty',
-		uncertaintyNotes.join('\n')
-	].join('\n');
+	const ledger = normalizeGroundedEvidence(evidence);
+	const reportBlocks: GroundedAnswerBlock[] = [
+		{ kind: 'section', heading: 'Summary', level: 2 },
+		{ kind: 'text', text: lead },
+		{ kind: 'section', heading: 'Sources', level: 2 },
+		...evidence.map((item) => ({
+			kind: 'source' as const,
+			title: sourceDisplayTitle(item, 90),
+			url: item.source_url,
+			detail: `${kindLabel(item)}; ${publicationDateLabel(item)}.${sourceNoteFor(item) ? ` ${sourceNoteFor(item)}` : ''}`
+		})),
+		...sourceIssueNotes(unusableEvidence, input.limitations).map((text) => ({ kind: 'text' as const, text })),
+		{ kind: 'section', heading: 'Uncertainty', level: 2 },
+		...uncertaintyNotes.map((text) => ({ kind: 'text' as const, text }))
+	];
+	return renderGroundedAnswer(groundedAnswerFromClaims([], reportBlocks), ledger);
 }
 
 interface MultiRequirementAnswerInput extends AnswerGenerationInput {
@@ -154,9 +204,12 @@ interface MultiRequirementAnswerInput extends AnswerGenerationInput {
 /** Render independently requested deliverables as independent newsroom sections. */
 function multiRequirementChatAnswer(input: MultiRequirementAnswerInput): string {
 	const coverage = new Map((input.requirementCoverage || []).map((row) => [row.requirement_id, row]));
+	const ledger = normalizeGroundedEvidence(input.evidence);
 	const evidenceById = new Map(input.evidence.map((item) => [item.evidence_id || item.source_url, item]));
 	const clustersById = new Map(input.storyClusters.map((cluster) => [cluster.id, cluster]));
-	const sections = input.requirements.map((requirement) => {
+	const blocks: GroundedAnswerBlock[] = [];
+	const claims: GroundedClaim[] = [];
+	for (const requirement of input.requirements) {
 		const row = coverage.get(requirement.id);
 		const laneEvidence = input.evidence
 			.filter((item) => evidenceMatchesRequirementForAnswer(item, requirement))
@@ -175,30 +228,50 @@ function multiRequirementChatAnswer(input: MultiRequirementAnswerInput): string 
 		const state = row?.state || (accepted >= requested ? 'satisfied' : accepted ? 'partial' : 'incomplete');
 		const gaps = row?.gaps || (accepted < requested ? [`coverage is ${accepted} of ${requested} requested items`] : []);
 		const status = coverageStatusLabel(state, accepted, requested, gaps);
-		const bullets = selected.map((item) => {
+		blocks.push({ kind: 'section', heading: requirement.label, level: 3 });
+		blocks.push({ kind: 'text', text: `Coverage: ${status}` });
+		for (const item of selected) {
 			const cluster = item.story_cluster_id ? clustersById.get(item.story_cluster_id) : undefined;
-			const corroborators = (cluster?.corroborating_evidence_ids || [])
+			const corroboratingItems = (cluster?.corroborating_evidence_ids || [])
 				.map((id) => evidenceById.get(id))
-				.filter((candidate): candidate is EvidenceObject => Boolean(candidate) && candidate !== item)
-				.map((candidate) => candidate.citation_number)
-				.filter((number): number is number => Number.isInteger(number));
+				.filter((candidate): candidate is EvidenceObject => Boolean(candidate) && candidate !== item);
 			const title = sourceDisplayTitle(item, 150);
 			const what = substantiveStorySummary(item);
+			if (!what) continue;
 			const when = item.event_at || item.updated_at || item.published_at;
 			const sourceTime = when ? producerTimestamp(when, input.timeZone) : 'not found in readable source metadata';
-			const primaryCitation = item.citation_number ? ` [${item.citation_number}]` : '';
-			const corroboration = corroborators.length ? ` Corroborated by ${corroborators.map((number) => `[${number}]`).join(', ')}.` : '';
-			return `- **${title}** — What happened: ${what} Why it matters: ${producerWhyItMatters(item)} Source time: ${sourceTime}.${primaryCitation}${corroboration}`;
-		});
-		if (!bullets.length) {
-			bullets.push('- No readable, requirement-matched story evidence was available for this section.');
+			const evidenceSet = [item, ...corroboratingItems];
+			const evidenceIds = evidenceSet
+				.map((candidate) => evidenceIdentity(candidate, ledger))
+				.filter((id): id is string => Boolean(id));
+			const presentation: GroundedPresentation = {
+				kind: 'bullet',
+				leadingText: `${title} — What happened:`,
+				leadingStrong: true,
+				trailingLabel: 'Why it matters',
+				trailingText: `${producerWhyItMatters(item)} Source time: ${sourceTime}.`
+			};
+			const candidate: GroundedClaim = {
+				claimId: `requirement:${requirement.id}:${evidenceIdentity(item, ledger) || title}`,
+				visibleText: what,
+				evidenceIds,
+				presentation
+			};
+			const claim = validateGroundedClaim(candidate, ledger)
+				? candidate
+				: groundedClaimFromEvidence(item, ledger, { presentation });
+			if (!claim) continue;
+			claims.push(claim);
+			blocks.push({ kind: 'claim', claim });
 		}
-		return [`### ${requirement.label}`, `Coverage: ${status}`, ...bullets].join('\n');
-	});
-	const caveats = input.unusableEvidence.length
-		? ['Some attempted sources were blocked, unavailable, or unreadable and were not used as evidence.']
-		: [];
-	return [...sections, ...caveats].join('\n\n');
+		if (!selected.length) {
+			blocks.push({ kind: 'text', text: 'No readable, requirement-matched story evidence was available for this section.' });
+		}
+	}
+	if (input.unusableEvidence.length) {
+		blocks.push({ kind: 'text', text: 'Some attempted sources were blocked, unavailable, or unreadable and were not used as evidence.' });
+	}
+	return renderGroundedAnswer(groundedAnswerFromClaims(claims, blocks), ledger);
 }
 
 function evidenceMatchesRequirementForAnswer(
@@ -240,19 +313,20 @@ function chatAnswer(
 	evidence: EvidenceObject[],
 	unusableEvidence: EvidenceObject[],
 	limitations: string[],
-	toolAnswers: string[],
-	conversationContext?: ConversationContext,
-	researchStepCount = toolAnswers.length,
 	timeZone?: string
 ): string {
 	const documentEvidence = evidence.filter((item) => item.source_kind === 'user_document');
 	const externalEvidence = evidence.filter((item) => item.source_kind !== 'user_document');
-	const singleToolAnswer = researchStepCount === 1 && toolAnswers.length === 1 ? toolAnswers[0] : '';
-	const answer = singleToolAnswer
-		? formatChatToolAnswer(prompt, singleToolAnswer)
-		: documentEvidence.length && !externalEvidence.length
-			? documentChatAnswer(documentEvidence, prompt)
-			: groundedEvidenceChatAnswer(prompt, externalEvidence.length ? externalEvidence : evidence, timeZone);
+	// Provider/tool prose is not a sourced-answer authority. The visible answer
+	// is always rendered from the normalized evidence ledger when evidence exists.
+	const answer = documentEvidence.length && !externalEvidence.length
+		? documentChatAnswer(documentEvidence, prompt)
+		: groundedEvidenceChatAnswer(
+				prompt,
+				externalEvidence.length ? externalEvidence : evidence,
+				timeZone,
+				externalEvidence.length ? documentEvidence : []
+			);
 	const caveats = publicCaveatsFor(prompt, evidence, unusableEvidence, limitations, { noUsableEvidence: false });
 	const publicationDate = publicationDateAnswer(prompt, evidence);
 	return appendCaveats([answer, publicationDate].filter(Boolean).join('\n\n'), caveats);
@@ -267,7 +341,8 @@ function publicationDateAnswer(prompt: string, evidence: EvidenceObject[]): stri
 function groundedEvidenceChatAnswer(
 	prompt: string,
 	evidence: EvidenceObject[],
-	timeZone?: string
+	timeZone?: string,
+	documentEvidence: EvidenceObject[] = []
 ): string {
 	const conflict = /\b(?:verify|fact[- ]?check|confirm|is it true|status|active|in effect)\b/i.test(prompt)
 		? conflictingEvidenceStatement(evidence)
@@ -275,40 +350,65 @@ function groundedEvidenceChatAnswer(
 	if (conflict) return conflict;
 
 	const producerBriefing = isProducerRoundupPrompt(prompt);
-	const statements = producerRoundupSelection(prompt, evidence)
-		.map((item) => {
-			const statement = completeEvidenceStatement(item);
-			if (!statement) return '';
-			const marker = item.citation_number ? ` [${item.citation_number}]` : '';
-			const directUrl = wantsDirectUrls(prompt) ? ` — ${item.source_url}` : '';
-			const date = item.event_at || item.published_at;
-			const dateLabel = date ? producerTimestamp(date, timeZone) : '';
-			const fallback = item.temporal_scope === 'fallback' ? 'Earlier (last 24 hours) - ' : '';
-			if (producerBriefing) {
-				const headline = item.title && !statement.toLowerCase().includes(item.title.toLowerCase())
-					? `**${item.title}** — `
-					: '';
-				return `${fallback}${dateLabel ? `${dateLabel}: ` : ''}${headline}${statement} **Why it matters:** ${producerWhyItMatters(item)}${marker}${directUrl}`;
-			}
-			return `${fallback}${dateLabel ? `${dateLabel}: ` : ''}${statement}${marker}${directUrl}`;
-		})
-		.filter(Boolean)
-		.slice(0, 6);
-	if (!statements.length) {
+	const allEvidence = [...evidence, ...documentEvidence];
+	const ledger = normalizeGroundedEvidence(allEvidence);
+	const currentRequest = /\b(?:latest|current|today|recent|breaking|new)\b/i.test(prompt);
+	const hasDatedEvidence = evidence.some((item) => item.event_at || item.updated_at || item.published_at);
+	const publishableEvidence = currentRequest && hasDatedEvidence
+		? evidence.filter((item) => item.event_at || item.updated_at || item.published_at || item.temporal_scope === 'primary')
+		: evidence;
+	const selected = producerRoundupSelection(prompt, publishableEvidence).slice(0, 6);
+	const claims = selected.flatMap((item) => {
+		const statement = completeEvidenceStatement(item);
+		if (!statement) return [];
+		const date = item.event_at || item.published_at;
+		const dateLabel = date ? producerTimestamp(date, timeZone) : '';
+		const fallback = item.temporal_scope === 'fallback' ? 'Earlier (last 24 hours)' : '';
+		const leadingText = [fallback, dateLabel].filter(Boolean).join(' — ');
+		const hasTitle = item.title && !statement.toLowerCase().includes(item.title.toLowerCase());
+		const prefix = producerBriefing
+			? [leadingText, hasTitle ? item.title : ''].filter(Boolean).join(': ')
+			: '';
+		const presentation: GroundedPresentation = {
+			kind: producerBriefing || selected.length > 1 ? 'bullet' : 'paragraph',
+			...(prefix ? { leadingText: prefix, leadingStrong: Boolean(hasTitle) } : {}),
+			...(producerBriefing
+				? { trailingLabel: 'Why it matters', trailingText: producerWhyItMatters(item) }
+				: {}),
+			...(wantsDirectUrls(prompt) ? { trailingText: item.source_url } : {})
+		};
+		const claim = groundedClaimFromEvidence(item, ledger, { presentation });
+		return claim ? [claim] : [];
+	});
+	const documentClaims = documentEvidence.flatMap((item) => {
+		const claim = groundedClaimFromEvidence(item, ledger, { presentation: { kind: 'bullet' } });
+		return claim ? [claim] : [];
+	});
+	if (!claims.length && !documentClaims.length) {
 		return "I couldn't verify a complete claim from the remaining topic- and date-matched source text.";
 	}
-	if (producerBriefing) {
-		return [
-			'**Latest producer roundup**',
-			'',
-			...statements.map((statement) => `- ${statement}`),
-			...(statements.length < 5
-				? ['', `Coverage is incomplete; I found ${statements.length} distinct same-day item${statements.length === 1 ? '' : 's'} that met the source and freshness requirements.`]
-				: [])
-		].join('\n');
+	const allClaims = [...claims, ...documentClaims];
+	const blocks: GroundedAnswerBlock[] = [];
+	if (producerBriefing && claims.length) {
+		blocks.push({ kind: 'section', heading: 'Latest producer roundup', level: 2 });
+		blocks.push(...claims.map((claim) => ({ kind: 'claim' as const, claim })));
+		if (claims.length < 5) {
+			blocks.push({
+				kind: 'text',
+				text: `Coverage is incomplete; I found ${claims.length} distinct same-day item${claims.length === 1 ? '' : 's'} that met the source and freshness requirements.`
+			});
+		}
+	} else if (!producerBriefing && claims.length > 1) {
+		blocks.push({ kind: 'section', heading: 'Latest producer roundup', level: 2 });
+		blocks.push(...claims.map((claim) => ({ kind: 'claim' as const, claim })));
+	} else if (claims.length === 1) {
+		blocks.push({ kind: 'claim', claim: claims[0] });
 	}
-	if (statements.length === 1) return statements[0];
-	return ['**Latest producer roundup**', '', ...statements.map((statement) => `- ${statement}`)].join('\n');
+	if (documentClaims.length) {
+		blocks.push({ kind: 'section', heading: 'Attached document evidence', level: 2 });
+		blocks.push(...documentClaims.map((claim) => ({ kind: 'claim' as const, claim })));
+	}
+	return renderGroundedAnswer(groundedAnswerFromClaims(allClaims, blocks), ledger);
 }
 
 function producerRoundupSelection(prompt: string, evidence: EvidenceObject[]): EvidenceObject[] {
@@ -375,6 +475,13 @@ function evidencePublisherKey(item: EvidenceObject): string {
 }
 
 function sameProducerStory(left: EvidenceObject, right: EvidenceObject): boolean {
+	if (
+		left === right ||
+		(left.canonical_url && right.canonical_url && left.canonical_url === right.canonical_url) ||
+		(left.source_url && right.source_url && left.source_url === right.source_url)
+	) {
+		return true;
+	}
 	const leftTerms = producerStoryTerms(left.title);
 	const rightTerms = producerStoryTerms(right.title);
 	if (!leftTerms.size || !rightTerms.size) return false;
@@ -466,73 +573,43 @@ function conflictingEvidenceStatement(evidence: EvidenceObject[]): string {
 			)
 	);
 	if (!negative || !affirmative) return '';
-	const negativeClaim = completeEvidenceStatement(negative);
-	const affirmativeClaim = completeEvidenceStatement(affirmative);
+	const ledger = normalizeGroundedEvidence(evidence);
+	const affirmativeClaim = groundedClaimFromEvidence(affirmative, ledger, {
+		presentation: { kind: 'bullet' }
+	});
+	const negativeClaim = groundedClaimFromEvidence(negative, ledger, {
+		presentation: { kind: 'bullet' }
+	});
 	if (!negativeClaim || !affirmativeClaim) return '';
-	const negativeMarker = negative.citation_number ? ` [${negative.citation_number}]` : '';
-	const affirmativeMarker = affirmative.citation_number ? ` [${affirmative.citation_number}]` : '';
-	return [
-		'**The available sources conflict, so this remains uncertain.**',
-		'',
-		`- ${affirmativeClaim}${affirmativeMarker}`,
-		`- ${negativeClaim}${negativeMarker}`
-	].join('\n');
-}
-
-function completeEvidenceStatement(item: EvidenceObject): string {
-	const candidate = compactText(item.summary || item.extracted_text || '', 720)
-		.replace(/^\([a-z0-9.-]+\)\s*/i, '')
-		.replace(/^\d+[.)]\s*/, '')
-		.trim();
-	if (!candidate) return evidenceHeadlineStatement(item);
-	const sentences = candidate.split(/(?<=[.!?])\s+/);
-	const complete = sentences.find(
-		(sentence) =>
-			sentence.length >= 20 &&
-			/[.!?](?:["')\]]+)?$/.test(sentence) &&
-			!looksLikeHeadlineBlob(sentence)
+	return renderGroundedAnswer(
+		groundedAnswerFromClaims([affirmativeClaim, negativeClaim], [
+			{ kind: 'text', text: '**The available sources conflict, so this remains uncertain.**' },
+			{ kind: 'claim', claim: affirmativeClaim },
+			{ kind: 'claim', claim: negativeClaim }
+		]),
+		ledger
 	);
-	if (complete) return complete.replace(/\s*\[\d+\]\s*$/, '').trim();
-	if (/(?:\.\.\.|…)(?:\s*\[\d+\])?$/.test(candidate)) return evidenceHeadlineStatement(item);
-	if (candidate.length < 20 || looksLikeHeadlineBlob(candidate)) return evidenceHeadlineStatement(item);
-	return ensureTerminalPunctuation(candidate.replace(/\s*\[\d+\]\s*$/, '').trim());
-}
-
-function evidenceHeadlineStatement(item: EvidenceObject): string {
-	const title = item.title.trim();
-	return title.length >= 20 ? ensureTerminalPunctuation(title) : '';
 }
 
 function withImplicitCitationNumbers(evidence: EvidenceObject[]): EvidenceObject[] {
-	const used = new Set<number>();
-	let next = 1;
-	return evidence.map((item) => {
-		const existing = item.citation_number;
-		if (existing != null && Number.isInteger(existing) && existing > 0 && !used.has(existing)) {
-			used.add(existing);
-			return item;
-		}
-		while (used.has(next)) next += 1;
-		const citationNumber = next;
-		used.add(citationNumber);
-		next += 1;
-		// Citation integrity runs against the caller-owned evidence ledger after
-		// answer generation. Keep that ledger synchronized while repairing
-		// missing or duplicate provider-local citation numbers.
-		item.citation_number = citationNumber;
-		return item;
-	});
+	normalizeGroundedEvidence(evidence);
+	return evidence;
 }
 
 function documentChatAnswer(evidence: EvidenceObject[], prompt: string): string {
 	const requestedCount = requestedListCount(prompt);
 	const limit = requestedCount >= 9 ? Math.min(12, requestedCount) : 6;
-	const statements = evidence.slice(0, limit).map((item, index) => {
-		const citationNumber = item.citation_number ?? index + 1;
-		return `${summaryFor(item, 420)} [${citationNumber}]`;
+	const ledger = normalizeGroundedEvidence(evidence);
+	const claims = ledger.evidence.slice(0, limit).flatMap((item) => {
+		const claim = groundedClaimFromEvidence(item, ledger, {
+			presentation: { kind: limit === 1 ? 'paragraph' : 'bullet' }
+		});
+		return claim ? [claim] : [];
 	});
-	if (statements.length === 1) return statements[0];
-	return ['**Document summary**', '', ...statements.map((statement) => `- ${statement}`)].join('\n');
+	const blocks: GroundedAnswerBlock[] = [];
+	if (claims.length > 1) blocks.push({ kind: 'section', heading: 'Document summary', level: 2 });
+	blocks.push(...claims.map((claim) => ({ kind: 'claim' as const, claim })));
+	return renderGroundedAnswer(groundedAnswerFromClaims(claims, blocks), ledger);
 }
 
 function requestedListCount(prompt: string): number {
@@ -778,9 +855,9 @@ function wordCount(value: string): number {
 	return value.match(/\b[\p{L}\p{N}][\p{L}\p{N}'’.-]*\b/gu)?.length ?? 0;
 }
 
-function citationMarkersInText(value: string): number[] {
-	return Array.from(value.matchAll(/\[(\d+)\]/g), (match) => Number(match[1])).filter((number) =>
-		Number.isInteger(number)
+export function citationMarkersInText(value: string): number[] {
+	return Array.from(value.matchAll(/\[(\d+)\](?!\()/g), (match) => Number(match[1])).filter(
+		(number) => Number.isInteger(number) && number > 0
 	);
 }
 
@@ -846,7 +923,7 @@ function collapseScriptWhitespace(value: string): string {
 
 function ensureTerminalPunctuation(value: string): string {
 	if (!value) return value;
-	return /[.!?]\s*(?:\[\d+\])?$/.test(value) ? value : `${value}.`;
+	return /[.!?。！？]\s*(?:\[\d+\])?$/.test(value) ? value : `${value}.`;
 }
 
 function bannerTextForContext(context: ConversationContext, sourceAnswer: string): string {
@@ -866,7 +943,7 @@ function wantsTable(prompt: string): boolean {
 }
 
 function wantsDirectUrls(prompt: string): boolean {
-	return /\b(?:exact|direct|raw)\s+(?:links?|urls?)\b/i.test(prompt) ||
+	return /\b(?:exact|direct|raw)(?:\s+direct)?\s+(?:links?|urls?)\b/i.test(prompt) ||
 		/\bdirect\s+(?:article(?:\s+or\s+official)?|official)\s+(?:links?|urls?)\b/i.test(prompt) ||
 		/\b(?:give|show|list|include)\b[\s\S]{0,40}\b(?:links?|urls?)\b/i.test(prompt);
 }
@@ -1256,7 +1333,7 @@ function repairInlineStoryLines(value: string): string {
 		)
 		.replace(/^- (Today|Yesterday|Latest|This morning|This afternoon|This evening)\s+[—–-]\s+/gim, '$1: ')
 		.replace(/^- Bold:\s*([^—–:\n]{2,100})\s+[—–-]\s+/gim, '$1: ')
-		.replace(/^- ([A-Z][^:\n]{2,80})\s+[—–-]\s+/gm, '$1: ');
+		.replace(/^- ([A-Z][^:\n]{2,80})[ \t]+[—–-][ \t]+/gm, '$1: ');
 }
 
 function polishedChatText(value: string, maxLength: number): string {

@@ -131,14 +131,17 @@ describe('request-scoped temporal grounding and citation integrity', () => {
 
 		expect(result.tool_calls).toHaveLength(3);
 		expect(seenTemporalContracts).toEqual([temporal, temporal, temporal]);
-		expect(result.final_answer).toContain('**Latest producer roundup**');
+		expect(result.final_answer).toContain('## Latest producer roundup');
 		expect(result.final_answer).not.toContain('SEARCH MINI-ANSWER');
 		expect(result.final_answer).not.toContain('July 27 consulate shooting');
 		expect(result.final_answer).not.toContain('Reddit Toronto lead');
 		expect(result.final_answer).toContain('Earlier (last 24 hours)');
 		const markers = Array.from(result.final_answer.matchAll(/\[(\d+)\]/g), (match) => Number(match[1]));
+		// Citation numbers are assigned after editorial selection, so first visible
+		// appearance is always the canonical [1], [2], [3] sequence.
 		expect(markers).toEqual([1, 2, 3]);
-		expect(result.evidence.map((item) => item.citation_number)).toEqual([1, 2, 3]);
+		const evidenceNumbers = result.evidence.map((item) => item.citation_number);
+		expect([...evidenceNumbers].sort((left, right) => (left || 0) - (right || 0))).toEqual([1, 2, 3]);
 		expect(result.evidence.every((item) => Boolean(item.evidence_id))).toBe(true);
 	});
 

@@ -153,6 +153,16 @@ export class JobRunner {
 			});
 			return;
 		}
+		if (event.type === 'answer_replace') {
+			this.repository.appendEvent({
+				runId,
+				jobId,
+				agent: 'answer_integrity',
+				kind: 'answer.replaced',
+				payload: { characters: event.content.length }
+			});
+			return;
+		}
 		const source = event.source;
 		this.repository.storeSource({
 			runId,

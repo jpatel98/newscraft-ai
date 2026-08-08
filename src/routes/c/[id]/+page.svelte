@@ -187,6 +187,14 @@
 						overlay = [...overlay];
 						updateArtifact({ content: asstText });
 					},
+					onReplace: (content) => {
+						noteStreamEstablished();
+						chat.noteAssistantOutput(content);
+						asstText = content;
+						asstMsg.content = asstText;
+						overlay = [...overlay];
+						updateArtifact({ content: asstText });
+					},
 					onToolProgress: (t) => {
 						noteStreamEstablished();
 						chat.pushTool(t);
@@ -440,11 +448,20 @@
 
 	async function handleDiscard(messageId: string) {
 		try {
-			await fetch(`/api/messages/${messageId}/clear-partial`, {
+			const claimResponse = await fetch(`/api/messages/${messageId}/claim-partial`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ conversation_id: data.conversation.id })
 			});
+			if (!claimResponse.ok) throw new Error('partial claim unavailable');
+			const { claim_token: claimToken } = (await claimResponse.json()) as { claim_token?: number };
+			if (!Number.isSafeInteger(claimToken)) throw new Error('partial claim token missing');
+			const discardResponse = await fetch(`/api/messages/${messageId}/clear-partial`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ conversation_id: data.conversation.id, claim_token: claimToken })
+			});
+			if (!discardResponse.ok) throw new Error('partial discard failed');
 		} catch {
 			/* ignore — invalidateAll surfaces any persisted state */
 		}

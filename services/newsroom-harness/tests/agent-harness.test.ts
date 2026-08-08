@@ -393,7 +393,7 @@ describe('disciplined newsroom agent harness', () => {
 		expect(answer).not.toContain('publication date not found');
 		expect(answer).not.toContain('accessed 2026-05-31T22:00:00.000Z');
 		expect(answer).not.toContain('Feed item without source date');
-		expect(answer).toContain('[2]');
+		expect(answer).toContain('[1]');
 	});
 
 	it('adds a resolvable marker to direct-source chat summaries without provider-written citations', () => {
@@ -485,7 +485,7 @@ describe('disciplined newsroom agent harness', () => {
 		});
 
 		expect(answer).toContain('Canada beat Uzbekistan 2-0');
-		expect(answer).toContain('Jonathan Osorio scored');
+		expect(answer).not.toContain('Jonathan Osorio scored');
 		expect(answer).not.toContain('Posted times');
 		expect(answer).not.toContain('Additional confirmations');
 		expect(answer).not.toContain('Sources:');
@@ -706,7 +706,7 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat'
 		});
 
-		expect(answer).toContain('A media report says the Bank of Canada made an interest-rate decision.');
+		expect(answer).toContain('The outlet reported a Bank of Canada decision and quoted economists. [1]');
 		expect(answer).toContain('I could not confirm this from a readable official or primary source');
 	});
 
@@ -788,8 +788,8 @@ describe('disciplined newsroom agent harness', () => {
 			outputStyle: 'chat'
 		});
 
-		expect(answer).toContain('| Date | Price |');
-		expect(answer).toContain('| 2026-05-22 | 137.9 cents/L |');
+		expect(answer).toContain('Toronto pump prices over the past week. [1]');
+		expect(answer).not.toContain('| Date | Price |');
 		expect(answer).not.toContain('## Lead Candidates');
 	});
 
@@ -1290,6 +1290,55 @@ describe('disciplined newsroom agent harness', () => {
 		expect(result.final_answer).toContain("couldn't verify");
 		expect(result.evidence).toEqual([]);
 		expect(result.final_answer).not.toContain('unrelated stale claim');
+	});
+
+	it('re-synthesizes provider output when duplicate local citation numbers are ambiguous', async () => {
+		const registry = new ToolRegistry();
+		registry.register({
+			name: 'openai_web_search',
+			description: 'Duplicate citation provider fixture',
+			when_to_use: 'test only',
+			category: 'web_search_provider',
+			async run() {
+				return {
+					status: 'ok',
+					answer: 'A provider-local claim that neither source identifies [1].',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'Source one',
+							source_url: 'https://example.com/one',
+							accessed_at: '2026-08-08T12:00:00.000Z',
+							tool_used: 'openai_web_search',
+							title: 'First source claim',
+							extracted_text: 'First source claim is confirmed by the first source.',
+							summary: 'First source claim is confirmed by the first source.',
+							confidence: 0.9,
+							citation_number: 1
+						}),
+						normalizeEvidence({
+							source_name: 'Source two',
+							source_url: 'https://example.com/two',
+							accessed_at: '2026-08-08T12:00:00.000Z',
+							tool_used: 'openai_web_search',
+							title: 'Second source claim',
+							extracted_text: 'Second source claim is confirmed by the second source.',
+							summary: 'Second source claim is confirmed by the second source.',
+							confidence: 0.9,
+							citation_number: 1
+						})
+					]
+				};
+			}
+		});
+		const result = await new DisciplinedNewsroomAgent({
+			registry,
+			config: { ...defaultAgentConfig(), enabled_tools: ['openai_web_search'] }
+		}).run('Compare the two source claims.', { outputStyle: 'chat' });
+
+		expect(result.final_answer).toContain('First source claim');
+		expect(result.final_answer).toContain('Second source claim');
+		expect(result.final_answer).not.toBe('');
+		expect(result.evidence.map((item) => item.citation_number)).toEqual([1, 2]);
 	});
 });
 

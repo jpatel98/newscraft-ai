@@ -151,6 +151,23 @@ describe('tool metadata', () => {
 		]);
 	});
 
+	it('keeps first-party internal citation URLs resolvable through persisted metadata', () => {
+		const citation = {
+			citationNumber: 1,
+			title: 'Provided notes',
+			url: 'newsroom://provided-notes/1',
+			domain: 'provided notes',
+			publicationDate: null,
+			sourceType: 'user_document' as const,
+			supportingExcerpt: 'The provided note confirms the claim.'
+		};
+		const raw = serializeToolMetadata([], [], [citation]);
+
+		expect(citationRecordsForAnswer(raw)).toEqual([citation]);
+		expect(citationRecordsUsedInAnswer('The claim [1].', [citation])).toEqual([citation]);
+		expect(allCitationMarkersResolve(raw, 'The claim [1].')).toBe(true);
+	});
+
 	it('resolves duplicate same-source records but excludes conflicting duplicate citation numbers', () => {
 		const base = {
 			citationNumber: 1,

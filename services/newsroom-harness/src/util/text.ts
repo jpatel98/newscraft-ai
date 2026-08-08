@@ -50,16 +50,29 @@ export function splitForStreaming(text: string, targetChunkSize = 42): string[] 
 	const chunks: string[] = [];
 	let remaining = text;
 	while (remaining.length > targetChunkSize) {
-		const idx = Math.max(
+		const preferred = Math.max(
 			remaining.lastIndexOf(' ', targetChunkSize),
 			remaining.lastIndexOf('\n', targetChunkSize)
 		);
-		const cut = idx > 12 ? idx + 1 : targetChunkSize;
+		const candidate = preferred > 12 ? preferred + 1 : targetChunkSize;
+		const cut = safeStreamingCut(remaining, candidate);
 		chunks.push(remaining.slice(0, cut));
 		remaining = remaining.slice(cut);
 	}
 	if (remaining) chunks.push(remaining);
 	return chunks;
+}
+
+/** Never hand a consumer a chunk that ends inside a citation marker. */
+function safeStreamingCut(value: string, candidate: number): number {
+	const opening = value.lastIndexOf('[', candidate - 1);
+	const closing = value.lastIndexOf(']', candidate - 1);
+	if (opening <= closing) return candidate;
+	const markerEnd = value.indexOf(']', candidate);
+	if (markerEnd >= 0) return markerEnd + 1;
+	// An incomplete marker is not allowed to escape in a partial chunk. The
+	// caller has the complete answer here, so keep it in one final chunk.
+	return opening > 0 ? opening : value.length;
 }
 
 export function firstUrl(text: string): string | null {

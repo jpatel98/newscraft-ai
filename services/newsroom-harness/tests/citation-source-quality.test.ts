@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ToolBudgetLedger, mergeToolBudget } from '../src/agents/budget.js';
 import {
 	cleanVisibleChatOutput,
-	enforceFinalCitationIntegrity,
 	generateFinalAnswer
 } from '../src/agents/answer.js';
 import { createDefaultToolRegistry } from '../src/agents/default-tools.js';
@@ -72,9 +71,29 @@ describe('citation and source-quality web research', () => {
 
 		const result = await runWebSearch('Compare two claims in reporting');
 
-		expect(result.answer).toContain('same source [1] [1]');
+		// Provider-local prose is not a visible-answer authority when the only
+		// normalized record is a title with no readable claim text.
+		expect(result.answer).toBe('');
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1]);
 		expect(result.evidence?.map((source) => source.source_url)).toEqual([repeatedUrl]);
+	});
+
+	it('drops provider citation prose when the provider returns no normalized evidence record', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					choices: [{ message: { content: 'A provider claim without a source record [1].' } }],
+					citations: [],
+					search_results: []
+				})
+			)
+		);
+
+		const result = await runWebSearch('Summarize a historical policy change');
+
+		expect(result.evidence).toBeUndefined();
+		expect(result.answer).toBeUndefined();
 	});
 
 	it('keeps dated evidence from the full requested seven-day window', async () => {
@@ -214,8 +233,8 @@ describe('citation and source-quality web research', () => {
 
 		const result = await runWebSearch('Summarize annotated OpenAI coverage', { provider: 'openai' });
 
-		expect(result.answer).toContain('source 1 [1]');
-		expect(result.answer).toContain('source 9 [9]');
+		expect(result.answer).toContain('- Claim 1 uses source 1. [1]');
+		expect(result.answer).toContain('- Claim 9 uses source 9. [9]');
 		expect(result.answer).not.toContain('[10]');
 		expect(result.evidence).toHaveLength(9);
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
@@ -344,9 +363,7 @@ describe('citation and source-quality web research', () => {
 
 		const result = await runWebSearch('Summarize annotated OpenAI source identity', { provider: 'openai' });
 
-		expect(result.answer).toContain('Morning edition claim [1]');
-		expect(result.answer).toContain('Evening edition claim [2]');
-		expect(result.answer).toContain('Correction fragment claim [1]');
+		expect(result.answer).toMatch(/^- .* \[1\]\n- .* \[2\]$/);
 		expect(result.evidence?.map((source) => source.source_url)).toEqual(urls.slice(0, 2));
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
 	});
@@ -386,10 +403,7 @@ describe('citation and source-quality web research', () => {
 			provider: 'openai'
 		});
 
-		expect(result.answer).toContain('First exact-source claim [1]');
-		expect(result.answer).toContain('Tracking duplicate claim [1]');
-		expect(result.answer).toContain('Repeated annotation claim [2]');
-		expect(result.answer).toContain('Repeated annotation follow-up [2]');
+		expect(result.answer).toBe('- First exact source claim. [1]\n- Repeated annotation claim. [2]');
 		expect(result.answer).not.toContain('utm_source=');
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
 		expect(result.evidence?.map((source) => source.source_url)).toEqual([canonical, repeated]);
@@ -426,7 +440,7 @@ describe('citation and source-quality web research', () => {
 
 		const result = await runWebSearch('Check Toronto alerts now', { provider: 'openai' });
 
-		expect(result.answer).toContain(canonical);
+		expect(result.answer).toBe('- No alerts are in effect. [1]');
 		expect(result.answer).not.toContain('undefined');
 		expect(result.evidence?.[0]?.source_url).toBe(canonical);
 	});
@@ -496,14 +510,14 @@ describe('citation and source-quality web research', () => {
 
 		const result = await runWebSearch('Compare two annotated claims', { provider: 'openai' });
 
-		expect(result.answer).toContain(`${segments[0]} [1]`);
-		expect(result.answer).toContain(`${segments[1]} [2]`);
+		expect(result.answer).toContain(`- ${segments[0]}. [1]`);
+		expect(result.answer).toContain(`- ${segments[1]}. [2]`);
 		expect(result.evidence?.map((source) => source.source_url)).toEqual([sourceA, sourceB]);
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
 		expect(result.evidence?.map((source) => source.extracted_text)).toEqual(sourceExcerpts);
 	});
 
-	it('removes provider citation markers when no source record can resolve them', () => {
+	it('drops provider-authored claims when no structured source record can resolve them', () => {
 		const prompt = 'Summarize the reported policy update.';
 		const answer = generateFinalAnswer({
 			prompt,
@@ -515,7 +529,8 @@ describe('citation and source-quality web research', () => {
 			outputStyle: 'chat'
 		});
 
-		expect(answer).toContain('The policy changed today.');
+		expect(answer).toContain("I couldn't verify this from readable sources right now.");
+		expect(answer).not.toContain('The policy changed today.');
 		expect(answer).not.toContain('[1]');
 	});
 
@@ -737,7 +752,7 @@ describe('citation and source-quality web research', () => {
 		expect(answer).toContain('Coverage is incomplete; I found 3 distinct same-day items');
 	});
 
-	it('repairs provider-local duplicate citation numbers before final integrity filtering', () => {
+	it('canonicalizes duplicate provider-local numbers through structured rendering', () => {
 		const prompt =
 			'Give me a same-day briefing of the latest consequential Toronto news, each with a direct article URL.';
 		const evidence = Array.from({ length: 5 }, (_, index) =>
@@ -766,12 +781,11 @@ describe('citation and source-quality web research', () => {
 			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
 			outputStyle: 'chat'
 		});
-		const guarded = enforceFinalCitationIntegrity(generated, evidence);
-
-		expect(new Set(evidence.map((item) => item.citation_number)).size).toBe(5);
-		expect(new Set(guarded.match(/https:\/\/publisher\d\.test\/2026\/08\/01\/story-\d/g))).toHaveLength(5);
-		expect(guarded).toContain('https://publisher1.test/2026/08/01/story-1');
-		expect(guarded).toContain('https://publisher5.test/2026/08/01/story-5');
+		expect(evidence.map((item) => item.citation_number)).toEqual([1, 2, 3, 4, 5]);
+		expect(new Set(generated.match(/https:\/\/publisher\d\.test\/2026\/08\/01\/story-\d/g))).toHaveLength(5);
+		expect(generated.match(/\[(\d+)\]/g)).toEqual(['[1]', '[2]', '[3]', '[4]', '[5]']);
+		expect(generated).toContain('https://publisher1.test/2026/08/01/story-1');
+		expect(generated).toContain('https://publisher5.test/2026/08/01/story-5');
 	});
 
 	it('preserves an explicit publication date encoded in a direct article URL', async () => {
@@ -881,15 +895,6 @@ describe('citation and source-quality web research', () => {
 		expect(cleaned).toBe(
 			'Human Rights Watch reached one conclusion [1].\n\nAl Jazeera reported a conflicting analysis [2].'
 		);
-	});
-
-	it('repairs a model-compressed separator between confirmed facts', () => {
-		expect(
-			cleanVisibleChatOutput(
-				'Confirmed facts: The warning was issued July 17.: A temperature was observed July 28.',
-				'Assess the inherited evidence.'
-			)
-		).toBe('Confirmed facts: The warning was issued July 17.\n- A temperature was observed July 28.');
 	});
 
 	it('classifies web sources independently with the journalist source contract', () => {
@@ -1012,7 +1017,7 @@ describe('citation and source-quality web research', () => {
 		const result = await runWebSearch('what happened in the council vote today');
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);
-		expect(result.answer).toBe('Reuters reports that council approved the motion [1].');
+		expect(result.answer).toBe('');
 		expect(result.evidence).toEqual([
 			expect.objectContaining({
 				source_url: 'https://www.reuters.com/world/americas/council-motion',

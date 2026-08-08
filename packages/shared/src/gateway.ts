@@ -164,6 +164,15 @@ export interface CitationRecord {
 	documentPage?: number;
 }
 
+/**
+ * Citation URLs may be public sources or first-party document/source routes.
+ * This is shared by the renderer, SSE decoder, and durable metadata so a
+ * citation cannot be visible in one boundary and unresolved in another.
+ */
+export function isCitationUrl(value: string): boolean {
+	return /^(?:https?:\/\/|newsroom:\/\/|document:\/\/|attachment:\/\/)/i.test(value) || value.startsWith('/api/');
+}
+
 export interface NewsroomContext {
 	timezone: string;
 	homeMarket?: string;
@@ -171,7 +180,23 @@ export interface NewsroomContext {
 	sourceProfile?: ResearchSourceProfile;
 }
 
-export type ConversationIntent = 'research' | 'verify' | 'correct' | 'transform';
+export type ConversationIntent = 'research' | 'verify' | 'correct' | 'transform' | 'diagnostic';
+
+/**
+ * Detects a follow-up about the integrity or presentation of the immediately
+ * preceding answer. These requests should be answered from conversation state
+ * rather than sent through a new topical research pass.
+ */
+export function isConversationMetaDiagnosticRequest(value: string): boolean {
+	const normalized = value.replace(/\s+/g, ' ').trim();
+	if (!normalized || normalized.length > 260) return false;
+	const failureProperty =
+		/\b(?:cut\s+off|truncat(?:ed|ion|e)|incomplete|abrupt|clipped|stop(?:ped|ping)?\s+(?:short|early|before)|missing|fragment(?:ed)?)\b/i;
+	const diagnosticLead = /^(?:why|how\s+come|what\s+happened|is|was|did|does|can\s+you\s+explain)\b/i;
+	const answerArtifactReference =
+		/\b(?:the|this|that|my|your|our)\s+(?:(?:previous|preceding|last|earlier|above)\s+)?(?:(?:source|citation)\s+)?(?:text|answer|response|message|sentence|paragraph|bullet|snippet|output|copy|wording|claim|line|fragment)\b/i;
+	return failureProperty.test(normalized) && answerArtifactReference.test(normalized) && diagnosticLead.test(normalized);
+}
 
 export interface ConversationTopic {
 	/** Human-readable subject carried across follow-ups. */

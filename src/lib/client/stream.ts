@@ -58,6 +58,7 @@ export interface StreamArgs {
 
 export interface StreamCallbacks {
 	onDelta: (piece: string) => void;
+	onReplace?: (content: string) => void;
 	onMeta?: (meta: { conversation_id: string; trace_id?: string }) => void;
 	onToolProgress?: (t: {
 		id: string;
@@ -113,6 +114,7 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 			for (const update of streamState.apply(ev.event, ev.data)) {
 				if (update.done) completed = true;
 				if (update.title) cb.onTitle?.(update.title);
+				if (update.replace !== undefined) cb.onReplace?.(update.replace);
 				if (update.delta) cb.onDelta(update.delta);
 				if (update.source) cb.onSource?.(update.source);
 				if (update.citations) cb.onCitations?.(update.citations);

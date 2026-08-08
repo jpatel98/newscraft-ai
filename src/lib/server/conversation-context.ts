@@ -10,7 +10,11 @@ import type {
 	ConversationTopic,
 	ResearchRequestContract
 } from '@newscraft/shared';
-import { deriveResearchRequestContract, mergeLatestResearchContract } from '@newscraft/shared';
+import {
+	deriveResearchRequestContract,
+	isConversationMetaDiagnosticRequest,
+	mergeLatestResearchContract
+} from '@newscraft/shared';
 import type { MessageRow } from '$lib/server/db/conversations';
 import type { MessageProvenanceRow } from '$lib/server/db/message-provenance';
 import { contentText } from '$lib/types';
@@ -153,20 +157,27 @@ export function conversationContextProvenanceMessageIds(input: {
 
 export function buildConversationContext(input: BuildConversationContextInput): ConversationContext {
 	const currentRequest = compact(input.currentRequest, MAX_CURRENT_REQUEST_CHARS);
-	const intent = conversationIntent(currentRequest, Boolean(input.outputAction));
+	const diagnosticRequested = !input.outputAction && isConversationMetaDiagnosticRequest(currentRequest);
 	const operation = input.outputAction ? 'transform' : input.operation ?? 'send';
 	const recentTurns = recentConversationTurns(input.messages, input.currentMessageId);
-	// The current user instruction is the task. Research starts on this turn;
-	// there is no intermediate proposal/approval state to resolve.
-	const resolvedRequest = currentRequest;
-	const researchRequired = requestNeedsResearch(resolvedRequest);
 	const provenanceByMessage = new Map(
 		(input.provenance ?? []).map((row) => [row.messageId, provenanceContextFromJson(row.provenanceJson)])
 	);
-	const inheritsPriorState =
-		Boolean(input.sourceMessageId) ||
-		referencesPriorConversation(currentRequest, intent);
-	const selectedSource = inheritsPriorState
+	const immediateDiagnosticSource = diagnosticRequested
+		? findImmediateSourceAnswer(input.messages, provenanceByMessage, input.currentMessageId)
+		: undefined;
+	const diagnosticBound = Boolean(immediateDiagnosticSource);
+	const intent = conversationIntent(currentRequest, Boolean(input.outputAction), diagnosticBound);
+	// The current user instruction is the task. Research starts on this turn;
+	// there is no intermediate proposal/approval state to resolve.
+	const resolvedRequest = currentRequest;
+	const researchRequired = requestNeedsResearch(resolvedRequest, diagnosticBound);
+	const inheritsPriorState = diagnosticRequested
+		? diagnosticBound
+		: Boolean(input.sourceMessageId) || referencesPriorConversation(currentRequest, intent);
+	const selectedSource = diagnosticRequested
+		? immediateDiagnosticSource
+		: inheritsPriorState
 		? findSourceAnswer(input.messages, provenanceByMessage, input.sourceMessageId) ??
 			findSourceAnswer(input.messages, provenanceByMessage)
 		: undefined;
@@ -212,7 +223,9 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 					)
 				}
 			: {}),
-		...(input.sourceMessageId ? { targetMessageId: input.sourceMessageId, sourceMessageId: input.sourceMessageId } : {}),
+		...(!diagnosticRequested && input.sourceMessageId
+			? { targetMessageId: input.sourceMessageId, sourceMessageId: input.sourceMessageId }
+			: {}),
 		...(selectedSource ? { lastSourceBackedAnswer: selectedSource } : {}),
 		...(inheritsPriorState ? claimStateFields(input.messages) : {}),
 		...(inheritsPriorState ? unresolvedFields(input.messages) : {})
@@ -315,39 +328,62 @@ function findSourceAnswer(
 		? messages.filter((message) => message.id === sourceMessageId)
 		: [...messages].reverse();
 	for (const message of candidates) {
-		if (message.role !== 'assistant' || message.partial === 1) continue;
-		const answer = contentText(parseContent(message.content)).trim();
-		if (!answer) continue;
-		const metadata = parseToolMetadata(message.toolCalls);
-		const provenance = provenanceByMessage.get(message.id);
-		const metadataCitations = metadata.citations;
-		const citations = resolvedCitations(
-			answer,
-			[...(metadataCitations.length ? metadataCitations : []), ...(provenance?.citations || [])]
-		);
-		const leads = researchLeadsFromSources(
-			[...metadata.sources, ...(provenance?.sources || [])],
-			citations
-		);
-		if (!citations.length && !leads.length && !sourceMessageId) continue;
-		const boundedCitations = citations.map((citation) => ({
-			...citation,
-			title: compact(citation.title, 180),
-			url: compact(citation.url, 1200),
-			domain: compact(citation.domain, 180),
-			supportingExcerpt: compact(citation.supportingExcerpt, MAX_CITATION_EXCERPT_CHARS)
-		}));
-		return {
-				messageId: message.id,
-				content: boundedText(answer, MAX_ANSWER_CHARS),
-				citations: boundedCitations,
-				...(leads.length ? { leads } : {}),
-			publicationDates: Array.from(
-				new Set(boundedCitations.flatMap((citation) => citation.publicationDate ?? []))
-			)
-		};
+		const source = sourceAnswerForMessage(message, provenanceByMessage.get(message.id), Boolean(sourceMessageId));
+		if (source) return source;
 	}
 	return undefined;
+}
+
+function findImmediateSourceAnswer(
+	messages: MessageRow[],
+	provenanceByMessage: Map<string, ProvenanceContext>,
+	currentMessageId?: string
+): ConversationSourceAnswer | undefined {
+	const currentIndex = currentMessageId
+		? messages.findIndex((message) => message.id === currentMessageId)
+		: messages.length;
+	if (currentMessageId && currentIndex < 0) return undefined;
+	const end = currentIndex >= 0 ? currentIndex : messages.length;
+	const message = messages[end - 1];
+	if (!message || message.role !== 'assistant' || message.partial === 1) return undefined;
+	// The immediately preceding completed assistant response is the only
+	// permissible diagnostic referent. Never walk past an intervening user turn
+	// or another assistant response to resurrect older source-backed state.
+	return sourceAnswerForMessage(message, provenanceByMessage.get(message.id), false);
+}
+
+function sourceAnswerForMessage(
+	message: MessageRow,
+	provenance: ProvenanceContext | undefined,
+	allowEmptyProvenance: boolean
+): ConversationSourceAnswer | undefined {
+	if (message.role !== 'assistant' || message.partial === 1) return undefined;
+	const answer = contentText(parseContent(message.content)).trim();
+	if (!answer) return undefined;
+	const metadata = parseToolMetadata(message.toolCalls);
+	const citations = resolvedCitations(answer, [
+		...(metadata.citations.length ? metadata.citations : []),
+		...(provenance?.citations || [])
+	]);
+	const leads = researchLeadsFromSources(
+		[...metadata.sources, ...(provenance?.sources || [])],
+		citations
+	);
+	if (!citations.length && !leads.length && !allowEmptyProvenance) return undefined;
+	const boundedCitations = citations.map((citation) => ({
+		...citation,
+		title: compact(citation.title, 180),
+		url: compact(citation.url, 1200),
+		domain: compact(citation.domain, 180),
+		supportingExcerpt: compact(citation.supportingExcerpt, MAX_CITATION_EXCERPT_CHARS)
+	}));
+	return {
+		messageId: message.id,
+		content: boundedText(answer, MAX_ANSWER_CHARS),
+		citations: boundedCitations,
+		...(leads.length ? { leads } : {}),
+		publicationDates: Array.from(new Set(boundedCitations.flatMap((citation) => citation.publicationDate ?? [])))
+	};
 }
 
 function resolvedCitations(answer: string, citations: CitationRecord[]): CitationRecord[] {
@@ -606,8 +642,10 @@ function extractRelevantDate(value: string): string | undefined {
 	);
 }
 
-function conversationIntent(value: string, outputAction: boolean): ConversationIntent {
-	if (outputAction || /\b(transform|rewrite|turn .* into|producer brief|OC\/VO|script|interview questions)\b/i.test(value)) {
+function conversationIntent(value: string, outputAction: boolean, diagnosticBound: boolean): ConversationIntent {
+	if (outputAction) return 'transform';
+	if (diagnosticBound && isConversationMetaDiagnosticRequest(value)) return 'diagnostic';
+	if (/\b(transform|rewrite|turn .* into|producer brief|OC\/VO|script|interview questions)\b/i.test(value)) {
 		return 'transform';
 	}
 	if (/\b(correct|correction|retract|wrong|incorrect|not active|no longer active)\b/i.test(value)) return 'correct';
@@ -637,7 +675,8 @@ function recentConversationTurns(
 		.filter((turn) => Boolean(turn.content));
 }
 
-function requestNeedsResearch(value: string): boolean {
+function requestNeedsResearch(value: string, diagnosticBound: boolean): boolean {
+	if (diagnosticBound && isConversationMetaDiagnosticRequest(value)) return false;
 	if (
 		/\b(?:do not|don't|without)\s+(?:(?:new|fresh|more|additional)\s+)?(?:re-?search|search|browse|look(?:ing)? up)\b/i.test(
 			value
@@ -677,7 +716,7 @@ function isCurrentResearchRequest(value: string): boolean {
 }
 
 function referencesPriorConversation(value: string, intent: ConversationIntent): boolean {
-	if (intent === 'transform') return true;
+	if (intent === 'transform' || intent === 'diagnostic') return true;
 	const normalized = value.replace(/\s+/g, ' ').trim();
 	if (looksLikeExplicitNewTopicRequest(normalized)) return false;
 	if (looksLikeAmbiguousFollowup(value)) return true;

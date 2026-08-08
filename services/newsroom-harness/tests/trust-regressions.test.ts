@@ -12,6 +12,66 @@ afterEach(() => {
 });
 
 describe('journalist trust regressions', () => {
+	it('diagnoses a clipped cited answer from conversation state without starting new research', async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+		const context: ConversationContext = {
+			version: 1,
+			intent: 'diagnostic',
+			currentTurn: {
+				content: 'Why is the text cut off?',
+				resolvedRequest: 'Why is the text cut off?',
+				operation: 'send',
+				researchRequired: false
+			},
+			activeTopic: { subject: 'Toronto community stories', location: 'Toronto' },
+			lastSourceBackedAnswer: {
+				messageId: 'message-clipped',
+				content: 'Toronto’s Salsa on St. [1]',
+				citations: [
+					{
+						citationNumber: 1,
+						title: 'Community dance program',
+						url: 'https://example.com/community-story',
+						domain: 'example.com',
+						publicationDate: '2026-08-07',
+						sourceType: 'news_report',
+						supportingExcerpt:
+							'Toronto’s Salsa on St. Clair is hosting a community dance program this weekend.'
+					}
+				]
+			}
+		};
+
+		const answer = await runtime().completeChat(
+			[{ role: 'user', content: 'Why is the text cut off?' }],
+			{ conversationContext: context }
+		);
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(answer).toContain('clipped source fragment');
+		expect(answer).toContain('[1]');
+		expect(answer).toContain('answer-integrity failure');
+	});
+
+	it('does not emit a diagnostic canned answer when no preceding source answer is bound', async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ output_text: 'Normal conversation handling.' }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+
+		const answer = await runtime().completeChat([
+			{ role: 'user', content: 'Why did the answer stop before the citation?' }
+		]);
+
+		expect(fetchMock).toHaveBeenCalled();
+		expect(answer).not.toContain('answer-integrity failure');
+		expect(answer).not.toContain('clipped source fragment');
+	});
+
 	it('answers a referential follow-up from explicit thread context without research or duplication', async () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal('fetch', fetchMock);

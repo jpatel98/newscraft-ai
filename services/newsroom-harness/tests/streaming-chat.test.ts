@@ -6,6 +6,7 @@ import { NewsroomAgentRuntime } from '../src/agents/runtime.js';
 import { StreamingAnswerSanitizer, streamTailForFinalAnswer } from '../src/agents/stream-sanitizer.js';
 import { ToolRegistry, type NewsroomTool, type ToolCategory, type ToolRunOutput } from '../src/agents/tools.js';
 import { readOpenAiResponseStream } from '../src/util/openai-stream.js';
+import { splitForStreaming } from '../src/util/text.js';
 
 function chatSanitizer(prompt = 'What happened at city hall?') {
 	return new StreamingAnswerSanitizer({ clean: (raw) => cleanVisibleChatOutput(raw, prompt) });
@@ -74,6 +75,94 @@ describe('StreamingAnswerSanitizer', () => {
 
 		expect(tail).not.toBeNull();
 		expect(streamed + (tail as string)).toBe(finalAnswer);
+	});
+
+	it('rejects ordinary-word clipped citations while preserving later uncited content', () => {
+		const sanitizer = chatSanitizer('Research the story.');
+		const streamed = sanitizer.push('- Toronto’s Salsa on [1]\n- Later uncited context.\n');
+
+		expect(streamed).not.toContain('Toronto’s Salsa on');
+		expect(streamed).toContain('- Later uncited context.');
+		expect(streamTailForFinalAnswer(sanitizer.emitted, '- Toronto’s Salsa on St. Clair [1]\n- Later uncited context.')).toBeNull();
+	});
+
+	it('does not leak or duplicate content when a citation line precedes uncited content', () => {
+		const sanitizer = new StreamingAnswerSanitizer({
+			clean: (value) => cleanVisibleChatOutput(value, 'Research the story.')
+		});
+		const streamed = [
+			sanitizer.push('Intro context.\n- Confirmed claim [1]\n'),
+			sanitizer.push('- Later uncited context.\n')
+		].join('');
+		const finalAnswer = 'Intro context.\n- Confirmed claim [1]\n- Later uncited context.';
+		const tail = streamTailForFinalAnswer(sanitizer.emitted, finalAnswer);
+
+		expect(streamed).toBe('Intro context.\n- Later uncited context.');
+		expect(streamed).not.toContain('Confirmed claim');
+		expect(tail).toBeNull();
+	});
+
+	it('rejects labeled Markdown clipped citations while final reconciliation remains authoritative', () => {
+		const sanitizer = new StreamingAnswerSanitizer({
+			clean: (value) => cleanVisibleChatOutput(value, 'Research the story.')
+		});
+		const streamed = [
+			sanitizer.push('Intro context.\n- **Community event**: Toronto’s Salsa on [1]\n'),
+			sanitizer.push('- Later uncited context.\n')
+		].join('');
+		const finalAnswer = 'Intro context.\n- **Community event**: Toronto’s Salsa on Queen Street [1]\n- Later uncited context.';
+		const tail = streamTailForFinalAnswer(sanitizer.emitted, finalAnswer);
+
+		expect(streamed).toBe('Intro context.\n- Later uncited context.');
+		expect(streamed).not.toContain('Toronto’s Salsa on');
+		expect(streamed).toContain('Later uncited context.');
+		expect(tail).toBeNull();
+	});
+
+	it('does not lose a marker when streamed chunks split inside it', () => {
+		// This isolates chunk framing. The runtime's default policy rejects the
+		// cited line until the authoritative final answer is available.
+		const sanitizer = new StreamingAnswerSanitizer({
+			clean: (value) => cleanVisibleChatOutput(value, 'Research the story.'),
+			rejectUnverifiedCitationLines: false
+		});
+		const emitted = [
+			sanitizer.push('Confirmed claim ['),
+			sanitizer.push('1'),
+			sanitizer.push('] remains complete.\n')
+		].join('');
+
+		expect(emitted).toBe('Confirmed claim [1] remains complete.');
+	});
+
+	it('keeps a complete structural citation out of the draft and restores it once final evidence is authoritative', () => {
+		const sanitizer = chatSanitizer('Research the story.');
+		const streamed = sanitizer.push('| Status | Active [1] |\n- Later context.\n');
+		const finalAnswer = '| Status | Active [1] |\n- Later context.';
+
+		expect(streamed).toContain('Later context.');
+		expect(streamed).not.toContain('Status');
+		expect(streamTailForFinalAnswer(sanitizer.emitted, finalAnswer)).toBeNull();
+	});
+
+	it('buffers citation markers when completed answers are chunked', () => {
+		const chunks = splitForStreaming('A confirmed statement with a citation [123] and more text.', 28);
+
+		expect(chunks.join('')).toBe('A confirmed statement with a citation [123] and more text.');
+		expect(chunks.some((chunk) => /\[[^\]]*$/.test(chunk))).toBe(false);
+	});
+
+	it('fails closed around a malformed newline inside a citation marker', () => {
+		const sanitizer = new StreamingAnswerSanitizer({
+			clean: (value) => cleanVisibleChatOutput(value, 'Research the story.')
+		});
+
+		const first = sanitizer.push('Context before the malformed marker.\n- Claim [1\n');
+		const second = sanitizer.push('] should not stream.\n- Later uncited context.\n');
+
+		expect(first).toBe('Context before the malformed marker.');
+		expect(second).toBe('');
+		expect(sanitizer.emitted).toBe('Context before the malformed marker.');
 	});
 });
 
@@ -244,7 +333,7 @@ function streamingStubTool(options: {
 }
 
 describe('disciplined agent answer-delta forwarding', () => {
-	it('forwards deltas from the answer-producing tool', async () => {
+	it('does not stream provider-authored sourced prose before validation', async () => {
 		const registry = new ToolRegistry();
 		registry.register(
 			streamingStubTool({
@@ -264,8 +353,8 @@ describe('disciplined agent answer-delta forwarding', () => {
 			onAnswerDelta: (delta) => deltas.push(delta)
 		});
 
-		expect(deltas).toEqual(['The mayor ', 'is Jane Doe.']);
-		expect(result.final_answer).toContain('Jane Doe');
+		expect(deltas).toEqual([]);
+		expect(result.final_answer).toContain('Jane Doe. [1]');
 	});
 
 	it('does not stream from later tools once an earlier tool produced an answer', async () => {
@@ -300,13 +389,13 @@ describe('disciplined agent answer-delta forwarding', () => {
 			onAnswerDelta: (delta) => deltas.push(delta)
 		});
 
-		expect(deltas).toEqual(['Official release summary.']);
+		expect(deltas).toEqual([]);
 		expect(webSearchHadDeltaSink).toBe(false);
 	});
 });
 
 describe('runtime streamed chat', () => {
-	it('yields sanitized deltas live, before the agent run finishes', async () => {
+	it('buffers provider deltas and yields one authoritative structured answer', async () => {
 		let releaseTool: (() => void) | null = null;
 		const gatePassed: boolean[] = [];
 		const registry = new ToolRegistry();
@@ -347,13 +436,12 @@ describe('runtime streamed chat', () => {
 		}
 
 		expect(gatePassed).toHaveLength(2);
-		expect(chunks.length).toBeGreaterThan(1);
+		expect(chunks.length).toBeGreaterThan(0);
 		const streamed = chunks.join('');
-		expect(streamed).toMatch(/^\*\*Current as of:\*\*/);
-		expect(streamed.match(/Current as of/g)).toHaveLength(1);
-		expect(streamed.replace(/^\*\*Current as of:\*\*[^\n]*\n\n/, '')).toBe(
-			cleanVisibleChatOutput(rawAnswer, prompt)
+		expect(streamed).toMatch(
+			/^\*\*Current as of:\*\* [^\n]+\n\nWater main break: Two intersections are closed downtown\. \[1\]$/
 		);
+		expect(streamed).not.toContain('Transit delays');
 	});
 
 	it('falls back to chunking the final answer when no tool streams', async () => {
@@ -457,8 +545,115 @@ describe('runtime streamed chat', () => {
 
 		expect(hadDeltaSink).toBe(false);
 		expect(answer.match(/Council approved the motion/g)).toHaveLength(1);
-		expect(answer).toContain('Council approved the motion [1].');
+		expect(answer).toContain('Council approved the motion. [1]');
 		expect(answer.match(/Current as of/g)).toHaveLength(1);
+	});
+
+	it('buffers direct streamChat callers without onProgress to one final authority', async () => {
+		let hadDeltaSink: boolean | null = null;
+		const registry = new ToolRegistry();
+		registry.register(
+			streamingStubTool({
+				name: 'openai_web_search',
+				category: 'web_search_provider',
+				deltas: ['Draft wording that must not escape.'],
+				answer: 'Authoritative city hall budget update.',
+				onRun: (value) => {
+					hadDeltaSink = value;
+				}
+			})
+		);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 4,
+			runTimeoutMs: 10_000,
+			retryLimit: 0,
+			openAiApiKey: 'test-key',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
+			registry
+		});
+
+		let answer = '';
+		for await (const delta of runtime.streamChat(
+			[{ role: 'user', content: 'Research the city hall budget update.' }],
+			{}
+		)) {
+			answer += delta;
+		}
+
+		expect(hadDeltaSink).toBe(false);
+		expect(answer).toBe('Authoritative city hall budget update. [1]');
+		expect(answer).not.toContain('Draft wording');
+	});
+
+	it('emits one authoritative replacement when a streamed draft cannot be reconciled', async () => {
+		const registry = new ToolRegistry();
+		registry.register(
+			streamingStubTool({
+				name: 'openai_web_search',
+				category: 'web_search_provider',
+				deltas: ['Draft wording without the verified citation.\n'],
+				answer: 'City hall budget update: Council passed the motion.'
+			})
+		);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 4,
+			runTimeoutMs: 10_000,
+			retryLimit: 0,
+			openAiApiKey: 'test-key',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
+			registry
+		});
+		const progress: Array<{ type: string; content?: string }> = [];
+		let streamed = '';
+
+		for await (const delta of runtime.streamChat(
+			[{ role: 'user', content: 'What happened at city hall?' }],
+			{ onProgress: (event) => progress.push(event as { type: string; content?: string }) }
+		)) {
+			streamed += delta;
+		}
+
+		const replacement = progress.find((event) => event.type === 'answer_replace')?.content;
+		expect(streamed).toBe('');
+		expect(replacement).toBe('City hall budget update: Council passed the motion. [1]');
+		expect(replacement).not.toContain('Draft wording');
+		// The transport reducer persists the replacement, not draft + replacement.
+		expect(replacement).toBe('City hall budget update: Council passed the motion. [1]');
+	});
+
+	it('rejects a clipped cited draft and replaces it with the complete evidence-backed answer', async () => {
+		const registry = new ToolRegistry();
+		registry.register(
+			streamingStubTool({
+				name: 'openai_web_search',
+				category: 'web_search_provider',
+					deltas: ['- Toronto’s Salsa on [1]\n'],
+					answer: 'Toronto’s Salsa on St. Clair is hosting a community dance program this weekend.'
+			})
+		);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 4,
+			runTimeoutMs: 10_000,
+			retryLimit: 0,
+			openAiApiKey: 'test-key',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
+			registry
+		});
+		const progress: Array<{ type: string; content?: string }> = [];
+		let streamed = '';
+
+		for await (const delta of runtime.streamChat(
+			[{ role: 'user', content: 'Research the community event.' }],
+			{ onProgress: (event) => progress.push(event as { type: string; content?: string }) }
+		)) {
+			streamed += delta;
+		}
+
+		const replacement = progress.find((event) => event.type === 'answer_replace')?.content;
+		expect(streamed).not.toContain('Toronto’s Salsa on [1]');
+		expect(streamed).toBe('');
+		expect(replacement).toContain('Toronto’s Salsa on St. Clair');
+		expect(replacement).toContain('[1]');
 	});
 
 	it('finishes a buffered current response with safe wording when research times out', async () => {

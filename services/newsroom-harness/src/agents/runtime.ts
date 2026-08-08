@@ -7,13 +7,16 @@ import type {
 	NewsroomContext,
 	ReasoningEffort
 } from '@newscraft/shared';
+import { isCitationUrl, isConversationMetaDiagnosticRequest } from '@newscraft/shared';
 import { createHash } from 'node:crypto';
 import { AssignmentDesk, type AssignmentDeskDecision } from './assignment-desk.js';
 import {
+	citationMarkersInText,
 	cleanVisibleChatOutput,
+	completeEvidenceStatement,
 	directCitationLinksFromConversation,
 	draftNewsroomOcvoFromConversation,
-	enforceFinalCitationIntegrity
+	incompleteCitationNumbers
 } from './answer.js';
 import { formatConversationContext } from './grounded-conversation.js';
 import { routeNewsroomRequest } from './router.js';
@@ -29,6 +32,10 @@ import type { EvidenceObject } from './evidence.js';
 import { createNewsroomAgentConfig, type NewsroomAgentConfig } from './harness-config.js';
 import { resolveModelPolicy, type ModelPolicyDecision, type ModelPolicyTask } from './model-policy.js';
 import { StreamingAnswerSanitizer, streamTailForFinalAnswer } from './stream-sanitizer.js';
+import {
+	canonicalGroundedCitationNumber,
+	hasMalformedCitationSyntax
+} from './grounded-answer.js';
 import type { ToolRegistry } from './tools.js';
 import type { FetchedSource } from '../tools/sources.js';
 import { completeProviderText, type ModelProvider } from '../util/openai-complete.js';
@@ -80,6 +87,7 @@ export type RuntimeProgressEvent =
 	| { type: 'tool'; id: string; name: string; status: string; detail?: string; result?: unknown }
 	| { type: 'source'; source: FetchedSource; stepId?: string }
 	| { type: 'citations'; citations: CitationRecord[] }
+	| { type: 'answer_replace'; content: string }
 	| {
 			type: 'plan';
 			planSource: AgentPlanEvent['source'];
@@ -126,6 +134,8 @@ export class NewsroomAgentRuntime {
 			return this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
 		}
 		if (isSimpleGreeting(latestUserPrompt)) return 'Hi. What should NewsCraft work on?';
+		const diagnostic = diagnosticFollowupAnswer(latestUserPrompt, context.conversationContext);
+		if (diagnostic) return diagnostic;
 		const contextualClarification = contextualClarificationAnswer(messages, latestUserPrompt);
 		if (contextualClarification) return contextualClarification;
 		if (shouldAskForClarification(messages, latestUserPrompt, context.conversationContext) && !context.documents?.length) {
@@ -168,11 +178,16 @@ export class NewsroomAgentRuntime {
 				return;
 			}
 			const title = await this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
-			for (const chunk of splitForStreaming(title)) yield chunk;
+			for (const chunk of splitForStreaming(cleanVisibleChatOutput(title, latestUserPrompt))) yield chunk;
 			return;
 		}
 		if (isSimpleGreeting(latestUserPrompt)) {
 			for (const chunk of splitForStreaming('Hi. What should NewsCraft work on?')) yield chunk;
+			return;
+		}
+		const diagnostic = diagnosticFollowupAnswer(latestUserPrompt, context.conversationContext);
+		if (diagnostic) {
+			for (const chunk of splitForStreaming(diagnostic)) yield chunk;
 			return;
 		}
 		const contextualClarification = contextualClarificationAnswer(messages, latestUserPrompt);
@@ -192,7 +207,12 @@ export class NewsroomAgentRuntime {
 		if (isDirectAnswerPrompt(latestUserPrompt, context.conversationContext) && !context.documents?.length) {
 			const answer = await this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
 			this.emitInheritedCitationRecords(context, answer);
-			for (const chunk of splitForStreaming(answer)) yield chunk;
+			// Direct answers are complete before they enter the stream. Run the same
+			// visible-output boundary and citation-safe chunking used by research
+			// output so a marker can never be split across transport events.
+			const directLinks = directCitationLinksFromConversation(latestUserPrompt, context.conversationContext);
+			const visibleAnswer = directLinks || cleanVisibleChatOutput(answer, latestUserPrompt);
+			for (const chunk of splitForStreaming(visibleAnswer)) yield chunk;
 			return;
 		}
 		if (!this.modelApiKey()) {
@@ -282,7 +302,6 @@ export class NewsroomAgentRuntime {
 				}
 			}
 		});
-		reconcileDocumentAndWebEvidence(result, context.documents);
 		const markdown = await this.synthesizeMissionOutput(prompt, result, context);
 		// Emit the citation records for the text that is actually persisted and
 		// shown to the producer. Synthesis may remap or remove invalid markers.
@@ -333,7 +352,10 @@ export class NewsroomAgentRuntime {
 				signal: context.signal
 			});
 			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
-			return cleanVisibleChatOutput(text, latestUserPromptFromChatMessages(messages)) || this.localDirectChat(prompt);
+			return (
+				sanitizeDirectProviderAnswer(text, latestUserPromptFromChatMessages(messages), context) ||
+				this.localDirectChat(prompt)
+			);
 		} catch {
 			this.emitModelPolicyEvent(decision, context, 'model.call.failed');
 			return this.localDirectChat(prompt);
@@ -398,17 +420,20 @@ export class NewsroomAgentRuntime {
 				? undefined
 				: onAnswerDelta
 		});
-		reconcileDocumentAndWebEvidence(result, context.documents);
 		this.emitCitationRecords(result.evidence, result.final_answer, context);
 		return result;
 	}
 
 	private emitCitationRecords(evidence: EvidenceObject[], answer: string, context: RuntimeContext): void {
 		const markers = new Set(citationMarkersInText(answer));
-		const citations = citationRecordsFromEvidence(evidence).filter((citation) =>
-			markers.has(citation.citationNumber)
+		const citations = citationRecordsFromEvidence(evidence, answer);
+		const linkedSources = new Set(
+			citations.filter((citation) => answer.includes(citation.url)).map((citation) => citation.citationNumber)
 		);
-		context.onProgress?.({ type: 'citations', citations });
+		const filteredCitations = citations.filter((citation) =>
+			markers.has(citation.citationNumber) || linkedSources.has(citation.citationNumber)
+		);
+		context.onProgress?.({ type: 'citations', citations: filteredCitations });
 	}
 
 	private withTemporalContext(context: RuntimeContext, request = ''): RuntimeContext {
@@ -445,7 +470,7 @@ export class NewsroomAgentRuntime {
 				signal: context.signal
 			});
 			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
-			return cleanVisibleChatOutput(text, prompt) || this.localChat(prompt);
+			return sanitizeDirectProviderAnswer(text, prompt, context) || this.localChat(prompt);
 		} catch (err) {
 			this.emitModelPolicyEvent(decision, context, 'model.call.failed');
 			throw err;
@@ -464,12 +489,19 @@ export class NewsroomAgentRuntime {
 		context: RuntimeContext
 	): AsyncGenerator<string> {
 		this.triageEditorCommand(routingPrompt, context);
-		const sanitizer = new StreamingAnswerSanitizer({ clean: (raw) => cleanVisibleChatOutput(raw, prompt) });
+		const sanitizer = new StreamingAnswerSanitizer({
+			clean: (raw) => cleanVisibleChatOutput(raw, prompt)
+		});
 		const currentAsOf = currentAsOfPrefix(routingPrompt, context.newsroomContext?.timezone, context.temporalContext);
 		const bufferAuthoritativeAnswer = shouldBufferGroundedAnswer(
 			routingPrompt,
 			context.conversationContext
 		);
+		// A caller without progress events has no replacement channel. Buffer that
+		// low-level path until the authoritative final answer exists so it cannot
+		// return a draft followed by the same answer again. The HTTP transport opts
+		// into incremental UX by supplying onProgress and can apply answer_replace.
+		const canReconcileDraft = Boolean(context.onProgress);
 		let currentAsOfEmitted = false;
 		const pending: string[] = [];
 		let wake: (() => void) | null = null;
@@ -478,17 +510,19 @@ export class NewsroomAgentRuntime {
 			wake = null;
 		};
 		let settled: { result: NewsroomAgentRunResult } | { error: unknown } | null = null;
+		const onAnswerDelta = canReconcileDraft
+			? (delta: string) => {
+					const addition = sanitizer.push(delta);
+					if (addition) {
+						pending.push(addition);
+						notify();
+					}
+				}
+			: undefined;
 		const runPromise = (async () => {
 			try {
 				const result = await this.withTimeout(
-					() =>
-						this.runDisciplinedAgent(prompt, routingPrompt, context, (delta) => {
-							const addition = sanitizer.push(delta);
-							if (addition) {
-								pending.push(addition);
-								notify();
-							}
-						}),
+					() => this.runDisciplinedAgent(prompt, routingPrompt, context, onAnswerDelta),
 					context.signal
 				);
 				settled = { result };
@@ -539,8 +573,15 @@ export class NewsroomAgentRuntime {
 			? withoutLeadingCurrentAsOf(finalAnswer)
 			: finalAnswer;
 		if (!sanitizer.emitted) {
-			if (currentAsOf && !currentAsOfEmitted && !/\bCurrent as of\b/i.test(visibleFinalAnswer)) {
+			if (currentAsOf && !currentAsOfEmitted && !context.onProgress && !/\bCurrent as of\b/i.test(visibleFinalAnswer)) {
 				yield `${currentAsOf}\n\n`;
+			}
+			if (context.onProgress) {
+				const authoritativeAnswer = currentAsOfEmitted && currentAsOf
+					? `${currentAsOf}\n\n${visibleFinalAnswer}`
+					: visibleFinalAnswer;
+				context.onProgress({ type: 'answer_replace', content: authoritativeAnswer });
+				return;
 			}
 			for (const chunk of splitForStreaming(visibleFinalAnswer)) yield chunk;
 			return;
@@ -548,9 +589,19 @@ export class NewsroomAgentRuntime {
 		const tail = streamTailForFinalAnswer(sanitizer.emitted, visibleFinalAnswer);
 		if (tail === null) {
 			// The final answer does not extend the streamed text (interrupted tool
-			// stream or a whole-text rewrite). Emit it after a hard break rather
-			// than silently dropping caveats or replacement content.
-			for (const chunk of splitForStreaming(`\n\n${visibleFinalAnswer}`)) yield chunk;
+			// stream or a whole-text rewrite). A transport with progress support can
+			// replace the draft atomically, so the persisted answer has one authority
+			// and never contains the streamed draft plus its replacement.
+			const authoritativeAnswer = currentAsOfEmitted && currentAsOf
+				? `${currentAsOf}\n\n${visibleFinalAnswer}`
+				: visibleFinalAnswer;
+			if (context.onProgress) {
+				context.onProgress({ type: 'answer_replace', content: authoritativeAnswer });
+				return;
+			}
+			// This branch is only reachable for a caller that supplied progress but
+			// did not consume the replacement event; direct callers are buffered above.
+			for (const chunk of splitForStreaming(visibleFinalAnswer)) yield chunk;
 			return;
 		}
 		for (const chunk of splitForStreaming(tail)) yield chunk;
@@ -594,56 +645,14 @@ export class NewsroomAgentRuntime {
 	}
 
 	private async synthesizeMissionOutput(
-		prompt: string,
+		_prompt: string,
 		result: NewsroomAgentRunResult,
-		context: RuntimeContext
+		_context: RuntimeContext
 	): Promise<string> {
-		// Multi-requirement output is already rendered from the normalized
-		// requirement matrix and citation ledger. A second free-form rewrite could
-		// silently merge or omit a requested lane, so keep the deterministic
-		// sectioned answer authoritative.
-		if ((result.research_contract?.requirements?.length || 0) > 1) return result.final_answer;
-		if (!this.modelApiKey()) return result.final_answer;
-		const task = context.trigger === 'schedule' ? 'scheduled_research_update' : 'manual_research_update';
-		const decision = this.modelDecision(task, context);
-		this.emitModelPolicyEvent(decision, context);
-		if (!decision.allowed || !decision.model) return result.final_answer;
-		try {
-			const text = await completeProviderText({
-				provider: this.modelProvider(),
-				apiKey: this.modelApiKey(),
-				model: decision.model,
-				instructions: [
-					NEWSROOM_CHARTER,
-					formatNewsroomTemporalContext(context.temporalContext || createNewsroomTemporalContext({ request: prompt })),
-					'You write the final output for a NewsCraft research update.',
-					'The prompt is the output contract. Follow it exactly.',
-						'Use the normalized evidence ledger below as the only factual basis. Synthesize once across all research passes; never concatenate provider mini-answers or repeat the same story in separate blocks.',
-						'Treat the structured request contract in the input as binding. Do not add excluded desks, categories, source types, page roles, or locations to reach a requested count; return the verified subset when coverage is thin.',
-					'Keep citation markers attached to the claims they support. Do not invent citation numbers or cite a source that does not support the claim.',
-					'Do not add default NewsCraft sections, internal process notes, or boilerplate unless the prompt asks for them.',
-					'Use only the provided evidence. If the evidence is insufficient, say so in the requested format or as plainly as possible.',
-					'For current-events and claim-verification requests, include an honest caveat when no reliable readable source confirms the claim, or when only weak/secondary evidence is available.',
-					'Flag paywalled, blocked, CAPTCHA-protected, empty, unavailable, or unreadable sources in plain public language without exposing status codes or implementation details.',
-					'If the current user request is an ambiguous follow-up and the provided context does not identify the referent, ask one brief clarifying question instead of guessing.',
-					'Never invent publication dates. If a source says Published: NOT FOUND, write Date: Not found or omit the date; never use the accessed/run time as the publication date.',
-					'Return only the research update.'
-				].join('\n'),
-				input: missionSynthesisInput(prompt, result, context.temporalContext),
-				reasoningEffort: decision.reasoningEffort,
-				disableSearch: true,
-				signal: context.signal
-			});
-			this.emitModelPolicyEvent(decision, context, 'model.call.completed');
-			const synthesized = text.trim();
-			if (!synthesized) return result.final_answer;
-			return enforceFinalCitationIntegrity(synthesized, result.evidence) || result.final_answer;
-		} catch {
-			this.emitModelPolicyEvent(decision, context, 'model.call.failed');
-			return result.final_answer;
-		}
+		// Sourced mission output is already a validated GroundedAnswer render.
+		// Provider free-form rewrites cannot become a second citation authority.
+		return result.final_answer;
 	}
-
 	private triageEditorCommand(prompt: string, context: RuntimeContext): AssignmentDeskDecision {
 		const assignment = this.assignmentDesk.triage(prompt, { default_tool_budget: this.defaultToolBudget() });
 		this.emitAssignmentDeskDecision(assignment, context);
@@ -804,6 +813,7 @@ function isSimpleGreeting(prompt: string): boolean {
 }
 
 function isDirectAnswerPrompt(prompt: string, conversationContext?: ConversationContext): boolean {
+	if (conversationContext?.intent === 'diagnostic' && conversationContext.lastSourceBackedAnswer) return true;
 	if (conversationContext?.currentTurn?.researchRequired) return false;
 	if (conversationContext?.intent === 'transform' && conversationContext.lastSourceBackedAnswer) return true;
 	if (/\b(?:turn|rewrite|using only)\b[\s\S]{0,100}\bprevious answer\b/i.test(prompt)) return true;
@@ -819,6 +829,26 @@ function isDirectAnswerPrompt(prompt: string, conversationContext?: Conversation
 		return true;
 	}
 	return routeNewsroomRequest(prompt).selected_mode === 'direct_answer';
+}
+
+function diagnosticFollowupAnswer(
+	prompt: string,
+	conversationContext?: ConversationContext
+): string | null {
+	if (
+		!isConversationMetaDiagnosticRequest(prompt) ||
+		conversationContext?.intent !== 'diagnostic' ||
+		!conversationContext.lastSourceBackedAnswer
+	) {
+		return null;
+	}
+	const previous = conversationContext.lastSourceBackedAnswer;
+	const incomplete = incompleteCitationNumbers(previous.content, previous.citations);
+	if (incomplete.length) {
+		const markers = incomplete.map((number) => `[${number}]`).join(', ');
+		return `The preceding answer contains a clipped source fragment before citation ${markers}. The citation record is present, but it does not complete the visible sentence; the missing words were not verified. That is an answer-integrity failure, so the fragment should be discarded or rebuilt from the readable source rather than treated as a new research question.`;
+	}
+	return 'The saved preceding answer does not contain an identifiable clipped citation fragment. If the UI stopped earlier than this record, the loss likely occurred while streaming or rendering; the saved source-backed text is the record to compare against.';
 }
 
 function shouldAskForClarification(
@@ -1115,31 +1145,100 @@ function structuredDocumentContext(documents: DocumentContext[]): string {
 	].join('\n\n');
 }
 
-function citationRecordsFromEvidence(evidence: EvidenceObject[]): CitationRecord[] {
+/**
+ * Research-free provider output is a transformation, not a source ledger.
+ * Numeric or malformed markers are therefore never accepted as provider
+ * authority. The only marker-bearing exception is an exact marker-preserving
+ * transformation of the immediately inherited answer; in that case the
+ * durable answer and its existing citation identities remain authoritative.
+ */
+function sanitizeDirectProviderAnswer(text: string, prompt: string, context: RuntimeContext): string {
+	const cleaned = cleanVisibleChatOutput(text, prompt);
+	if (!cleaned || !hasProviderCitationSyntax(cleaned)) return cleaned;
+
+	const inherited = context.conversationContext?.lastSourceBackedAnswer;
+	if (inherited && isExactInheritedCitationTransformation(cleaned, inherited.content, inherited.citations)) {
+		return inherited.content;
+	}
+	return stripProviderCitationSyntax(cleaned);
+}
+
+function hasProviderCitationSyntax(value: string): boolean {
+	return citationMarkersInText(value).length > 0 || /\[\d+[^\]\n]*(?:\]|$)/u.test(value);
+}
+
+function isExactInheritedCitationTransformation(
+	value: string,
+	inherited: string,
+	citations: ReadonlyArray<CitationRecord>
+): boolean {
+	if (hasMalformedCitationSyntax(value) || hasMalformedCitationSyntax(inherited)) return false;
+	const markerless = (candidate: string) =>
+		candidate
+			.replace(/\[\d+\](?!\()/g, '')
+			.replace(/\s+/gu, ' ')
+			.trim();
+	if (markerless(value) !== markerless(inherited)) return false;
+	const markers = [...new Set(citationMarkersInText(value))].sort((a, b) => a - b);
+	const inheritedMarkers = [...new Set(citationMarkersInText(inherited))].sort((a, b) => a - b);
+	return (
+		markers.length > 0 &&
+		markers.join(',') === inheritedMarkers.join(',') &&
+		markers.every((number) => citations.some((citation) => citation.citationNumber === number))
+	);
+}
+
+function stripProviderCitationSyntax(value: string): string {
+	return value
+		.replace(/\[\d+[^\]\n]*(?:\]|$)/gu, '')
+		.replace(/[ \t]+([,.;:!?])/gu, '$1')
+		.replace(/[ \t]{2,}/gu, ' ')
+		.trim();
+}
+
+export function citationRecordsFromEvidence(evidence: EvidenceObject[], renderedAnswer?: string): CitationRecord[] {
+	// Provider-local numbers are never final metadata. A rendered structured
+	// answer records its appearance-order assignment in the shared ledger map;
+	// if that assignment is unavailable while visible markers exist, fail closed
+	// instead of guessing which source a provider-local number meant.
+	const canonicalNumbers = evidence.map(canonicalGroundedCitationNumber);
+	const hasVisibleMarkers = renderedAnswer !== undefined && citationMarkersInText(renderedAnswer).length > 0;
+	if (renderedAnswer !== undefined && hasVisibleMarkers) {
+		if (
+			!canonicalNumbers.every((number) => typeof number === 'number' && Number.isInteger(number) && number > 0) ||
+			new Set(canonicalNumbers).size !== canonicalNumbers.length
+		) {
+			return [];
+		}
+	}
+	evidence.forEach((item, index) => {
+		const number = canonicalNumbers[index];
+		if (renderedAnswer !== undefined && typeof number === 'number' && Number.isInteger(number) && number > 0) {
+			item.citation_number = number;
+		} else {
+			item.citation_number = index + 1;
+		}
+	});
 	const withMetadata = evidence.map((item, index) => {
 		const extended = item as EvidenceObject & { citation_number?: number; document_page?: number };
 		return {
 			item,
 			index,
-			citationNumber:
-				Number.isInteger(extended.citation_number) && Number(extended.citation_number) > 0
-					? Number(extended.citation_number)
-					: null,
+			citationNumber: extended.citation_number ?? index + 1,
 			documentPage:
 				Number.isInteger(extended.document_page) && Number(extended.document_page) > 0
 					? Number(extended.document_page)
 					: undefined
 		};
 	});
-	const hasExplicitNumbers = withMetadata.some((entry) => entry.citationNumber != null);
 	const records = new Map<number, CitationRecord>();
 	for (const entry of withMetadata) {
-		if (hasExplicitNumbers && entry.citationNumber == null) continue;
-		const citationNumber = entry.citationNumber ?? entry.index + 1;
+		const citationNumber = entry.citationNumber;
 		if (records.has(citationNumber)) continue;
 		const sourceType = citationSourceType(entry.item.source_kind);
 		const url = entry.item.source_url;
-		if (!/^https?:\/\//i.test(url) && !url.startsWith('/api/')) continue;
+		if (!isCitationUrl(url)) continue;
+		const supportingExcerpt = completeEvidenceStatement(entry.item);
 		records.set(citationNumber, {
 			citationNumber,
 			title: entry.item.title || entry.item.source_name || url,
@@ -1147,37 +1246,11 @@ function citationRecordsFromEvidence(evidence: EvidenceObject[]): CitationRecord
 			domain: citationDomain(url, sourceType),
 			publicationDate: entry.item.published_at || null,
 			sourceType,
-			supportingExcerpt: truncateEvidence(
-				entry.item.summary || entry.item.extracted_text || entry.item.title,
-				900
-			),
+			supportingExcerpt: truncateEvidence(supportingExcerpt, 900),
 			...(entry.documentPage ? { documentPage: entry.documentPage } : {})
 		});
 	}
 	return Array.from(records.values()).sort((a, b) => a.citationNumber - b.citationNumber);
-}
-
-function reconcileDocumentAndWebEvidence(
-	result: NewsroomAgentRunResult,
-	documents: DocumentContext[] | undefined
-): void {
-	if (!documents?.length) return;
-	const webEvidence = result.evidence.filter(
-		(item) => item.tool_used === 'openai_web_search' && item.citation_number
-	);
-	const documentEvidence = result.evidence.filter((item) => item.source_kind === 'user_document');
-	if (!webEvidence.length || !documentEvidence.length) return;
-	for (const [index, item] of webEvidence.entries()) item.citation_number = index + 1;
-	for (const [index, item] of documentEvidence.entries()) {
-		item.citation_number = webEvidence.length + index + 1;
-	}
-	const documentNotes = documentEvidence.slice(0, 3).map((item) => {
-		const excerpt = truncateEvidence(item.summary || item.extracted_text || item.title, 360);
-		return `- ${excerpt} [${item.citation_number}]`;
-	});
-	if (documentNotes.length) {
-		result.final_answer = `${result.final_answer.trim()}\n\n**Attached document evidence**\n\n${documentNotes.join('\n')}`;
-	}
 }
 
 function citationSourceType(value: EvidenceObject['source_kind']): CitationSourceType {
@@ -1197,12 +1270,6 @@ function citationDomain(url: string, sourceType: CitationSourceType): string {
 	} catch {
 		return 'Unknown source';
 	}
-}
-
-function citationMarkersInText(value: string): number[] {
-	return Array.from(value.matchAll(/\[(\d+)\]/g), (match) => Number(match[1])).filter((number) =>
-		Number.isInteger(number)
-	);
 }
 
 function buildDirectChatPrompt(messages: GatewayChatMessage[], conversationContext?: ConversationContext): string {
