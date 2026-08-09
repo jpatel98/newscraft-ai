@@ -59,7 +59,11 @@ function freshnessWindow(request: string, now: Date, localDate: string, timeZone
 			label: `the last ${days} days through ${localDate} (${timeZone})`
 		};
 	}
-	if (/\b(?:this|past) week\b|\blast seven days\b/i.test(request)) {
+	if (
+		/\b(?:this|past) week\b|\blast seven days\b|\b(?:last|past|previous|preceding)?\s*(?:seven|7)\s+(?:calendar\s+)?days?\b/i.test(
+			request
+		)
+	) {
 		return {
 			start: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
 			end: now,

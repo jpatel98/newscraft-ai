@@ -82,6 +82,8 @@ export interface EvidenceObject {
 	};
 	uncertainty?: string[];
 	page_role?: EvidencePageRole;
+	/** True only after the cited HTTP page itself was read during this run. */
+	direct_verified?: boolean;
 	temporal_scope?: EvidenceTemporalScope;
 	/** Requirements for which this normalized source is valid evidence. */
 	requirement_ids?: string[];
@@ -134,6 +136,7 @@ export interface EvidenceInput {
 	supporting_excerpt?: string | null;
 	uncertainty?: string[] | string | null;
 	page_role?: EvidencePageRole | null;
+	direct_verified?: boolean | null;
 	temporal_scope?: EvidenceTemporalScope | null;
 	requirement_ids?: string[] | null;
 	story_cluster_id?: string | null;
@@ -206,6 +209,7 @@ export function normalizeEvidence(input: EvidenceInput, defaults: Partial<Eviden
 		},
 		uncertainty: normalizeLimitations(input.uncertainty ?? defaults.uncertainty ?? limitations),
 		page_role: pageRole,
+		direct_verified: input.direct_verified ?? defaults.direct_verified,
 		temporal_scope: input.temporal_scope || defaults.temporal_scope,
 		requirement_ids: requirementIds,
 		story_cluster_id: nonEmpty(input.story_cluster_id) || defaults.story_cluster_id,
@@ -254,14 +258,17 @@ export function dedupeEvidence(evidence: EvidenceObject[]): EvidenceObject[] {
 			continue;
 		}
 		const requirementIds = [...new Set([...(existing.requirement_ids || []), ...(item.requirement_ids || [])])];
+		const preferred =
+			existing.direct_verified === true || item.direct_verified !== true ? existing : item;
+		const other = preferred === existing ? item : existing;
 		byUrl.set(key, {
-			...existing,
+			...preferred,
 			...(requirementIds.length ? { requirement_ids: requirementIds } : {}),
-			...(existing.supporting_excerpt && existing.supporting_excerpt.length >= (item.supporting_excerpt || '').length
+			...(preferred.supporting_excerpt && preferred.supporting_excerpt.length >= (other.supporting_excerpt || '').length
 				? {}
-				: { supporting_excerpt: item.supporting_excerpt }),
-			limitations: [...new Set([...existing.limitations, ...item.limitations])],
-			uncertainty: [...new Set([...(existing.uncertainty || []), ...(item.uncertainty || [])])]
+				: { supporting_excerpt: other.supporting_excerpt }),
+			limitations: [...new Set([...preferred.limitations, ...other.limitations])],
+			uncertainty: [...new Set([...(preferred.uncertainty || []), ...(other.uncertainty || [])])]
 		});
 	}
 	return [...byUrl.values()];
@@ -322,13 +329,23 @@ export function preparePublishableEvidence(
 ): { accepted: EvidenceObject[]; excluded: EvidenceObject[]; storyClusters: EvidenceStoryCluster[] } {
 	const accepted: EvidenceObject[] = [];
 	const excluded: EvidenceObject[] = [];
-	for (const raw of dedupeEvidence(evidence)) {
-		const hasCitationLinkedExcerpt = hasMeaningfulCitationExcerpt(raw);
+	const normalizedEvidence = dedupeEvidence(evidence);
+	const inputOrder = new Map(
+		normalizedEvidence.map((item, index) => [item.canonical_url, item.citation_number || index + 1])
+	);
+	for (const raw of normalizedEvidence) {
 		const item = { ...raw, citation_number: undefined, ledger_status: 'discovery' as ResearchEvidenceStatus };
 		if (item.source_url.startsWith('newsroom://')) {
 			item.temporal_scope = 'primary';
 			item.ledger_status = 'accepted';
 			accepted.push(item);
+			continue;
+		}
+		if (currentRequest && /^https?:\/\//i.test(item.source_url) && item.direct_verified === false) {
+			item.temporal_scope = 'discovery';
+			item.ledger_status = 'rejected';
+			item.rejection_reason = 'direct source page requires verification before current publication';
+			excluded.push(item);
 			continue;
 		}
 		const role = item.page_role || classifyEvidencePageRole(item.source_url, item.title, item.source_kind);
@@ -346,36 +363,28 @@ export function preparePublishableEvidence(
 			excluded.push(item);
 			continue;
 		}
+		if (!isUsableEvidence(item)) {
+			item.temporal_scope = 'discovery';
+			item.ledger_status = 'rejected';
+			item.rejection_reason = 'direct source page was not readable';
+			excluded.push(item);
+			continue;
+		}
 		const rawTimestamp = item.event_at || item.updated_at || item.published_at || '';
 		const dateOnlyScope = /^\d{4}-\d{2}-\d{2}$/.test(rawTimestamp)
 			? temporalScopeForLocalDate(rawTimestamp, temporal)
 			: null;
 		const timestamp = Date.parse(rawTimestamp);
-		const officialLive = role === 'official_live' && (item.source_kind === 'official' || item.source_kind === 'primary');
 		if (!Number.isFinite(timestamp)) {
-			if (officialLive) {
-				item.temporal_scope = 'primary';
-				item.ledger_status = 'accepted';
-				accepted.push(item);
-			} else if (
-				role === 'article' &&
-				isUsableEvidence(item) &&
-				hasCitationLinkedExcerpt
-			) {
-				item.temporal_scope = 'background';
-				item.ledger_status = 'accepted';
-				item.limitations = [...new Set([
-					...item.limitations,
-					'Publication or update time is unknown; do not present this source as confirmed within the requested freshness window.'
-				])];
-				item.uncertainty = [...new Set([...(item.uncertainty || []), 'publication time unknown'])];
-				accepted.push(item);
-			} else {
-				item.temporal_scope = 'background';
-				item.ledger_status = 'rejected';
-				item.rejection_reason = 'publication or event time is unknown';
-				excluded.push(item);
-			}
+			item.temporal_scope = 'discovery';
+			item.ledger_status = 'rejected';
+			item.rejection_reason = 'publication or update time is unknown';
+			item.limitations = [...new Set([
+				...item.limitations,
+				'Publication or update time could not be verified inside the current request window.'
+			])];
+			item.uncertainty = [...new Set([...(item.uncertainty || []), 'publication time unknown'])];
+			excluded.push(item);
 			continue;
 		}
 		if (dateOnlyScope === 'primary' || dateOnlyScope === 'fallback') {
@@ -412,8 +421,16 @@ export function preparePublishableEvidence(
 	accepted.sort((left, right) => {
 		const scope = scopeOrder(left.temporal_scope) - scopeOrder(right.temporal_scope);
 		if (scope) return scope;
-		const date = (Date.parse(right.event_at || right.published_at || '') || 0) - (Date.parse(left.event_at || left.published_at || '') || 0);
+		const date =
+			(Date.parse(right.event_at || right.updated_at || right.published_at || '') || 0) -
+			(Date.parse(left.event_at || left.updated_at || left.published_at || '') || 0);
 		if (date) return date;
+		// Keep the long-standing deterministic tie-breaker for equal-time sources.
+		// Provider order is preserved when citation numbers are unique; the URL
+		// fallback also keeps legacy records with duplicate/default numbers stable.
+		const leftOrder = inputOrder.get(left.canonical_url) || 0;
+		const rightOrder = inputOrder.get(right.canonical_url) || 0;
+		if (leftOrder !== rightOrder) return leftOrder - rightOrder;
 		return canonicalEvidenceUrl(left.source_url).localeCompare(canonicalEvidenceUrl(right.source_url));
 	});
 	const clustered = clusterEvidence(accepted);
@@ -422,14 +439,6 @@ export function preparePublishableEvidence(
 		excluded,
 		storyClusters: clustered.clusters
 	};
-}
-
-function hasMeaningfulCitationExcerpt(item: EvidenceObject): boolean {
-	const excerpt = item.supporting_excerpt?.replace(/\s+/g, ' ').trim() || '';
-	if (!item.citation_number || excerpt.length < 40) return false;
-	if (/^No source excerpt was returned\b/i.test(excerpt)) return false;
-	const normalizedExcerpt = excerpt.toLowerCase();
-	return normalizedExcerpt !== item.title.trim().toLowerCase() && normalizedExcerpt !== item.source_url.trim().toLowerCase();
 }
 
 export function classifyEvidencePageRole(

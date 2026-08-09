@@ -54,25 +54,48 @@ describe('provider usage ledger', () => {
 		const run = createLedgerRun(repository);
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(
-				async () =>
-					new Response(
-						JSON.stringify({
-							output_text: 'The source-backed search answer [1].',
-							citations: ['https://example.com/current-story'],
-							search_results: [
-								{
-									url: 'https://example.com/current-story',
-									title: 'Current story',
-									snippet: 'The source-backed search answer.',
-									date: new Date().toISOString()
-								}
-							],
-							usage: { input_tokens: 20, output_tokens: 6, total_tokens: 26 }
-						}),
-						{ status: 200, headers: { 'content-type': 'application/json' } }
-					)
-			)
+			vi.fn(async (input: string | URL | Request) => {
+				const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+				if (url === 'https://example.com/robots.txt') return new Response('', { status: 404 });
+				if (url.includes('example.com/current-story')) {
+					const title = 'Current story';
+					const body = 'The source-backed search answer.';
+					return new Response(
+						'<html><head><title>' +
+							title +
+							'</title><script type="application/ld+json">' +
+							JSON.stringify({
+								'@context': 'https://schema.org',
+								'@type': 'NewsArticle',
+								headline: title,
+								datePublished: new Date().toISOString(),
+								articleBody: body
+							}) +
+							'</script></head><body><article><h1>' +
+							title +
+							'</h1><p>' +
+							body +
+							'</p></article></body></html>',
+						{ status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }
+					);
+				}
+				return new Response(
+					JSON.stringify({
+						output_text: 'The source-backed search answer [1].',
+						citations: ['https://example.com/current-story'],
+						search_results: [
+							{
+								url: 'https://example.com/current-story',
+								title: 'Current story',
+								snippet: 'The source-backed search answer.',
+								date: new Date().toISOString()
+							}
+						],
+						usage: { input_tokens: 20, output_tokens: 6, total_tokens: 26 }
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				);
+			})
 		);
 
 		const output = await runWebSearchTool(repository, run.jobId, run.runId);

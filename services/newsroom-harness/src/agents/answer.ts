@@ -361,7 +361,7 @@ function groundedEvidenceChatAnswer(
 	const claims = selected.flatMap((item) => {
 		const statement = completeEvidenceStatement(item);
 		if (!statement) return [];
-		const date = item.event_at || item.published_at;
+		const date = item.event_at || item.updated_at || item.published_at;
 		const dateLabel = date ? producerTimestamp(date, timeZone) : '';
 		const fallback = item.temporal_scope === 'fallback' ? 'Earlier (last 24 hours)' : '';
 		const leadingText = [fallback, dateLabel].filter(Boolean).join(' — ');

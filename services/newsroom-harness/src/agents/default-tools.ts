@@ -6,9 +6,11 @@ import {
 	renderGroundedAnswer
 } from './grounded-answer.js';
 import {
+	classifyEvidencePageRole,
 	isUsableEvidence,
 	normalizeEvidence,
 	normalizeToolEvidence,
+	preparePublishableEvidence,
 	type EvidenceObject,
 	type EvidenceSourceKind
 } from './evidence.js';
@@ -29,6 +31,7 @@ import {
 import { extractUrls, firstUrl } from '../util/text.js';
 import { assessSourceQuality } from '../util/source-quality.js';
 import {
+	createNewsroomTemporalContext,
 	isCurrentEventQuery,
 	formatNewsroomTemporalContext,
 	newsroomTimeContext,
@@ -289,6 +292,7 @@ function sourceItemToEvidence(
 		...(sourceKind
 			? { page_role: sourceKind === 'official' || sourceKind === 'primary' ? 'official_live' as const : 'article' as const }
 			: {}),
+		direct_verified: false,
 		...(context.researchContract?.location || context.newsroomContext?.homeMarket
 			? { location: context.researchContract?.location || context.newsroomContext?.homeMarket }
 			: {})
@@ -561,15 +565,15 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				attempts,
 				finalOutcome: selected.evidence.length ? 'sourced' : answerText ? 'unsourced' : 'failed'
 			};
-				if (selected.evidence.length) {
-					const structured = groundedAnswerFromEvidence(selected.evidence, { kind: 'bullet' });
-					const renderedAnswer = renderGroundedAnswer(structured.answer, structured.ledger);
-					return {
-						status: 'ok',
-						evidence: selected.evidence,
-						discovery_leads: selected.discoveryLeads,
-						answer: renderedAnswer,
-						limitations: [],
+			if (selected.evidence.length) {
+				const structured = groundedAnswerFromEvidence(selected.evidence, { kind: 'bullet' });
+				const renderedAnswer = renderGroundedAnswer(structured.answer, structured.ledger);
+				return {
+					status: 'ok',
+					evidence: selected.evidence,
+					discovery_leads: selected.discoveryLeads,
+					answer: renderedAnswer,
+					limitations: [],
 					raw: { output_text: outputText },
 					diagnostics
 				};
@@ -580,19 +584,19 @@ function openAiWebSearchTool(): NewsroomTool<{ query: string }> {
 				citationNumbersInGroundedAnswer(answerText).length === 0 &&
 				!hasMalformedCitationSyntax(answerText)
 			) {
-					return {
-						status: 'ok',
-						evidence: selected.evidence,
-						discovery_leads: selected.discoveryLeads,
+				return {
+					status: 'ok',
+					evidence: selected.evidence,
+					discovery_leads: selected.discoveryLeads,
 					answer: answerText,
-						limitations: ['No usable source links were returned.'],
+					limitations: ['No usable source links were returned.'],
 					raw: { output_text: outputText },
 					diagnostics
 				};
 			}
-				return {
-					status: selected.upstreamStatus && selected.upstreamStatus >= 400 ? 'error' : 'unavailable',
-					discovery_leads: selected.discoveryLeads,
+			return {
+				status: selected.upstreamStatus && selected.upstreamStatus >= 400 ? 'error' : 'unavailable',
+				discovery_leads: selected.discoveryLeads,
 				limitations: [
 					selected.upstreamStatus
 						? publicProviderFailure(providerLabel(selected.provider), selected.upstreamStatus)
@@ -836,7 +840,11 @@ export async function fetchEvidenceUrls(
 		for (const { url, index } of bucket) {
 			try {
 				const source = await fetchSourceUrl(url, sourceFetchSignal(context.signal));
-				results[index] = fetchedSourceToEvidence(source, toolUsed);
+				results[index] = fetchedSourceToEvidence(source, toolUsed, {
+					requireVerifiedPublicationDate:
+						isCurrentEventQuery(context.prompt || '') ||
+						['current', 'relative'].includes(context.researchContract?.temporalWindow.kind || '')
+				});
 			} catch {
 				results[index] = normalizeEvidence({
 					source_name: sourceNameFromUrl(url),
@@ -862,13 +870,17 @@ export async function fetchEvidenceUrls(
 async function enrichMissingPublicationMetadata(
 	evidence: EvidenceObject[],
 	context: ToolRunContext,
-	query: string
+	query: string,
+	options: { requireDirectVerification?: boolean } = {}
 ): Promise<EvidenceObject[]> {
+	const requireDirectVerification = options.requireDirectVerification === true;
 	const candidates = evidence
 		.map((item, index) => ({ item, index }))
 		.filter(
 			({ item }) =>
-				(!item.published_at || /^No source excerpt was returned\b/i.test(item.extracted_text)) &&
+				(requireDirectVerification ||
+					(!item.published_at && !item.updated_at && !item.event_at) ||
+					/^No source excerpt was returned\b/i.test(item.extracted_text)) &&
 				/^https?:\/\//i.test(item.source_url)
 		)
 		.slice(0, 8);
@@ -885,26 +897,84 @@ async function enrichMissingPublicationMetadata(
 					candidate.item.source_url,
 					metadataFetchSignal(context.signal)
 				);
+				const directText = (fetched.contentText || fetched.summary || '').trim();
 				const publicationDate =
-					fetched.metadata?.publishedAt || publicationDateFromUrl(fetched.url);
-				enriched[candidate.index] = {
+					fetched.metadata?.publishedAt ||
+					(requireDirectVerification ? null : publicationDateFromUrl(fetched.url));
+				if (!requireDirectVerification) {
+					enriched[candidate.index] = {
+						...candidate.item,
+						published_at: publicationDate || candidate.item.published_at,
+						updated_at: fetched.metadata?.updatedAt || candidate.item.updated_at,
+						event_at: fetched.metadata?.eventAt || candidate.item.event_at,
+						...(fetched.contentText.trim()
+							? {
+									extracted_text: fetched.contentText,
+									summary: relevantFetchedExcerpt(
+										fetched.contentText,
+										query,
+										candidate.item.title,
+										fetched.summary || fetched.snippet || candidate.item.summary
+									)
+							  }
+							: {})
+					};
+					continue;
+				}
+				const title = fetched.title || candidate.item.title;
+				const updatedDate = fetched.metadata?.updatedAt || null;
+				const eventDate = fetched.metadata?.eventAt || null;
+				enriched[candidate.index] = normalizeEvidence({
 					...candidate.item,
-					published_at: publicationDate || candidate.item.published_at,
-					...(fetched.contentText.trim()
-						? {
-								extracted_text: fetched.contentText,
-								summary: relevantFetchedExcerpt(
-									fetched.contentText,
-									query,
-									candidate.item.title,
-									fetched.summary || fetched.snippet || candidate.item.summary
-								)
-							}
-						: {})
-				};
+					source_url: fetched.url,
+					canonical_url: fetched.metadata?.canonicalUrl || candidate.item.canonical_url,
+					direct_verified: Boolean(directText),
+					title,
+					published_at: publicationDate || (requireDirectVerification ? null : candidate.item.published_at),
+					updated_at: updatedDate || (requireDirectVerification ? null : candidate.item.updated_at),
+					event_at: eventDate || (requireDirectVerification ? null : candidate.item.event_at),
+					extracted_text: directText,
+					summary: directText
+						? relevantFetchedExcerpt(
+								fetched.contentText || fetched.summary,
+								query,
+								title,
+								fetched.summary || fetched.snippet || candidate.item.summary
+							)
+						: '',
+					confidence: directText ? Math.min(candidate.item.confidence, 0.78) : 0,
+					limitations: [
+						...candidate.item.limitations,
+						...(requireDirectVerification ? ['Direct page read completed for source verification.'] : [])
+					],
+					source_kind: candidate.item.source_kind,
+					page_role: classifyEvidencePageRole(fetched.url, title, candidate.item.source_kind),
+					ledger_status: directText ? 'accepted' : 'rejected',
+					...(directText
+						? {}
+						: {
+								temporal_scope: 'discovery' as const,
+								rejection_reason: 'direct source page could not be read'
+							})
+				});
 			} catch {
-				// Metadata enrichment is best-effort; an unknown publication date
-				// remains unknown rather than failing the whole research run.
+				if (requireDirectVerification) {
+					enriched[candidate.index] = normalizeEvidence({
+						...candidate.item,
+						published_at: null,
+						updated_at: null,
+						event_at: null,
+						extracted_text: '',
+						summary: '',
+						confidence: 0,
+						direct_verified: false,
+						ledger_status: 'rejected',
+						temporal_scope: 'discovery',
+						rejection_reason: 'direct source page could not be read'
+					});
+				}
+				// Metadata enrichment is best-effort for non-current requests; an
+				// unknown publication date remains unknown rather than failing the run.
 			}
 		}
 	});
@@ -977,9 +1047,10 @@ function fetchedSourceToEvidence(
 		summary: string;
 		snippet: string;
 		statusCode: number | null;
-		metadata?: { publishedAt?: string | null } | null;
+		metadata?: { publishedAt?: string | null; updatedAt?: string | null; eventAt?: string | null; canonicalUrl?: string | null } | null;
 	},
 	toolUsed: string,
+	options: { requireVerifiedPublicationDate?: boolean } = {},
 	limitations: string[] = []
 ): EvidenceObject {
 	const quality = assessSourceQuality({
@@ -999,7 +1070,12 @@ function fetchedSourceToEvidence(
 		accessed_at: source.fetchedAt,
 		tool_used: toolUsed,
 		title: source.title,
-		published_at: source.metadata?.publishedAt ?? publicationDateFromUrl(source.url),
+		direct_verified: true,
+		published_at:
+			source.metadata?.publishedAt ??
+			(options.requireVerifiedPublicationDate ? null : publicationDateFromUrl(source.url)),
+		updated_at: source.metadata?.updatedAt ?? null,
+		event_at: source.metadata?.eventAt ?? null,
 		extracted_text: source.contentText,
 		summary: source.summary || source.snippet,
 		confidence: quality.usable ? 0.75 : 0,
@@ -1096,10 +1172,10 @@ async function interpretProviderWebSearch(input: {
 			apiKey: input.apiKey,
 			model: input.model,
 			query: input.query,
-				newsroomContext: input.newsroomContext,
-				temporalContext: input.context.temporalContext,
-				researchContract: input.context.researchContract,
-				signal: searchSignal
+			newsroomContext: input.newsroomContext,
+			temporalContext: input.context.temporalContext,
+			researchContract: input.context.researchContract,
+			signal: searchSignal
 		});
 	} catch (err) {
 		if (input.context.signal?.aborted) throw err;
@@ -1165,7 +1241,40 @@ async function interpretProviderWebSearch(input: {
 	const contractFiltered = filterEvidenceForResearchContract(urlAllowed, researchContract);
 	evidence = contractFiltered.accepted;
 	discoveryLeads.push(...contractFiltered.excluded);
-	if (needsPublicationMetadata(input.query) || researchContract.temporalWindow.kind === 'current' || researchContract.temporalWindow.kind === 'relative') {
+	const currentRequest =
+		isCurrentEventQuery(input.query) || ['current', 'relative'].includes(researchContract.temporalWindow.kind);
+	if (currentRequest) {
+		// Provider search metadata is a lead, not proof. Fetch every candidate
+		// page before a current/latest result can enter the evidence ledger so a
+		// stale page cannot borrow the search hit's date or title.
+		discoveryLeads.push(
+			...evidence.map((item) => ({
+				...item,
+				ledger_status: 'rejected' as const,
+				temporal_scope: 'discovery' as const,
+				rejection_reason: 'raw web-search result requires direct page verification'
+			}))
+		);
+		evidence = evidence.slice(0, 8);
+		evidence = await enrichMissingPublicationMetadata(
+			evidence,
+			{ ...input.context, signal: searchSignal },
+			input.query,
+			{ requireDirectVerification: true }
+		);
+		const publishable = preparePublishableEvidence(
+			evidence,
+			input.context.temporalContext ||
+				createNewsroomTemporalContext({
+					now: new Date(),
+					timeZone: input.newsroomContext?.timezone || newsroomTimeZone(),
+					request: input.query
+				}),
+			true
+		);
+		evidence = publishable.accepted;
+		discoveryLeads.push(...publishable.excluded);
+	} else if (needsPublicationMetadata(input.query)) {
 		evidence = await enrichMissingPublicationMetadata(
 			evidence,
 			{ ...input.context, signal: searchSignal },
@@ -1180,7 +1289,6 @@ async function interpretProviderWebSearch(input: {
 		// to carry citation-like syntax into the tool boundary.
 		outputText = '';
 	}
-	const currentRequest = isCurrentEventQuery(input.query) || ['current', 'relative'].includes(researchContract.temporalWindow.kind);
 	const usable = evidence.length > 0 || (!currentRequest && Boolean(outputText.trim()));
 	return {
 		provider: input.provider,
@@ -1194,9 +1302,8 @@ async function interpretProviderWebSearch(input: {
 		...(usable
 			? {}
 			: {
-					failureCategory:
-					'no_usable_sources'
-				}),
+				failureCategory: 'no_usable_sources'
+			}),
 		usable
 	};
 }
@@ -1704,10 +1811,15 @@ function orderedUrlAnnotations(annotations: Array<UrlAnnotation | { url?: string
 				/^https?:\/\//i.test(annotation.url)
 		)
 		.sort((left, right) => {
-			const leftStart = Number(left.start_index ?? Number.MAX_SAFE_INTEGER);
-			const rightStart = Number(right.start_index ?? Number.MAX_SAFE_INTEGER);
-			if (leftStart !== rightStart) return leftStart - rightStart;
-			return normalizedWebSourceUrl(left.url).localeCompare(normalizedWebSourceUrl(right.url));
+			const leftHasPosition = typeof left.start_index === 'number' && Number.isFinite(left.start_index);
+			const rightHasPosition = typeof right.start_index === 'number' && Number.isFinite(right.start_index);
+			if (leftHasPosition && rightHasPosition && left.start_index !== right.start_index) {
+				return (left.start_index || 0) - (right.start_index || 0);
+			}
+			if (leftHasPosition !== rightHasPosition) return leftHasPosition ? -1 : 1;
+			// When the provider omitted offsets, preserve its annotation order; the
+			// array order is the only remaining citation-order signal.
+			return 0;
 		});
 }
 
@@ -1719,6 +1831,7 @@ type WebSourceCandidate = {
 	summary: string;
 	limitations: string[];
 	confidence: number;
+	direct_verified?: boolean;
 	published_at: string | null;
 	citation_number?: number;
 	supporting_excerpt?: string;
@@ -1756,10 +1869,11 @@ function webSource(
 		source_url: canonicalUrl,
 		title,
 		extracted_text: summary || titleSummary || 'Web search cited this source.',
-		summary: summary || titleSummary || 'Web search cited this source; verify the source page directly before publication.',
-		limitations: ['Provider web_search result; cite and verify source page before publication.'],
-		confidence: 0.6,
-		published_at: options.publishedAt || publicationDateFromUrl(canonicalUrl),
+			summary: summary || titleSummary || 'Web search cited this source; verify the source page directly before publication.',
+			limitations: ['Provider web_search result; cite and verify source page before publication.'],
+			confidence: 0.6,
+			direct_verified: false,
+			published_at: options.publishedAt || publicationDateFromUrl(canonicalUrl),
 		citation_number: options.citationNumber,
 		supporting_excerpt: options.supportingExcerpt
 	};

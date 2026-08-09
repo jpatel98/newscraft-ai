@@ -77,32 +77,93 @@ export interface StreamCallbacks {
 	onCitations?: (citations: CitationRecord[]) => void;
 	onPlan?: (plan: StreamPlanUpdate) => void;
 	onTitle?: (title: string) => void;
+	onPartial?: () => void;
 	signal?: AbortSignal;
 }
 
+const CLIENT_STREAM_MAX_MS = 150_000;
+const CLIENT_STREAM_IDLE_MS = 45_000;
+
+function createClientWatchdog(inputSignal?: AbortSignal): {
+	signal: AbortSignal | undefined;
+	touch: () => void;
+	timedOut: () => boolean;
+	cleanup: () => void;
+} {
+	if (!inputSignal && typeof AbortSignal.timeout === 'function') {
+		const signal = AbortSignal.timeout(CLIENT_STREAM_MAX_MS);
+		return { signal, touch: () => {}, timedOut: () => signal.aborted, cleanup: () => {} };
+	}
+	const timeoutController = new AbortController();
+	let reason: 'max' | 'idle' | null = null;
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	const signal = inputSignal
+		? typeof AbortSignal.any === 'function'
+			? AbortSignal.any([inputSignal, timeoutController.signal])
+			: (() => {
+					const combined = new AbortController();
+					const forward = (source: AbortSignal) => () => combined.abort(source.reason);
+					if (inputSignal.aborted) combined.abort(inputSignal.reason);
+					else inputSignal.addEventListener('abort', forward(inputSignal), { once: true });
+					timeoutController.signal.addEventListener('abort', forward(timeoutController.signal), { once: true });
+					return combined.signal;
+				})()
+			: timeoutController.signal;
+	const maxTimer = setTimeout(() => {
+		reason = 'max';
+		timeoutController.abort(new Error('interactive chat stream timed out'));
+	}, CLIENT_STREAM_MAX_MS);
+	const touch = () => {
+		if (idleTimer) clearTimeout(idleTimer);
+		idleTimer = setTimeout(() => {
+			reason = 'idle';
+			timeoutController.abort(new Error('interactive chat stream became idle'));
+		}, CLIENT_STREAM_IDLE_MS);
+	};
+	touch();
+	return {
+		signal,
+		touch,
+		timedOut: () => reason !== null,
+		cleanup: () => {
+			clearTimeout(maxTimer);
+			if (idleTimer) clearTimeout(idleTimer);
+		}
+	};
+}
+
+function clientWatchdogError(): ChatStreamError {
+	return new ChatStreamError('interactive chat stream exceeded its client safety bound', {
+		publicMessage: 'The research run took too long to finish. Any saved partial answer is still available; retry to continue.'
+	});
+}
+
 export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise<void> {
+	const watchdog = createClientWatchdog(cb.signal);
 	let r: Response;
 	try {
-		r = await fetch('/api/chat/stream', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(args),
-			signal: cb.signal
-		});
-	} catch (error) {
-		if (isAbortError(error)) throw error;
-		throw new ChatStreamError(`stream fetch failed: ${toDiagnostic(error)}`, { cause: error });
-	}
-	if (!r.ok) {
-		const body = await r.text().catch(() => '');
-		throw new ChatStreamError(`stream ${r.status}: ${body || r.statusText}`);
-	}
-	if (!r.body) throw new ChatStreamError('stream response body missing');
+		try {
+			r = await fetch('/api/chat/stream', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(args),
+				signal: watchdog.signal
+			});
+		} catch (error) {
+			if (watchdog.timedOut()) throw clientWatchdogError();
+			if (isAbortError(error)) throw error;
+			throw new ChatStreamError(`stream fetch failed: ${toDiagnostic(error)}`, { cause: error });
+		}
+		if (!r.ok) {
+			const body = await r.text().catch(() => '');
+			throw new ChatStreamError(`stream ${r.status}: ${body || r.statusText}`);
+		}
+		if (!r.body) throw new ChatStreamError('stream response body missing');
 
-	const streamState = new StreamEventState();
-	let completed = false;
-	try {
+		const streamState = new StreamEventState();
+		let completed = false;
 		for await (const ev of readSSE(r.body)) {
+			watchdog.touch();
 			if (ev.event === 'agent.meta') {
 				try {
 					cb.onMeta?.(JSON.parse(ev.data) as { conversation_id: string });
@@ -112,7 +173,8 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 				continue;
 			}
 			for (const update of streamState.apply(ev.event, ev.data)) {
-				if (update.done) completed = true;
+				if (update.done || update.partial) completed = true;
+				if (update.partial) cb.onPartial?.();
 				if (update.title) cb.onTitle?.(update.title);
 				if (update.replace !== undefined) cb.onReplace?.(update.replace);
 				if (update.delta) cb.onDelta(update.delta);
@@ -127,10 +189,14 @@ export async function streamChat(args: StreamArgs, cb: StreamCallbacks): Promise
 			}
 		}
 		if (!completed && !cb.signal?.aborted) {
+			if (watchdog.timedOut()) throw clientWatchdogError();
 			throw new ChatStreamError('stream ended before a completed response was received');
 		}
 	} catch (error) {
+		if (watchdog.timedOut()) throw clientWatchdogError();
 		if (isAbortError(error) || error instanceof ChatStreamError) throw error;
 		throw new ChatStreamError(`stream read failed: ${toDiagnostic(error)}`, { cause: error });
+	} finally {
+		watchdog.cleanup();
 	}
 }

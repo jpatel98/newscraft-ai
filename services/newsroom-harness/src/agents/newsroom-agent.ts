@@ -203,6 +203,11 @@ const WEB_SEARCH_FALLBACK_TOOLS = new Set<string>([
 	NEWSROOM_TOOL_NAMES.pdfTextExtractor
 ]);
 const MAX_FOLLOW_UP_FETCHES = 2;
+const CURRENT_DISCOVERY_TOOLS = new Set<string>([
+	NEWSROOM_TOOL_NAMES.webSearch,
+	NEWSROOM_TOOL_NAMES.sourceMonitor,
+	NEWSROOM_TOOL_NAMES.sourceFeedFetcher
+]);
 const PLANNER_TIMEOUT_MS = 10_000;
 const MAX_LOOP_ITERATIONS = 4;
 const MAX_LOOP_ACTIONS_PER_ITERATION = 2;
@@ -981,8 +986,8 @@ export class DisciplinedNewsroomAgent {
 			request: resolvedRoutingPrompt,
 			contract: researchContract,
 			evidence,
-				documents: context.documents,
-				answer: toolAnswers.at(-1),
+			documents: context.documents,
+			answer: toolAnswers.at(-1),
 			requirementExecution: requirementExecutionForQueue(queue, researchContract),
 			sharedBudgetExhausted: sharedBudgetExhausted(ledger)
 		});
@@ -1296,24 +1301,25 @@ export class DisciplinedNewsroomAgent {
 		// Research updates need publication dates. Ordinary chat prioritizes
 		// latency, but a current-news chat must read undated discoveries before
 		// the freshness guard can accept them.
+		const currentAssignment =
+			context.outputStyle !== 'chat' || context.conversationContext?.currentTurn?.freshness === 'current';
 		if (
-			(context.outputStyle !== 'chat' ||
-				context.conversationContext?.currentTurn?.freshness === 'current') &&
-			step.tool === NEWSROOM_TOOL_NAMES.webSearch &&
+			(context.outputStyle !== 'chat' || currentAssignment) &&
+			CURRENT_DISCOVERY_TOOLS.has(step.tool) &&
 			output.status === 'ok' &&
 			this.stepCanBeQueued(NEWSROOM_TOOL_NAMES.urlFetchRead)
 		) {
-			const recoverCurrentEvidence =
-				context.conversationContext?.currentTurn?.freshness === 'current' &&
-				!evidence.some(isUsableEvidence);
+			const recoverCurrentEvidence = currentAssignment && !evidence.some(isUsableEvidence);
 			const datedUsable = evidence.filter((item) => isUsableEvidence(item) && item.published_at).length;
-			if (datedUsable < 2) {
+			if (currentAssignment || datedUsable < 2) {
 				const queuedUrls = new Set(queue.map((item) => item.input));
 				const candidates = (output.evidence || [])
 					.filter(
 						(item) =>
 							/^https?:\/\//i.test(item.source_url) &&
-							(!item.published_at || recoverCurrentEvidence) &&
+							(currentAssignment
+								? item.direct_verified !== true
+								: !item.published_at || recoverCurrentEvidence) &&
 							isUsableEvidence(item) &&
 							!queuedUrls.has(item.source_url)
 					)
@@ -1330,8 +1336,8 @@ export class DisciplinedNewsroomAgent {
 						capability: 'direct_read',
 						intentKey: `${step.requirementId || step.id}:direct_read:${candidate.canonical_url || candidate.source_url}`,
 						status: 'pending'
-					});
-					queuedFetches += 1;
+						});
+						queuedFetches += 1;
 				}
 			}
 		}
@@ -1553,7 +1559,9 @@ function applyTemporalGuard(
 	const prepared = preparePublishableEvidence(output.evidence || [], temporalContext, currentRequest);
 	const uncertain = prepared.accepted.filter((item) => item.temporal_scope === 'background');
 	const accepted = prepared.accepted.filter((item) => item.temporal_scope !== 'background');
-	if (!prepared.excluded.length && !uncertain.length) return output;
+	if (!prepared.excluded.length && !uncertain.length) {
+		return { ...output, evidence: accepted };
+	}
 	const rejected = [
 		...prepared.excluded,
 		...uncertain.map((item) => ({

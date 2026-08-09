@@ -113,6 +113,49 @@ describe('streamChat error contract', () => {
 		expect(onDelta).toHaveBeenCalledWith('Hello');
 	});
 
+	it('treats a bounded partial-answer terminal event as a completed client turn', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				sseResponse(
+					'event: response.output_text.delta\n' +
+						'data: {"delta":"Partial answer."}\n\n' +
+						'event: agent.answer.partial\n' +
+						'data: {"reason":"bounded_interactive_phase"}\n\n' +
+						'data: [DONE]\n\n'
+				)
+			)
+		);
+		const onPartial = vi.fn();
+		const onDelta = vi.fn();
+
+		await streamChat({ conversation_id: 'convo_1', content: 'Research this.' }, { onDelta, onPartial });
+
+		expect(onDelta).toHaveBeenCalledWith('Partial answer.');
+		expect(onPartial).toHaveBeenCalledTimes(1);
+	});
+
+	it('surfaces final persistence failure as a retryable stream error', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				sseResponse(
+					'event: response.output_text.delta\n' +
+						'data: {"delta":"Generated answer."}\n\n' +
+						'event: agent.persistence_error\n' +
+						'data: {"message":"The answer could not be saved. Retry."}\n\n'
+				)
+			)
+		);
+
+		await expect(
+			streamChat({ conversation_id: 'convo_1', content: 'Research this.' }, { onDelta: vi.fn() })
+		).rejects.toMatchObject({
+			name: 'ChatStreamError',
+			diagnosticMessage: 'stream event failed: The answer could not be saved. Retry.'
+		});
+	});
+
 	it('forwards authoritative answer replacements without appending the draft', async () => {
 		vi.stubGlobal(
 			'fetch',

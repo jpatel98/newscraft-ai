@@ -137,7 +137,12 @@ function uniqueCitationRecords(citations: ReadonlyArray<CitationRecord>): Citati
 }
 
 function numberValue(value: unknown): number | undefined {
-	return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+	if (typeof value === 'number' && Number.isFinite(value)) return value;
+	if (typeof value === 'string' && value.trim()) {
+		const parsed = Number(value);
+		return Number.isFinite(parsed) ? parsed : undefined;
+	}
+	return undefined;
 }
 
 function sanitizeProvenanceValue(key: string, value: unknown, depth = 0): unknown {
@@ -312,7 +317,13 @@ function normalizeSource(value: unknown): PersistedSource | null {
 		firstSeenAt: numberValue(o.firstSeenAt) ?? numberValue(o.updatedAt) ?? now,
 		lastSeenAt: numberValue(o.lastSeenAt) ?? numberValue(o.updatedAt) ?? now,
 		used: o.used === true || (o.used !== false && sourceStatusIsUsed(status)),
-		...(stepId ? { stepId } : {})
+		...(stepId ? { stepId } : {}),
+		verified: o.verified === true,
+		currentVerified: o.currentVerified === true,
+		temporalScope: stringValue(o.temporalScope ?? o.temporal_scope) ?? null,
+		publishedAt: stringValue(o.publishedAt ?? o.published_at) ?? null,
+		updatedAt: stringValue(o.updatedAt ?? o.updated_at) ?? null,
+		eventAt: stringValue(o.eventAt ?? o.event_at) ?? null
 	};
 }
 

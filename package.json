@@ -27,7 +27,7 @@
 		"smoke:research:live": "NEWSROOM_HARNESS_LIVE_RESEARCH_SMOKE=1 pnpm --filter @newscraft/newsroom-harness test -- tests/runtime.test.ts",
 		"test:watch": "vitest",
 		"db:generate": "drizzle-kit generate",
-		"db:migrate": "drizzle-kit migrate",
+		"db:migrate": "pnpm --filter @newscraft/newsroom-harness exec tsx ../../scripts/run-db-migrations.ts",
 		"storage:provision": "node scripts/provision-newsroom-documents.mjs",
 		"hash-password": "node scripts/hash-password.mjs"
 	},

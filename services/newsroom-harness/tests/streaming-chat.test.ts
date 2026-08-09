@@ -691,6 +691,40 @@ describe('runtime streamed chat', () => {
 		expect(answer).not.toContain('This answer should never arrive');
 	});
 
+	it('terminates when discovery completes but the next synthesis decision hangs', async () => {
+		const registry = new ToolRegistry();
+		registry.register(
+			streamingStubTool({
+				name: 'openai_web_search',
+				category: 'web_search_provider',
+				deltas: [],
+				answer: 'A verified Toronto development was reported today.'
+			})
+		);
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 4,
+			runTimeoutMs: 50,
+			retryLimit: 0,
+			modelProvider: 'openai',
+			openAiApiKey: 'live-key',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: true },
+			loopDecision: () => new Promise(() => {}),
+			registry
+		});
+
+		let answer = '';
+		for await (const delta of runtime.streamChat(
+			[{ role: 'user', content: 'What are the latest developing stories in Toronto?' }],
+			{}
+		)) {
+			answer += delta;
+		}
+		expect(answer).toContain('Current as of');
+		expect(answer).toMatch(
+			/(?:Live research could not finish|I couldn't verify this from readable sources) right now\./
+		);
+	});
+
 	it('buffers streaming when the conversation guard may reject constrained evidence', async () => {
 		let hadDeltaSink: boolean | null = null;
 		const registry = new ToolRegistry();

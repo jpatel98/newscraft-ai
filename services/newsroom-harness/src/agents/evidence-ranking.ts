@@ -143,7 +143,7 @@ function rankEvidence(item: EvidenceObject, topic: ConversationTopic, temporalCo
 		ratio(locationMatches, locationTerms.length, 0.55),
 		relevance
 	);
-	if (!item.published_at && !item.event_at) notes.push('missing date metadata lowered freshness');
+	if (!item.published_at && !item.updated_at && !item.event_at) notes.push('missing date metadata lowered freshness');
 	if (!item.entities?.length) notes.push('missing entity metadata was treated as uncertainty');
 	if (!item.location) notes.push('missing location metadata was treated as uncertainty');
 	if (hardReject) notes.push(`hard rejected: ${hardReject}`);
@@ -197,7 +197,7 @@ function baseRanking(item: EvidenceObject): EvidenceRanking {
 		...(hardReject ? { hard_reject_reason: hardReject } : {}),
 		factors: {
 			relevance: 0.5,
-			freshness: item.published_at || item.event_at ? 0.8 : 0.45,
+			freshness: item.published_at || item.updated_at || item.event_at ? 0.8 : 0.45,
 			source_quality: sourceQuality,
 			directness: 0.5,
 			readability,
@@ -208,7 +208,7 @@ function baseRanking(item: EvidenceObject): EvidenceRanking {
 }
 
 function freshnessScore(item: EvidenceObject, topic: ConversationTopic, notes: string[], temporalContext?: NewsroomTemporalContext): number {
-	const date = Date.parse(item.event_at || item.published_at || '');
+	const date = Date.parse(item.event_at || item.updated_at || item.published_at || '');
 	if (!Number.isFinite(date)) return 0.4;
 	if (!isCurrentTopic(topic)) return 0.8;
 	const reference = referenceTime(temporalContext);
@@ -225,10 +225,14 @@ function freshnessScore(item: EvidenceObject, topic: ConversationTopic, notes: s
 
 function incompatibleTime(item: EvidenceObject, topic: ConversationTopic, temporalContext?: NewsroomTemporalContext): boolean {
 	if (!isCurrentTopic(topic)) return false;
-	const date = Date.parse(item.event_at || item.published_at || '');
-	if (!Number.isFinite(date)) return false;
+	// This ranking helper is also used by conversation-continuity code that may
+	// not have the request-owned clock yet. Leave that decision to the explicit
+	// publishability pass instead of rejecting a source on a missing reference.
+	if (!temporalContext) return false;
+	const date = Date.parse(item.event_at || item.updated_at || item.published_at || '');
+	if (!Number.isFinite(date)) return true;
 	const reference = referenceTime(temporalContext);
-	return Number.isFinite(reference) && Math.abs(reference - date) > 14 * 24 * 3_600_000;
+	return !Number.isFinite(reference) || Math.abs(reference - date) > 14 * 24 * 3_600_000;
 }
 
 function referenceTime(temporalContext?: NewsroomTemporalContext): number {
@@ -309,8 +313,8 @@ function compareRankedEvidence(
 ): number {
 	const score = right.ranking.score - left.ranking.score;
 	if (score !== 0) return score;
-	const rightDate = Date.parse(right.item.event_at || right.item.published_at || '') || 0;
-	const leftDate = Date.parse(left.item.event_at || left.item.published_at || '') || 0;
+	const rightDate = Date.parse(right.item.event_at || right.item.updated_at || right.item.published_at || '') || 0;
+	const leftDate = Date.parse(left.item.event_at || left.item.updated_at || left.item.published_at || '') || 0;
 	if (rightDate !== leftDate) return rightDate - leftDate;
 	return `${left.item.source_url}\n${left.item.title}`.localeCompare(
 		`${right.item.source_url}\n${right.item.title}`

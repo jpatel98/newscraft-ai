@@ -143,6 +143,7 @@
 		};
 		let asstText = seedContent;
 		let streamEstablished = false;
+		let partialAnswer = false;
 		let keepFailureAssistant = false;
 		let failureToRethrow: unknown = null;
 		let artifactCitations: CitationRecord[] = [];
@@ -220,10 +221,14 @@
 					onPlan: (plan) => {
 						noteStreamEstablished();
 						chat.setPlan(plan);
+					},
+					onPartial: () => {
+						noteStreamEstablished();
+						partialAnswer = true;
 					}
 				});
 				if (isRetryableSend) failedRetry = null;
-				asstMsg.partial = false;
+				asstMsg.partial = partialAnswer;
 				asstMsg.streaming = false;
 				overlay = [...overlay];
 				updateArtifact({ content: asstText, citations: artifactCitations, status: 'ready' });
@@ -265,8 +270,11 @@
 				if (artifact) updateArtifact({ content: asstText, citations: artifactCitations, status: 'error' });
 				overlay = [...overlay];
 			} finally {
-				try {
-					await invalidateAll();
+					// Release the composer before any best-effort reload. A failed or
+					// stalled invalidation must never strand the browser in active mode.
+					if (chat.abort === controller) chat.endStream();
+					try {
+						await invalidateAll();
 				} catch {
 					/* ignore */
 				}
@@ -280,7 +288,6 @@
 					next.delete(resumingId);
 					hiddenIds = next;
 				}
-				if (chat.abort === controller) chat.endStream();
 				if (failureToRethrow) throw failureToRethrow;
 			}
 		})();

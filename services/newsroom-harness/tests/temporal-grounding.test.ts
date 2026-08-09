@@ -16,8 +16,8 @@ describe('request-scoped temporal grounding and citation integrity', () => {
 
 		const prepared = preparePublishableEvidence(fixtureEvidence(), temporal, true);
 		expect(prepared.accepted.map((item) => item.title)).toEqual([
-			'Toronto transit service restored',
 			'City emergency status',
+			'Toronto transit service restored',
 			'Ontario housing announcement'
 		]);
 		expect(prepared.accepted.map((item) => item.temporal_scope)).toEqual(['primary', 'primary', 'fallback']);
@@ -30,7 +30,7 @@ describe('request-scoped temporal grounding and citation integrity', () => {
 		]));
 	});
 
-	it('keeps date-only current articles and labels readable unknown-date articles as partial evidence', () => {
+	it('keeps dated current articles and excludes readable candidates whose date stays unknown', () => {
 		const dateOnly = normalizeEvidence({
 			source_name: 'Toronto Star',
 			source_kind: 'news_report',
@@ -62,17 +62,80 @@ describe('request-scoped temporal grounding and citation integrity', () => {
 
 		const prepared = preparePublishableEvidence([dateOnly, unknownDate], temporal, true);
 
-		expect(prepared.excluded).toHaveLength(0);
 		expect(prepared.accepted).toEqual([
-			expect.objectContaining({ title: dateOnly.title, temporal_scope: 'primary', ledger_status: 'accepted' }),
-			expect.objectContaining({
-				title: unknownDate.title,
-				temporal_scope: 'background',
-				ledger_status: 'accepted',
-				uncertainty: expect.arrayContaining(['publication time unknown'])
-			})
+			expect.objectContaining({ title: dateOnly.title, temporal_scope: 'primary', ledger_status: 'accepted' })
 		]);
-		expect(prepared.accepted[1].limitations.join(' ')).toContain('do not present this source as confirmed');
+		expect(prepared.excluded).toEqual([
+			expect.objectContaining({
+			title: unknownDate.title,
+			temporal_scope: 'discovery',
+			ledger_status: 'rejected',
+			rejection_reason: 'publication or update time is unknown',
+			uncertainty: expect.arrayContaining(['publication time unknown'])
+		})
+	]);
+	});
+
+	it('rejects a 2026-looking title when the verified publication date is from 2025', () => {
+		const misleadingTitle = normalizeEvidence({
+			source_name: 'AGO',
+			source_kind: 'official',
+			page_role: 'article',
+			source_url: 'https://example.org/ago/2026-exhibitions',
+			title: 'AGO announces 2026 exhibition line-up',
+			published_at: '2025-10-22T15:00:00.000Z',
+			extracted_text: 'The page describes an exhibition line-up announced in October 2025.',
+			summary: 'A 2025 announcement with a 2026-looking title.',
+			accessed_at: frozenNow.toISOString(),
+			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+			confidence: 0.9,
+			limitations: []
+		});
+
+		const prepared = preparePublishableEvidence([misleadingTitle], temporal, true);
+		expect(prepared.accepted).toEqual([]);
+		expect(prepared.excluded[0]).toMatchObject({
+			title: misleadingTitle.title,
+			temporal_scope: 'background',
+			ledger_status: 'rejected',
+			rejection_reason: 'publication or event time is outside the request window'
+		});
+	});
+
+	it('keeps a dated feed or search lead in discovery until its direct page is read', () => {
+		const lead = normalizeEvidence({
+			source_name: 'Publisher feed',
+			source_kind: 'news_report',
+			source_url: 'https://publisher.example/news/lead',
+			title: 'A same-day feed lead',
+			published_at: '2026-07-31T15:00:00.000Z',
+			extracted_text: 'The feed describes a same-day development but is not the article page.',
+			summary: 'A same-day feed lead.',
+			accessed_at: frozenNow.toISOString(),
+			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+			confidence: 0.8,
+			limitations: [],
+			direct_verified: false
+		});
+		const directPage = normalizeEvidence({
+			...lead,
+			extracted_text: 'The readable article page confirms the same-day development with direct detail.',
+			summary: 'The readable article page confirms the same-day development.',
+			direct_verified: true,
+			tool_used: NEWSROOM_TOOL_NAMES.urlFetchRead
+		});
+
+		const leadOnly = preparePublishableEvidence([lead], temporal, true);
+		const verified = preparePublishableEvidence([lead, directPage], temporal, true);
+
+		expect(leadOnly.accepted).toEqual([]);
+		expect(leadOnly.excluded[0]).toMatchObject({
+			temporal_scope: 'discovery',
+			ledger_status: 'rejected',
+			rejection_reason: 'direct source page requires verification before current publication'
+		});
+		expect(verified.accepted).toHaveLength(1);
+		expect(verified.accepted[0]).toMatchObject({ direct_verified: true, temporal_scope: 'primary' });
 	});
 
 	it('synthesizes three search passes once and assigns only contiguous supporting citations', async () => {
@@ -173,6 +236,7 @@ function fixtureEvidence() {
 		make({
 			source_name: 'City of Toronto', source_kind: 'official', page_role: 'official_live',
 			source_url: 'https://toronto.ca/status/emergency', title: 'City emergency status', published_at: null,
+			updated_at: frozenNow.toISOString(),
 			extracted_text: 'The city status page reports no active city-wide emergency.',
 			summary: 'The city status page reports no active city-wide emergency.'
 		}),

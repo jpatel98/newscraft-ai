@@ -102,9 +102,10 @@ user-facing UI.
   router (`router.ts`) remains the offline/failure fallback and still supplies
   budgets and answer mode. The loop executes a growable step queue and
   observes after each step: failed source steps append a web-search fallback,
-  and report-style runs append `url_fetch_read` follow-ups (max 2) to recover
-  publication dates from undated search citations (chat skips these for
-  latency). `agent.plan` SSE snapshots stream every step-status change.
+  and report-style or current-news chat runs append bounded `url_fetch_read`
+  follow-ups (max 2) to recover publication dates from undated discovery
+  citations. Non-current conversational turns skip that extra fetch for
+  latency. `agent.plan` SSE snapshots stream every step-status change.
 - **True streaming (M1, shipped 2026-06-10):** the `openai_web_search` tool
   streams its Responses API call when an answer-delta sink is attached, the
   agent forwards deltas from the first answer-producing tool, and the runtime
@@ -181,6 +182,14 @@ user-facing UI.
   accounts, conversations, messages, settings, per-message provenance,
   persisted diagnostics, revocable sessions, organization foundations, and
   frozen internal agent-job state.
+- **App schema lifecycle** — normal page, health, favicon, and chat requests
+  are read/write paths only; they never bootstrap schema DDL. Run
+  `corepack pnpm db:migrate` explicitly before serving a new deployment. The
+  versioned runner records applied migrations in
+  `newscraft_schema_migrations` and holds a transaction-scoped Postgres
+  advisory lock so concurrent cold starts converge safely. Set
+  `NEWSCRAFT_TEST_DATABASE_URL` for isolated Postgres integration tests; it
+  takes precedence over `DATABASE_URL`.
 - **Harness DB (local only)** — SQLite: jobs (backing store for stories), runs,
   sources, source snapshots, reports, events. The production harness is
   stateless and does not use this database.

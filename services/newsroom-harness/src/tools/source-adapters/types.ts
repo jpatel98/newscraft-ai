@@ -23,6 +23,7 @@ export interface SourceArticleMetadata {
 	siteName?: string | null;
 	publishedAt?: string | null;
 	updatedAt?: string | null;
+	eventAt?: string | null;
 	authors?: string[];
 	image?: string | null;
 	section?: string | null;

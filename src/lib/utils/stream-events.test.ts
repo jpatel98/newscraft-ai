@@ -23,7 +23,9 @@ describe('StreamEventState', () => {
 				name: 'web_search',
 				status: 'start',
 				url: 'https://example.com/story',
-				title: 'Story'
+				title: 'Story',
+				verified: true,
+				temporalScope: 'primary'
 			}),
 			1100
 		);
@@ -86,7 +88,11 @@ describe('StreamEventState', () => {
 				id: 'result-1',
 				url: 'https://example.com/story',
 				title: 'Story',
-				status: 'queued'
+				status: 'queued',
+				verified: true,
+				currentVerified: true,
+				temporalScope: 'primary',
+				publishedAt: '2026-08-08T12:00:00.000Z'
 			}),
 			1000
 		);
@@ -96,7 +102,11 @@ describe('StreamEventState', () => {
 				tool: 'browser_navigate',
 				url: 'https://example.com/story',
 				title: 'Story',
-				status: 'start'
+				status: 'start',
+				verified: true,
+				currentVerified: true,
+				temporalScope: 'primary',
+				publishedAt: '2026-08-08T12:00:00.000Z'
 			}),
 			1200
 		);
@@ -186,7 +196,9 @@ describe('StreamEventState', () => {
 			JSON.stringify({
 				url: 'https://example.com/search-result',
 				title: 'Search result',
-				status: 'start'
+				status: 'start',
+				verified: true,
+				temporalScope: 'primary'
 			}),
 			1000
 		);
@@ -205,6 +217,42 @@ describe('StreamEventState', () => {
 				used: false
 			}
 		]);
+	});
+
+	it('does not turn raw tool URLs or unverified source events into source progress', () => {
+		const state = new StreamEventState();
+
+		expect(
+			state.apply(
+				'agent.source',
+				JSON.stringify({ url: 'https://example.com/raw-search-hit', title: 'Raw hit', status: 'reading' }),
+				1000
+			)
+		).toEqual([
+			expect.objectContaining({ tool: expect.objectContaining({ url: 'https://example.com/raw-search-hit' }) })
+		]);
+		expect(
+			state.apply(
+				'agent.tool.progress',
+				JSON.stringify({ tool: 'browser_navigate', url: 'https://example.com/raw-tool-url', status: 'start' }),
+				1100
+			)
+		).toEqual([
+			expect.objectContaining({ tool: expect.objectContaining({ url: 'https://example.com/raw-tool-url' }) })
+		]);
+		state.apply(
+			'agent.source',
+			JSON.stringify({
+				url: 'https://example.com/unknown-date',
+				title: 'Unknown date',
+				status: 'used',
+				verified: true,
+				currentVerified: true,
+				temporalScope: 'primary'
+			}),
+			1200
+		);
+		expect(state.sourceList()).toEqual([]);
 	});
 
 	it('preserves Agent progress labels and previews across tool updates', () => {
@@ -298,7 +346,11 @@ describe('StreamEventState', () => {
 			JSON.stringify({
 				tool: 'browser_navigate',
 				label: 'https://example.com/first',
-				url: 'https://example.com/first'
+				url: 'https://example.com/first',
+				verified: true,
+				currentVerified: true,
+				temporalScope: 'primary',
+				publishedAt: '2026-08-08T12:00:00.000Z'
 			}),
 			1000
 		);
@@ -319,7 +371,11 @@ describe('StreamEventState', () => {
 			JSON.stringify({
 				tool: 'browser_navigate',
 				label: 'https://example.com/second',
-				url: 'https://example.com/second'
+				url: 'https://example.com/second',
+				verified: true,
+				currentVerified: true,
+				temporalScope: 'primary',
+				publishedAt: '2026-08-08T12:00:00.000Z'
 			}),
 			2000
 		);

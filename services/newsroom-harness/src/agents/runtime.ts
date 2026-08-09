@@ -28,6 +28,7 @@ import {
 	type AgentToolEvent,
 	type NewsroomAgentRunResult
 } from './newsroom-agent.js';
+import type { LoopDecisionFn } from './planner.js';
 import type { EvidenceObject } from './evidence.js';
 import { createNewsroomAgentConfig, type NewsroomAgentConfig } from './harness-config.js';
 import { resolveModelPolicy, type ModelPolicyDecision, type ModelPolicyTask } from './model-policy.js';
@@ -63,6 +64,8 @@ export interface RuntimeControls {
 	agentConfig?: Partial<NewsroomAgentConfig>;
 	/** Tool registry override, mainly for tests. */
 	registry?: ToolRegistry;
+	/** Bounded loop-controller override, mainly for deterministic timeout tests. */
+	loopDecision?: LoopDecisionFn;
 	clock?: NewsroomClock;
 }
 
@@ -81,11 +84,20 @@ export interface RuntimeContext {
 	conversationContext?: ConversationContext;
 	documents?: DocumentContext[];
 	temporalContext?: NewsroomTemporalContext;
+	/** True when only request-window-verified sources may enter progress. */
+	currentAssignment?: boolean;
 }
 
 export type RuntimeProgressEvent =
 	| { type: 'tool'; id: string; name: string; status: string; detail?: string; result?: unknown }
-	| { type: 'source'; source: FetchedSource; stepId?: string }
+	| {
+			type: 'source';
+			source: FetchedSource;
+			stepId?: string;
+			verified: true;
+			currentVerified: boolean;
+			temporalScope?: string | null;
+		}
 	| { type: 'citations'; citations: CitationRecord[] }
 	| { type: 'answer_replace'; content: string }
 	| {
@@ -131,7 +143,7 @@ export class NewsroomAgentRuntime {
 		context = this.withTemporalContext(context, latestUserPrompt);
 		if (isTitlePrompt(latestUserPrompt)) {
 			if (!this.modelApiKey()) return this.localChat(prompt);
-			return this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
+			return this.withTimeout((signal) => this.titleCompletion(prompt, { ...context, signal }), context.signal);
 		}
 		if (isSimpleGreeting(latestUserPrompt)) return 'Hi. What should NewsCraft work on?';
 		const diagnostic = diagnosticFollowupAnswer(latestUserPrompt, context.conversationContext);
@@ -144,13 +156,13 @@ export class NewsroomAgentRuntime {
 		const formatFollowup = formatOnlyFollowupAnswer(messages);
 		if (formatFollowup) return formatFollowup;
 		if (isDirectAnswerPrompt(latestUserPrompt, context.conversationContext) && !context.documents?.length) {
-			const answer = await this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
+			const answer = await this.withTimeout((signal) => this.directChatCompletion(messages, { ...context, signal }), context.signal);
 			this.emitInheritedCitationRecords(context, answer);
 			return answer;
 		}
 		if (!this.modelApiKey()) return this.localChat(prompt);
 		const answer = await this.withTimeout(
-			() =>
+			(signal) =>
 				this.disciplinedComplete(
 					buildDisciplinedChatPrompt(
 						messages,
@@ -161,7 +173,7 @@ export class NewsroomAgentRuntime {
 						context.temporalContext
 					),
 					latestUserPrompt,
-					context
+					{ ...context, signal }
 				),
 			context.signal
 		);
@@ -177,7 +189,7 @@ export class NewsroomAgentRuntime {
 				for (const chunk of splitForStreaming(this.localChat(prompt))) yield chunk;
 				return;
 			}
-			const title = await this.withTimeout(() => this.titleCompletion(prompt, context), context.signal);
+			const title = await this.withTimeout((signal) => this.titleCompletion(prompt, { ...context, signal }), context.signal);
 			for (const chunk of splitForStreaming(cleanVisibleChatOutput(title, latestUserPrompt))) yield chunk;
 			return;
 		}
@@ -205,7 +217,7 @@ export class NewsroomAgentRuntime {
 			return;
 		}
 		if (isDirectAnswerPrompt(latestUserPrompt, context.conversationContext) && !context.documents?.length) {
-			const answer = await this.withTimeout(() => this.directChatCompletion(messages, context), context.signal);
+			const answer = await this.withTimeout((signal) => this.directChatCompletion(messages, { ...context, signal }), context.signal);
 			this.emitInheritedCitationRecords(context, answer);
 			// Direct answers are complete before they enter the stream. Run the same
 			// visible-output boundary and citation-safe chunking used by research
@@ -247,7 +259,8 @@ export class NewsroomAgentRuntime {
 			openAiApiKey: this.controls.openAiApiKey,
 			perplexityApiKey: this.controls.perplexityApiKey,
 			modelProvider: this.modelProvider(),
-			modelApiKey: this.modelApiKey()
+			modelApiKey: this.modelApiKey(),
+			loopDecision: this.controls.loopDecision
 		});
 		const result = await agent.run(prompt, {
 			repository: context.repository,
@@ -281,13 +294,12 @@ export class NewsroomAgentRuntime {
 				if (event.type === 'tool_started') {
 					context.onProgress?.({ type: 'tool', id, name: event.tool, status: 'running', detail: event.detail });
 				}
-					if (event.type === 'tool_completed') {
-						for (const item of event.evidence || []) {
-							context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item), stepId: event.stepId });
+				if (event.type === 'tool_completed') {
+					for (const item of event.evidence || []) {
+						if (progressEligibleEvidence(item, context.currentAssignment === true)) {
+							context.onProgress?.(progressSource(item, context, event.stepId));
 						}
-						for (const item of (event.discoveryLeads || []).filter(usefulDiscoveryLead)) {
-							context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item, false), stepId: event.stepId });
-						}
+					}
 					context.onProgress?.({
 						type: 'tool',
 						id,
@@ -395,7 +407,8 @@ export class NewsroomAgentRuntime {
 			openAiApiKey: this.controls.openAiApiKey,
 			perplexityApiKey: this.controls.perplexityApiKey,
 			modelProvider: this.modelProvider(),
-			modelApiKey: this.modelApiKey()
+			modelApiKey: this.modelApiKey(),
+			loopDecision: this.controls.loopDecision
 		});
 		const result = await agent.run(prompt, {
 			repository: context.repository,
@@ -437,9 +450,15 @@ export class NewsroomAgentRuntime {
 	}
 
 	private withTemporalContext(context: RuntimeContext, request = ''): RuntimeContext {
-		if (context.temporalContext) return context;
+		if (context.temporalContext) {
+			return {
+				...context,
+				currentAssignment: context.currentAssignment ?? isCurrentEventQuery(request)
+			};
+		}
 		return {
 			...context,
+			currentAssignment: context.currentAssignment ?? isCurrentEventQuery(request),
 			temporalContext: createNewsroomTemporalContext({
 				now: (this.controls.clock || (() => new Date()))(),
 				timeZone: context.newsroomContext?.timezone,
@@ -522,7 +541,7 @@ export class NewsroomAgentRuntime {
 		const runPromise = (async () => {
 			try {
 				const result = await this.withTimeout(
-					() => this.runDisciplinedAgent(prompt, routingPrompt, context, onAnswerDelta),
+					(signal) => this.runDisciplinedAgent(prompt, routingPrompt, { ...context, signal }, onAnswerDelta),
 					context.signal
 				);
 				settled = { result };
@@ -621,10 +640,9 @@ export class NewsroomAgentRuntime {
 		}
 		if (event.type === 'tool_completed') {
 			for (const item of event.evidence || []) {
-				context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item), stepId: event.stepId });
-			}
-			for (const item of (event.discoveryLeads || []).filter(usefulDiscoveryLead)) {
-				context.onProgress?.({ type: 'source', source: evidenceToFetchedSource(item, false), stepId: event.stepId });
+				if (progressEligibleEvidence(item, context.currentAssignment === true)) {
+					context.onProgress?.(progressSource(item, context, event.stepId));
+				}
 			}
 			context.onProgress?.({
 				type: 'tool',
@@ -750,26 +768,42 @@ export class NewsroomAgentRuntime {
 		return this.controls.modelApiKey || (this.modelProvider() === 'openai' ? this.controls.openAiApiKey : '');
 	}
 
-	private async withTimeout<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+	private async withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
 		if (signal?.aborted) throw new Error('run aborted');
 		const timeout = AbortSignal.timeout(this.controls.runTimeoutMs);
+		const combined = combineAbortSignals([signal, timeout]);
 		const abortPromise = new Promise<never>((_, reject) => {
 			const onAbort = () => reject(new Error('run aborted'));
 			signal?.addEventListener('abort', onAbort, { once: true });
 			timeout.addEventListener('abort', () => reject(new Error('run timed out')), { once: true });
 		});
-		return Promise.race([fn(), abortPromise]);
+		return Promise.race([fn(combined), abortPromise]);
 	}
 
 	private async withToolTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
 		const timeoutMs = Math.min(15_000, Math.max(1000, this.controls.runTimeoutMs - 1000));
 		const timeoutSignal = AbortSignal.timeout(timeoutMs);
-		const combined =
-			signal && typeof AbortSignal.any === 'function'
-				? AbortSignal.any([signal, timeoutSignal])
-				: timeoutSignal;
-		return this.withTimeout(() => fn(combined), signal);
+		const toolSignal = combineAbortSignals([signal, timeoutSignal]);
+		return this.withTimeout(
+			(runSignal) => fn(combineAbortSignals([runSignal, toolSignal])),
+			signal
+		);
 	}
+}
+
+function combineAbortSignals(signals: Array<AbortSignal | undefined>): AbortSignal {
+	const active = signals.filter((value): value is AbortSignal => Boolean(value));
+	if (active.length === 1) return active[0];
+	if (typeof AbortSignal.any === 'function') return AbortSignal.any(active);
+	const controller = new AbortController();
+	for (const signal of active) {
+		if (signal.aborted) {
+			controller.abort(signal.reason);
+			break;
+		}
+		signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+	}
+	return controller.signal;
 }
 
 function currentAsOfPrefix(prompt: string, timeZone?: string, temporalContext?: NewsroomTemporalContext): string {
@@ -795,15 +829,43 @@ function evidenceToFetchedSource(evidence: EvidenceObject, usedOverride?: boolea
 		contentType: evidence.source_url.startsWith('newsroom://') ? 'text/markdown' : null,
 		statusCode: evidence.confidence > 0 ? 200 : null,
 		used: usedOverride ?? (evidence.ledger_status !== 'rejected' && evidence.confidence > 0),
-		metadata: evidence.published_at ? { publishedAt: evidence.published_at } : null
+		metadata:
+			evidence.published_at || evidence.updated_at || evidence.event_at
+				? { publishedAt: evidence.published_at, updatedAt: evidence.updated_at, eventAt: evidence.event_at }
+				: null
 	};
 }
 
-function usefulDiscoveryLead(evidence: EvidenceObject): boolean {
+function progressEligibleEvidence(evidence: EvidenceObject, currentAssignment: boolean): boolean {
 	if (evidence.readability === 'blocked' || evidence.confidence <= 0) return false;
+	if (evidence.ledger_status === 'rejected') return false;
 	if (!evidence.supporting_excerpt && !evidence.extracted_text && !evidence.summary) return false;
-	if (/wrong subject|wrong location|wrong entity|excluded desk|excluded category|excluded source|excluded page|unsafe|invalid/i.test(evidence.rejection_reason || '')) return false;
-	return evidence.page_role === 'article' || evidence.page_role === 'official_live';
+	if (
+		evidence.page_role === 'hub' ||
+		evidence.page_role === 'search' ||
+		evidence.page_role === 'category' ||
+		evidence.page_role === 'homepage' ||
+		evidence.source_kind === 'social_post'
+	) return false;
+	if (!currentAssignment) return evidence.temporal_scope !== 'discovery';
+	if (evidence.direct_verified !== true) return false;
+	if (!['primary', 'fallback'].includes(evidence.temporal_scope || '')) return false;
+	return Number.isFinite(Date.parse(evidence.event_at || evidence.updated_at || evidence.published_at || ''));
+}
+
+function progressSource(
+	evidence: EvidenceObject,
+	context: RuntimeContext,
+	stepId?: string
+): Extract<RuntimeProgressEvent, { type: 'source' }> {
+	return {
+		type: 'source',
+		source: evidenceToFetchedSource(evidence),
+		verified: true,
+		currentVerified: context.currentAssignment === true,
+		temporalScope: evidence.temporal_scope ?? null,
+		...(stepId ? { stepId } : {})
+	};
 }
 
 function isSimpleGreeting(prompt: string): boolean {

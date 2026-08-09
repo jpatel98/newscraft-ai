@@ -1,7 +1,6 @@
 import type { Handle } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
 import { verifySessionCookie, SESSION_COOKIE_NAME } from '$lib/server/auth/cookie';
-import { ensureMigrated } from '$lib/server/db';
 import { accountCount, getAccount } from '$lib/server/db/accounts';
 import { getActiveSession } from '$lib/server/db/sessions';
 import { newId } from '$lib/utils/id';
@@ -34,7 +33,6 @@ function readRequestTraceId(headers: Headers): string {
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-	await ensureMigrated();
 	const traceId = readRequestTraceId(event.request.headers);
 	event.locals.traceId = traceId;
 	event.locals.isMarketingHost = isMarketingHost(event.url.host);

@@ -156,18 +156,47 @@ describe('newsroom harness server', () => {
 	it('streams citations for a current-news answer without a topic-specific retry', async () => {
 		const nativeFetch = globalThis.fetch.bind(globalThis);
 		const today = new Date().toISOString();
+		const directUrl = 'https://council.example.gov/housing-motion';
 		let providerCalls = 0;
 		vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
 			const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-			if (!url.includes('api.perplexity.ai')) return nativeFetch(input, init);
+			if (url === 'https://council.example.gov/robots.txt') {
+				return new Response('', { status: 404 });
+			}
+			if (url === directUrl) {
+				const title = 'Ottawa housing motion';
+				const body = 'Council approved the housing motion in a recorded vote.';
+				return new Response(
+					'<html><head><title>' +
+						title +
+						'</title><script type="application/ld+json">' +
+						JSON.stringify({
+							'@context': 'https://schema.org',
+							'@type': 'NewsArticle',
+							headline: title,
+							datePublished: today,
+							articleBody: body
+						}) +
+						'</script></head><body><article><h1>' +
+						title +
+						'</h1><p>' +
+						body +
+						'</p></article></body></html>',
+					{ status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }
+				);
+			}
+			if (!url.includes('api.perplexity.ai') && /^https?:\/\/127\.0\.0\.1(?::|\/)/i.test(url)) {
+				return nativeFetch(input, init);
+			}
+			if (!url.includes('api.perplexity.ai')) return new Response('', { status: 404 });
 			providerCalls += 1;
 				return new Response(
 					JSON.stringify({
 						choices: [{ message: { content: 'Ottawa council approved the housing motion [1].' } }],
-						citations: ['https://council.example.gov/housing-motion'],
+						citations: [directUrl],
 						search_results: [
 							{
-								url: 'https://council.example.gov/housing-motion',
+								url: directUrl,
 								title: 'Ottawa housing motion',
 								snippet: 'Council approved the housing motion in a recorded vote.',
 								date: today
@@ -175,8 +204,8 @@ describe('newsroom harness server', () => {
 						]
 					}),
 				{ status: 200, headers: { 'content-type': 'application/json' } }
-			);
-		});
+				);
+			});
 		await startHarness({ modelProvider: 'perplexity', modelApiKey: 'fake-key' });
 
 		const response = await authFetch('/v1/chat/completions', {

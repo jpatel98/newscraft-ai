@@ -101,19 +101,21 @@ describe('citation and source-quality web research', () => {
 		const url = 'https://www.canada.ca/en/news/policy-announcement.html';
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(async () =>
-				jsonResponse({
-					choices: [{ message: { content: 'The government announced the policy this week [1].' } }],
-					citations: [url],
-					search_results: [
-						{
-							url,
-							title: 'Policy announcement',
-							snippet: 'The government announced a new public policy.',
-							date: sixDaysAgo
-						}
-					]
-				})
+			vi.fn(async (request: string | URL | Request) =>
+				isProviderRequest(request)
+					? jsonResponse({
+							choices: [{ message: { content: 'The government announced the policy this week [1].' } }],
+							citations: [url],
+							search_results: [
+								{
+									url,
+									title: 'Policy announcement',
+									snippet: 'The government announced a new public policy.',
+									date: sixDaysAgo
+								}
+							]
+						})
+					: directArticleResponse(url, 'Policy announcement', sixDaysAgo, 'The government announced a new public policy after review.')
 			)
 		);
 
@@ -264,7 +266,14 @@ describe('citation and source-quality web research', () => {
 					]
 				});
 			}
-			return new Response('', { status: 403 });
+			return directArticleResponse(
+				String(url),
+				String(url).includes('council') ? 'Council housing vote' : 'Transit service update',
+				'2026-08-01',
+				String(url).includes('council')
+					? 'Toronto council approved the housing measure after a recorded vote.'
+					: 'The TTC restored service after resolving a signal issue.'
+			);
 		});
 		vi.stubGlobal('fetch', fetchMock);
 
@@ -277,8 +286,14 @@ describe('citation and source-quality web research', () => {
 
 		expect(result.status).toBe('ok');
 		expect(result.evidence).toHaveLength(2);
-		expect(result.evidence?.map((source) => source.published_at)).toEqual(['2026-08-01', '2026-08-01']);
-		expect(result.evidence?.map((source) => source.extracted_text)).toEqual(segments);
+		expect(result.evidence?.map((source) => source.published_at)).toEqual([
+			'2026-08-01T00:00:00.000Z',
+			'2026-08-01T00:00:00.000Z'
+		]);
+		expect(result.evidence?.map((source) => source.extracted_text)).toEqual([
+			expect.stringContaining('Toronto council approved the housing measure after a recorded vote.'),
+			expect.stringContaining('The TTC restored service after resolving a signal issue.')
+		]);
 		expect(result.evidence?.every((source) => !source.extracted_text.includes('No source excerpt was returned'))).toBe(true);
 	});
 
@@ -311,7 +326,14 @@ describe('citation and source-quality web research', () => {
 						}]
 					});
 				}
-				return new Response('', { status: 403 });
+				return directArticleResponse(
+					String(url),
+					String(url).includes('council') ? 'Council housing vote' : 'Transit service restored',
+					'2026-08-01',
+					String(url).includes('council')
+						? 'Toronto council approved a housing measure after a recorded vote.'
+						: 'The TTC restored subway service after resolving a signal issue.'
+				);
 			})
 		);
 
@@ -323,8 +345,66 @@ describe('citation and source-quality web research', () => {
 		const result = await runWebSearch('Latest Toronto news today', { provider: 'openai', temporalContext });
 
 		expect(result.status).toBe('ok');
-		expect(result.evidence?.map((source) => source.extracted_text)).toEqual(notes);
-		expect(result.evidence?.map((source) => source.published_at)).toEqual(['2026-08-01', '2026-08-01']);
+		expect(result.evidence?.map((source) => source.extracted_text)).toEqual([
+			expect.stringContaining('Toronto council approved a housing measure after a recorded vote.'),
+			expect.stringContaining('The TTC restored subway service after resolving a signal issue.')
+		]);
+		expect(result.evidence?.map((source) => source.published_at)).toEqual([
+			'2026-08-01T00:00:00.000Z',
+			'2026-08-01T00:00:00.000Z'
+		]);
+	});
+
+	it('keeps unknown-date and explicitly old direct pages out of current evidence', async () => {
+		const unknownUrl = 'https://www.cbc.ca/news/canada/toronto/current-development';
+		const oldUrl = 'https://www.ago.ca/press-release/2026-exhibition-line-up';
+		const fetchMock = vi.fn(async (request: string | URL | Request) => {
+			if (isProviderRequest(request)) {
+				return jsonResponse({
+					output_text: 'Two candidate stories [1] [2].',
+					output: [{
+						type: 'message',
+						content: [{
+							type: 'output_text',
+							text: 'Two candidate stories [1] [2].',
+							annotations: [
+								{ type: 'url_citation', url: unknownUrl, title: 'Current development' },
+								{ type: 'url_citation', url: oldUrl, title: 'AGO announces 2026 exhibition line-up' }
+							]
+						}]
+					}]
+				});
+			}
+			if (String(request).includes('ago.ca')) {
+				return directArticleResponse(
+					oldUrl,
+					'AGO announces 2026 exhibition line-up',
+					'2025-10-22T15:00:00.000Z',
+					'The AGO announced an exhibition line-up in October 2025.'
+				);
+			}
+			return directArticleResponse(
+				unknownUrl,
+				'Current development',
+				null,
+				'CBC describes a developing Toronto story, but the page exposes no publication or update time.'
+			);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const temporalContext = createNewsroomTemporalContext({
+			now: new Date('2026-08-08T18:00:00.000Z'),
+			timeZone: 'America/Toronto',
+			request: 'Latest developing stories in Toronto today'
+		});
+		const result = await runWebSearch('Latest developing stories in Toronto today', {
+			provider: 'openai',
+			temporalContext
+		});
+
+		expect(result.evidence || []).toHaveLength(0);
+		expect(result.discovery_leads?.some((item) => item.rejection_reason === 'publication or update time is unknown')).toBe(true);
+		expect(result.discovery_leads?.some((item) => item.rejection_reason === 'publication or event time is outside the request window')).toBe(true);
 	});
 
 	it('preserves meaningful query-string and fragment identity for OpenAI annotations', async () => {
@@ -924,12 +1004,14 @@ describe('citation and source-quality web research', () => {
 	});
 
 	it('adds named-domain and explicit recency filters only to Sonar requests', async () => {
-		const fetchMock = vi.fn(async () =>
-			jsonResponse({
-				choices: [{ message: { content: 'Coverage differs in emphasis.' } }],
-				citations: ['https://www.cbc.ca/news/story'],
-				search_results: [{ url: 'https://www.cbc.ca/news/story', title: 'CBC News story', date: '2026-07-10' }]
-			})
+		const fetchMock = vi.fn(async (request: string | URL | Request) =>
+			isProviderRequest(request)
+				? jsonResponse({
+						choices: [{ message: { content: 'Coverage differs in emphasis.' } }],
+						citations: ['https://www.cbc.ca/news/story'],
+						search_results: [{ url: 'https://www.cbc.ca/news/story', title: 'CBC News story', date: '2026-07-10' }]
+					})
+				: directArticleResponse(String(request), 'CBC News story', new Date().toISOString(), 'Coverage differs in emphasis across the requested outlets.')
 		);
 		vi.stubGlobal('fetch', fetchMock);
 
@@ -942,7 +1024,12 @@ describe('citation and source-quality web research', () => {
 		});
 		await runWebSearch('Compare Reuters and AP coverage this week');
 
-		const todayBody = requestBody(fetchMock, 0);
+		const providerCallIndexes = () =>
+			fetchMock.mock.calls
+				.map((call, index) => (isProviderRequest(call[0]) ? index : -1))
+				.filter((index) => index >= 0);
+		const providerIndexes = providerCallIndexes();
+		const todayBody = requestBody(fetchMock, providerIndexes[0]);
 		expect(todayBody.search_domain_filter).toEqual(['cbc.ca', 'ctvnews.ca']);
 		expect(todayBody.search_recency_filter).toBe('day');
 		expect(JSON.stringify(todayBody.messages)).toContain('America/Vancouver');
@@ -951,13 +1038,13 @@ describe('citation and source-quality web research', () => {
 		expect(JSON.stringify(todayBody.messages)).toContain('Do not add a Current as of label');
 		expect(JSON.stringify(todayBody.messages)).toContain('Never present either as a source publication date');
 
-		const weekBody = requestBody(fetchMock, 1);
+		const weekBody = requestBody(fetchMock, providerIndexes[1]);
 		expect(weekBody.search_domain_filter).toEqual(['reuters.com', 'apnews.com']);
 		expect(weekBody.search_recency_filter).toBe('week');
 
 		fetchMock.mockClear();
 		await runWebSearch('Compare CBC and CTV coverage today', { provider: 'openai' });
-		const openAiBody = requestBody(fetchMock, 0);
+		const openAiBody = requestBody(fetchMock, providerCallIndexes()[0]);
 		expect(openAiBody).not.toHaveProperty('search_domain_filter');
 		expect(openAiBody).not.toHaveProperty('search_recency_filter');
 		expect(openAiBody.tools).toEqual([{ type: 'web_search' }]);
@@ -999,25 +1086,32 @@ describe('citation and source-quality web research', () => {
 
 	it('does not run a topic-specific retry when the first search returns usable evidence', async () => {
 		const today = new Date().toISOString();
-		const fetchMock = vi.fn().mockResolvedValueOnce(
-			jsonResponse({
-				choices: [{ message: { content: 'Reuters reports that council approved the motion [1].' } }],
-				citations: ['https://www.reuters.com/world/americas/council-motion'],
-				search_results: [
-					{
-						url: 'https://www.reuters.com/world/americas/council-motion',
-						title: 'Council approves motion',
-						date: today
-					}
-				]
-			})
+		const fetchMock = vi.fn(async (request: string | URL | Request) =>
+			isProviderRequest(request)
+				? jsonResponse({
+						choices: [{ message: { content: 'Reuters reports that council approved the motion [1].' } }],
+						citations: ['https://www.reuters.com/world/americas/council-motion'],
+						search_results: [
+							{
+								url: 'https://www.reuters.com/world/americas/council-motion',
+								title: 'Council approves motion',
+								date: today
+							}
+						]
+					})
+				: directArticleResponse(
+						String(request),
+						'Council approves motion',
+						today,
+						'Reuters reports that council approved the motion after a recorded vote.'
+					)
 		);
 		vi.stubGlobal('fetch', fetchMock);
 
 		const result = await runWebSearch('what happened in the council vote today');
 
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-		expect(result.answer).toBe('');
+		expect(fetchMock.mock.calls.filter((call) => isProviderRequest(call[0]))).toHaveLength(1);
+		expect(result.answer).toContain('Council approves motion');
 		expect(result.evidence).toEqual([
 			expect.objectContaining({
 				source_url: 'https://www.reuters.com/world/americas/council-motion',
@@ -1183,6 +1277,41 @@ function jsonResponse(value: unknown): Response {
 	return new Response(JSON.stringify(value), {
 		status: 200,
 		headers: { 'content-type': 'application/json' }
+	});
+}
+
+function isProviderRequest(value: string | URL | Request): boolean {
+	return /api\.(?:openai\.com|perplexity\.ai)/i.test(String(value));
+}
+
+function directArticleResponse(
+	url: string,
+	title: string,
+	publishedAt: string | null,
+	body: string,
+	updatedAt?: string | null
+): Response {
+	const metadata = {
+		'@context': 'https://schema.org',
+		'@type': 'NewsArticle',
+		headline: title,
+		...(publishedAt ? { datePublished: publishedAt } : {}),
+		...(updatedAt ? { dateModified: updatedAt } : {}),
+		articleBody: body
+	};
+	const html =
+		'<html><head><title>' +
+		title +
+		'</title><script type="application/ld+json">' +
+		JSON.stringify(metadata) +
+		'</script></head><body><article><h1>' +
+		title +
+		'</h1><p>' +
+		body +
+		'</p></article></body></html>';
+	return new Response(html, {
+		status: 200,
+		headers: { 'content-type': 'text/html; charset=utf-8' }
 	});
 }
 

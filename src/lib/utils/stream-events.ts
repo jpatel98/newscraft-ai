@@ -28,6 +28,14 @@ export interface StreamSourceUpdate {
 	detail?: string;
 	/** The plan step id that produced this source, if any. Omitted for sources outside a step. */
 	stepId?: string;
+	/** Only explicit evidence events from the verifier may set this flag. */
+	verified?: boolean;
+	/** True only when publication/update time was verified for a current request. */
+	currentVerified?: boolean;
+	temporalScope?: string | null;
+	publishedAt?: string | null;
+	updatedAt?: string | null;
+	eventAt?: string | null;
 }
 
 export interface PersistedSource extends StreamSourceUpdate {
@@ -72,6 +80,7 @@ export interface StreamEventUpdate {
 	delta?: string;
 	replace?: string;
 	done?: boolean;
+	partial?: boolean;
 	failed?: string;
 	title?: string;
 	tool?: StreamToolUpdate;
@@ -889,8 +898,21 @@ function sourceFromPayload(payload: JsonObject): StreamSourceUpdate | null {
 		detail:
 			stringValue(source.detail ?? source.summary ?? source.snippet ?? payload.detail ?? payload.message) ??
 			undefined,
-		...(stepId ? { stepId } : {})
+		...(stepId ? { stepId } : {}),
+			verified: source.verified === true || payload.verified === true,
+			currentVerified: source.currentVerified === true || payload.currentVerified === true,
+			temporalScope: stringValue(source.temporalScope ?? source.temporal_scope ?? payload.temporalScope ?? payload.temporal_scope) ?? null,
+			publishedAt: stringValue(source.publishedAt ?? source.published_at ?? payload.publishedAt ?? payload.published_at) ?? null,
+			updatedAt: stringValue(source.updatedAt ?? source.updated_at ?? payload.updatedAt ?? payload.updated_at) ?? null,
+			eventAt: stringValue(source.eventAt ?? source.event_at ?? payload.eventAt ?? payload.event_at) ?? null
 	};
+}
+
+function sourceEventIsVerified(source: StreamSourceUpdate): boolean {
+	if (source.verified !== true) return false;
+	if (source.currentVerified !== true) return true;
+	if (!['primary', 'fallback'].includes(source.temporalScope || '')) return false;
+	return Number.isFinite(Date.parse(source.eventAt || source.updatedAt || source.publishedAt || ''));
 }
 
 function sourceStatusIsUsed(status: string | undefined, startIsUsed = false): boolean {
@@ -1002,6 +1024,10 @@ export class StreamEventState {
 			this.textDeltaSeen = true;
 			return [{ replace: content }];
 		}
+		if (event === 'agent.answer.partial') return [{ partial: true }];
+		if (event === 'agent.persistence_error') {
+			return [{ failed: stringValue(payload.message) || 'answer persistence failed; retry to save the answer' }];
+		}
 
 		if (event === 'message') {
 			const delta = chatDelta(payload);
@@ -1032,7 +1058,7 @@ export class StreamEventState {
 
 		if (event.startsWith('agent.source') || event.startsWith('agent.progress')) {
 			const source = sourceFromPayload(payload);
-			if (source) {
+			if (source && sourceEventIsVerified(source)) {
 				const persisted = this.upsertSource(source, now, sourcePayloadLooksUsed(payload, source, false));
 				return [{ source: persisted }];
 			}
@@ -1108,7 +1134,7 @@ export class StreamEventState {
 	private applyAgentTool(payload: JsonObject, now: number): StreamEventUpdate[] {
 		const updates: StreamEventUpdate[] = [];
 		const source = sourceFromPayload(payload);
-		if (source) {
+		if (source && sourceEventIsVerified(source)) {
 			const persisted = this.upsertSource(source, now, sourcePayloadLooksUsed(payload, source, true));
 			updates.push({ source: persisted });
 		}
@@ -1303,21 +1329,6 @@ export class StreamEventState {
 		} else if (!explicitId) {
 			this.anonymousActive.set(name, id);
 			if (semanticKey) this.anonymousKeys.set(id, semanticKey);
-		}
-		if (call.url && /^https?:\/\//i.test(call.url)) {
-			this.upsertSource(
-				{
-					id: call.url,
-					url: call.url,
-					title: call.title ?? call.url,
-					status: String(call.status ?? 'reading'),
-					domain: domainOf(call.url),
-					detail: call.detail
-				},
-				now,
-				/browse|browser|fetch|read|open|http|url|page|navigate/i.test(call.name) ||
-					sourceStatusIsUsed(String(call.status ?? ''))
-			);
 		}
 		return [...completed, { ...call, done: Boolean(call.endedAt) }];
 	}

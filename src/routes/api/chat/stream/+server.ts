@@ -77,6 +77,16 @@ import {
 	isLatestUnfinishedAssistant
 } from '$lib/server/reply-operations';
 import { resolveResearchFinishStatus } from '$lib/server/research-outcome';
+import {
+	CHAT_PERSISTENCE_TIMEOUT_MS,
+	CHAT_RESEARCH_CONTEXT_TIMEOUT_MS,
+	CHAT_STREAM_IDLE_MS,
+	CHAT_STREAM_MAX_MS,
+	CHAT_TITLE_TIMEOUT_MS,
+	ChatPhaseTimeoutError,
+	linkChatAbort,
+	withChatTimeout
+} from '$lib/server/chat-timeouts';
 
 interface Body {
 	conversation_id?: string;
@@ -310,9 +320,7 @@ async function requestResearchContext(input: {
 				newsroomContext = {
 					timezone: profile.timezone,
 					...(profile.homeMarket ? { homeMarket: profile.homeMarket } : {}),
-					...(profile.preferredDomains.length
-						? { preferredDomains: profile.preferredDomains }
-						: {})
+					...(profile.preferredDomains.length ? { preferredDomains: profile.preferredDomains } : {})
 				};
 			}
 		} catch (cause) {
@@ -408,7 +416,7 @@ async function persistAnswerProvenance(input: {
 }): Promise<void> {
 	try {
 		const endedAt = input.endedAt ?? Date.now();
-		await saveMessageProvenance({
+		await withChatTimeout(saveMessageProvenance({
 			messageId: input.messageId,
 			conversationId: input.conversationId,
 			now: endedAt,
@@ -429,7 +437,7 @@ async function persistAnswerProvenance(input: {
 				reasoningEffort: input.reasoningEffort,
 				model: input.model
 			})
-		});
+		}), CHAT_PERSISTENCE_TIMEOUT_MS, 'answer provenance persistence');
 	} catch (err) {
 		recordChatDiagnostic(input.conversationId, 'chat.provenance_error', {
 			messageId: input.messageId,
@@ -445,7 +453,11 @@ async function localAssistantResponse(convoId: string, text: string, traceId: st
 		responseChars: text.length,
 		trace_id: traceId
 	});
-	const row = await addMessage({ conversationId: convoId, role: 'assistant', content: text });
+	const row = await withChatTimeout(
+		addMessage({ conversationId: convoId, role: 'assistant', content: text }),
+		CHAT_PERSISTENCE_TIMEOUT_MS,
+		'assistant persistence'
+	);
 	await persistAnswerProvenance({
 		conversationId: convoId,
 		messageId: row.id,
@@ -527,7 +539,21 @@ async function localGatewayFailureResponse(
 	const text = gatewayUnavailableMessage(detail);
 	if (resumeMessageId) {
 		if (!resumeClaimToken) throw error(409, 'resume claim lost');
-		const row = await getMessageById(resumeMessageId);
+		let row: Awaited<ReturnType<typeof getMessageById>>;
+		try {
+			row = await withChatTimeout(
+				getMessageById(resumeMessageId),
+				CHAT_PERSISTENCE_TIMEOUT_MS,
+				'gateway-failure message lookup'
+			);
+		} catch (lookupError) {
+			recordChatDiagnostic(convoId, 'chat.gateway_failure_persistence_error', {
+				trace_id: traceId,
+				errorName: lookupError instanceof Error ? lookupError.name : 'Error',
+				phase: 'lookup'
+			});
+			return localTextStream(convoId, `\n\n${text}`, traceId);
+		}
 		const metadata = parseToolMetadata(row?.toolCalls);
 		const answerText = `${row ? contentText(parseContent(row.content)) : ''}\n\n${text}`.trim();
 		const endedAt = Date.now();
@@ -548,17 +574,31 @@ async function localGatewayFailureResponse(
 			reasoningEffort: undefined,
 			model: undefined
 		});
-		const committed = await finalizeResumedAssistantMessage({
-			id: resumeMessageId,
-			conversationId: convoId,
-			claimToken: resumeClaimToken,
-			mode: 'append',
-			appendContent: `\n\n${text}`,
-			toolCalls: serializeToolMetadata(metadata.tools, metadata.sources, metadata.citations),
-			provenanceJson,
-			partial: 0,
-			now: endedAt
-		});
+		let committed: Awaited<ReturnType<typeof finalizeResumedAssistantMessage>>;
+		try {
+			committed = await withChatTimeout(
+				finalizeResumedAssistantMessage({
+					id: resumeMessageId,
+					conversationId: convoId,
+					claimToken: resumeClaimToken,
+					mode: 'append',
+					appendContent: `\n\n${text}`,
+					toolCalls: serializeToolMetadata(metadata.tools, metadata.sources, metadata.citations),
+					provenanceJson,
+					partial: 0,
+					now: endedAt
+				}),
+				CHAT_PERSISTENCE_TIMEOUT_MS,
+				'gateway-failure finalization'
+			);
+		} catch (finalizationError) {
+			recordChatDiagnostic(convoId, 'chat.gateway_failure_persistence_error', {
+				trace_id: traceId,
+				errorName: finalizationError instanceof Error ? finalizationError.name : 'Error',
+				phase: 'finalization'
+			});
+			return localTextStream(convoId, `\n\n${text}`, traceId);
+		}
 		if (!committed) throw error(409, 'resume claim lost');
 		return localTextStream(convoId, `\n\n${text}`, traceId);
 	}
@@ -928,14 +968,18 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	let researchContext: Awaited<ReturnType<typeof requestResearchContext>>;
 	try {
-		researchContext = await requestResearchContext({
-			conversationId: convoId,
-			orgId: convo.orgId,
-			accountId,
-			documentIds,
-			query: currentRequest,
-			traceId
-		});
+		researchContext = await withChatTimeout(
+			requestResearchContext({
+				conversationId: convoId,
+				orgId: convo.orgId,
+				accountId,
+				documentIds,
+				query: currentRequest,
+				traceId
+			}),
+			CHAT_RESEARCH_CONTEXT_TIMEOUT_MS,
+			'research context'
+		);
 	} catch (cause) {
 		if (cause instanceof NewsroomContextUnavailableError) {
 			if (resumeMessageId) {
@@ -953,7 +997,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				traceId
 			);
 		}
-		throw cause;
+		if (!(cause instanceof ChatPhaseTimeoutError)) throw cause;
+		return await localGatewayFailureResponse(
+			convoId,
+			cause instanceof Error ? cause.message : String(cause),
+			resumeMessageId,
+			resumeClaimToken,
+			traceId
+		);
 	}
 	if (conversationContext.currentTurn?.researchContract) {
 		conversationContext.currentTurn.researchContract = mergeLatestResearchContract(
@@ -966,9 +1017,21 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		);
 	}
 
-	const upstreamAbort = new AbortController();
-	if (request.signal.aborted) upstreamAbort.abort();
-	else request.signal.addEventListener('abort', () => upstreamAbort.abort(), { once: true });
+	const phaseAbort = linkChatAbort(request.signal, CHAT_STREAM_MAX_MS);
+	const upstreamAbort = phaseAbort.controller;
+	let idleTimedOut = false;
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	const resetIdleTimer = () => {
+		if (idleTimer) clearTimeout(idleTimer);
+		idleTimer = setTimeout(() => {
+			idleTimedOut = true;
+			upstreamAbort.abort(new ChatPhaseTimeoutError('interactive chat stream became idle'));
+		}, CHAT_STREAM_IDLE_MS);
+	};
+	const clearIdleTimer = () => {
+		if (idleTimer) clearTimeout(idleTimer);
+		idleTimer = undefined;
+	};
 
 	const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);
 	let upstream: Response;
@@ -978,16 +1041,20 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		// agent.tool.progress/source events there, which power the visible
 		// browser/search/tool activity strip. Keep Responses as a fallback for
 		// gateways that only expose the newer endpoint shape.
-		upstream = await streamChatCompletion(
-			{
-				messages: history,
-				stream: true,
-				reasoning_effort: reasoningEffort,
-				newsroom_context: researchContext.newsroomContext,
-				conversation_context: conversationContext,
-				documents: researchContext.documents
-			},
-			{ signal: upstreamAbort.signal, sessionId, traceId }
+		upstream = await withChatTimeout(
+			streamChatCompletion(
+				{
+					messages: history,
+					stream: true,
+					reasoning_effort: reasoningEffort,
+					newsroom_context: researchContext.newsroomContext,
+					conversation_context: conversationContext,
+					documents: researchContext.documents
+				},
+				{ signal: upstreamAbort.signal, sessionId, traceId }
+			),
+			CHAT_STREAM_MAX_MS,
+			'agent stream startup'
 		);
 		transport = 'chat_completions';
 		recordChatDiagnostic(convoId, 'chat.upstream_response', {
@@ -998,17 +1065,21 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		});
 		if (!isResume && !upstream.ok && [400, 404, 405].includes(upstream.status)) {
 			await upstream.text().catch(() => '');
-			upstream = await streamResponse(
-				{
-					...responseInputFromHistory(history),
-					stream: true,
-					store: false,
-					reasoning_effort: reasoningEffort,
-					newsroom_context: researchContext.newsroomContext,
-					conversation_context: conversationContext,
-					documents: researchContext.documents
-				},
-				{ signal: upstreamAbort.signal, sessionId, traceId }
+			upstream = await withChatTimeout(
+				streamResponse(
+					{
+						...responseInputFromHistory(history),
+						stream: true,
+						store: false,
+						reasoning_effort: reasoningEffort,
+						newsroom_context: researchContext.newsroomContext,
+						conversation_context: conversationContext,
+						documents: researchContext.documents
+					},
+					{ signal: upstreamAbort.signal, sessionId, traceId }
+				),
+				CHAT_STREAM_MAX_MS,
+				'agent response startup'
 			);
 			transport = 'responses';
 			recordChatDiagnostic(convoId, 'chat.upstream_response', {
@@ -1019,6 +1090,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			});
 		}
 	} catch (err) {
+		phaseAbort.cleanup();
 		return await localGatewayFailureResponse(
 			convoId,
 			err instanceof Error ? err.message : String(err),
@@ -1030,6 +1102,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	if (!upstream.ok || !upstream.body) {
 		const text = await upstream.text().catch(() => '');
+		phaseAbort.cleanup();
 		return await localGatewayFailureResponse(
 			convoId,
 			`Agent ${upstream.status || 502}: ${text || upstream.statusText}`,
@@ -1061,16 +1134,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	function enqueueCitationDelta(controller: ReadableStreamDefaultController<Uint8Array>, delta: string): void {
 		if (!delta) return;
-		controller.enqueue(
-			enc.encode(sseFrame('response.output_text.delta', JSON.stringify({ delta })))
-		);
+		safeEnqueue(controller, sseFrame('response.output_text.delta', JSON.stringify({ delta })));
 	}
 
 	function enqueueCitationReplacement(
 		controller: ReadableStreamDefaultController<Uint8Array>,
 		content: string
 	): void {
-		controller.enqueue(enc.encode(sseFrame('agent.answer.replace', JSON.stringify({ content }))));
+		safeEnqueue(controller, sseFrame('agent.answer.replace', JSON.stringify({ content })));
 	}
 
 	function tryEnqueueCitationBoundary(
@@ -1201,20 +1272,85 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		return persistencePromise;
 	}
 
+	async function persistAssistantBounded(
+		finishStatus: 'completed' | 'partial' | 'failed' | 'cancelled'
+	): Promise<Awaited<ReturnType<typeof getMessageById>>> {
+		return withChatTimeout(
+			persistAssistant(finishStatus),
+			CHAT_PERSISTENCE_TIMEOUT_MS,
+			'assistant finalization'
+		);
+	}
+
+	function safeEnqueue(controller: ReadableStreamDefaultController<Uint8Array>, frame: string): void {
+		try {
+			controller.enqueue(enc.encode(frame));
+		} catch {
+			// The browser may have disconnected while the server was finalizing.
+		}
+	}
+
+	async function emitSafePartialTerminal(
+		controller: ReadableStreamDefaultController<Uint8Array>,
+		reason: unknown
+	): Promise<void> {
+		done = false;
+		tryEnqueueCitationBoundary(controller, () => citationSanitizer.abort());
+		const note = assistantBuf.trim()
+			? '\n\nThe research run stopped before it finished; this answer may be incomplete. Retry to continue.'
+			: conversationContext.currentTurn?.researchRequired
+				? "I couldn't complete the research with verified current sources before the safety limit. Please retry."
+				: "I couldn't complete that reply before the safety limit. Please retry.";
+		if (!assistantBuf.includes(note.trim())) {
+			assistantBuf = `${assistantBuf}${note}`;
+			preserveSanitizedAssistant = assistantBuf;
+			safeEnqueue(
+				controller,
+				sseFrame('response.output_text.delta', JSON.stringify({ delta: note }))
+			);
+		}
+		safeEnqueue(controller, sseFrame('agent.answer.partial', JSON.stringify({ reason: 'bounded_interactive_phase' })));
+		try {
+			await persistAssistantBounded('partial');
+		} catch (error) {
+			recordChatDiagnostic(convoId, 'chat.finalization_error', {
+				trace_id: traceId,
+				errorName: error instanceof Error ? error.name : 'Error',
+				phase: 'partial',
+				cause: reason instanceof Error ? reason.name : String(reason)
+			});
+			safeEnqueue(
+				controller,
+				sseFrame(
+					'agent.persistence_error',
+					JSON.stringify({ message: 'The partial answer could not be saved. Retry to save it.' })
+				)
+			);
+		}
+		sentDone = true;
+		safeEnqueue(controller, 'data: [DONE]\n\n');
+		try {
+			controller.close();
+		} catch {
+			/* already closed */
+		}
+	}
+
 	const stream = new ReadableStream<Uint8Array>({
 		async start(controller) {
 			activeController = controller;
-			controller.enqueue(
-				enc.encode(
-					`event: agent.meta\ndata: ${JSON.stringify({
-						conversation_id: convoId,
-						trace_id: traceId
-					})}\n\n`
-				)
+			safeEnqueue(
+				controller,
+				`event: agent.meta\ndata: ${JSON.stringify({
+					conversation_id: convoId,
+					trace_id: traceId
+				})}\n\n`
 			);
 
+			resetIdleTimer();
 			try {
 				for await (const ev of readSSE(upstreamBody)) {
+					resetIdleTimer();
 					streamStats[ev.event || 'message'] = (streamStats[ev.event || 'message'] ?? 0) + 1;
 					upstreamModel ??= modelFromSseData(ev.data);
 					for (const update of streamState.apply(ev.event, ev.data)) {
@@ -1242,14 +1378,13 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 						citationsForStream,
 						citationSanitizer
 					);
-					controller.enqueue(enc.encode(sseFrame(ev.event, safeEventData)));
+					safeEnqueue(controller, sseFrame(ev.event, safeEventData));
 					if (releasedAfterCitation) {
-						controller.enqueue(
-							enc.encode(
-								sseFrame(
-									'response.output_text.delta',
-									JSON.stringify({ delta: releasedAfterCitation })
-								)
+						safeEnqueue(
+							controller,
+							sseFrame(
+								'response.output_text.delta',
+								JSON.stringify({ delta: releasedAfterCitation })
 							)
 						);
 					}
@@ -1262,9 +1397,33 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					assistantChars: assistantBuf.length,
 					events: streamStats
 				});
-				tryEnqueueCitationBoundary(controller, () => citationSanitizer.abort());
-				await persistAssistant('failed');
-				controller.error(e);
+				clearIdleTimer();
+				const clientAborted = request.signal.aborted && !phaseAbort.timedOut() && !idleTimedOut;
+				if (clientAborted) {
+					try {
+						await persistAssistantBounded('cancelled');
+					} catch (persistError) {
+						recordChatDiagnostic(convoId, 'chat.stream_cancel_persist_error', {
+							trace_id: traceId,
+							errorName: persistError instanceof Error ? persistError.name : 'Error'
+						});
+					}
+					phaseAbort.cleanup();
+					try {
+						controller.error(e);
+					} catch {
+						/* already closed */
+					}
+					return;
+				}
+				await emitSafePartialTerminal(controller, e);
+				phaseAbort.cleanup();
+				return;
+			}
+			clearIdleTimer();
+			if (!done) {
+				await emitSafePartialTerminal(controller, new Error('upstream ended before completion'));
+				phaseAbort.cleanup();
 				return;
 			}
 
@@ -1280,11 +1439,37 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					? "I couldn't complete the research with readable current sources right now. Please retry."
 					: "I couldn't complete that reply right now. Please retry.";
 				assistantBuf = fallback;
-				controller.enqueue(
-					enc.encode(sseFrame('response.output_text.delta', JSON.stringify({ delta: fallback })))
+				safeEnqueue(
+					controller,
+					sseFrame('response.output_text.delta', JSON.stringify({ delta: fallback }))
 				);
 			}
-			const assistantRow = await persistAssistant(done ? 'completed' : 'partial');
+			let assistantRow: Awaited<ReturnType<typeof getMessageById>>;
+			try {
+				assistantRow = await persistAssistantBounded('completed');
+			} catch (persistError) {
+				recordChatDiagnostic(convoId, 'chat.finalization_error', {
+					trace_id: traceId,
+					errorName: persistError instanceof Error ? persistError.name : 'Error',
+					phase: 'completed'
+				});
+				safeEnqueue(
+					controller,
+					sseFrame(
+						'agent.persistence_error',
+						JSON.stringify({ message: 'The answer was generated but could not be saved. Retry to save it.' })
+					)
+				);
+				sentDone = true;
+				safeEnqueue(controller, 'data: [DONE]\n\n');
+				phaseAbort.cleanup();
+				try {
+					controller.close();
+				} catch {
+					/* already closed */
+				}
+				return;
+			}
 			if (
 				(assistantReplacement !== null || citationSanitizer.emitted) &&
 				citationSanitizer.emitted !== assistantBuf
@@ -1305,13 +1490,18 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			// invalidateAll() picks up the conversation list).
 			try {
 				if (assistantRow) {
-					const result = await generateConversationTitle(accountId, convoId, {
-						force: isNew,
-						idempotencyKey: `title-${convoId}-${assistantRow.id}`
-					});
+					const result = await withChatTimeout(
+						generateConversationTitle(accountId, convoId, {
+							force: isNew,
+							idempotencyKey: `title-${convoId}-${assistantRow.id}`
+						}),
+						CHAT_TITLE_TIMEOUT_MS,
+						'conversation title generation'
+					);
 					if (result?.generated && result.title) {
-						controller.enqueue(
-							enc.encode(`event: agent.title\ndata: ${JSON.stringify({ title: result.title })}\n\n`)
+						safeEnqueue(
+							controller,
+							`event: agent.title\ndata: ${JSON.stringify({ title: result.title })}\n\n`
 						);
 					}
 				}
@@ -1347,28 +1537,37 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				research: researchDiagnosticsFromTools(streamState.toolCalls()),
 				events: streamStats
 			});
-			if (sentDone || done) controller.enqueue(enc.encode('data: [DONE]\n\n'));
-			controller.close();
+			clearIdleTimer();
+			phaseAbort.cleanup();
+			if (sentDone || done) safeEnqueue(controller, 'data: [DONE]\n\n');
+			try {
+				controller.close();
+			} catch {
+				/* already closed */
+			}
 		},
-			async cancel() {
+		async cancel() {
 			recordChatDiagnostic(convoId, 'chat.stream_cancel', {
 				trace_id: traceId,
 				elapsedMs: Date.now() - requestStartedAt,
 				assistantChars: assistantBuf.length
 			});
 			upstreamAbort.abort();
+			clearIdleTimer();
 			if (activeController) tryEnqueueCitationBoundary(activeController, () => citationSanitizer.abort());
 			try {
-				await persistAssistant('cancelled');
+				await persistAssistantBounded('cancelled');
 			} catch (error) {
 				recordChatDiagnostic(convoId, 'chat.stream_cancel_persist_error', {
 					trace_id: traceId,
 					errorName: error instanceof Error ? error.name : 'Error',
 					assistantChars: assistantBuf.length
 				});
+				phaseAbort.cleanup();
 				throw error;
 			}
-		}
+			phaseAbort.cleanup();
+		},
 	});
 
 	return new Response(stream, {

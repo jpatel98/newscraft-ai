@@ -234,8 +234,14 @@ function writeProgress(res: ServerResponse, event: RuntimeProgressEvent): void {
 				id: event.source.url,
 				url: event.source.url,
 				title: event.source.title,
-					status: event.source.used ? 'used' : 'discovered',
+				status: event.source.used ? 'used' : 'discovered',
 				detail: event.source.summary,
+				verified: event.verified,
+				currentVerified: event.currentVerified,
+				...(event.source.metadata?.publishedAt ? { publishedAt: event.source.metadata.publishedAt } : {}),
+				...(event.source.metadata?.updatedAt ? { updatedAt: event.source.metadata.updatedAt } : {}),
+				...(event.source.metadata?.eventAt ? { eventAt: event.source.metadata.eventAt } : {}),
+				...(event.temporalScope ? { temporalScope: event.temporalScope } : {}),
 				...(event.stepId ? { stepId: event.stepId } : {})
 			}
 		})

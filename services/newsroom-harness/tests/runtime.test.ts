@@ -296,7 +296,10 @@ describe('newsroom agent runtime', () => {
 				(event) =>
 					event.type === 'source' &&
 					event.source.url === 'https://example.com/story' &&
-					event.source.used
+					event.source.used &&
+					event.verified === true &&
+					event.currentVerified === true &&
+					event.temporalScope === 'primary'
 			)
 		).toBe(true);
 	});
@@ -330,6 +333,7 @@ describe('newsroom agent runtime', () => {
 							summary: 'Japan reported a newly reviewed earthquake update.',
 							confidence: 0.9,
 							limitations: [],
+							direct_verified: true,
 							source_kind: 'official',
 							citation_number: 1
 						}),
@@ -344,6 +348,7 @@ describe('newsroom agent runtime', () => {
 							summary: 'A 2023 earthquake article is also available.',
 							confidence: 0.8,
 							limitations: [],
+							direct_verified: true,
 							source_kind: 'media_report',
 							citation_number: 2
 						})
@@ -392,6 +397,9 @@ describe('newsroom agent runtime', () => {
 		expect(receivedQuery).toContain('earthquakes in Japan');
 		expect(answer).toContain('Japan reported');
 		expect(answer).not.toMatch(/2023 earthquake article|\[2\]/);
+		const sourceEvents = progress.filter((event): event is Extract<RuntimeProgressEvent, { type: 'source' }> => event.type === 'source');
+		expect(sourceEvents.map((event) => event.source.url)).toEqual(['https://example.go.jp/earthquake-update']);
+		expect(sourceEvents.every((event) => event.verified && event.currentVerified)).toBe(true);
 		const plans = progress.filter((event) => event.type === 'plan');
 		expect(plans.length).toBeGreaterThan(1);
 		const finalPlan = plans.at(-1);
@@ -1555,8 +1563,9 @@ function stubRuntimeTool(name: string, category: ToolCategory, text: string): Ne
 						extracted_text: text,
 						summary: text,
 						confidence: 0.8,
-						limitations: [],
-						source_kind: name === 'source_feed_fetcher' ? 'primary' : 'media_report'
+							limitations: [],
+							direct_verified: true,
+							source_kind: name === 'source_feed_fetcher' ? 'primary' : 'media_report'
 					})
 				]
 			};

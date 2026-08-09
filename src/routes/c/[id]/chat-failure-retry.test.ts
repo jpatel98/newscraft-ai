@@ -34,4 +34,13 @@ const threadSource = readFileSync(
 		expect(threadSource).toContain('!failure &&');
 		expect(threadSource).toContain("(m.role === 'assistant' || m.role === 'user')");
 	});
+
+	it('releases active composer state before best-effort reload on every stream terminal path', () => {
+		expect(pageSource).toContain('onPartial: () => {');
+		expect(pageSource).toContain('asstMsg.partial = partialAnswer;');
+		const endStream = pageSource.indexOf('if (chat.abort === controller) chat.endStream();');
+		const reload = pageSource.indexOf('await invalidateAll();');
+		expect(endStream).toBeGreaterThanOrEqual(0);
+		expect(reload).toBeGreaterThan(endStream);
+	});
 });

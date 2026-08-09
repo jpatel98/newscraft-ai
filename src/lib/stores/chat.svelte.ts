@@ -90,6 +90,11 @@ interface SourceProgress {
 	used?: boolean;
 	/** The plan step id this source is attributed to, if any. */
 	stepId?: string;
+	verified?: boolean;
+	currentVerified?: boolean;
+	temporalScope?: string | null;
+	publishedAt?: string | null;
+	eventAt?: string | null;
 }
 
 class ChatSession {
