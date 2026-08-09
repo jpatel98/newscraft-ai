@@ -317,6 +317,7 @@ function fixtureArticle(
 		topic: 'latest developing stories',
 		categories: ['general'],
 		page_role: 'article',
+		direct_verified: true,
 		requirement_ids: requirementId ? [requirementId] : []
 	});
 }

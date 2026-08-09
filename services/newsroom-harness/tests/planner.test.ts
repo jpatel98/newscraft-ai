@@ -71,7 +71,12 @@ describe('research plan parsing', () => {
 	});
 });
 
-function evidenceItem(url: string, text: string, publishedAt: string | null = null) {
+function evidenceItem(
+	url: string,
+	text: string,
+	publishedAt: string | null = null,
+	directVerified = false
+) {
 	return normalizeEvidence({
 		source_name: 'stub',
 		source_url: url,
@@ -83,7 +88,8 @@ function evidenceItem(url: string, text: string, publishedAt: string | null = nu
 		summary: text,
 		confidence: 0.7,
 		limitations: [],
-		source_kind: 'media_report'
+		source_kind: 'media_report',
+		direct_verified: directVerified
 	});
 }
 
@@ -468,7 +474,58 @@ describe('planned agent loop', () => {
 		expect(result.plan.steps.at(-1)).toMatchObject({ tool: 'url_fetch_read', label: 'Reading example.com', status: 'ok' });
 	});
 
-	it('does not run follow-up fetches for chat outputs', async () => {
+	it('reads dated source-index discoveries for current chat assignments from the research contract', async () => {
+		const registry = new ToolRegistry();
+		const fetchedUrls: string[] = [];
+		const sourceIndexUrl = 'https://example.com/source-index-story';
+		registry.register(
+			stubTool('configured_source_monitor', 'source_monitor', () => ({
+				status: 'ok',
+				evidence: [evidenceItem(sourceIndexUrl, LONG_TEXT, '2026-06-10')]
+			}))
+		);
+		registry.register(
+			stubTool('url_fetch_read', 'custom', (input) => {
+				fetchedUrls.push((input as { url: string }).url);
+				return {
+					status: 'ok',
+					evidence: [evidenceItem(sourceIndexUrl, LONG_TEXT, '2026-06-10', true)]
+				};
+			})
+		);
+		const agent = new DisciplinedNewsroomAgent({
+			registry,
+			clock: () => new Date('2026-06-10T12:00:00.000Z'),
+			config: {
+				enabled_tools: ['configured_source_monitor', 'url_fetch_read'],
+				planner_enabled: false,
+				default_tool_budget: {
+					max_total_tool_calls: 4,
+					max_custom_tool_calls: 2,
+					max_web_searches: 1,
+					max_browser_tasks: 1,
+					max_runtime_seconds: 30
+				}
+			}
+		});
+
+		const result = await agent.run(
+			'What are the latest city hall stories today?',
+			{ outputStyle: 'chat' }
+		);
+
+		expect(fetchedUrls).toEqual([sourceIndexUrl]);
+		expect(result.tool_calls.map((call) => call.name)).toContain('url_fetch_read');
+		expect(result.evidence).toEqual([
+			expect.objectContaining({
+				source_url: sourceIndexUrl,
+				direct_verified: true,
+				published_at: '2026-06-10'
+			})
+		]);
+	});
+
+	it('does not run follow-up fetches for non-current chat outputs', async () => {
 		const registry = new ToolRegistry();
 		const fetchedUrls: string[] = [];
 		registry.register(stubTool('openai_web_search', 'web_search_provider', () => ({
@@ -487,7 +544,7 @@ describe('planned agent loop', () => {
 			config: { enabled_tools: ['openai_web_search', 'url_fetch_read'], planner_enabled: false }
 		});
 
-		const result = await agent.run('What happened at city hall this week?', { outputStyle: 'chat' });
+		const result = await agent.run('Compare reporting about a city hall story.', { outputStyle: 'chat' });
 
 		expect(fetchedUrls).toEqual([]);
 		expect(result.tool_calls.map((call) => call.name)).toEqual(['openai_web_search']);

@@ -213,7 +213,7 @@ describe('newsroom harness server', () => {
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
 				stream: true,
-					messages: [{ role: 'user', content: 'what happened in the Ottawa housing vote today' }],
+				messages: [{ role: 'user', content: 'what happened in the Ottawa housing vote today' }],
 				newsroom_context: { timezone: 'America/Toronto' }
 			})
 		});

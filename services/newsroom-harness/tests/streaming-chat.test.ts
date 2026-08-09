@@ -298,7 +298,8 @@ function usableEvidence(name: string, text: string) {
 		summary: text,
 		confidence: 0.7,
 		limitations: [],
-		source_kind: 'media_report'
+		source_kind: 'media_report',
+		direct_verified: true
 	});
 }
 
@@ -451,7 +452,7 @@ describe('runtime streamed chat', () => {
 				name: 'openai_web_search',
 				category: 'web_search_provider',
 				deltas: [],
-				answer: 'A quiet day: Nothing major was reported.'
+				answer: 'Mark Carney: Nothing major was reported in the latest readable update today.'
 			})
 		);
 		const runtime = new NewsroomAgentRuntime({

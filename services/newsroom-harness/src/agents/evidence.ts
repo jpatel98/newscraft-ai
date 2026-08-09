@@ -261,12 +261,15 @@ export function dedupeEvidence(evidence: EvidenceObject[]): EvidenceObject[] {
 		const preferred =
 			existing.direct_verified === true || item.direct_verified !== true ? existing : item;
 		const other = preferred === existing ? item : existing;
+		const trustedExcerpt = [preferred, other]
+			.filter((candidate) => candidate.direct_verified === true)
+			.sort((left, right) => (right.supporting_excerpt || '').length - (left.supporting_excerpt || '').length)[0]
+			?.supporting_excerpt;
+		const supportingExcerpt = trustedExcerpt || preferred.supporting_excerpt || other.supporting_excerpt;
 		byUrl.set(key, {
 			...preferred,
 			...(requirementIds.length ? { requirement_ids: requirementIds } : {}),
-			...(preferred.supporting_excerpt && preferred.supporting_excerpt.length >= (other.supporting_excerpt || '').length
-				? {}
-				: { supporting_excerpt: other.supporting_excerpt }),
+			...(supportingExcerpt ? { supporting_excerpt: supportingExcerpt } : {}),
 			limitations: [...new Set([...preferred.limitations, ...other.limitations])],
 			uncertainty: [...new Set([...(preferred.uncertainty || []), ...(other.uncertainty || [])])]
 		});
@@ -335,16 +338,17 @@ export function preparePublishableEvidence(
 	);
 	for (const raw of normalizedEvidence) {
 		const item = { ...raw, citation_number: undefined, ledger_status: 'discovery' as ResearchEvidenceStatus };
-		if (item.source_url.startsWith('newsroom://')) {
-			item.temporal_scope = 'primary';
-			item.ledger_status = 'accepted';
-			accepted.push(item);
-			continue;
-		}
-		if (currentRequest && /^https?:\/\//i.test(item.source_url) && item.direct_verified === false) {
+		const providerDiscovery = item.limitations.some((limitation) => /provider web_search result/i.test(limitation));
+		if (
+			/^https?:\/\//i.test(item.source_url) &&
+			item.direct_verified !== true &&
+			(currentRequest || providerDiscovery)
+		) {
 			item.temporal_scope = 'discovery';
 			item.ledger_status = 'rejected';
-			item.rejection_reason = 'direct source page requires verification before current publication';
+			item.rejection_reason = currentRequest
+				? 'direct source page requires verification before current publication'
+				: 'provider search result requires direct source verification';
 			excluded.push(item);
 			continue;
 		}

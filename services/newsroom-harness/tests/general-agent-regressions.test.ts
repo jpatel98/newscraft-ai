@@ -198,8 +198,8 @@ describe('general-purpose conversational research regressions', () => {
 					? 'https://www.cp24.com/news/toronto/cp24-story'
 					: 'https://globalnews.ca/news/toronto/global-story',
 				cp24
-					? 'CP24 reported a current Toronto development.'
-					: 'Global News reported a current Toronto development.',
+					? 'CP24 reported that Toronto officials approved a new development plan and will publish implementation details next week.'
+					: 'Global News reported that Toronto officials approved a new development plan and will publish implementation details next week.',
 				'news_report',
 				{ location: 'Toronto' }
 			);
@@ -367,6 +367,7 @@ function evidence(
 		summary: text,
 		source_kind: kind,
 		location: options.location ?? null,
-		limitations: options.limitations ?? []
+		limitations: options.limitations ?? [],
+		direct_verified: true
 	});
 }

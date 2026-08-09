@@ -14,6 +14,7 @@ import {
 import type { EvidenceStoryCluster } from './evidence.js';
 import type { RequirementCoverage } from './contract-satisfaction.js';
 import type { RouteDecision } from './router.js';
+import { isCurrentResearchAssignment } from './time-context.js';
 import {
 	completeGroundedEvidenceStatement,
 	groundedAnswerFromClaims,
@@ -169,7 +170,8 @@ export function generateFinalAnswer(input: AnswerGenerationInput): string {
 			evidence,
 			unusableEvidence,
 			input.limitations,
-			input.timeZone
+			input.timeZone,
+			input.researchContract
 		);
 	}
 
@@ -299,7 +301,8 @@ function coverageStatusLabel(
 }
 
 function substantiveStorySummary(item: EvidenceObject): string {
-	const statement = completeEvidenceStatement(item);
+	if (/^https?:\/\//i.test(item.source_url) && item.direct_verified !== true) return '';
+	const statement = producerStorySummary(item) || completeEvidenceStatement(item);
 	const words = statement.match(/\b[\p{L}\p{N}][\p{L}\p{N}'’-]*\b/gu)?.length || 0;
 	if (words >= 9) return statement;
 	const title = sourceDisplayTitle(item, 150);
@@ -313,7 +316,8 @@ function chatAnswer(
 	evidence: EvidenceObject[],
 	unusableEvidence: EvidenceObject[],
 	limitations: string[],
-	timeZone?: string
+	timeZone?: string,
+	researchContract?: ResearchRequestContract
 ): string {
 	const documentEvidence = evidence.filter((item) => item.source_kind === 'user_document');
 	const externalEvidence = evidence.filter((item) => item.source_kind !== 'user_document');
@@ -325,7 +329,8 @@ function chatAnswer(
 				prompt,
 				externalEvidence.length ? externalEvidence : evidence,
 				timeZone,
-				externalEvidence.length ? documentEvidence : []
+				externalEvidence.length ? documentEvidence : [],
+				researchContract
 			);
 	const caveats = publicCaveatsFor(prompt, evidence, unusableEvidence, limitations, { noUsableEvidence: false });
 	const publicationDate = publicationDateAnswer(prompt, evidence);
@@ -342,40 +347,59 @@ function groundedEvidenceChatAnswer(
 	prompt: string,
 	evidence: EvidenceObject[],
 	timeZone?: string,
-	documentEvidence: EvidenceObject[] = []
+	documentEvidence: EvidenceObject[] = [],
+	researchContract?: ResearchRequestContract
 ): string {
 	const conflict = /\b(?:verify|fact[- ]?check|confirm|is it true|status|active|in effect)\b/i.test(prompt)
 		? conflictingEvidenceStatement(evidence)
 		: '';
 	if (conflict) return conflict;
 
-	const producerBriefing = isProducerRoundupPrompt(prompt);
+	const producerBriefing = isProducerRoundupPrompt(prompt, researchContract);
 	const allEvidence = [...evidence, ...documentEvidence];
 	const ledger = normalizeGroundedEvidence(allEvidence);
-	const currentRequest = /\b(?:latest|current|today|recent|breaking|new)\b/i.test(prompt);
-	const hasDatedEvidence = evidence.some((item) => item.event_at || item.updated_at || item.published_at);
-	const publishableEvidence = currentRequest && hasDatedEvidence
-		? evidence.filter((item) => item.event_at || item.updated_at || item.published_at || item.temporal_scope === 'primary')
+	const currentRequest =
+		isCurrentResearchAssignment(prompt, researchContract) || /\b(?:recent|new)\b/i.test(prompt);
+	// The final renderer is also a safety boundary for callers that bypass the
+	// normal preparePublishableEvidence pass. Current answers must not promote
+	// readable-but-undated or unverified external candidates, even when a legacy
+	// record incorrectly labels one as primary.
+	const publishableEvidence = currentRequest
+		? evidence.filter((item) => {
+			const timestamp = item.event_at || item.updated_at || item.published_at;
+			const externallyVerified =
+				!/^https?:\/\//i.test(item.source_url) || item.direct_verified === true;
+			return Boolean(timestamp) &&
+				externallyVerified &&
+				(item.temporal_scope === 'primary' || item.temporal_scope === 'fallback');
+		})
 		: evidence;
-	const selected = producerRoundupSelection(prompt, publishableEvidence).slice(0, 6);
+	const selected = producerRoundupSelection(prompt, publishableEvidence, researchContract).slice(0, 6);
 	const claims = selected.flatMap((item) => {
-		const statement = completeEvidenceStatement(item);
+		const statement = producerBriefing ? producerStorySummary(item) : completeEvidenceStatement(item);
 		if (!statement) return [];
 		const date = item.event_at || item.updated_at || item.published_at;
 		const dateLabel = date ? producerTimestamp(date, timeZone) : '';
 		const fallback = item.temporal_scope === 'fallback' ? 'Earlier (last 24 hours)' : '';
 		const leadingText = [fallback, dateLabel].filter(Boolean).join(' — ');
-		const hasTitle = item.title && !statement.toLowerCase().includes(item.title.toLowerCase());
+		const title = producerBriefing ? sourceDisplayTitle(item, 150) : '';
 		const prefix = producerBriefing
-			? [leadingText, hasTitle ? item.title : ''].filter(Boolean).join(': ')
+			? [leadingText, title ? `${title} — What happened:` : 'What happened:'].filter(Boolean).join(': ')
 			: '';
+		const sourceTime = date ? producerTimestamp(date, timeZone) : 'not found in readable source metadata';
+		const trailingText = [
+			producerBriefing ? `${producerWhyItMatters(item)} Source time: ${sourceTime}.` : '',
+			wantsDirectUrls(prompt) ? item.source_url : ''
+		]
+			.filter(Boolean)
+			.join(' ');
 		const presentation: GroundedPresentation = {
 			kind: producerBriefing || selected.length > 1 ? 'bullet' : 'paragraph',
-			...(prefix ? { leadingText: prefix, leadingStrong: Boolean(hasTitle) } : {}),
+			...(prefix ? { leadingText: prefix, leadingStrong: producerBriefing } : {}),
 			...(producerBriefing
-				? { trailingLabel: 'Why it matters', trailingText: producerWhyItMatters(item) }
+				? { trailingLabel: 'Why it matters', trailingText }
 				: {}),
-			...(wantsDirectUrls(prompt) ? { trailingText: item.source_url } : {})
+			...(!producerBriefing && wantsDirectUrls(prompt) ? { trailingText: item.source_url } : {})
 		};
 		const claim = groundedClaimFromEvidence(item, ledger, { presentation });
 		return claim ? [claim] : [];
@@ -390,7 +414,7 @@ function groundedEvidenceChatAnswer(
 	const allClaims = [...claims, ...documentClaims];
 	const blocks: GroundedAnswerBlock[] = [];
 	if (producerBriefing && claims.length) {
-		blocks.push({ kind: 'section', heading: 'Latest producer roundup', level: 2 });
+		blocks.push({ kind: 'section', heading: producerSectionHeading(prompt), level: 2 });
 		blocks.push(...claims.map((claim) => ({ kind: 'claim' as const, claim })));
 		if (claims.length < 5) {
 			blocks.push({
@@ -411,8 +435,12 @@ function groundedEvidenceChatAnswer(
 	return renderGroundedAnswer(groundedAnswerFromClaims(allClaims, blocks), ledger);
 }
 
-function producerRoundupSelection(prompt: string, evidence: EvidenceObject[]): EvidenceObject[] {
-	if (!isProducerRoundupPrompt(prompt)) {
+function producerRoundupSelection(
+	prompt: string,
+	evidence: EvidenceObject[],
+	researchContract?: ResearchRequestContract
+): EvidenceObject[] {
+	if (!isProducerRoundupPrompt(prompt, researchContract)) {
 		return evidence;
 	}
 	const rank = (items: EvidenceObject[]) => [...items].sort((left, right) => {
@@ -460,8 +488,20 @@ function producerRoundupSelection(prompt: string, evidence: EvidenceObject[]): E
 	return selected.sort((left, right) => evidenceTimestamp(right) - evidenceTimestamp(left));
 }
 
-function isProducerRoundupPrompt(prompt: string): boolean {
-	return /\b(?:briefing|roundup|headlines|top stories|latest .*news|assignment desk|newsroom producer)\b/i.test(prompt);
+export function isProducerRoundupPrompt(
+	prompt: string,
+	contract?: Pick<ResearchRequestContract, 'outputType'>
+): boolean {
+	if (contract?.outputType === 'producer_roundup' || contract?.outputType === 'story_list') return true;
+	const explicitProducerRequest = /\b(?:briefing|roundup|headlines|top stories|latest .*news|assignment desk|newsroom producer|story ideas?|news ideas?|pitches?|reporting angles?|assignment ideas?)\b/i.test(prompt);
+	if (explicitProducerRequest) return true;
+	return /\bfollow[- ]?ups?\b/i.test(prompt) && /\b(?:news|story|stories|report|reporting|reporter|headline|assignment|pitch|angle|coverage|producer|newsroom)\b/i.test(prompt);
+}
+
+function producerSectionHeading(prompt: string): string {
+	return /\b(?:story ideas?|news ideas?|pitches?|reporting angles?|assignment ideas?)\b/i.test(prompt)
+		? 'Story ideas'
+		: 'Latest producer roundup';
 }
 
 function evidencePublisherKey(item: EvidenceObject): string {
@@ -520,6 +560,28 @@ function producerTimestamp(value: string, timeZone?: string): string {
 	} catch {
 		return parsed.toISOString();
 	}
+}
+
+/**
+ * Producer items need readable page prose, not a provider's URL annotation,
+ * section label, or search-result title. Keep the selection upstream of the
+ * renderer and require direct verification for external pages.
+ */
+function producerStorySummary(item: EvidenceObject): string {
+	if (/^https?:\/\//i.test(item.source_url) && item.direct_verified !== true) return '';
+	for (const candidate of [item.summary, item.extracted_text, item.supporting_excerpt]) {
+		const cleaned = compactText(candidate || '', 720);
+		if (!cleaned) continue;
+		const sentences = cleaned
+			.split(/(?<=[.!?])\s+/)
+			.map((sentence) => sentence.trim())
+			.filter(Boolean)
+			.slice(0, 3);
+		const summary = sentences.join(' ');
+		const words = summary.match(/\b[\p{L}\p{N}][\p{L}\p{N}'’-]*\b/gu)?.length || 0;
+		if (words >= 9) return summary;
+	}
+	return '';
 }
 
 function producerWhyItMatters(item: EvidenceObject): string {

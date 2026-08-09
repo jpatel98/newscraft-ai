@@ -42,7 +42,8 @@ describe('request-scoped temporal grounding and citation integrity', () => {
 			accessed_at: frozenNow.toISOString(),
 			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
 			confidence: 0.8,
-			limitations: []
+			limitations: [],
+			direct_verified: true
 		});
 		const unknownDate = normalizeEvidence({
 			source_name: 'CBC News',
@@ -57,7 +58,8 @@ describe('request-scoped temporal grounding and citation integrity', () => {
 			accessed_at: frozenNow.toISOString(),
 			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
 			confidence: 0.7,
-			limitations: []
+			limitations: [],
+			direct_verified: true
 		});
 
 		const prepared = preparePublishableEvidence([dateOnly, unknownDate], temporal, true);
@@ -76,6 +78,49 @@ describe('request-scoped temporal grounding and citation integrity', () => {
 	]);
 	});
 
+	it('does not promote undated or stale internal research records to current evidence', () => {
+		const prepared = preparePublishableEvidence(
+			[
+				normalizeEvidence({
+					source_name: 'Saved NewsCraft update',
+					source_url: 'newsroom://research-update/unknown',
+					title: 'Saved update with unknown date',
+					published_at: null,
+					extracted_text: 'The saved update contains readable but undated internal notes about a prior assignment.',
+					summary: 'Readable but undated internal notes about a prior assignment.',
+					accessed_at: frozenNow.toISOString(),
+					tool_used: NEWSROOM_TOOL_NAMES.researchResultReader,
+					confidence: 0.85,
+					limitations: [],
+					source_kind: 'internal'
+				}),
+				normalizeEvidence({
+					source_name: 'Saved NewsCraft update',
+					source_url: 'newsroom://research-update/old',
+					title: 'Saved update from last year',
+					published_at: '2025-10-22T15:00:00.000Z',
+					extracted_text: 'The saved update contains readable internal notes from an older assignment.',
+					summary: 'Readable internal notes from an older assignment.',
+					accessed_at: frozenNow.toISOString(),
+					tool_used: NEWSROOM_TOOL_NAMES.researchResultReader,
+					confidence: 0.85,
+					limitations: [],
+					source_kind: 'internal'
+				})
+			],
+			temporal,
+			true
+		);
+
+		expect(prepared.accepted).toEqual([]);
+		expect(prepared.excluded).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ title: 'Saved update with unknown date', rejection_reason: 'publication or update time is unknown' }),
+				expect.objectContaining({ title: 'Saved update from last year', rejection_reason: 'publication or event time is outside the request window' })
+			])
+		);
+	});
+
 	it('rejects a 2026-looking title when the verified publication date is from 2025', () => {
 		const misleadingTitle = normalizeEvidence({
 			source_name: 'AGO',
@@ -89,7 +134,8 @@ describe('request-scoped temporal grounding and citation integrity', () => {
 			accessed_at: frozenNow.toISOString(),
 			tool_used: NEWSROOM_TOOL_NAMES.webSearch,
 			confidence: 0.9,
-			limitations: []
+			limitations: [],
+			direct_verified: true
 		});
 
 		const prepared = preparePublishableEvidence([misleadingTitle], temporal, true);
@@ -223,6 +269,7 @@ function fixtureEvidence() {
 		tool_used: NEWSROOM_TOOL_NAMES.webSearch,
 		confidence: 0.9,
 		limitations: [],
+		direct_verified: true,
 		...input
 	});
 	return [
@@ -244,8 +291,8 @@ function fixtureEvidence() {
 			source_name: 'Global News', source_kind: 'news_report',
 			source_url: 'https://globalnews.ca/news/ontario-housing-announcement/',
 			title: 'Ontario housing announcement', published_at: '2026-07-30T20:00:00.000Z',
-			extracted_text: 'Ontario announced a housing funding change late Wednesday.',
-			summary: 'Ontario announced a housing funding change late Wednesday.'
+			extracted_text: 'Ontario announced a housing funding change affecting Toronto late Wednesday.',
+			summary: 'Ontario announced a housing funding change affecting Toronto late Wednesday.'
 		}),
 		make({
 			source_name: 'Toronto outlet', source_kind: 'news_report',

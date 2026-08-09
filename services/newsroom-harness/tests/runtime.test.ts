@@ -5,7 +5,7 @@ import {
 	NewsroomAgentRuntime,
 	type RuntimeProgressEvent
 } from '../src/agents/runtime.js';
-import type { ConversationContext } from '@newscraft/shared';
+import { deriveResearchRequestContract, type ConversationContext } from '@newscraft/shared';
 import { normalizeEvidence } from '../src/agents/evidence.js';
 import { createModelPolicyConfig } from '../src/agents/model-policy.js';
 import { ToolRegistry, type NewsroomTool, type ToolCategory } from '../src/agents/tools.js';
@@ -268,7 +268,13 @@ describe('newsroom agent runtime', () => {
 
 	it('keeps current newsroom prompts on the research tool path', async () => {
 		const registry = new ToolRegistry();
-		registry.register(stubRuntimeTool('openai_web_search', 'web_search_provider', 'Latest Canada story from a readable source.'));
+		registry.register(
+			stubRuntimeTool(
+				'openai_web_search',
+				'web_search_provider',
+				'Latest Canada story from a readable source with confirmed public impact.'
+			)
+		);
 		const progress: RuntimeProgressEvent[] = [];
 		const runtime = new NewsroomAgentRuntime({
 			maxToolCalls: 2,
@@ -302,6 +308,72 @@ describe('newsroom agent runtime', () => {
 					event.temporalScope === 'primary'
 			)
 		).toBe(true);
+	});
+
+	it('treats a current contract as current when the resolved follow-up is conversational shorthand', async () => {
+		const registry = new ToolRegistry();
+		registry.register({
+			name: 'openai_web_search',
+			description: 'web fixture',
+			when_to_use: 'test only',
+			category: 'web_search_provider',
+			input_schema: { type: 'object' },
+			output_schema: { type: 'object' },
+			async run() {
+				return {
+					status: 'ok',
+					evidence: [
+						normalizeEvidence({
+							source_name: 'Old coverage',
+							source_url: 'https://example.com/old-coverage',
+							accessed_at: '2026-08-01T16:00:00.000Z',
+							tool_used: 'openai_web_search',
+							title: 'A current-looking story title',
+							published_at: '2025-10-22T15:00:00.000Z',
+							extracted_text: 'The page reports an old development that is outside the current request window.',
+							summary: 'The page reports an old development outside the current request window.',
+							confidence: 0.9,
+							limitations: [],
+							direct_verified: true,
+							source_kind: 'news_report'
+						})
+					]
+				};
+			}
+		});
+		const runtime = new NewsroomAgentRuntime({
+			maxToolCalls: 1,
+			runTimeoutMs: 5000,
+			retryLimit: 0,
+			modelProvider: 'perplexity',
+			modelApiKey: 'fake-key',
+			openAiApiKey: '',
+			agentConfig: { enabled_tools: ['openai_web_search'], planner_enabled: false },
+			registry,
+			clock: () => new Date('2026-08-01T16:00:00.000Z')
+		});
+		const progress: RuntimeProgressEvent[] = [];
+		const conversationContext: ConversationContext = {
+			version: 1,
+			intent: 'research',
+			currentTurn: {
+				content: 'Check the assigned news coverage.',
+				resolvedRequest: 'Check the assigned news coverage.',
+				operation: 'send',
+				researchRequired: true,
+				researchContract: deriveResearchRequestContract('Latest news coverage for the assignment.', {
+					timezone: 'America/Toronto'
+				})
+			}
+		};
+
+		const answer = await runtime.completeChat(
+			[{ role: 'user', content: 'Check the assigned news coverage.' }],
+			{ plannerEnabled: false, conversationContext, onProgress: (event) => progress.push(event) }
+		);
+
+		expect(answer).not.toContain('old development');
+		expect(progress.some((event) => event.type === 'source')).toBe(false);
 	});
 
 	it('immediately researches an initial current-events request and filters stale evidence', async () => {
@@ -1374,7 +1446,8 @@ describe('newsroom agent runtime', () => {
 							summary: 'A fresh Toronto development was reported Friday.',
 							tool_used: 'openai_web_search',
 							source_kind: 'news_report',
-							limitations: []
+							limitations: [],
+							direct_verified: true
 						})
 					]
 				};

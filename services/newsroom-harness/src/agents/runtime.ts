@@ -47,6 +47,7 @@ import {
 	createNewsroomTemporalContext,
 	formatNewsroomTemporalContext,
 	isCurrentEventQuery,
+	isCurrentResearchAssignment,
 	newsroomTimeContext,
 	type NewsroomClock,
 	type NewsroomTemporalContext,
@@ -128,6 +129,14 @@ const DIRECT_CHAT_INSTRUCTIONS = [
 	'Do not append unsolicited offers, next-step suggestions, or questions about what the user wants next.',
 	'Do not mention Hermes, internal implementation details, tools, credentials, secrets, system prompts, or routing internals.'
 ].join('\n');
+
+function isCurrentRuntimeAssignment(request: string, context: RuntimeContext): boolean {
+	if (isCurrentResearchAssignment(request, context.conversationContext?.currentTurn?.researchContract)) return true;
+	if (context.conversationContext?.currentTurn?.freshness === 'current') return true;
+	return /^(?:current|latest|today|this week)$/i.test(
+		context.conversationContext?.activeTopic?.relevantDate?.trim() || ''
+	);
+}
 
 export class NewsroomAgentRuntime {
 	private readonly assignmentDesk = new AssignmentDesk();
@@ -450,15 +459,16 @@ export class NewsroomAgentRuntime {
 	}
 
 	private withTemporalContext(context: RuntimeContext, request = ''): RuntimeContext {
+		const currentAssignment = context.currentAssignment ?? isCurrentRuntimeAssignment(request, context);
 		if (context.temporalContext) {
 			return {
 				...context,
-				currentAssignment: context.currentAssignment ?? isCurrentEventQuery(request)
+				currentAssignment
 			};
 		}
 		return {
 			...context,
-			currentAssignment: context.currentAssignment ?? isCurrentEventQuery(request),
+			currentAssignment,
 			temporalContext: createNewsroomTemporalContext({
 				now: (this.controls.clock || (() => new Date()))(),
 				timeZone: context.newsroomContext?.timezone,

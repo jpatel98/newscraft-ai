@@ -289,6 +289,7 @@ function evidenceItem(url: string, text: string, publishedAt = '2026-08-04T14:00
 		confidence: 0.9,
 		limitations: [],
 		source_kind: 'media_report',
+		direct_verified: true,
 		citation_number: 1
 	});
 }

@@ -145,7 +145,7 @@ describe('source adapters', () => {
 		expect(sitemapItems[0]).toMatchObject({
 			url: 'https://example.test/local/story-one',
 			title: 'story-one',
-			updatedAt: '2026-05-24T00:00:00.000Z',
+			updatedAt: '2026-05-24',
 			provenance: { adapter: 'sitemap' }
 		});
 	});

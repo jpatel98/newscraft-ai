@@ -535,6 +535,7 @@ function absoluteUrl(value: string | null, baseUrl: string): string | null {
 
 function dateText(value: string | null): string | null {
 	if (!value) return null;
+	if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return value.trim();
 	const timestamp = Date.parse(value);
 	if (Number.isNaN(timestamp)) return value;
 	return new Date(timestamp).toISOString();

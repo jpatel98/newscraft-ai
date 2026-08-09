@@ -49,6 +49,29 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 		await assertAuthoritative(scenario.conversationId, scenario.messageId, authoritative);
 	});
 
+	it('does not persist a provider-labelled producer draft after authoritative replacement', async () => {
+		const scenario = await seedPartial('provider-labelled-producer-draft');
+		const rawDraft = '(pacific.example). Direct answer — story ideas (lead first). Budget Notes - HS 2026 Budget.';
+		const authoritative =
+			'## Latest producer roundup\n\n- Flooding closed several roads after heavy rain, and crews are assessing drainage capacity [1].';
+		stubGateway(() => sseResponse([
+			['response.output_text.delta', JSON.stringify({ delta: rawDraft })],
+			['agent.answer.replace', JSON.stringify({ content: authoritative })],
+			['message', '[DONE]']
+		]));
+
+		const response = await invokeResume(scenario);
+		await response.text();
+
+		await assertAuthoritative(scenario.conversationId, scenario.messageId, authoritative);
+		await expectExport(scenario.conversationId, authoritative);
+		const provenance = await getMessageProvenance(scenario.messageId);
+		const parsed = JSON.parse(provenance?.provenanceJson || '{}') as { stream?: { answerText?: string } };
+		expect(parsed.stream?.answerText).toBe(authoritative);
+		expect(parsed.stream?.answerText).not.toContain('Direct answer — story ideas');
+		expect(parsed.stream?.answerText).not.toContain('Budget Notes');
+	});
+
 	it('persists a large safe replacement without applying the pending-construct bound to the answer', async () => {
 		const scenario = await seedPartial('large-safe-replacement');
 		const authoritative = 's'.repeat(262_144);

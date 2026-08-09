@@ -44,6 +44,7 @@ function article(input: {
 		summary: input.text,
 		confidence: 0.9,
 		limitations: [],
+		direct_verified: true,
 		source_kind: input.sourceKind || 'news_report',
 		location: input.location || 'Toronto',
 		categories: input.categories || ['community'],

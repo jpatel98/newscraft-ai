@@ -72,7 +72,13 @@ import {
 	type NewsroomContext,
 	type ResearchRequestContract
 } from '@newscraft/shared';
-import { createNewsroomTemporalContext, isCurrentEventQuery, type NewsroomClock, type NewsroomTemporalContext } from './time-context.js';
+import {
+	createNewsroomTemporalContext,
+	isCurrentEventQuery,
+	isCurrentResearchAssignment,
+	type NewsroomClock,
+	type NewsroomTemporalContext
+} from './time-context.js';
 
 export interface NewsroomAgentRunContext {
 	repository?: HarnessRepository;
@@ -432,7 +438,7 @@ export class DisciplinedNewsroomAgent {
 			const contractGuarded = applyResearchContractGuard(normalizedOutput, researchContract);
 			const conversationGuarded = applyConversationGuard(contractGuarded, context.conversationContext, temporalContext);
 			const output = annotateRequirementOutput(
-				applyTemporalGuard(conversationGuarded, temporalContext, isCurrentEventQuery(resolvedRoutingPrompt)),
+				applyTemporalGuard(conversationGuarded, temporalContext, isCurrentResearchAssignment(resolvedRoutingPrompt, researchContract)),
 				step.requirementId,
 				researchContract
 			);
@@ -511,7 +517,11 @@ export class DisciplinedNewsroomAgent {
 			toolAnswers.splice(0, toolAnswers.length);
 		}
 		limitations.push(...finalGuard.limitations);
-		const publishable = preparePublishableEvidence(evidence, temporalContext, isCurrentEventQuery(resolvedRoutingPrompt));
+		const publishable = preparePublishableEvidence(
+			evidence,
+			temporalContext,
+			isCurrentResearchAssignment(resolvedRoutingPrompt, researchContract)
+		);
 		const orderedPublishable = context.documents?.length
 			? [
 					...publishable.accepted.filter((item) => item.source_kind !== 'user_document'),
@@ -804,7 +814,7 @@ export class DisciplinedNewsroomAgent {
 						applyTemporalGuard(
 							conversationGuarded,
 							context.temporalContext!,
-							isCurrentEventQuery(resolvedRoutingPrompt)
+							isCurrentResearchAssignment(resolvedRoutingPrompt, researchContract)
 						),
 						step.requirementId,
 						researchContract
@@ -967,7 +977,11 @@ export class DisciplinedNewsroomAgent {
 			toolAnswers.splice(0, toolAnswers.length);
 		}
 		limitations.push(...finalGuard.limitations);
-		const publishable = preparePublishableEvidence(evidence, context.temporalContext!, isCurrentEventQuery(resolvedRoutingPrompt));
+		const publishable = preparePublishableEvidence(
+			evidence,
+			context.temporalContext!,
+			isCurrentResearchAssignment(resolvedRoutingPrompt, researchContract)
+		);
 		const orderedPublishable = context.documents?.length
 			? [
 					...publishable.accepted.filter((item) => item.source_kind !== 'user_document'),
@@ -1302,7 +1316,9 @@ export class DisciplinedNewsroomAgent {
 		// latency, but a current-news chat must read undated discoveries before
 		// the freshness guard can accept them.
 		const currentAssignment =
-			context.outputStyle !== 'chat' || context.conversationContext?.currentTurn?.freshness === 'current';
+			context.outputStyle !== 'chat' ||
+			context.conversationContext?.currentTurn?.freshness === 'current' ||
+			['current', 'relative'].includes(context.researchContract?.temporalWindow.kind || '');
 		if (
 			(context.outputStyle !== 'chat' || currentAssignment) &&
 			CURRENT_DISCOVERY_TOOLS.has(step.tool) &&

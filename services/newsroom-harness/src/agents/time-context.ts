@@ -1,3 +1,5 @@
+import type { ResearchRequestContract } from '@newscraft/shared';
+
 const DEFAULT_NEWSROOM_TIME_ZONE = 'America/Toronto';
 
 export interface NewsroomTimeContextOptions {
@@ -144,6 +146,24 @@ export function isCurrentEventQuery(query: string): boolean {
 	return /\b(latest|current|today|tonight|tomorrow|yesterday|this week|breaking|schedule|fixtures)\b/i.test(
 		text
 	);
+}
+
+/**
+ * A request's temporal intent may be carried by the structured contract even
+ * when the resolved prompt is conversational shorthand. All publication and
+ * progress gates must use this same contract-aware decision.
+ */
+export function isCurrentResearchAssignment(
+	query: string,
+	contract?: Pick<ResearchRequestContract, 'temporalWindow'>
+): boolean {
+	// "Latest saved research" asks for the newest stored report, not a claim
+	// about live external coverage. Keep that internal continuity path usable
+	// as dated background while live current assignments remain fail-closed.
+	if (/\b(?:latest\s+)?(?:saved|stored|previous|prior)\s+research\s+(?:update|report|results?)\b|\blatest\s+research\s+update\b/i.test(query)) {
+		return false;
+	}
+	return isCurrentEventQuery(query) || ['current', 'relative'].includes(contract?.temporalWindow.kind || '');
 }
 
 export function currentAsOfLabel(options: NewsroomTimeContextOptions = {}): string {

@@ -98,6 +98,10 @@ export function absoluteUrl(value: string | null, baseUrl: string): string | nul
 
 export function dateText(value: string | null): string | null {
 	if (!value) return null;
+	// A date-only publication value carries a calendar-day scope, not UTC
+	// midnight. Preserve it so same-day freshness checks use the newsroom
+	// timezone instead of shifting the source into the prior local day.
+	if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return value.trim();
 	const timestamp = Date.parse(value);
 	if (Number.isNaN(timestamp)) return value;
 	return new Date(timestamp).toISOString();

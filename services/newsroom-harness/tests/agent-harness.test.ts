@@ -972,7 +972,7 @@ describe('disciplined newsroom agent harness', () => {
 	it('uses web-search fallback evidence when configured sources fail', async () => {
 		const registry = new ToolRegistry();
 		registry.register(unavailableTool('configured_source_monitor', 'source_monitor'));
-		registry.register(stubTool('openai_web_search', 'web_search_provider', 'Other outlet reports that council will revisit the item next week.'));
+		registry.register(verifiedExternalStubTool('openai_web_search', 'web_search_provider', 'Other outlet reports that council will revisit the item next week.'));
 		const agent = new DisciplinedNewsroomAgent({
 			registry,
 			config: {
@@ -994,7 +994,7 @@ describe('disciplined newsroom agent harness', () => {
 		const registry = new ToolRegistry();
 		registry.register(errorTool('configured_source_monitor', 'source_monitor'));
 		registry.register(
-			stubTool('openai_web_search', 'web_search_provider', 'CTV and CBC are both leading with federal energy policy reaction.')
+			verifiedExternalStubTool('openai_web_search', 'web_search_provider', 'CTV and CBC are both leading with federal energy policy reaction.')
 		);
 		const agent = new DisciplinedNewsroomAgent({
 			registry,
@@ -1342,7 +1342,12 @@ describe('disciplined newsroom agent harness', () => {
 	});
 });
 
-function stubTool(name: string, category: ToolCategory, text: string): NewsroomTool {
+function stubTool(
+	name: string,
+	category: ToolCategory,
+	text: string,
+	options: { sourceUrl?: string; publishedAt?: string | null; directVerified?: boolean } = {}
+): NewsroomTool {
 	return {
 		name,
 		description: `${name} stub`,
@@ -1356,21 +1361,30 @@ function stubTool(name: string, category: ToolCategory, text: string): NewsroomT
 				evidence: [
 					normalizeEvidence({
 						source_name: name,
-						source_url: `newsroom://${name}`,
+						source_url: options.sourceUrl || `newsroom://${name}`,
 						accessed_at: '2026-05-20T12:00:00.000Z',
 						tool_used: name,
 						title: name,
-						published_at: null,
+						published_at: options.publishedAt === undefined ? null : options.publishedAt,
 						extracted_text: text,
 						summary: text,
 						confidence: 0.7,
 						limitations: [],
-						source_kind: category === 'web_search_provider' ? 'media_report' : 'official'
+						source_kind: category === 'web_search_provider' ? 'media_report' : 'official',
+						...(options.directVerified === undefined ? {} : { direct_verified: options.directVerified })
 					})
 				]
 			};
 		}
 	};
+}
+
+function verifiedExternalStubTool(name: string, category: ToolCategory, text: string): NewsroomTool {
+	return stubTool(name, category, text, {
+		sourceUrl: `https://example.com/${name}/story`,
+		publishedAt: new Date().toISOString(),
+		directVerified: true
+	});
 }
 
 function unavailableTool(name: string, category: ToolCategory): NewsroomTool {

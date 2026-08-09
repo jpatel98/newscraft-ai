@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { deriveResearchRequestContract } from '@newscraft/shared';
 import { ToolBudgetLedger, mergeToolBudget } from '../src/agents/budget.js';
 import {
 	cleanVisibleChatOutput,
-	generateFinalAnswer
+	generateFinalAnswer,
+	isProducerRoundupPrompt
 } from '../src/agents/answer.js';
 import { createDefaultToolRegistry } from '../src/agents/default-tools.js';
-import { classifyEvidenceSource, normalizeEvidence } from '../src/agents/evidence.js';
+import { classifyEvidenceSource, dedupeEvidence, normalizeEvidence } from '../src/agents/evidence.js';
 import { createNewsroomAgentConfig } from '../src/agents/harness-config.js';
 import { createModelPolicyConfig } from '../src/agents/model-policy.js';
 import { NEWSROOM_CHARTER, NEWSROOM_CHARTER_VERSION } from '../src/agents/roles.js';
@@ -20,12 +22,87 @@ afterEach(() => {
 });
 
 describe('citation and source-quality web research', () => {
+	it('keeps direct-page prose when a provider discovery duplicate has a longer excerpt', () => {
+		const url = 'https://publisher.example/story';
+		const merged = dedupeEvidence([
+			normalizeEvidence({
+				source_name: 'Provider search',
+				source_url: url,
+				tool_used: NEWSROOM_TOOL_NAMES.webSearch,
+				title: 'Provider result',
+				extracted_text: 'Provider annotation label and stale search snippet.',
+				summary: 'Provider annotation label and stale search snippet.',
+				supporting_excerpt: 'Provider annotation label and stale search snippet with extra words.',
+				direct_verified: false,
+				limitations: ['Provider web_search result; cite and verify source page before publication.']
+			}),
+			normalizeEvidence({
+				source_name: 'Publisher',
+				source_url: url,
+				tool_used: NEWSROOM_TOOL_NAMES.urlFetchRead,
+				title: 'Verified story',
+				extracted_text: 'The verified page reports a new safety measure after a recorded public meeting.',
+				summary: 'The verified page reports a new safety measure after a recorded public meeting.',
+				supporting_excerpt: 'The verified page reports a new safety measure after a recorded public meeting.',
+				direct_verified: true,
+				limitations: []
+			})
+		]);
+
+		expect(merged).toHaveLength(1);
+		expect(merged[0]).toMatchObject({ direct_verified: true, title: 'Verified story' });
+		expect(merged[0]?.supporting_excerpt).toContain('verified page reports');
+		expect(merged[0]?.supporting_excerpt).not.toContain('Provider annotation label');
+		expect(merged[0]?.summary).not.toContain('Provider annotation label');
+	});
+
+	it('does not fall back to provider snippet residue when a direct page is readable', async () => {
+		const url = 'https://publisher.example/municipal-notice';
+		const providerResidue = 'Provider-only snippet residue with budget label and no page prose.';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (request: string | URL | Request) => {
+				if (!isProviderRequest(request)) {
+					return directArticleResponse(
+						url,
+						'Municipal notice',
+						'2026-08-08',
+						'Officials described a six-month implementation timetable and invited residents to review the technical appendix before the meeting. Staff will phase the work across three sites and publish progress reports after each milestone. The document also explains how residents can submit questions before the public session.'
+					);
+				}
+				return jsonResponse({
+					output_text: providerResidue,
+					citations: [url],
+					search_results: [{ url, title: 'Provider result', snippet: providerResidue, date: '2026-08-08' }]
+				});
+			})
+		);
+
+		const result = await runWebSearch('Summarize this announcement', { provider: 'openai' });
+		const evidence = result.evidence?.[0];
+		expect(result.evidence).toHaveLength(1);
+		expect(evidence).toMatchObject({ direct_verified: true, published_at: '2026-08-08' });
+		expect(evidence?.extracted_text).toContain('six-month implementation timetable');
+		expect(evidence?.summary).not.toContain(providerResidue);
+		expect(evidence?.supporting_excerpt).not.toContain(providerResidue);
+	});
+
 	it('preserves more than eight Sonar citations in marker order with metadata', async () => {
 		const urls = Array.from({ length: 12 }, (_, index) => `https://www.reuters.com/world/story-${index + 1}`);
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(async () =>
-				jsonResponse({
+			vi.fn(async (request: string | URL | Request) => {
+				if (!isProviderRequest(request)) {
+					const url = String(request);
+					const number = Number(url.match(/story-(\d+)/)?.[1]);
+					return directArticleResponse(
+						url,
+						`Reuters story ${number}`,
+						`2026-07-${String(number).padStart(2, '0')}`,
+						`The verified Reuters article ${number} reports a material development in semiconductor manufacturing with consequences for the supply chain.`
+					);
+				}
+				return jsonResponse({
 					choices: [{ message: { content: 'A sourced answer [1] [12].' } }],
 					citations: urls,
 					search_results: [...urls].reverse().map((url) => {
@@ -34,26 +111,32 @@ describe('citation and source-quality web research', () => {
 							url,
 							title: `Reuters story ${number}`,
 							snippet: `Supporting excerpt ${number}`,
-							date: number === 12 ? undefined : `2026-07-${String(number).padStart(2, '0')}`
+							date: number === 12 ? undefined : `2030-07-${String(number).padStart(2, '0')}`
 						};
 					})
-				})
-			)
+				});
+			})
 		);
 
 		const result = await runWebSearch('Compare reporting on semiconductor manufacturing');
 
-		expect(result.evidence).toHaveLength(12);
-		expect(result.evidence?.map((source) => source.source_url)).toEqual(urls);
+		expect(result.evidence).toHaveLength(8);
+		expect(result.evidence?.map((source) => source.source_url)).toEqual(urls.slice(0, 8).reverse());
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual(
-			Array.from({ length: 12 }, (_, index) => index + 1)
+			Array.from({ length: 8 }, (_, index) => index + 1)
 		);
 		expect(result.evidence?.[0]).toMatchObject({
-			title: 'Reuters story 1',
-			published_at: '2026-07-01',
-			source_kind: 'news_report'
+			title: 'Reuters story 8',
+			published_at: expect.stringContaining('2026-07-08'),
+			source_kind: 'news_report',
+			direct_verified: true
 		});
-		expect(result.evidence?.[11]).toMatchObject({ title: 'Reuters story 12', published_at: null });
+		expect(result.evidence?.[7]).toMatchObject({
+			title: 'Reuters story 1',
+			published_at: expect.stringContaining('2026-07-01'),
+			direct_verified: true
+		});
+		expect(result.evidence?.every((source) => source.published_at?.startsWith('2030') !== true)).toBe(true);
 	});
 
 	it('deduplicates repeated Sonar URLs into one stable evidence record', async () => {
@@ -94,6 +177,60 @@ describe('citation and source-quality web research', () => {
 
 		expect(result.evidence).toBeUndefined();
 		expect(result.answer).toBeUndefined();
+	});
+
+	it('does not return citation-free provider narrative when direct page reads fail', async () => {
+		const url = 'https://publisher.example/unreadable-story';
+		const providerText = '(publisher.example). Direct answer — story ideas (lead first). Budget Notes - HS 2026 Budget.';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (request: string | URL | Request) => {
+				if (isProviderRequest(request)) {
+					return jsonResponse({
+						choices: [{ message: { content: providerText } }],
+						citations: [url],
+						search_results: [{ url, title: 'Unreadable candidate', snippet: 'Provider-only candidate residue.' }]
+					});
+				}
+				return new Response('', { status: 403, headers: { 'content-type': 'text/html' } });
+			})
+		);
+
+		const result = await runWebSearch('Give me story ideas for climate and transit reporters.', { provider: 'openai' });
+
+		expect(result.status).toBe('unavailable');
+		expect(result.evidence).toBeUndefined();
+		expect(result.answer).toBeUndefined();
+		expect(result.discovery_leads?.some((item) => item.source_url === url)).toBe(true);
+	});
+
+	it('fails closed for a structured current producer assignment when direct reads fail', async () => {
+		const url = 'https://publisher.example/structured-unreadable-story';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (request: string | URL | Request) =>
+				isProviderRequest(request)
+					? jsonResponse({
+							choices: [{ message: { content: 'Provider-only assignment prose.' } }],
+							citations: [url],
+							search_results: [{ url, title: 'Structured unreadable candidate', snippet: 'Provider-only residue.' }]
+						})
+					: new Response('', { status: 403, headers: { 'content-type': 'text/html' } })
+			)
+		);
+		const researchContract = {
+			...deriveResearchRequestContract('Latest local assignment stories', { timezone: 'America/Toronto' }),
+			outputType: 'producer_roundup' as const
+		};
+
+		const result = await runWebSearch('Check the assigned coverage.', {
+			provider: 'openai',
+			researchContract
+		});
+
+		expect(result.status).toBe('unavailable');
+		expect(result.answer).toBeUndefined();
+		expect(result.discovery_leads?.some((item) => item.source_url === url)).toBe(true);
 	});
 
 	it('keeps dated evidence from the full requested seven-day window', async () => {
@@ -203,8 +340,18 @@ describe('citation and source-quality web research', () => {
 		});
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(async () =>
-				jsonResponse({
+			vi.fn(async (request: string | URL | Request) => {
+				if (!isProviderRequest(request)) {
+					const url = String(request);
+					const index = urls.indexOf(url);
+					return directArticleResponse(
+						url,
+						`Reuters annotated ${index + 1}`,
+						`2026-07-${String(index + 1).padStart(2, '0')}`,
+						`The verified article for story ${index + 1} describes a material development in semiconductor manufacturing and its effect on the supply chain.`
+					);
+				}
+				return jsonResponse({
 					output_text: text,
 					output: [
 						{
@@ -229,18 +376,18 @@ describe('citation and source-quality web research', () => {
 						snippet: `Supporting excerpt ${index + 1}`,
 						date: `2026-07-${String(index + 1).padStart(2, '0')}`
 					}))
-				})
-			)
+				});
+			})
 		);
 
 		const result = await runWebSearch('Summarize annotated OpenAI coverage', { provider: 'openai' });
 
-		expect(result.answer).toContain('- Claim 1 uses source 1. [1]');
-		expect(result.answer).toContain('- Claim 9 uses source 9. [9]');
-		expect(result.answer).not.toContain('[10]');
-		expect(result.evidence).toHaveLength(9);
-		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
-		expect(result.evidence?.map((source) => source.source_url)).toEqual(urls);
+		expect(result.answer).toContain('The verified article for story 1 describes a material development');
+		expect(result.answer).toContain('The verified article for story 8 describes a material development');
+		expect(result.answer).not.toContain('Claim 1 uses source 1');
+		expect(result.evidence).toHaveLength(8);
+		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+		expect(result.evidence?.map((source) => source.source_url)).toEqual(urls.slice(0, 8).reverse());
 		expect(result.evidence?.some((source) => source.source_url === 'https://example.com/action-only')).toBe(false);
 	});
 
@@ -258,22 +405,29 @@ describe('citation and source-quality web research', () => {
 			if (String(url).includes('api.openai.com')) {
 				return jsonResponse({
 					output_text: text,
-					output: [
-						{
-							type: 'message',
-							content: [{ type: 'output_text', text, annotations: annotationFixtures(text, segments, urls) }]
-						}
-					]
-				});
-			}
-			return directArticleResponse(
+						output: [
+							{
+								type: 'message',
+								content: [{ type: 'output_text', text, annotations: annotationFixtures(text, segments, urls) }]
+							}
+						],
+						search_results: urls.map((url, index) => ({
+							url,
+							title: `Provider result ${index + 1}`,
+							snippet: `Provider annotation label ${index + 1}`,
+							date: '2035-08-01'
+						}))
+					});
+				}
+				return directArticleResponse(
 				String(url),
 				String(url).includes('council') ? 'Council housing vote' : 'Transit service update',
-				'2026-08-01',
-				String(url).includes('council')
-					? 'Toronto council approved the housing measure after a recorded vote.'
-					: 'The TTC restored service after resolving a signal issue.'
-			);
+					'2026-08-01',
+					String(url).includes('council')
+						? 'Toronto council approved the housing measure after a recorded vote.'
+						: 'The TTC restored service after resolving a signal issue.',
+					'2026-08-01T12:00:00.000Z'
+				);
 		});
 		vi.stubGlobal('fetch', fetchMock);
 
@@ -283,18 +437,24 @@ describe('citation and source-quality web research', () => {
 			request: 'Latest Toronto news today'
 		});
 		const result = await runWebSearch('Latest Toronto news today', { provider: 'openai', temporalContext });
-
 		expect(result.status).toBe('ok');
 		expect(result.evidence).toHaveLength(2);
 		expect(result.evidence?.map((source) => source.published_at)).toEqual([
-			'2026-08-01T00:00:00.000Z',
-			'2026-08-01T00:00:00.000Z'
+			'2026-08-01',
+			'2026-08-01'
+		]);
+		expect(result.evidence?.map((source) => source.updated_at)).toEqual([
+			'2026-08-01T12:00:00.000Z',
+			'2026-08-01T12:00:00.000Z'
 		]);
 		expect(result.evidence?.map((source) => source.extracted_text)).toEqual([
 			expect.stringContaining('Toronto council approved the housing measure after a recorded vote.'),
 			expect.stringContaining('The TTC restored service after resolving a signal issue.')
 		]);
 		expect(result.evidence?.every((source) => !source.extracted_text.includes('No source excerpt was returned'))).toBe(true);
+		expect(result.evidence?.every((source) => source.supporting_excerpt.includes('recorded vote') || source.supporting_excerpt.includes('signal issue'))).toBe(true);
+		expect(result.evidence?.every((source) => !source.supporting_excerpt.includes('Provider annotation label'))).toBe(true);
+		expect(result.evidence?.every((source) => source.published_at?.startsWith('2035') !== true)).toBe(true);
 	});
 
 	it('maps ordered OpenAI research notes when URL annotations omit character offsets', async () => {
@@ -350,8 +510,8 @@ describe('citation and source-quality web research', () => {
 			expect.stringContaining('The TTC restored subway service after resolving a signal issue.')
 		]);
 		expect(result.evidence?.map((source) => source.published_at)).toEqual([
-			'2026-08-01T00:00:00.000Z',
-			'2026-08-01T00:00:00.000Z'
+			'2026-08-01',
+			'2026-08-01'
 		]);
 	});
 
@@ -417,8 +577,17 @@ describe('citation and source-quality web research', () => {
 		const text = `${segments.join('. ')}.`;
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(async () =>
-				jsonResponse({
+			vi.fn(async (request: string | URL | Request) => {
+				if (!isProviderRequest(request)) {
+					const url = String(request);
+					return directArticleResponse(
+						url,
+						`Direct page ${url}`,
+						'2026-08-08',
+						`The verified page at ${url} reports a distinct documented development with readable context for the assignment.`
+					);
+				}
+				return jsonResponse({
 					output_text: text,
 					output: [
 						{
@@ -437,8 +606,8 @@ describe('citation and source-quality web research', () => {
 						title: `Exact source ${index + 1}`,
 						snippet: `Supporting excerpt ${index + 1}`
 					}))
-				})
-			)
+				});
+			})
 		);
 
 		const result = await runWebSearch('Summarize annotated OpenAI source identity', { provider: 'openai' });
@@ -456,8 +625,17 @@ describe('citation and source-quality web research', () => {
 		const text = `${segments.join('. ')}.`;
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(async () =>
-				jsonResponse({
+			vi.fn(async (request: string | URL | Request) => {
+				if (!isProviderRequest(request)) {
+					const url = String(request);
+					return directArticleResponse(
+						url,
+						`Direct page ${url}`,
+						'2026-08-08',
+						`The verified page at ${url} confirms a distinct documented development with readable context for the assignment.`
+					);
+				}
+				return jsonResponse({
 					output_text: text,
 					output: [
 						{
@@ -475,15 +653,18 @@ describe('citation and source-quality web research', () => {
 						{ url: canonical, title: 'Canonical source', snippet: 'Canonical evidence' },
 						{ url: repeated, title: 'Repeated source', snippet: 'Repeated evidence' }
 					]
-				})
-			)
+				});
+			})
 		);
 
 		const result = await runWebSearch('Summarize repeated annotated OpenAI source identity', {
 			provider: 'openai'
 		});
 
-		expect(result.answer).toBe('- First exact source claim. [1]\n- Repeated annotation claim. [2]');
+		expect(result.answer).toContain('The verified page at https://example.com/story?id=123');
+		expect(result.answer).toContain('The verified page at https://example.com/other?id=456');
+		expect(result.answer).not.toContain('First exact-source claim');
+		expect(result.answer).not.toContain('Repeated annotation claim');
 		expect(result.answer).not.toContain('utm_source=');
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
 		expect(result.evidence?.map((source) => source.source_url)).toEqual([canonical, repeated]);
@@ -496,8 +677,17 @@ describe('citation and source-quality web research', () => {
 		const text = `${segment}. ${malformed}`;
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(async () =>
-				jsonResponse({
+			vi.fn(async (request: string | URL | Request) => {
+				if (!isProviderRequest(request)) {
+					const url = String(request);
+					return directArticleResponse(
+						url,
+						'Weather alerts',
+						'2026-08-08',
+						'No alerts are in effect for the monitored region, according to the verified public notice.'
+					);
+				}
+				return jsonResponse({
 					output_text: text,
 					output: [
 						{
@@ -514,13 +704,13 @@ describe('citation and source-quality web research', () => {
 					search_results: [
 						{ url: malformed, title: 'Toronto alerts', snippet: 'No alerts are in effect.' }
 					]
-				})
-			)
+				});
+			})
 		);
 
 		const result = await runWebSearch('Check Toronto alerts now', { provider: 'openai' });
 
-		expect(result.answer).toBe('- No alerts are in effect. [1]');
+		expect(result.answer).toContain('No alerts are in effect for the monitored region');
 		expect(result.answer).not.toContain('undefined');
 		expect(result.evidence?.[0]?.source_url).toBe(canonical);
 	});
@@ -564,8 +754,15 @@ describe('citation and source-quality web research', () => {
 		const text = `${segments[0]}. ${segments[1]}.`;
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(async () =>
-				jsonResponse({
+			vi.fn(async (request: string | URL | Request) => {
+				if (!isProviderRequest(request)) {
+					const url = String(request);
+					const body = url.includes('source-a')
+						? 'Source A supports the first claim with a verified public record.'
+						: 'Source B supports the second claim with a verified public record.';
+					return directArticleResponse(url, url.includes('source-a') ? 'Source A' : 'Source B', '2026-08-08', body);
+				}
+				return jsonResponse({
 					citations: [sourceB, sourceA],
 					search_results: [
 						{ url: sourceA, title: 'Source A', snippet: sourceExcerpts[0], date: '2026-07-27' },
@@ -584,17 +781,22 @@ describe('citation and source-quality web research', () => {
 							]
 						}
 					]
-				})
-			)
+				});
+			})
 		);
 
 		const result = await runWebSearch('Compare two annotated claims', { provider: 'openai' });
 
-		expect(result.answer).toContain(`- ${segments[0]}. [1]`);
-		expect(result.answer).toContain(`- ${segments[1]}. [2]`);
+		expect(result.answer).toContain('Source A supports the first claim with a verified public record');
+		expect(result.answer).toContain('Source B supports the second claim with a verified public record');
+		expect(result.answer).not.toContain(sourceExcerpts[0]);
+		expect(result.answer).not.toContain(sourceExcerpts[1]);
 		expect(result.evidence?.map((source) => source.source_url)).toEqual([sourceA, sourceB]);
 		expect(result.evidence?.map((source) => source.citation_number)).toEqual([1, 2]);
-		expect(result.evidence?.map((source) => source.extracted_text)).toEqual(sourceExcerpts);
+		expect(result.evidence?.map((source) => source.extracted_text)).toEqual([
+			expect.stringContaining('Source A supports the first claim with a verified public record.'),
+			expect.stringContaining('Source B supports the second claim with a verified public record.')
+		]);
 	});
 
 	it('drops provider-authored claims when no structured source record can resolve them', () => {
@@ -762,6 +964,7 @@ describe('citation and source-quality web research', () => {
 				published_at: `2026-08-01T${String(18 - index).padStart(2, '0')}:00:00.000Z`,
 				confidence: 0.9,
 				limitations: [],
+				direct_verified: true,
 				source_kind: 'news_report',
 				citation_number: index + 1,
 				temporal_scope: 'primary',
@@ -806,6 +1009,7 @@ describe('citation and source-quality web research', () => {
 				published_at: publishedAt,
 				confidence: 0.9,
 				limitations: [],
+				direct_verified: true,
 				source_kind: 'news_report',
 				citation_number: index + 1,
 				temporal_scope: temporalScope,
@@ -832,6 +1036,42 @@ describe('citation and source-quality web research', () => {
 		expect(answer).toContain('Coverage is incomplete; I found 3 distinct same-day items');
 	});
 
+	it('does not synthesize a current story from readable evidence whose date remains unknown', () => {
+		const prompt = 'What are the latest developing stories in Vancouver?';
+		const undated = normalizeEvidence({
+			source_name: 'Verified publisher',
+			source_url: 'https://publisher.test/undated-developing-story',
+			tool_used: NEWSROOM_TOOL_NAMES.urlFetchRead,
+			title: 'Undated emergency response story',
+			extracted_text:
+				'Crews closed two roads after heavy rain, while officials assess drainage capacity and residents await a repair timetable.',
+			summary:
+				'Crews closed two roads after heavy rain, while officials assess drainage capacity and residents await a repair timetable.',
+			published_at: null,
+			updated_at: null,
+			event_at: null,
+			confidence: 0.9,
+			limitations: [],
+			direct_verified: true,
+			source_kind: 'news_report',
+			temporal_scope: 'primary',
+			ledger_status: 'accepted'
+		});
+
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence: [undated],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat'
+		});
+
+		expect(answer).toContain("I couldn't verify a complete claim");
+		expect(answer).not.toContain('Undated emergency response story');
+		expect(answer).not.toContain('Crews closed two roads');
+	});
+
 	it('canonicalizes duplicate provider-local numbers through structured rendering', () => {
 		const prompt =
 			'Give me a same-day briefing of the latest consequential Toronto news, each with a direct article URL.';
@@ -846,6 +1086,7 @@ describe('citation and source-quality web research', () => {
 				published_at: `2026-08-01T${String(19 - index).padStart(2, '0')}:00:00.000Z`,
 				confidence: 0.9,
 				limitations: [],
+				direct_verified: true,
 				source_kind: 'news_report',
 				citation_number: 1,
 				temporal_scope: 'primary',
@@ -866,6 +1107,149 @@ describe('citation and source-quality web research', () => {
 		expect(generated.match(/\[(\d+)\]/g)).toEqual(['[1]', '[2]', '[3]', '[4]', '[5]']);
 		expect(generated).toContain('https://publisher1.test/2026/08/01/story-1');
 		expect(generated).toContain('https://publisher5.test/2026/08/01/story-5');
+	});
+
+	it('does not turn conversational follow-ups, corrections, or transformations into producer roundups', () => {
+		const evidence = [
+			normalizeEvidence({
+				source_name: 'Verified local desk',
+				source_url: 'https://verified.example/story',
+				tool_used: NEWSROOM_TOOL_NAMES.urlFetchRead,
+				title: 'Verified local story',
+				extracted_text: 'The verified local story remains available for the ordinary follow-up question.',
+				summary: 'The verified local story remains available for the ordinary follow-up question.',
+				confidence: 0.9,
+				limitations: [],
+				direct_verified: true,
+				source_kind: 'news_report',
+				published_at: '2026-08-08T14:00:00.000Z'
+			})
+		];
+		for (const prompt of [
+			'Follow up on your last answer.',
+			'Correction: the previous answer misstated the source.',
+			'Turn the previous answer into a producer brief without researching again.'
+		]) {
+			const answer = generateFinalAnswer({
+				prompt,
+				decision: routeNewsroomRequest(prompt),
+				evidence,
+				limitations: [],
+				budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+				outputStyle: 'chat'
+			});
+			expect(answer).not.toContain('## Latest producer roundup');
+			expect(answer).not.toContain('## Story ideas');
+			expect(answer).not.toContain('**Why it matters:**');
+		}
+	});
+
+	it('uses structured producer output intent for shorthand assignments', () => {
+		const contract = {
+			...deriveResearchRequestContract('Latest local coverage', { timezone: 'America/Toronto' }),
+			outputType: 'producer_roundup' as const
+		};
+		const prompt = 'Check the assigned coverage.';
+		const evidence = [
+			normalizeEvidence({
+				source_name: 'Verified local desk',
+				source_url: 'https://verified.example/assigned-story',
+				tool_used: NEWSROOM_TOOL_NAMES.urlFetchRead,
+				title: 'Local service changes announced',
+				extracted_text: 'The city announced service changes after a public meeting, with implementation beginning this week.',
+				summary: 'The city announced service changes after a public meeting, with implementation beginning this week.',
+				supporting_excerpt: 'The city announced service changes after a public meeting, with implementation beginning this week.',
+				confidence: 0.9,
+				limitations: [],
+				direct_verified: true,
+				source_kind: 'news_report',
+				published_at: '2026-08-08T14:00:00.000Z',
+				temporal_scope: 'primary'
+			})
+		];
+
+		expect(isProducerRoundupPrompt(prompt, contract)).toBe(true);
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence,
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat',
+			researchContract: contract
+		});
+
+		expect(answer).toContain('## Latest producer roundup');
+		expect(answer).toContain('**Why it matters:**');
+	});
+
+	it('builds varied producer ideas from direct page prose instead of provider labels or budget fragments', async () => {
+		const urls = [
+			'https://pacific.example/climate/flooding-update',
+			'https://lisbon.example/transit/repair-plan',
+			'https://civic.example/budget/notes'
+		];
+		const providerText = '(pacific.example). Direct answer — story ideas (lead first). Budget Notes - HS 2026 Budget Notes - HS 2026 Budget.';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (request: string | URL | Request) => {
+				if (!isProviderRequest(request)) {
+					const url = String(request);
+					const index = urls.indexOf(url);
+					const bodies = [
+						'Heavy rain overwhelmed two neighbourhood drainage systems, prompting emergency crews to close several roads. Residents are asking whether the infrastructure plan is keeping pace with more frequent storms.',
+						'Transit officials paused a corridor repair after an inspection found a structural defect. The delay could change commute patterns and raises questions about the project timeline.',
+						'Council documents show a new resilience allocation alongside deferred maintenance spending. The gap gives reporters a concrete way to test whether the public budget matches the city\'s climate promises.'
+					];
+					return directArticleResponse(
+						url,
+						['Flooding closes roads after heavy rain', 'Transit repair paused after inspection', 'Budget shifts resilience spending'][index],
+						'2026-08-08',
+						bodies[index],
+						'2026-08-08T16:00:00.000Z'
+					);
+				}
+				return jsonResponse({
+					output_text: providerText,
+					output: [{
+						type: 'message',
+						content: [{
+							type: 'output_text',
+							text: providerText,
+							annotations: urls.map((url, index) => ({
+								type: 'url_citation',
+								url,
+								title: `Candidate ${index + 1}`,
+								start_index: index === 0 ? 0 : providerText.length - 1,
+								end_index: index === 0 ? '(pacific.example).'.length : providerText.length
+							}))
+						}]
+					}]
+				});
+			})
+		);
+
+		const prompt = 'Give me story ideas for climate and transit reporters across Vancouver and Lisbon.';
+		const result = await runWebSearch(prompt, { provider: 'openai' });
+		const answer = generateFinalAnswer({
+			prompt,
+			decision: routeNewsroomRequest(prompt),
+			evidence: result.evidence || [],
+			limitations: [],
+			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
+			outputStyle: 'chat',
+			timeZone: 'America/Toronto'
+		});
+
+		expect(result.evidence).toHaveLength(3);
+		expect(result.evidence?.every((item) => item.direct_verified === true)).toBe(true);
+		expect(answer).toContain('## Story ideas');
+		expect(answer).toContain('Heavy rain overwhelmed two neighbourhood drainage systems');
+		expect(answer).toContain('**Why it matters:**');
+		expect(answer).toContain('Source time:');
+		expect(answer).not.toContain('(pacific.example)');
+		expect(answer).not.toContain('Direct answer — story ideas');
+		expect(answer).not.toContain('Budget Notes - HS 2026 Budget');
 	});
 
 	it('preserves an explicit publication date encoded in a direct article URL', async () => {
@@ -1215,6 +1599,7 @@ async function runWebSearch(
 		provider?: 'perplexity' | 'openai';
 		newsroomContext?: ToolRunContext['newsroomContext'];
 		temporalContext?: NewsroomTemporalContext;
+		researchContract?: ToolRunContext['researchContract'];
 		signal?: AbortSignal;
 	} = {}
 ) {
@@ -1226,6 +1611,7 @@ async function runWebSearch(
 			provider,
 			newsroomContext: options.newsroomContext,
 			temporalContext: options.temporalContext,
+			researchContract: options.researchContract,
 			signal: options.signal
 		})
 	);
@@ -1238,6 +1624,7 @@ function toolContext(
 		newsroomContext?: ToolRunContext['newsroomContext'];
 		temporalContext?: NewsroomTemporalContext;
 		documents?: ToolRunContext['documents'];
+		researchContract?: ToolRunContext['researchContract'];
 		signal?: AbortSignal;
 	} = {}
 ): ToolRunContext {
@@ -1269,6 +1656,7 @@ function toolContext(
 		newsroomContext: options.newsroomContext,
 		temporalContext: options.temporalContext,
 		documents: options.documents,
+		researchContract: options.researchContract,
 		signal: options.signal
 	};
 }
