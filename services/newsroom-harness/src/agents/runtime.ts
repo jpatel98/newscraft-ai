@@ -519,7 +519,12 @@ export class NewsroomAgentRuntime {
 	): AsyncGenerator<string> {
 		this.triageEditorCommand(routingPrompt, context);
 		const sanitizer = new StreamingAnswerSanitizer({
-			clean: (raw) => cleanVisibleChatOutput(raw, prompt)
+			clean: (raw) => cleanVisibleChatOutput(raw, prompt),
+			// Do not strip citation-bearing lines from the live draft. Rejecting
+			// them made the streamed reply visibly jump and read as truncated
+			// mid-sentence; the authoritative final render still reconciles the
+			// completed answer against the evidence ledger.
+			rejectUnverifiedCitationLines: false
 		});
 		const currentAsOf = currentAsOfPrefix(routingPrompt, context.newsroomContext?.timezone, context.temporalContext);
 		const bufferAuthoritativeAnswer = shouldBufferGroundedAnswer(
