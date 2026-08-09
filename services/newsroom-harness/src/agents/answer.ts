@@ -643,8 +643,12 @@ export function cleanVisibleChatOutput(answer: string, prompt = ''): string {
 		cleanChatToolAnswer(answer, { preserveUrls: wantsDirectUrls(prompt) }),
 		prompt
 	);
-	if (wantsTable(prompt)) return compactChatText(cleaned, 8000);
-	return polishedChatText(cleaned, 8000);
+	// The 8k cap was silently dropping long grounded renders at a sentence
+	// boundary, which read as replies "cut off mid-sentence". Raise it well past
+	// any realistic answer length so the full canonical render is retained.
+	const MAX_VISIBLE_ANSWER_CHARS = 100_000;
+	if (wantsTable(prompt)) return compactChatText(cleaned, MAX_VISIBLE_ANSWER_CHARS);
+	return polishedChatText(cleaned, MAX_VISIBLE_ANSWER_CHARS);
 }
 
 function softenUnsupportedScheduleAbsence(value: string, prompt: string): string {
