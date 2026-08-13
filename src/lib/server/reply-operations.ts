@@ -13,3 +13,14 @@ export function isLatestUnfinishedAssistant(
 	const latest = messages.at(-1);
 	return latest?.id === messageId && latest.role === 'assistant' && latest.partial === 1;
 }
+
+export function resumeContinuationInstruction(partialAnswer: string): string {
+	return [
+		'The previous Hermes run disconnected before it finished.',
+		'Continue the same request without repeating research that is already represented in the conversation context and source history.',
+		'Return one complete final answer. Do not repeat planning or tool narration from the partial draft.',
+		partialAnswer.trim() ? `Partial draft to replace, not append:\n\n${partialAnswer.trim()}` : ''
+	]
+		.filter(Boolean)
+		.join('\n\n');
+}

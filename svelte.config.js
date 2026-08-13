@@ -6,7 +6,7 @@ const config = {
 		runes: ({ filename }) => (filename.split(/[/\\]/).includes('node_modules') ? undefined : true)
 	},
 	kit: {
-		adapter: adapter({ runtime: 'nodejs24.x' }),
+		adapter: adapter({ runtime: 'nodejs24.x', maxDuration: 300 }),
 		alias: {
 			$lib: 'src/lib'
 		}

@@ -81,8 +81,7 @@ export interface StreamCallbacks {
 	signal?: AbortSignal;
 }
 
-const CLIENT_STREAM_MAX_MS = 150_000;
-const CLIENT_STREAM_IDLE_MS = 45_000;
+const CLIENT_STREAM_IDLE_MS = 2 * 60_000;
 
 function createClientWatchdog(inputSignal?: AbortSignal): {
 	signal: AbortSignal | undefined;
@@ -90,12 +89,8 @@ function createClientWatchdog(inputSignal?: AbortSignal): {
 	timedOut: () => boolean;
 	cleanup: () => void;
 } {
-	if (!inputSignal && typeof AbortSignal.timeout === 'function') {
-		const signal = AbortSignal.timeout(CLIENT_STREAM_MAX_MS);
-		return { signal, touch: () => {}, timedOut: () => signal.aborted, cleanup: () => {} };
-	}
 	const timeoutController = new AbortController();
-	let reason: 'max' | 'idle' | null = null;
+	let timedOut = false;
 	let idleTimer: ReturnType<typeof setTimeout> | undefined;
 	const signal = inputSignal
 		? typeof AbortSignal.any === 'function'
@@ -109,14 +104,10 @@ function createClientWatchdog(inputSignal?: AbortSignal): {
 					return combined.signal;
 				})()
 			: timeoutController.signal;
-	const maxTimer = setTimeout(() => {
-		reason = 'max';
-		timeoutController.abort(new Error('interactive chat stream timed out'));
-	}, CLIENT_STREAM_MAX_MS);
 	const touch = () => {
 		if (idleTimer) clearTimeout(idleTimer);
 		idleTimer = setTimeout(() => {
-			reason = 'idle';
+			timedOut = true;
 			timeoutController.abort(new Error('interactive chat stream became idle'));
 		}, CLIENT_STREAM_IDLE_MS);
 	};
@@ -124,9 +115,8 @@ function createClientWatchdog(inputSignal?: AbortSignal): {
 	return {
 		signal,
 		touch,
-		timedOut: () => reason !== null,
+		timedOut: () => timedOut,
 		cleanup: () => {
-			clearTimeout(maxTimer);
 			if (idleTimer) clearTimeout(idleTimer);
 		}
 	};

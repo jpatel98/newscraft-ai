@@ -29,7 +29,7 @@ const LOCAL_COMMANDS: AgentCommand[] = [
 	{
 		name: 'Status',
 		slash: '/status',
-		description: 'Check the configured agent gateway health.',
+		description: 'Check the configured Hermes runtime health.',
 		category: 'Chat',
 		kind: 'builtin',
 		enabled: true

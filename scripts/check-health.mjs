@@ -9,13 +9,13 @@ const delayMs = intValue(args.delayMs || process.env.HEALTH_DELAY_MS, 1000);
 const timeoutMs = intValue(args.timeoutMs || process.env.HEALTH_TIMEOUT_MS, 3000);
 
 if (!url) {
-	console.error('Usage: node scripts/check-health.mjs --url <url> [--expect ui|harness|generic]');
+	console.error('Usage: node scripts/check-health.mjs --url <url> [--expect ui|hermes|generic]');
 	process.exit(2);
 }
 
 let lastError = '';
 for (let attempt = 1; attempt <= retries; attempt += 1) {
-	const result = await probe(url, { timeoutMs });
+	const result = await probe(url, { timeoutMs, headers: healthHeaders(expectKind) });
 	if (result.ok && expectedShapeOk(result.body, expectKind)) {
 		console.log(`OK: ${expectKind} health is ready at ${url}`);
 		process.exit(0);
@@ -52,7 +52,7 @@ function intValue(value, fallback) {
 async function probe(target, options) {
 	try {
 		const response = await fetch(target, {
-			headers: { accept: 'application/json' },
+			headers: { accept: 'application/json', ...options.headers },
 			signal: AbortSignal.timeout(options.timeoutMs)
 		});
 		const text = await response.text();
@@ -75,11 +75,41 @@ async function probe(target, options) {
 
 function expectedShapeOk(body, kind) {
 	if (!body || body.ok !== true) return false;
-	if (kind === 'harness') return body.service === 'newsroom-harness' && body.db?.ok === true;
+	if (kind === 'hermes') {
+		const tools = Array.isArray(body.tools) ? body.tools : [];
+		const capabilities = body.capabilities || {};
+		return (
+			body.service === 'newscraft-hermes-chat' &&
+			body.toolset === 'hermes-acp' &&
+			body.runtime?.endpointMode === 'explicit' &&
+			tools.includes('browser_navigate') &&
+			tools.includes('browser_snapshot') &&
+			capabilities.standard === true &&
+			capabilities.browser === true &&
+			capabilities.webResearch === true &&
+			capabilities.terminal === true &&
+			capabilities.files === true &&
+			capabilities.codeExecution === true &&
+			capabilities.delegation === true &&
+			capabilities.skills === true &&
+			capabilities.memory === true
+		);
+	}
 	if (kind === 'ui') {
-		return body.service === 'newscraft-ui' && body.app?.ok === true && body.gateway?.ok === true;
+		if (body.service !== 'newscraft-ui') return false;
+		const hasPrivateDetails = body.app !== undefined || body.gateway !== undefined;
+		return !hasPrivateDetails || (body.app?.ok === true && body.gateway?.ok === true);
 	}
 	return true;
+}
+
+function healthHeaders(kind) {
+	if (kind !== 'hermes') return {};
+	const token = (
+		process.env.NEWSCRAFT_HERMES_API_TOKEN || process.env.HERMES_AGUI_SESSION_TOKEN || ''
+	).trim();
+	if (!token) return {};
+	return { authorization: `Bearer ${token}`, 'x-hermes-session-token': token };
 }
 
 function explainFailure(body, kind) {

@@ -1,5 +1,7 @@
-const DEFAULT_STREAM_MAX_MS = 120_000;
-const DEFAULT_STREAM_IDLE_MS = 30_000;
+// End the stream before Vercel's 300-second function limit so NewsCraft can
+// persist a clear Hermes timeout instead of losing the response at the edge.
+const DEFAULT_STREAM_MAX_MS = 290_000;
+const DEFAULT_STREAM_IDLE_MS = 90_000;
 const DEFAULT_CONTEXT_MS = 10_000;
 const DEFAULT_PERSISTENCE_MS = 5_000;
 const DEFAULT_TITLE_MS = 5_000;
@@ -13,7 +15,7 @@ export const CHAT_STREAM_MAX_MS = envDuration(
 	'NEWSCRAFT_CHAT_STREAM_MAX_MS',
 	DEFAULT_STREAM_MAX_MS,
 	10_000,
-	10 * 60_000
+	290_000
 );
 export const CHAT_STREAM_IDLE_MS = envDuration(
 	'NEWSCRAFT_CHAT_STREAM_IDLE_MS',
@@ -81,5 +83,47 @@ export function linkChatAbort(
 			clearTimeout(timer);
 			requestSignal.removeEventListener('abort', onRequestAbort);
 		}
+	};
+}
+
+export function createChatIdleWatchdog(
+	controller: AbortController,
+	timeoutMs: number
+): {
+	activity: () => void;
+	toolStarted: (id: string) => void;
+	toolFinished: (id: string) => void;
+	hasActiveTools: () => boolean;
+	timedOut: () => boolean;
+	cleanup: () => void;
+} {
+	const activeTools = new Set<string>();
+	let timedOut = false;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const clear = () => {
+		if (timer) clearTimeout(timer);
+		timer = undefined;
+	};
+	const arm = () => {
+		clear();
+		if (activeTools.size > 0 || controller.signal.aborted) return;
+		timer = setTimeout(() => {
+			timedOut = true;
+			controller.abort(new ChatPhaseTimeoutError('interactive chat stream became idle'));
+		}, timeoutMs);
+	};
+	return {
+		activity: arm,
+		toolStarted: (id) => {
+			activeTools.add(id);
+			clear();
+		},
+		toolFinished: (id) => {
+			activeTools.delete(id);
+			arm();
+		},
+		hasActiveTools: () => activeTools.size > 0,
+		timedOut: () => timedOut,
+		cleanup: clear
 	};
 }

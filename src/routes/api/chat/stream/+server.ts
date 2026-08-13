@@ -1,14 +1,11 @@
 import { error, type RequestHandler } from '@sveltejs/kit';
 import {
 	streamChatCompletion,
-	streamResponse,
 	deriveSessionId,
 	gatewayHealth,
 	type AgentMessage,
 	type AgentContent,
-	type AgentContentPart,
-	type AgentResponseContentPart,
-	type AgentResponseInputMessage
+	type AgentContentPart
 } from '$lib/server/agent/transport';
 import { expandAgentSkill, listAgentCommands } from '$lib/server/agent/bridge';
 import {
@@ -74,7 +71,8 @@ import {
 } from '$lib/server/conversation-context';
 import {
 	answerForLatestUser,
-	isLatestUnfinishedAssistant
+	isLatestUnfinishedAssistant,
+	resumeContinuationInstruction
 } from '$lib/server/reply-operations';
 import { resolveResearchFinishStatus } from '$lib/server/research-outcome';
 import {
@@ -84,6 +82,7 @@ import {
 	CHAT_STREAM_MAX_MS,
 	CHAT_TITLE_TIMEOUT_MS,
 	ChatPhaseTimeoutError,
+	createChatIdleWatchdog,
 	linkChatAbort,
 	withChatTimeout
 } from '$lib/server/chat-timeouts';
@@ -206,39 +205,18 @@ function toAgentContent(c: MessageContent): AgentContent {
 	);
 }
 
-function toResponsesContent(c: AgentContent): string | AgentResponseContentPart[] {
-	if (typeof c === 'string') return c;
-	return c.map<AgentResponseContentPart>((p) =>
-		p.type === 'text'
-			? { type: 'input_text', text: p.text }
-			: { type: 'input_image', image_url: p.image_url.url }
-	);
-}
-
-type ResponseHistoryMessage = { role: 'user' | 'assistant'; content: AgentContent };
-
-function responseInputFromHistory(history: AgentMessage[]): {
-	instructions?: string;
-	input: AgentResponseInputMessage[];
-} {
-	const instructions = history
-		.filter((m) => m.role === 'system')
-		.map((m) => (typeof m.content === 'string' ? m.content : contentText(m.content)))
-		.join('\n\n')
-		.trim();
-	const input = history
-		.filter((m): m is ResponseHistoryMessage => m.role === 'user' || m.role === 'assistant')
-		.map<AgentResponseInputMessage>((m) => ({
-			role: m.role,
-			content: toResponsesContent(m.content)
-		}));
-	return { input, instructions: instructions || undefined };
-}
-
 const enc = new TextEncoder();
 
-const INTERACTIVE_WEB_SYSTEM =
-	'You are running inside the NewsCraft web chat, where the user expects live visible progress. For ordinary requests, avoid delegate_task, subagents, and skill_view; do the work directly with available browser, search, file, and terminal tools so progress streams back step by step. Only delegate or inspect skills when the user explicitly asks for subagents, parallel agents, or a named skill. If a tool path is slow or inconclusive, give the best current answer with caveats instead of waiting indefinitely.';
+const INTERACTIVE_WEB_SYSTEM = [
+	'You are Hermes, the only agent runtime for NewsCraft chat. Use your standard Hermes capabilities when they help.',
+	'For web research, use web_search to find leads and use the browser to read source pages. web_extract is not configured for this NewsCraft service. Search snippets and search result pages are leads, not evidence.',
+	'If browser navigation times out, take a browser snapshot before you conclude that the page is unreadable.',
+	'After you directly read a page, call record_newscraft_source once before you search again or cite it. A successful browser, terminal, or code-based page read counts as a direct read. Give the exact page URL, title, publication or update date when shown, source type, a short exact supporting excerpt, and the citation number that you will use.',
+	'Start web source numbers with citationStartNumber from the forwarded run properties. Use each recorded number exactly once in the source map. Put its matching marker next to every factual claim that the source supports, such as [1]. Never invent a marker or cite an unrecorded source.',
+	'Private document pages already include exact citation numbers. Preserve source attribution and publication or update dates when a source gives them. Access time does not prove currentness.',
+	'For a requested list, stop research when you have recorded one suitable source for each requested item. Prefer one focused discovery search and one direct read for each selected item. Do not keep searching after you have read and recorded enough sources. If one page is blocked, choose another source or state the limitation.',
+	'Keep text before tool calls brief because NewsCraft treats the last complete text block before run completion as your final answer. If a tool or model call fails, state the clear limitation.'
+].join(' ');
 
 function textFrame(text: string): string {
 	return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
@@ -661,12 +639,12 @@ async function builtinResponse(
 	if (command.slash === '/status') {
 		const health = await gatewayHealth();
 		return health.ok
-			? `Agent gateway is reachable. Status ${health.status}.`
-			: `Agent gateway is not reachable right now. ${health.body}`;
+			? `Hermes is reachable. Status ${health.status}.`
+			: `Hermes is not reachable right now. ${health.body}`;
 	}
 	if (command.slash === '/profile') {
 		const skillCount = commands.filter((cmd) => cmd.kind === 'skill' && cmd.enabled).length;
-		return `Profile: agent-gateway\nInstalled skills: ${skillCount}`;
+		return `Profile: hermes-chat\nInstalled skills: ${skillCount}`;
 	}
 	if (command.slash === '/feedback') {
 		return 'Use `/feedback` in the chat composer to open the feedback capture form for this thread.';
@@ -955,6 +933,15 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		else history.unshift(sys);
 	}
 	appendSystemInstruction(history, INTERACTIVE_WEB_SYSTEM);
+	if (isResume && resumeMessageId) {
+		const partialMessage = messages.find((message) => message.id === resumeMessageId);
+		appendSystemInstruction(
+			history,
+			resumeContinuationInstruction(
+				partialMessage ? contentText(parseContent(partialMessage.content)) : ''
+			)
+		);
+	}
 	if (body.output_action) appendSystemInstruction(history, OUTPUT_ACTION_PROMPTS[body.output_action]);
 	if (
 		conversationContext.activeTopic ||
@@ -1019,28 +1006,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	const phaseAbort = linkChatAbort(request.signal, CHAT_STREAM_MAX_MS);
 	const upstreamAbort = phaseAbort.controller;
-	let idleTimedOut = false;
-	let idleTimer: ReturnType<typeof setTimeout> | undefined;
-	const resetIdleTimer = () => {
-		if (idleTimer) clearTimeout(idleTimer);
-		idleTimer = setTimeout(() => {
-			idleTimedOut = true;
-			upstreamAbort.abort(new ChatPhaseTimeoutError('interactive chat stream became idle'));
-		}, CHAT_STREAM_IDLE_MS);
-	};
-	const clearIdleTimer = () => {
-		if (idleTimer) clearTimeout(idleTimer);
-		idleTimer = undefined;
-	};
+	const idleWatchdog = createChatIdleWatchdog(upstreamAbort, CHAT_STREAM_IDLE_MS);
 
 	const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);
 	let upstream: Response;
-	let transport = 'chat_completions';
+	let transport = 'hermes_agui';
 	try {
-		// Prefer chat completions for the live app: Agent emits rich
-		// agent.tool.progress/source events there, which power the visible
-		// browser/search/tool activity strip. Keep Responses as a fallback for
-		// gateways that only expose the newer endpoint shape.
+		// One AG-UI request goes to Hermes. A failed Hermes run reaches the
+		// explicit failure path. NewsCraft does not switch agent endpoints.
 		upstream = await withChatTimeout(
 			streamChatCompletion(
 				{
@@ -1054,41 +1027,15 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				{ signal: upstreamAbort.signal, sessionId, traceId }
 			),
 			CHAT_STREAM_MAX_MS,
-			'agent stream startup'
+			'Hermes stream startup'
 		);
-		transport = 'chat_completions';
+		transport = 'hermes_agui';
 		recordChatDiagnostic(convoId, 'chat.upstream_response', {
 			trace_id: traceId,
-			transport: 'chat_completions',
+			transport: 'hermes_agui',
 			status: upstream.status,
 			ok: upstream.ok
 		});
-		if (!isResume && !upstream.ok && [400, 404, 405].includes(upstream.status)) {
-			await upstream.text().catch(() => '');
-			upstream = await withChatTimeout(
-				streamResponse(
-					{
-						...responseInputFromHistory(history),
-						stream: true,
-						store: false,
-						reasoning_effort: reasoningEffort,
-						newsroom_context: researchContext.newsroomContext,
-						conversation_context: conversationContext,
-						documents: researchContext.documents
-					},
-					{ signal: upstreamAbort.signal, sessionId, traceId }
-				),
-				CHAT_STREAM_MAX_MS,
-				'agent response startup'
-			);
-			transport = 'responses';
-			recordChatDiagnostic(convoId, 'chat.upstream_response', {
-				trace_id: traceId,
-				transport: 'responses',
-				status: upstream.status,
-				ok: upstream.ok
-			});
-		}
 	} catch (err) {
 		phaseAbort.cleanup();
 		return await localGatewayFailureResponse(
@@ -1119,6 +1066,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	let persistencePromise: Promise<Awaited<ReturnType<typeof getMessageById>>> | null = null;
 	let sentDone = false;
 	let activeController: ReadableStreamDefaultController<Uint8Array> | null = null;
+	let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 	const streamState = new StreamEventState();
 	const inheritedCitations = inheritedMetadata?.citations ?? [];
 	const activeCitationRecords = () =>
@@ -1204,11 +1152,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				// A replacement resets the visible draft, but later deltas still belong
 				// to that authoritative answer. Persist the complete post-replacement
 				// buffer so the CAS commit cannot lose or duplicate the tail.
-				const appendContent = assistantReplacement === null ? assistantBuf : '';
-				const answerText =
-					assistantReplacement !== null
-						? assistantBuf
-						: `${existingRow ? contentText(parseContent(existingRow.content)) : ''}${appendContent}`;
+				const answerText = assistantBuf;
 				const endedAt = Date.now();
 				const provenanceJson = serializeAnswerProvenance({
 					messageId: resumeMessageId,
@@ -1231,8 +1175,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					id: resumeMessageId,
 					conversationId: convoId,
 					claimToken: resumeClaimToken,
-					mode: assistantReplacement !== null ? 'replace' : 'append',
-					...(assistantReplacement !== null ? { content: assistantBuf } : { appendContent }),
+					mode: 'replace',
+					content: assistantBuf,
 					toolCalls: serializeToolMetadata(provenanceTools, provenanceSources, provenanceCitations),
 					provenanceJson,
 					partial: done ? 0 : 1,
@@ -1288,6 +1232,12 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		} catch {
 			// The browser may have disconnected while the server was finalizing.
 		}
+	}
+
+	function cleanupStreamWatchdogs(): void {
+		idleWatchdog.cleanup();
+		if (heartbeatTimer) clearInterval(heartbeatTimer);
+		heartbeatTimer = undefined;
 	}
 
 	async function emitSafePartialTerminal(
@@ -1346,21 +1296,36 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					trace_id: traceId
 				})}\n\n`
 			);
+			heartbeatTimer = setInterval(() => {
+				if (!idleWatchdog.hasActiveTools()) return;
+				safeEnqueue(
+					controller,
+					sseFrame('agent.heartbeat', JSON.stringify({ activeToolCall: true }))
+				);
+			}, 15_000);
 
-			resetIdleTimer();
+			idleWatchdog.activity();
 			try {
 				for await (const ev of readSSE(upstreamBody)) {
-					resetIdleTimer();
+					idleWatchdog.activity();
 					streamStats[ev.event || 'message'] = (streamStats[ev.event || 'message'] ?? 0) + 1;
 					upstreamModel ??= modelFromSseData(ev.data);
+					let streamFailure: string | undefined;
 					for (const update of streamState.apply(ev.event, ev.data)) {
+						if (update.tool) {
+							if (update.tool.done || update.tool.status === 'ok' || update.tool.status === 'failed') {
+								idleWatchdog.toolFinished(update.tool.id);
+							} else {
+								idleWatchdog.toolStarted(update.tool.id);
+							}
+						}
 						if (update.replace !== undefined) {
 							assistantBuf = update.replace;
 							assistantReplacement = update.replace;
 							done = true;
 						}
 						if (update.delta) assistantBuf += update.delta;
-						if (update.failed) throw new Error(update.failed);
+						if (update.failed) streamFailure = update.failed;
 						if (update.done) done = true;
 					}
 					if (ev.data === '[DONE]') {
@@ -1388,6 +1353,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 							)
 						);
 					}
+					if (streamFailure) throw new Error(streamFailure);
 				}
 			} catch (e) {
 				recordChatDiagnostic(convoId, 'chat.stream_error', {
@@ -1397,8 +1363,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					assistantChars: assistantBuf.length,
 					events: streamStats
 				});
-				clearIdleTimer();
-				const clientAborted = request.signal.aborted && !phaseAbort.timedOut() && !idleTimedOut;
+				cleanupStreamWatchdogs();
+				const clientAborted = request.signal.aborted && !phaseAbort.timedOut() && !idleWatchdog.timedOut();
 				if (clientAborted) {
 					try {
 						await persistAssistantBounded('cancelled');
@@ -1420,7 +1386,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				phaseAbort.cleanup();
 				return;
 			}
-			clearIdleTimer();
+			cleanupStreamWatchdogs();
 			if (!done) {
 				await emitSafePartialTerminal(controller, new Error('upstream ended before completion'));
 				phaseAbort.cleanup();
@@ -1537,7 +1503,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				research: researchDiagnosticsFromTools(streamState.toolCalls()),
 				events: streamStats
 			});
-			clearIdleTimer();
+			cleanupStreamWatchdogs();
 			phaseAbort.cleanup();
 			if (sentDone || done) safeEnqueue(controller, 'data: [DONE]\n\n');
 			try {
@@ -1553,7 +1519,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				assistantChars: assistantBuf.length
 			});
 			upstreamAbort.abort();
-			clearIdleTimer();
+			cleanupStreamWatchdogs();
 			if (activeController) tryEnqueueCitationBoundary(activeController, () => citationSanitizer.abort());
 			try {
 				await persistAssistantBounded('cancelled');

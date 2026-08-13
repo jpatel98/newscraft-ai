@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { MessageRow } from '$lib/server/db/conversations';
-import { answerForLatestUser, isLatestUnfinishedAssistant } from './reply-operations';
+import {
+	answerForLatestUser,
+	isLatestUnfinishedAssistant,
+	resumeContinuationInstruction
+} from './reply-operations';
 
 function message(
 	id: string,
@@ -51,5 +55,19 @@ describe('reply operations', () => {
 
 		expect(isLatestUnfinishedAssistant(messages, 'm2')).toBe(false);
 		expect(isLatestUnfinishedAssistant(messages, 'm4')).toBe(true);
+	});
+
+	it('tells Hermes to replace an interrupted draft without repeating it', () => {
+		const instruction = resumeContinuationInstruction('  Partial research text.  ');
+
+		expect(instruction).toContain('Continue the same request');
+		expect(instruction).toContain('Do not repeat planning or tool narration');
+		expect(instruction).toContain('Partial draft to replace, not append:\n\nPartial research text.');
+	});
+
+	it('omits an empty partial draft from a continuation instruction', () => {
+		const instruction = resumeContinuationInstruction('  ');
+
+		expect(instruction).not.toContain('Partial draft to replace');
 	});
 });

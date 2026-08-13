@@ -1,0 +1,22 @@
+[Unit]
+Description=NewsCraft standard Hermes chat runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/newscraft-hermes/workspace
+EnvironmentFile=%h/.config/newscraft-hermes/newscraft-hermes-chat.env
+Environment="PATH=%h/.local/share/newscraft-hermes/home/node/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment=AGENT_BROWSER_ENGINE=chrome
+Environment=AGENT_BROWSER_HEADED=false
+Environment=AGENT_BROWSER_DEFAULT_TIMEOUT=120000
+Environment=NEWSCRAFT_HERMES_MAX_ITERATIONS=25
+ExecStart=%h/services/newscraft-hermes/venv/bin/newscraft-hermes-chat
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

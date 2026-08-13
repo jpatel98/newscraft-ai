@@ -1,309 +1,470 @@
-import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 
 import {
+	agentFetch,
+	completion,
 	describeGatewayError,
 	deriveSessionId,
 	gatewayHealth,
+	normalizeHermesSse,
 	streamChatCompletion,
-	streamResponse,
 	type AgentMessage
 } from './transport';
 
-function expectedSessionId(system: string, firstUser: string, scope = ''): string {
-	return createHash('sha256')
-		.update(scope)
-		.update('\0')
-		.update(system)
-		.update('\0')
-		.update(firstUser)
-		.digest('hex')
-		.slice(0, 32);
+function aguiStream(...events: Array<Record<string, unknown>>): Response {
+	return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
+		status: 200,
+		headers: { 'content-type': 'text/event-stream' }
+	});
 }
 
-describe('Agent transport', () => {
-	const originalGatewayUrl = process.env.AGENT_GATEWAY_URL;
-	const originalAgentApiKey = process.env.AGENT_GATEWAY_API_KEY;
-	const originalHarnessApiKey = process.env.NEWSROOM_HARNESS_API_KEY;
+describe('Hermes chat transport', () => {
+	const originalUrl = process.env.NEWSCRAFT_HERMES_URL;
+	const originalToken = process.env.NEWSCRAFT_HERMES_API_TOKEN;
 
 	beforeEach(() => {
-		delete process.env.AGENT_GATEWAY_URL;
-		delete process.env.AGENT_GATEWAY_API_KEY;
-		delete process.env.NEWSROOM_HARNESS_API_KEY;
-		process.env.AGENT_GATEWAY_URL = 'https://gateway.test/';
-		process.env.AGENT_GATEWAY_API_KEY = 'test-key';
+		process.env.NEWSCRAFT_HERMES_URL = 'https://hermes.test/';
+		process.env.NEWSCRAFT_HERMES_API_TOKEN = 'test-hermes-token';
 	});
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
-		if (originalGatewayUrl === undefined) delete process.env.AGENT_GATEWAY_URL;
-		else process.env.AGENT_GATEWAY_URL = originalGatewayUrl;
-		if (originalAgentApiKey === undefined) delete process.env.AGENT_GATEWAY_API_KEY;
-		else process.env.AGENT_GATEWAY_API_KEY = originalAgentApiKey;
-		if (originalHarnessApiKey === undefined) delete process.env.NEWSROOM_HARNESS_API_KEY;
-		else process.env.NEWSROOM_HARNESS_API_KEY = originalHarnessApiKey;
+		if (originalUrl === undefined) delete process.env.NEWSCRAFT_HERMES_URL;
+		else process.env.NEWSCRAFT_HERMES_URL = originalUrl;
+		if (originalToken === undefined) delete process.env.NEWSCRAFT_HERMES_API_TOKEN;
+		else process.env.NEWSCRAFT_HERMES_API_TOKEN = originalToken;
 	});
 
-	it('derives deterministic session ids from the system prompt and first user text only', () => {
+	it('derives a stable private session id from the first turn and server scope', () => {
 		const messages: AgentMessage[] = [
-			{
-				role: 'system',
-				content: [
-					{ type: 'text', text: 'Follow Agent policy.' },
-					{ type: 'image_url', image_url: { url: 'https://example.com/system.png' } },
-					{ type: 'text', text: 'Prefer concise answers.' }
-				]
-			},
-			{
-				role: 'user',
-				content: [
-					{ type: 'image_url', image_url: { url: 'https://example.com/input-a.png' } },
-					{ type: 'text', text: 'Summarize this.' },
-					{ type: 'text', text: 'Keep the source names.' }
-				]
-			},
-			{ role: 'assistant', content: 'Older answer' },
-			{ role: 'user', content: 'This later turn must not affect the session.' }
+			{ role: 'system', content: 'Use newsroom rules.' },
+			{ role: 'user', content: 'Research this.' },
+			{ role: 'assistant', content: 'Older answer.' },
+			{ role: 'user', content: 'Later turn.' }
 		];
 
-		const expected = expectedSessionId(
-			'Follow Agent policy.\nPrefer concise answers.',
-			'Summarize this.\nKeep the source names.'
+		expect(deriveSessionId(messages, 'account:conversation')).toBe(
+			deriveSessionId([...messages], 'account:conversation')
 		);
+		expect(deriveSessionId(messages, 'account:conversation')).not.toBe(deriveSessionId(messages));
+	});
 
-		expect(deriveSessionId(messages)).toBe(expected);
-		expect(deriveSessionId(messages)).toBe(deriveSessionId([...messages]));
-		expect(
-			deriveSessionId([
-				...messages.slice(0, 1),
-				{
-					role: 'user',
-					content: [
-						{ type: 'image_url', image_url: { url: 'https://example.com/input-b.png' } },
-						{ type: 'text', text: 'Summarize this.' },
-						{ type: 'text', text: 'Keep the source names.' }
-					]
-				},
-				{ role: 'user', content: 'Different later turn.' }
-			])
-		).toBe(expected);
-		expect(deriveSessionId(messages, 'account-a:conversation-a')).toBe(
-			expectedSessionId(
-				'Follow Agent policy.\nPrefer concise answers.',
-				'Summarize this.\nKeep the source names.',
-				'account-a:conversation-a'
+	it('sends one authenticated AG-UI request with no browser-provided tools', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			aguiStream(
+				{ type: 'RUN_STARTED', threadId: 'thread', runId: 'run' },
+				{ type: 'TEXT_MESSAGE_START', messageId: 'answer-1', role: 'assistant' },
+				{ type: 'TEXT_MESSAGE_CONTENT', delta: 'Hermes reply.' },
+				{ type: 'TEXT_MESSAGE_END', messageId: 'answer-1' },
+				{ type: 'RUN_FINISHED' }
 			)
 		);
-		expect(deriveSessionId(messages, 'account-a:conversation-a')).not.toBe(deriveSessionId(messages));
-	});
-
-	it('sends a derived session id unless the caller provides one', async () => {
-		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
 		vi.stubGlobal('fetch', fetchMock);
-		const messages: AgentMessage[] = [
-			{ role: 'system', content: 'system' },
-			{ role: 'user', content: 'hello' }
-		];
 
-		await streamChatCompletion({ messages });
-		await streamChatCompletion({ messages }, { sessionId: 'manual-session' });
+		const response = await streamChatCompletion(
+			{
+				messages: [
+					{ role: 'system', content: 'Newsroom system' },
+					{ role: 'user', content: 'Research this.' }
+				],
+				stream: true,
+				newsroom_context: { timezone: 'America/Toronto' }
+			},
+			{ sessionId: 'thread', traceId: 'trace_12345678' }
+		);
 
-		expect(fetchMock).toHaveBeenCalledTimes(2);
-		const firstInit = fetchMock.mock.calls[0]?.[1] as RequestInit & {
-			headers: Record<string, string>;
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://hermes.test/');
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit & { headers: Record<string, string> };
+		expect(init.headers).toMatchObject({
+			authorization: 'Bearer test-hermes-token',
+			'x-hermes-session-token': 'test-hermes-token',
+			'x-hermes-session-id': 'thread',
+			'x-trace-id': 'trace_12345678'
+		});
+		const body = JSON.parse(init.body as string) as {
+			state: { newscraftSources: unknown[] };
+			forwardedProps: {
+				source: string;
+				operation: string;
+				webExtractConfigured: boolean;
+				stateWriterTools: Array<Record<string, unknown>>;
+			};
+			[key: string]: unknown;
 		};
-		const secondInit = fetchMock.mock.calls[1]?.[1] as RequestInit & {
-			headers: Record<string, string>;
+		expect(body).toMatchObject({
+			threadId: 'thread',
+			runId: 'trace_12345678',
+			state: { newscraftSources: [] },
+			tools: [],
+			forwardedProps: {
+				source: 'newscraft',
+				operation: 'chat',
+				webExtractConfigured: false
+			}
+		});
+		expect(body.forwardedProps.stateWriterTools).toEqual([
+			expect.objectContaining({
+				name: 'record_newscraft_source',
+				stateKey: 'newscraftSources',
+				arg: 'source',
+				mode: 'append'
+			})
+		]);
+		const text = await response.text();
+		expect(text).toContain('event: agent.answer.replace');
+		expect(text).toContain('Hermes reply.');
+	});
+
+	it('seeds attached document pages as inspectable citations', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(aguiStream({ type: 'RUN_FINISHED' }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const response = await streamChatCompletion({
+			messages: [{ role: 'user', content: 'Use the attached PDF.' }],
+			documents: [
+				{
+					id: 'doc-1',
+					filename: 'brief.pdf',
+					downloadUrl: '/api/documents/doc-1/download',
+					pageCount: 2,
+					pages: [{ pageNumber: 2, text: 'Council approved the motion.' }]
+				}
+			]
+		});
+
+		const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+			context: Array<{ description: string; value: string }>;
 		};
-		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://gateway.test/v1/chat/completions');
-		expect(firstInit.headers).toMatchObject({
-			accept: 'text/event-stream',
-			authorization: 'Bearer test-key',
-			'content-type': 'application/json',
-			'x-agent-session-id': expectedSessionId('system', 'hello')
-		});
-		expect(JSON.parse(firstInit.body as string)).toMatchObject({
-			model: 'newsroom-agent',
-			stream: true,
-			messages
-		});
-		expect(secondInit.headers['x-agent-session-id']).toBe('manual-session');
+		const documentContext = requestBody.context.find((entry) => entry.description.includes('document'));
+		expect(documentContext?.value).toContain('"citationNumber":1');
+		const text = await response.text();
+		expect(text).toContain('event: agent.citations');
+		expect(text).toContain('"sourceType":"user_document"');
+		expect(text).toContain('"documentPage":2');
 	});
 
-	it('passes reasoning effort through to Agent chat completions', async () => {
-		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
-		vi.stubGlobal('fetch', fetchMock);
-		const messages: AgentMessage[] = [{ role: 'user', content: 'think harder' }];
-
-		await streamChatCompletion({ messages, reasoning_effort: 'high' });
-
-		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
-		expect(JSON.parse(init.body as string)).toMatchObject({
-			model: 'newsroom-agent',
-			stream: true,
-			messages,
-			reasoning_effort: 'high'
+	it('treats extracted pages as read sources but not as numbered citation authority', async () => {
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(
+					new TextEncoder().encode(
+						'data: {"type":"TOOL_CALL_START","toolCallId":"call-1","toolCallName":"web_extract"}\n\n' +
+							'data: {"type":"TOOL_CALL_RESULT","toolCallId":"call-1","content":"{\\"results\\":[{\\"url\\":\\"https://cbc.ca/news/story\\",\\"title\\":\\"CBC story\\",\\"content\\":\\"The city confirmed the closure.\\",\\"publicationDate\\":\\"2026-08-10\\",\\"citationNumber\\":1}]}"}\n\n' +
+							'data: {"type":"TOOL_CALL_END","toolCallId":"call-1"}\n\n'
+					)
+				);
+				controller.close();
+			}
 		});
+
+		const text = await new Response(normalizeHermesSse(source)).text();
+		expect(text).toContain('event: agent.tool.progress');
+		expect(text).toContain('event: agent.source.read');
+		expect(text).toContain('"verified":true');
+		expect(text).toContain('"publicationDate":"2026-08-10"');
+		expect(text).not.toContain('event: agent.citations');
 	});
 
-	it('injects valid trace ids into chat completion requests', async () => {
-		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
+	it('treats a standard Hermes browser read as a source but not as numbered citation authority', async () => {
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(
+					new TextEncoder().encode(
+						'data: {"type":"TOOL_CALL_START","toolCallId":"browser-1","toolCallName":"browser_navigate"}\n\n' +
+							'data: {"type":"TOOL_CALL_RESULT","toolCallId":"browser-1","content":"{\\"success\\":true,\\"url\\":\\"https://www.cbc.ca/news/story\\",\\"title\\":\\"CBC story\\",\\"snapshot\\":\\"The city confirmed the closure on Monday.\\"}"}\n\n' +
+							'data: {"type":"TOOL_CALL_END","toolCallId":"browser-1"}\n\n'
+					)
+				);
+				controller.close();
+			}
+		});
+
+		const text = await new Response(normalizeHermesSse(source)).text();
+		expect(text).toContain('event: agent.source.read');
+		expect(text).toContain('Hermes read this page with its browser.');
+		expect(text).not.toContain('event: agent.citations');
+	});
+
+	it('uses Hermes state records as the exact citation number-to-source map', async () => {
+		const cbc = {
+			citationNumber: 1,
+			title: 'CBC story',
+			url: 'https://www.cbc.ca/news/canada/story',
+			publicationDate: '2026-08-12',
+			sourceType: 'news_report',
+			supportingExcerpt: 'Officials confirmed the closure on Tuesday.'
+		};
+		const ctv = {
+			citationNumber: 2,
+			title: 'CTV story',
+			url: 'https://www.ctvnews.ca/canada/story',
+			publicationDate: '2026-08-12',
+			sourceType: 'news_report',
+			supportingExcerpt: 'The airline announced the change on Tuesday.'
+		};
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(
+					new TextEncoder().encode(
+						[{
+							type: 'STATE_SNAPSHOT',
+							snapshot: { newscraftSources: [cbc] }
+						}, {
+							type: 'STATE_SNAPSHOT',
+							snapshot: { newscraftSources: [cbc, ctv] }
+						}, {
+							type: 'TEXT_MESSAGE_START',
+							messageId: 'answer'
+						}, {
+							type: 'TEXT_MESSAGE_CONTENT',
+							messageId: 'answer',
+							delta: 'CBC reported the closure [1]. CTV reported the airline change [2].'
+						}, {
+							type: 'TEXT_MESSAGE_END',
+							messageId: 'answer'
+						}, { type: 'RUN_FINISHED' }]
+							.map((event) => `data: ${JSON.stringify(event)}\n\n`)
+							.join('')
+					)
+				);
+				controller.close();
+			}
+		});
+
+		const text = await new Response(normalizeHermesSse(source)).text();
+		expect(text.match(/event: agent\.citations/g)).toHaveLength(2);
+		expect(text).toContain('"citationNumber":1');
+		expect(text).toContain('"url":"https://www.cbc.ca/news/canada/story"');
+		expect(text).toContain('"citationNumber":2');
+		expect(text).toContain('"url":"https://www.ctvnews.ca/canada/story"');
+		expect(text.match(/Officials confirmed the closure on Tuesday\./g)).toHaveLength(1);
+		expect(text).toContain('CBC reported the closure [1]. CTV reported the airline change [2].');
+	});
+
+	it('rejects a second source that reuses an assigned citation number', async () => {
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(
+					new TextEncoder().encode(
+						'data: {"type":"STATE_SNAPSHOT","snapshot":{"newscraftSources":[' +
+							'{"citationNumber":1,"title":"CBC","url":"https://cbc.ca/one","publicationDate":null,"sourceType":"news_report","supportingExcerpt":"First source."},' +
+							'{"citationNumber":1,"title":"CTV","url":"https://ctvnews.ca/two","publicationDate":null,"sourceType":"news_report","supportingExcerpt":"Second source."}' +
+							']}}\n\n'
+					)
+				);
+				controller.close();
+			}
+		});
+
+		const text = await new Response(normalizeHermesSse(source)).text();
+		expect(text).toContain('https://cbc.ca/one');
+		expect(text).not.toContain('https://ctvnews.ca/two');
+	});
+
+	it('keeps the requested page when a timed-out navigation is followed by a readable snapshot', async () => {
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(
+					new TextEncoder().encode(
+						'data: {"type":"TOOL_CALL_START","toolCallId":"browser-1","toolCallName":"browser_navigate"}\n\n' +
+							'data: {"type":"TOOL_CALL_ARGS","toolCallId":"browser-1","delta":"{\\"url\\":\\"https://apnews.com/article/story\\"}"}\n\n' +
+							'data: {"type":"TOOL_CALL_RESULT","toolCallId":"browser-1","content":"{\\"success\\":false,\\"error\\":\\"Operation timed out.\\"}"}\n\n' +
+							'data: {"type":"TOOL_CALL_END","toolCallId":"browser-1"}\n\n' +
+							'data: {"type":"TOOL_CALL_START","toolCallId":"browser-2","toolCallName":"browser_snapshot"}\n\n' +
+							'data: {"type":"TOOL_CALL_RESULT","toolCallId":"browser-2","content":"{\\"success\\":true,\\"snapshot\\":\\"Officials confirmed the evacuation order.\\"}"}\n\n' +
+							'data: {"type":"TOOL_CALL_END","toolCallId":"browser-2"}\n\n'
+					)
+				);
+				controller.close();
+			}
+		});
+
+		const text = await new Response(normalizeHermesSse(source)).text();
+		expect(text).toContain('event: agent.source.read');
+		expect(text).toContain('"url":"https://apnews.com/article/story"');
+		expect(text).not.toContain('event: agent.citations');
+	});
+
+	it('does not make a second request when Hermes rejects the run', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response('rejected', { status: 404 }));
 		vi.stubGlobal('fetch', fetchMock);
 
-		await streamChatCompletion(
-			{ messages: [{ role: 'user', content: 'hello' }] },
-			{ traceId: 'trace_12345678-abc' }
+		const response = await streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] });
+
+		expect(response.status).toBe(404);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not expose the legacy agent HTTP proxy', async () => {
+		await expect(agentFetch('/api/jobs')).rejects.toThrow('Legacy agent-job transport is disabled');
+	});
+
+	it('uses the same Hermes run path for short completions', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+					aguiStream(
+						{ type: 'TEXT_MESSAGE_START', messageId: 'answer-1', role: 'assistant' },
+						{ type: 'TEXT_MESSAGE_CONTENT', delta: 'A' },
+					{ type: 'TEXT_MESSAGE_CONTENT', delta: ' ' },
+					{ type: 'TEXT_MESSAGE_CONTENT', delta: 'concise' },
+					{ type: 'TEXT_MESSAGE_CONTENT', delta: ' ' },
+						{ type: 'TEXT_MESSAGE_CONTENT', delta: 'title' },
+						{ type: 'TEXT_MESSAGE_END', messageId: 'answer-1' },
+						{ type: 'RUN_FINISHED' }
+				)
+			)
 		);
 
-		const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
-		const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>;
-		expect(headers).toMatchObject({
-			'x-request-id': 'trace_12345678-abc',
-			'x-trace-id': 'trace_12345678-abc'
+		await expect(completion({ messages: [{ role: 'user', content: 'Title this.' }] })).resolves.toMatchObject({
+			choices: [{ message: { content: 'A concise title' } }]
 		});
-		expect(body.trace_id).toBe('trace_12345678-abc');
+		const fetchMock = vi.mocked(fetch);
+		const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+			forwardedProps: { stateWriterTools: unknown[] };
+		};
+		expect(body.forwardedProps.stateWriterTools).toEqual([]);
 	});
 
-	it('does not inject invalid trace ids for chat completion requests', async () => {
-		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
-		vi.stubGlobal('fetch', fetchMock);
+	it('keeps inter-tool narration out of the final answer', async () => {
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(
+					new TextEncoder().encode(
+						'data: {"type":"TEXT_MESSAGE_START","messageId":"narration"}\n\n' +
+							'data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"narration","delta":"I will search now."}\n\n' +
+							'data: {"type":"TEXT_MESSAGE_END","messageId":"narration"}\n\n' +
+							'data: {"type":"TOOL_CALL_START","toolCallId":"search-1","toolCallName":"web_search"}\n\n' +
+							'data: {"type":"TOOL_CALL_END","toolCallId":"search-1"}\n\n' +
+							'data: {"type":"TEXT_MESSAGE_START","messageId":"answer"}\n\n' +
+							'data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"answer","delta":"Here is the result."}\n\n' +
+							'data: {"type":"TEXT_MESSAGE_END","messageId":"answer"}\n\n' +
+							'data: {"type":"RUN_FINISHED"}\n\n'
+					)
+				);
+				controller.close();
+			}
+		});
 
-		await streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] }, { traceId: 'bad trace!' });
-
-		const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
-		const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>;
-		expect(headers['x-request-id']).toBeUndefined();
-		expect(headers['x-trace-id']).toBeUndefined();
-		expect(body.trace_id).toBeUndefined();
+		const text = await new Response(normalizeHermesSse(source)).text();
+		expect(text).toContain('event: agent.answer.replace');
+		expect(text).toContain('Here is the result.');
+		expect(text).not.toContain('I will search now.');
 	});
 
-	it('injects valid trace ids into response requests', async () => {
-		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
-		vi.stubGlobal('fetch', fetchMock);
-		const input = [{ role: 'user' as const, content: 'hello' }];
+	it('preserves a clear Hermes stream failure', async () => {
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(
+					new TextEncoder().encode('data: {"type":"RUN_ERROR","message":"Hermes job failed."}\n\n')
+				);
+				controller.close();
+			}
+		});
 
-		await streamResponse(
-			{ input, model: 'newsroom-agent', stream: true },
-			{ traceId: 'trace_response_12345678' }
+		const text = await new Response(normalizeHermesSse(source)).text();
+		expect(text).toContain('event: response.failed');
+		expect(text).toContain('Hermes job failed.');
+	});
+
+	it('reports ready for the standard Hermes capability set', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					ok: true,
+					service: 'newscraft-hermes-chat',
+					toolset: 'hermes-acp',
+					tools: ['web_search', 'browser_navigate', 'browser_snapshot', 'terminal'],
+					runtime: {
+						provider: 'openai',
+						model: 'gpt-5-mini',
+						endpointMode: 'explicit'
+					},
+					capabilities: {
+						standard: true,
+						browser: true,
+						webResearch: true,
+						terminal: true,
+						files: true,
+						codeExecution: true,
+						delegation: true,
+						skills: true,
+						memory: true
+					}
+				}),
+				{ status: 200 }
+			)
 		);
-
-		const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
-		const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>;
-		expect(headers).toMatchObject({
-			'x-request-id': 'trace_response_12345678',
-			'x-trace-id': 'trace_response_12345678'
-		});
-		expect(body.trace_id).toBe('trace_response_12345678');
-	});
-
-	it('prefers the NewsCraft agent gateway URL and API key when configured', async () => {
-		process.env.AGENT_GATEWAY_URL = 'https://harness.test/';
-		process.env.AGENT_GATEWAY_API_KEY = 'harness-key';
-		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
-		vi.stubGlobal('fetch', fetchMock);
-
-		await streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] });
-
-		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://harness.test/v1/chat/completions');
-		const init = fetchMock.mock.calls[0]?.[1] as RequestInit & { headers: Record<string, string> };
-		expect(init.headers.authorization).toBe('Bearer harness-key');
-	});
-
-	it('rejects a configured remote gateway URL without an API key', async () => {
-		process.env.AGENT_GATEWAY_URL = 'https://harness.test';
-		delete process.env.AGENT_GATEWAY_API_KEY;
-
-		await expect(streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] })).rejects.toThrow(
-			'AGENT_GATEWAY_URL is configured but AGENT_GATEWAY_API_KEY or NEWSROOM_HARNESS_API_KEY is missing'
-		);
-	});
-
-	it('allows unauthenticated requests to the local default gateway', async () => {
-		delete process.env.AGENT_GATEWAY_URL;
-		delete process.env.AGENT_GATEWAY_API_KEY;
-		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
-		vi.stubGlobal('fetch', fetchMock);
-
-		await streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] });
-
-		const init = fetchMock.mock.calls[0]?.[1] as RequestInit & { headers: Record<string, string> };
-		expect(init.headers.authorization).toBeUndefined();
-		expect(fetchMock.mock.calls[0]?.[0]).toBe('http://127.0.0.1:8650/v1/chat/completions');
-	});
-
-	it('allows unauthenticated requests to an explicitly configured loopback gateway', async () => {
-		process.env.AGENT_GATEWAY_URL = 'http://127.0.0.1:8650';
-		delete process.env.AGENT_GATEWAY_API_KEY;
-		const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
-		vi.stubGlobal('fetch', fetchMock);
-
-		await streamChatCompletion({ messages: [{ role: 'user', content: 'hello' }] });
-
-		const init = fetchMock.mock.calls[0]?.[1] as RequestInit & { headers: Record<string, string> };
-		expect(init.headers.authorization).toBeUndefined();
-		expect(fetchMock.mock.calls[0]?.[0]).toBe('http://127.0.0.1:8650/v1/chat/completions');
-	});
-
-	it('reports gateway health from non-OK responses', async () => {
-		const fetchMock = vi.fn().mockResolvedValue(new Response('maintenance', { status: 503 }));
-		vi.stubGlobal('fetch', fetchMock);
-
-		await expect(gatewayHealth()).resolves.toEqual({
-			ok: false,
-			status: 503,
-			body: 'maintenance',
-			json: null,
-			service: null,
-			url: 'https://gateway.test'
-		});
-		expect(fetchMock).toHaveBeenCalledWith(
-			'https://gateway.test/health',
-			expect.objectContaining({ signal: expect.any(AbortSignal) })
-		);
-	});
-
-	it('reports failed gateway health fetches without throwing', async () => {
-		vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
-
-		await expect(gatewayHealth()).resolves.toEqual({
-			ok: false,
-			status: 0,
-			body: 'network down',
-			json: null,
-			service: null,
-			url: 'https://gateway.test'
-		});
-	});
-
-	it('treats health JSON ok:false as unavailable even with HTTP 200', async () => {
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValue(
-				new Response(JSON.stringify({ ok: false, service: 'newsroom-harness' }), { status: 200 })
-			);
 		vi.stubGlobal('fetch', fetchMock);
 
 		await expect(gatewayHealth()).resolves.toMatchObject({
-			ok: false,
+			ok: true,
 			status: 200,
-			json: { ok: false, service: 'newsroom-harness' },
-			service: 'newsroom-harness',
-			url: 'https://gateway.test'
+			service: 'newscraft-hermes-chat',
+			url: 'https://hermes.test'
 		});
-	});
-
-	it('explains raw fetch failures as an unreachable agent gateway', () => {
-		expect(describeGatewayError(new TypeError('fetch failed'))).toBe(
-			'Agent gateway is not reachable at https://gateway.test. Start the gateway or update AGENT_GATEWAY_URL.'
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://hermes.test/ready',
+			expect.objectContaining({
+				headers: expect.objectContaining({ 'x-hermes-session-token': 'test-hermes-token' })
+			})
 		);
 	});
 
-	it('uses AGENT_GATEWAY_URL in gateway error hints when configured', () => {
-		process.env.AGENT_GATEWAY_URL = 'https://harness.test';
-		expect(describeGatewayError(new TypeError('fetch failed'))).toBe(
-			'Agent gateway is not reachable at https://harness.test. Start the gateway or update AGENT_GATEWAY_URL.'
+	it('accepts extra Hermes tools without a NewsCraft allowlist', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						ok: true,
+						service: 'newscraft-hermes-chat',
+						toolset: 'hermes-acp',
+						tools: [
+							'web_search',
+							'browser_navigate',
+							'browser_snapshot',
+							'terminal',
+							'future_hermes_tool'
+						],
+						runtime: {
+							provider: 'openai',
+							model: 'gpt-5-mini',
+							endpointMode: 'explicit'
+						},
+						capabilities: {
+							standard: true,
+							browser: true,
+							webResearch: true,
+							terminal: true,
+							files: true,
+							codeExecution: true,
+							delegation: true,
+							skills: true,
+							memory: true
+						}
+					}),
+					{ status: 200 }
+				)
+			)
 		);
+
+		await expect(gatewayHealth()).resolves.toMatchObject({ ok: true, status: 200 });
+	});
+
+	it('fails closed when Hermes configuration is missing', async () => {
+		delete process.env.NEWSCRAFT_HERMES_URL;
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(gatewayHealth()).resolves.toMatchObject({ ok: false, status: 0 });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('describes network failures as Hermes failures', () => {
+		expect(describeGatewayError(new Error('fetch failed'))).toContain('Hermes is not reachable');
 	});
 });

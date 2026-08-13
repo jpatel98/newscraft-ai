@@ -6,7 +6,12 @@ describe('chat stream timeout terminal contract', () => {
 		const source = readFileSync(new URL('./+server.ts', import.meta.url), 'utf8');
 
 		expect(source).toContain('linkChatAbort(request.signal, CHAT_STREAM_MAX_MS)');
-		expect(source).toContain('upstreamAbort.abort(new ChatPhaseTimeoutError');
+		expect(source).toContain('createChatIdleWatchdog(upstreamAbort, CHAT_STREAM_IDLE_MS)');
+		expect(source).toContain('idleWatchdog.toolStarted(update.tool.id)');
+		expect(source).toContain("update.tool.status === 'ok'");
+		expect(source).toContain('idleWatchdog.toolFinished(update.tool.id)');
+		expect(source).toContain("sseFrame('agent.heartbeat'");
+		expect(source).toContain('idleWatchdog.hasActiveTools()');
 		expect(source).toContain('streamChatCompletion(');
 		expect(source).toContain('signal: upstreamAbort.signal');
 		expect(source).toContain('async function emitSafePartialTerminal');
