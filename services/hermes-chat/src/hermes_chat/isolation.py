@@ -191,6 +191,27 @@ def current_tenant() -> TenantRuntime | None:
 def _validate_scoped_path(value: str, runtime: TenantRuntime) -> None:
     raw = value.strip()
     container_raw = "/root" + raw[1:] if raw == "~" or raw.startswith("~/") else raw
+
+    # Tenant roots can live under /tmp in local and staging harnesses. Check
+    # host paths before accepting the Docker namespace's /tmp path, or a model
+    # could name a sibling tenant's host workspace and bypass this guard.
+    candidate = Path(raw).expanduser()
+    if candidate.is_absolute():
+        try:
+            resolved = candidate.resolve(strict=False)
+            if resolved.is_relative_to(runtime.hermes_home) or resolved.is_relative_to(runtime.workspace):
+                return
+            tenant_roots = (runtime.hermes_home.parent, runtime.workspace.parent)
+            if any(
+                resolved == root or resolved.is_relative_to(root)
+                for root in tenant_roots
+            ):
+                raise TenantIsolationError(
+                    "Hermes file tools may access only the active account scope"
+                )
+        except OSError as exc:
+            raise TenantIsolationError("Hermes path could not be resolved") from exc
+
     container_candidate = PurePosixPath(posixpath.normpath(container_raw))
     container_roots = (
         PurePosixPath(runtime.container_workspace),
@@ -203,7 +224,6 @@ def _validate_scoped_path(value: str, runtime: TenantRuntime) -> None:
     ):
         return
 
-    candidate = Path(raw).expanduser()
     if not candidate.is_absolute():
         return
     try:

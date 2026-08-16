@@ -179,6 +179,10 @@ class HermesIsolationTests(unittest.TestCase):
                 isolation.guard_tool_arguments("read_file", {"path": "/workspace/notes.txt"}),
                 {"path": "/workspace/notes.txt"},
             )
+            self.assertEqual(
+                isolation.guard_tool_arguments("read_file", {"path": "/tmp/agent.txt"}),
+                {"path": "/tmp/agent.txt"},
+            )
             with self.assertRaises(TenantIsolationError):
                 isolation.guard_tool_arguments(
                     "read_file",

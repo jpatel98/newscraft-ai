@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from hermes_chat.contracts import CRON_TOOLSET, HERMES_TOOLSET
 from hermes_chat.service import (
@@ -17,6 +17,7 @@ from hermes_chat.service import (
     _install_public_host_alias,
     _runtime_config,
     _set_iteration_limit,
+    _startup_tool_names,
     prepare_runtime,
     settings_from_env,
 )
@@ -184,6 +185,31 @@ class HermesChatServiceTests(unittest.TestCase):
             self.assertTrue(
                 _browser_capability_ready({"browser_navigate", "browser_snapshot"})
             )
+
+    def test_retries_terminal_and_file_tools_after_a_transient_probe_failure(self) -> None:
+        initial = [{"function": {"name": "memory"}}]
+        complete = [
+            {"function": {"name": "memory"}},
+            {"function": {"name": "terminal"}},
+            {"function": {"name": "read_file"}},
+            {"function": {"name": "write_file"}},
+            {"function": {"name": "patch"}},
+        ]
+        get_definitions = Mock(side_effect=[initial, complete])
+        config = SimpleNamespace(enabled_toolsets=[HERMES_TOOLSET, CRON_TOOLSET])
+
+        with patch("tools.terminal_tool.check_terminal_requirements", return_value=True), \
+             patch("tools.registry.invalidate_check_fn_cache") as invalidate, \
+             patch("model_tools._clear_tool_defs_cache") as clear:
+            names = _startup_tool_names(get_definitions, config)
+
+        self.assertEqual(
+            names,
+            ["memory", "patch", "read_file", "terminal", "write_file"],
+        )
+        self.assertEqual(get_definitions.call_count, 2)
+        invalidate.assert_called_once_with()
+        clear.assert_called_once_with()
 
     def test_agui_enables_cron_without_gateway_environment_flags(self) -> None:
         entry = SimpleNamespace(check_fn=lambda: False)

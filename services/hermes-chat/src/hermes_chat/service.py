@@ -372,6 +372,54 @@ def _tool_names(definitions: Iterable[dict]) -> list[str]:
     return sorted(set(names))
 
 
+_STARTUP_REQUIRED_TOOL_NAMES = frozenset(
+    {"terminal", "read_file", "write_file", "patch"}
+)
+
+
+def _startup_tool_names(get_tool_definitions: Any, config: Any) -> list[str]:
+    """Assemble required terminal/file tools after a transient probe failure.
+
+    Hermes caches availability checks while it builds tool definitions. Docker
+    can be briefly unavailable during service startup even when it is healthy
+    by the time the app is ready. A cached false result would permanently
+    remove the terminal and file tools from this process. Recheck the backend
+    directly and rebuild the definitions once. If the backend is still down,
+    keep the tools absent so readiness remains fail-closed.
+    """
+    definitions = get_tool_definitions(
+        enabled_toolsets=config.enabled_toolsets,
+        quiet_mode=True,
+        skip_tool_search_assembly=True,
+    )
+    names = _tool_names(definitions)
+    if _STARTUP_REQUIRED_TOOL_NAMES.issubset(names):
+        return names
+
+    try:
+        from model_tools import _clear_tool_defs_cache
+        from tools.registry import invalidate_check_fn_cache
+        from tools.terminal_tool import check_terminal_requirements
+
+        if not check_terminal_requirements():
+            return names
+        logger.warning(
+            "Hermes terminal/file availability probe failed during initial "
+            "tool discovery; rebuilding after a successful backend recheck"
+        )
+        invalidate_check_fn_cache()
+        _clear_tool_defs_cache()
+        definitions = get_tool_definitions(
+            enabled_toolsets=config.enabled_toolsets,
+            quiet_mode=True,
+            skip_tool_search_assembly=True,
+        )
+        return _tool_names(definitions)
+    except Exception:
+        logger.exception("Hermes terminal/file tool availability retry failed")
+        return names
+
+
 def _browser_capability_ready(tools: set[str]) -> bool:
     """Return whether Hermes can execute its local browser tool now."""
     if not {"browser_navigate", "browser_snapshot"}.issubset(tools):
@@ -1083,13 +1131,7 @@ def create_app(settings: Settings | None = None):
     )
     _install_iteration_limit(agui_server, settings.max_iterations)
 
-    tools = _tool_names(
-        get_tool_definitions(
-            enabled_toolsets=config.enabled_toolsets,
-            quiet_mode=True,
-            skip_tool_search_assembly=True,
-        )
-    )
+    tools = _startup_tool_names(get_tool_definitions, config)
     retrieval = retrieval_readiness(settings.retrieval)
     if not retrieval["configured"]:
         logger.error("NewsCraft web extraction is not ready: %s", retrieval["reason"])
