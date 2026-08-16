@@ -15,5 +15,8 @@ dependencies = [
 [project.scripts]
 newscraft-hermes-chat = "hermes_chat.service:main"
 
+[project.entry-points."hermes_agent.plugins"]
+newscraft-web = "hermes_chat.retrieval"
+
 [tool.setuptools.packages.find]
 where = ["src"]

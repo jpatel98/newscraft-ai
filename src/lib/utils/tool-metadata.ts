@@ -1,4 +1,9 @@
-import { isCitationUrl, type CitationRecord, type CitationSourceType } from '@newscraft/shared';
+import {
+	isCitationUrl,
+	type CitationRecord,
+	type CitationSourceType,
+	type RetrievalProvenance
+} from '@newscraft/shared';
 import type { PersistedSource, StreamToolCall } from './stream-events';
 
 interface ToolMetadataEnvelope {
@@ -68,6 +73,8 @@ export interface DisplaySourceReceipt {
 	url: string;
 	label: string;
 	domain: string;
+	archivedUrl?: string;
+	retrievalMode?: string;
 }
 
 export interface SourceReceiptInput {
@@ -143,6 +150,38 @@ function numberValue(value: unknown): number | undefined {
 		return Number.isFinite(parsed) ? parsed : undefined;
 	}
 	return undefined;
+}
+
+function normalizeRetrieval(value: unknown): RetrievalProvenance | undefined {
+	const o = objectValue(value);
+	const originalUrl = stringValue(o?.originalUrl ?? o?.original_url);
+	const sanitizedOriginalUrl = originalUrl ? sanitizeSourceUrl(originalUrl) : null;
+	if (!o || !sanitizedOriginalUrl) return undefined;
+	const archivedUrl = stringValue(o.archivedUrl ?? o.archived_url);
+	const retrievedUrl = stringValue(o.retrievedUrl ?? o.retrieved_url);
+	const requestCount = numberValue(o.requestCount ?? o.request_count);
+	const liveStatus = numberValue(o.liveStatus ?? o.live_status);
+	const retrievedStatus = numberValue(o.retrievedStatus ?? o.retrieved_status);
+	return {
+		originalUrl: sanitizedOriginalUrl,
+		...(retrievedUrl ? { retrievedUrl: sanitizeSourceUrl(retrievedUrl) ?? null } : {}),
+		...(archivedUrl ? { archivedUrl: sanitizeSourceUrl(archivedUrl) ?? null } : {}),
+		captureTimestamp: stringValue(o.captureTimestamp ?? o.capture_timestamp) ?? null,
+		pageTimestamp: stringValue(o.pageTimestamp ?? o.page_timestamp) ?? null,
+		publishedAt: stringValue(o.publishedAt ?? o.published_at) ?? null,
+		updatedAt: stringValue(o.updatedAt ?? o.updated_at) ?? null,
+		retrievalTime: stringValue(o.retrievalTime ?? o.retrieval_time) ?? null,
+		fallbackReason: stringValue(o.fallbackReason ?? o.fallback_reason) ?? null,
+		retrievalMode: stringValue(o.retrievalMode ?? o.retrieval_mode),
+		liveStatus: liveStatus ?? null,
+		retrievedStatus: retrievedStatus ?? null,
+		pageQuality: stringValue(o.pageQuality ?? o.page_quality) ?? null,
+		evidenceStatus: stringValue(o.evidenceStatus ?? o.evidence_status),
+		rejectionReason: stringValue(o.rejectionReason ?? o.rejection_reason) ?? null,
+		timestampStatus: stringValue(o.timestampStatus ?? o.timestamp_status) ?? null,
+		...(requestCount !== undefined ? { requestCount: Math.max(0, Math.floor(requestCount)) } : {}),
+		backend: stringValue(o.backend)
+	};
 }
 
 function sanitizeProvenanceValue(key: string, value: unknown, depth = 0): unknown {
@@ -244,6 +283,20 @@ function sanitizeSourceUrl(value: string): string | null {
 	}
 }
 
+function sourceReceiptUrl(value: string): string | null {
+	const sanitized = sanitizeSourceUrl(value);
+	if (!sanitized || !/^https?:\/\//i.test(sanitized)) return sanitized;
+	try {
+		const url = new URL(sanitized);
+		// Fragments select a client-side location. They do not identify a
+		// different page and are not sent to the source server.
+		url.hash = '';
+		return url.toString();
+	} catch {
+		return sanitized;
+	}
+}
+
 function sourceUrlKey(value: string): string | null {
 	const sanitized = sanitizeSourceUrl(value);
 	if (!sanitized) return null;
@@ -251,7 +304,8 @@ function sourceUrlKey(value: string): string | null {
 		const url = new URL(sanitized);
 		const pathname = url.pathname.replace(/\/$/, '') || '/';
 		const search = url.searchParams.toString();
-		return `${url.protocol}//${url.hostname.toLowerCase()}${url.port ? `:${url.port}` : ''}${pathname}${search ? `?${search}` : ''}${url.hash}`;
+		const hash = /^https?:\/\//i.test(sanitized) ? '' : url.hash;
+		return `${url.protocol}//${url.hostname.toLowerCase()}${url.port ? `:${url.port}` : ''}${pathname}${search ? `?${search}` : ''}${hash}`;
 	} catch {
 		return sanitized.toLowerCase();
 	}
@@ -307,6 +361,7 @@ function normalizeSource(value: unknown): PersistedSource | null {
 	const now = Date.now();
 	const stepId = stringValue(o.stepId);
 	const status = stringValue(o.status) ?? 'used';
+	const retrieval = normalizeRetrieval(o.retrieval);
 	return {
 		id: stringValue(o.id) ?? sanitizedUrl,
 		url: sanitizedUrl,
@@ -323,7 +378,8 @@ function normalizeSource(value: unknown): PersistedSource | null {
 		temporalScope: stringValue(o.temporalScope ?? o.temporal_scope) ?? null,
 		publishedAt: stringValue(o.publishedAt ?? o.published_at) ?? null,
 		updatedAt: stringValue(o.updatedAt ?? o.updated_at) ?? null,
-		eventAt: stringValue(o.eventAt ?? o.event_at) ?? null
+		eventAt: stringValue(o.eventAt ?? o.event_at) ?? null,
+		...(retrieval ? { retrieval } : {})
 	};
 }
 
@@ -336,6 +392,7 @@ function normalizeCitation(value: unknown): CitationRecord | null {
 	const rawSourceType = stringValue(o.sourceType ?? o.source_type) as CitationSourceType | undefined;
 	const sourceType = rawSourceType && CITATION_SOURCE_TYPES.has(rawSourceType) ? rawSourceType : 'unknown';
 	const documentPage = numberValue(o.documentPage ?? o.document_page ?? o.page);
+	const retrieval = normalizeRetrieval(o.retrieval);
 	return {
 		citationNumber,
 		title: compactProvenanceString(redactSensitiveText(stringValue(o.title) ?? url)),
@@ -346,7 +403,8 @@ function normalizeCitation(value: unknown): CitationRecord | null {
 		supportingExcerpt: compactProvenanceString(
 			redactSensitiveText(stringValue(o.supportingExcerpt ?? o.supporting_excerpt ?? o.excerpt) ?? '')
 		),
-		...(documentPage && documentPage > 0 ? { documentPage: Math.floor(documentPage) } : {})
+		...(documentPage && documentPage > 0 ? { documentPage: Math.floor(documentPage) } : {}),
+		...(retrieval ? { retrieval } : {})
 	};
 }
 
@@ -587,19 +645,22 @@ export function sourceReceiptsForAnswer(
 	for (const source of [...parsedSources, ...live]) {
 		const key = sourceUrlKey(source.url);
 		if (!key || linked.has(key) || receipts.has(key)) continue;
-		const url = sanitizeSourceUrl(source.url);
+		const url = sourceReceiptUrl(source.url);
 		if (!url) continue;
 		receipts.set(key, {
 			url,
 			label: humanSourceLabel(source),
-			domain: domainOf(url)
+			domain: domainOf(url),
+			...(source.retrieval?.archivedUrl
+				? { archivedUrl: source.retrieval.archivedUrl, retrievalMode: source.retrieval.retrievalMode }
+				: {})
 		});
 	}
 
 	for (const citation of parsed.citations) {
 		const key = sourceUrlKey(citation.url);
 		if (!key || linked.has(key) || receipts.has(key)) continue;
-		const url = sanitizeSourceUrl(citation.url);
+		const url = sourceReceiptUrl(citation.url);
 		if (!url) continue;
 		const title = cleanSourceLabel(citation.title);
 		const domain = cleanSourceLabel(citation.domain) || domainOf(url) || 'Attached document';
@@ -609,7 +670,10 @@ export function sourceReceiptsForAnswer(
 				title && !labelLooksTechnical(title) && !labelLooksLikeUrl(title)
 					? title
 					: domain || 'Source',
-			domain
+			domain,
+			...(citation.retrieval?.archivedUrl
+				? { archivedUrl: citation.retrieval.archivedUrl, retrievalMode: citation.retrieval.retrievalMode }
+				: {})
 		});
 	}
 

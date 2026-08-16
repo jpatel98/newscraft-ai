@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/private';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 import {
 	HERMES_TOOLSET,
 	type GatewayChatCompletionRequest,
@@ -8,7 +9,8 @@ import {
 	type GatewayContentPart,
 	type HermesAguiMessage,
 	type HermesContextEntry,
-	type HermesRunInput
+	type HermesRunInput,
+	type RetrievalProvenance
 } from '@newscraft/shared';
 
 export type AgentContentPart = GatewayContentPart;
@@ -27,9 +29,12 @@ export interface GatewayHealth {
 
 export interface HermesRequestOptions {
 	signal?: AbortSignal;
+	/** Authenticated NewsCraft account id. Never comes from the browser. */
+	accountId?: string;
 	sessionId?: string;
 	traceId?: string;
 	recordSources?: boolean;
+	requireWebExtraction?: boolean;
 }
 
 interface RawSseFrame {
@@ -48,6 +53,7 @@ interface HermesNormalizationState {
 	currentTextMessageId: string | null;
 	currentText: string;
 	closedTextMessages: Array<{ id: string; content: string }>;
+	retrievalByUrl: Map<string, RetrievalProvenance>;
 }
 
 interface SeededCitation {
@@ -110,6 +116,29 @@ const NEWSCRAFT_SOURCE_WRITER = {
 					supportingExcerpt: {
 						type: 'string',
 						description: 'A short exact excerpt from the page that supports the cited claim.'
+					},
+					retrieval: {
+						type: 'object',
+						description: 'Optional NewsCraft retrieval provenance. Keep the original URL as the source URL.',
+						properties: {
+							originalUrl: { type: 'string' },
+							retrievedUrl: { type: 'string' },
+							archivedUrl: { type: 'string' },
+							captureTimestamp: { type: 'string' },
+							pageTimestamp: { type: 'string' },
+							publishedAt: { type: 'string' },
+							updatedAt: { type: 'string' },
+							retrievalTime: { type: 'string' },
+							fallbackReason: { type: 'string' },
+							retrievalMode: { type: 'string' },
+							pageQuality: { type: 'string' },
+							evidenceStatus: { type: 'string' },
+							rejectionReason: { type: 'string' },
+							timestampStatus: { type: 'string' },
+							requestCount: { type: 'integer' },
+							backend: { type: 'string' }
+						},
+						additionalProperties: false
 					}
 				},
 				required: ['citationNumber', 'title', 'url', 'publicationDate', 'sourceType', 'supportingExcerpt'],
@@ -131,6 +160,19 @@ function hermesToken(): string {
 	const value = (env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
 	if (!value) {
 		throw new Error('Hermes authentication is not configured. Set NEWSCRAFT_HERMES_API_TOKEN.');
+	}
+	return value;
+}
+
+function hermesTenantSecret(): string {
+	const value = (env.NEWSCRAFT_HERMES_TENANT_SECRET || '').trim();
+	if (!value) {
+		throw new Error(
+			'Hermes tenant isolation is not configured. Set NEWSCRAFT_HERMES_TENANT_SECRET.'
+		);
+	}
+	if (value.length < 32) {
+		throw new Error('NEWSCRAFT_HERMES_TENANT_SECRET must contain at least 32 characters.');
 	}
 	return value;
 }
@@ -247,7 +289,8 @@ function buildRunInput(
 	body: AgentChatRequest,
 	threadId: string,
 	runId: string,
-	recordSources = true
+	recordSources = true,
+	webExtractConfigured = false
 ): BuiltRunInput {
 	const documents = documentCitationContext(body.documents);
 	const context = [
@@ -265,9 +308,13 @@ function buildRunInput(
 			context,
 			forwardedProps: {
 				source: 'newscraft',
-				operation: 'chat',
-				citationStartNumber: documents.citations.length + 1,
-				webExtractConfigured: false,
+					operation: 'chat',
+					citationStartNumber: documents.citations.length + 1,
+					webExtractConfigured,
+					retrievalVerificationTool: 'verify_this_lead',
+					retrievalBackend: 'newscraft-local',
+				retrievalMaxUrls: 5,
+				archiveFallback: 'wayback',
 				stateWriterTools: recordSources ? [NEWSCRAFT_SOURCE_WRITER] : []
 			}
 		},
@@ -289,6 +336,16 @@ export function deriveSessionId(messages: AgentMessage[], scope = ''): string {
 		.slice(0, 32);
 }
 
+/** Derive the opaque tenant namespace sent to the isolated Hermes service. */
+export function deriveHermesTenantKey(accountId: string): string {
+	const normalized = accountId.trim();
+	if (!normalized) throw new Error('Hermes requires an authenticated account scope.');
+	return createHmac('sha256', hermesTenantSecret())
+		.update('newscraft-hermes-tenant:v1\0')
+		.update(normalized)
+	.digest('base64url');
+}
+
 function traceHeader(value: string | undefined): string | undefined {
 	const cleaned = (value || '').trim();
 	return TRACE_ID_RE.test(cleaned) ? cleaned : undefined;
@@ -297,11 +354,13 @@ function traceHeader(value: string | undefined): string | undefined {
 function requestHeaders(options: HermesRequestOptions): Record<string, string> {
 	const token = hermesToken();
 	const traceId = traceHeader(options.traceId);
+	const tenantKey = deriveHermesTenantKey(options.accountId || '');
 	return {
 		'content-type': 'application/json',
 		accept: 'text/event-stream',
 		authorization: `Bearer ${token}`,
 		'x-hermes-session-token': token,
+		'x-newscraft-tenant-key': tenantKey,
 		...(traceId ? { 'x-request-id': traceId, 'x-trace-id': traceId } : {})
 	};
 }
@@ -365,6 +424,7 @@ function sourceDomain(value: string): string {
 
 function compactExcerpt(value: unknown): string {
 	const text = stringValue(value)
+		?.replace(/<!--\s*newscraft-retrieval:v1:[A-Za-z0-9_-]+\s*-->/g, ' ')
 		?.replace(/```[\s\S]*?```/g, ' ')
 		.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
 		.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
@@ -372,6 +432,29 @@ function compactExcerpt(value: unknown): string {
 		.replace(/\s+/g, ' ')
 		.trim();
 	return (text || '').slice(0, 1_200);
+}
+
+function retrievalFromContent(value: unknown): RetrievalProvenance | undefined {
+	const text = stringValue(value);
+	const encoded = text?.match(/<!--\s*newscraft-retrieval:v1:([A-Za-z0-9_-]+)\s*-->/)?.[1];
+	if (!encoded) return undefined;
+	try {
+		const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+		if (!objectValue(parsed) || typeof parsed.originalUrl !== 'string') return undefined;
+		return parsed as RetrievalProvenance;
+	} catch {
+		return undefined;
+	}
+}
+
+function rememberRetrieval(
+	state: HermesNormalizationState,
+	url: string,
+	retrieval: RetrievalProvenance
+): void {
+	for (const identity of [url, retrieval.originalUrl, retrieval.retrievedUrl, retrieval.archivedUrl]) {
+		if (identity) state.retrievalByUrl.set(canonicalUrl(identity), retrieval);
+	}
 }
 
 function assignCitationNumber(
@@ -391,7 +474,7 @@ function assignCitationNumber(
 	return number;
 }
 
-function extractedSourceFrames(result: unknown): string[] {
+function extractedSourceFrames(result: unknown, state: HermesNormalizationState): string[] {
 	const parsed = parseMaybeJson(result);
 	const root = objectValue(parsed);
 	const rawResults = Array.isArray(root?.results) ? root.results : [];
@@ -400,12 +483,18 @@ function extractedSourceFrames(result: unknown): string[] {
 	for (const raw of rawResults) {
 		const item = objectValue(raw);
 		const url = stringValue(item?.url);
+		const retrieval = retrievalFromContent(item?.content);
+		if (item && url && /^https?:\/\//i.test(url) && retrieval) rememberRetrieval(state, url, retrieval);
 		const content = compactExcerpt(item?.supportingExcerpt ?? item?.supporting_excerpt ?? item?.content);
 		if (!item || !url || !/^https?:\/\//i.test(url) || stringValue(item.error) || !content) continue;
+		if (!retrieval || retrieval.evidenceStatus !== 'accepted') {
+			// A raw extractor result has no timestamp/provenance contract. It is
+			// useful tool output, but it cannot become NewsCraft evidence.
+			continue;
+		}
 		const title = stringValue(item.title) || url;
 		const domain = sourceDomain(url);
-		const publicationDate =
-			stringValue(item.publicationDate ?? item.publication_date ?? item.publishedAt ?? item.published_at) || null;
+		const publicationDate = retrieval.pageTimestamp || null;
 		frames.push(
 			sseFrame(
 				'agent.source.read',
@@ -416,19 +505,27 @@ function extractedSourceFrames(result: unknown): string[] {
 						title,
 						domain,
 						status: 'read',
-						detail: 'Hermes read this page.',
+						detail:
+							retrieval.retrievalMode === 'archive'
+								? 'NewsCraft read the Wayback copy after the live page was blocked.'
+								: 'NewsCraft verified and read this page.',
 						verified: true,
 						currentVerified: false,
 						temporalScope: null,
-						publishedAt: publicationDate,
-						updatedAt: null,
-						eventAt: null
+						publishedAt: retrieval.publishedAt || publicationDate,
+						updatedAt: retrieval.updatedAt || null,
+						eventAt: retrieval.pageTimestamp || null,
+						retrieval
 					}
 				})
 			)
 		);
 	}
 	return frames;
+}
+
+function isRetrievalTool(name: string): boolean {
+	return name === 'web_extract' || name === 'verify_this_lead';
 }
 
 function browserSourceFrames(
@@ -484,7 +581,12 @@ function recordedSourceFrames(payload: Record<string, unknown>, state: HermesNor
 
 	for (const raw of sources) {
 		const source = objectValue(raw);
-		const url = stringValue(source?.url);
+		const recordedUrl = stringValue(source?.url);
+		const candidateRetrieval = recordedUrl
+			? state.retrievalByUrl.get(canonicalUrl(recordedUrl))
+			: undefined;
+		const retrieval = candidateRetrieval?.evidenceStatus === 'accepted' ? candidateRetrieval : undefined;
+		const url = retrieval?.originalUrl || recordedUrl;
 		const title = stringValue(source?.title);
 		const excerpt = compactExcerpt(source?.supportingExcerpt ?? source?.supporting_excerpt);
 		const citationNumber = integerValue(source?.citationNumber ?? source?.citation_number);
@@ -501,7 +603,8 @@ function recordedSourceFrames(payload: Record<string, unknown>, state: HermesNor
 		state.recordedSources.add(canonical);
 
 		const domain = sourceDomain(url);
-		const publicationDate = stringValue(source.publicationDate ?? source.publication_date) || null;
+		const publicationDate =
+			retrieval?.pageTimestamp || stringValue(source.publicationDate ?? source.publication_date) || null;
 		const rawSourceType = stringValue(source.sourceType ?? source.source_type) || 'unknown';
 		const sourceType = CITATION_SOURCE_TYPES.has(rawSourceType) ? rawSourceType : 'unknown';
 		frames.push(
@@ -519,8 +622,9 @@ function recordedSourceFrames(payload: Record<string, unknown>, state: HermesNor
 						currentVerified: false,
 						temporalScope: null,
 						publishedAt: publicationDate,
-						updatedAt: null,
-						eventAt: null
+						updatedAt: retrieval?.updatedAt || null,
+						eventAt: retrieval?.pageTimestamp || null,
+						retrieval
 					}
 				})
 			)
@@ -532,7 +636,8 @@ function recordedSourceFrames(payload: Record<string, unknown>, state: HermesNor
 			domain,
 			publicationDate,
 			sourceType,
-			supportingExcerpt: excerpt
+			supportingExcerpt: excerpt,
+			retrieval
 		});
 	}
 	if (citations.length) frames.push(sseFrame('agent.citations', JSON.stringify({ citations })));
@@ -541,19 +646,29 @@ function recordedSourceFrames(payload: Record<string, unknown>, state: HermesNor
 
 function compactToolResult(name: string, result: unknown): unknown {
 	const parsed = parseMaybeJson(result);
-	if (name === 'web_extract') {
+	if (isRetrievalTool(name)) {
 		const root = objectValue(parsed);
 		const results = Array.isArray(root?.results)
 			? root.results.flatMap((raw) => {
 					const item = objectValue(raw);
 					if (!item) return [];
+					const retrieval = retrievalFromContent(item.content);
 					return [
 						{
 							url: stringValue(item.url) || '',
 							title: stringValue(item.title) || '',
-							citationNumber: integerValue(item.citationNumber ?? item.citation_number),
-							publicationDate: stringValue(item.publicationDate ?? item.publication_date) || null,
-							chars: stringValue(item.content)?.length || 0,
+							chars: compactExcerpt(item.content).length,
+							originalUrl: retrieval?.originalUrl || stringValue(item.url) || null,
+							retrievedUrl: retrieval?.retrievedUrl || null,
+							evidenceStatus: retrieval?.evidenceStatus || null,
+							rejectionReason: retrieval?.rejectionReason || stringValue(item.error) || null,
+							retrievalMode: retrieval?.retrievalMode || null,
+							archivedUrl: retrieval?.archivedUrl || null,
+							captureTimestamp: retrieval?.captureTimestamp || null,
+							pageTimestamp: retrieval?.pageTimestamp || null,
+							retrievalTime: retrieval?.retrievalTime || null,
+							fallbackReason: retrieval?.fallbackReason || null,
+							requestCount: retrieval?.requestCount || null,
 							error: stringValue(item.error) || null
 						}
 					];
@@ -655,7 +770,7 @@ function normalizeAguiFrame(frame: RawSseFrame, state: HermesNormalizationState)
 				'agent.tool.progress',
 				JSON.stringify({ id, name, result: compactToolResult(name, result), status: 'ok' })
 			),
-			...(name === 'web_extract' ? extractedSourceFrames(result) : []),
+				...(isRetrievalTool(name) ? extractedSourceFrames(result, state) : []),
 			...browserSourceFrames(name, result, state, toolCallArguments)
 		];
 	}
@@ -692,6 +807,7 @@ export function normalizeHermesSse(
 		currentTextMessageId: null,
 		currentText: '',
 		closedTextMessages: [],
+		retrievalByUrl: new Map(),
 		nextCitationNumber: seededCitations.reduce(
 			(maximum, citation) => Math.max(maximum, citation.citationNumber + 1),
 			1
@@ -776,9 +892,24 @@ export async function streamChatCompletion(
 	body: AgentChatRequest,
 	opts: HermesRequestOptions = {}
 ): Promise<Response> {
-	const sessionId = opts.sessionId ?? deriveSessionId(body.messages);
+	if (!opts.accountId?.trim()) {
+		throw new Error('Hermes requires an authenticated account scope.');
+	}
+	const sessionId = opts.sessionId ?? deriveSessionId(body.messages, opts.accountId);
 	const traceId = traceHeader(opts.traceId);
-	const run = buildRunInput(body, sessionId, traceId || randomUUID(), opts.recordSources !== false);
+	const requireWebExtraction = opts.requireWebExtraction === true;
+	const health = await gatewayHealth();
+	if (!health.ok) {
+		if (requireWebExtraction) throw webExtractionReadinessError(health);
+		throw hermesIsolationReadinessError(health);
+	}
+	const run = buildRunInput(
+		body,
+		sessionId,
+		traceId || randomUUID(),
+		opts.recordSources !== false,
+		requireWebExtraction
+	);
 	const response = await fetch(`${hermesUrl()}/`, {
 		method: 'POST',
 		headers: { ...requestHeaders(opts), 'x-hermes-session-id': sessionId },
@@ -790,6 +921,35 @@ export async function streamChatCompletion(
 		status: response.status,
 		headers: { 'content-type': 'text/event-stream; charset=utf-8' }
 	});
+}
+
+function webExtractionReadinessError(health: GatewayHealth): Error {
+	if (!health.status) {
+		return new Error('NewsCraft Hermes readiness check did not respond.');
+	}
+	if (health.status !== 200 || !health.json) {
+		return new Error(`NewsCraft Hermes readiness check failed (${health.status}).`);
+	}
+	const value = objectValue(health.json);
+	const capabilities = objectValue(value?.capabilities);
+	const extraction = objectValue(capabilities?.webExtraction);
+	if (!extraction) {
+		return new Error('NewsCraft web extraction is not configured on the Hermes service.');
+	}
+	if (extraction.configured !== true) {
+		return new Error('NewsCraft web extraction is not ready on the Hermes service.');
+	}
+	return new Error(`NewsCraft Hermes readiness check failed (${health.status || 'unavailable'}).`);
+}
+
+function hermesIsolationReadinessError(health: GatewayHealth): Error {
+	if (!health.status) {
+		return new Error('NewsCraft Hermes readiness check did not respond.');
+	}
+	if (health.status !== 200 || !health.json) {
+		return new Error(`NewsCraft Hermes readiness check failed (${health.status}).`);
+	}
+	return new Error('NewsCraft Hermes account isolation is not ready.');
 }
 
 /** Short side calls use the same Hermes run path. No second endpoint exists. */
@@ -860,6 +1020,8 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			: [];
 		const runtime = objectValue(value?.runtime);
 		const capabilities = objectValue(value?.capabilities);
+		const webExtraction = objectValue(capabilities?.webExtraction);
+		const accountIsolation = objectValue(capabilities?.accountIsolation);
 		const requiredCapabilities = [
 			'browser',
 			'webResearch',
@@ -880,7 +1042,19 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			Boolean(stringValue(runtime?.model)) &&
 			runtime?.endpointMode === 'explicit' &&
 			capabilities?.standard === true &&
-			requiredCapabilities.every((name) => capabilities?.[name] === true);
+			requiredCapabilities.every((name) => capabilities?.[name] === true) &&
+			accountIsolation?.tenantHeader === 'x-newscraft-tenant-key' &&
+			accountIsolation?.contextLocalHome === true &&
+			accountIsolation?.stableTaskKey === true &&
+			accountIsolation?.persistentDockerWorkspace === true &&
+			accountIsolation?.isolatedBrowserProfiles === true &&
+			webExtraction?.configured === true &&
+			webExtraction.backend === 'newscraft-local' &&
+			webExtraction.archiveProvider === 'wayback' &&
+			webExtraction.tool === true &&
+			webExtraction.leadVerificationTool === true &&
+			objectValue(capabilities?.webLeadVerification)?.configured === true &&
+			objectValue(capabilities?.webLeadVerification)?.bounded === true;
 		return {
 			ok: response.ok && reportedOk,
 			status: response.status,

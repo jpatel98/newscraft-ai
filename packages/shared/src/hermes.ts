@@ -18,6 +18,10 @@ export interface HermesForwardedProps {
 	operation: 'chat';
 	citationStartNumber: number;
 	webExtractConfigured: boolean;
+	retrievalVerificationTool: 'verify_this_lead';
+	retrievalBackend: 'newscraft-local';
+	retrievalMaxUrls: number;
+	archiveFallback: 'wayback';
 	stateWriterTools: HermesStateWriterTool[];
 }
 

@@ -45,6 +45,68 @@ describe('tool metadata', () => {
 		});
 	});
 
+	it('persists live/archive provenance while keeping the original URL as identity', () => {
+		const retrieval = {
+			originalUrl: 'https://example.com/story',
+			retrievedUrl: 'https://web.archive.org/web/20260812120000/https://example.com/story',
+			archivedUrl: 'https://web.archive.org/web/20260812120000/https://example.com/story',
+			captureTimestamp: '2026-08-12T12:00:00Z',
+			pageTimestamp: '2026-08-12T10:00:00Z',
+			publishedAt: '2026-08-12T10:00:00Z',
+			updatedAt: null,
+			retrievalTime: '2026-08-13T14:00:00Z',
+		fallbackReason: 'live_blocked_http_403',
+		retrievalMode: 'archive' as const,
+		liveStatus: 403,
+		retrievedStatus: 200,
+		pageQuality: 'article',
+			evidenceStatus: 'accepted',
+			rejectionReason: null,
+			timestampStatus: 'observed',
+			requestCount: 3,
+			backend: 'newscraft-local'
+		};
+		const citation = {
+			citationNumber: 1,
+			title: 'Archived story',
+			url: retrieval.originalUrl,
+			domain: 'example.com',
+			publicationDate: '2026-08-12T10:00:00Z',
+			sourceType: 'news_report' as const,
+			supportingExcerpt: 'Direct page evidence.',
+			retrieval
+		};
+		const raw = serializeToolMetadata(
+			[],
+			[
+				{
+					id: retrieval.originalUrl,
+					url: retrieval.originalUrl,
+					title: citation.title,
+					domain: citation.domain,
+					status: 'used',
+					firstSeenAt: 1000,
+					lastSeenAt: 2000,
+					used: true,
+					retrieval
+				}
+			],
+			[citation]
+		);
+
+		const parsed = parseToolMetadata(raw);
+		expect(parsed.sources[0]?.url).toBe(retrieval.originalUrl);
+		expect(parsed.sources[0]?.retrieval).toMatchObject({
+			archivedUrl: retrieval.archivedUrl,
+			fallbackReason: 'live_blocked_http_403',
+			liveStatus: 403,
+			retrievedStatus: 200,
+			requestCount: 3
+		});
+		expect(parsed.citations[0]?.url).toBe(retrieval.originalUrl);
+		expect(parsed.citations[0]?.retrieval?.archivedUrl).toBe(retrieval.archivedUrl);
+	});
+
 	it('sanitizes persisted source urls and infers used receipts from source status', () => {
 		const raw = JSON.stringify({
 			version: 1,
@@ -276,9 +338,10 @@ describe('tool metadata', () => {
 			'The main citation is already inline [Already linked](https://example.com/already-linked).'
 		);
 
+		expect(parseToolMetadata(raw).sources[1]?.url).toBe('https://news.example.com/story#fragment');
 		expect(receipts).toEqual([
 			{
-				url: 'https://news.example.com/story#fragment',
+				url: 'https://news.example.com/story',
 				label: 'Reuters Canada update',
 				domain: 'news.example.com'
 			}

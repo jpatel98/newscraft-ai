@@ -101,6 +101,7 @@ function configureHermesEnvironment() {
 	}
 
 	const required = [
+		'NEWSCRAFT_HERMES_TENANT_SECRET',
 		'NEWSCRAFT_HERMES_HOME',
 		'NEWSCRAFT_HERMES_WORKSPACE',
 		'NEWSCRAFT_HERMES_MODEL_PROVIDER',

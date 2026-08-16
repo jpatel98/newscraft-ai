@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import os
+import sys
+import threading
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
-from hermes_chat.contracts import HERMES_TOOLSET
+from hermes_chat.contracts import CRON_TOOLSET, HERMES_TOOLSET
 from hermes_chat.service import (
+    _browser_capability_ready,
+    _enable_tenant_cron_tool,
     _install_iteration_limit,
     _install_public_host_alias,
     _runtime_config,
     _set_iteration_limit,
+    prepare_runtime,
     settings_from_env,
 )
 
@@ -150,13 +155,66 @@ class HermesChatServiceTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "must be separate"):
                     settings_from_env()
 
+    def test_rejects_a_symlinked_private_home(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "real-home"
+            real_home.mkdir()
+            environment = self._environment(temp_dir)
+            environment["NEWSCRAFT_HERMES_HOME"] = str(root / "home-alias")
+            (root / "home-alias").symlink_to(real_home, target_is_directory=True)
+            with patch.dict(os.environ, environment, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "must not be a symlink"):
+                    settings_from_env()
+
     def test_contract_uses_the_standard_hermes_toolset(self) -> None:
         self.assertEqual(HERMES_TOOLSET, "hermes-acp")
+        self.assertEqual(CRON_TOOLSET, "cronjob_tools")
+
+    def test_browser_capability_requires_the_real_local_runtime(self) -> None:
+        browser_tool = ModuleType("tools.browser_tool")
+        browser_tool.check_browser_requirements = lambda: False
+        with patch.dict(sys.modules, {"tools.browser_tool": browser_tool}):
+            self.assertFalse(
+                _browser_capability_ready({"browser_navigate", "browser_snapshot"})
+            )
+
+        browser_tool.check_browser_requirements = lambda: True
+        with patch.dict(sys.modules, {"tools.browser_tool": browser_tool}):
+            self.assertTrue(
+                _browser_capability_ready({"browser_navigate", "browser_snapshot"})
+            )
+
+    def test_agui_enables_cron_without_gateway_environment_flags(self) -> None:
+        entry = SimpleNamespace(check_fn=lambda: False)
+        registry = SimpleNamespace(
+            get_entry=lambda name: entry if name == "cronjob" else None,
+            _lock=threading.RLock(),
+            _generation=4,
+        )
+        registry_module = ModuleType("tools.registry")
+        registry_module.registry = registry
+        with patch.dict(sys.modules, {"tools.registry": registry_module}):
+            _enable_tenant_cron_tool()
+
+        self.assertIsNone(entry.check_fn)
+        self.assertEqual(registry._generation, 5)
 
     def test_runtime_config_keeps_all_model_work_on_one_endpoint(self) -> None:
         config = _runtime_config(
             {
                 "browser": {"headed": False},
+                "memory": {
+                    "enabled": True,
+                    "provider": "shared-external-provider",
+                    "max_tokens": 2048,
+                },
+                "skills": {"disabled": ["operator-only"], "external_dirs": ["/Users/jigar/skills"]},
+                "plugins": {"enabled": ["operator-plugin"]},
+                "terminal": {
+                    "credential_files": ["provider.json"],
+                    "sandbox_dir": "/Users/jigar/shared-host-sandboxes",
+                },
                 "fallback_model": {"provider": "openrouter", "model": "another-model"},
                 "auxiliary": {
                     "vision": {"timeout": 90},
@@ -167,10 +225,13 @@ class HermesChatServiceTests(unittest.TestCase):
             "chat_completions",
         )
 
-        self.assertEqual(config["browser"], {"headed": False})
+        self.assertEqual(config["browser"], {"headed": False, "cloud_provider": "local"})
+        self.assertEqual(config["memory"], {"enabled": True, "max_tokens": 2048})
+        self.assertEqual(config["skills"], {"disabled": ["operator-only"], "external_dirs": []})
+        self.assertEqual(config["plugins"], {"enabled": ["newscraft-web"]})
         self.assertEqual(config["fallback_providers"], [])
         self.assertNotIn("fallback_model", config)
-        self.assertEqual(config["agui"]["toolsets"], ["hermes-acp"])
+        self.assertEqual(config["agui"]["toolsets"], ["hermes-acp", "cronjob_tools"])
         for task_name in ("vision", "web_extract", "plugin_task"):
             task = config["auxiliary"][task_name]
             self.assertEqual(task["provider"], "custom")
@@ -178,6 +239,58 @@ class HermesChatServiceTests(unittest.TestCase):
             self.assertEqual(task["base_url"], "${env:NEWSCRAFT_HERMES_MODEL_BASE_URL}")
             self.assertEqual(task["api_key"], "${env:NEWSCRAFT_HERMES_MODEL_API_KEY}")
             self.assertEqual(task["fallback_chain"], [])
+
+    def test_runtime_config_uses_one_persistent_docker_workspace_without_host_mounts(self) -> None:
+        config = _runtime_config({}, {"vision"}, "chat_completions")
+
+        self.assertEqual(config["terminal"]["backend"], "docker")
+        self.assertEqual(config["terminal"]["cwd"], "/workspace")
+        self.assertTrue(config["terminal"]["container_persistent"])
+        self.assertTrue(config["terminal"]["docker_persist_across_processes"])
+        self.assertFalse(config["terminal"]["docker_mount_cwd_to_workspace"])
+        self.assertTrue(config["terminal"]["docker_network"])
+        self.assertEqual(config["terminal"]["docker_volumes"], [])
+        self.assertEqual(config["terminal"]["docker_forward_env"], [])
+        self.assertEqual(config["terminal"]["docker_env"], {})
+        self.assertEqual(config["terminal"]["credential_files"], [])
+        self.assertEqual(config["terminal"]["docker_extra_args"], [])
+        self.assertTrue(config["terminal"]["docker_run_as_host_user"])
+        self.assertNotIn("sandbox_dir", config["terminal"])
+        self.assertEqual(config["browser"]["cloud_provider"], "local")
+        self.assertNotIn("cdp_url", config["browser"])
+
+    def test_prepare_runtime_clears_inherited_docker_escape_hatches(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            environment = self._environment(temp_dir)
+            settings = None
+            with patch.dict(os.environ, environment, clear=True):
+                settings = settings_from_env()
+                old_cwd = Path.cwd()
+                try:
+                    os.environ.update(
+                        {
+                            "TERMINAL_CWD": "/Users/jigar/shared-host-workspace",
+                            "TERMINAL_SANDBOX_DIR": "/Users/jigar/shared-host-sandboxes",
+                            "TERMINAL_DOCKER_FORWARD_ENV": "[\"SECRET\"]",
+                            "TERMINAL_DOCKER_VOLUMES": "[\"/host:/container\"]",
+                            "TERMINAL_DOCKER_ENV": "{\"SECRET\":\"value\"}",
+                            "TERMINAL_DOCKER_EXTRA_ARGS": "[\"--privileged\"]",
+                            "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE": "true",
+                            "TERMINAL_DOCKER_RUN_AS_HOST_USER": "true",
+                        }
+                    )
+                    prepare_runtime(settings)
+                    self.assertEqual(os.environ["TERMINAL_ENV"], "docker")
+                    self.assertEqual(os.environ["TERMINAL_CWD"], "/workspace")
+                    self.assertNotIn("TERMINAL_SANDBOX_DIR", os.environ)
+                    self.assertEqual(os.environ["TERMINAL_DOCKER_FORWARD_ENV"], "[]")
+                    self.assertEqual(os.environ["TERMINAL_DOCKER_VOLUMES"], "[]")
+                    self.assertEqual(os.environ["TERMINAL_DOCKER_ENV"], "{}")
+                    self.assertEqual(os.environ["TERMINAL_DOCKER_EXTRA_ARGS"], "[]")
+                    self.assertEqual(os.environ["TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE"], "false")
+                    self.assertEqual(os.environ["TERMINAL_DOCKER_RUN_AS_HOST_USER"], "true")
+                finally:
+                    os.chdir(old_cwd)
 
 
 if __name__ == "__main__":

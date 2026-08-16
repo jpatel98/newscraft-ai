@@ -58,7 +58,10 @@ export async function generateConversationTitle(
 	const lastSeedId = sourceMessages[Math.min(sourceMessages.length, 4) - 1]?.id ?? conversationId;
 	const result = (await completion(
 		{ messages: titleMessages, stream: false, max_tokens: 24 },
-		{ idempotencyKey: options.idempotencyKey ?? `title-${conversationId}-${lastSeedId}` }
+		{
+			accountId,
+			idempotencyKey: options.idempotencyKey ?? `title-${conversationId}-${lastSeedId}`
+		}
 	)) as OpenAINonStream;
 	const raw = result.choices?.[0]?.message?.content ?? '';
 	const title = raw.trim().replace(/^["']|["']$/g, '').replace(/[.!?]+$/, '').slice(0, 80);

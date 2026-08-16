@@ -1,4 +1,9 @@
-import { isCitationUrl, type CitationRecord, type CitationSourceType } from '@newscraft/shared';
+import {
+	isCitationUrl,
+	type CitationRecord,
+	type CitationSourceType,
+	type RetrievalProvenance
+} from '@newscraft/shared';
 
 export interface StreamToolCall {
 	id: string;
@@ -36,6 +41,7 @@ export interface StreamSourceUpdate {
 	publishedAt?: string | null;
 	updatedAt?: string | null;
 	eventAt?: string | null;
+	retrieval?: RetrievalProvenance;
 }
 
 export interface PersistedSource extends StreamSourceUpdate {
@@ -806,6 +812,11 @@ function citationFromValue(value: unknown): CitationRecord | null {
 	const sourceTypeValue = stringValue(record.sourceType ?? record.source_type) as CitationSourceType | null;
 	const sourceType = sourceTypeValue && CITATION_SOURCE_TYPES.has(sourceTypeValue) ? sourceTypeValue : 'unknown';
 	const documentPage = numberValue(record.documentPage ?? record.document_page ?? record.page);
+	const rawRetrieval = objectValue(record.retrieval);
+	const retrieval =
+		rawRetrieval && stringValue(rawRetrieval.originalUrl)
+			? (rawRetrieval as unknown as RetrievalProvenance)
+			: undefined;
 	return {
 		citationNumber,
 		title: stringValue(record.title) || url,
@@ -814,7 +825,8 @@ function citationFromValue(value: unknown): CitationRecord | null {
 		publicationDate: stringValue(record.publicationDate ?? record.publication_date) || null,
 		sourceType,
 		supportingExcerpt: stringValue(record.supportingExcerpt ?? record.supporting_excerpt ?? record.excerpt) || '',
-		...(documentPage && documentPage > 0 ? { documentPage: Math.floor(documentPage) } : {})
+		...(documentPage && documentPage > 0 ? { documentPage: Math.floor(documentPage) } : {}),
+		...(retrieval ? { retrieval } : {})
 	};
 }
 
@@ -889,6 +901,11 @@ function sourceFromPayload(payload: JsonObject): StreamSourceUpdate | null {
 		stringValue(payload.title ?? payload.name) ||
 		url;
 	const stepId = stringValue(payload.stepId ?? source.stepId) ?? undefined;
+	const rawRetrieval = objectValue(source.retrieval ?? payload.retrieval);
+	const retrieval =
+		rawRetrieval && stringValue(rawRetrieval.originalUrl)
+			? (rawRetrieval as unknown as RetrievalProvenance)
+			: undefined;
 	return {
 		id: stringValue(source.id ?? payload.id) || url,
 		url,
@@ -899,12 +916,18 @@ function sourceFromPayload(payload: JsonObject): StreamSourceUpdate | null {
 			stringValue(source.detail ?? source.summary ?? source.snippet ?? payload.detail ?? payload.message) ??
 			undefined,
 		...(stepId ? { stepId } : {}),
-			verified: source.verified === true || payload.verified === true,
-			currentVerified: source.currentVerified === true || payload.currentVerified === true,
-			temporalScope: stringValue(source.temporalScope ?? source.temporal_scope ?? payload.temporalScope ?? payload.temporal_scope) ?? null,
-			publishedAt: stringValue(source.publishedAt ?? source.published_at ?? payload.publishedAt ?? payload.published_at) ?? null,
-			updatedAt: stringValue(source.updatedAt ?? source.updated_at ?? payload.updatedAt ?? payload.updated_at) ?? null,
-			eventAt: stringValue(source.eventAt ?? source.event_at ?? payload.eventAt ?? payload.event_at) ?? null
+		verified: source.verified === true || payload.verified === true,
+		currentVerified: source.currentVerified === true || payload.currentVerified === true,
+		temporalScope:
+			stringValue(source.temporalScope ?? source.temporal_scope ?? payload.temporalScope ?? payload.temporal_scope) ??
+			null,
+		publishedAt:
+			stringValue(source.publishedAt ?? source.published_at ?? payload.publishedAt ?? payload.published_at) ??
+			null,
+		updatedAt:
+			stringValue(source.updatedAt ?? source.updated_at ?? payload.updatedAt ?? payload.updated_at) ?? null,
+		eventAt: stringValue(source.eventAt ?? source.event_at ?? payload.eventAt ?? payload.event_at) ?? null,
+		...(retrieval ? { retrieval } : {})
 	};
 }
 

@@ -153,6 +153,34 @@ export interface ConversationResearchLead {
 	publicationDate?: string | null;
 }
 
+/**
+ * Auditable provenance for one verified page read.
+ *
+ * `originalUrl` stays the source identity even when the content came from a
+ * Wayback replay. `archivedUrl` is an optional read location, never a live
+ * source replacement.
+ */
+export interface RetrievalProvenance {
+	originalUrl: string;
+	retrievedUrl?: string | null;
+	archivedUrl?: string | null;
+	captureTimestamp?: string | null;
+	pageTimestamp?: string | null;
+	publishedAt?: string | null;
+	updatedAt?: string | null;
+	retrievalTime?: string | null;
+	fallbackReason?: string | null;
+	retrievalMode?: 'live' | 'archive' | 'none' | string;
+	liveStatus?: number | null;
+	retrievedStatus?: number | null;
+	pageQuality?: string | null;
+	evidenceStatus?: ResearchEvidenceStatus | string;
+	rejectionReason?: string | null;
+	timestampStatus?: string | null;
+	requestCount?: number;
+	backend?: string;
+}
+
 export interface CitationRecord {
 	citationNumber: number;
 	title: string;
@@ -162,6 +190,7 @@ export interface CitationRecord {
 	sourceType: CitationSourceType;
 	supportingExcerpt: string;
 	documentPage?: number;
+	retrieval?: RetrievalProvenance;
 }
 
 /**

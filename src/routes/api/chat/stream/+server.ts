@@ -209,7 +209,8 @@ const enc = new TextEncoder();
 
 const INTERACTIVE_WEB_SYSTEM = [
 	'You are Hermes, the only agent runtime for NewsCraft chat. Use your standard Hermes capabilities when they help.',
-	'For web research, use web_search to find leads and use the browser to read source pages. web_extract is not configured for this NewsCraft service. Search snippets and search result pages are leads, not evidence.',
+	'For web research, use web_search to find leads. Use verify_this_lead for one bounded verify-this-lead step for each candidate before you treat a page as evidence. Pass the candidate URL and any publication/update timestamp, title, and snippet returned by web_search. The NewsCraft extractor reads the page, checks its quality and timestamp, and reports an explicit rejection reason when it cannot verify the lead. Search snippets and search result pages are leads, not evidence. Do not use a snippet as evidence. The normal web_extract tool remains available for direct page reads when no lead metadata exists. Do not repeat or expose the hidden NewsCraft retrieval metadata marker in your answer.',
+	'If web_extract reports that the live page was blocked and supplies a Wayback result, keep the original URL as the source identity. Treat the archived URL as the read location. State when the answer relies on an archive copy. Never describe an archive copy as the live page.',
 	'If browser navigation times out, take a browser snapshot before you conclude that the page is unreadable.',
 	'After you directly read a page, call record_newscraft_source once before you search again or cite it. A successful browser, terminal, or code-based page read counts as a direct read. Give the exact page URL, title, publication or update date when shown, source type, a short exact supporting excerpt, and the citation number that you will use.',
 	'Start web source numbers with citationStartNumber from the forwarded run properties. Use each recorded number exactly once in the source map. Put its matching marker next to every factual claim that the source supports, such as [1]. Never invent a marker or cite an unrecorded source.',
@@ -477,7 +478,19 @@ function localTextStream(convoId: string, text: string, traceId: string): Respon
 	});
 }
 
-function gatewayUnavailableMessage(_detail: string): string {
+function gatewayUnavailableMessage(detail: string): string {
+	if (/web extraction is not configured/i.test(detail)) {
+		return [
+			'The Hermes service is reachable, but web retrieval is not configured yet.',
+			'Your message was saved. Research will work after the retrieval-enabled Hermes service is ready.'
+		].join('\n\n');
+	}
+	if (/web extraction is not ready|readiness check failed/i.test(detail)) {
+		return [
+			'The Hermes service is reachable, but its web retrieval backend is not ready.',
+			'Your message was saved. Try research again after the service reports ready.'
+		].join('\n\n');
+	}
 	return [
 		"I couldn't reach the research service, so I couldn't answer.",
 		'Your message was saved. Try regenerate or send again once the service is healthy.'
@@ -1024,7 +1037,13 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					conversation_context: conversationContext,
 					documents: researchContext.documents
 				},
-				{ signal: upstreamAbort.signal, sessionId, traceId }
+				{
+					signal: upstreamAbort.signal,
+					accountId,
+					sessionId,
+					traceId,
+					requireWebExtraction: conversationContext.currentTurn?.researchRequired === true
+				}
 			),
 			CHAT_STREAM_MAX_MS,
 			'Hermes stream startup'

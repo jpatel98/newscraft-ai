@@ -22,6 +22,16 @@
 					<a class="source-disclosure__link" href={source.url} target="_blank" rel="noopener noreferrer">
 						{source.label}
 					</a>
+					{#if source.archivedUrl}
+						<a
+							class="source-disclosure__archive-link"
+							href={source.archivedUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							archive copy
+						</a>
+					{/if}
 					{#if source.domain && source.domain !== source.label}
 						<span class="source-disclosure__domain">{source.domain}</span>
 					{/if}
@@ -99,5 +109,12 @@
 	.source-disclosure__domain {
 		color: var(--fg-3);
 		overflow-wrap: anywhere;
+	}
+
+	.source-disclosure__archive-link {
+		color: var(--fg-3);
+		font-size: 10px;
+		text-decoration: underline;
+		text-underline-offset: 2px;
 	}
 </style>

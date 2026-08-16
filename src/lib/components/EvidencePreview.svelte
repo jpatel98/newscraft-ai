@@ -111,6 +111,10 @@
 				<span aria-hidden="true">·</span>
 				<span>Page {citation.documentPage}</span>
 			{/if}
+			{#if citation.retrieval?.retrievalMode === 'archive'}
+				<span aria-hidden="true">·</span>
+				<span>Archived fallback</span>
+			{/if}
 		</div>
 
 		<blockquote id={excerptId} class="evidence-preview__excerpt">
@@ -128,6 +132,17 @@
 				<span>Open original</span>
 				<ExternalLink size="13" strokeWidth={1.8} aria-hidden="true" />
 			</a>
+			{#if citation.retrieval?.archivedUrl}
+				<a
+					class="evidence-preview__archive-link"
+					href={citation.retrieval.archivedUrl}
+					target="_blank"
+					rel="noopener noreferrer"
+				>
+					<span>Open archive copy</span>
+					<ExternalLink size="13" strokeWidth={1.8} aria-hidden="true" />
+				</a>
+			{/if}
 		</footer>
 	</div>
 </div>
@@ -294,6 +309,26 @@
 	.evidence-preview__link:hover {
 		background: var(--bg-raised);
 		color: var(--accent-hover);
+	}
+
+	.evidence-preview__archive-link {
+		flex: 0 0 auto;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		min-height: 32px;
+		padding: 0 10px;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-1);
+		color: var(--fg-2);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		text-decoration: none;
+	}
+
+	.evidence-preview__archive-link:hover {
+		background: var(--bg-raised);
+		color: var(--fg-1);
 	}
 
 	@media (max-width: 640px) {
