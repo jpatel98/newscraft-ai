@@ -559,6 +559,7 @@ class HermesHookScopeTests(unittest.TestCase):
             "cdp_url": None,
             "features": {"local": True},
         }
+        browser_tool._socket_safe_tmpdir = lambda: "/a/very/long/private/tmp/path"
         tools_package = ModuleType("tools")
         tools_package.__path__ = []
         tools_package.browser_tool = browser_tool
@@ -577,6 +578,7 @@ class HermesHookScopeTests(unittest.TestCase):
                 environment = browser_tool._build_browser_env()
                 first = browser_tool._create_local_session("caller-selected-task")
                 second = browser_tool._create_local_session("another-task")
+                socket_tmpdir = browser_tool._socket_safe_tmpdir()
 
         self.assertEqual(environment["AGENT_BROWSER_PROFILE"], str(runtime.browser_profile))
         self.assertEqual(environment["HOME"], str(runtime.browser_profile))
@@ -586,6 +588,7 @@ class HermesHookScopeTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertTrue(first["session_name"].startswith("n"))
         self.assertEqual(len(first["session_name"]), 9)
+        self.assertEqual(socket_tmpdir, "/tmp")
 
     def test_registry_and_agent_hooks_force_the_same_tenant_task(self) -> None:
         runtime = self._runtime(Path(tempfile.mkdtemp()))

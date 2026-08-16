@@ -557,6 +557,14 @@ def _install_browser_profile_scope() -> None:
         "_newscraft_unscoped_local_browser_session",
         create_local,
     )
+    socket_tmpdir = getattr(browser_tool, "_socket_safe_tmpdir", None)
+    if socket_tmpdir is None:
+        raise TenantIsolationError("Pinned Hermes browser socket directory resolver is unavailable")
+    original_socket_tmpdir = getattr(
+        socket_tmpdir,
+        "_newscraft_unscoped_socket_tmpdir",
+        socket_tmpdir,
+    )
 
     def build_scoped_browser_env(*args: Any, **kwargs: Any) -> dict[str, str]:
         environment = dict(original(*args, **kwargs))
@@ -607,10 +615,23 @@ def _install_browser_profile_scope() -> None:
             "features": {"local": True},
         }
 
+    def socket_tmpdir_scoped(*args: Any, **kwargs: Any) -> str:
+        if current_tenant_run() is not None:
+            # The service keeps its private TMPDIR under a long workspace
+            # path. Browser sockets have a short Unix-domain path limit, so
+            # use the sticky system temp root for the already tenant-unique
+            # session directory. The browser tool creates that directory
+            # with mode 0700 and the session name is derived from the tenant
+            # task key above.
+            return "/tmp"
+        return original_socket_tmpdir(*args, **kwargs)
+
     build_scoped_browser_env._newscraft_unscoped_browser_env = original  # type: ignore[attr-defined]
     create_scoped_local_session._newscraft_unscoped_local_browser_session = original_create_local  # type: ignore[attr-defined]
+    socket_tmpdir_scoped._newscraft_unscoped_socket_tmpdir = original_socket_tmpdir  # type: ignore[attr-defined]
     browser_tool._build_browser_env = build_scoped_browser_env
     browser_tool._create_local_session = create_scoped_local_session
+    browser_tool._socket_safe_tmpdir = socket_tmpdir_scoped
 
 
 def _install_session_search_scope() -> None:
