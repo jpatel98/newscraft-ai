@@ -636,6 +636,10 @@ def _install_browser_profile_scope() -> None:
                 "AGENT_BROWSER_NAMESPACE": run.runtime.task_key,
                 "HOME": str(run.runtime.browser_profile),
                 "XDG_CONFIG_HOME": str(run.runtime.browser_profile / "config"),
+                # Chrome puts its SingletonSocket below TMPDIR. Keep this
+                # transient path short; the tenant-specific browser profile
+                # above remains the durable cookie and storage boundary.
+                "TMPDIR": "/tmp",
             }
         )
         return environment

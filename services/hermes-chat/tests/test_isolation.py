@@ -587,6 +587,7 @@ class HermesHookScopeTests(unittest.TestCase):
         self.assertEqual(environment["AGENT_BROWSER_PROFILE"], str(runtime.browser_profile))
         self.assertEqual(environment["HOME"], str(runtime.browser_profile))
         self.assertEqual(environment["XDG_CONFIG_HOME"], str(runtime.browser_profile / "config"))
+        self.assertEqual(environment["TMPDIR"], "/tmp")
         self.assertNotIn("BROWSERBASE_API_KEY", environment)
         self.assertNotIn("BROWSER_CDP_URL", environment)
         self.assertEqual(first, second)
