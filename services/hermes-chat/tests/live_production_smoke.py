@@ -31,11 +31,11 @@ URL = f"http://127.0.0.1:{PORT}/"
 READY_URL = f"http://127.0.0.1:{PORT}/ready"
 TOKEN_HEADER = "X-Hermes-Session-Token"
 TENANT_HEADER = "x-newscraft-tenant-key"
-HYDRA_PIDS = {
-    "hermes-gateway.service": "1178145",
-    "hermes-serve.service": "1178222",
-    "hermes-browser-cdp.service": "1779140",
-}
+HYDRA_UNITS = (
+    "hermes-gateway.service",
+    "hermes-serve.service",
+    "hermes-browser-cdp.service",
+)
 
 
 class LiveFailure(RuntimeError):
@@ -107,7 +107,7 @@ def _pid(unit: str) -> str:
 
 
 def _hydra_pids() -> dict[str, str]:
-    return {unit: _pid(unit) for unit in HYDRA_PIDS}
+    return {unit: _pid(unit) for unit in HYDRA_UNITS}
 
 
 def _assert_contains(text: str, marker: str, gate: str) -> None:
@@ -565,8 +565,9 @@ def main() -> int:
             raise LiveFailure("restart did not change the Hermes PID")
         time.sleep(5)
         hydra_after = _hydra_pids()
-        if hydra_after != hydra_before or hydra_after != HYDRA_PIDS:
+        if hydra_after != hydra_before:
             raise LiveFailure("Hydra PID set changed during NewsCraft restart")
+        print(f"hydra_pids_unchanged=PASS ({hydra_after})")
 
         for label in ("a", "b"):
             restarted_workspace = _run_after_restart(
