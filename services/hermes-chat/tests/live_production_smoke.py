@@ -300,6 +300,7 @@ def main() -> int:
     }
     old_pid = _pid("newscraft-hermes-chat.service")
     hydra_before = _hydra_pids()
+    cleanup_failures: list[Exception] = []
     try:
         ready = _wait_ready(token)
         if not isinstance(ready.get("capabilities", {}).get("accountIsolation"), dict):
@@ -619,14 +620,18 @@ def main() -> int:
         )
         _assert_absent(restarted_process_b, markers["a"]["process"], "restart foreign process B")
         print("restart_persistence_and_hydra=PASS")
-        print("LIVE_PRODUCTION_MATRIX_PASS")
-        return 0
     finally:
         for runtime in runtimes.values():
             try:
                 _cleanup(runtime)
-            except Exception:
-                print("synthetic_cleanup=FAIL")
+            except Exception as exc:
+                cleanup_failures.append(exc)
+
+    if cleanup_failures:
+        raise LiveFailure("synthetic cleanup failed") from cleanup_failures[0]
+    print("synthetic_cleanup=PASS")
+    print("LIVE_PRODUCTION_MATRIX_PASS")
+    return 0
 
 
 if __name__ == "__main__":
