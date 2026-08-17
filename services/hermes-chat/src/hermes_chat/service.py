@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib
 import ipaddress
 import logging
 import os
@@ -20,6 +21,11 @@ from .isolation import (
     current_tenant_run,
     guard_tool_arguments,
     tenant_run_scope,
+)
+from .product_prompt import (
+    NEWSCRAFT_RUNTIME_IDENTITY_POINTER,
+    append_product_identity,
+    tenant_preferences_only,
 )
 from .retrieval import PROVIDER_NAME, VERIFY_LEAD_TOOL_NAME, RetrievalConfig, retrieval_readiness
 
@@ -987,6 +993,70 @@ def _install_agent_scope() -> None:
     AIAgent.run_conversation = converse_scoped
 
 
+def _install_product_identity_scope() -> None:
+    """Keep the standard Hermes prompt scaffold under one NewsCraft identity."""
+    try:
+        import run_agent
+    except ImportError as exc:
+        raise TenantIsolationError("Pinned Hermes prompt runtime is unavailable") from exc
+
+    load_soul = getattr(run_agent, "load_soul_md", None)
+    if load_soul is None:
+        raise TenantIsolationError("Pinned Hermes SOUL loader is unavailable")
+    original_load_soul = getattr(load_soul, "_newscraft_unscoped_load_soul_md", load_soul)
+
+    prompt_modules = [
+        importlib.import_module("agent.prompt_builder"),
+        importlib.import_module("agent.system_prompt"),
+    ]
+    original_identities = [
+        str(
+            getattr(
+                run_agent,
+                "_newscraft_unscoped_default_identity",
+                getattr(run_agent, "DEFAULT_AGENT_IDENTITY", ""),
+            )
+            or ""
+        ).strip(),
+        *[
+            str(
+                getattr(
+                    module,
+                    "_newscraft_unscoped_default_identity",
+                    getattr(module, "DEFAULT_AGENT_IDENTITY", ""),
+                )
+                or ""
+            ).strip()
+            for module in prompt_modules
+        ],
+    ]
+    upstream_identity = next((identity for identity in original_identities if identity), "")
+
+    def load_soul_scoped(*args: Any, **kwargs: Any) -> str | None:
+        if current_tenant_run() is None:
+            return original_load_soul(*args, **kwargs)
+        return tenant_preferences_only(
+            original_load_soul(*args, **kwargs),
+            upstream_identity,
+        )
+
+    load_soul_scoped._newscraft_unscoped_load_soul_md = original_load_soul  # type: ignore[attr-defined]
+    run_agent.load_soul_md = load_soul_scoped
+
+    identity_modules = [run_agent, *prompt_modules]
+    for module in identity_modules:
+        current_identity = getattr(module, "DEFAULT_AGENT_IDENTITY", None)
+        if current_identity is None:
+            continue
+        original_identity = getattr(
+            module,
+            "_newscraft_unscoped_default_identity",
+            current_identity,
+        )
+        module._newscraft_unscoped_default_identity = original_identity
+        module.DEFAULT_AGENT_IDENTITY = NEWSCRAFT_RUNTIME_IDENTITY_POINTER
+
+
 def _install_tenant_builder(agui_server: Any) -> None:
     current = getattr(agui_server, "build_run_agent", None)
     if current is None:
@@ -999,7 +1069,16 @@ def _install_tenant_builder(agui_server: Any) -> None:
             return original(*args, **kwargs)
         values = dict(kwargs)
         values["cwd"] = run.runtime.container_workspace
-        return original(*args, **values)
+        agent = original(*args, **values)
+        if agent is None or not hasattr(agent, "__dict__"):
+            return agent
+        # The upstream conversation loop appends this prompt after the cached
+        # standard scaffold, context files, memory, and thread text.
+        agent.load_soul_identity = True
+        agent.ephemeral_system_prompt = append_product_identity(
+            getattr(agent, "ephemeral_system_prompt", None)
+        )
+        return agent
 
     build_tenant_agent._newscraft_unscoped_tenant_builder = original  # type: ignore[attr-defined]
     agui_server.build_run_agent = build_tenant_agent
@@ -1072,6 +1151,7 @@ def _install_tenant_runtime(
     _install_process_scope()
     _install_registry_scope()
     _install_agent_scope()
+    _install_product_identity_scope()
     _install_tenant_builder(agui_server)
     _install_tenant_run_scope(agui_server, settings, auxiliary_tasks, runtime_template, isolation)
 

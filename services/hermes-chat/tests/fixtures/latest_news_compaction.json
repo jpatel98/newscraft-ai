@@ -1,0 +1,25 @@
+{
+  "request": "What is the latest on the harbour reopening?",
+  "as_of": "2026-08-17T15:00:00Z",
+  "sources": [
+    {
+      "citation": "1",
+      "title": "Harbour authority reopens the east terminal",
+      "published_at": "2026-08-17T13:00:00Z",
+      "freshness": "new"
+    },
+    {
+      "citation": "2",
+      "title": "Operators review a second delay",
+      "published_at": "2026-08-16T18:00:00Z",
+      "freshness": "developing"
+    },
+    {
+      "citation": "3",
+      "title": "Last year's terminal expansion",
+      "published_at": "2025-08-05T09:00:00Z",
+      "freshness": "older"
+    }
+  ],
+  "model_output": "## Genuinely new developments\nThe harbour authority reopened the east terminal after its inspection. It expects normal vessel access to resume in stages. [1]\n\n## Still developing\nOperators are reviewing a second delay and have not set a final schedule. [2]"
+}
