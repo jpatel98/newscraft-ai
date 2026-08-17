@@ -12,7 +12,9 @@ Environment=AGENT_BROWSER_ENGINE=chrome
 Environment=AGENT_BROWSER_HEADED=false
 Environment=AGENT_BROWSER_DEFAULT_TIMEOUT=120000
 Environment=NEWSCRAFT_HERMES_MAX_ITERATIONS=25
-ExecStart=%h/services/newscraft-hermes/venv/bin/newscraft-hermes-chat
+# The user manager cannot add supplementary groups. sg preserves the service
+# user's existing membership so the Docker terminal remains available.
+ExecStart=/usr/bin/sg docker -c %h/services/newscraft-hermes/venv/bin/newscraft-hermes-chat
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

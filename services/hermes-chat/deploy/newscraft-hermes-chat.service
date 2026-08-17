@@ -14,7 +14,7 @@ Environment=AGENT_BROWSER_ENGINE=chrome
 Environment=AGENT_BROWSER_HEADED=false
 Environment=AGENT_BROWSER_DEFAULT_TIMEOUT=120000
 Environment=NEWSCRAFT_HERMES_MAX_ITERATIONS=25
-ExecStart=/opt/newscraft-hermes/venv/bin/newscraft-hermes-chat
+ExecStart=/usr/bin/sg docker -c /opt/newscraft-hermes/venv/bin/newscraft-hermes-chat
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
