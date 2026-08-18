@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	CHAT_STREAM_FAILURE_MESSAGE,
 	ChatStreamError,
+	subscribeDurableRun,
 	streamChat,
 	streamFailureDiagnostic,
 	streamFailureMessage
@@ -269,6 +270,81 @@ describe('streamChat error contract', () => {
 			name: 'ChatStreamError',
 			message: CHAT_STREAM_FAILURE_MESSAGE,
 			retryable: true
+		});
+	});
+
+	it('creates a durable run and ignores replayed events already covered by its snapshot', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				sseResponse(
+					'event: agent.meta\n' +
+						'data: {"conversation_id":"convo_1","run_id":"run_1"}\n\n' +
+						'event: run.snapshot\n' +
+						'data: {"run_id":"run_1","conversation_id":"convo_1","assistant_message_id":"assistant_1","cursor":2,"status":"writing","state":"writing","answerText":"Saved base","sources":[],"citations":[],"tools":[],"errorMessage":null}\n\n' +
+						'id: 1\n' +
+						'event: response.output_text.delta\n' +
+						'data: {"delta":"duplicate"}\n\n' +
+						'id: 3\n' +
+						'event: response.completed\n' +
+						'data: {}\n\n'
+				)
+			)
+		);
+		const onSnapshot = vi.fn();
+		const onDelta = vi.fn();
+		const onRunCursor = vi.fn();
+
+		await streamChat({ conversation_id: 'convo_1', content: 'hello', idempotency_key: 'turn-1' }, {
+			onRunSnapshot: onSnapshot,
+			onDelta,
+			onRunCursor
+		});
+
+		expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+			'/api/chat/runs',
+			expect.objectContaining({ method: 'POST' })
+		);
+		expect(onSnapshot).toHaveBeenCalledWith(expect.objectContaining({ run_id: 'run_1', answerText: 'Saved base' }));
+		expect(onDelta).not.toHaveBeenCalled();
+		expect(onRunCursor).toHaveBeenCalledWith(3);
+	});
+
+	it('reconnects to the same durable run with the saved cursor', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			sseResponse(
+				'event: run.snapshot\n' +
+					'data: {"run_id":"run_1","conversation_id":"convo_1","assistant_message_id":"assistant_1","cursor":4,"status":"complete","state":"complete","answerText":"Final","sources":[],"citations":[],"tools":[],"errorMessage":null}\n\n'
+		)
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const onSnapshot = vi.fn();
+
+		await subscribeDurableRun('run_1', 3, { onDelta: vi.fn(), onRunSnapshot: onSnapshot });
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/chat/runs/run_1?cursor=3',
+			expect.objectContaining({ headers: expect.objectContaining({ 'last-event-id': '3' }) })
+		);
+		expect(onSnapshot).toHaveBeenCalledWith(expect.objectContaining({ answerText: 'Final', status: 'complete' }));
+	});
+
+	it('does not treat a persisted failed run as a successful completion', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				sseResponse(
+					'event: run.snapshot\n' +
+						'data: {"run_id":"run_failed","conversation_id":"convo_1","assistant_message_id":"assistant_1","cursor":5,"status":"failed","state":"failed","answerText":"Partial","sources":[],"citations":[],"tools":[],"errorMessage":"Hermes stopped before synthesis"}\n\n'
+				)
+			)
+		);
+
+		await expect(
+			subscribeDurableRun('run_failed', 5, { onDelta: vi.fn() })
+		).rejects.toMatchObject({
+			name: 'ChatStreamError',
+			diagnosticMessage: 'durable run failed: Hermes stopped before synthesis'
 		});
 	});
 });

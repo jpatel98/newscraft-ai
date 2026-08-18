@@ -5,6 +5,12 @@
 	} from '$lib/components/NewsroomArtifactPane.svelte';
 	import Thread from '$lib/components/Thread.svelte';
 	import type { CitationRecord } from '@newscraft/shared';
+	import type {
+		PersistedSource,
+		StreamPlanUpdate,
+		StreamToolCall,
+		StreamToolUpdate
+	} from '$lib/utils/stream-events';
 	import type { ChatCommand, ChatMessage, MessageContent } from '$lib/types';
 	import { contentText } from '$lib/types';
 	import { invalidateAll, replaceState } from '$app/navigation';
@@ -14,6 +20,7 @@
 	import { persistedThreadMessages, type PersistedThreadMessage } from '$lib/utils/thread-messages';
 	import { parseSlashCommand } from '$lib/utils/slash';
 	import { streamFailureMessage, type StreamArgs } from '$lib/client/stream';
+	import { subscribeDurableRun, type DurableRunSnapshot } from '$lib/client/stream';
 	import {
 		ConversationDocumentError,
 		deleteConversationDocument,
@@ -32,6 +39,18 @@
 	type ThreadMessage = PersistedThreadMessage;
 	type RunStreamArgs = StreamArgs & { conversation_id: string };
 	type FailedSend = { args: RunStreamArgs };
+	type DurableRunData = {
+		id: string;
+		conversationId: string;
+		assistantMessageId: string;
+		cursor: number;
+		status: string;
+		answerText: string;
+		sources: PersistedSource[];
+		citations: CitationRecord[];
+		tools: StreamToolCall[];
+		errorMessage: string | null;
+	};
 
 	const ANSWER_ACTION_REQUESTS: Record<AnswerUseAction, string> = {
 		producer_brief: 'Create a producer brief from this answer.',
@@ -65,6 +84,9 @@
 	let hiddenIds = $state<Set<string>>(new Set());
 	let artifactOpen = $state(false);
 	let activeArtifact = $state<ArtifactDraft | null>(null);
+	let activeRunId = $state<string | null>(null);
+	let activeRunCursor = $state(0);
+	let activeRunStatus = $state<string | null>(null);
 
 	const persisted = $derived(persistedThreadMessages(data.messages, hiddenIds));
 	const messages = $derived([...persisted, ...overlay]);
@@ -96,7 +118,8 @@
 
 	async function runStream(
 		args: RunStreamArgs,
-		artifact?: { action: AnswerUseAction; sourceMessageId: string }
+		artifact?: { action: AnswerUseAction; sourceMessageId: string },
+		existingRun?: DurableRunData
 	) {
 		// startStream aborts any prior controller; wait for the previous run to
 		// fully unwind so its overlay cleanup completes before we add our own.
@@ -104,21 +127,36 @@
 		const controller = chat.startStream(args.conversation_id);
 		await prior.catch(() => {});
 
-		const isResume = args.resume === true && !!args.message_id;
-		const isRetry = args.retry === true;
+		const requestArgs: RunStreamArgs = existingRun
+			? args
+			: {
+					...args,
+					idempotency_key:
+						args.idempotency_key ||
+						(typeof crypto !== 'undefined' && 'randomUUID' in crypto
+							? crypto.randomUUID()
+							: `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+				};
+		const isResume = requestArgs.resume === true && !!requestArgs.message_id;
+		const isRetry = requestArgs.retry === true;
+		const attachedRun = existingRun != null;
 		const isRetryableSend = Boolean(
-			(args.content || args.output_action) && !args.regenerate && !isResume
+			(requestArgs.content || requestArgs.output_action) && !requestArgs.regenerate && !isResume
 		);
 		if (isRetryableSend) clearFailureOverlays();
-		const resumingId = isResume ? (args.message_id as string) : null;
+		const resumingId = attachedRun
+			? existingRun.assistantMessageId
+			: isResume
+				? (requestArgs.message_id as string)
+				: null;
 
 		const userMsg: ThreadMessage | null =
-			args.regenerate || isRetry || isResume
+			attachedRun || requestArgs.regenerate || isRetry || isResume
 				? null
 				: {
 						id: 'tmp-u-' + Math.random().toString(36).slice(2),
 						role: 'user',
-						content: args.content ?? '',
+						content: requestArgs.content ?? '',
 						partial: false,
 						createdAt: Date.now()
 					};
@@ -126,7 +164,9 @@
 		// Resume: seed the overlay with the partial's existing content so
 		// streaming visually continues from where it left off, and hide the
 		// persisted row so we don't double-render it.
-		const seedContent = isResume
+		const seedContent = attachedRun
+			? existingRun.answerText
+			: isResume
 			? (() => {
 					const src = data.messages.find((m) => m.id === resumingId);
 					if (!src) return '';
@@ -144,6 +184,11 @@
 		let asstText = seedContent;
 		let streamEstablished = false;
 		let partialAnswer = false;
+		let runCompleted = false;
+		let reconnectAttempts = 0;
+		activeRunId = existingRun?.id ?? null;
+		activeRunCursor = existingRun?.cursor ?? 0;
+		activeRunStatus = existingRun?.status ?? null;
 		let keepFailureAssistant = false;
 		let failureToRethrow: unknown = null;
 		let artifactCitations: CitationRecord[] = [];
@@ -177,10 +222,39 @@
 		const run = (async () => {
 			try {
 				const { streamChat } = await import('$lib/client/stream');
-				await streamChat(args, {
+				const callbacks = {
 					signal: controller.signal,
-					onMeta: noteStreamEstablished,
-					onDelta: (s) => {
+					onMeta: (meta: { conversation_id: string; run_id?: string }) => {
+						noteStreamEstablished();
+						if (meta.run_id) activeRunId = meta.run_id;
+					},
+					onRunCursor: (cursor: number) => {
+						activeRunCursor = Math.max(activeRunCursor, cursor);
+					},
+					onRunSnapshot: (snapshot: DurableRunSnapshot) => {
+						noteStreamEstablished();
+						activeRunId = snapshot.run_id;
+						activeRunCursor = snapshot.cursor;
+						activeRunStatus = snapshot.status || snapshot.state;
+						if (snapshot.answerText !== asstText) {
+							asstText = snapshot.answerText;
+							asstMsg.content = asstText;
+							overlay = [...overlay];
+						}
+						if (snapshot.citations.length) {
+							chat.setCitations(snapshot.citations);
+							artifactCitations = snapshot.citations;
+						}
+						for (const source of snapshot.sources) {
+							chat.pushSource({
+								...source,
+								domain: source.domain || source.url,
+								updatedAt: Date.now()
+							});
+						}
+						for (const tool of snapshot.tools) chat.pushTool(tool);
+				},
+				onDelta: (s: string) => {
 						noteStreamEstablished();
 						chat.noteAssistantOutput(s);
 						asstText += s;
@@ -188,7 +262,7 @@
 						overlay = [...overlay];
 						updateArtifact({ content: asstText });
 					},
-					onReplace: (content) => {
+				onReplace: (content: string) => {
 						noteStreamEstablished();
 						chat.noteAssistantOutput(content);
 						asstText = content;
@@ -196,15 +270,15 @@
 						overlay = [...overlay];
 						updateArtifact({ content: asstText });
 					},
-					onToolProgress: (t) => {
+				onToolProgress: (t: StreamToolUpdate) => {
 						noteStreamEstablished();
 						chat.pushTool(t);
 					},
-					onToolDone: (id, tool) => {
+				onToolDone: (id: string, tool?: StreamToolUpdate) => {
 						noteStreamEstablished();
 						chat.clearTool(id, tool);
 					},
-					onSource: (source) => {
+				onSource: (source: PersistedSource) => {
 						noteStreamEstablished();
 						chat.pushSource({
 							...source,
@@ -212,21 +286,43 @@
 							updatedAt: Date.now()
 						});
 					},
-					onCitations: (citations) => {
+				onCitations: (citations: CitationRecord[]) => {
 						noteStreamEstablished();
 						chat.setCitations(citations);
 						artifactCitations = citations;
 						updateArtifact({ citations });
 					},
-					onPlan: (plan) => {
+				onPlan: (plan: StreamPlanUpdate) => {
 						noteStreamEstablished();
 						chat.setPlan(plan);
 					},
-					onPartial: () => {
-						noteStreamEstablished();
-						partialAnswer = true;
+				onPartial: () => {
+					noteStreamEstablished();
+					partialAnswer = true;
+				}
+				};
+				const connect = async () => {
+					if (!attachedRun) {
+						await streamChat(requestArgs, callbacks);
+					} else {
+						await subscribeDurableRun(activeRunId as string, activeRunCursor, callbacks);
 					}
-				});
+					runCompleted = true;
+				};
+				while (!runCompleted) {
+					try {
+						await connect();
+					} catch (cause) {
+						if (controller.signal.aborted || !activeRunId) throw cause;
+						const diagnostic = cause instanceof Error ? cause.message : String(cause);
+						if (!diagnostic.includes('ended before') && !diagnostic.includes('subscription read failed')) {
+							throw cause;
+						}
+						reconnectAttempts += 1;
+						if (reconnectAttempts > 120) throw cause;
+						await new Promise<void>((resolve) => setTimeout(resolve, 500));
+					}
+				}
 				if (isRetryableSend) failedRetry = null;
 				asstMsg.partial = partialAnswer;
 				asstMsg.streaming = false;
@@ -259,7 +355,7 @@
 						asstMsg.failure = { retryable: true };
 						failedRetry = {
 							args: {
-								...args,
+								...requestArgs,
 								document_ids: args.document_ids ? [...args.document_ids] : undefined
 							}
 						};
@@ -479,11 +575,39 @@
 		}
 	}
 
+	async function cancelActiveDurableRun() {
+		const runId = activeRunId;
+		if (!runId) return;
+		try {
+			await fetch(`/api/chat/runs/${encodeURIComponent(runId)}/cancel`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' }
+			});
+		} catch {
+			/* The durable run remains cancellable from the conversation after reload. */
+		}
+	}
+
 	onMount(() => {
+		chat.setCancelHandler(() => {
+			void cancelActiveDurableRun();
+		});
 		void documentsCapabilityEnabled().then((enabled) => {
 			documentsEnabled = enabled;
 		});
-		if (typeof location === 'undefined') return;
+		if (data.durableRun) {
+			void runStream(
+				{ conversation_id: data.conversation.id },
+				undefined,
+				data.durableRun as DurableRunData
+			);
+		}
+		if (typeof location === 'undefined') {
+			return () => {
+				chat.setCancelHandler(null);
+				if (chat.abort && !chat.abort.signal.aborted) chat.abort.abort();
+			};
+		}
 		const m = location.hash.match(/^#p=(.*)$/);
 		if (!m) return;
 		const stashKey = 'agent:pending:' + data.conversation.id;
@@ -506,6 +630,12 @@
 		replaceState(location.pathname + location.search, {});
 		if (stashed) void handleSend(stashed);
 		else if (pending) void handleSend(pending);
+		return () => {
+			chat.setCancelHandler(null);
+			// Navigation or component destruction closes only this browser
+			// subscription. It never calls the durable cancel route.
+			if (chat.abort && !chat.abort.signal.aborted) chat.abort.abort();
+		};
 	});
 
 	$effect(() => {

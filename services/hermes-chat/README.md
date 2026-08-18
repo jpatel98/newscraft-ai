@@ -99,3 +99,25 @@ Before a cutover, verify all of these gates:
 5. Restart the service and repeat the chat and citation checks.
 
 Do not promote the branch or change the VPS until these gates pass with the real model configuration.
+
+## Durable NewsCraft runs
+
+The service also owns long-running NewsCraft jobs. NewsCraft creates the run
+record and stores the input. It calls `POST /v1/runs/start`. The service first
+claims the lease through the server-only NewsCraft run API. It then creates one
+asyncio task for the run and returns the HTTP acknowledgement. Closing the
+start request does not cancel that task.
+
+The task sends ordered normalized events to the NewsCraft callback route. Each
+callback includes the run ID, account ID, tenant key, lease owner, lease token,
+and worker cursor. NewsCraft rejects a wrong token, tenant, lease, or cursor.
+The service renews the lease while Hermes runs. The cancel route cancels the
+same task. On service startup, the service claims queued or expired runs from
+the recovery route and starts them with their saved input and evidence.
+
+Set these private service values together:
+
+```text
+NEWSCRAFT_HERMES_RUN_API_URL=https://newscraft.example/api/internal/hermes/runs
+NEWSCRAFT_HERMES_RUN_API_TOKEN=<server-only shared callback token>
+```

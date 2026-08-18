@@ -4,6 +4,7 @@
 export interface SSEEvent {
 	event: string;
 	data: string;
+	id?: string;
 }
 
 export async function* readSSE(body: ReadableStream<Uint8Array>): AsyncGenerator<SSEEvent> {
@@ -20,13 +21,15 @@ export async function* readSSE(body: ReadableStream<Uint8Array>): AsyncGenerator
 				const frame = buf.slice(0, idx);
 				buf = buf.slice(idx + 2);
 				let event = 'message';
+				let id: string | undefined;
 				const dataLines: string[] = [];
 				for (const line of frame.split('\n')) {
 					if (line.startsWith('event:')) event = line.slice(6).trim();
+					else if (line.startsWith('id:')) id = line.slice(3).trim();
 					else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
 				}
 				const data = dataLines.join('\n');
-				if (data) yield { event, data };
+				if (data) yield { event, data, id };
 			}
 		}
 	} finally {

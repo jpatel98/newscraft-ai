@@ -101,7 +101,7 @@ describe('explicit Postgres migration runner', () => {
 		expect(client.maxConcurrentDdl).toBe(1);
 		expect(client.queries.filter((query) => query.includes('pg_advisory_xact_lock'))).toHaveLength(2);
 		expect(client.queries.filter((query) => query.includes(`CREATE TABLE IF NOT EXISTS ${MIGRATION_TABLE}`))).toHaveLength(2);
-		expect(results.every((result) => result.latest === '0014_runtime_reconciliation')).toBe(true);
+		expect(results.every((result) => result.latest === '0015_durable_hermes_runs')).toBe(true);
 });
 });
 
@@ -126,8 +126,8 @@ describe.skipIf(!isolatedDatabaseUrl)('explicit migration runner against an isol
 			`SELECT count(*)::int AS count FROM ${MIGRATION_TABLE}`
 		);
 
-		expect(left.latest).toBe('0014_runtime_reconciliation');
-		expect(right.latest).toBe('0014_runtime_reconciliation');
+		expect(left.latest).toBe('0015_durable_hermes_runs');
+		expect(right.latest).toBe('0015_durable_hermes_runs');
 		expect(Number(row?.count)).toBeGreaterThanOrEqual(EXPECTED_MIGRATION_COUNT);
 	});
 });

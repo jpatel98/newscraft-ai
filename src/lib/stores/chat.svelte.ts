@@ -99,6 +99,7 @@ interface SourceProgress {
 
 class ChatSession {
 	abort = $state<AbortController | null>(null);
+	cancelHandler = $state<(() => void) | null>(null);
 	abortIntent = $state<'stop' | 'partial' | null>(null);
 	tools = $state<ToolProgress[]>([]);
 	sources = $state<SourceProgress[]>([]);
@@ -151,8 +152,13 @@ class ChatSession {
 		// assistant message until the next stream begins.
 	}
 
+	setCancelHandler(handler: (() => void) | null) {
+		this.cancelHandler = handler;
+	}
+
 	cancel(intent: 'stop' | 'partial' = 'stop') {
 		this.abortIntent = intent;
+		this.cancelHandler?.();
 		if (this.abort) {
 			this.abort.abort();
 		}

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import importlib
 import ipaddress
 import logging
 import os
+import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +16,7 @@ from urllib.parse import urlsplit
 
 from . import HERMES_COMMIT
 from .contracts import CRON_TOOLSET, HERMES_TOOLSET
+from .durable import DurableRunError, DurableRunWorker
 from .isolation import (
     TENANT_HEADER,
     TenantIsolation,
@@ -51,6 +54,9 @@ class Settings:
     model_api_mode: str | None
     max_iterations: int
     retrieval: RetrievalConfig
+    run_api_url: str | None
+    run_api_token: str | None
+    internal_agui_url: str
 
 
 def _required(name: str) -> str:
@@ -116,6 +122,22 @@ def _public_host_setting(value: str) -> str | None:
     return value
 
 
+def _run_api_setting(value: str) -> str | None:
+    value = value.strip().rstrip("/")
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise RuntimeError("NEWSCRAFT_HERMES_RUN_API_URL must be an HTTP URL")
+    if parsed.scheme != "https":
+        try:
+            if not ipaddress.ip_address(parsed.hostname).is_loopback and parsed.hostname != "localhost":
+                raise RuntimeError("A remote NewsCraft run API must use HTTPS")
+        except ValueError:
+            raise RuntimeError("A remote NewsCraft run API must use HTTPS") from None
+    return value
+
+
 def settings_from_env() -> Settings:
     try:
         port = int(os.environ.get("HERMES_AGUI_PORT", "8000"))
@@ -130,6 +152,10 @@ def settings_from_env() -> Settings:
     workspace = _private_directory("NEWSCRAFT_HERMES_WORKSPACE")
     if hermes_home == workspace or hermes_home.is_relative_to(workspace) or workspace.is_relative_to(hermes_home):
         raise RuntimeError("Hermes home and workspace must be separate directories")
+    run_api_url = _run_api_setting(os.environ.get("NEWSCRAFT_HERMES_RUN_API_URL", ""))
+    run_api_token = os.environ.get("NEWSCRAFT_HERMES_RUN_API_TOKEN", "").strip() or None
+    if bool(run_api_url) != bool(run_api_token):
+        raise RuntimeError("NEWSCRAFT_HERMES_RUN_API_URL and NEWSCRAFT_HERMES_RUN_API_TOKEN must be set together")
     return Settings(
         host=os.environ.get("HERMES_AGUI_HOST", "127.0.0.1").strip() or "127.0.0.1",
         port=port,
@@ -144,6 +170,9 @@ def settings_from_env() -> Settings:
         model_api_mode=os.environ.get("NEWSCRAFT_HERMES_MODEL_API_MODE", "").strip() or None,
         max_iterations=_integer_setting("NEWSCRAFT_HERMES_MAX_ITERATIONS", 25, 4, 90),
         retrieval=RetrievalConfig.from_env(),
+        run_api_url=run_api_url,
+        run_api_token=run_api_token,
+        internal_agui_url=f"http://127.0.0.1:{port}/",
     )
 
 
@@ -551,6 +580,10 @@ def _install_forward_header_scope(agui_server: Any) -> None:
 def _run_input_value(run_input: Any, name: str) -> str:
     if isinstance(run_input, Mapping):
         value = run_input.get(name)
+        if value is None and name == "thread_id":
+            value = run_input.get("threadId")
+        if value is None and name == "run_id":
+            value = run_input.get("runId")
     else:
         value = getattr(run_input, name, None)
     return str(value or "")
@@ -1230,6 +1263,68 @@ def create_app(settings: Settings | None = None):
         bound_host=settings.host,
     )
     _install_public_host_alias(app, settings.host, settings.public_host)
+    durable_worker = DurableRunWorker(settings, isolation)
+
+    def durable_authorized(request: Any) -> bool:
+        authorization = request.headers.get("authorization", "")
+        bearer = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+        presented = request.headers.get("x-hermes-session-token", "")
+        return bool(
+            secrets.compare_digest(bearer, settings.session_token)
+            or secrets.compare_digest(presented, settings.session_token)
+        )
+
+    @app.post("/v1/runs/start")
+    async def durable_start(request: Any):
+        from fastapi.responses import JSONResponse
+
+        if not durable_authorized(request):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        try:
+            payload = await request.json()
+            if payload.get("tenant_key") != request.headers.get(TENANT_HEADER, ""):
+                return JSONResponse({"detail": "tenant binding does not match"}, status_code=409)
+            result = await durable_worker.start(payload)
+            return JSONResponse(result, status_code=202)
+        except DurableRunError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=409)
+        except Exception:
+            logger.exception("Durable Hermes start failed")
+            return JSONResponse({"detail": "durable Hermes start failed"}, status_code=503)
+
+    @app.post("/v1/runs/{run_id}/cancel")
+    async def durable_cancel(run_id: str, request: Any):
+        from fastapi.responses import JSONResponse
+
+        if not durable_authorized(request):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        try:
+            account_id = str(payload.get("account_id") or "").strip()
+            payload_run_id = str(payload.get("run_id") or "").strip()
+            payload_tenant_key = str(payload.get("tenant_key") or "").strip()
+            header_tenant_key = request.headers.get(TENANT_HEADER, "").strip()
+            if not account_id or payload_run_id != run_id or not payload_tenant_key or payload_tenant_key != header_tenant_key:
+                return JSONResponse({"detail": "run, account and tenant bindings are required"}, status_code=409)
+            result = await durable_worker.cancel(
+                run_id,
+                account_id,
+                header_tenant_key,
+            )
+            return JSONResponse(result, status_code=202)
+        except DurableRunError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=409)
+
+    @app.on_event("startup")
+    async def recover_durable_runs() -> None:
+        asyncio.create_task(durable_worker.recover(), name="newscraft-hermes-recovery")
+
+    @app.on_event("shutdown")
+    async def stop_durable_runs() -> None:
+        await durable_worker.close()
 
     @app.get("/ready")
     async def ready() -> dict:

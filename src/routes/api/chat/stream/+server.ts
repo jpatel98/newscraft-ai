@@ -2,6 +2,9 @@ import { error, type RequestHandler } from '@sveltejs/kit';
 import {
 	streamChatCompletion,
 	deriveSessionId,
+	deriveHermesTenantKey,
+	buildHermesRunInput,
+	startDurableHermesRun,
 	gatewayHealth,
 	type AgentMessage,
 	type AgentContent,
@@ -90,6 +93,13 @@ import {
 	NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL,
 	resolveConversationSystemPrompt
 } from '$lib/server/agent/prompts';
+import {
+	createOrGetHermesRun,
+	ensureHermesAssistantMessage,
+	getHermesRun,
+	HermesRunRepositoryError
+} from '$lib/server/db/hermes-runs';
+import { hermesSubscriptionResponse } from '$lib/server/hermes-subscription';
 
 interface Body {
 	conversation_id?: string;
@@ -103,6 +113,7 @@ interface Body {
 	document_ids?: string[];
 	output_action?: 'producer_brief' | 'thirty_second_script' | 'interview_questions' | 'copy_with_citations';
 	source_message_id?: string;
+	idempotency_key?: string;
 }
 
 // Agent caps the request body around 1 MB; keep some headroom for the
@@ -694,6 +705,21 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		convo = await createConversation(accountId);
 	}
 	const convoId = convo.id;
+	const durableRequested = request.headers.get('x-newscraft-durable-run') === '1';
+	const suppliedDurableKey = body.idempotency_key?.trim();
+	if (durableRequested && suppliedDurableKey) {
+		if (suppliedDurableKey.length > 256) throw error(400, 'idempotency key is too long');
+		const existing = await getHermesRun(accountId, suppliedDurableKey, 'idempotency');
+		if (existing) {
+			if (existing.conversationId !== convoId) throw error(409, 'idempotency key belongs to another conversation');
+			return hermesSubscriptionResponse({
+				request,
+				accountId,
+				runId: existing.id,
+				afterCursor: 0
+			});
+		}
+	}
 	let documentIds = Array.isArray(body.document_ids)
 		? Array.from(
 				new Set(
@@ -1007,6 +1033,95 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				timezone: researchContext.newsroomContext.timezone
 			}
 		);
+	}
+
+	if (durableRequested) {
+		const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);
+		const idempotencyKey =
+			suppliedDurableKey ||
+			`hermes:${convoId}:${resumeMessageId || visibleUserMessageId || latestUserMessage?.id || 'turn'}:${body.output_action || (isResume ? 'resume' : isRetry ? 'retry' : isRegenerate ? 'regenerate' : 'send')}`;
+		if (idempotencyKey.length > 256) throw error(400, 'idempotency key is too long');
+		let assistantMessageId = resumeMessageId;
+		if (!assistantMessageId) {
+			assistantMessageId = await ensureHermesAssistantMessage(accountId, convoId, idempotencyKey);
+		}
+		const candidateRunId = newId();
+		const built = buildHermesRunInput(
+			{
+				messages: history,
+				stream: true,
+				reasoning_effort: reasoningEffort,
+				newsroom_context: researchContext.newsroomContext,
+				conversation_context: conversationContext,
+				documents: researchContext.documents
+			},
+			sessionId,
+			candidateRunId,
+			{
+				recordSources: true,
+				webExtractConfigured: conversationContext.currentTurn?.researchRequired === true
+			}
+		);
+		let durableRun: Awaited<ReturnType<typeof createOrGetHermesRun>>['run'];
+		let created = false;
+		try {
+			({ run: durableRun, created } = await createOrGetHermesRun({
+				id: candidateRunId,
+				accountId,
+				orgId: convo.orgId,
+				conversationId: convoId,
+				userMessageId: visibleUserMessageId ?? latestUserMessage?.id ?? null,
+				assistantMessageId,
+				idempotencyKey,
+				tenantKey: deriveHermesTenantKey(accountId),
+				sessionId,
+				inputJson: JSON.stringify(built.input),
+				seededCitationsJson: JSON.stringify(built.seededCitations)
+			}));
+		} catch (cause) {
+			if (cause instanceof HermesRunRepositoryError && cause.code === 'cross_account') {
+				throw error(404, 'conversation not found');
+			}
+			throw cause;
+		}
+		if (created || durableRun.state === 'queued') {
+			try {
+				let durableInput = built.input;
+				let durableSeededCitations = built.seededCitations;
+				if (!created) {
+					// A concurrent idempotent request has the same saved run but a
+					// different candidate input/run ID. Restart the saved job with
+					// its persisted input so the worker binding remains exact.
+					const savedInput = JSON.parse(durableRun.inputJson) as typeof built.input;
+					if (!savedInput || typeof savedInput !== 'object') throw new Error('saved durable input is invalid');
+					durableInput = savedInput;
+					const savedCitations = JSON.parse(durableRun.seededCitationsJson) as unknown;
+					if (Array.isArray(savedCitations)) durableSeededCitations = savedCitations as typeof built.seededCitations;
+				}
+				await startDurableHermesRun({
+					runId: durableRun.id,
+					accountId,
+					tenantKey: durableRun.tenantKey,
+					input: durableInput,
+					seededCitations: durableSeededCitations
+				});
+			} catch (cause) {
+				recordChatDiagnostic(convoId, 'chat.durable_start_failed', {
+					trace_id: traceId,
+					errorName: cause instanceof Error ? cause.name : 'Error'
+				});
+				return new Response(JSON.stringify({ detail: 'Hermes durable worker is unavailable.' }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				});
+			}
+		}
+		return hermesSubscriptionResponse({
+			request,
+			accountId,
+			runId: durableRun.id,
+			afterCursor: 0
+		});
 	}
 
 	const phaseAbort = linkChatAbort(request.signal, CHAT_STREAM_MAX_MS);

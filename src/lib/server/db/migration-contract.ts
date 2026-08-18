@@ -20,7 +20,8 @@ export const MIGRATION_VERSIONS = [
 	'0011_agent_jobs',
 	'0012_newsroom_profiles',
 	'0013_conversation_documents',
-	'0014_runtime_reconciliation'
+	'0014_runtime_reconciliation',
+	'0015_durable_hermes_runs'
 ] as const;
 
 /** Versions represented by the legacy runtime-created schema. */

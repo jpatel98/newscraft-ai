@@ -1,4 +1,4 @@
-import { bigint, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { bigint, index, integer, jsonb, pgTable, primaryKey, text, uniqueIndex } from 'drizzle-orm/pg-core';
 
 const timestampMs = (name: string) => bigint(name, { mode: 'number' });
 
@@ -217,6 +217,83 @@ export const messageProvenance = pgTable(
 		conversationUpdatedIdx: index('message_provenance_conversation_updated_idx').on(
 			t.conversationId,
 			t.updatedAt
+		)
+	})
+);
+
+export const hermesRuns = pgTable(
+	'hermes_runs',
+	{
+		id: text('id').primaryKey(),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		orgId: text('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+		conversationId: text('conversation_id')
+			.notNull()
+			.references(() => conversations.id, { onDelete: 'cascade' }),
+		userMessageId: text('user_message_id').references(() => messages.id, { onDelete: 'set null' }),
+		assistantMessageId: text('assistant_message_id')
+			.notNull()
+			.references(() => messages.id, { onDelete: 'cascade' }),
+		idempotencyKey: text('idempotency_key').notNull(),
+		tenantKey: text('tenant_key').notNull(),
+		sessionId: text('session_id').notNull(),
+		inputJson: text('input_json').notNull(),
+		seededCitationsJson: text('seeded_citations_json').notNull().default('[]'),
+		state: text('state').notNull().default('queued'),
+		answerText: text('answer_text').notNull().default(''),
+		sourcesJson: text('sources_json').notNull().default('[]'),
+		citationsJson: text('citations_json').notNull().default('[]'),
+			toolsJson: text('tools_json').notNull().default('[]'),
+		cursor: integer('cursor').notNull().default(0),
+		workerCursor: integer('worker_cursor').notNull().default(0),
+		errorMessage: text('error_message'),
+		cancelRequestedAt: timestampMs('cancel_requested_at'),
+		leaseOwner: text('lease_owner'),
+		leaseToken: text('lease_token'),
+		leaseExpiresAt: timestampMs('lease_expires_at'),
+		createdAt: timestampMs('created_at').notNull(),
+		startedAt: timestampMs('started_at'),
+		updatedAt: timestampMs('updated_at').notNull(),
+		completedAt: timestampMs('completed_at')
+	},
+	(t) => ({
+		accountIdempotencyUnique: uniqueIndex('hermes_runs_account_idempotency_unique').on(
+			t.accountId,
+			t.idempotencyKey
+		),
+		conversationStateIdx: index('hermes_runs_conversation_state_idx').on(
+			t.accountId,
+			t.conversationId,
+			t.state,
+			t.updatedAt
+		),
+		leaseIdx: index('hermes_runs_lease_idx').on(t.state, t.leaseExpiresAt),
+		accountUpdatedIdx: index('hermes_runs_account_updated_idx').on(t.accountId, t.updatedAt)
+	})
+);
+
+export const hermesRunEvents = pgTable(
+	'hermes_run_events',
+	{
+		runId: text('run_id')
+			.notNull()
+			.references(() => hermesRuns.id, { onDelete: 'cascade' }),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		cursor: integer('cursor').notNull(),
+		eventType: text('event_type').notNull(),
+		dataJson: text('data_json').notNull(),
+		createdAt: timestampMs('created_at').notNull()
+	},
+	(t) => ({
+		primary: primaryKey({ columns: [t.runId, t.cursor] }),
+		accountCursorIdx: index('hermes_run_events_account_cursor_idx').on(
+			t.accountId,
+			t.runId,
+			t.cursor
 		)
 	})
 );

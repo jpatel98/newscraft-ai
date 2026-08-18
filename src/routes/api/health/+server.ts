@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { json, type RequestHandler } from '@sveltejs/kit';
 import { sql } from '$lib/server/db';
 import { gatewayHealth } from '$lib/server/agent/transport';
 import { getConversationDocumentService } from '$lib/server/documents/runtime';
@@ -55,7 +55,7 @@ async function documentsReady(gatewayJson: unknown): Promise<boolean> {
 	return ready;
 }
 
-export const GET = async ({ locals, url }) => {
+export const GET: RequestHandler = async ({ locals, url }) => {
 	const [gateway, app] = await Promise.all([gatewayHealth(), appHealth()]);
 	const ok = app.ok && gateway.ok;
 	const documents = locals.user && ok ? await documentsReady(gateway.json) : false;

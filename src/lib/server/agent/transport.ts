@@ -923,6 +923,62 @@ export async function streamChatCompletion(
 	});
 }
 
+/** Build the authenticated Hermes input without opening a browser-owned stream. */
+export function buildHermesRunInput(
+	body: AgentChatRequest,
+	threadId: string,
+	runId: string,
+	options: { recordSources?: boolean; webExtractConfigured?: boolean } = {}
+): BuiltRunInput {
+	return buildRunInput(
+		body,
+		threadId,
+		runId,
+		options.recordSources !== false,
+		options.webExtractConfigured === true
+	);
+}
+
+export interface DurableHermesRunStartRequest {
+	runId: string;
+	accountId: string;
+	tenantKey: string;
+	input: HermesRunInput;
+	seededCitations: SeededCitation[];
+}
+
+/** Start a durable worker owned by the NewsCraft Hermes service. */
+export async function startDurableHermesRun(input: DurableHermesRunStartRequest): Promise<void> {
+	const response = await fetch(`${hermesUrl()}/v1/runs/start`, {
+		method: 'POST',
+		headers: { ...requestHeaders({ accountId: input.accountId }), 'content-type': 'application/json' },
+		body: JSON.stringify({
+			run_id: input.runId,
+			account_id: input.accountId,
+			tenant_key: input.tenantKey,
+			input: input.input,
+			seeded_citations: input.seededCitations
+		})
+	});
+	if (!response.ok) {
+		const detail = await response.text().catch(() => '');
+		throw new Error(`Hermes durable start failed (${response.status}): ${detail || response.statusText}`);
+	}
+}
+
+/** Request cancellation for the same durable Hermes run. */
+export async function cancelDurableHermesRun(accountId: string, runId: string): Promise<void> {
+	const response = await fetch(`${hermesUrl()}/v1/runs/${encodeURIComponent(runId)}/cancel`, {
+		method: 'POST',
+		headers: requestHeaders({ accountId }),
+		body: JSON.stringify({ run_id: runId, account_id: accountId, tenant_key: deriveHermesTenantKey(accountId) })
+	});
+	if (!response.ok && response.status !== 404) {
+		const detail = await response.text().catch(() => '');
+		throw new Error(`Hermes durable cancel failed (${response.status}): ${detail || response.statusText}`);
+	}
+}
+
 function webExtractionReadinessError(health: GatewayHealth): Error {
 	if (!health.status) {
 		return new Error('NewsCraft Hermes readiness check did not respond.');

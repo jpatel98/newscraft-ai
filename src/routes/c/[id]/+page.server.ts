@@ -1,12 +1,16 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getConversation, getMessages, parseContent } from '$lib/server/db/conversations';
+import { getActiveHermesRun, snapshotFromRun } from '$lib/server/db/hermes-runs';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	const convo = await getConversation(locals.user.id, params.id);
 	if (!convo) throw error(404, 'not found');
-	const messages = await getMessages(convo.id);
+	const [messages, activeRun] = await Promise.all([
+		getMessages(convo.id),
+		getActiveHermesRun(locals.user.id, convo.id)
+	]);
 	return {
 		conversation: { id: convo.id, title: convo.title, updatedAt: convo.updatedAt },
 		messages: messages.map((m) => ({
@@ -16,6 +20,16 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			toolCalls: m.toolCalls,
 			partial: m.partial === 1,
 			createdAt: m.createdAt
-		}))
+		})),
+		durableRun: activeRun
+			? {
+					id: activeRun.id,
+					conversationId: activeRun.conversationId,
+					assistantMessageId: activeRun.assistantMessageId,
+					cursor: activeRun.cursor,
+					status: activeRun.state,
+					...snapshotFromRun(activeRun)
+				}
+			: null
 	};
 };

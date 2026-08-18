@@ -1,0 +1,666 @@
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { createHash, randomUUID } from 'node:crypto';
+import { db } from './index';
+import { conversations, hermesRunEvents, hermesRuns, messages, messageProvenance } from './schema';
+import { newId } from '$lib/utils/id';
+import { serializeToolMetadata, buildAnswerProvenanceBundle } from '$lib/utils/tool-metadata';
+import type { CitationRecord } from '@newscraft/shared';
+import type { PersistedSource, StreamToolCall } from '$lib/utils/stream-events';
+
+export type HermesRunState =
+	| 'queued'
+	| 'researching'
+	| 'writing'
+	| 'reconnecting'
+	| 'cancel_requested'
+	| 'cancelled'
+	| 'failed'
+	| 'complete';
+
+export const HERMES_ACTIVE_STATES: HermesRunState[] = [
+	'queued',
+	'researching',
+	'writing',
+	'reconnecting',
+	'cancel_requested'
+];
+
+export const HERMES_TERMINAL_STATES: HermesRunState[] = ['cancelled', 'failed', 'complete'];
+export const HERMES_LEASE_MS = 10 * 60 * 1000;
+export const HERMES_MAX_EVENT_BYTES = 128 * 1024;
+export const HERMES_MAX_ANSWER_CHARS = 512 * 1024;
+export const HERMES_MAX_SNAPSHOT_ITEMS = 100;
+
+export interface HermesRunEventInput {
+	eventType: string;
+	dataJson: string;
+	workerCursor: number;
+}
+
+export interface HermesRunCreateInput {
+	id?: string;
+	accountId: string;
+	orgId: string | null;
+	conversationId: string;
+	userMessageId: string | null;
+	assistantMessageId: string;
+	idempotencyKey: string;
+	tenantKey: string;
+	sessionId: string;
+	inputJson: string;
+	seededCitationsJson?: string;
+}
+
+export type HermesRunRecord = typeof hermesRuns.$inferSelect;
+export type HermesRunEventRecord = typeof hermesRunEvents.$inferSelect;
+
+export class HermesRunRepositoryError extends Error {
+	readonly code:
+		| 'invalid_input'
+		| 'not_found'
+		| 'cross_account'
+		| 'stale_lease'
+		| 'stale_callback'
+		| 'terminal';
+
+	constructor(
+		code: HermesRunRepositoryError['code'],
+		message: string
+	) {
+		super(message);
+		this.name = 'HermesRunRepositoryError';
+		this.code = code;
+	}
+}
+
+function requireValue(value: string, label: string): string {
+	const normalized = value.trim();
+	if (!normalized) throw new HermesRunRepositoryError('invalid_input', `${label} is required`);
+	return normalized;
+}
+
+function parseJson<T>(value: string, fallback: T): T {
+	try {
+		return JSON.parse(value) as T;
+	} catch {
+		return fallback;
+	}
+}
+
+function boundedJson(value: string, label: string): string {
+	if (Buffer.byteLength(value, 'utf8') > HERMES_MAX_EVENT_BYTES) {
+		throw new HermesRunRepositoryError('invalid_input', `${label} is too large`);
+	}
+	return value;
+}
+
+function normalizeState(value: string | null | undefined): HermesRunState {
+	if (
+		value === 'queued' ||
+		value === 'researching' ||
+		value === 'writing' ||
+		value === 'reconnecting' ||
+		value === 'cancel_requested' ||
+		value === 'cancelled' ||
+		value === 'failed' ||
+		value === 'complete'
+	) {
+		return value;
+	}
+	return 'queued';
+}
+
+function isTerminal(state: HermesRunState): boolean {
+	return HERMES_TERMINAL_STATES.includes(state);
+}
+
+function nextState(
+	current: HermesRunState,
+	eventType: string,
+	data: Record<string, unknown>
+): HermesRunState {
+	if (eventType === 'run.cancelled' || eventType === 'cancelled') return 'cancelled';
+	if (eventType === 'run.failed' || eventType === 'response.failed') return 'failed';
+	if (eventType === 'response.completed' || eventType === 'run.complete' || eventType === 'run.finished') {
+		return 'complete';
+	}
+	if (eventType === 'run.reconnecting') return 'reconnecting';
+	if (eventType === 'response.output_text.delta' || eventType === 'agent.answer.replace') return 'writing';
+	if (eventType === 'agent.tool.progress' || eventType.startsWith('agent.source') || eventType === 'agent.citations') {
+		return current === 'writing' ? current : 'researching';
+	}
+	if (eventType === 'run.started' || eventType === 'agent.meta') return 'researching';
+	if (data.status === 'cancelled') return 'cancelled';
+	if (data.status === 'failed' || data.status === 'error') return 'failed';
+	if (data.status === 'complete' || data.status === 'completed') return 'complete';
+	return current;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === 'object' && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function stringValue(value: unknown): string | undefined {
+	return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function itemKey(value: Record<string, unknown>, fallback: string): string {
+	return stringValue(value.id) || stringValue(value.url) || fallback;
+}
+
+export interface HermesRunSnapshot {
+	state: HermesRunState;
+	answerText: string;
+	sources: PersistedSource[];
+	citations: CitationRecord[];
+	tools: StreamToolCall[];
+	errorMessage: string | null;
+}
+
+export function snapshotFromRun(run: HermesRunRecord): HermesRunSnapshot {
+	return {
+		state: normalizeState(run.state),
+		answerText: run.answerText,
+		sources: parseJson<PersistedSource[]>(run.sourcesJson, []),
+		citations: parseJson<CitationRecord[]>(run.citationsJson, []),
+		tools: parseJson<StreamToolCall[]>(run.toolsJson, []),
+		errorMessage: run.errorMessage
+	};
+}
+
+export function applyHermesRunEvent(
+	run: HermesRunRecord,
+	eventType: string,
+	dataJson: string
+): HermesRunSnapshot {
+	const data = objectValue(parseJson<unknown>(dataJson, {})) || {};
+	const snapshot = snapshotFromRun(run);
+	let answerText = snapshot.answerText;
+	if (eventType === 'response.output_text.delta') {
+		const delta = stringValue(data.delta);
+		if (delta) answerText = `${answerText}${delta}`;
+	}
+	if (eventType === 'agent.answer.replace' && typeof data.content === 'string') {
+		answerText = data.content;
+	}
+	answerText = answerText.slice(0, HERMES_MAX_ANSWER_CHARS);
+
+	const sources = [...snapshot.sources];
+	const sourceValue = objectValue(data.source) || (eventType.startsWith('agent.source') ? data : null);
+	if (sourceValue) {
+		const key = itemKey(sourceValue, `source-${sources.length + 1}`);
+		const index = sources.findIndex((source) => itemKey(source as unknown as Record<string, unknown>, '') === key);
+		const source = sourceValue as unknown as PersistedSource;
+		if (index >= 0) sources[index] = { ...sources[index], ...source };
+		else sources.push(source);
+	}
+
+	const citations = [...snapshot.citations];
+	if (Array.isArray(data.citations)) {
+		for (const raw of data.citations) {
+			const citation = objectValue(raw) as CitationRecord | null;
+			if (!citation) continue;
+			const key = `${citation.citationNumber}\u0000${citation.url}\u0000${citation.documentPage ?? ''}`;
+			const index = citations.findIndex(
+				(item) => `${item.citationNumber}\u0000${item.url}\u0000${item.documentPage ?? ''}` === key
+			);
+			if (index >= 0) citations[index] = { ...citations[index], ...citation };
+			else citations.push(citation);
+		}
+	}
+
+	const tools = [...snapshot.tools];
+	const tool = objectValue(data);
+	if (eventType === 'agent.tool.progress' && tool) {
+		const key = itemKey(tool, `tool-${tools.length + 1}`);
+		const index = tools.findIndex((item) => item.id === key);
+		const nextTool = { ...(tool as unknown as StreamToolCall), id: key };
+		if (index >= 0) tools[index] = { ...tools[index], ...nextTool };
+		else tools.push(nextTool);
+	}
+
+	return {
+		state: nextState(snapshot.state, eventType, data),
+		answerText,
+		sources: sources.slice(-HERMES_MAX_SNAPSHOT_ITEMS),
+		citations: citations.slice(-HERMES_MAX_SNAPSHOT_ITEMS),
+		tools: tools.slice(-HERMES_MAX_SNAPSHOT_ITEMS),
+		errorMessage:
+			eventType === 'response.failed' || eventType === 'run.failed'
+				? stringValue(objectValue(data.error)?.message) || stringValue(data.message) || 'Hermes run failed.'
+				: snapshot.errorMessage
+	};
+}
+
+export async function createOrGetHermesRun(
+	input: HermesRunCreateInput
+): Promise<{ run: HermesRunRecord; created: boolean }> {
+	const accountId = requireValue(input.accountId, 'accountId');
+	const conversationId = requireValue(input.conversationId, 'conversationId');
+	const assistantMessageId = requireValue(input.assistantMessageId, 'assistantMessageId');
+	const idempotencyKey = requireValue(input.idempotencyKey, 'idempotencyKey');
+	const tenantKey = requireValue(input.tenantKey, 'tenantKey');
+	const sessionId = requireValue(input.sessionId, 'sessionId');
+	const inputJson = boundedJson(input.inputJson, 'inputJson');
+	const seededCitationsJson = boundedJson(input.seededCitationsJson || '[]', 'seededCitationsJson');
+	const now = Date.now();
+	const id = input.id?.trim() || newId();
+	const [inserted] = await db
+		.insert(hermesRuns)
+		.values({
+			id,
+			accountId,
+			orgId: input.orgId,
+			conversationId,
+			userMessageId: input.userMessageId,
+			assistantMessageId,
+			idempotencyKey,
+			tenantKey,
+			sessionId,
+			inputJson,
+			seededCitationsJson,
+			state: 'queued',
+			answerText: '',
+			sourcesJson: '[]',
+			citationsJson: seededCitationsJson,
+			toolsJson: '[]',
+			cursor: 0,
+			workerCursor: 0,
+			errorMessage: null,
+			cancelRequestedAt: null,
+			leaseOwner: null,
+			leaseToken: null,
+			leaseExpiresAt: null,
+			createdAt: now,
+			startedAt: null,
+			updatedAt: now,
+			completedAt: null
+		})
+		.onConflictDoNothing({ target: [hermesRuns.accountId, hermesRuns.idempotencyKey] })
+		.returning();
+	if (inserted) return { run: inserted, created: true };
+	const existing = await getHermesRun(input.accountId, idempotencyKey, 'idempotency');
+	if (!existing) throw new HermesRunRepositoryError('not_found', 'run disappeared after idempotent insert');
+	return { run: existing, created: false };
+}
+
+/**
+ * Create one stable assistant placeholder for an idempotent durable turn.
+ * The account and conversation check is part of this operation. This keeps
+ * duplicate browser submissions from creating duplicate assistant rows.
+ */
+export async function ensureHermesAssistantMessage(
+	accountId: string,
+	conversationId: string,
+	idempotencyKey: string
+): Promise<string> {
+	const owner = requireValue(accountId, 'accountId');
+	const conversation = requireValue(conversationId, 'conversationId');
+	const key = requireValue(idempotencyKey, 'idempotencyKey');
+	const [ownedConversation] = await db
+		.select({ id: conversations.id })
+		.from(conversations)
+		.where(and(eq(conversations.id, conversation), eq(conversations.accountId, owner)))
+		.limit(1);
+	if (!ownedConversation) throw new HermesRunRepositoryError('cross_account', 'conversation is not owned by account');
+	const id = `hermes-assistant-${createHash('sha256')
+		.update(`${owner}\u0000${conversation}\u0000${key}`)
+		.digest('hex')}`;
+	const now = Date.now();
+	await db
+		.insert(messages)
+		.values({
+			id,
+			conversationId: conversation,
+			role: 'assistant',
+			content: '',
+			toolCalls: null,
+			partial: 1,
+			resumeClaimedAt: null,
+			createdAt: now
+		})
+		.onConflictDoNothing({ target: messages.id });
+	await db.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, conversation));
+	return id;
+}
+
+export async function getHermesRun(
+	accountId: string,
+	value: string,
+	by: 'id' | 'idempotency' = 'id'
+): Promise<HermesRunRecord | null> {
+	const owner = requireValue(accountId, 'accountId');
+	const key = requireValue(value, by === 'id' ? 'runId' : 'idempotencyKey');
+	const rows = await db
+		.select()
+		.from(hermesRuns)
+		.where(and(eq(hermesRuns.accountId, owner), by === 'id' ? eq(hermesRuns.id, key) : eq(hermesRuns.idempotencyKey, key)))
+		.limit(1);
+	return (rows[0] as HermesRunRecord | undefined) || null;
+}
+
+export async function getHermesRunForAssistant(
+	accountId: string,
+	conversationId: string,
+	assistantMessageId: string
+): Promise<HermesRunRecord | null> {
+	const rows = await db
+		.select()
+		.from(hermesRuns)
+		.where(
+			and(
+				eq(hermesRuns.accountId, requireValue(accountId, 'accountId')),
+				eq(hermesRuns.conversationId, requireValue(conversationId, 'conversationId')),
+				eq(hermesRuns.assistantMessageId, requireValue(assistantMessageId, 'assistantMessageId')),
+				inArray(hermesRuns.state, HERMES_ACTIVE_STATES)
+			)
+		)
+		.orderBy(desc(hermesRuns.updatedAt))
+		.limit(1);
+	return (rows[0] as HermesRunRecord | undefined) || null;
+}
+
+export async function getActiveHermesRun(
+	accountId: string,
+	conversationId: string
+): Promise<HermesRunRecord | null> {
+	const rows = await db
+		.select()
+		.from(hermesRuns)
+		.where(
+			and(
+				eq(hermesRuns.accountId, requireValue(accountId, 'accountId')),
+				eq(hermesRuns.conversationId, requireValue(conversationId, 'conversationId')),
+				inArray(hermesRuns.state, HERMES_ACTIVE_STATES)
+			)
+		)
+		.orderBy(desc(hermesRuns.updatedAt))
+		.limit(1);
+	return (rows[0] as HermesRunRecord | undefined) || null;
+}
+
+export async function listHermesRunEvents(
+	accountId: string,
+	runId: string,
+	afterCursor = 0,
+	limit = 500
+): Promise<HermesRunEventRecord[]> {
+	if (!Number.isSafeInteger(afterCursor) || afterCursor < 0) {
+		throw new HermesRunRepositoryError('invalid_input', 'afterCursor must be a non-negative integer');
+	}
+	const run = await getHermesRun(accountId, runId);
+	if (!run) throw new HermesRunRepositoryError('not_found', 'run not found');
+	return (await db
+		.select()
+		.from(hermesRunEvents)
+		.where(
+			and(
+				eq(hermesRunEvents.accountId, requireValue(accountId, 'accountId')),
+					eq(hermesRunEvents.runId, run.id),
+				gt(hermesRunEvents.cursor, afterCursor)
+			)
+		)
+		.orderBy(asc(hermesRunEvents.cursor))
+		.limit(Math.min(Math.max(limit, 1), 1000))) as HermesRunEventRecord[];
+}
+
+export async function appendHermesRunEvent(
+	accountId: string,
+	runId: string,
+	leaseOwner: string,
+	leaseToken: string,
+	input: HermesRunEventInput
+): Promise<{ run: HermesRunRecord; event: HermesRunEventRecord }> {
+	const owner = requireValue(accountId, 'accountId');
+	const id = requireValue(runId, 'runId');
+	const worker = requireValue(leaseOwner, 'leaseOwner');
+	const token = requireValue(leaseToken, 'leaseToken');
+	if (!Number.isSafeInteger(input.workerCursor) || input.workerCursor < 1) {
+		throw new HermesRunRepositoryError('invalid_input', 'workerCursor must be a positive integer');
+	}
+	const eventType = requireValue(input.eventType, 'eventType');
+	const dataJson = boundedJson(input.dataJson, 'event data');
+	const now = Date.now();
+
+	return db.transaction(async (tx: any) => {
+		await tx.execute(
+			sql`SELECT id FROM hermes_runs WHERE id = ${id} AND account_id = ${owner} FOR UPDATE`
+		);
+		const [current] = (await tx
+			.select()
+			.from(hermesRuns)
+			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
+			.limit(1)) as HermesRunRecord[];
+		if (!current) throw new HermesRunRepositoryError('not_found', 'run not found');
+		const state = normalizeState(current.state);
+		if (current.leaseOwner !== worker || current.leaseToken !== token || !current.leaseExpiresAt || current.leaseExpiresAt <= now) {
+			throw new HermesRunRepositoryError('stale_lease', 'run lease is stale');
+		}
+		if (isTerminal(state)) throw new HermesRunRepositoryError('terminal', 'run is already terminal');
+		if (state === 'cancel_requested' && eventType !== 'run.cancelled' && eventType !== 'cancelled') {
+			throw new HermesRunRepositoryError('stale_callback', 'callbacks after cancellation are not accepted');
+		}
+		if (input.workerCursor !== (current.workerCursor || 0) + 1) {
+			throw new HermesRunRepositoryError('stale_callback', 'run callback cursor is not monotonic');
+		}
+
+		const snapshot = applyHermesRunEvent(current, eventType, dataJson);
+		const cursor = current.cursor + 1;
+		const [event] = (await tx
+			.insert(hermesRunEvents)
+			.values({
+				runId: id,
+				accountId: owner,
+				cursor,
+				eventType,
+				dataJson,
+				createdAt: now
+			})
+			.returning()) as HermesRunEventRecord[];
+		if (!event) throw new Error('Hermes run event insert returned no row');
+		const terminal = isTerminal(snapshot.state);
+		const [run] = (await tx
+			.update(hermesRuns)
+			.set({
+				state: snapshot.state,
+				answerText: snapshot.answerText,
+				sourcesJson: JSON.stringify(snapshot.sources),
+				citationsJson: JSON.stringify(snapshot.citations),
+				toolsJson: JSON.stringify(snapshot.tools),
+				cursor,
+				workerCursor: input.workerCursor,
+				errorMessage: snapshot.errorMessage,
+				startedAt: current.startedAt ?? now,
+				updatedAt: now,
+				completedAt: terminal ? now : current.completedAt,
+				leaseExpiresAt: terminal ? null : now + HERMES_LEASE_MS
+			})
+			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
+			.returning()) as HermesRunRecord[];
+		if (!run) throw new HermesRunRepositoryError('not_found', 'run disappeared during event append');
+
+		await tx
+			.update(messages)
+			.set({
+				content: snapshot.answerText,
+				partial: terminal && snapshot.state === 'complete' ? 0 : 1,
+				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations)
+			})
+			.where(and(eq(messages.id, current.assistantMessageId), eq(messages.conversationId, current.conversationId)));
+		const provenance = buildAnswerProvenanceBundle({
+			messageId: current.assistantMessageId,
+			conversationId: current.conversationId,
+			tools: snapshot.tools,
+			sources: snapshot.sources,
+			citations: snapshot.citations,
+			answerText: snapshot.answerText,
+			startedAt: run.startedAt ?? now,
+			endedAt: terminal ? now : undefined,
+			assistantChars: snapshot.answerText.length,
+			done: snapshot.state === 'complete',
+			finishStatus: snapshot.state === 'complete' ? 'completed' : snapshot.state === 'cancelled' ? 'cancelled' : snapshot.state === 'failed' ? 'failed' : 'partial',
+			transport: 'hermes_durable'
+		});
+		await tx
+			.insert(messageProvenance)
+			.values({
+				messageId: current.assistantMessageId,
+				conversationId: current.conversationId,
+				provenanceJson: JSON.stringify(provenance),
+				createdAt: now,
+				updatedAt: now
+			})
+			.onConflictDoUpdate({
+				target: messageProvenance.messageId,
+				set: { provenanceJson: JSON.stringify(provenance), updatedAt: now }
+			});
+		await tx.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, current.conversationId));
+		return { run, event };
+	});
+}
+
+export async function requestHermesRunCancellation(
+	accountId: string,
+	runId: string,
+	reason = 'user_requested'
+): Promise<HermesRunRecord> {
+	const owner = requireValue(accountId, 'accountId');
+	const id = requireValue(runId, 'runId');
+	const now = Date.now();
+	return db.transaction(async (tx: any) => {
+		await tx.execute(
+			sql`SELECT id FROM hermes_runs WHERE id = ${id} AND account_id = ${owner} FOR UPDATE`
+		);
+		const [current] = (await tx
+			.select()
+			.from(hermesRuns)
+			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
+			.limit(1)) as HermesRunRecord[];
+		if (!current) throw new HermesRunRepositoryError('not_found', 'run not found');
+		if (isTerminal(normalizeState(current.state)) || normalizeState(current.state) === 'cancel_requested') return current;
+		const cursor = current.cursor + 1;
+		await tx.insert(hermesRunEvents).values({
+			runId: id,
+			accountId: owner,
+			cursor,
+			eventType: 'run.cancel_requested',
+			dataJson: JSON.stringify({ reason }),
+			createdAt: now
+		});
+		const [run] = (await tx
+			.update(hermesRuns)
+			.set({ state: 'cancel_requested', cancelRequestedAt: now, cursor, updatedAt: now })
+			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
+			.returning()) as HermesRunRecord[];
+		if (!run) throw new HermesRunRepositoryError('not_found', 'run disappeared during cancellation');
+		return run;
+	});
+}
+
+export async function claimHermesRunLease(
+	accountId: string,
+	runId: string,
+	leaseOwner: string,
+	now = Date.now()
+): Promise<HermesRunRecord | null> {
+	const owner = requireValue(accountId, 'accountId');
+	const id = requireValue(runId, 'runId');
+	const worker = requireValue(leaseOwner, 'leaseOwner');
+	const leaseToken = randomUUID();
+	const [run] = (await db
+		.update(hermesRuns)
+		.set({
+			leaseOwner: worker,
+			leaseToken,
+			leaseExpiresAt: now + HERMES_LEASE_MS,
+			state: 'researching',
+			startedAt: now,
+			updatedAt: now
+		})
+		.where(
+			and(
+				eq(hermesRuns.id, id),
+				eq(hermesRuns.accountId, owner),
+				isNull(hermesRuns.cancelRequestedAt),
+				inArray(hermesRuns.state, HERMES_ACTIVE_STATES),
+				or(isNull(hermesRuns.leaseExpiresAt), lt(hermesRuns.leaseExpiresAt, now))
+			)
+		)
+		.returning()) as HermesRunRecord[];
+	return run || null;
+}
+
+export async function renewHermesRunLease(
+	accountId: string,
+	runId: string,
+	leaseOwner: string,
+	leaseToken: string,
+	now = Date.now()
+): Promise<HermesRunRecord> {
+	const [run] = (await db
+		.update(hermesRuns)
+		.set({ leaseExpiresAt: now + HERMES_LEASE_MS, updatedAt: now })
+		.where(
+			and(
+				eq(hermesRuns.id, requireValue(runId, 'runId')),
+				eq(hermesRuns.accountId, requireValue(accountId, 'accountId')),
+				eq(hermesRuns.leaseOwner, requireValue(leaseOwner, 'leaseOwner')),
+				eq(hermesRuns.leaseToken, requireValue(leaseToken, 'leaseToken')),
+				inArray(hermesRuns.state, HERMES_ACTIVE_STATES),
+				gt(hermesRuns.leaseExpiresAt, now)
+			)
+		)
+		.returning()) as HermesRunRecord[];
+	if (!run) throw new HermesRunRepositoryError('stale_lease', 'run lease is stale');
+	return run;
+}
+
+export async function releaseHermesRunLease(
+	accountId: string,
+	runId: string,
+	leaseOwner: string,
+	leaseToken: string
+): Promise<HermesRunRecord> {
+	const [run] = (await db
+		.update(hermesRuns)
+		.set({ leaseOwner: null, leaseToken: null, leaseExpiresAt: null, updatedAt: Date.now() })
+		.where(
+			and(
+				eq(hermesRuns.id, requireValue(runId, 'runId')),
+				eq(hermesRuns.accountId, requireValue(accountId, 'accountId')),
+				eq(hermesRuns.leaseOwner, requireValue(leaseOwner, 'leaseOwner')),
+				eq(hermesRuns.leaseToken, requireValue(leaseToken, 'leaseToken'))
+			)
+		)
+		.returning()) as HermesRunRecord[];
+	if (!run) throw new HermesRunRepositoryError('stale_lease', 'run lease is stale');
+	return run;
+}
+
+export async function reclaimQueuedOrExpiredHermesRuns(
+	leaseOwner: string,
+	limit = 10,
+	now = Date.now()
+): Promise<HermesRunRecord[]> {
+	const worker = requireValue(leaseOwner, 'leaseOwner');
+	const candidates = (await db
+		.select({ accountId: hermesRuns.accountId, id: hermesRuns.id })
+		.from(hermesRuns)
+		.where(
+			and(
+				isNull(hermesRuns.cancelRequestedAt),
+				inArray(hermesRuns.state, HERMES_ACTIVE_STATES),
+				or(isNull(hermesRuns.leaseExpiresAt), lt(hermesRuns.leaseExpiresAt, now))
+			)
+		)
+		.orderBy(asc(hermesRuns.createdAt))
+		.limit(Math.min(Math.max(limit, 1), 50))) as Array<{ accountId: string; id: string }>;
+	const claimed: HermesRunRecord[] = [];
+	for (const candidate of candidates) {
+		const run = await claimHermesRunLease(candidate.accountId, candidate.id, worker, now);
+		if (run) claimed.push(run);
+	}
+	return claimed;
+}

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 import sys
+import asyncio
 import threading
 import tempfile
 import unittest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from hermes_chat.contracts import CRON_TOOLSET, HERMES_TOOLSET
 from hermes_chat.service import (
@@ -21,6 +22,8 @@ from hermes_chat.service import (
     prepare_runtime,
     settings_from_env,
 )
+from hermes_chat.durable import DurableJob, DurableRunError, DurableRunWorker, normalized_events
+from hermes_chat.isolation import TenantIsolation
 
 
 class HermesChatServiceTests(unittest.TestCase):
@@ -317,6 +320,185 @@ class HermesChatServiceTests(unittest.TestCase):
                     self.assertEqual(os.environ["TERMINAL_DOCKER_RUN_AS_HOST_USER"], "true")
                 finally:
                     os.chdir(old_cwd)
+
+
+class DurableHermesWorkerTests(unittest.IsolatedAsyncioTestCase):
+    def _worker(self, root: str) -> DurableRunWorker:
+        settings = SimpleNamespace(
+            run_api_url="http://newscraft.test/api/internal/hermes/runs",
+            run_api_token="run-token",
+            session_token="session-token",
+            internal_agui_url="http://127.0.0.1:8768/",
+        )
+        isolation = TenantIsolation(Path(root) / "home", Path(root) / "workspace")
+        return DurableRunWorker(settings, isolation)
+
+    def _payload(self) -> dict:
+        return {
+            "run_id": "run-1",
+            "account_id": "account-1",
+            "tenant_key": "tenant_key_1",
+            "input": {"runId": "run-1", "threadId": "thread-1", "messages": []},
+            "seeded_citations": [],
+        }
+
+    async def test_disconnect_does_not_cancel_worker_task(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            worker._newscraft = AsyncMock(return_value={
+                "terminal": False,
+                "lease_owner": "owner-1",
+                "lease_token": "lease-1",
+                "worker_cursor": 0,
+            })
+            finished = asyncio.Event()
+
+            async def long_run(_job):
+                await finished.wait()
+
+            worker._run = long_run
+            result = await worker.start(self._payload())
+            await asyncio.sleep(0)
+            self.assertTrue(result["accepted"])
+            self.assertFalse(worker.jobs["run-1"].task.done())
+            finished.set()
+            await asyncio.sleep(0)
+            await worker.close()
+
+    async def test_duplicate_start_does_not_create_a_second_task(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            worker._newscraft = AsyncMock(return_value={
+                "terminal": False,
+                "lease_owner": "owner-1",
+                "lease_token": "lease-1",
+                "worker_cursor": 0,
+            })
+            gate = asyncio.Event()
+
+            async def long_run(_job):
+                await gate.wait()
+
+            worker._run = long_run
+            first = await worker.start(self._payload())
+            second = await worker.start(self._payload())
+            self.assertFalse(first["duplicate"])
+            self.assertTrue(second["duplicate"])
+            self.assertEqual(worker._newscraft.await_count, 1)
+            gate.set()
+            await worker.close()
+
+    async def test_duplicate_start_rejects_a_different_account_or_tenant(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            worker._newscraft = AsyncMock(return_value={
+                "terminal": False,
+                "lease_owner": "owner-1",
+                "lease_token": "lease-1",
+                "worker_cursor": 0,
+            })
+            gate = asyncio.Event()
+
+            async def long_run(_job):
+                await gate.wait()
+
+            worker._run = long_run
+            await worker.start(self._payload())
+            wrong = {**self._payload(), "account_id": "account-2", "tenant_key": "tenant_key_2"}
+            with self.assertRaisesRegex(DurableRunError, "account binding"):
+                await worker.start(wrong)
+            self.assertEqual(worker._newscraft.await_count, 1)
+            gate.set()
+            await worker.close()
+
+    async def test_duplicate_start_with_held_lease_returns_same_job_state(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            worker._newscraft = AsyncMock(side_effect=DurableRunError("lease held", 409))
+            result = await worker.start(self._payload())
+            self.assertEqual(result, {
+                "accepted": True,
+                "duplicate": True,
+                "run_id": "run-1",
+                "state": "running",
+            })
+            self.assertEqual(worker.jobs, {})
+            worker._newscraft.assert_awaited_once()
+
+    async def test_cancel_requested_callback_reaches_terminal_cancel_path(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = worker.jobs["run-1"] = DurableJob(
+                run_id="run-1",
+                account_id="account-1",
+                tenant_key="tenant_key_1",
+                input={},
+                seeded_citations=[],
+                lease_owner="owner-1",
+                lease_token="lease-1",
+                worker_cursor=4,
+            )
+            worker._newscraft = AsyncMock(
+                side_effect=DurableRunError("cancel requested", 409, "stale_callback")
+            )
+            with self.assertRaises(asyncio.CancelledError):
+                await worker._callback(job, "response.output_text.delta", {"delta": "late"})
+            self.assertEqual(job.worker_cursor, 4)
+            self.assertEqual(job.stop_reason, "cancelled")
+
+    async def test_cancel_stops_the_same_task(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            worker._newscraft = AsyncMock(return_value={
+                "terminal": False,
+                "lease_owner": "owner-1",
+                "lease_token": "lease-1",
+                "worker_cursor": 0,
+            })
+            gate = asyncio.Event()
+
+            async def long_run(_job):
+                await gate.wait()
+
+            worker._run = long_run
+            await worker.start(self._payload())
+            result = await worker.cancel("run-1")
+            self.assertEqual(result["state"], "cancel_requested")
+            self.assertTrue(worker.jobs["run-1"].task.done())
+
+    async def test_recovery_uses_saved_run_id_and_input(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            recovered = {
+                "runs": [{
+                    **self._payload(),
+                    "lease_owner": "owner-recovered",
+                    "lease_token": "lease-recovered",
+                    "worker_cursor": 4,
+                }]
+            }
+            worker._newscraft = AsyncMock(return_value=recovered)
+            gate = asyncio.Event()
+            seen = []
+
+            async def long_run(job):
+                seen.append((job.run_id, job.worker_cursor, job.lease_token))
+                await gate.wait()
+
+            worker._run = long_run
+            await worker.recover()
+            await asyncio.sleep(0)
+            self.assertEqual(seen, [("run-1", 4, "lease-recovered")])
+            gate.set()
+            await worker.close()
+
+    def test_normalizes_ordered_agui_events_without_fallback(self) -> None:
+        args: dict[str, str] = {}
+        names: dict[str, str] = {}
+        text: list[str] = []
+        events = normalized_events("message", {"type": "TEXT_MESSAGE_CONTENT", "delta": "Hello"}, args, names, text)
+        events += normalized_events("message", {"type": "RUN_FINISHED"}, args, names, text)
+        self.assertEqual([item["event_type"] for item in events], ["response.output_text.delta", "agent.answer.replace", "response.completed"])
 
 
 if __name__ == "__main__":

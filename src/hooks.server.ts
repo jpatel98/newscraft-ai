@@ -8,7 +8,13 @@ import { newId } from '$lib/utils/id';
 const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
 // /api/e2e is only active when E2E_SECRET is set (dev/test only); it self-
 // authenticates via the secret so it must be reachable without a session.
-const PUBLIC_PREFIXES = ['/api/health', '/api/agent/channel-posts', '/account-setup', '/api/e2e'];
+const PUBLIC_PREFIXES = [
+	'/api/health',
+	'/api/agent/channel-posts',
+	'/api/internal/hermes/runs',
+	'/account-setup',
+	'/api/e2e'
+];
 let knownHasAccounts = false;
 const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
 const MARKETING_HOSTS = new Set(['newscraftai.com', 'www.newscraftai.com']);
