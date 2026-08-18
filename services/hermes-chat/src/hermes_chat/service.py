@@ -1336,6 +1336,7 @@ def create_app(settings: Settings | None = None):
             and lead_verification_tool
             and "cronjob" in tools
             and browser_ready
+            and durable_worker.configured
         )
         return {
             "ok": ready_ok,
@@ -1371,6 +1372,10 @@ def create_app(settings: Settings | None = None):
                 "skills": {"skills_list", "skill_view", "skill_manage"}.issubset(tools),
                 "memory": "memory" in tools,
                 "scheduledJobs": "cronjob" in tools,
+                "durableRuns": {
+                    "configured": durable_worker.configured,
+                    "callback": durable_worker.configured,
+                },
                 "accountIsolation": {
                     "tenantHeader": TENANT_HEADER,
                     "contextLocalHome": True,
