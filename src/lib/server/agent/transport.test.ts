@@ -776,7 +776,17 @@ describe('Hermes chat transport', () => {
 			)
 		);
 
-		 await expect(gatewayHealth()).resolves.toMatchObject({ ok: false, status: 200 });
+		await expect(gatewayHealth()).resolves.toMatchObject({
+			ok: false,
+			status: 200,
+			body: expect.stringContaining('account isolation'),
+			readiness: {
+				ok: false,
+				failures: expect.arrayContaining([
+					expect.objectContaining({ code: 'account_isolation' })
+				])
+			}
+		});
 	 });
 
 	it('does not send a chat run to a Hermes service without isolation', async () => {

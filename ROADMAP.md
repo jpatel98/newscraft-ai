@@ -1,11 +1,145 @@
 # NewsCraft AI — Source of Truth & Roadmap
 
-Last updated: 2026-07-11
+Last updated: 2026-08-18
 
 This is the single canonical document for NewsCraft AI: what the product is,
 how it is built today, where it is going, and how to work on it. If any other
 file conflicts with this one, this file wins. There is intentionally only one
 doc — update it as the product changes instead of adding new ones.
+
+## 0. Active cleanup: Hermes boundary simplification
+
+This section is the current architecture and cleanup record. Historical
+sections below describe the retired newsroom harness and are retained only as
+migration evidence until their remaining app routes, tables, and shared DTOs
+can be removed with reference and data-lifecycle proof.
+
+### Goal and success criteria
+
+Make the active chat path easier to understand and operate without changing
+product behavior. This pass is successful when:
+
+- Hermes remains the only agent runtime. There is no provider or model
+  fallback.
+- The browser calls NewsCraft only. NewsCraft alone authenticates the user,
+  derives the opaque tenant key, sends history and context to Hermes, and
+  persists the conversation and provenance.
+- The app and operator health command evaluate the same readiness contract and
+  name a failed contract without printing configuration or credentials.
+- A safe HTTP fixture proves the app-server to Hermes readiness and chat
+  boundary, including fail-closed tenant isolation.
+- Focused tests, type checks, the production build, active Hermes service tests,
+  app tests, and the broadest safe legacy suite are reported separately.
+- No production infrastructure, data, provider, model, credential, domain, or
+  Hydra setting changes occur in this branch.
+
+### Current request path and ownership
+
+```text
+Browser
+  -> NewsCraft SvelteKit server
+       -> authentication, permissions, tenant identity
+       -> Postgres conversations, messages, files, provenance
+       -> Hermes readiness contract
+       -> authenticated AG-UI stream with opaque tenant key
+            -> standard Hermes tools, memory, skills, browser and processes
+            -> NewsCraft retrieval plugin and verified source recording
+       <- normalized stream, explicit failures and compact citations
+  <- persisted answer and source metadata
+```
+
+Hermes owns agent execution and its tenant-scoped runtime state. NewsCraft owns
+durable product state and is the only trust boundary exposed to the browser.
+The old `services/newsroom-harness` package is not an agent fallback. It remains
+in the repository because legacy board routes, DTOs, migrations, acceptance
+scripts, and tests still reference it.
+
+### Ranked cleanup decisions
+
+Accepted in this pass:
+
+1. **High impact, high confidence, low risk:** centralize the Hermes readiness
+   evaluator in `@newscraft/shared`. The app transport and `health:hermes`
+   previously checked different capability sets, so a direct probe could pass
+   while the real app boundary rejected the service.
+2. **High impact, high confidence, low risk:** expose stable failed-contract
+   names and sanitized operator messages. Keep raw environment values and
+   credentials out of diagnostics.
+3. **High impact, high confidence, low risk:** add a real HTTP fixture test for
+   readiness plus chat from the NewsCraft server transport. Prove that a failed
+   isolation contract prevents the chat request.
+4. **Medium impact, high confidence, low risk:** give app, shared, legacy
+   harness, Hermes, and boundary tests explicit script names while retaining
+   the existing broad Node test coverage.
+5. **Medium impact, high confidence, documentation-only:** make the active
+   Hermes ownership and release gate explicit here.
+
+Deferred:
+
+1. **High impact, medium confidence, high risk:** delete the legacy newsroom
+   harness, board routes, tracker tables, and old shared DTOs. References and
+   possible stored data still exist, so deletion needs a separate inventory,
+   migration, and rollback plan.
+2. **Medium impact, high confidence, medium risk:** remove root
+   `better-sqlite3`. The active app does not import it, but the legacy producer
+   acceptance script and harness still do. First move or retire those callers.
+3. **Medium impact, medium confidence, high risk:** split the 1,559-line chat
+   route and 1,076-line transport. Both mix orchestration and normalization,
+   but moving persistence, retry, citation, or timeout ownership without a
+   stronger route-level fixture risks behavioral drift.
+4. **Medium impact, medium confidence, high risk:** retire old prompts and
+   research policies under `services/newsroom-harness`. They do not own the
+   current Hermes product identity, but they remain covered by the legacy
+   suite and acceptance tooling.
+5. **Medium impact, high confidence, medium risk:** make the Hermes Python unit
+   environment independently installable. The current installer supplies the
+   pinned Hermes runtime; a plain locked `uv sync` does not recreate that full
+   reviewed environment.
+
+### Verification workflow
+
+Run in this order:
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm test:shared
+corepack pnpm test:app-hermes-boundary
+corepack pnpm test:app
+corepack pnpm check
+corepack pnpm build
+corepack pnpm test:hermes-unit
+corepack pnpm test:legacy-harness
+corepack pnpm test
+```
+
+If `better-sqlite3` fails, report the Node version, installed binary ABI, and
+the exact legacy test command. Do not weaken or skip assertions. A clean
+install under the repository's Node 24 and pnpm 9 pins is the remediation gate.
+
+### Production release gate
+
+This cleanup branch must not be deployed or merged as part of this task. A
+future reviewer may promote it only after all of the following pass:
+
+1. The clean-install and verification workflow above is green, with any
+   environment-blocked command recorded exactly.
+2. `health:hermes` passes the complete shared readiness contract against the
+   intended isolated NewsCraft Hermes service.
+3. An authenticated preview or staging NewsCraft app reports both app and
+   gateway ready through `/api/health?capabilities=1`.
+4. A browser sends a normal chat through the NewsCraft app, receives a streamed
+   reply, and reloads the same persisted answer.
+5. A current-news request reads source pages, records resolvable citations, and
+   surfaces a clear failure when retrieval is unavailable.
+6. Two different fixture or staging accounts cannot observe each other's
+   history, files, memory, skills, browser profile, jobs, processes, or active
+   requests. Repeat after a Hermes restart.
+7. A direct loopback `/ready` request is treated only as a prerequisite. It
+   cannot substitute for the authenticated app boundary in steps 3 through 6.
+8. Vercel sensitive variables are treated as write-only. A blank value from a
+   pull or inspection command is not evidence that the variable is absent.
+9. No check targets Hydra or any personal Hermes home, process, token, profile,
+   workspace, browser data, or state.
 
 ---
 

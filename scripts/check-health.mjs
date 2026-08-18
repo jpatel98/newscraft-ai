@@ -7,6 +7,10 @@ const expectKind = args.expect || process.env.HEALTH_EXPECT || 'generic';
 const retries = intValue(args.retries || process.env.HEALTH_RETRIES, 30);
 const delayMs = intValue(args.delayMs || process.env.HEALTH_DELAY_MS, 1000);
 const timeoutMs = intValue(args.timeoutMs || process.env.HEALTH_TIMEOUT_MS, 3000);
+const readiness =
+	expectKind === 'hermes'
+		? await import('../packages/shared/dist/hermes-readiness.js')
+		: null;
 
 if (!url) {
 	console.error('Usage: node scripts/check-health.mjs --url <url> [--expect ui|hermes|generic]');
@@ -76,24 +80,8 @@ async function probe(target, options) {
 function expectedShapeOk(body, kind) {
 	if (!body || body.ok !== true) return false;
 	if (kind === 'hermes') {
-		const tools = Array.isArray(body.tools) ? body.tools : [];
-		const capabilities = body.capabilities || {};
-		return (
-			body.service === 'newscraft-hermes-chat' &&
-			body.toolset === 'hermes-acp' &&
-			body.runtime?.endpointMode === 'explicit' &&
-			tools.includes('browser_navigate') &&
-			tools.includes('browser_snapshot') &&
-			capabilities.standard === true &&
-			capabilities.browser === true &&
-			capabilities.webResearch === true &&
-			capabilities.terminal === true &&
-			capabilities.files === true &&
-			capabilities.codeExecution === true &&
-			capabilities.delegation === true &&
-			capabilities.skills === true &&
-			capabilities.memory === true
-		);
+		if (!readiness) return false;
+		return readiness.assessHermesReadiness(body).ok;
 	}
 	if (kind === 'ui') {
 		if (body.service !== 'newscraft-ui') return false;
@@ -114,6 +102,10 @@ function healthHeaders(kind) {
 
 function explainFailure(body, kind) {
 	if (!body) return '';
+	if (kind === 'hermes') {
+		if (!readiness) return 'Hermes readiness evaluator is unavailable';
+		return readiness.describeHermesReadiness(readiness.assessHermesReadiness(body));
+	}
 	if (body.ok !== true) return body.error || body.gateway?.body || body.app?.error || 'health returned ok:false';
 	if (!expectedShapeOk(body, kind)) return `health JSON did not match expected ${kind} shape`;
 	return '';

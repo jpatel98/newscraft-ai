@@ -2,7 +2,9 @@ import { env } from '$env/dynamic/private';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import {
-	HERMES_TOOLSET,
+	assessHermesReadiness,
+	describeHermesReadiness,
+	NEWSCRAFT_HERMES_SERVICE,
 	type GatewayChatCompletionRequest,
 	type GatewayChatMessage,
 	type GatewayContent,
@@ -10,7 +12,8 @@ import {
 	type HermesAguiMessage,
 	type HermesContextEntry,
 	type HermesRunInput,
-	type RetrievalProvenance
+	type RetrievalProvenance,
+	type HermesReadinessAssessment
 } from '@newscraft/shared';
 
 export type AgentContentPart = GatewayContentPart;
@@ -25,6 +28,7 @@ export interface GatewayHealth {
 	url: string;
 	json: unknown | null;
 	service: string | null;
+	readiness: HermesReadinessAssessment | null;
 }
 
 export interface HermesRequestOptions {
@@ -73,7 +77,6 @@ interface BuiltRunInput {
 }
 
 const DEFAULT_MODEL = 'hermes-chat';
-const SERVICE_NAME = 'newscraft-hermes-chat';
 const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
 const CITATION_SOURCE_TYPES = new Set([
 	'official',
@@ -900,8 +903,7 @@ export async function streamChatCompletion(
 	const requireWebExtraction = opts.requireWebExtraction === true;
 	const health = await gatewayHealth();
 	if (!health.ok) {
-		if (requireWebExtraction) throw webExtractionReadinessError(health);
-		throw hermesIsolationReadinessError(health);
+		throw hermesReadinessError(health, requireWebExtraction);
 	}
 	const run = buildRunInput(
 		body,
@@ -923,33 +925,35 @@ export async function streamChatCompletion(
 	});
 }
 
-function webExtractionReadinessError(health: GatewayHealth): Error {
+function hermesReadinessError(health: GatewayHealth, requireWebExtraction: boolean): Error {
 	if (!health.status) {
 		return new Error('NewsCraft Hermes readiness check did not respond.');
 	}
-	if (health.status !== 200 || !health.json) {
+	if (!health.json) {
 		return new Error(`NewsCraft Hermes readiness check failed (${health.status}).`);
 	}
-	const value = objectValue(health.json);
-	const capabilities = objectValue(value?.capabilities);
-	const extraction = objectValue(capabilities?.webExtraction);
-	if (!extraction) {
-		return new Error('NewsCraft web extraction is not configured on the Hermes service.');
+	const failures = health.readiness?.failures ?? [];
+	const preferred = requireWebExtraction
+		? failures.find((failure) =>
+				['web_extraction', 'lead_verification'].includes(failure.code)
+			) ?? failures.find((failure) => failure.code !== 'response') ?? failures[0]
+		: failures.find((failure) => failure.code !== 'response') ?? failures[0];
+	if (preferred) {
+		if (preferred.code === 'web_extraction') {
+			return new Error('NewsCraft web extraction is not configured or ready on the Hermes service.');
+		}
+		if (preferred.code === 'lead_verification') {
+			return new Error('NewsCraft lead verification is not configured or ready on the Hermes service.');
+		}
+		if (preferred.code === 'account_isolation') {
+			return new Error('NewsCraft Hermes account isolation is not ready.');
+		}
+		return new Error(`NewsCraft Hermes readiness contract failed: ${preferred.contract}.`);
 	}
-	if (extraction.configured !== true) {
-		return new Error('NewsCraft web extraction is not ready on the Hermes service.');
-	}
-	return new Error(`NewsCraft Hermes readiness check failed (${health.status || 'unavailable'}).`);
-}
-
-function hermesIsolationReadinessError(health: GatewayHealth): Error {
-	if (!health.status) {
-		return new Error('NewsCraft Hermes readiness check did not respond.');
-	}
-	if (health.status !== 200 || !health.json) {
+	if (health.status !== 200) {
 		return new Error(`NewsCraft Hermes readiness check failed (${health.status}).`);
 	}
-	return new Error('NewsCraft Hermes account isolation is not ready.');
+	return new Error('NewsCraft Hermes readiness contract failed.');
 }
 
 /** Short side calls use the same Hermes run path. No second endpoint exists. */
@@ -992,8 +996,9 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			status: 0,
 			body: 'Hermes is not configured. Set NEWSCRAFT_HERMES_URL.',
 			json: null,
-			service: SERVICE_NAME,
-			url: ''
+			service: NEWSCRAFT_HERMES_SERVICE,
+			url: '',
+			readiness: null
 		};
 	}
 	const token = (env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
@@ -1003,8 +1008,9 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			status: 0,
 			body: 'Hermes authentication is not configured. Set NEWSCRAFT_HERMES_API_TOKEN.',
 			json: null,
-			service: SERVICE_NAME,
-			url: configuredUrl
+			service: NEWSCRAFT_HERMES_SERVICE,
+			url: configuredUrl,
+			readiness: null
 		};
 	}
 	try {
@@ -1015,53 +1021,17 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 		const body = await response.text();
 		const parsed = parseJson(body);
 		const value = objectValue(parsed);
-		const tools = Array.isArray(value?.tools)
-			? value.tools.filter((tool): tool is string => typeof tool === 'string')
-			: [];
-		const runtime = objectValue(value?.runtime);
-		const capabilities = objectValue(value?.capabilities);
-		const webExtraction = objectValue(capabilities?.webExtraction);
-		const accountIsolation = objectValue(capabilities?.accountIsolation);
-		const requiredCapabilities = [
-			'browser',
-			'webResearch',
-			'terminal',
-			'files',
-			'codeExecution',
-			'delegation',
-			'skills',
-			'memory'
-		];
-		const reportedOk =
-			value?.ok === true &&
-			value.service === SERVICE_NAME &&
-			value.toolset === HERMES_TOOLSET &&
-			tools.includes('browser_navigate') &&
-			tools.includes('browser_snapshot') &&
-			Boolean(stringValue(runtime?.provider)) &&
-			Boolean(stringValue(runtime?.model)) &&
-			runtime?.endpointMode === 'explicit' &&
-			capabilities?.standard === true &&
-			requiredCapabilities.every((name) => capabilities?.[name] === true) &&
-			accountIsolation?.tenantHeader === 'x-newscraft-tenant-key' &&
-			accountIsolation?.contextLocalHome === true &&
-			accountIsolation?.stableTaskKey === true &&
-			accountIsolation?.persistentDockerWorkspace === true &&
-			accountIsolation?.isolatedBrowserProfiles === true &&
-			webExtraction?.configured === true &&
-			webExtraction.backend === 'newscraft-local' &&
-			webExtraction.archiveProvider === 'wayback' &&
-			webExtraction.tool === true &&
-			webExtraction.leadVerificationTool === true &&
-			objectValue(capabilities?.webLeadVerification)?.configured === true &&
-			objectValue(capabilities?.webLeadVerification)?.bounded === true;
+		const readiness = assessHermesReadiness(parsed);
 		return {
-			ok: response.ok && reportedOk,
+			ok: response.ok && readiness.ok,
 			status: response.status,
-			body,
+			body: response.ok
+				? describeHermesReadiness(readiness)
+				: `${describeHermesReadiness(readiness)} Endpoint returned HTTP ${response.status}.`,
 			json: parsed,
-			service: stringValue(value?.service) || SERVICE_NAME,
-			url: configuredUrl
+			service: stringValue(value?.service) || NEWSCRAFT_HERMES_SERVICE,
+			url: configuredUrl,
+			readiness
 		};
 	} catch (error) {
 		return {
@@ -1069,8 +1039,9 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			status: 0,
 			body: describeGatewayError(error),
 			json: null,
-			service: SERVICE_NAME,
-			url: configuredUrl
+			service: NEWSCRAFT_HERMES_SERVICE,
+			url: configuredUrl,
+			readiness: null
 		};
 	}
 }
