@@ -8,6 +8,19 @@ const threadSource = readFileSync(
 );
 
 	describe('chat failure retry UI', () => {
+	it('subscribes to a loaded durable run on refresh without posting a new run', () => {
+		const connectStart = pageSource.indexOf('const connect = async () => {');
+		const connectEnd = pageSource.indexOf('\n\t\t\t\t};', connectStart);
+		const connectSource = pageSource.slice(connectStart, connectEnd);
+
+		expect(connectSource).toContain('if (!attachedRun)');
+		expect(connectSource).toContain('await streamChat(requestArgs, callbacks);');
+		expect(connectSource).toContain('await subscribeDurableRun(activeRunId as string, activeRunCursor, callbacks);');
+		expect(pageSource).toContain('data.durableRun as DurableRunData');
+		expect(connectSource.indexOf('await streamChat')).toBeLessThan(
+			connectSource.indexOf('await subscribeDurableRun')
+		);
+	});
 	it('renders safe stream failures without raw thrown details', () => {
 		expect(pageSource).toContain(
 			"import { streamFailureMessage, type StreamArgs } from '$lib/client/stream';"

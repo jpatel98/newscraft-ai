@@ -19,6 +19,7 @@ from hermes_chat.service import (
     _runtime_config,
     _set_iteration_limit,
     _startup_tool_names,
+    create_app,
     prepare_runtime,
     settings_from_env,
 )
@@ -106,6 +107,88 @@ class HermesChatServiceTests(unittest.TestCase):
                 client.get("/", headers={"host": "attacker.example"}).status_code,
                 400,
             )
+
+    def test_durable_routes_accept_http_requests_and_forward_bindings(self) -> None:
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from hermes_chat import service as service_module
+
+        with tempfile.TemporaryDirectory() as root:
+            settings = SimpleNamespace(
+                host="127.0.0.1",
+                port=8768,
+                session_token="s" * 32,
+                public_host=None,
+                hermes_home=Path(root) / "home",
+                workspace=Path(root) / "workspace",
+                model_provider="test-provider",
+                model="test-model",
+                model_base_url="http://127.0.0.1:8767/v1",
+                model_api_key="test-key",
+                model_api_mode=None,
+                max_iterations=25,
+                retrieval=SimpleNamespace(),
+                run_api_url="https://newscraft.test/api/internal/hermes/runs",
+                run_api_token="run-token",
+                internal_agui_url="http://127.0.0.1:8768/",
+            )
+            worker = SimpleNamespace(
+                start=AsyncMock(return_value={"accepted": True, "run_id": "run-1", "state": "queued"}),
+                cancel=AsyncMock(return_value={"accepted": True, "run_id": "run-1", "state": "cancel_requested"}),
+                recover=AsyncMock(),
+                close=AsyncMock(),
+            )
+            import agui_adapter.server as agui_server
+            import hermes_cli.plugins as hermes_plugins
+            import model_tools
+
+            with patch.object(service_module, "prepare_runtime"), \
+                patch.object(service_module, "_disable_shared_delegation_recovery"), \
+                patch.object(service_module, "_standard_auxiliary_tasks", return_value=set()), \
+                patch.object(service_module, "_write_runtime_config", return_value={}), \
+                patch.object(service_module, "_enable_tenant_cron_tool"), \
+                patch.object(service_module, "_install_tenant_runtime"), \
+                patch.object(service_module, "_install_iteration_limit"), \
+                patch.object(service_module, "_install_public_host_alias"), \
+                patch.object(service_module, "_startup_tool_names", return_value=["web_extract", "cronjob"]), \
+                patch.object(service_module, "_browser_capability_ready", return_value=True), \
+                patch.object(service_module, "retrieval_readiness", return_value={"configured": True}), \
+                patch.object(service_module, "DurableRunWorker", return_value=worker), \
+                patch.object(hermes_plugins, "discover_plugins"), \
+                patch.object(hermes_plugins, "get_plugin_auxiliary_tasks", return_value=[]), \
+                patch.object(agui_server, "create_app", return_value=FastAPI()), \
+                patch.object(model_tools, "get_tool_definitions", return_value=[]):
+                app = create_app(settings)
+
+            headers = {
+                "authorization": f"Bearer {settings.session_token}",
+                "x-newscraft-tenant-key": "tenant-key-1",
+            }
+            with TestClient(app) as client:
+                start = client.post(
+                    "/v1/runs/start",
+                    headers=headers,
+                    json={
+                        "run_id": "run-1",
+                        "account_id": "account-1",
+                        "tenant_key": "tenant-key-1",
+                        "input": {"runId": "run-1"},
+                    },
+                )
+                cancel = client.post(
+                    "/v1/runs/run-1/cancel",
+                    headers=headers,
+                    json={
+                        "run_id": "run-1",
+                        "account_id": "account-1",
+                        "tenant_key": "tenant-key-1",
+                    },
+                )
+
+            self.assertEqual(start.status_code, 202)
+            self.assertEqual(cancel.status_code, 202)
+            worker.start.assert_awaited_once()
+            worker.cancel.assert_awaited_once_with("run-1", "account-1", "tenant-key-1")
 
     def test_rejects_an_unbounded_iteration_setting(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

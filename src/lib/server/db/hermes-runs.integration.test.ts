@@ -8,6 +8,7 @@ import {
 	createOrGetHermesRun,
 	getActiveHermesRun,
 	getHermesRun,
+	getHermesRunForAssistant,
 	listHermesRunEvents,
 	reclaimQueuedOrExpiredHermesRuns,
 	renewHermesRunLease,
@@ -80,10 +81,42 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		expect(first.run.id).toBe(second.run.id);
 		expect([first.created, second.created].filter(Boolean)).toHaveLength(1);
 		expect(await getHermesRun(accountA, first.run.id)).toMatchObject({
-		id: first.run.id,
-		accountId: accountA,
-		idempotencyKey: seeded.idempotencyKey
+			id: first.run.id,
+			accountId: accountA,
+			idempotencyKey: seeded.idempotencyKey
+		});
 	});
+
+	it('reuses one active assistant run for concurrent resumes with different browser keys', async () => {
+		const seeded = await seed('concurrent-resume');
+		const base = {
+			accountId: accountA,
+			orgId: seeded.conversation.orgId,
+			conversationId: seeded.conversation.id,
+			userMessageId: seeded.user.id,
+			assistantMessageId: seeded.assistant.id,
+			tenantKey: `tenant-${accountA}`,
+			sessionId: `session-${seeded.conversation.id}`,
+			inputJson: '{}'
+		} as const;
+		const original = await createOrGetHermesRun({
+			...base,
+			idempotencyKey: 'resume-original',
+			seededCitationsJson: '[]'
+		});
+
+		const [firstResume, secondResume] = await Promise.all([
+			createOrGetHermesRun({ ...base, idempotencyKey: 'resume-browser-a' }),
+			createOrGetHermesRun({ ...base, idempotencyKey: 'resume-browser-b' })
+		]);
+
+		expect(firstResume.created).toBe(false);
+		expect(secondResume.created).toBe(false);
+		expect(firstResume.run.id).toBe(original.run.id);
+		expect(secondResume.run.id).toBe(original.run.id);
+		expect((await getHermesRunForAssistant(accountA, seeded.conversation.id, seeded.assistant.id))?.id).toBe(
+			original.run.id
+		);
 	});
 
 	it('appends ordered events atomically and advances the bounded answer snapshot', async () => {
@@ -117,6 +150,19 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 	it('denies cross-account reads, callbacks, and cancellation', async () => {
 		const { run } = await createRun('cross-account');
 		expect(await getHermesRun(accountB, run.id)).toBeNull();
+		await expect(
+			createOrGetHermesRun({
+				accountId: accountB,
+				orgId: run.orgId,
+				conversationId: run.conversationId,
+				userMessageId: run.userMessageId,
+				assistantMessageId: run.assistantMessageId,
+				idempotencyKey: 'cross-account-create',
+				tenantKey: `tenant-${accountB}`,
+				sessionId: 'cross-account-session',
+				inputJson: '{}'
+			})
+		).rejects.toMatchObject({ code: 'not_found' });
 		await expect(
 			appendHermesRunEvent(accountB, run.id, 'worker-a', 'wrong', {
 				eventType: 'run.started',

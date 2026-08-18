@@ -247,43 +247,89 @@ export async function createOrGetHermesRun(
 	const seededCitationsJson = boundedJson(input.seededCitationsJson || '[]', 'seededCitationsJson');
 	const now = Date.now();
 	const id = input.id?.trim() || newId();
-	const [inserted] = await db
-		.insert(hermesRuns)
-		.values({
-			id,
-			accountId,
-			orgId: input.orgId,
-			conversationId,
-			userMessageId: input.userMessageId,
-			assistantMessageId,
-			idempotencyKey,
-			tenantKey,
-			sessionId,
-			inputJson,
-			seededCitationsJson,
-			state: 'queued',
-			answerText: '',
-			sourcesJson: '[]',
-			citationsJson: seededCitationsJson,
-			toolsJson: '[]',
-			cursor: 0,
-			workerCursor: 0,
-			errorMessage: null,
-			cancelRequestedAt: null,
-			leaseOwner: null,
-			leaseToken: null,
-			leaseExpiresAt: null,
-			createdAt: now,
-			startedAt: null,
-			updatedAt: now,
-			completedAt: null
-		})
-		.onConflictDoNothing({ target: [hermesRuns.accountId, hermesRuns.idempotencyKey] })
-		.returning();
-	if (inserted) return { run: inserted, created: true };
-	const existing = await getHermesRun(input.accountId, idempotencyKey, 'idempotency');
-	if (!existing) throw new HermesRunRepositoryError('not_found', 'run disappeared after idempotent insert');
-	return { run: existing, created: false };
+	return db.transaction(async (tx: any) => {
+		// The assistant placeholder is the stable identity for a resume. Lock it
+		// before checking active runs so concurrent browser retries cannot create
+		// two jobs for the same persisted answer row. The conversation join keeps
+		// the account binding inside the same transaction.
+		const boundAssistant = await tx.execute(
+			sql`SELECT messages.id FROM messages
+				JOIN conversations ON conversations.id = messages.conversation_id
+				WHERE messages.id = ${assistantMessageId}
+					AND messages.conversation_id = ${conversationId}
+					AND conversations.account_id = ${accountId}
+				FOR UPDATE OF messages`
+		);
+		if (!boundAssistant.length) {
+			throw new HermesRunRepositoryError('not_found', 'assistant message is not owned by account');
+		}
+		if (input.userMessageId) {
+			const boundUser = await tx.execute(
+				sql`SELECT messages.id FROM messages
+					JOIN conversations ON conversations.id = messages.conversation_id
+					WHERE messages.id = ${input.userMessageId}
+						AND messages.conversation_id = ${conversationId}
+						AND conversations.account_id = ${accountId}`
+			);
+			if (!boundUser.length) throw new HermesRunRepositoryError('not_found', 'user message is not owned by account');
+		}
+		const [active] = (await tx
+			.select()
+			.from(hermesRuns)
+			.where(
+				and(
+					eq(hermesRuns.accountId, accountId),
+					eq(hermesRuns.conversationId, conversationId),
+					eq(hermesRuns.assistantMessageId, assistantMessageId),
+					inArray(hermesRuns.state, HERMES_ACTIVE_STATES)
+				)
+			)
+			.orderBy(desc(hermesRuns.updatedAt))
+			.limit(1)) as HermesRunRecord[];
+		if (active) return { run: active, created: false };
+
+		const [inserted] = await tx
+			.insert(hermesRuns)
+			.values({
+				id,
+				accountId,
+				orgId: input.orgId,
+				conversationId,
+				userMessageId: input.userMessageId,
+				assistantMessageId,
+				idempotencyKey,
+				tenantKey,
+				sessionId,
+				inputJson,
+				seededCitationsJson,
+				state: 'queued',
+				answerText: '',
+				sourcesJson: '[]',
+				citationsJson: seededCitationsJson,
+				toolsJson: '[]',
+				cursor: 0,
+				workerCursor: 0,
+				errorMessage: null,
+				cancelRequestedAt: null,
+				leaseOwner: null,
+				leaseToken: null,
+				leaseExpiresAt: null,
+				createdAt: now,
+				startedAt: null,
+				updatedAt: now,
+				completedAt: null
+			})
+			.onConflictDoNothing({ target: [hermesRuns.accountId, hermesRuns.idempotencyKey] })
+			.returning();
+		if (inserted) return { run: inserted, created: true };
+		const [existing] = (await tx
+			.select()
+			.from(hermesRuns)
+			.where(and(eq(hermesRuns.accountId, accountId), eq(hermesRuns.idempotencyKey, idempotencyKey)))
+			.limit(1)) as HermesRunRecord[];
+		if (!existing) throw new HermesRunRepositoryError('not_found', 'run disappeared after idempotent insert');
+		return { run: existing, created: false };
+	});
 }
 
 /**

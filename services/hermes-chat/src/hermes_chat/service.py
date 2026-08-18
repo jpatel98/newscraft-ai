@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
+from fastapi import Request
+
 from . import HERMES_COMMIT
 from .contracts import CRON_TOOLSET, HERMES_TOOLSET
 from .durable import DurableRunError, DurableRunWorker
@@ -1275,7 +1277,7 @@ def create_app(settings: Settings | None = None):
         )
 
     @app.post("/v1/runs/start")
-    async def durable_start(request: Any):
+    async def durable_start(request: Request):
         from fastapi.responses import JSONResponse
 
         if not durable_authorized(request):
@@ -1293,7 +1295,7 @@ def create_app(settings: Settings | None = None):
             return JSONResponse({"detail": "durable Hermes start failed"}, status_code=503)
 
     @app.post("/v1/runs/{run_id}/cancel")
-    async def durable_cancel(run_id: str, request: Any):
+    async def durable_cancel(run_id: str, request: Request):
         from fastapi.responses import JSONResponse
 
         if not durable_authorized(request):
