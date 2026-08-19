@@ -26,7 +26,15 @@ Each request uses Hermes's native iteration budget. The default is 25 model turn
 
 ## Web extraction
 
-NewsCraft enables the `newscraft-local` Hermes web-extract backend. It uses one bounded direct HTTP request for each candidate page. It extracts article text and page timestamps without a paid API key.
+NewsCraft can select either its keyless local web path or Exa explicitly with
+`NEWSCRAFT_HERMES_WEB_PROVIDER`. When set to `exa`, Hermes's native `web-exa`
+plugin handles `web_search` and direct `web_extract` calls. Exa returns result
+URLs, publication metadata, and page contents. The service refuses to start
+without `EXA_API_KEY`; it does not silently select another paid provider.
+
+The `newscraft-local` backend remains enabled for `verify_this_lead`. It uses
+one bounded direct HTTP request for each candidate page and extracts article
+text and page timestamps without a paid API key.
 
 When a live page is blocked or unreadable, the backend makes one Wayback CDX lookup and one Wayback replay request. It records the original URL, archive URL, capture time, page time, retrieval time, and fallback reason. It does not bypass challenges, CAPTCHAs, or paywalls. It does not use archive.today.
 
@@ -47,7 +55,18 @@ Use a separate Linux account, Hermes home, workspace, token, model key, and proc
 
 The model endpoint is explicit. Remote endpoints must use HTTPS. The model provider and model are also explicit. The service writes a standard Hermes `config.yaml` into its dedicated Hermes home. Main calls and Hermes auxiliary calls use the same endpoint. No second model endpoint is configured.
 
-DDGS is available for low-cost search. It needs no API key. The standard local Hermes browser reads public pages with headless Chromium.
+DDGS remains the explicit keyless search provider when
+`NEWSCRAFT_HERMES_WEB_PROVIDER=newscraft-local`.
+
+Browser automation is also explicit. `NEWSCRAFT_HERMES_BROWSER_PROVIDER=local`
+uses the standard local headless Chromium profile. Setting it to `browser-use`
+enables Hermes's native `browser-browser-use` plugin and requires
+`BROWSER_USE_API_KEY`. Browser Use supplies only a raw cloud browser session;
+Hermes remains the only agent and model. NewsCraft's server-derived task key
+continues to own the browser session. Browser Use sessions are ephemeral and
+do not provide an authenticated social-media profile by themselves.
+If Browser Use is unavailable, the NewsCraft tenant run fails clearly. It does
+not fall back to local Chromium or a caller-selected CDP endpoint.
 
 ## Local install
 
@@ -67,6 +86,19 @@ Copy `.env.example` to a private environment file. For a local OpenAI-compatible
 ```bash
 /absolute/path/to/newscraft-hermes-venv/bin/newscraft-hermes-chat
 ```
+
+For Exa plus raw Browser Use cloud sessions, set these values only in the
+private service environment:
+
+```text
+NEWSCRAFT_HERMES_WEB_PROVIDER=exa
+EXA_API_KEY=<server-only Exa key>
+NEWSCRAFT_HERMES_BROWSER_PROVIDER=browser-use
+BROWSER_USE_API_KEY=<server-only Browser Use key>
+```
+
+Do not put these values in the browser, Vercel public variables, generated
+tenant configuration, or a personal Hermes home.
 
 For the repository start command, install the runtime at `services/hermes-chat/.venv`, save the service values in `services/hermes-chat/.env`, and save the two NewsCraft server values in the root `.env.local`. Then run:
 
@@ -92,7 +124,7 @@ The supplied systemd unit binds Hermes to loopback. If NewsCraft stays on Vercel
 
 Before a cutover, verify all of these gates:
 
-1. `/ready` reports the pinned commit, `hermes-acp`, the configured model endpoint, the iteration budget, and the standard capability groups.
+1. `/ready` reports the pinned commit, `hermes-acp`, the configured model endpoint, the iteration budget, exact tool providers, and the standard capability groups.
 2. A normal chat reply streams and saves.
 3. A live article query uses the standard Hermes browser, reads selected pages, and saves resolvable citations.
 4. A provider failure produces a clear Hermes failure and no second agent request.

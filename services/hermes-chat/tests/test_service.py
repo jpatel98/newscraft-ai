@@ -19,6 +19,7 @@ from hermes_chat.service import (
     _runtime_config,
     _set_iteration_limit,
     _startup_tool_names,
+    _tool_provider_readiness,
     create_app,
     prepare_runtime,
     settings_from_env,
@@ -58,6 +59,33 @@ class HermesChatServiceTests(unittest.TestCase):
         self.assertEqual(settings.model, "test-model")
         self.assertEqual(settings.model_base_url, "http://127.0.0.1:8767/v1")
         self.assertEqual(settings.max_iterations, 25)
+        self.assertEqual(settings.web_provider, "newscraft-local")
+        self.assertEqual(settings.browser_provider, "local")
+
+    def test_requires_provider_keys_for_exa_and_browser_use(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            environment = self._environment(temp_dir)
+            environment.update(
+                {
+                    "NEWSCRAFT_HERMES_WEB_PROVIDER": "exa",
+                    "NEWSCRAFT_HERMES_BROWSER_PROVIDER": "browser-use",
+                }
+            )
+            with patch.dict(os.environ, environment, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "EXA_API_KEY"):
+                    settings_from_env()
+
+            environment["EXA_API_KEY"] = "exa-test-key"
+            with patch.dict(os.environ, environment, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "BROWSER_USE_API_KEY"):
+                    settings_from_env()
+
+            environment["BROWSER_USE_API_KEY"] = "browser-use-test-key"
+            with patch.dict(os.environ, environment, clear=True):
+                settings = settings_from_env()
+
+        self.assertEqual(settings.web_provider, "exa")
+        self.assertEqual(settings.browser_provider, "browser-use")
 
     def test_accepts_a_bounded_iteration_setting(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -134,6 +162,8 @@ class HermesChatServiceTests(unittest.TestCase):
                 model_api_key="test-key",
                 model_api_mode=None,
                 max_iterations=25,
+                web_provider="newscraft-local",
+                browser_provider="local",
                 retrieval=SimpleNamespace(),
                 run_api_url="https://newscraft.test/api/internal/hermes/runs",
                 run_api_token="run-token",
@@ -161,6 +191,12 @@ class HermesChatServiceTests(unittest.TestCase):
                 patch.object(service_module, "_startup_tool_names", return_value=["web_extract", "cronjob"]), \
                 patch.object(service_module, "_browser_capability_ready", return_value=True), \
                 patch.object(service_module, "retrieval_readiness", return_value={"configured": True}), \
+                patch.object(service_module, "_tool_provider_readiness", return_value={
+                    "webSearch": {"configured": True},
+                    "webExtract": {"configured": True},
+                    "leadVerification": {"configured": True},
+                    "browser": {"configured": True},
+                }), \
                 patch.object(service_module, "DurableRunWorker", return_value=worker), \
                 patch.object(hermes_plugins, "discover_plugins"), \
                 patch.object(hermes_plugins, "get_plugin_auxiliary_tasks", return_value=[]), \
@@ -217,6 +253,8 @@ class HermesChatServiceTests(unittest.TestCase):
                 model_api_key="test-key",
                 model_api_mode=None,
                 max_iterations=25,
+                web_provider="newscraft-local",
+                browser_provider="local",
                 retrieval=SimpleNamespace(),
                 run_api_url=None,
                 run_api_token=None,
@@ -244,6 +282,12 @@ class HermesChatServiceTests(unittest.TestCase):
                 patch.object(service_module, "_startup_tool_names", return_value=["web_extract", "cronjob"]), \
                 patch.object(service_module, "_browser_capability_ready", return_value=True), \
                 patch.object(service_module, "retrieval_readiness", return_value={"configured": True}), \
+                patch.object(service_module, "_tool_provider_readiness", return_value={
+                    "webSearch": {"configured": True},
+                    "webExtract": {"configured": True},
+                    "leadVerification": {"configured": True},
+                    "browser": {"configured": True},
+                }), \
                 patch.object(service_module, "DurableRunWorker", return_value=worker), \
                 patch.object(hermes_plugins, "discover_plugins"), \
                 patch.object(hermes_plugins, "get_plugin_auxiliary_tasks", return_value=[]), \
@@ -413,6 +457,14 @@ class HermesChatServiceTests(unittest.TestCase):
         self.assertEqual(config["memory"], {"enabled": True, "max_tokens": 2048})
         self.assertEqual(config["skills"], {"disabled": ["operator-only"], "external_dirs": []})
         self.assertEqual(config["plugins"], {"enabled": ["newscraft-web"]})
+        self.assertEqual(
+            config["web"],
+            {
+                "backend": "ddgs",
+                "search_backend": "ddgs",
+                "extract_backend": "newscraft-local",
+            },
+        )
         self.assertEqual(config["fallback_providers"], [])
         self.assertNotIn("fallback_model", config)
         self.assertEqual(config["agui"]["toolsets"], ["hermes-acp", "cronjob_tools"])
@@ -442,6 +494,87 @@ class HermesChatServiceTests(unittest.TestCase):
         self.assertNotIn("sandbox_dir", config["terminal"])
         self.assertEqual(config["browser"]["cloud_provider"], "local")
         self.assertNotIn("cdp_url", config["browser"])
+
+    def test_runtime_config_selects_native_exa_and_raw_browser_use_plugins(self) -> None:
+        config = _runtime_config(
+            {
+                "plugins": {"enabled": ["operator-plugin"]},
+                "web": {"backend": "tavily"},
+                "browser": {"cloud_provider": "browserbase", "cdp_url": "ws://shared"},
+            },
+            set(),
+            None,
+            web_provider="exa",
+            browser_provider="browser-use",
+        )
+
+        self.assertEqual(
+            config["web"],
+            {
+                "backend": "exa",
+                "search_backend": "exa",
+                "extract_backend": "exa",
+            },
+        )
+        self.assertEqual(
+            config["plugins"]["enabled"],
+            ["newscraft-web", "web-exa", "browser-browser-use"],
+        )
+        self.assertEqual(config["browser"]["cloud_provider"], "browser-use")
+        self.assertNotIn("cdp_url", config["browser"])
+
+    def test_provider_readiness_fails_closed_on_an_unexpected_backend(self) -> None:
+        web_tools = ModuleType("tools.web_tools")
+        web_tools._get_search_backend = lambda: "ddgs"
+        web_tools._get_extract_backend = lambda: "exa"
+        browser_tool = ModuleType("tools.browser_tool")
+        browser_tool._get_cloud_provider = lambda: SimpleNamespace(name="browser-use")
+        tools_package = ModuleType("tools")
+        tools_package.__path__ = []
+        settings = SimpleNamespace(web_provider="exa", browser_provider="browser-use")
+
+        with patch.dict(
+            sys.modules,
+            {
+                "tools": tools_package,
+                "tools.web_tools": web_tools,
+                "tools.browser_tool": browser_tool,
+            },
+        ):
+            readiness = _tool_provider_readiness(settings)
+
+        self.assertFalse(readiness["webSearch"]["configured"])
+        self.assertTrue(readiness["webExtract"]["configured"])
+        self.assertTrue(readiness["browser"]["configured"])
+
+    def test_provider_readiness_accepts_explicit_local_search_and_extract_backends(self) -> None:
+        web_tools = ModuleType("tools.web_tools")
+        web_tools._get_search_backend = lambda: "ddgs"
+        web_tools._get_extract_backend = lambda: "newscraft-local"
+        browser_tool = ModuleType("tools.browser_tool")
+        browser_tool._get_cloud_provider = lambda: None
+        tools_package = ModuleType("tools")
+        tools_package.__path__ = []
+        settings = SimpleNamespace(
+            web_provider="newscraft-local",
+            browser_provider="local",
+        )
+
+        with patch.dict(
+            sys.modules,
+            {
+                "tools": tools_package,
+                "tools.web_tools": web_tools,
+                "tools.browser_tool": browser_tool,
+            },
+        ):
+            readiness = _tool_provider_readiness(settings)
+
+        self.assertEqual(readiness["webSearch"]["requested"], "ddgs")
+        self.assertTrue(readiness["webSearch"]["configured"])
+        self.assertEqual(readiness["webExtract"]["requested"], "newscraft-local")
+        self.assertTrue(readiness["webExtract"]["configured"])
+        self.assertTrue(readiness["browser"]["configured"])
 
     def test_prepare_runtime_clears_inherited_docker_escape_hatches(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

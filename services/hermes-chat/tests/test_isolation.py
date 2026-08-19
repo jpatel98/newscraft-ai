@@ -595,6 +595,38 @@ class HermesHookScopeTests(unittest.TestCase):
         self.assertEqual(len(first["session_name"]), 9)
         self.assertEqual(socket_tmpdir, "/tmp")
 
+    def test_browser_use_mode_fails_closed_instead_of_creating_a_local_session(self) -> None:
+        runtime = self._runtime(Path(tempfile.mkdtemp()))
+        self.addCleanup(lambda: shutil.rmtree(runtime.hermes_home.parents[2], ignore_errors=True))
+
+        browser_tool = ModuleType("tools.browser_tool")
+        browser_tool._build_browser_env = lambda: {"PATH": "/bin"}
+        browser_tool._create_local_session = lambda _task_id: {
+            "session_name": "must-not-run",
+            "features": {"local": True},
+        }
+        browser_tool._socket_safe_tmpdir = lambda: "/tmp"
+        tools_package = ModuleType("tools")
+        tools_package.__path__ = []
+        tools_package.browser_tool = browser_tool
+        with patch.dict(
+            sys.modules,
+            {"tools": tools_package, "tools.browser_tool": browser_tool},
+        ):
+            _install_browser_profile_scope("browser-use")
+            with tenant_run_scope(
+                runtime,
+                thread_id="thread-a",
+                run_id="run-a",
+                home_override=lambda _path: nullcontext(),
+                session_scope=lambda _run: nullcontext(),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "local browser fallback is disabled",
+                ):
+                    browser_tool._create_local_session("tenant-task")
+
     def test_registry_and_agent_hooks_force_the_same_tenant_task(self) -> None:
         runtime = self._runtime(Path(tempfile.mkdtemp()))
         self.addCleanup(lambda: shutil.rmtree(runtime.hermes_home.parents[2], ignore_errors=True))

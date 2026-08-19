@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 _MODEL_REF = "${env:NEWSCRAFT_HERMES_MODEL}"
 _MODEL_BASE_URL_REF = "${env:NEWSCRAFT_HERMES_MODEL_BASE_URL}"
 _MODEL_API_KEY_REF = "${env:NEWSCRAFT_HERMES_MODEL_API_KEY}"
+_LOCAL_WEB_PROVIDER = "newscraft-local"
+_EXA_WEB_PROVIDER = "exa"
+_LOCAL_BROWSER_PROVIDER = "local"
+_BROWSER_USE_PROVIDER = "browser-use"
 
 
 @dataclass(frozen=True)
@@ -55,6 +59,8 @@ class Settings:
     model_api_key: str
     model_api_mode: str | None
     max_iterations: int
+    web_provider: str
+    browser_provider: str
     retrieval: RetrievalConfig
     run_api_url: str | None
     run_api_token: str | None
@@ -65,6 +71,14 @@ def _required(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
         raise RuntimeError(f"{name} is required")
+    return value
+
+
+def _provider_setting(name: str, default: str, allowed: set[str]) -> str:
+    value = os.environ.get(name, default).strip().lower() or default
+    if value not in allowed:
+        choices = ", ".join(sorted(allowed))
+        raise RuntimeError(f"{name} must be one of: {choices}")
     return value
 
 
@@ -158,6 +172,20 @@ def settings_from_env() -> Settings:
     run_api_token = os.environ.get("NEWSCRAFT_HERMES_RUN_API_TOKEN", "").strip() or None
     if bool(run_api_url) != bool(run_api_token):
         raise RuntimeError("NEWSCRAFT_HERMES_RUN_API_URL and NEWSCRAFT_HERMES_RUN_API_TOKEN must be set together")
+    web_provider = _provider_setting(
+        "NEWSCRAFT_HERMES_WEB_PROVIDER",
+        _LOCAL_WEB_PROVIDER,
+        {_LOCAL_WEB_PROVIDER, _EXA_WEB_PROVIDER},
+    )
+    browser_provider = _provider_setting(
+        "NEWSCRAFT_HERMES_BROWSER_PROVIDER",
+        _LOCAL_BROWSER_PROVIDER,
+        {_LOCAL_BROWSER_PROVIDER, _BROWSER_USE_PROVIDER},
+    )
+    if web_provider == _EXA_WEB_PROVIDER:
+        _required("EXA_API_KEY")
+    if browser_provider == _BROWSER_USE_PROVIDER:
+        _required("BROWSER_USE_API_KEY")
     return Settings(
         host=os.environ.get("HERMES_AGUI_HOST", "127.0.0.1").strip() or "127.0.0.1",
         port=port,
@@ -171,6 +199,8 @@ def settings_from_env() -> Settings:
         model_api_key=_required("NEWSCRAFT_HERMES_MODEL_API_KEY"),
         model_api_mode=os.environ.get("NEWSCRAFT_HERMES_MODEL_API_MODE", "").strip() or None,
         max_iterations=_integer_setting("NEWSCRAFT_HERMES_MAX_ITERATIONS", 25, 4, 90),
+        web_provider=web_provider,
+        browser_provider=browser_provider,
         retrieval=RetrievalConfig.from_env(),
         run_api_url=run_api_url,
         run_api_token=run_api_token,
@@ -253,6 +283,8 @@ def _runtime_config(
     auxiliary_tasks: Iterable[str],
     api_mode: str | None,
     retrieval_enabled: bool = True,
+    web_provider: str = _LOCAL_WEB_PROVIDER,
+    browser_provider: str = _LOCAL_BROWSER_PROVIDER,
 ) -> dict[str, Any]:
     """Build standard Hermes configuration for one explicit model endpoint."""
     config = dict(existing)
@@ -295,23 +327,40 @@ def _runtime_config(
     config["skills"] = skills
 
     web = dict(config.get("web") or {})
-    if retrieval_enabled:
-        web["extract_backend"] = PROVIDER_NAME
+    if web_provider == _EXA_WEB_PROVIDER:
+        web.update(
+            {
+                "backend": _EXA_WEB_PROVIDER,
+                "search_backend": _EXA_WEB_PROVIDER,
+                "extract_backend": _EXA_WEB_PROVIDER,
+            }
+        )
     else:
-        web.pop("extract_backend", None)
+        web["backend"] = "ddgs"
+        web["search_backend"] = "ddgs"
+        if retrieval_enabled:
+            web["extract_backend"] = PROVIDER_NAME
+        else:
+            web.pop("extract_backend", None)
     config["web"] = web
 
     plugins = dict(config.get("plugins") or {})
     # Do not inherit operator plugins from a personal Hermes installation.
-    # Only the NewsCraft retrieval plugin is part of this service contract.
-    plugins["enabled"] = ["newscraft-web"] if retrieval_enabled else []
+    # Only reviewed NewsCraft-selected plugins are part of this service
+    # contract. Do not inherit an operator's personal plugin list.
+    enabled_plugins = ["newscraft-web"] if retrieval_enabled else []
+    if web_provider == _EXA_WEB_PROVIDER:
+        enabled_plugins.append("web-exa")
+    if browser_provider == _BROWSER_USE_PROVIDER:
+        enabled_plugins.append("browser-browser-use")
+    plugins["enabled"] = enabled_plugins
     config["plugins"] = plugins
 
     browser = dict(config.get("browser") or {})
-    # Cloud/CDP browser sessions can outlive this process and are not a
-    # durable account-local profile. Use the local browser in the hardened
-    # tenant container and remove any operator-selected CDP endpoint.
-    browser["cloud_provider"] = "local"
+    # The provider is fixed by NewsCraft, never inherited from an operator
+    # profile. A raw Browser Use session still receives Hermes's tenant task
+    # key; caller-selected CDP endpoints remain forbidden.
+    browser["cloud_provider"] = browser_provider
     browser.pop("cdp_url", None)
     config["browser"] = browser
 
@@ -393,6 +442,8 @@ def _write_runtime_config(
         auxiliary_tasks,
         settings.model_api_mode,
         settings.retrieval.enabled,
+        settings.web_provider,
+        settings.browser_provider,
     )
     atomic_config_write(config_path, config, sort_keys=False)
     config_path.chmod(0o600)
@@ -472,6 +523,62 @@ def _browser_capability_ready(tools: set[str]) -> bool:
         return False
 
 
+def _tool_provider_readiness(settings: Settings) -> dict[str, dict[str, object]]:
+    """Resolve the exact active web and browser backends without network I/O."""
+    expected_web_search = (
+        _EXA_WEB_PROVIDER
+        if settings.web_provider == _EXA_WEB_PROVIDER
+        else "ddgs"
+    )
+    expected_web_extract = (
+        _EXA_WEB_PROVIDER
+        if settings.web_provider == _EXA_WEB_PROVIDER
+        else PROVIDER_NAME
+    )
+    web_search_active: str | None = None
+    web_extract_active: str | None = None
+    browser_active: str | None = None
+    try:
+        from tools.web_tools import _get_extract_backend, _get_search_backend
+
+        web_search_active = str(_get_search_backend() or "").strip() or None
+        web_extract_active = str(_get_extract_backend() or "").strip() or None
+    except Exception:
+        logger.exception("Hermes web provider readiness probe failed")
+
+    try:
+        from tools.browser_tool import _get_cloud_provider
+
+        provider = _get_cloud_provider()
+        if provider is None:
+            browser_active = _LOCAL_BROWSER_PROVIDER
+        else:
+            browser_active = str(getattr(provider, "name", "") or "").strip() or None
+    except Exception:
+        logger.exception("Hermes browser provider readiness probe failed")
+
+    return {
+        "webSearch": {
+            "requested": expected_web_search,
+            "active": web_search_active,
+            "configured": web_search_active == expected_web_search,
+        },
+        "webExtract": {
+            "requested": expected_web_extract,
+            "active": web_extract_active,
+            "configured": web_extract_active == expected_web_extract,
+        },
+        "leadVerification": {
+            "requested": PROVIDER_NAME,
+            "active": PROVIDER_NAME,
+            "configured": True,
+        },
+        "browser": {
+            "requested": settings.browser_provider,
+            "active": browser_active,
+            "configured": browser_active == settings.browser_provider,
+        },
+    }
 def _set_iteration_limit(
     agent: Any,
     max_iterations: int,
@@ -626,7 +733,9 @@ def _install_session_context_scope(agui_server: Any) -> None:
         agui_server.set_session_vars = scoped_setter(agui_server.set_session_vars)
 
 
-def _install_browser_profile_scope() -> None:
+def _install_browser_profile_scope(
+    browser_provider: str = _LOCAL_BROWSER_PROVIDER,
+) -> None:
     """Give each tenant's browser subprocess a persistent private profile."""
     try:
         import tools.browser_tool as browser_tool
@@ -689,6 +798,10 @@ def _install_browser_profile_scope() -> None:
         run = current_tenant_run()
         if run is None:
             return original_create_local(task_id, *args, **kwargs)
+        if browser_provider == _BROWSER_USE_PROVIDER:
+            raise RuntimeError(
+                "NewsCraft requires Browser Use for this run; local browser fallback is disabled"
+            )
         # Hermes normally creates a random local session name. A deterministic
         # name keeps the tenant's browser cookies across a service restart,
         # while the tenant home still keeps the profile out of every other
@@ -1180,7 +1293,7 @@ def _install_tenant_runtime(
         agui_server._FORWARD_HEADERS = (*forward_headers, TENANT_HEADER)
     _install_forward_header_scope(agui_server)
     _install_session_context_scope(agui_server)
-    _install_browser_profile_scope()
+    _install_browser_profile_scope(settings.browser_provider)
     _install_session_search_scope()
     _install_prompt_backend_scope()
     _install_process_scope()
@@ -1252,6 +1365,7 @@ def create_app(settings: Settings | None = None):
 
     tools = _startup_tool_names(get_tool_definitions, config)
     retrieval = retrieval_readiness(settings.retrieval)
+    tool_providers = _tool_provider_readiness(settings)
     if not retrieval["configured"]:
         logger.error("NewsCraft web extraction is not ready: %s", retrieval["reason"])
     lead_verification_tool = VERIFY_LEAD_TOOL_NAME in tools
@@ -1337,6 +1451,10 @@ def create_app(settings: Settings | None = None):
             and "cronjob" in tools
             and browser_ready
             and durable_worker.configured
+            and all(
+                bool(provider["configured"])
+                for provider in tool_providers.values()
+            )
         )
         return {
             "ok": ready_ok,
@@ -1351,6 +1469,7 @@ def create_app(settings: Settings | None = None):
                 "endpointMode": "explicit",
                 "maxIterations": settings.max_iterations,
             },
+            "toolProviders": tool_providers,
             "capabilities": {
                 "standard": True,
                 "browser": browser_ready,

@@ -289,7 +289,14 @@ class RetrievalTests(unittest.TestCase):
     def test_runtime_config_explicitly_selects_the_local_extract_backend(self) -> None:
         config = _runtime_config({"web": {"search_backend": "ddgs"}}, set(), None)
 
-        self.assertEqual(config["web"], {"search_backend": "ddgs", "extract_backend": "newscraft-local"})
+        self.assertEqual(
+            config["web"],
+            {
+                "backend": "ddgs",
+                "search_backend": "ddgs",
+                "extract_backend": "newscraft-local",
+            },
+        )
         self.assertIn("newscraft-web", config["plugins"]["enabled"])
 
     def test_plugin_registers_the_provider_and_bounded_verification_tool(self) -> None:
