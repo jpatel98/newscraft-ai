@@ -8,6 +8,7 @@ import {
 	buildAnswerProvenanceBundle,
 	citationRecordsUsedInAnswer
 } from '$lib/utils/tool-metadata';
+import { sanitizeUnresolvedCitationMarkers } from '$lib/utils/stream-events';
 import type { CitationRecord } from '@newscraft/shared';
 import type { PersistedSource, StreamToolCall } from '$lib/utils/stream-events';
 
@@ -547,14 +548,19 @@ export async function appendHermesRunEvent(
 		}
 
 		const nextSnapshot = applyHermesRunEvent(current, eventType, dataJson);
+		const completedCitations =
+			nextSnapshot.state === 'complete'
+				? citationRecordsUsedInAnswer(nextSnapshot.answerText, nextSnapshot.citations)
+				: nextSnapshot.citations;
 		const snapshot =
 			nextSnapshot.state === 'complete'
 				? {
 						...nextSnapshot,
-						citations: citationRecordsUsedInAnswer(
+						answerText: sanitizeUnresolvedCitationMarkers(
 							nextSnapshot.answerText,
-							nextSnapshot.citations
-						)
+							completedCitations
+						),
+						citations: completedCitations
 					}
 				: nextSnapshot;
 		const cursor = current.cursor + 1;

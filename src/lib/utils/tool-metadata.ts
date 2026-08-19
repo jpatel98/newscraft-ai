@@ -393,11 +393,18 @@ function normalizeCitation(value: unknown): CitationRecord | null {
 	const sourceType = rawSourceType && CITATION_SOURCE_TYPES.has(rawSourceType) ? rawSourceType : 'unknown';
 	const documentPage = numberValue(o.documentPage ?? o.document_page ?? o.page);
 	const retrieval = normalizeRetrieval(o.retrieval);
+	const rawDomain = stringValue(o.domain)?.trim();
+	const domain =
+		rawDomain && !/^unknown source$/i.test(rawDomain)
+			? rawDomain
+			: url.startsWith('/api/')
+				? 'Attached document'
+				: domainOf(url);
 	return {
 		citationNumber,
 		title: compactProvenanceString(redactSensitiveText(stringValue(o.title) ?? url)),
 		url,
-		domain: stringValue(o.domain) ?? (url.startsWith('/api/') ? 'Attached document' : domainOf(url)),
+		domain,
 		publicationDate: stringValue(o.publicationDate ?? o.publication_date) ?? null,
 		sourceType,
 		supportingExcerpt: compactProvenanceString(
@@ -607,7 +614,10 @@ export function resolvableCitationRecordForNumber(
 	citations: ReadonlyArray<CitationRecord>,
 	number: number
 ): CitationRecord | null {
-	const matches = citations.filter((citation) => citation.citationNumber === number);
+	const matches = citations
+		.map((citation) => normalizeCitation(citation))
+		.filter((citation): citation is CitationRecord => Boolean(citation))
+		.filter((citation) => citation.citationNumber === number);
 	if (!matches.length) return null;
 	if (!matches.every(isInspectableCitationRecord)) return null;
 	const unique = uniqueCitationRecords(matches);

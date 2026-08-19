@@ -37,8 +37,8 @@ describe('journalist citation UI helpers', () => {
 			citationResolution('Incomplete [1].', [{ ...citation, supportingExcerpt: '' }])
 		).toMatchObject({ allResolved: false, dangling: [1] });
 		expect(
-			citationResolution('Unknown [1].', [{ ...citation, domain: 'Unknown source' }])
-		).toMatchObject({ allResolved: false, dangling: [1] });
+			citationResolution('Recoverable [1].', [{ ...citation, domain: 'Unknown source' }])
+		).toMatchObject({ allResolved: true, dangling: [] });
 	});
 
 	it('returns only complete, uniquely matched citations that appear in the answer', () => {

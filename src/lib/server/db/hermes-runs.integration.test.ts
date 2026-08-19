@@ -258,7 +258,7 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 			citationNumber,
 			title: `Source ${citationNumber}`,
 			url: `https://example.test/source-${citationNumber}`,
-			domain: 'example.test',
+			domain: citationNumber === 3 ? 'Unknown source' : 'example.test',
 			publicationDate: '2026-08-19',
 			sourceType: 'primary',
 			supportingExcerpt: `Evidence ${citationNumber}`
@@ -288,8 +288,29 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		});
 
 		expect(JSON.parse(final.run.citationsJson)).toEqual([expect.objectContaining({ citationNumber: 3 })]);
+		expect(JSON.parse(final.run.citationsJson)[0].domain).toBe('example.test');
 		expect((await getMessages(seeded.conversation.id)).find((message) => message.id === seeded.assistant.id))
 			.toMatchObject({ partial: 0 });
+	});
+
+	it('removes an unresolved marker from a completed durable answer', async () => {
+		const { run, conversation, assistant } = await createRun('dangling-citation');
+		const claimed = await claimHermesRunLease(accountA, run.id, 'worker-a');
+		await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'response.output_text.delta',
+			dataJson: JSON.stringify({ delta: 'This claim has no saved source [3].' }),
+			workerCursor: 1
+		});
+		const final = await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'response.completed',
+			dataJson: '{}',
+			workerCursor: 2
+		});
+
+		expect(final.run.answerText).toBe('This claim has no saved source.');
+		expect((await getMessages(conversation.id)).find((message) => message.id === assistant.id)?.content).toBe(
+			'This claim has no saved source.'
+		);
 	});
 
 	it('denies cross-account reads, callbacks, and cancellation', async () => {
