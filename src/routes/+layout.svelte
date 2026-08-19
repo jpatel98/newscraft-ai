@@ -45,6 +45,7 @@
 	let drawerToggleButton = $state<HTMLButtonElement | null>(null);
 	let keyboardOpen = $state(false);
 	let visualViewportHeight = $state('100dvh');
+	let visualViewportOffsetTop = $state('0px');
 
 	// `now` snapshot for date-bucketing; refreshed on conversation list change so
 	// labels don't drift mid-session without forcing a tight re-eval each tick.
@@ -79,36 +80,53 @@
 
 	onMount(() => {
 		const mq = window.matchMedia('(max-width: 760px)');
+		let restingViewportHeight = 0;
 
 		const applyMobile = () => {
 			isMobile = mq.matches;
-			if (!isMobile) keyboardOpen = false;
+			if (!isMobile) {
+				keyboardOpen = false;
+				visualViewportHeight = '100dvh';
+				visualViewportOffsetTop = '0px';
+			}
 		};
 		const applyKeyboardState = () => {
 			if (!isMobile) {
 				keyboardOpen = false;
 				visualViewportHeight = '100dvh';
+				visualViewportOffsetTop = '0px';
 				return;
 			}
 			if (!window.visualViewport) {
 				keyboardOpen = false;
 				visualViewportHeight = `${window.innerHeight}px`;
+				visualViewportOffsetTop = '0px';
 				return;
 			}
+			const viewport = window.visualViewport;
 			const activeElement = document.activeElement;
 			const editableFocused =
 				activeElement instanceof HTMLInputElement ||
 				activeElement instanceof HTMLTextAreaElement ||
 				activeElement instanceof HTMLSelectElement ||
 				(activeElement instanceof HTMLElement && activeElement.isContentEditable);
-			const keyboardHeight = Math.max(
-				0,
-				window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop
-			);
+			// Keep the last full resting viewport as the keyboard baseline. Mobile
+			// browser chrome can make innerHeight and dvh disagree, especially in
+			// SFSafariViewController, so their difference is not reliable evidence
+			// that the keyboard is open.
+			if (!editableFocused && viewport.scale <= 1.05) {
+				restingViewportHeight = Math.max(restingViewportHeight, viewport.height);
+			}
+			const keyboardHeight = Math.max(0, restingViewportHeight - viewport.height);
 			keyboardOpen = editableFocused && keyboardHeight > 130;
-			visualViewportHeight = keyboardOpen
-				? `${Math.round(window.visualViewport.height)}px`
-				: '100dvh';
+
+			// VisualViewport is the only mobile measurement that includes both
+			// browser-chrome movement and the on-screen keyboard. Height alone is
+			// insufficient: iOS can scroll the visual viewport down to keep a
+			// focused field visible. Preserve that origin so the shell fills the
+			// exact visible rectangle instead of leaving a dead strip below it.
+			visualViewportHeight = `${Math.max(1, Math.round(viewport.height))}px`;
+			visualViewportOffsetTop = `${Math.max(0, Math.round(viewport.offsetTop))}px`;
 		};
 		const onMediaChange = () => {
 			applyMobile();
@@ -133,8 +151,11 @@
 		window.addEventListener('focusout', onFocusChange);
 
 		const onOrientationChange = () => {
-			applyMobile();
-			applyKeyboardState();
+			restingViewportHeight = 0;
+			requestAnimationFrame(() => {
+				applyMobile();
+				applyKeyboardState();
+			});
 		};
 		window.addEventListener('orientationchange', onOrientationChange);
 		const handler = (e: KeyboardEvent) => {
@@ -544,7 +565,7 @@
 		class="shell {drawerOpen ? 'shell--drawer-open' : ''} {isThreadPage ? 'shell--thread' : 'shell--plain'}"
 		data-ready={shellReady ? 'true' : 'false'}
 		data-keyboard-open={keyboardOpen ? 'true' : 'false'}
-		style={`--visual-vh: ${visualViewportHeight};`}
+		style={`--visual-vh: ${visualViewportHeight}; --visual-offset-top: ${visualViewportOffsetTop};`}
 	>
 		<!-- Floating command bar — top-left, three icon buttons.
 		     Hides when the drawer is open (drawer's own header has the toggle). -->

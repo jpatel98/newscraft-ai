@@ -423,32 +423,76 @@ test.describe.serial('NewsCraft app shell', () => {
 		await page.goto(`/c/${conversationId}`);
 		await expect(page.locator('.pane__header__title')).toHaveText('Mobile layout check');
 
-		// A short visual viewport can come from collapsed browser chrome. It is
-		// not a keyboard unless an editable control has focus.
+		// Mobile browser chrome can change both the visual viewport height and
+		// its origin. The shell must follow that complete visible rectangle.
 		await page.evaluate(() => {
 			if (!window.visualViewport) return;
-			Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 500 });
-			Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 0 });
+			Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 700 });
+			Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 72 });
 			window.visualViewport.dispatchEvent(new Event('resize'));
 		});
-		await expect(page.locator('.shell')).toHaveAttribute('data-keyboard-open', 'false');
+		const mobileShell = page.locator('.shell');
+		await expect(mobileShell).toHaveAttribute('data-keyboard-open', 'false');
+		await expect(mobileShell).toHaveCSS('top', '72px');
+		await expect(mobileShell).toHaveCSS('height', '700px');
 
-		const mobileLayout = await page.evaluate(() => {
+		const browserChromeLayout = await page.evaluate(() => {
 			const shell = document.querySelector<HTMLElement>('.shell')!.getBoundingClientRect();
 			const header = document.querySelector<HTMLElement>('.pane__header')!.getBoundingClientRect();
 			const composer = document.querySelector<HTMLElement>('.composer-zone')!.getBoundingClientRect();
 			return {
+				shellTop: shell.top,
+				shellBottom: shell.bottom,
 				shellHeight: shell.height,
 				headerTop: header.top,
 				composerBottom: composer.bottom,
-				viewportHeight: window.innerHeight,
 				documentWidth: document.documentElement.scrollWidth
 			};
 		});
-		expect(Math.abs(mobileLayout.shellHeight - mobileLayout.viewportHeight)).toBeLessThan(2);
-		expect(mobileLayout.headerTop).toBeGreaterThanOrEqual(0);
-		expect(Math.abs(mobileLayout.composerBottom - mobileLayout.viewportHeight)).toBeLessThan(2);
-		expect(mobileLayout.documentWidth).toBeLessThanOrEqual(390);
+		expect(Math.abs(browserChromeLayout.shellTop - 72)).toBeLessThan(2);
+		expect(Math.abs(browserChromeLayout.shellHeight - 700)).toBeLessThan(2);
+		expect(browserChromeLayout.headerTop).toBeGreaterThanOrEqual(browserChromeLayout.shellTop);
+		expect(Math.abs(browserChromeLayout.composerBottom - browserChromeLayout.shellBottom)).toBeLessThan(2);
+		expect(browserChromeLayout.documentWidth).toBeLessThanOrEqual(390);
+
+		// Focusing the composer and opening the keyboard can move the visual
+		// viewport downward. The shell must move with it and end at the keyboard.
+		await page.getByLabel('Message NewsCraft').focus();
+		await page.evaluate(() => {
+			if (!window.visualViewport) return;
+			Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 390 });
+			Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 128 });
+			window.visualViewport.dispatchEvent(new Event('resize'));
+		});
+		await expect(mobileShell).toHaveAttribute('data-keyboard-open', 'true');
+		await expect(mobileShell).toHaveCSS('top', '128px');
+		await expect(mobileShell).toHaveCSS('height', '390px');
+		const keyboardLayout = await page.evaluate(() => {
+			const shell = document.querySelector<HTMLElement>('.shell')!.getBoundingClientRect();
+			const composer = document.querySelector<HTMLElement>('.composer-zone')!.getBoundingClientRect();
+			return {
+				shellTop: shell.top,
+				shellBottom: shell.bottom,
+				shellHeight: shell.height,
+				composerBottom: composer.bottom
+			};
+		});
+		expect(Math.abs(keyboardLayout.shellTop - 128)).toBeLessThan(2);
+		expect(Math.abs(keyboardLayout.shellHeight - 390)).toBeLessThan(2);
+		expect(Math.abs(keyboardLayout.composerBottom - keyboardLayout.shellBottom)).toBeLessThan(2);
+
+		// Closing the keyboard or rotating the device must restore a fresh
+		// resting baseline instead of retaining the shorter keyboard viewport.
+		await page.getByLabel('Message NewsCraft').blur();
+		await page.evaluate(() => {
+			if (!window.visualViewport) return;
+			Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 844 });
+			Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 0 });
+			window.dispatchEvent(new Event('orientationchange'));
+		});
+		await expect(mobileShell).toHaveAttribute('data-keyboard-open', 'false');
+		await expect(mobileShell).toHaveCSS('top', '0px');
+		await expect(mobileShell).toHaveCSS('height', '844px');
 		await expect(page.getByTestId('answer-utility-bar')).toBeVisible();
 		const mobileUtilityGap = await page.evaluate(() => {
 			const utility = document.querySelector<HTMLElement>('[data-testid="answer-utility-bar"]')!.getBoundingClientRect();

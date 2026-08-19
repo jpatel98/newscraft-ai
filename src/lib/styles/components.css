@@ -2443,13 +2443,13 @@ body,
 			max(28px, calc(env(safe-area-inset-bottom, 0px) + 20px));
 	}
 	.shell {
-		height: 100svh;
-		height: 100dvh;
+		position: fixed;
+		top: var(--visual-offset-top, 0px);
+		left: 0;
+		right: 0;
+		height: var(--visual-vh, 100dvh);
 		min-height: 0;
 		overflow: hidden;
-	}
-	.shell[data-keyboard-open='true'] {
-		height: var(--visual-vh, 100dvh);
 	}
 	.drawer__brand__full {
 		display: none;
@@ -2503,6 +2503,9 @@ body,
 	.composer-zone {
 		padding: 8px 10px calc(env(safe-area-inset-bottom, 0px) + 10px);
 		background: color-mix(in srgb, var(--bg-page) 96%, transparent);
+	}
+	.shell[data-keyboard-open='true'] .composer-zone {
+		padding-bottom: 8px;
 	}
 	.composer {
 		gap: 6px;
