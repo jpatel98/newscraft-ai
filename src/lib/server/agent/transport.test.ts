@@ -4,6 +4,7 @@ vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 
 import {
 	agentFetch,
+	cancelDurableHermesRun,
 	completion,
 	describeGatewayError,
 	deriveHermesTenantKey,
@@ -109,6 +110,22 @@ describe('Hermes chat transport', () => {
 			deriveSessionId([...messages], 'account:conversation')
 		);
 		expect(deriveSessionId(messages, 'account:conversation')).not.toBe(deriveSessionId(messages));
+	});
+
+	it('returns the Hermes cancellation result for durable recovery decisions', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				new Response(JSON.stringify({ accepted: true, state: 'not_running' }), {
+					status: 202,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+		);
+
+		await expect(cancelDurableHermesRun('account-a', 'run-1')).resolves.toEqual({
+			state: 'not_running'
+		});
 	});
 
 	it('derives an opaque server tenant key and never sends the raw account id', async () => {

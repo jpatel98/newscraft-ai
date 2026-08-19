@@ -1,11 +1,20 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createConversation, addMessage } from './conversations';
+import {
+	createConversation,
+	addMessage,
+	finalizePreparedAssistantMessage,
+	getMessages,
+	prepareDurableUserTurn,
+	takeOverPreparedDurableTurn
+} from './conversations';
 import { ensureMigrated, sql } from './index';
 import {
 	HERMES_LEASE_MS,
 	appendHermesRunEvent,
 	claimHermesRunLease,
 	createOrGetHermesRun,
+	failQueuedHermesRun,
+	finalizeHermesRunCancellation,
 	getActiveHermesRun,
 	getHermesRun,
 	getHermesRunForAssistant,
@@ -85,6 +94,102 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 			accountId: accountA,
 			idempotencyKey: seeded.idempotencyKey
 		});
+	});
+
+	it('creates one durable turn for simultaneous identical submissions with different browser keys', async () => {
+		const conversation = await createConversation(accountA);
+		const input = {
+			accountId: accountA,
+			conversationId: conversation.id,
+			content: 'Same newsroom request.',
+			dedupeKey: 'send',
+			now: Date.now()
+		} as const;
+		const [first, second] = await Promise.all([
+			prepareDurableUserTurn(input),
+			prepareDurableUserTurn(input)
+		]);
+
+		expect(first.user.id).toBe(second.user.id);
+		expect(first.assistant.id).toBe(second.assistant.id);
+		expect([first.created, second.created].filter(Boolean)).toHaveLength(1);
+		expect(await getMessages(conversation.id)).toMatchObject([
+			{ role: 'user', content: 'Same newsroom request.' },
+			{ role: 'assistant', content: '', partial: 1 }
+		]);
+		await expect(
+			prepareDurableUserTurn({ ...input, accountId: accountB })
+		).rejects.toThrow('conversation not found');
+	});
+
+	it('does not merge different output actions on the same answer', async () => {
+		const conversation = await createConversation(accountA);
+		const now = Date.now();
+		const first = await prepareDurableUserTurn({
+			accountId: accountA,
+			conversationId: conversation.id,
+			content: 'Create a broadcast script.',
+			dedupeKey: 'output:broadcast:source-a',
+			now
+		});
+		const second = await prepareDurableUserTurn({
+			accountId: accountA,
+			conversationId: conversation.id,
+			content: 'Create a broadcast script.',
+			dedupeKey: 'output:social:source-a',
+			now: now + 2
+		});
+
+		expect(second.user.id).not.toBe(first.user.id);
+		expect(second.assistant.id).not.toBe(first.assistant.id);
+	});
+
+	it('lets one waiter take over an abandoned preflight without a late-owner race', async () => {
+		const conversation = await createConversation(accountA);
+		const prepared = await prepareDurableUserTurn({
+			accountId: accountA,
+			conversationId: conversation.id,
+			content: 'Research the latest Ontario update.',
+			dedupeKey: 'send',
+			now: 1_000
+		});
+		const takeoverToken = await takeOverPreparedDurableTurn({
+			accountId: accountA,
+			conversationId: conversation.id,
+			messageId: prepared.assistant.id,
+			staleBefore: 1_001,
+			now: 2_000
+		});
+		expect(takeoverToken).toBe(2_000);
+
+		const runInput = {
+			accountId: accountA,
+			orgId: conversation.orgId,
+			conversationId: conversation.id,
+			userMessageId: prepared.user.id,
+			assistantMessageId: prepared.assistant.id,
+			idempotencyKey: `takeover-${conversation.id}`,
+			tenantKey: `tenant-${accountA}`,
+			sessionId: `session-${conversation.id}`,
+			inputJson: '{}'
+		};
+		await expect(
+			createOrGetHermesRun({ ...runInput, preparedClaimToken: prepared.claimToken })
+		).rejects.toMatchObject({ code: 'stale_callback' });
+		await expect(
+			finalizePreparedAssistantMessage({
+				accountId: accountA,
+				conversationId: conversation.id,
+				messageId: prepared.assistant.id,
+				claimToken: prepared.claimToken,
+				content: 'Late owner failure'
+			})
+		).resolves.toBeUndefined();
+		const claimed = await createOrGetHermesRun({
+			...runInput,
+			preparedClaimToken: takeoverToken as number
+		});
+		expect(claimed.created).toBe(true);
 	});
 
 	it('reuses one active assistant run for concurrent resumes with different browser keys', async () => {
@@ -208,6 +313,28 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		expect(cancelled.cancelRequestedAt).toEqual(expect.any(Number));
 		expect((await listHermesRunEvents(accountA, run.id)).at(-1)?.eventType).toBe('run.cancel_requested');
 		expect(await claimHermesRunLease(accountA, run.id, 'worker-a')).toBeNull();
+		const terminal = await finalizeHermesRunCancellation(accountA, run.id);
+		expect(terminal).toMatchObject({ state: 'cancelled', completedAt: expect.any(Number) });
+		expect((await listHermesRunEvents(accountA, run.id)).at(-1)?.eventType).toBe('run.cancelled');
+		await expect(finalizeHermesRunCancellation(accountB, run.id)).rejects.toMatchObject({
+			code: 'not_found'
+		});
+	});
+
+	it('fails an unclaimed queued run after Hermes start fails', async () => {
+		const { run, conversation } = await createRun('start-failure');
+		const failed = await failQueuedHermesRun(accountA, run.id);
+
+		expect(failed).toMatchObject({
+			state: 'failed',
+			errorMessage: 'Research service did not start. Try again.',
+			completedAt: expect.any(Number)
+		});
+		expect((await listHermesRunEvents(accountA, run.id)).at(-1)?.eventType).toBe('run.failed');
+		expect((await getMessages(conversation.id)).at(-1)).toMatchObject({
+			role: 'assistant',
+			partial: 1
+		});
 	});
 
 	it('reclaims queued and expired runs after a worker restart', async () => {

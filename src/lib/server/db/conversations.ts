@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gte, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lt, or, sql } from 'drizzle-orm';
 import { db, ensureDefaultOrganizationForAccount } from './index';
-import { conversations, messageProvenance, messages } from './schema';
+import { conversations, hermesRuns, messageProvenance, messages } from './schema';
 import { newId } from '$lib/utils/id';
 import type { ContentPart, MessageContent } from '$lib/types';
 
@@ -112,6 +112,244 @@ export async function addMessage(input: {
 	return row;
 }
 
+const DURABLE_DUPLICATE_WINDOW_MS = 15_000;
+
+/**
+ * Create one durable user/assistant pair, or reuse the same pair for a
+ * simultaneous identical submit from another tab. The conversation row lock
+ * makes the check and both inserts one atomic turn boundary.
+ */
+export async function prepareDurableUserTurn(input: {
+	accountId: string;
+	conversationId: string;
+	content: MessageContent;
+	dedupeKey: string;
+	toolCalls?: string | null;
+	now?: number;
+}): Promise<{ user: MessageRow; assistant: MessageRow; created: boolean; claimToken: number }> {
+	const now = input.now ?? Date.now();
+	const serialized = serializeContent(input.content);
+	const parsedToolCalls = (() => {
+		try {
+			const value = input.toolCalls ? JSON.parse(input.toolCalls) : {};
+			return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+		} catch {
+			return {};
+		}
+	})();
+	const preparedUserMetadata = JSON.stringify({
+		...parsedToolCalls,
+		durable_turn_key: input.dedupeKey.slice(0, 512)
+	});
+	return db.transaction(async (tx: any) => {
+		const owned = await tx.execute(
+			sql`SELECT id FROM conversations
+				WHERE id = ${input.conversationId} AND account_id = ${input.accountId}
+				FOR UPDATE`
+		);
+		if (!owned.length) throw new Error('conversation not found');
+
+		const recent = (await tx
+			.select()
+			.from(messages)
+			.where(eq(messages.conversationId, input.conversationId))
+			.orderBy(desc(messages.createdAt))
+			.limit(2)) as MessageRow[];
+		const assistant = recent[0];
+		const user = recent[1];
+		if (
+			assistant?.role === 'assistant' &&
+			assistant.partial === 1 &&
+			user?.role === 'user' &&
+			user.content === serialized &&
+			user.toolCalls === preparedUserMetadata &&
+			now - user.createdAt <= DURABLE_DUPLICATE_WINDOW_MS
+		) {
+			const [run] = await tx
+				.select({ state: hermesRuns.state })
+				.from(hermesRuns)
+				.where(
+					and(
+						eq(hermesRuns.accountId, input.accountId),
+						eq(hermesRuns.conversationId, input.conversationId),
+						eq(hermesRuns.assistantMessageId, assistant.id)
+					)
+				)
+				.orderBy(desc(hermesRuns.createdAt))
+				.limit(1);
+			if (!run || ['queued', 'researching', 'writing', 'reconnecting', 'cancel_requested'].includes(run.state)) {
+				return { user, assistant, created: false, claimToken: assistant.resumeClaimedAt ?? assistant.createdAt };
+			}
+		}
+
+		const userRow: MessageRow = {
+			id: newId(),
+			conversationId: input.conversationId,
+			role: 'user',
+			content: serialized,
+			toolCalls: preparedUserMetadata,
+			partial: 0,
+			resumeClaimedAt: null,
+			createdAt: now
+		};
+		const assistantRow: MessageRow = {
+			id: newId(),
+			conversationId: input.conversationId,
+			role: 'assistant',
+			content: '',
+			toolCalls: null,
+			partial: 1,
+			resumeClaimedAt: now + 1,
+			createdAt: now + 1
+		};
+		await tx.insert(messages).values([userRow, assistantRow]);
+		await tx
+			.update(conversations)
+			.set({ updatedAt: now + 1 })
+			.where(and(eq(conversations.id, input.conversationId), eq(conversations.accountId, input.accountId)));
+		return { user: userRow, assistant: assistantRow, created: true, claimToken: now + 1 };
+	});
+}
+
+export async function takeOverPreparedDurableTurn(input: {
+	accountId: string;
+	conversationId: string;
+	messageId: string;
+	staleBefore: number;
+	now?: number;
+}): Promise<number | null> {
+	const now = input.now ?? Date.now();
+	return db.transaction(async (tx: any) => {
+		await tx.execute(
+			sql`SELECT messages.id FROM messages
+				JOIN conversations ON conversations.id = messages.conversation_id
+				WHERE messages.id = ${input.messageId}
+					AND messages.conversation_id = ${input.conversationId}
+					AND conversations.account_id = ${input.accountId}
+				FOR UPDATE OF messages`
+		);
+		const [activeRun] = await tx
+			.select({ id: hermesRuns.id })
+			.from(hermesRuns)
+			.where(
+				and(
+					eq(hermesRuns.accountId, input.accountId),
+					eq(hermesRuns.conversationId, input.conversationId),
+					eq(hermesRuns.assistantMessageId, input.messageId)
+				)
+			)
+			.limit(1);
+		if (activeRun) return null;
+		const [current] = (await tx
+			.select()
+			.from(messages)
+			.where(
+				and(
+					eq(messages.id, input.messageId),
+					eq(messages.conversationId, input.conversationId),
+					eq(messages.role, 'assistant'),
+					eq(messages.partial, 1)
+				)
+			)
+			.limit(1)) as MessageRow[];
+		if (!current || current.resumeClaimedAt == null || current.resumeClaimedAt > input.staleBefore) {
+			return null;
+		}
+		const claimToken = Math.max(now, current.resumeClaimedAt + 1);
+		const [claimed] = (await tx
+			.update(messages)
+			.set({ resumeClaimedAt: claimToken })
+			.where(
+				and(
+					eq(messages.id, input.messageId),
+					eq(messages.conversationId, input.conversationId),
+					eq(messages.resumeClaimedAt, current.resumeClaimedAt)
+				)
+			)
+			.returning()) as MessageRow[];
+		return claimed ? claimToken : null;
+	});
+}
+
+export async function getPreparedDurableTurnStatus(
+	accountId: string,
+	conversationId: string,
+	messageId: string
+): Promise<{ runId: string | null; partial: number; content: string } | null> {
+	const [row] = await db
+		.select({
+			runId: hermesRuns.id,
+			partial: messages.partial,
+			content: messages.content
+		})
+		.from(messages)
+		.innerJoin(conversations, eq(conversations.id, messages.conversationId))
+		.leftJoin(
+			hermesRuns,
+			and(
+				eq(hermesRuns.accountId, accountId),
+				eq(hermesRuns.conversationId, conversationId),
+				eq(hermesRuns.assistantMessageId, messageId)
+			)
+		)
+		.where(
+			and(
+				eq(messages.id, messageId),
+				eq(messages.conversationId, conversationId),
+				eq(conversations.accountId, accountId)
+			)
+		)
+		.orderBy(desc(hermesRuns.createdAt))
+		.limit(1);
+	return row ?? null;
+}
+
+export async function finalizePreparedAssistantMessage(input: {
+	accountId: string;
+	conversationId: string;
+	messageId: string;
+	claimToken: number;
+	content: MessageContent;
+	now?: number;
+}): Promise<MessageRow | undefined> {
+	const now = input.now ?? Date.now();
+	return db.transaction(async (tx: any) => {
+		const owned = await tx.execute(
+			sql`SELECT messages.id FROM messages
+				JOIN conversations ON conversations.id = messages.conversation_id
+				WHERE messages.id = ${input.messageId}
+					AND messages.conversation_id = ${input.conversationId}
+					AND conversations.account_id = ${input.accountId}
+				FOR UPDATE OF messages`
+		);
+		if (!owned.length) return undefined;
+		const [row] = (await tx
+			.update(messages)
+			.set({
+				content: serializeContent(input.content),
+				toolCalls: null,
+				partial: 0,
+				resumeClaimedAt: null
+			})
+			.where(
+				and(
+					eq(messages.id, input.messageId),
+					eq(messages.conversationId, input.conversationId),
+					eq(messages.role, 'assistant'),
+					eq(messages.partial, 1),
+					eq(messages.resumeClaimedAt, input.claimToken)
+				)
+			)
+			.returning()) as MessageRow[];
+		if (!row) return undefined;
+		await tx
+			.update(conversations)
+			.set({ updatedAt: now })
+			.where(and(eq(conversations.id, input.conversationId), eq(conversations.accountId, input.accountId)));
+		return row;
+	});
+}
+
 export async function setConversationTitle(
 	accountId: string,
 	id: string,
@@ -122,6 +360,26 @@ export async function setConversationTitle(
 		.set({ title })
 		.where(and(eq(conversations.id, id), eq(conversations.accountId, accountId)));
 	return getConversation(accountId, id);
+}
+
+export async function setConversationTitleIfCurrent(
+	accountId: string,
+	id: string,
+	currentTitle: string,
+	title: string
+): Promise<ConversationRow | undefined> {
+	const [row] = (await db
+		.update(conversations)
+		.set({ title })
+		.where(
+			and(
+				eq(conversations.id, id),
+				eq(conversations.accountId, accountId),
+				eq(conversations.title, currentTitle)
+			)
+		)
+		.returning()) as ConversationRow[];
+	return row;
 }
 
 export async function renameConversation(

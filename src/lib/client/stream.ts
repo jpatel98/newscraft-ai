@@ -76,6 +76,7 @@ export interface StreamCallbacks {
 	onReplace?: (content: string) => void;
 	onMeta?: (meta: { conversation_id: string; run_id?: string; trace_id?: string }) => void;
 	onRunSnapshot?: (snapshot: DurableRunSnapshot) => void;
+	onRunState?: (state: string, errorMessage?: string | null) => void;
 	onRunCursor?: (cursor: number) => void;
 	onToolProgress?: (t: {
 		id: string;
@@ -128,6 +129,7 @@ async function consumeDurableResponse(response: Response, cb: StreamCallbacks): 
 					failureMessage = snapshot.errorMessage || 'durable Hermes run failed';
 				}
 				cb.onRunSnapshot?.(snapshot);
+				cb.onRunState?.(terminalState, snapshot.errorMessage);
 			} catch {
 				/* ignore malformed snapshots */
 			}
@@ -136,6 +138,10 @@ async function consumeDurableResponse(response: Response, cb: StreamCallbacks): 
 		const eventCursor = ev.id === undefined ? undefined : Number(ev.id);
 		if (typeof eventCursor === 'number' && Number.isSafeInteger(eventCursor) && eventCursor <= snapshotCursor) continue;
 		if (typeof eventCursor === 'number' && Number.isSafeInteger(eventCursor)) cb.onRunCursor?.(eventCursor);
+		if (ev.event === 'run.cancel_requested') cb.onRunState?.('cancel_requested');
+		if (ev.event === 'run.cancelled' || ev.event === 'cancelled') cb.onRunState?.('cancelled');
+		if (ev.event === 'run.failed' || ev.event === 'response.failed') cb.onRunState?.('failed');
+		if (ev.event === 'response.completed' || ev.event === 'run.complete' || ev.event === 'run.finished') cb.onRunState?.('complete');
 		for (const update of streamState.apply(ev.event, ev.data)) {
 			if (update.done || update.partial) completed = true;
 			if (update.partial) cb.onPartial?.();

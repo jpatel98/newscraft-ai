@@ -33,4 +33,19 @@ describe('persistedThreadMessages', () => {
 			}
 		]);
 	});
+
+	it('keeps the authoritative durable terminal state with the saved message', () => {
+		const [message] = persistedThreadMessages([
+			{
+				id: 'assistant-1',
+				role: 'assistant',
+				content: 'Accepted partial answer',
+				partial: true,
+				durableState: 'cancelled',
+				durableError: null
+			}
+		], new Set());
+
+		expect(message).toMatchObject({ durableState: 'cancelled', durableError: null, partial: true });
+	});
 });

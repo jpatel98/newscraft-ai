@@ -44,6 +44,7 @@ export interface HermesRunCreateInput {
 	conversationId: string;
 	userMessageId: string | null;
 	assistantMessageId: string;
+	preparedClaimToken?: number;
 	idempotencyKey: string;
 	tenantKey: string;
 	sessionId: string;
@@ -53,6 +54,10 @@ export interface HermesRunCreateInput {
 
 export type HermesRunRecord = typeof hermesRuns.$inferSelect;
 export type HermesRunEventRecord = typeof hermesRunEvents.$inferSelect;
+export type HermesRunMessageState = Pick<
+	HermesRunRecord,
+	'assistantMessageId' | 'state' | 'errorMessage'
+>;
 
 export class HermesRunRepositoryError extends Error {
 	readonly code:
@@ -287,6 +292,20 @@ export async function createOrGetHermesRun(
 			.orderBy(desc(hermesRuns.updatedAt))
 			.limit(1)) as HermesRunRecord[];
 		if (active) return { run: active, created: false };
+		if (input.preparedClaimToken !== undefined) {
+			const [prepared] = await tx
+				.select({ claimToken: messages.resumeClaimedAt, partial: messages.partial })
+				.from(messages)
+				.where(and(eq(messages.id, assistantMessageId), eq(messages.conversationId, conversationId)))
+				.limit(1);
+			if (
+				!prepared ||
+				prepared.partial !== 1 ||
+				prepared.claimToken !== input.preparedClaimToken
+			) {
+				throw new HermesRunRepositoryError('stale_callback', 'prepared turn ownership is stale');
+			}
+		}
 
 		const [inserted] = await tx
 			.insert(hermesRuns)
@@ -321,7 +340,20 @@ export async function createOrGetHermesRun(
 			})
 			.onConflictDoNothing({ target: [hermesRuns.accountId, hermesRuns.idempotencyKey] })
 			.returning();
-		if (inserted) return { run: inserted, created: true };
+		if (inserted) {
+			if (input.preparedClaimToken !== undefined) {
+				await tx
+					.update(messages)
+					.set({ resumeClaimedAt: null })
+					.where(
+						and(
+							eq(messages.id, assistantMessageId),
+							eq(messages.resumeClaimedAt, input.preparedClaimToken)
+						)
+					);
+			}
+			return { run: inserted, created: true };
+		}
 		const [existing] = (await tx
 			.select()
 			.from(hermesRuns)
@@ -425,6 +457,24 @@ export async function getActiveHermesRun(
 		.orderBy(desc(hermesRuns.updatedAt))
 		.limit(1);
 	return (rows[0] as HermesRunRecord | undefined) || null;
+}
+
+export async function listHermesRunsForConversation(
+	accountId: string,
+	conversationId: string
+): Promise<HermesRunMessageState[]> {
+	const owner = requireValue(accountId, 'accountId');
+	const conversation = requireValue(conversationId, 'conversationId');
+	return (await db
+		.select({
+			assistantMessageId: hermesRuns.assistantMessageId,
+			state: hermesRuns.state,
+			errorMessage: hermesRuns.errorMessage
+		})
+		.from(hermesRuns)
+		.where(and(eq(hermesRuns.accountId, owner), eq(hermesRuns.conversationId, conversation)))
+		.orderBy(desc(hermesRuns.createdAt))
+		.limit(500)) as HermesRunMessageState[];
 }
 
 export async function listHermesRunEvents(
@@ -601,6 +651,178 @@ export async function requestHermesRunCancellation(
 			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
 			.returning()) as HermesRunRecord[];
 		if (!run) throw new HermesRunRepositoryError('not_found', 'run disappeared during cancellation');
+		return run;
+	});
+}
+
+export async function failQueuedHermesRun(
+	accountId: string,
+	runId: string,
+	errorMessage = 'Research service did not start. Try again.'
+): Promise<HermesRunRecord> {
+	const owner = requireValue(accountId, 'accountId');
+	const id = requireValue(runId, 'runId');
+	const safeError = errorMessage.trim().slice(0, 2_000) || 'Research service did not start. Try again.';
+	const now = Date.now();
+	return db.transaction(async (tx: any) => {
+		await tx.execute(sql`SELECT id FROM hermes_runs WHERE id = ${id} AND account_id = ${owner} FOR UPDATE`);
+		const [current] = (await tx
+			.select()
+			.from(hermesRuns)
+			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
+			.limit(1)) as HermesRunRecord[];
+		if (!current) throw new HermesRunRepositoryError('not_found', 'run not found');
+		if (current.state !== 'queued' || current.leaseOwner || current.leaseToken) return current;
+		const cursor = current.cursor + 1;
+		await tx.insert(hermesRunEvents).values({
+			runId: id,
+			accountId: owner,
+			cursor,
+			eventType: 'run.failed',
+			dataJson: JSON.stringify({ error: { message: safeError } }),
+			createdAt: now
+		});
+		const [run] = (await tx
+			.update(hermesRuns)
+			.set({ state: 'failed', errorMessage: safeError, cursor, updatedAt: now, completedAt: now })
+			.where(
+				and(
+					eq(hermesRuns.id, id),
+					eq(hermesRuns.accountId, owner),
+					eq(hermesRuns.state, 'queued'),
+					isNull(hermesRuns.leaseOwner),
+					isNull(hermesRuns.leaseToken)
+				)
+			)
+			.returning()) as HermesRunRecord[];
+		if (!run) {
+			const [latest] = (await tx
+				.select()
+				.from(hermesRuns)
+				.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
+				.limit(1)) as HermesRunRecord[];
+			if (!latest) throw new HermesRunRepositoryError('not_found', 'run disappeared during start failure');
+			return latest;
+		}
+		const snapshot = snapshotFromRun(run);
+		await tx
+			.update(messages)
+			.set({ content: snapshot.answerText, partial: 1, toolCalls: null })
+			.where(and(eq(messages.id, current.assistantMessageId), eq(messages.conversationId, current.conversationId)));
+		const provenance = buildAnswerProvenanceBundle({
+			messageId: current.assistantMessageId,
+			conversationId: current.conversationId,
+			tools: [],
+			sources: [],
+			citations: [],
+			answerText: snapshot.answerText,
+			startedAt: current.startedAt ?? current.createdAt,
+			endedAt: now,
+			assistantChars: snapshot.answerText.length,
+			done: false,
+			finishStatus: 'failed',
+			transport: 'hermes_durable'
+		});
+		await tx
+			.insert(messageProvenance)
+			.values({
+				messageId: current.assistantMessageId,
+				conversationId: current.conversationId,
+				provenanceJson: JSON.stringify(provenance),
+				createdAt: now,
+				updatedAt: now
+			})
+			.onConflictDoUpdate({
+				target: messageProvenance.messageId,
+				set: { provenanceJson: JSON.stringify(provenance), updatedAt: now }
+			});
+		await tx.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, current.conversationId));
+		return run;
+	});
+}
+
+export async function finalizeHermesRunCancellation(
+	accountId: string,
+	runId: string,
+	reason = 'worker_not_running'
+): Promise<HermesRunRecord> {
+	const owner = requireValue(accountId, 'accountId');
+	const id = requireValue(runId, 'runId');
+	const now = Date.now();
+	return db.transaction(async (tx: any) => {
+		await tx.execute(
+			sql`SELECT id FROM hermes_runs WHERE id = ${id} AND account_id = ${owner} FOR UPDATE`
+		);
+		const [current] = (await tx
+			.select()
+			.from(hermesRuns)
+			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
+			.limit(1)) as HermesRunRecord[];
+		if (!current) throw new HermesRunRepositoryError('not_found', 'run not found');
+		if (isTerminal(normalizeState(current.state))) return current;
+		if (normalizeState(current.state) !== 'cancel_requested') {
+			throw new HermesRunRepositoryError('invalid_input', 'run is not waiting for cancellation');
+		}
+		const cursor = current.cursor + 1;
+		await tx.insert(hermesRunEvents).values({
+			runId: id,
+			accountId: owner,
+			cursor,
+			eventType: 'run.cancelled',
+			dataJson: JSON.stringify({ status: 'cancelled', reason }),
+			createdAt: now
+		});
+		const [run] = (await tx
+			.update(hermesRuns)
+			.set({
+				state: 'cancelled',
+				cursor,
+				updatedAt: now,
+				completedAt: now,
+				leaseOwner: null,
+				leaseToken: null,
+				leaseExpiresAt: null
+			})
+			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
+			.returning()) as HermesRunRecord[];
+		if (!run) throw new HermesRunRepositoryError('not_found', 'run disappeared during cancellation');
+		const snapshot = snapshotFromRun(run);
+		await tx
+			.update(messages)
+			.set({
+				content: snapshot.answerText,
+				partial: 1,
+				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations)
+			})
+			.where(and(eq(messages.id, current.assistantMessageId), eq(messages.conversationId, current.conversationId)));
+		const provenance = buildAnswerProvenanceBundle({
+			messageId: current.assistantMessageId,
+			conversationId: current.conversationId,
+			tools: snapshot.tools,
+			sources: snapshot.sources,
+			citations: snapshot.citations,
+			answerText: snapshot.answerText,
+			startedAt: run.startedAt ?? current.createdAt,
+			endedAt: now,
+			assistantChars: snapshot.answerText.length,
+			done: false,
+			finishStatus: 'cancelled',
+			transport: 'hermes_durable'
+		});
+		await tx
+			.insert(messageProvenance)
+			.values({
+				messageId: current.assistantMessageId,
+				conversationId: current.conversationId,
+				provenanceJson: JSON.stringify(provenance),
+				createdAt: now,
+				updatedAt: now
+			})
+			.onConflictDoUpdate({
+				target: messageProvenance.messageId,
+				set: { provenanceJson: JSON.stringify(provenance), updatedAt: now }
+			});
+		await tx.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, current.conversationId));
 		return run;
 	});
 }

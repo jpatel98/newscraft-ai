@@ -7,10 +7,12 @@ const dbMocks = vi.hoisted(() => ({
 	renewHermesRunLease: vi.fn(),
 	reclaimQueuedOrExpiredHermesRuns: vi.fn(),
 	requestHermesRunCancellation: vi.fn(),
+	finalizeHermesRunCancellation: vi.fn(),
 	listHermesRunEvents: vi.fn(),
 	snapshotFromRun: vi.fn((run) => ({ state: run.state, answerText: run.answerText || '', sources: [], citations: [], tools: [], errorMessage: null }))
 }));
 const authMocks = vi.hoisted(() => ({ verifyHermesRunCallback: vi.fn(), cancelDurableHermesRun: vi.fn() }));
+const titleMocks = vi.hoisted(() => ({ generateConversationTitle: vi.fn(), withChatTimeout: vi.fn((value) => value) }));
 
 vi.mock('$lib/server/db/hermes-runs', () => ({
 	...dbMocks,
@@ -24,6 +26,8 @@ vi.mock('$lib/server/db/hermes-runs', () => ({
 	}
 }));
 vi.mock('$lib/server/hermes-durable', () => authMocks);
+vi.mock('$lib/server/conversation-title', () => ({ generateConversationTitle: titleMocks.generateConversationTitle }));
+vi.mock('$lib/server/chat-timeouts', () => ({ CHAT_TITLE_TIMEOUT_MS: 5000, withChatTimeout: titleMocks.withChatTimeout }));
 
 import { POST as callback } from './callback/+server';
 import { GET as subscribe } from '../../../chat/runs/[id]/+server';
@@ -104,6 +108,21 @@ describe('Hermes internal run routes', () => {
 		expect.objectContaining({ workerCursor: 2, eventType: 'response.output_text.delta' })
 	);
 	});
+
+	it('generates one best-effort title after a durable answer completes', async () => {
+		dbMocks.appendHermesRunEvent.mockResolvedValue({
+			run: { ...run, state: 'complete', assistantMessageId: 'assistant-1' },
+			event: { cursor: 2 }
+		});
+		const response = await callback({
+			request: callbackRequest({ event_type: 'response.completed' })
+		} as any);
+
+		expect(response.status).toBe(200);
+		expect(titleMocks.generateConversationTitle).toHaveBeenCalledWith(user.id, run.conversationId, {
+			idempotencyKey: 'title-conversation-1-assistant-1'
+		});
+	});
 });
 
 describe('Hermes browser run routes', () => {
@@ -115,7 +134,8 @@ describe('Hermes browser run routes', () => {
 			{ cursor: 2, eventType: 'response.completed', dataJson: '{"ok":true}' }
 		]);
 		dbMocks.requestHermesRunCancellation.mockResolvedValue({ ...run, state: 'cancel_requested', cursor: 2 });
-		authMocks.cancelDurableHermesRun.mockResolvedValue(undefined);
+		authMocks.cancelDurableHermesRun.mockResolvedValue({ state: 'cancel_requested' });
+		dbMocks.finalizeHermesRunCancellation.mockResolvedValue({ ...run, state: 'cancelled', cursor: 3 });
 	});
 
 	it('replays only events after Last-Event-ID', async () => {
@@ -137,5 +157,14 @@ describe('Hermes browser run routes', () => {
 		expect(response.status).toBe(202);
 		expect(dbMocks.requestHermesRunCancellation).toHaveBeenCalledWith(user.id, run.id);
 		expect(authMocks.cancelDurableHermesRun).toHaveBeenCalledWith(user.id, run.id);
+	});
+
+	it('finalizes a saved cancellation when Hermes confirms no worker is running', async () => {
+		authMocks.cancelDurableHermesRun.mockResolvedValue({ state: 'not_running' });
+		const response = await cancel({ locals: { user }, params: { id: 'run-1' } } as any);
+
+		expect(response.status).toBe(202);
+		expect(dbMocks.finalizeHermesRunCancellation).toHaveBeenCalledWith(user.id, run.id);
+		expect(await response.json()).toMatchObject({ state: 'cancelled' });
 	});
 });

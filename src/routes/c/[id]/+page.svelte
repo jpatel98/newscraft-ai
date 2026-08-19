@@ -240,6 +240,7 @@
 						activeRunId = snapshot.run_id;
 						activeRunCursor = snapshot.cursor;
 						activeRunStatus = snapshot.status || snapshot.state;
+						updateAssistantOverlay({ durableState: activeRunStatus });
 						if (snapshot.answerText !== asstText) {
 							asstText = snapshot.answerText;
 							updateAssistantOverlay({ content: asstText });
@@ -256,6 +257,17 @@
 							});
 						}
 						for (const tool of snapshot.tools) chat.pushTool(tool);
+				},
+				onRunState: (state: string) => {
+					noteStreamEstablished();
+					activeRunStatus = state;
+					const terminal = state === 'complete' || state === 'cancelled' || state === 'failed';
+					updateAssistantOverlay({
+						durableState: state,
+						...(terminal
+							? { partial: state !== 'complete', streaming: false }
+							: {})
+					});
 				},
 				onDelta: (s: string) => {
 						noteStreamEstablished();
@@ -345,7 +357,7 @@
 					} catch {
 						/* the local overlay still tells the user what happened */
 					}
-				} else if (!aborted) {
+				} else if (!aborted && activeRunStatus !== 'failed') {
 					const message = streamFailureMessage(e);
 					asstText = asstText.trim() ? `${asstText}\n\n${message}` : message;
 					updateAssistantOverlay({ content: asstText });
@@ -546,6 +558,13 @@
 		}
 	}
 
+	async function handleRetryPersisted() {
+		await runStream({
+			conversation_id: data.conversation.id,
+			retry: true
+		});
+	}
+
 	async function handleDiscard(messageId: string) {
 		try {
 			const claimResponse = await fetch(`/api/messages/${messageId}/claim-partial`, {
@@ -668,6 +687,7 @@
 			onResume={handleResume}
 			onDiscard={handleDiscard}
 			onRetryFailure={handleRetryFailure}
+			onRetryPersisted={handleRetryPersisted}
 			onUseAnswer={handleUseAnswer}
 		/>
 	{/key}

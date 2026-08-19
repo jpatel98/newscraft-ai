@@ -14,6 +14,7 @@
 	import SourceDisclosure from './SourceDisclosure.svelte';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { formatShortTime } from '$lib/utils/time';
+	import { durableRunPresentation } from '$lib/utils/durable-run-presentation';
 	import { parseToolMetadata, sourceReceiptsForAnswer } from '$lib/utils/tool-metadata';
 	import {
 		answerExportUrl,
@@ -30,6 +31,7 @@
 		onResume?: (messageId: string) => void;
 		onDiscard?: (messageId: string) => void;
 		onRetryFailure?: () => void;
+		onRetryPersisted?: () => void;
 		onUseAnswer?: (action: AnswerUseAction, messageId: string) => Promise<void> | void;
 		onExportAnswer?: (messageId: string, url: string) => Promise<void> | void;
 	}
@@ -41,6 +43,7 @@
 		onResume,
 		onDiscard,
 		onRetryFailure,
+		onRetryPersisted,
 		onUseAnswer,
 		onExportAnswer
 	}: Props = $props();
@@ -252,7 +255,8 @@
 				{@const activeAssistant =
 					m.role === 'assistant' &&
 					m.id === lastAssistantId &&
-					chat.activityConversationId === conversationId}
+					chat.activityConversationId === conversationId &&
+					!['complete', 'cancelled', 'failed'].includes(m.durableState || '')}
 				{@const citationRecords =
 					m.role === 'assistant' ? citationsOf(m, activeAssistant) : []}
 				{@const citationState =
@@ -270,6 +274,7 @@
 							)
 						: []}
 				{@const failure = m.failure}
+				{@const runPresentation = durableRunPresentation(m.durableState)}
 				<article
 					id={`m-${m.id}`}
 					class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange
@@ -309,7 +314,7 @@
 									onCitationSelect={openEvidence}
 								/>
 								{#if m.streaming}<span class="msg__caret" aria-hidden="true"></span>{/if}
-								{#if m.partial && !m.streaming}
+								{#if m.partial && !m.streaming && !m.durableState}
 									<span
 										style="display:inline-block;margin-left:6px;font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0"
 									>
@@ -346,10 +351,25 @@
 
 						{#if activeAssistant}
 							<PlanTimeline activeTurn={true} />
-							<ToolActivity activeTurn={true} />
+							<ToolActivity activeTurn={true} runState={m.durableState} />
 						{/if}
 
-						{#if m.role === 'assistant' && m.partial && !m.streaming && !m.id.startsWith('tmp-')}
+						{#if m.role === 'assistant' && m.partial && !m.streaming && runPresentation && !runPresentation.terminal}
+							<div class="msg__resume" role="status">
+								<span class="msg__resume__label">{runPresentation.label}</span>
+							</div>
+						{:else if m.role === 'assistant' && m.partial && !m.streaming && runPresentation && !runPresentation.retryable}
+							<div class="msg__resume" role="status">
+								<span class="msg__resume__label">{runPresentation.label}</span>
+							</div>
+						{:else if m.role === 'assistant' && m.partial && !m.streaming && runPresentation?.retryable}
+							<div class="msg__resume" role="status">
+								<span class="msg__resume__label">{runPresentation.label}</span>
+								{#if onRetryPersisted}
+									<button type="button" class="msg__resume__btn msg__resume__btn--primary" onclick={() => onRetryPersisted?.()}>Retry</button>
+								{/if}
+							</div>
+						{:else if m.role === 'assistant' && m.partial && !m.streaming && !m.id.startsWith('tmp-')}
 							<div class="msg__resume" role="status">
 								<span class="msg__resume__label">Stream interrupted</span>
 								{#if onResume}

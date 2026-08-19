@@ -5,8 +5,9 @@
 	interface Props {
 		// True when this card is attached to the current assistant turn.
 		activeTurn: boolean;
+		runState?: string | null;
 	}
-	let { activeTurn }: Props = $props();
+	let { activeTurn, runState = null }: Props = $props();
 
 	const ELAPSED_VISIBLE_MS = 5_000;
 	const RECOVERY_AFTER_MS = 45_000;
@@ -46,6 +47,7 @@
 	const canUsePartial = $derived(chat.hasAssistantOutput);
 	const showRecovery = $derived(
 		hasRunning &&
+			runState !== 'cancel_requested' &&
 			elapsedMs >= RECOVERY_AFTER_MS &&
 			quietMs >= RECOVERY_QUIET_MS &&
 			!recoveryDismissed
@@ -55,8 +57,10 @@
 	const visible = $derived(hasRunning || (activeTurn && chat.streaming));
 
 	const headLabel = $derived.by(() => {
+		if (runState === 'cancel_requested') return 'Stopping';
+		if (runState === 'reconnecting') return 'Reconnecting';
 		if (hasRunning) return liveText || 'Searching';
-		if (activeTurn && chat.streaming) return 'Drafting answer';
+		if (activeTurn && chat.streaming) return 'Writing answer';
 		return '';
 	});
 
@@ -111,24 +115,14 @@
 
 <style>
 	.tool-activity {
-		margin-top: 8px;
+		margin-top: 6px;
 		margin-bottom: 4px;
-		border: 1px solid var(--border-soft);
-		border-left: 3px solid var(--cobalt-500);
-		background: var(--bg-surface);
-		border-radius: var(--radius-1);
-		font-family: var(--font-mono);
-		font-size: 11px;
+		font-family: var(--font-body);
+		font-size: 12px;
 		color: var(--fg-2);
-		text-transform: uppercase;
-		letter-spacing: 0;
 		max-width: 100%;
 		min-width: 0;
 		overflow: hidden;
-	}
-
-	.tool-activity--idle {
-		border-left-color: var(--signal-500);
 	}
 
 	.tool-activity__head {
@@ -136,7 +130,7 @@
 		align-items: center;
 		gap: 8px;
 		width: 100%;
-		padding: 6px 10px;
+		padding: 4px 0;
 		border: 0;
 		background: transparent;
 		font: inherit;
@@ -148,8 +142,8 @@
 	}
 
 	.tool-activity__label {
-		color: var(--fg-1);
-		font-weight: 600;
+		color: var(--fg-2);
+		font-weight: 500;
 		flex: 0 0 auto;
 	}
 
@@ -173,9 +167,7 @@
 		gap: 8px 12px;
 		align-items: center;
 		justify-content: space-between;
-		padding: 6px 10px 8px;
-		border-top: 1px solid var(--border-soft);
-		background: var(--bg-raised);
+		padding: 8px 0 2px;
 		color: var(--fg-2);
 	}
 

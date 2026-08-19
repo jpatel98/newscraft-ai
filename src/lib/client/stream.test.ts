@@ -294,11 +294,13 @@ describe('streamChat error contract', () => {
 		const onSnapshot = vi.fn();
 		const onDelta = vi.fn();
 		const onRunCursor = vi.fn();
+		const onRunState = vi.fn();
 
 		await streamChat({ conversation_id: 'convo_1', content: 'hello', idempotency_key: 'turn-1' }, {
 			onRunSnapshot: onSnapshot,
 			onDelta,
 			onRunCursor
+			,onRunState
 		});
 
 		expect(vi.mocked(fetch)).toHaveBeenCalledWith(
@@ -308,6 +310,8 @@ describe('streamChat error contract', () => {
 		expect(onSnapshot).toHaveBeenCalledWith(expect.objectContaining({ run_id: 'run_1', answerText: 'Saved base' }));
 		expect(onDelta).not.toHaveBeenCalled();
 		expect(onRunCursor).toHaveBeenCalledWith(3);
+		expect(onRunState).toHaveBeenNthCalledWith(1, 'writing', null);
+		expect(onRunState).toHaveBeenLastCalledWith('complete');
 	});
 
 	it('reconnects to the same durable run with the saved cursor', async () => {

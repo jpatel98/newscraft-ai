@@ -752,8 +752,7 @@
 			<span><kbd>Enter</kbd> interrupts the current reply and sends</span>
 		{:else}
 			<span
-				><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline · <kbd>Esc</kbd>
-				to abort · <kbd>↑</kbd> to reuse last prompt</span
+				><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline · <kbd>↑</kbd> to reuse last prompt</span
 			>
 		{/if}
 	</div>

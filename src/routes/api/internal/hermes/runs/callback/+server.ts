@@ -5,6 +5,8 @@ import {
 	HermesRunRepositoryError
 } from '$lib/server/db/hermes-runs';
 import { verifyHermesRunCallback } from '$lib/server/hermes-durable';
+import { generateConversationTitle } from '$lib/server/conversation-title';
+import { CHAT_TITLE_TIMEOUT_MS, withChatTimeout } from '$lib/server/chat-timeouts';
 
 export const POST: RequestHandler = async ({ request }) => {
 	if (!verifyHermesRunCallback(request)) return json({ detail: 'unauthorized' }, { status: 401 });
@@ -46,6 +48,19 @@ export const POST: RequestHandler = async ({ request }) => {
 			dataJson,
 			workerCursor: body.worker_cursor as number
 		});
+		if (result.run.state === 'complete') {
+			try {
+				await withChatTimeout(
+					generateConversationTitle(accountId, result.run.conversationId, {
+						idempotencyKey: `title-${result.run.conversationId}-${result.run.assistantMessageId}`
+					}),
+					CHAT_TITLE_TIMEOUT_MS,
+					'conversation title'
+				);
+			} catch {
+				/* A saved answer must not fail because its title could not be generated. */
+			}
+		}
 		return json({ cursor: result.event.cursor, state: result.run.state });
 	} catch (cause) {
 		if (cause instanceof HermesRunRepositoryError) {

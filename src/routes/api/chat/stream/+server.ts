@@ -16,11 +16,15 @@ import {
 	claimPartialAssistantMessage,
 	createConversation,
 	deleteMessagesFrom,
+	finalizePreparedAssistantMessage,
 	finalizeResumedAssistantMessage,
 	getConversation,
 	getMessageById,
 	getMessages,
+	getPreparedDurableTurnStatus,
 	parseContent,
+	prepareDurableUserTurn,
+	takeOverPreparedDurableTurn
 } from '$lib/server/db/conversations';
 import { generateConversationTitle } from '$lib/server/conversation-title';
 import { contentText, type ChatCommand, type ContentPart, type AgentCommand, type MessageContent } from '$lib/types';
@@ -96,6 +100,7 @@ import {
 import {
 	createOrGetHermesRun,
 	ensureHermesAssistantMessage,
+	failQueuedHermesRun,
 	getHermesRun,
 	HermesRunRepositoryError
 } from '$lib/server/db/hermes-runs';
@@ -429,17 +434,33 @@ async function persistAnswerProvenance(input: {
 	}
 }
 
-async function localAssistantResponse(convoId: string, text: string, traceId: string): Promise<Response> {
+async function localAssistantResponse(
+	accountId: string,
+	convoId: string,
+	text: string,
+	traceId: string,
+	preparedAssistantMessageId?: string | null,
+	preparedClaimToken?: number | null
+): Promise<Response> {
 	const startedAt = Date.now();
 	recordChatDiagnostic(convoId, 'chat.local_response', {
 		responseChars: text.length,
 		trace_id: traceId
 	});
 	const row = await withChatTimeout(
-		addMessage({ conversationId: convoId, role: 'assistant', content: text }),
+		preparedAssistantMessageId
+			? finalizePreparedAssistantMessage({
+					accountId,
+					conversationId: convoId,
+					messageId: preparedAssistantMessageId,
+					claimToken: preparedClaimToken as number,
+					content: text
+				})
+			: addMessage({ conversationId: convoId, role: 'assistant', content: text }),
 		CHAT_PERSISTENCE_TIMEOUT_MS,
 		'assistant persistence'
 	);
+	if (!row) throw error(409, 'assistant turn changed before finalization');
 	await persistAnswerProvenance({
 		conversationId: convoId,
 		messageId: row.id,
@@ -481,6 +502,26 @@ function localTextStream(convoId: string, text: string, traceId: string): Respon
 	});
 }
 
+async function waitForPreparedHermesRun(
+	accountId: string,
+	conversationId: string,
+	assistantMessageId: string,
+	signal: AbortSignal,
+	timeoutMs = 45_000
+) {
+	const deadline = Date.now() + timeoutMs;
+	while (!signal.aborted && Date.now() < deadline) {
+		const status = await getPreparedDurableTurnStatus(accountId, conversationId, assistantMessageId);
+		if (status?.runId) {
+			const run = await getHermesRun(accountId, status.runId);
+			if (run) return { run, finalizedText: null };
+		}
+		if (status?.partial === 0) return { run: null, finalizedText: status.content };
+		await new Promise<void>((resolve) => setTimeout(resolve, 500));
+	}
+	return null;
+}
+
 function gatewayUnavailableMessage(detail: string): string {
 	if (/web extraction is not configured/i.test(detail)) {
 		return [
@@ -512,11 +553,14 @@ function gatewayFailureKind(detail: string): string {
 }
 
 async function localGatewayFailureResponse(
+	accountId: string,
 	convoId: string,
 	detail: string,
 	resumeMessageId: string | null | undefined,
 	resumeClaimToken: number | null | undefined,
-	traceId: string
+	traceId: string,
+	preparedAssistantMessageId?: string | null,
+	preparedClaimToken?: number | null
 ): Promise<Response> {
 	const startedAt = Date.now();
 	recordChatDiagnostic(
@@ -596,7 +640,14 @@ async function localGatewayFailureResponse(
 		if (!committed) throw error(409, 'resume claim lost');
 		return localTextStream(convoId, `\n\n${text}`, traceId);
 	}
-	return localAssistantResponse(convoId, text, traceId);
+	return localAssistantResponse(
+		accountId,
+		convoId,
+		text,
+		traceId,
+		preparedAssistantMessageId,
+		preparedClaimToken
+	);
 }
 
 function findCommand(commands: AgentCommand[], parsed: SlashParseResult): AgentCommand | undefined {
@@ -749,10 +800,15 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	let resumeMessageId: string | null = null;
 	let resumeClaimToken: number | null = null;
 	let visibleUserMessageId: string | null = null;
+	let preparedAssistantMessageId: string | null = null;
+	let preparedClaimToken: number | null = null;
 	let outputActionSource:
 		| Awaited<ReturnType<typeof getMessageById>>
 		| undefined;
 	let outputActionUpstreamContent: string | undefined;
+	let durableRunCreated = false;
+	let ownsPreparedTurn = false;
+	try {
 	if (body.output_action) {
 		if (!OUTPUT_ACTION_PROMPTS[body.output_action]) throw error(400, 'invalid output action');
 		if (!body.source_message_id) throw error(400, 'source answer required');
@@ -811,13 +867,63 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (cleaned == null) throw error(400, 'content required');
 		if (typeof cleaned === 'string' && !cleaned.trim()) throw error(400, 'content required');
 		let upstreamContent: MessageContent = outputActionUpstreamContent ?? cleaned;
-		const visibleUserMessage = await addMessage({
+		const parsedVisibleCommand = typeof cleaned === 'string' ? parseSlashCommand(cleaned) : null;
+	const preparedTurn = durableRequested && !parsedVisibleCommand
+			? await prepareDurableUserTurn({
+					accountId,
+					conversationId: convoId,
+					content: cleaned,
+					dedupeKey: body.output_action
+						? `output:${body.output_action}:${body.source_message_id || ''}`
+						: 'send',
+					toolCalls: serializeUserDocumentIds(documentIds)
+				})
+			: null;
+		const visibleUserMessage = preparedTurn?.user ?? await addMessage({
 			conversationId: convoId,
 			role: 'user',
 			content: cleaned,
 			toolCalls: serializeUserDocumentIds(documentIds)
 		});
 		visibleUserMessageId = visibleUserMessage.id;
+		preparedAssistantMessageId = preparedTurn?.assistant.id ?? null;
+		preparedClaimToken = preparedTurn?.claimToken ?? null;
+		ownsPreparedTurn = preparedTurn?.created === true;
+		if (preparedTurn && !preparedTurn.created) {
+			const existingRun = await waitForPreparedHermesRun(
+				accountId,
+				convoId,
+				preparedTurn.assistant.id,
+				request.signal
+			);
+			if (existingRun?.run) {
+				return hermesSubscriptionResponse({
+					request,
+					accountId,
+					runId: existingRun.run.id,
+					afterCursor: 0
+				});
+			}
+			if (existingRun?.finalizedText != null) {
+				return localTextStream(
+					convoId,
+					contentText(parseContent(existingRun.finalizedText)),
+					traceId
+				);
+			}
+			const takeoverToken = await takeOverPreparedDurableTurn({
+				accountId,
+				conversationId: convoId,
+				messageId: preparedTurn.assistant.id,
+				staleBefore: Date.now() - 45_000
+			});
+			if (takeoverToken) {
+				preparedClaimToken = takeoverToken;
+				ownsPreparedTurn = true;
+			} else {
+				throw error(409, 'this answer is already starting');
+			}
+		}
 		if (body.output_action) {
 			recordChatDiagnostic(convoId, 'chat.output_action', {
 				trace_id: traceId,
@@ -839,6 +945,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				});
 				if (!command) {
 					return localAssistantResponse(
+						accountId,
 						convoId,
 						`I don't recognize ${parsed.slash}. Use /commands to browse available commands, or remove the slash to send it as normal text.`,
 						traceId
@@ -846,6 +953,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				}
 				if (command.kind === 'builtin') {
 					return localAssistantResponse(
+						accountId,
 						convoId,
 						await builtinResponse(command, commands, parsed.args, convoId),
 						traceId
@@ -853,6 +961,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				}
 				if (!command.enabled) {
 					return localAssistantResponse(
+						accountId,
 						convoId,
 						command.blockedReason || 'This command is not available from the web UI yet.',
 						traceId
@@ -861,6 +970,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				const expanded = await expandAgentSkill(command.slash, parsed.args, convoId);
 				if (!expanded.trim()) {
 					return localAssistantResponse(
+						accountId,
 						convoId,
 						`I found ${command.slash}, but it did not produce a usable skill prompt.`,
 						traceId
@@ -1002,6 +1112,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (cause instanceof NewsroomContextUnavailableError) {
 			if (resumeMessageId) {
 				return await localGatewayFailureResponse(
+					accountId,
 					convoId,
 					'newsroom context unavailable',
 					resumeMessageId,
@@ -1010,18 +1121,24 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				);
 			}
 			return localAssistantResponse(
+				accountId,
 				convoId,
 				"I couldn't load your newsroom timezone, so I stopped before interpreting relative dates. Try again in a moment.",
-				traceId
+				traceId,
+				preparedAssistantMessageId,
+				preparedClaimToken
 			);
 		}
 		if (!(cause instanceof ChatPhaseTimeoutError)) throw cause;
 		return await localGatewayFailureResponse(
+			accountId,
 			convoId,
 			cause instanceof Error ? cause.message : String(cause),
 			resumeMessageId,
 			resumeClaimToken,
-			traceId
+			traceId,
+			preparedAssistantMessageId,
+			preparedClaimToken
 		);
 	}
 	if (conversationContext.currentTurn?.researchContract) {
@@ -1038,10 +1155,12 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	if (durableRequested) {
 		const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);
 		const idempotencyKey =
-			suppliedDurableKey ||
+			(preparedAssistantMessageId
+				? `hermes:${convoId}:${preparedAssistantMessageId}:send`
+				: suppliedDurableKey) ||
 			`hermes:${convoId}:${resumeMessageId || visibleUserMessageId || latestUserMessage?.id || 'turn'}:${body.output_action || (isResume ? 'resume' : isRetry ? 'retry' : isRegenerate ? 'regenerate' : 'send')}`;
 		if (idempotencyKey.length > 256) throw error(400, 'idempotency key is too long');
-		let assistantMessageId = resumeMessageId;
+		let assistantMessageId = resumeMessageId || preparedAssistantMessageId;
 		if (!assistantMessageId) {
 			assistantMessageId = await ensureHermesAssistantMessage(accountId, convoId, idempotencyKey);
 		}
@@ -1072,12 +1191,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				conversationId: convoId,
 				userMessageId: visibleUserMessageId ?? latestUserMessage?.id ?? null,
 				assistantMessageId,
+				preparedClaimToken: preparedAssistantMessageId ? preparedClaimToken ?? undefined : undefined,
 				idempotencyKey,
 				tenantKey: deriveHermesTenantKey(accountId),
 				sessionId,
 				inputJson: JSON.stringify(built.input),
 				seededCitationsJson: JSON.stringify(built.seededCitations)
 			}));
+			durableRunCreated = true;
 		} catch (cause) {
 			if (cause instanceof HermesRunRepositoryError && cause.code === 'cross_account') {
 				throw error(404, 'conversation not found');
@@ -1110,10 +1231,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					trace_id: traceId,
 					errorName: cause instanceof Error ? cause.name : 'Error'
 				});
-				return new Response(JSON.stringify({ detail: 'Hermes durable worker is unavailable.' }), {
-					status: 503,
-					headers: { 'content-type': 'application/json' }
-				});
+				durableRun = await failQueuedHermesRun(accountId, durableRun.id);
 			}
 		}
 		return hermesSubscriptionResponse({
@@ -1165,6 +1283,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	} catch (err) {
 		phaseAbort.cleanup();
 		return await localGatewayFailureResponse(
+			accountId,
 			convoId,
 			err instanceof Error ? err.message : String(err),
 			resumeMessageId,
@@ -1177,6 +1296,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		const text = await upstream.text().catch(() => '');
 		phaseAbort.cleanup();
 		return await localGatewayFailureResponse(
+			accountId,
 			convoId,
 			`Agent ${upstream.status || 502}: ${text || upstream.statusText}`,
 			resumeMessageId,
@@ -1671,4 +1791,21 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			'x-accel-buffering': 'no'
 		}
 	});
+	} catch (cause) {
+		if (preparedAssistantMessageId && ownsPreparedTurn && !durableRunCreated) {
+			recordChatDiagnostic(convoId, 'chat.durable_preflight_failed', {
+				trace_id: traceId,
+				errorName: cause instanceof Error ? cause.name : 'Error'
+			});
+			return localAssistantResponse(
+				accountId,
+				convoId,
+				"I couldn't start this answer. Your request was saved. Try again.",
+				traceId,
+				preparedAssistantMessageId,
+				preparedClaimToken
+			);
+		}
+		throw cause;
+	}
 };

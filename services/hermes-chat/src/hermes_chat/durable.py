@@ -116,8 +116,11 @@ def normalized_events(
     if kind == "RUN_FINISHED":
         events: list[dict[str, Any]] = []
         answer = "".join(text_parts)
-        if answer:
-            events.append(_event_payload("agent.answer.replace", {"content": answer}))
+        if not answer.strip():
+            return [_event_payload("response.failed", {
+                "error": {"message": "Hermes ended before a completed response."}
+            })]
+        events.append(_event_payload("agent.answer.replace", {"content": answer}))
         events.append(_event_payload("response.completed", {"model": "hermes-chat"}))
         return events
 
@@ -128,14 +131,21 @@ def normalized_events(
         call_id = str(call_id)
         name = str(_value(payload, "toolCallName", "tool_call_name", "name") or tool_names.get(call_id) or "Hermes tool")
         tool_names[call_id] = name
+        reset_events: list[dict[str, Any]] = []
+        if kind == "TOOL_CALL_START" and text_parts:
+            # Text before a later tool call is process narration, not the
+            # answer. Remove it from the durable answer surface before the
+            # tool progress event is saved.
+            text_parts.clear()
+            reset_events.append(_event_payload("agent.answer.replace", {"content": ""}))
         if kind == "TOOL_CALL_ARGS":
             delta = _value(payload, "delta", "arguments") or ""
             tool_arguments[call_id] = f"{tool_arguments.get(call_id, '')}{delta}"[-24_000:]
-            return [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "arguments": tool_arguments[call_id], "status": "running"})]
+            return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "arguments": tool_arguments[call_id], "status": "running"})]
         if kind == "TOOL_CALL_RESULT":
             result = _value(payload, "result", "output", "content")
-            return [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "result": _compact(result), "status": "ok"})]
-        return [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "status": "ok" if kind == "TOOL_CALL_END" else "running", "done": kind == "TOOL_CALL_END"})]
+            return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "result": _compact(result), "status": "ok"})]
+        return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "status": "ok" if kind == "TOOL_CALL_END" else "running", "done": kind == "TOOL_CALL_END"})]
 
     if kind == "STATE_SNAPSHOT":
         snapshot = payload.get("snapshot")
@@ -517,6 +527,14 @@ class DurableRunWorker:
             await self._flush_text_locked(job)
             await self._send_callback_locked(job, event_type, data)
 
+    async def _publish_cancelled(self, job: DurableJob) -> None:
+        # NewsCraft rejects text callbacks after cancel_requested. Drop only
+        # the unaccepted tail so it cannot block the terminal callback.
+        await self._stop_text_flush(job)
+        self._discard_text_buffer(job)
+        job.text_flush_error = None
+        await self._callback(job, "run.cancelled", {"status": "cancelled"})
+
     async def _renew(self, job: DurableJob) -> None:
         while True:
             await asyncio.sleep(RUN_LEASE_RENEW_INTERVAL_SECONDS)
@@ -563,13 +581,15 @@ class DurableRunWorker:
                             await self._callback(job, normalized["event_type"], normalized["data"])
                         if _event_type(payload, event) == "RUN_FINISHED":
                             finished = True
-            if not finished or not text_parts:
+            if not finished:
                 raise DurableRunError("Hermes ended before a completed response")
+            if not text_parts:
+                return
         except asyncio.CancelledError:
             if job.stop_reason == "cancelled":
                 try:
-                    await self._callback(job, "run.cancelled", {"status": "cancelled"})
-                except Exception:
+                    await self._publish_cancelled(job)
+                except BaseException:
                     logger.exception("NewsCraft cancellation callback failed")
             elif job.stop_reason == "callback_failed":
                 error = job.text_flush_error

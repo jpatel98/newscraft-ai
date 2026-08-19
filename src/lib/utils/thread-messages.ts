@@ -14,6 +14,8 @@ export function persistedThreadMessages(
 			content: m.content,
 			partial: m.partial,
 			createdAt: m.createdAt,
-			toolCalls: m.toolCalls
+			toolCalls: m.toolCalls,
+			...(m.durableState !== undefined ? { durableState: m.durableState } : {}),
+			...(m.durableError !== undefined ? { durableError: m.durableError } : {})
 		}));
 }

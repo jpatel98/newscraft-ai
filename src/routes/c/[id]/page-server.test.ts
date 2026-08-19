@@ -7,6 +7,7 @@ const conversationMocks = vi.hoisted(() => ({
 }));
 const runMocks = vi.hoisted(() => ({
 	getActiveHermesRun: vi.fn(),
+	listHermesRunsForConversation: vi.fn(),
 	snapshotFromRun: vi.fn(() => ({
 		state: 'writing',
 		answerText: 'Saved answer',
@@ -33,6 +34,7 @@ describe('conversation durable run load', () => {
 			cursor: 4,
 			state: 'writing'
 		});
+		runMocks.listHermesRunsForConversation.mockResolvedValue([]);
 
 		const result = (await load({
 			params: { id: 'conversation-1' },
@@ -48,5 +50,19 @@ describe('conversation durable run load', () => {
 			status: 'writing',
 			answerText: 'Saved answer'
 		});
+	});
+
+	it('attaches the saved terminal run state to its assistant message', async () => {
+		conversationMocks.getConversation.mockResolvedValue({ id: 'conversation-1', title: 'Thread', updatedAt: 7 });
+		conversationMocks.getMessages.mockResolvedValue([
+			{ id: 'assistant-1', role: 'assistant', content: 'Partial answer', toolCalls: null, partial: 1, createdAt: 6 }
+		]);
+		runMocks.getActiveHermesRun.mockResolvedValue(null);
+		runMocks.listHermesRunsForConversation.mockResolvedValue([
+			{ assistantMessageId: 'assistant-1', state: 'cancelled', errorMessage: null }
+		]);
+
+		const result = (await load({ params: { id: 'conversation-1' }, locals: { user: { id: 'account-1' } } } as any)) as any;
+		expect(result.messages[0]).toMatchObject({ durableState: 'cancelled', durableError: null });
 	});
 });

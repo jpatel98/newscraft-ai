@@ -831,6 +831,28 @@ class DurableHermesWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["state"], "cancel_requested")
             self.assertTrue(worker.jobs["run-1"].task.done())
 
+    async def test_cancel_discards_the_unaccepted_text_tail_before_terminal_callback(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            calls = []
+
+            async def callback(*args, **kwargs):
+                payload = args[2]
+                calls.append(payload)
+                return {}
+
+            worker._newscraft = callback
+            job = DurableJob("run-1", "account-1", "tenant_key_1", {}, [], "owner-1", "lease-1")
+            job.stop_reason = "cancelled"
+            job.text_buffer = ["unaccepted narration"]
+            job.text_buffer_chars = len(job.text_buffer[0])
+
+            await worker._publish_cancelled(job)
+
+            self.assertNotIn("response.output_text.delta", [item["event_type"] for item in calls])
+            self.assertEqual(calls[-1]["event_type"], "run.cancelled")
+            self.assertEqual(job.text_buffer, [])
+
     async def test_recovery_uses_saved_run_id_and_input(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             worker = self._worker(root)
@@ -864,6 +886,29 @@ class DurableHermesWorkerTests(unittest.IsolatedAsyncioTestCase):
         events = normalized_events("message", {"type": "TEXT_MESSAGE_CONTENT", "delta": "Hello"}, args, names, text)
         events += normalized_events("message", {"type": "RUN_FINISHED"}, args, names, text)
         self.assertEqual([item["event_type"] for item in events], ["response.output_text.delta", "agent.answer.replace", "response.completed"])
+
+    def test_discards_process_narration_when_a_later_tool_starts(self) -> None:
+        args: dict[str, str] = {}
+        names: dict[str, str] = {}
+        text: list[str] = []
+        events = normalized_events("message", {"type": "TEXT_MESSAGE_CONTENT", "delta": "I will search."}, args, names, text)
+        events += normalized_events("message", {"type": "TOOL_CALL_START", "toolCallId": "tool-1", "toolCallName": "web_search"}, args, names, text)
+        events += normalized_events("message", {"type": "TEXT_MESSAGE_CONTENT", "delta": "Final answer."}, args, names, text)
+        events += normalized_events("message", {"type": "RUN_FINISHED"}, args, names, text)
+
+        self.assertEqual(events[1], {"event_type": "agent.answer.replace", "data": {"content": ""}})
+        self.assertEqual(events[-2], {"event_type": "agent.answer.replace", "data": {"content": "Final answer."}})
+
+    def test_fails_instead_of_completing_when_no_answer_follows_the_last_tool(self) -> None:
+        args: dict[str, str] = {}
+        names: dict[str, str] = {}
+        text: list[str] = []
+        normalized_events("message", {"type": "TEXT_MESSAGE_CONTENT", "delta": "I will search."}, args, names, text)
+        normalized_events("message", {"type": "TOOL_CALL_START", "toolCallId": "tool-1", "toolCallName": "web_search"}, args, names, text)
+        events = normalized_events("message", {"type": "RUN_FINISHED"}, args, names, text)
+
+        self.assertEqual([item["event_type"] for item in events], ["response.failed"])
+        self.assertNotIn("response.completed", [item["event_type"] for item in events])
 
 
 if __name__ == "__main__":

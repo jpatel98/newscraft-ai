@@ -73,6 +73,9 @@ class ProductPromptTests(unittest.TestCase):
             "source map complete and resolvable",
             "greetings, simple transformations",
             "credentials",
+            "Do not narrate plans",
+            "one clean answer",
+            "headings only when they match real content sections",
         )
         for phrase in required_phrases:
             with self.subTest(phrase=phrase):

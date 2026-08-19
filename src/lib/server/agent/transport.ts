@@ -967,7 +967,10 @@ export async function startDurableHermesRun(input: DurableHermesRunStartRequest)
 }
 
 /** Request cancellation for the same durable Hermes run. */
-export async function cancelDurableHermesRun(accountId: string, runId: string): Promise<void> {
+export async function cancelDurableHermesRun(
+	accountId: string,
+	runId: string
+): Promise<{ state: string }> {
 	const response = await fetch(`${hermesUrl()}/v1/runs/${encodeURIComponent(runId)}/cancel`, {
 		method: 'POST',
 		headers: requestHeaders({ accountId }),
@@ -977,6 +980,9 @@ export async function cancelDurableHermesRun(accountId: string, runId: string): 
 		const detail = await response.text().catch(() => '');
 		throw new Error(`Hermes durable cancel failed (${response.status}): ${detail || response.statusText}`);
 	}
+	if (response.status === 404) return { state: 'not_running' };
+	const body = (await response.json().catch(() => null)) as { state?: unknown } | null;
+	return { state: typeof body?.state === 'string' ? body.state : 'cancel_requested' };
 }
 
 function webExtractionReadinessError(health: GatewayHealth): Error {
