@@ -23,7 +23,14 @@ from hermes_chat.service import (
     prepare_runtime,
     settings_from_env,
 )
-from hermes_chat.durable import DurableJob, DurableRunError, DurableRunWorker, normalized_events
+from hermes_chat.durable import (
+    TEXT_BATCH_FLUSH_INTERVAL_SECONDS,
+    TEXT_BATCH_MAX_CHARS,
+    DurableJob,
+    DurableRunError,
+    DurableRunWorker,
+    normalized_events,
+)
 from hermes_chat.isolation import TenantIsolation
 
 
@@ -589,10 +596,220 @@ class DurableHermesWorkerTests(unittest.IsolatedAsyncioTestCase):
             worker._newscraft = AsyncMock(
                 side_effect=DurableRunError("cancel requested", 409, "stale_callback")
             )
+            await worker._callback(job, "response.output_text.delta", {"delta": "late"})
             with self.assertRaises(asyncio.CancelledError):
-                await worker._callback(job, "response.output_text.delta", {"delta": "late"})
+                await worker._flush_text(job)
             self.assertEqual(job.worker_cursor, 4)
             self.assertEqual(job.stop_reason, "cancelled")
+
+    async def test_text_batches_at_the_size_threshold_and_preserves_one_cursor_per_batch(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            calls = []
+
+            async def callback(*args, **kwargs):
+                calls.append(args[2])
+                return {}
+
+            worker._newscraft = callback
+            job = DurableJob("run-1", "account-1", "tenant_key_1", {}, [], "owner-1", "lease-1")
+            await worker._callback(job, "response.output_text.delta", {"delta": "a" * (TEXT_BATCH_MAX_CHARS - 1)})
+            self.assertEqual(calls, [])
+            await worker._callback(job, "response.output_text.delta", {"delta": "b"})
+
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]["event_type"], "response.output_text.delta")
+            self.assertEqual(calls[0]["data"]["delta"], "a" * (TEXT_BATCH_MAX_CHARS - 1) + "b")
+            self.assertEqual(calls[0]["worker_cursor"], 1)
+            await worker._stop_text_flush(job)
+
+    async def test_text_batches_flush_on_a_timer_before_the_next_hermes_event(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            calls = []
+
+            async def callback(*args, **kwargs):
+                calls.append(args[2])
+                return {}
+
+            worker._newscraft = callback
+            job = DurableJob("run-1", "account-1", "tenant_key_1", {}, [], "owner-1", "lease-1")
+            await worker._callback(job, "response.output_text.delta", {"delta": "timed"})
+            self.assertEqual(calls, [])
+            await asyncio.sleep(TEXT_BATCH_FLUSH_INTERVAL_SECONDS * 2.5)
+
+            self.assertEqual([item["data"]["delta"] for item in calls], ["timed"])
+            self.assertEqual(job.worker_cursor, 1)
+            await worker._stop_text_flush(job)
+
+    async def test_structural_and_terminal_events_flush_text_in_order(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            calls = []
+
+            async def callback(*args, **kwargs):
+                calls.append(args[2])
+                return {}
+
+            worker._newscraft = callback
+            job = DurableJob("run-1", "account-1", "tenant_key_1", {}, [], "owner-1", "lease-1")
+            await worker._callback(job, "response.output_text.delta", {"delta": "first"})
+            await worker._callback(job, "agent.citations", {"citations": []})
+            await worker._callback(job, "response.output_text.delta", {"delta": "second"})
+            await worker._callback(job, "response.completed", {"model": "hermes"})
+
+            self.assertEqual([item["event_type"] for item in calls], [
+                "response.output_text.delta",
+                "agent.citations",
+                "response.output_text.delta",
+                "response.completed",
+            ])
+            self.assertEqual([item["data"].get("delta") for item in calls if "delta" in item["data"]], ["first", "second"])
+            self.assertEqual([item["worker_cursor"] for item in calls], [1, 2, 3, 4])
+            await worker._stop_text_flush(job)
+
+    async def test_cancellation_and_failure_flush_text_before_terminal_events(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            calls = []
+
+            async def callback(*args, **kwargs):
+                calls.append(args[2])
+                return {}
+
+            worker._newscraft = callback
+            for terminal_event, terminal_data in (
+                ("run.cancelled", {"status": "cancelled"}),
+                ("run.failed", {"error": {"message": "failed"}}),
+            ):
+                calls.clear()
+                job = DurableJob("run-1", "account-1", "tenant_key_1", {}, [], "owner-1", "lease-1")
+                await worker._callback(job, "response.output_text.delta", {"delta": "buffered"})
+                await worker._callback(job, terminal_event, terminal_data)
+
+                self.assertEqual([item["event_type"] for item in calls], [
+                    "response.output_text.delta",
+                    terminal_event,
+                ])
+                self.assertEqual(calls[0]["data"]["delta"], "buffered")
+                await worker._stop_text_flush(job)
+
+    async def test_large_text_is_split_into_bounded_batches_without_loss_or_duplicate_suffixes(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            calls = []
+
+            async def callback(*args, **kwargs):
+                calls.append(args[2])
+                return {}
+
+            worker._newscraft = callback
+            job = DurableJob("run-1", "account-1", "tenant_key_1", {}, [], "owner-1", "lease-1")
+            text = "x" * (TEXT_BATCH_MAX_CHARS * 2 + 7)
+            await worker._callback(job, "response.output_text.delta", {"delta": text})
+            await worker._callback(job, "response.completed", {"model": "hermes"})
+
+            deltas = [item["data"]["delta"] for item in calls if item["event_type"] == "response.output_text.delta"]
+            self.assertEqual("".join(deltas), text)
+            self.assertTrue(all(len(delta) <= TEXT_BATCH_MAX_CHARS for delta in deltas))
+            self.assertEqual(len(calls), 4)
+            self.assertEqual([item["worker_cursor"] for item in calls], [1, 2, 3, 4])
+            await worker._stop_text_flush(job)
+
+    async def test_failed_text_callback_drops_only_the_unaccepted_bounded_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            calls = []
+
+            async def callback(*args, **kwargs):
+                calls.append(args[2])
+                if len(calls) == 1:
+                    raise DurableRunError("callback unavailable", 503)
+                return {}
+
+            worker._newscraft = callback
+            job = DurableJob("run-1", "account-1", "tenant_key_1", {}, [], "owner-1", "lease-1")
+            await worker._callback(job, "response.output_text.delta", {"delta": "tail"})
+            with self.assertRaisesRegex(DurableRunError, "callback unavailable"):
+                await worker._flush_text(job)
+            self.assertEqual(job.text_buffer_chars, 0)
+            await worker._callback(job, "run.failed", {"error": {"message": "stopped"}})
+            self.assertEqual([item["event_type"] for item in calls], ["response.output_text.delta", "run.failed"])
+            self.assertEqual([item["worker_cursor"] for item in calls], [1, 1])
+            await worker._stop_text_flush(job)
+
+    async def test_stale_lease_drops_the_buffered_tail_without_advancing_the_cursor(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            worker._newscraft = AsyncMock(
+                side_effect=DurableRunError("lease expired", 409, "stale_lease")
+            )
+            job = DurableJob("run-1", "account-1", "tenant_key_1", {}, [], "owner-1", "lease-1", worker_cursor=7)
+            await worker._callback(job, "response.output_text.delta", {"delta": "tail"})
+
+            with self.assertRaisesRegex(DurableRunError, "lease expired"):
+                await worker._flush_text(job)
+            self.assertEqual(job.worker_cursor, 7)
+            self.assertTrue(job.stale_lease)
+            self.assertEqual(job.stop_reason, "stale_lease")
+            self.assertEqual(job.text_buffer_chars, 0)
+            await worker._stop_text_flush(job)
+
+    async def test_shutdown_flushes_text_before_canceling_the_worker_task(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            calls = []
+            gate = asyncio.Event()
+
+            async def callback(*args, **kwargs):
+                if args[1].endswith("/callback"):
+                    calls.append(args[2])
+                return {
+                    "terminal": False,
+                    "lease_owner": "owner-1",
+                    "lease_token": "lease-1",
+                    "worker_cursor": 0,
+                }
+
+            async def long_run(_job):
+                await gate.wait()
+
+            worker._newscraft = callback
+            worker._run = long_run
+            await worker.start(self._payload())
+            await asyncio.sleep(0)
+            await worker._callback(worker.jobs["run-1"], "response.output_text.delta", {"delta": "before shutdown"})
+
+            await worker.close()
+
+            self.assertEqual([item["event_type"] for item in calls], ["response.output_text.delta"])
+            self.assertEqual(calls[0]["data"]["delta"], "before shutdown")
+
+    async def test_concurrent_text_callbacks_are_serialized_and_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            calls = []
+
+            async def callback(*args, **kwargs):
+                await asyncio.sleep(0.001)
+                calls.append(args[2])
+                return {}
+
+            worker._newscraft = callback
+            job = DurableJob("run-1", "account-1", "tenant_key_1", {}, [], "owner-1", "lease-1")
+            pieces = [f"piece-{index};" for index in range(100)]
+            await asyncio.gather(*[
+                worker._callback(job, "response.output_text.delta", {"delta": piece})
+                for piece in pieces
+            ])
+            await worker._callback(job, "response.completed", {"model": "hermes"})
+
+            text_calls = [item for item in calls if item["event_type"] == "response.output_text.delta"]
+            self.assertEqual("".join(item["data"]["delta"] for item in text_calls), "".join(pieces))
+            self.assertEqual([item["worker_cursor"] for item in calls], list(range(1, len(calls) + 1)))
+            self.assertLess(len(text_calls), len(pieces))
+            self.assertLessEqual(max(len(item["data"]["delta"]) for item in text_calls), TEXT_BATCH_MAX_CHARS)
+            await worker._stop_text_flush(job)
 
     async def test_cancel_stops_the_same_task(self) -> None:
         with tempfile.TemporaryDirectory() as root:

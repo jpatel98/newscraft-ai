@@ -7,7 +7,7 @@ import json
 import logging
 import secrets
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping
 from urllib.parse import quote
 
@@ -24,6 +24,13 @@ from .contracts import (
 from .isolation import TenantIsolation
 
 logger = logging.getLogger(__name__)
+
+
+# Text is the only high-volume event class. Keep the unpersisted tail small
+# while avoiding one NewsCraft transaction per Hermes token.
+TEXT_BATCH_MAX_CHARS = 4_096
+TEXT_BATCH_FLUSH_INTERVAL_SECONDS = 0.05
+TEXT_EVENT_TYPE = "response.output_text.delta"
 
 
 class DurableRunError(RuntimeError):
@@ -203,6 +210,11 @@ class DurableJob:
     task: asyncio.Task[None] | None = None
     stop_reason: str | None = None
     stale_lease: bool = False
+    callback_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    text_buffer: list[str] = field(default_factory=list, repr=False)
+    text_buffer_chars: int = field(default=0, repr=False)
+    text_flush_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    text_flush_error: BaseException | None = field(default=None, repr=False)
 
 
 class DurableRunWorker:
@@ -379,14 +391,39 @@ class DurableRunWorker:
         for job in self.jobs.values():
             if job.task and not job.task.done():
                 job.stop_reason = "shutdown"
+                try:
+                    await self._flush_text(job)
+                except asyncio.CancelledError:
+                    logger.info("NewsCraft text flush was cancelled during shutdown")
+                except Exception:
+                    logger.exception("NewsCraft text flush failed during shutdown")
                 tasks.append(job.task)
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _callback(self, job: DurableJob, event_type: str, data: dict[str, Any]) -> None:
-        job.worker_cursor += 1
+    async def _stop_text_flush(self, job: DurableJob) -> None:
+        task = job.text_flush_task
+        if task and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        if job.text_flush_task is task:
+            job.text_flush_task = None
+
+    def _discard_text_buffer(self, job: DurableJob) -> None:
+        job.text_buffer.clear()
+        job.text_buffer_chars = 0
+
+    def _raise_text_flush_error(self, job: DurableJob) -> None:
+        if job.text_flush_error is None:
+            return
+        error = job.text_flush_error
+        job.text_flush_error = None
+        raise error
+
+    async def _send_callback_locked(self, job: DurableJob, event_type: str, data: dict[str, Any]) -> None:
+        worker_cursor = job.worker_cursor + 1
         try:
             await self._newscraft("POST", NEWSCRAFT_RUN_CALLBACK_PATH, {
                 "run_id": job.run_id,
@@ -394,7 +431,7 @@ class DurableRunWorker:
                 "tenant_key": job.tenant_key,
                 "lease_owner": job.lease_owner,
                 "lease_token": job.lease_token,
-                "worker_cursor": job.worker_cursor,
+                "worker_cursor": worker_cursor,
                 "event_type": event_type,
                 "data": _bounded_data(data),
             })
@@ -405,12 +442,80 @@ class DurableRunWorker:
                     # events. The attempted event is not accepted, but the
                     # same worker must still publish the terminal cancellation
                     # event with the next valid worker cursor.
-                    job.worker_cursor = max(job.worker_cursor - 1, 0)
                     job.stop_reason = "cancelled"
                     raise asyncio.CancelledError
                 job.stale_lease = True
                 job.stop_reason = "stale_lease"
             raise
+        job.worker_cursor = worker_cursor
+
+    async def _flush_text_locked(self, job: DurableJob) -> None:
+        if not job.text_buffer:
+            return
+        delta = "".join(job.text_buffer)
+        # Detach the bounded tail before the network await. If the service
+        # stops after the request begins, the same suffix is never sent twice.
+        self._discard_text_buffer(job)
+        await self._send_callback_locked(job, TEXT_EVENT_TYPE, {"delta": delta})
+
+    async def _flush_text(self, job: DurableJob) -> None:
+        async with job.callback_lock:
+            self._raise_text_flush_error(job)
+            await self._flush_text_locked(job)
+
+    async def _timed_text_flush(self, job: DurableJob) -> None:
+        current = asyncio.current_task()
+        try:
+            await asyncio.sleep(TEXT_BATCH_FLUSH_INTERVAL_SECONDS)
+            await self._flush_text(job)
+        except asyncio.CancelledError:
+            if (
+                job.stop_reason == "cancelled"
+                and job.task
+                and job.task is not current
+                and not job.task.done()
+            ):
+                job.task.cancel()
+            raise
+        except BaseException as exc:
+            job.text_flush_error = exc
+            if job.stop_reason is None:
+                job.stop_reason = "callback_failed"
+            if job.task and job.task is not current and not job.task.done():
+                job.task.cancel()
+        finally:
+            if job.text_flush_task is current:
+                job.text_flush_task = None
+
+    async def _buffer_text(self, job: DurableJob, delta: str) -> None:
+        async with job.callback_lock:
+            self._raise_text_flush_error(job)
+            offset = 0
+            while offset < len(delta):
+                available = TEXT_BATCH_MAX_CHARS - job.text_buffer_chars
+                if available <= 0:
+                    await self._flush_text_locked(job)
+                    available = TEXT_BATCH_MAX_CHARS
+                chunk = delta[offset:offset + available]
+                job.text_buffer.append(chunk)
+                job.text_buffer_chars += len(chunk)
+                offset += len(chunk)
+                if job.text_buffer_chars >= TEXT_BATCH_MAX_CHARS:
+                    await self._flush_text_locked(job)
+            if job.text_buffer and (job.text_flush_task is None or job.text_flush_task.done()):
+                job.text_flush_task = asyncio.create_task(
+                    self._timed_text_flush(job),
+                    name=f"newscraft-hermes-text-flush-{job.run_id}",
+                )
+
+    async def _callback(self, job: DurableJob, event_type: str, data: dict[str, Any]) -> None:
+        if event_type == TEXT_EVENT_TYPE and isinstance(data.get("delta"), str) and data["delta"]:
+            await self._buffer_text(job, data["delta"])
+            return
+        async with job.callback_lock:
+            self._raise_text_flush_error(job)
+            await self._flush_text_locked(job)
+            await self._send_callback_locked(job, event_type, data)
 
     async def _renew(self, job: DurableJob) -> None:
         while True:
@@ -466,6 +571,21 @@ class DurableRunWorker:
                     await self._callback(job, "run.cancelled", {"status": "cancelled"})
                 except Exception:
                     logger.exception("NewsCraft cancellation callback failed")
+            elif job.stop_reason == "callback_failed":
+                error = job.text_flush_error
+                job.text_flush_error = None
+                self._discard_text_buffer(job)
+                try:
+                    await self._callback(job, "run.failed", {
+                        "error": {"message": str(error or "NewsCraft callback failed")[:2_000]}
+                    })
+                except Exception:
+                    logger.exception("NewsCraft callback failure event failed")
+            elif job.stop_reason == "stale_lease":
+                try:
+                    await self._flush_text(job)
+                except Exception:
+                    logger.exception("NewsCraft text flush failed after lease loss")
             elif job.stop_reason not in {"stale_lease", "shutdown"}:
                 logger.exception("Durable Hermes task was cancelled")
         except Exception as exc:
@@ -475,5 +595,8 @@ class DurableRunWorker:
                 except Exception:
                     logger.exception("NewsCraft failure callback failed")
         finally:
+            await self._stop_text_flush(job)
+            self._discard_text_buffer(job)
+            job.text_flush_error = None
             renew_task.cancel()
             await asyncio.gather(renew_task, return_exceptions=True)

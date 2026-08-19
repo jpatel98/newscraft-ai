@@ -6,6 +6,8 @@ import {
 	HERMES_TERMINAL_STATES
 } from '$lib/server/db/hermes-runs';
 
+export const HERMES_SUBSCRIPTION_POLL_MS = 100;
+
 export interface HermesSubscriptionRequest {
 	request: Request;
 	accountId: string;
@@ -52,7 +54,7 @@ export async function hermesSubscriptionResponse({
 			};
 			const waitForNextPoll = () =>
 				new Promise<void>((resolve) => {
-					const timer = setTimeout(resolve, 500);
+					const timer = setTimeout(resolve, HERMES_SUBSCRIPTION_POLL_MS);
 					request.signal.addEventListener(
 						'abort',
 						() => {

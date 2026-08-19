@@ -173,13 +173,17 @@
 					return contentText(src.content);
 				})()
 			: '';
-		const asstMsg: ThreadMessage = {
+		let asstMsg: ThreadMessage = {
 			id: 'tmp-a-' + Math.random().toString(36).slice(2),
 			role: 'assistant',
 			content: seedContent,
 			partial: true,
 			streaming: true,
 			createdAt: Date.now()
+		};
+		const updateAssistantOverlay = (patch: Partial<ThreadMessage>) => {
+			asstMsg = { ...asstMsg, ...patch };
+			overlay = overlay.map((message) => (message.id === asstMsg.id ? asstMsg : message));
 		};
 		let asstText = seedContent;
 		let streamEstablished = false;
@@ -238,8 +242,7 @@
 						activeRunStatus = snapshot.status || snapshot.state;
 						if (snapshot.answerText !== asstText) {
 							asstText = snapshot.answerText;
-							asstMsg.content = asstText;
-							overlay = [...overlay];
+							updateAssistantOverlay({ content: asstText });
 						}
 						if (snapshot.citations.length) {
 							chat.setCitations(snapshot.citations);
@@ -258,16 +261,14 @@
 						noteStreamEstablished();
 						chat.noteAssistantOutput(s);
 						asstText += s;
-						asstMsg.content = asstText;
-						overlay = [...overlay];
+						updateAssistantOverlay({ content: asstText });
 						updateArtifact({ content: asstText });
 					},
 				onReplace: (content: string) => {
 						noteStreamEstablished();
 						chat.noteAssistantOutput(content);
 						asstText = content;
-						asstMsg.content = asstText;
-						overlay = [...overlay];
+						updateAssistantOverlay({ content: asstText });
 						updateArtifact({ content: asstText });
 					},
 				onToolProgress: (t: StreamToolUpdate) => {
@@ -324,20 +325,17 @@
 					}
 				}
 				if (isRetryableSend) failedRetry = null;
-				asstMsg.partial = partialAnswer;
-				asstMsg.streaming = false;
-				overlay = [...overlay];
+				updateAssistantOverlay({ partial: partialAnswer, streaming: false });
 				updateArtifact({ content: asstText, citations: artifactCitations, status: 'ready' });
 			} catch (e) {
 				const aborted = (e as { name?: string })?.name === 'AbortError' || controller.signal.aborted;
 				const wantsPartialAnswer = aborted && chat.abortIntent === 'partial';
-				asstMsg.partial = false;
-				asstMsg.streaming = false;
+				updateAssistantOverlay({ partial: false, streaming: false });
 				if (wantsPartialAnswer && asstText.trim() === seedContent.trim()) {
 					const note =
 						'I stopped the source run before the agent produced a usable answer. No partial answer was available yet.';
 					asstText = seedContent ? `${seedContent}\n\n${note}` : note;
-					asstMsg.content = asstText;
+					updateAssistantOverlay({ content: asstText });
 					try {
 						await fetch(`/api/conversations/${data.conversation.id}/assistant-note`, {
 							method: 'POST',
@@ -350,9 +348,9 @@
 				} else if (!aborted) {
 					const message = streamFailureMessage(e);
 					asstText = asstText.trim() ? `${asstText}\n\n${message}` : message;
-					asstMsg.content = asstText;
+					updateAssistantOverlay({ content: asstText });
 					if (isRetryableSend) {
-						asstMsg.failure = { retryable: true };
+						updateAssistantOverlay({ failure: { retryable: true } });
 						failedRetry = {
 							args: {
 								...requestArgs,
@@ -364,7 +362,6 @@
 					if (isRetryableSend && !streamEstablished) failureToRethrow = e;
 				}
 				if (artifact) updateArtifact({ content: asstText, citations: artifactCitations, status: 'error' });
-				overlay = [...overlay];
 			} finally {
 					// Release the composer before any best-effort reload. A failed or
 					// stalled invalidation must never strand the browser in active mode.

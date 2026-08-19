@@ -53,6 +53,19 @@ Existing focused evidence before this change:
    answer checkpoints are included so recovery can continue the same stage
    without discarding gathered evidence.
 
+## Low-latency text delivery
+
+Hermes text deltas are coalesced only while they are adjacent. The worker sends
+one bounded text event at 4,096 characters or after 50 milliseconds. It sends
+structural, citation, tool, terminal, cancellation, failure, and shutdown
+events immediately after flushing the text buffer. The unpersisted tail is
+therefore bounded to one small batch, and every persisted batch still receives
+one monotonic worker cursor.
+
+The NewsCraft subscription polls persisted events every 100 milliseconds. It
+still sends the current durable snapshot first and then replays only events
+after the supplied cursor. Browser disconnects close only this subscription.
+
 ## Release gates
 
 Focused tests come first. Then run concurrency, replay, refresh, duplicate,

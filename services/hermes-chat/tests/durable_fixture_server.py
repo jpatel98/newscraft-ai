@@ -66,6 +66,7 @@ class FixtureWorker(DurableRunWorker):
                 "run_invocations": {},
                 "recoveries": {},
                 "events": [],
+                "callbacks": [],
             }
         try:
             value = json.loads(self.stats_path.read_text())
@@ -78,6 +79,7 @@ class FixtureWorker(DurableRunWorker):
         value.setdefault("run_invocations", {})
         value.setdefault("recoveries", {})
         value.setdefault("events", [])
+        value.setdefault("callbacks", [])
         return value
 
     async def _write_stats(self, update: Mapping[str, Any] | None = None) -> None:
@@ -111,6 +113,30 @@ class FixtureWorker(DurableRunWorker):
             temporary = self.stats_path.with_suffix(".tmp")
             temporary.write_text(json.dumps(stats, sort_keys=True))
             temporary.replace(self.stats_path)
+
+    async def _record_callback(self, body: Mapping[str, Any]) -> None:
+        async with self.stats_lock:
+            stats = await self._read_stats()
+            callbacks = stats.setdefault("callbacks", [])
+            data = body.get("data") if isinstance(body.get("data"), dict) else {}
+            delta = data.get("delta") if isinstance(data.get("delta"), str) else ""
+            callbacks.append({
+                "run_id": body.get("run_id"),
+                "event_type": body.get("event_type"),
+                "worker_cursor": body.get("worker_cursor"),
+                "text_chars": len(delta),
+            })
+            stats["callbacks"] = callbacks[-500:]
+            self.stats_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.stats_path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(stats, sort_keys=True))
+            temporary.replace(self.stats_path)
+
+    async def _newscraft(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        result = await super()._newscraft(method, path, body)
+        if method == "POST" and path.endswith("/callback") and isinstance(body, dict):
+            await self._record_callback(body)
+        return result
 
     async def start(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         await self._increment("start_requests", str(payload.get("run_id") or "unknown"))
@@ -169,11 +195,18 @@ class FixtureWorker(DurableRunWorker):
                 "sourceType": "fixture",
                 "supportingExcerpt": "Deterministic source evidence.",
             }]})
-            await self._emit(job, "response.output_text.delta", {"delta": "The durable answer begins. "})
-            await pause(2.5)
-            await self._emit(job, "response.output_text.delta", {"delta": "The same run continues after reconnect. "})
-            await pause(2.5)
-            await self._emit(job, "response.output_text.delta", {"delta": "The final answer is persisted."})
+            answer_fragments = [
+                "The durable answer begins. ",
+                "The same run continues after reconnect. ",
+                *[
+                    f"Checkpoint {index:02d} confirms persisted incremental text. "
+                    for index in range(1, 61)
+                ],
+                "The final answer is persisted.",
+            ]
+            for fragment in answer_fragments:
+                await self._emit(job, "response.output_text.delta", {"delta": fragment})
+                await pause(0.08)
             await self._emit(job, "agent.tool.progress", {
                 "id": "fixture-tool",
                 "name": "Controlled research",

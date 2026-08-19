@@ -26,7 +26,7 @@ const threadSource = readFileSync(
 			"import { streamFailureMessage, type StreamArgs } from '$lib/client/stream';"
 		);
 		expect(pageSource).toContain('const message = streamFailureMessage(e);');
-		expect(pageSource).toContain('asstMsg.failure = { retryable: true };');
+		expect(pageSource).toContain('updateAssistantOverlay({ failure: { retryable: true } });');
 		expect(pageSource).not.toContain('String(e)');
 		expect(pageSource).not.toContain("Couldn't reach the agent");
 	});
@@ -50,7 +50,9 @@ const threadSource = readFileSync(
 
 	it('releases active composer state before best-effort reload on every stream terminal path', () => {
 		expect(pageSource).toContain('onPartial: () => {');
-		expect(pageSource).toContain('asstMsg.partial = partialAnswer;');
+		expect(pageSource).toContain(
+			'updateAssistantOverlay({ partial: partialAnswer, streaming: false });'
+		);
 		const endStream = pageSource.indexOf('if (chat.abort === controller) chat.endStream();');
 		const reload = pageSource.indexOf('await invalidateAll();');
 		expect(endStream).toBeGreaterThanOrEqual(0);
