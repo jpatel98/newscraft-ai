@@ -10,6 +10,7 @@ import {
 	type AgentContent,
 	type AgentContentPart
 } from '$lib/server/agent/transport';
+import { selectCitationInheritanceToolCalls } from '$lib/server/agent/citation-inheritance';
 import { expandAgentSkill, listAgentCommands } from '$lib/server/agent/bridge';
 import {
 	addMessage,
@@ -1002,9 +1003,6 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		messageIds: provenanceMessageIds,
 		limit: provenanceMessageIds.length
 	});
-	const inheritedMetadata = body.output_action
-		? parseToolMetadata(outputActionSource?.toolCalls)
-		: null;
 	const persistedUserRequest =
 		isRegenerate || isRetry || isResume
 			? contentText(parseContent(latestUserMessage?.content ?? ''))
@@ -1031,6 +1029,19 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		outputAction: Boolean(body.output_action),
 		sourceMessageId: body.source_message_id
 	});
+	const inheritedToolCalls = selectCitationInheritanceToolCalls({
+		messages,
+		...(body.output_action
+			? { outputActionSourceToolCalls: outputActionSource?.toolCalls ?? null }
+			: {}),
+		resumeMessageId
+	});
+	const contextualCitations = conversationContext.lastSourceBackedAnswer?.citations ?? [];
+	const inheritedMetadata = inheritedToolCalls
+		? parseToolMetadata(inheritedToolCalls)
+		: !body.output_action && !isResume && !isRetry && !isRegenerate && contextualCitations.length
+			? { ...parseToolMetadata(null), citations: contextualCitations }
+			: null;
 	recordChatDiagnostic(convoId, 'chat.history_built', {
 		trace_id: traceId,
 		messageCount: messages.length,
@@ -1178,7 +1189,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			candidateRunId,
 			{
 				recordSources: true,
-				webExtractConfigured: conversationContext.currentTurn?.researchRequired === true
+				webExtractConfigured: conversationContext.currentTurn?.researchRequired === true,
+				seededCitations: inheritedMetadata?.citations ?? []
 			}
 		);
 		let durableRun: Awaited<ReturnType<typeof createOrGetHermesRun>>['run'];

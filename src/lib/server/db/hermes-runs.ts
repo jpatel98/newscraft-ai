@@ -3,7 +3,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { db } from './index';
 import { conversations, hermesRunEvents, hermesRuns, messages, messageProvenance } from './schema';
 import { newId } from '$lib/utils/id';
-import { serializeToolMetadata, buildAnswerProvenanceBundle } from '$lib/utils/tool-metadata';
+import {
+	serializeToolMetadata,
+	buildAnswerProvenanceBundle,
+	citationRecordsUsedInAnswer
+} from '$lib/utils/tool-metadata';
 import type { CitationRecord } from '@newscraft/shared';
 import type { PersistedSource, StreamToolCall } from '$lib/utils/stream-events';
 
@@ -542,7 +546,17 @@ export async function appendHermesRunEvent(
 			throw new HermesRunRepositoryError('stale_callback', 'run callback cursor is not monotonic');
 		}
 
-		const snapshot = applyHermesRunEvent(current, eventType, dataJson);
+		const nextSnapshot = applyHermesRunEvent(current, eventType, dataJson);
+		const snapshot =
+			nextSnapshot.state === 'complete'
+				? {
+						...nextSnapshot,
+						citations: citationRecordsUsedInAnswer(
+							nextSnapshot.answerText,
+							nextSnapshot.citations
+						)
+					}
+				: nextSnapshot;
 		const cursor = current.cursor + 1;
 		const [event] = (await tx
 			.insert(hermesRunEvents)

@@ -10,6 +10,7 @@ import {
 	type HermesAguiMessage,
 	type HermesContextEntry,
 	type HermesRunInput,
+	type CitationRecord,
 	type RetrievalProvenance
 } from '@newscraft/shared';
 
@@ -56,16 +57,7 @@ interface HermesNormalizationState {
 	retrievalByUrl: Map<string, RetrievalProvenance>;
 }
 
-interface SeededCitation {
-	citationNumber: number;
-	title: string;
-	url: string;
-	domain: string;
-	publicationDate: null;
-	sourceType: 'user_document';
-	supportingExcerpt: string;
-	documentPage: number;
-}
+type SeededCitation = CitationRecord;
 
 interface BuiltRunInput {
 	input: HermesRunInput;
@@ -256,11 +248,11 @@ function contextEntry(description: string, value: unknown): HermesContextEntry |
 	}
 }
 
-function documentCitationContext(documents: AgentChatRequest['documents']): {
+function documentCitationContext(documents: AgentChatRequest['documents'], startNumber = 1): {
 	context: unknown;
 	citations: SeededCitation[];
 } {
-	let citationNumber = 1;
+	let citationNumber = startNumber;
 	const citations: SeededCitation[] = [];
 	const context = (documents || []).map((document) => ({
 		id: document.id,
@@ -290,9 +282,15 @@ function buildRunInput(
 	threadId: string,
 	runId: string,
 	recordSources = true,
-	webExtractConfigured = false
+	webExtractConfigured = false,
+	seededCitations: ReadonlyArray<CitationRecord> = []
 ): BuiltRunInput {
-	const documents = documentCitationContext(body.documents);
+	const highestSeededNumber = seededCitations.reduce(
+		(highest, citation) => Math.max(highest, citation.citationNumber),
+		0
+	);
+	const documents = documentCitationContext(body.documents, highestSeededNumber + 1);
+	const allSeededCitations = [...seededCitations, ...documents.citations];
 	const context = [
 		contextEntry('Newsroom context', body.newsroom_context),
 		contextEntry('Conversation context', body.conversation_context),
@@ -309,7 +307,11 @@ function buildRunInput(
 			forwardedProps: {
 				source: 'newscraft',
 					operation: 'chat',
-					citationStartNumber: documents.citations.length + 1,
+				citationStartNumber:
+					allSeededCitations.reduce(
+						(highest, citation) => Math.max(highest, citation.citationNumber),
+						0
+					) + 1,
 					webExtractConfigured,
 					retrievalVerificationTool: 'verify_this_lead',
 					retrievalBackend: 'newscraft-local',
@@ -318,7 +320,7 @@ function buildRunInput(
 				stateWriterTools: recordSources ? [NEWSCRAFT_SOURCE_WRITER] : []
 			}
 		},
-		seededCitations: documents.citations
+		seededCitations: allSeededCitations
 	};
 }
 
@@ -928,14 +930,19 @@ export function buildHermesRunInput(
 	body: AgentChatRequest,
 	threadId: string,
 	runId: string,
-	options: { recordSources?: boolean; webExtractConfigured?: boolean } = {}
+	options: {
+		recordSources?: boolean;
+		webExtractConfigured?: boolean;
+		seededCitations?: ReadonlyArray<CitationRecord>;
+	} = {}
 ): BuiltRunInput {
 	return buildRunInput(
 		body,
 		threadId,
 		runId,
 		options.recordSources !== false,
-		options.webExtractConfigured === true
+		options.webExtractConfigured === true,
+		options.seededCitations
 	);
 }
 

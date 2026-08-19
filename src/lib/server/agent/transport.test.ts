@@ -4,6 +4,7 @@ vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 
 import {
 	agentFetch,
+	buildHermesRunInput,
 	cancelDurableHermesRun,
 	completion,
 	describeGatewayError,
@@ -110,6 +111,44 @@ describe('Hermes chat transport', () => {
 			deriveSessionId([...messages], 'account:conversation')
 		);
 		expect(deriveSessionId(messages, 'account:conversation')).not.toBe(deriveSessionId(messages));
+	});
+
+	it('keeps prior citations resolvable and numbers attached documents after them', () => {
+		const priorCitation = {
+			citationNumber: 3,
+			title: 'Prior verified source',
+			url: 'https://example.test/prior',
+			domain: 'example.test',
+			publicationDate: '2026-08-19',
+			sourceType: 'primary' as const,
+			supportingExcerpt: 'A verified statement from the prior answer.'
+		};
+		const built = buildHermesRunInput(
+			{
+				messages: [
+					{ role: 'assistant', content: 'The prior finding is supported by [3].' },
+					{ role: 'user', content: 'Which source supports that finding?' }
+				],
+				documents: [
+					{
+						id: 'document-a',
+						filename: 'notes.pdf',
+						pageCount: 1,
+						downloadUrl: '/api/documents/document-a',
+						pages: [{ pageNumber: 1, text: 'A separate document statement.' }]
+					}
+				]
+			},
+			'thread-a',
+			'run-a',
+			{ seededCitations: [priorCitation] }
+		);
+
+		expect(built.seededCitations).toEqual([
+			priorCitation,
+			expect.objectContaining({ citationNumber: 4, title: 'notes.pdf, page 1' })
+		]);
+		expect(built.input.forwardedProps?.citationStartNumber).toBe(5);
 	});
 
 	it('returns the Hermes cancellation result for durable recovery decisions', async () => {

@@ -252,6 +252,46 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		expect((await listHermesRunEvents(accountA, run.id)).map((event) => event.cursor)).toEqual([1, 2, 3]);
 	});
 
+	it('keeps only citation records used by the completed durable answer', async () => {
+		const seeded = await seed('used-citations');
+		const citations = [1, 3].map((citationNumber) => ({
+			citationNumber,
+			title: `Source ${citationNumber}`,
+			url: `https://example.test/source-${citationNumber}`,
+			domain: 'example.test',
+			publicationDate: '2026-08-19',
+			sourceType: 'primary',
+			supportingExcerpt: `Evidence ${citationNumber}`
+		}));
+		const { run } = await createOrGetHermesRun({
+			accountId: accountA,
+			orgId: seeded.conversation.orgId,
+			conversationId: seeded.conversation.id,
+			userMessageId: seeded.user.id,
+			assistantMessageId: seeded.assistant.id,
+			idempotencyKey: seeded.idempotencyKey,
+			tenantKey: `tenant-${accountA}`,
+			sessionId: `session-${seeded.conversation.id}`,
+			inputJson: '{}',
+			seededCitationsJson: JSON.stringify(citations)
+		});
+		const claimed = await claimHermesRunLease(accountA, run.id, 'worker-a');
+		await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'response.output_text.delta',
+			dataJson: JSON.stringify({ delta: 'The prior source supports this [3].' }),
+			workerCursor: 1
+		});
+		const final = await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'response.completed',
+			dataJson: '{}',
+			workerCursor: 2
+		});
+
+		expect(JSON.parse(final.run.citationsJson)).toEqual([expect.objectContaining({ citationNumber: 3 })]);
+		expect((await getMessages(seeded.conversation.id)).find((message) => message.id === seeded.assistant.id))
+			.toMatchObject({ partial: 0 });
+	});
+
 	it('denies cross-account reads, callbacks, and cancellation', async () => {
 		const { run } = await createRun('cross-account');
 		expect(await getHermesRun(accountB, run.id)).toBeNull();
