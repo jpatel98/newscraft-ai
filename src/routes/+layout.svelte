@@ -95,11 +95,17 @@
 				visualViewportHeight = `${window.innerHeight}px`;
 				return;
 			}
+			const activeElement = document.activeElement;
+			const editableFocused =
+				activeElement instanceof HTMLInputElement ||
+				activeElement instanceof HTMLTextAreaElement ||
+				activeElement instanceof HTMLSelectElement ||
+				(activeElement instanceof HTMLElement && activeElement.isContentEditable);
 			const keyboardHeight = Math.max(
 				0,
 				window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop
 			);
-			keyboardOpen = keyboardHeight > 130;
+			keyboardOpen = editableFocused && keyboardHeight > 130;
 			visualViewportHeight = keyboardOpen
 				? `${Math.round(window.visualViewport.height)}px`
 				: '100dvh';
@@ -112,6 +118,9 @@
 			if (!window.visualViewport) return;
 			applyKeyboardState();
 		};
+		const onFocusChange = () => {
+			requestAnimationFrame(applyKeyboardState);
+		};
 
 		applyMobile();
 		applyKeyboardState();
@@ -120,6 +129,8 @@
 			window.visualViewport.addEventListener('resize', onViewportChange);
 			window.visualViewport.addEventListener('scroll', onViewportChange);
 		}
+		window.addEventListener('focusin', onFocusChange);
+		window.addEventListener('focusout', onFocusChange);
 
 		const onOrientationChange = () => {
 			applyMobile();
@@ -150,6 +161,8 @@
 				window.visualViewport.removeEventListener('resize', onViewportChange);
 				window.visualViewport.removeEventListener('scroll', onViewportChange);
 			}
+			window.removeEventListener('focusin', onFocusChange);
+			window.removeEventListener('focusout', onFocusChange);
 		};
 	});
 
@@ -533,7 +546,7 @@
 		data-keyboard-open={keyboardOpen ? 'true' : 'false'}
 		style={`--visual-vh: ${visualViewportHeight};`}
 	>
-		<!-- Floating command bar — top-left, fixed, three icon buttons.
+		<!-- Floating command bar — top-left, three icon buttons.
 		     Hides when the drawer is open (drawer's own header has the toggle). -->
 		<div class="cmdbar" role="toolbar" aria-label="App actions" data-hidden={drawerOpen}>
 			<button

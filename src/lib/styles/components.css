@@ -2443,6 +2443,7 @@ body,
 			max(28px, calc(env(safe-area-inset-bottom, 0px) + 20px));
 	}
 	.shell {
+		height: 100svh;
 		height: 100dvh;
 		min-height: 0;
 		overflow: hidden;
@@ -2486,6 +2487,7 @@ body,
 		align-items: start;
 	}
 	.pane--thread .pane__header {
+		/* Keep the non-scrolling thread below the command bar. */
 		padding-top: calc(env(safe-area-inset-top, 0px) + 64px);
 	}
 	.shell--drawer-open .pane__header {
@@ -2548,6 +2550,7 @@ body,
 		grid-template-columns: 1fr;
 	}
 	.cmdbar {
+		position: absolute;
 		top: calc(env(safe-area-inset-top, 0px) + 8px);
 		left: calc(env(safe-area-inset-left, 0px) + 12px);
 		gap: 2px;

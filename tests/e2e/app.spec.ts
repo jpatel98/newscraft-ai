@@ -423,10 +423,12 @@ test.describe.serial('NewsCraft app shell', () => {
 		await page.goto(`/c/${conversationId}`);
 		await expect(page.locator('.pane__header__title')).toHaveText('Mobile layout check');
 
+		// A short visual viewport can come from collapsed browser chrome. It is
+		// not a keyboard unless an editable control has focus.
 		await page.evaluate(() => {
 			if (!window.visualViewport) return;
-			Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 700 });
-			Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 100 });
+			Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 500 });
+			Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 0 });
 			window.visualViewport.dispatchEvent(new Event('resize'));
 		});
 		await expect(page.locator('.shell')).toHaveAttribute('data-keyboard-open', 'false');
