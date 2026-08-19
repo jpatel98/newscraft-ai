@@ -60,4 +60,13 @@ describe('journalist trust components', () => {
 		expect(artifact).toContain('onSelect(option.action, draft.sourceMessageId)');
 		expect(artifact).toContain('downloadArtifact');
 	});
+
+	it('does not cancel a durable run when a focused control consumes Escape', () => {
+		const shortcuts = source('./KeyboardShortcuts.svelte');
+		const composer = source('./Composer.svelte');
+		expect(shortcuts).toContain('if (e.defaultPrevented) return;');
+		expect(composer).toContain("e.key === 'Escape' && document.activeElement === textarea");
+		expect(composer).toContain('e.preventDefault();');
+		expect(composer).toContain('e.stopPropagation();');
+	});
 });

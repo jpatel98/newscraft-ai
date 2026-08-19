@@ -536,6 +536,7 @@
 		if (e.key === 'Escape' && document.activeElement === textarea) {
 			textarea?.blur();
 			e.preventDefault();
+			e.stopPropagation();
 		}
 	}
 

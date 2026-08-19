@@ -32,6 +32,11 @@
 	}
 
 	function handle(e: KeyboardEvent) {
+		// A focused control can consume Escape for its own local action. For
+		// example, the composer uses Escape to blur the textarea. Do not let the
+		// same key event bubble into a durable-run cancellation.
+		if (e.defaultPrevented) return;
+
 		// Esc — abort stream (always), then close help if open
 		if (e.key === 'Escape') {
 			if (helpOpen) {
