@@ -15,11 +15,15 @@
 	import { contentText } from '$lib/types';
 	import { invalidateAll, replaceState } from '$app/navigation';
 	import { chat } from '$lib/stores/chat.svelte';
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { formatThreadUpdated } from '$lib/utils/time';
 	import { persistedThreadMessages, type PersistedThreadMessage } from '$lib/utils/thread-messages';
 	import { parseSlashCommand } from '$lib/utils/slash';
-	import { streamFailureMessage, type StreamArgs } from '$lib/client/stream';
+	import {
+		shouldReconnectDurableRun,
+		streamFailureMessage,
+		type StreamArgs
+	} from '$lib/client/stream';
 	import { subscribeDurableRun, type DurableRunSnapshot } from '$lib/client/stream';
 	import {
 		ConversationDocumentError,
@@ -33,6 +37,7 @@
 		DocumentUploadControls
 	} from '$lib/components/journalist-ui';
 	import { activeHTMLElement, focusDialog, restoreFocus, trapTabKey } from '$lib/utils/focus';
+	import { SerialTaskQueue } from '$lib/utils/serial-task-queue';
 	import X from 'lucide-svelte/icons/x';
 	import Send from 'lucide-svelte/icons/send-horizontal';
 
@@ -87,6 +92,8 @@
 	let activeRunId = $state<string | null>(null);
 	let activeRunCursor = $state(0);
 	let activeRunStatus = $state<string | null>(null);
+	let activeConversationId = untrack(() => data.conversation.id);
+	let conversationGeneration = 0;
 
 	const persisted = $derived(persistedThreadMessages(data.messages, hiddenIds));
 	const messages = $derived([...persisted, ...overlay]);
@@ -108,24 +115,19 @@
 		};
 	});
 
-	// Serialise runStream calls so abort + restart from a mid-stream send can't
-	// race the previous run's finally block.
-	let activeStream: Promise<void> = Promise.resolve();
+	const streamQueue = new SerialTaskQueue();
 
 	function clearFailureOverlays() {
 		overlay = overlay.filter((m) => !m.failure);
 	}
 
-	async function runStream(
+	async function executeStream(
 		args: RunStreamArgs,
 		artifact?: { action: AnswerUseAction; sourceMessageId: string },
 		existingRun?: DurableRunData
 	) {
-		// startStream aborts any prior controller; wait for the previous run to
-		// fully unwind so its overlay cleanup completes before we add our own.
-		const prior = activeStream;
+		const conversationId = args.conversation_id;
 		const controller = chat.startStream(args.conversation_id);
-		await prior.catch(() => {});
 
 		const requestArgs: RunStreamArgs = existingRun
 			? args
@@ -181,10 +183,47 @@
 			streaming: true,
 			createdAt: Date.now()
 		};
+		let localRunId = existingRun?.id ?? null;
+		let cancelRequested = false;
+		let cancelAccepted = false;
+		let cancelInFlight = false;
+		let cancelRetryTimer: ReturnType<typeof setTimeout> | null = null;
 		const updateAssistantOverlay = (patch: Partial<ThreadMessage>) => {
 			asstMsg = { ...asstMsg, ...patch };
 			overlay = overlay.map((message) => (message.id === asstMsg.id ? asstMsg : message));
 		};
+		const clearCancelRetry = () => {
+			if (cancelRetryTimer) clearTimeout(cancelRetryTimer);
+			cancelRetryTimer = null;
+		};
+		const submitDurableCancel = async () => {
+			if (!cancelRequested || cancelAccepted || cancelInFlight || !localRunId) return;
+			const runId = localRunId;
+			cancelInFlight = true;
+			try {
+				const response = await fetch(`/api/chat/runs/${encodeURIComponent(runId)}/cancel`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' }
+				});
+				if (!response.ok) throw new Error(`cancel ${response.status}`);
+				cancelAccepted = true;
+			} catch {
+				if (cancelRequested && localRunId === runId) {
+					clearCancelRetry();
+					cancelRetryTimer = setTimeout(() => void submitDurableCancel(), 1_000);
+				}
+			} finally {
+				cancelInFlight = false;
+			}
+		};
+		const durableCancelHandler = () => {
+			cancelRequested = true;
+			activeRunStatus = 'cancel_requested';
+			updateAssistantOverlay({ durableState: 'cancel_requested' });
+			void submitDurableCancel();
+			return false;
+		};
+		chat.setCancelHandler(durableCancelHandler);
 		let asstText = seedContent;
 		let streamEstablished = false;
 		let partialAnswer = false;
@@ -230,16 +269,22 @@
 					signal: controller.signal,
 					onMeta: (meta: { conversation_id: string; run_id?: string }) => {
 						noteStreamEstablished();
-						if (meta.run_id) activeRunId = meta.run_id;
+						if (meta.run_id) {
+							localRunId = meta.run_id;
+							activeRunId = localRunId;
+							if (cancelRequested) void submitDurableCancel();
+						}
 					},
 					onRunCursor: (cursor: number) => {
 						activeRunCursor = Math.max(activeRunCursor, cursor);
 					},
 					onRunSnapshot: (snapshot: DurableRunSnapshot) => {
 						noteStreamEstablished();
-						activeRunId = snapshot.run_id;
+						localRunId = snapshot.run_id;
+						activeRunId = localRunId;
 						activeRunCursor = snapshot.cursor;
 						activeRunStatus = snapshot.status || snapshot.state;
+						if (cancelRequested) void submitDurableCancel();
 						updateAssistantOverlay({ durableState: activeRunStatus });
 						if (snapshot.answerText !== asstText) {
 							asstText = snapshot.answerText;
@@ -262,6 +307,11 @@
 					noteStreamEstablished();
 					activeRunStatus = state;
 					const terminal = state === 'complete' || state === 'cancelled' || state === 'failed';
+					if (state === 'cancel_requested') cancelAccepted = true;
+					if (terminal) {
+						cancelRequested = false;
+						clearCancelRetry();
+					}
 					updateAssistantOverlay({
 						durableState: state,
 						...(terminal
@@ -315,7 +365,7 @@
 				}
 				};
 				const connect = async () => {
-					if (!attachedRun) {
+					if (!attachedRun && !activeRunId) {
 						await streamChat(requestArgs, callbacks);
 					} else {
 						await subscribeDurableRun(activeRunId as string, activeRunCursor, callbacks);
@@ -326,14 +376,13 @@
 					try {
 						await connect();
 					} catch (cause) {
-						if (controller.signal.aborted || !activeRunId) throw cause;
-						const diagnostic = cause instanceof Error ? cause.message : String(cause);
-						if (!diagnostic.includes('ended before') && !diagnostic.includes('subscription read failed')) {
-							throw cause;
-						}
+						if (controller.signal.aborted) throw cause;
+						if (!shouldReconnectDurableRun(cause)) throw cause;
 						reconnectAttempts += 1;
-						if (reconnectAttempts > 120) throw cause;
-						await new Promise<void>((resolve) => setTimeout(resolve, 500));
+						activeRunStatus = 'reconnecting';
+						updateAssistantOverlay({ durableState: 'reconnecting' });
+						const reconnectDelay = Math.min(500 * 2 ** Math.min(reconnectAttempts - 1, 4), 5_000);
+						await new Promise<void>((resolve) => setTimeout(resolve, reconnectDelay));
 					}
 				}
 				if (isRetryableSend) failedRetry = null;
@@ -349,7 +398,7 @@
 					asstText = seedContent ? `${seedContent}\n\n${note}` : note;
 					updateAssistantOverlay({ content: asstText });
 					try {
-						await fetch(`/api/conversations/${data.conversation.id}/assistant-note`, {
+						await fetch(`/api/conversations/${conversationId}/assistant-note`, {
 							method: 'POST',
 							headers: { 'content-type': 'application/json' },
 							body: JSON.stringify({ content: note })
@@ -375,6 +424,8 @@
 				}
 				if (artifact) updateArtifact({ content: asstText, citations: artifactCitations, status: 'error' });
 			} finally {
+					clearCancelRetry();
+					chat.clearCancelHandler(durableCancelHandler);
 					// Release the composer before any best-effort reload. A failed or
 					// stalled invalidation must never strand the browser in active mode.
 					if (chat.abort === controller) chat.endStream();
@@ -396,8 +447,19 @@
 				if (failureToRethrow) throw failureToRethrow;
 			}
 		})();
-		activeStream = run;
 		return run;
+	}
+
+	async function runStream(
+		args: RunStreamArgs,
+		artifact?: { action: AnswerUseAction; sourceMessageId: string },
+		existingRun?: DurableRunData
+	) {
+		const generation = conversationGeneration;
+		await streamQueue.enqueue(async () => {
+			if (generation !== conversationGeneration || args.conversation_id !== activeConversationId) return;
+			await executeStream(args, artifact, existingRun);
+		});
 	}
 
 	async function handleSend(
@@ -413,6 +475,7 @@
 			feedbackOpen = true;
 			return;
 		}
+		if (chat.streaming) chat.cancel();
 		await runStream({
 			conversation_id: data.conversation.id,
 			content,
@@ -591,23 +654,7 @@
 		}
 	}
 
-	async function cancelActiveDurableRun() {
-		const runId = activeRunId;
-		if (!runId) return;
-		try {
-			await fetch(`/api/chat/runs/${encodeURIComponent(runId)}/cancel`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' }
-			});
-		} catch {
-			/* The durable run remains cancellable from the conversation after reload. */
-		}
-	}
-
 	onMount(() => {
-		chat.setCancelHandler(() => {
-			void cancelActiveDurableRun();
-		});
 		void documentsCapabilityEnabled().then((enabled) => {
 			documentsEnabled = enabled;
 		});
@@ -618,40 +665,61 @@
 				data.durableRun as DurableRunData
 			);
 		}
-		if (typeof location === 'undefined') {
-			return () => {
-				chat.setCancelHandler(null);
-				if (chat.abort && !chat.abort.signal.aborted) chat.abort.abort();
-			};
-		}
-		const m = location.hash.match(/^#p=(.*)$/);
-		if (!m) return;
-		const stashKey = 'agent:pending:' + data.conversation.id;
-		let stashed: MessageContent | null = null;
-		try {
-			const raw = sessionStorage.getItem(stashKey);
-			if (raw) {
-				sessionStorage.removeItem(stashKey);
-				stashed = JSON.parse(raw) as MessageContent;
+		if (typeof location !== 'undefined') {
+			const m = location.hash.match(/^#p=(.*)$/);
+			if (m) {
+				const stashKey = 'agent:pending:' + data.conversation.id;
+				let stashed: MessageContent | null = null;
+				try {
+					const raw = sessionStorage.getItem(stashKey);
+					if (raw) {
+						sessionStorage.removeItem(stashKey);
+						stashed = JSON.parse(raw) as MessageContent;
+					}
+				} catch {
+					stashed = null;
+				}
+				let pending = '';
+				try {
+					pending = decodeURIComponent(m[1]);
+				} catch {
+					pending = '';
+				}
+				replaceState(location.pathname + location.search, {});
+				if (stashed) void handleSend(stashed);
+				else if (pending) void handleSend(pending);
 			}
-		} catch {
-			stashed = null;
 		}
-		let pending = '';
-		try {
-			pending = decodeURIComponent(m[1]);
-		} catch {
-			pending = '';
-		}
-		replaceState(location.pathname + location.search, {});
-		if (stashed) void handleSend(stashed);
-		else if (pending) void handleSend(pending);
 		return () => {
 			chat.setCancelHandler(null);
 			// Navigation or component destruction closes only this browser
 			// subscription. It never calls the durable cancel route.
 			if (chat.abort && !chat.abort.signal.aborted) chat.abort.abort();
 		};
+	});
+
+	$effect(() => {
+		const nextConversationId = data.conversation.id;
+		if (nextConversationId === activeConversationId) return;
+		activeConversationId = nextConversationId;
+		conversationGeneration += 1;
+		chat.setCancelHandler(null);
+		if (chat.abort && !chat.abort.signal.aborted) chat.abort.abort();
+		chat.endStream();
+		overlay = [];
+		hiddenIds = new Set();
+		failedRetry = null;
+		documentAttachments = [];
+		feedbackOpen = false;
+		activeRunId = null;
+		activeRunCursor = 0;
+		activeRunStatus = null;
+		activeArtifact = null;
+		artifactOpen = false;
+		const durableRun = data.durableRun as DurableRunData | null;
+		if (durableRun) {
+			void runStream({ conversation_id: nextConversationId }, undefined, durableRun);
+		}
 	});
 
 	$effect(() => {

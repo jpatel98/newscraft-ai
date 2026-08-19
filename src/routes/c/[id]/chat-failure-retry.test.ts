@@ -13,7 +13,7 @@ const threadSource = readFileSync(
 		const connectEnd = pageSource.indexOf('\n\t\t\t\t};', connectStart);
 		const connectSource = pageSource.slice(connectStart, connectEnd);
 
-		expect(connectSource).toContain('if (!attachedRun)');
+		expect(connectSource).toContain('if (!attachedRun && !activeRunId)');
 		expect(connectSource).toContain('await streamChat(requestArgs, callbacks);');
 		expect(connectSource).toContain('await subscribeDurableRun(activeRunId as string, activeRunCursor, callbacks);');
 		expect(pageSource).toContain('data.durableRun as DurableRunData');
@@ -22,9 +22,6 @@ const threadSource = readFileSync(
 		);
 	});
 	it('renders safe stream failures without raw thrown details', () => {
-		expect(pageSource).toContain(
-			"import { streamFailureMessage, type StreamArgs } from '$lib/client/stream';"
-		);
 		expect(pageSource).toContain('const message = streamFailureMessage(e);');
 		expect(pageSource).toContain('updateAssistantOverlay({ failure: { retryable: true } });');
 		expect(pageSource).not.toContain('String(e)');

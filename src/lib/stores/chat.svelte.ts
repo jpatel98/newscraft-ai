@@ -97,9 +97,9 @@ interface SourceProgress {
 	eventAt?: string | null;
 }
 
-class ChatSession {
+export class ChatSession {
 	abort = $state<AbortController | null>(null);
-	cancelHandler = $state<(() => void) | null>(null);
+	cancelHandler = $state<(() => boolean | void) | null>(null);
 	abortIntent = $state<'stop' | 'partial' | null>(null);
 	tools = $state<ToolProgress[]>([]);
 	sources = $state<SourceProgress[]>([]);
@@ -152,14 +152,18 @@ class ChatSession {
 		// assistant message until the next stream begins.
 	}
 
-	setCancelHandler(handler: (() => void) | null) {
+	setCancelHandler(handler: (() => boolean | void) | null) {
 		this.cancelHandler = handler;
+	}
+
+	clearCancelHandler(handler: () => boolean | void) {
+		if (this.cancelHandler === handler) this.cancelHandler = null;
 	}
 
 	cancel(intent: 'stop' | 'partial' = 'stop') {
 		this.abortIntent = intent;
-		this.cancelHandler?.();
-		if (this.abort) {
+		const abortSubscription = this.cancelHandler?.() !== false;
+		if (abortSubscription && this.abort) {
 			this.abort.abort();
 		}
 		this.tools = [];

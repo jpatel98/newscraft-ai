@@ -5,7 +5,8 @@ import {
 	subscribeDurableRun,
 	streamChat,
 	streamFailureDiagnostic,
-	streamFailureMessage
+	streamFailureMessage,
+	shouldReconnectDurableRun
 } from './stream';
 
 const enc = new TextEncoder();
@@ -350,5 +351,17 @@ describe('streamChat error contract', () => {
 			name: 'ChatStreamError',
 			diagnosticMessage: 'durable run failed: Hermes stopped before synthesis'
 		});
+	});
+});
+
+describe('durable reconnect classification', () => {
+	it('reconnects after browser transport loss or a temporary gateway failure', () => {
+		expect(shouldReconnectDurableRun(new ChatStreamError('stream read failed: TypeError: Failed to fetch'))).toBe(true);
+		expect(shouldReconnectDurableRun(new ChatStreamError('stream 504: Gateway Timeout'))).toBe(true);
+	});
+
+	it('does not reconnect an account error or a terminal run failure', () => {
+		expect(shouldReconnectDurableRun(new ChatStreamError('stream 403: forbidden'))).toBe(false);
+		expect(shouldReconnectDurableRun(new ChatStreamError('durable run failed: synthesis failed'))).toBe(false);
 	});
 });

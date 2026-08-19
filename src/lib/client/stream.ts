@@ -34,6 +34,17 @@ export function streamFailureDiagnostic(error: unknown): string {
 	return String(error);
 }
 
+export function shouldReconnectDurableRun(error: unknown): boolean {
+	const diagnostic = streamFailureDiagnostic(error);
+	if (/durable run failed|stream event failed/i.test(diagnostic)) return false;
+	if (/stream 4\d\d\b/i.test(diagnostic) && !/stream 408\b|stream 429\b/i.test(diagnostic)) {
+		return false;
+	}
+	return /ended before|subscription read failed|stream read failed|stream fetch failed|failed to fetch|networkerror|stream 5\d\d\b|stream 408\b|stream 429\b/i.test(
+		diagnostic
+	);
+}
+
 function isAbortError(error: unknown): boolean {
 	return (error as { name?: string } | null)?.name === 'AbortError';
 }
