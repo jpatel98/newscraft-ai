@@ -504,6 +504,55 @@ test.describe.serial('NewsCraft app shell', () => {
 			'width',
 			'44px'
 		);
+		const mobileTargetSizes = await page.evaluate(() =>
+			Array.from(
+				document.querySelectorAll<HTMLElement>(
+					'.cmdbar__btn, [data-testid="answer-utility-bar"] button, [data-testid="answer-utility-bar"] a'
+				)
+			).map((element) => {
+				const rect = element.getBoundingClientRect();
+				return { width: rect.width, height: rect.height };
+			})
+		);
+		expect(mobileTargetSizes.length).toBeGreaterThan(0);
+		expect(mobileTargetSizes.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
+
+		await page.setViewportSize({ width: 932, height: 430 });
+		const rotatedTargetSizes = await page.evaluate(() =>
+			Array.from(
+				document.querySelectorAll<HTMLElement>(
+					'.cmdbar__btn, .composer__icon-btn, .composer__send, .msg__actions button, .msg__actions a, [data-testid="answer-utility-bar"] button, [data-testid="answer-utility-bar"] a'
+				)
+			)
+				.map((element) => {
+					const rect = element.getBoundingClientRect();
+					return { width: rect.width, height: rect.height };
+				})
+		);
+		expect(rotatedTargetSizes.length).toBeGreaterThan(0);
+		expect(rotatedTargetSizes.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
+		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(932);
+		expect(problems).toEqual([]);
+	});
+
+	test('keeps the thread document title through SPA navigation and reload', async ({ page }) => {
+		const problems = await collectPageProblems(page);
+		await signIn(page);
+		const conversationId = await seedConversation(page, {
+			title: 'Thread title check',
+			userMessage: 'Check the thread title.',
+			assistantMessage: 'The thread title is stable.'
+		});
+
+		await page.goto('/');
+		const threadLink = page.getByRole('link', { name: /Thread title check/ });
+		await expect(threadLink).toBeVisible();
+		await threadLink.click();
+		await expect(page).toHaveURL(new RegExp(`/c/${conversationId}$`));
+		await expect(page).toHaveTitle('Thread title check · NewsCraft');
+
+		await page.reload();
+		await expect(page).toHaveTitle('Thread title check · NewsCraft');
 		expect(problems).toEqual([]);
 	});
 

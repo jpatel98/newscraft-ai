@@ -380,7 +380,9 @@ describe('disciplined newsroom agent harness', () => {
 					extracted_text: 'The transit agency published a service plan with source-dated information.',
 					confidence: 0.9,
 					limitations: [],
-					source_kind: 'official'
+					source_kind: 'official',
+					direct_verified: true,
+					temporal_scope: 'fallback'
 				})
 			],
 			limitations: [],
@@ -425,21 +427,7 @@ describe('disciplined newsroom agent harness', () => {
 		const answer = generateFinalAnswer({
 			prompt: 'latest on gas prices in GTA',
 			decision,
-			evidence: [
-				normalizeEvidence({
-					source_name: 'CityNews',
-					source_url: 'https://toronto.citynews.ca/toronto-gta-gas-prices',
-					accessed_at: '2026-05-27T13:00:00.000Z',
-					tool_used: 'openai_web_search',
-					title: 'Toronto & GTA Gas Prices',
-					published_at: null,
-					extracted_text: 'GTA pump prices are expected to hold today.',
-					summary: 'GTA pump prices are expected to hold today.',
-					confidence: 0.7,
-					limitations: [],
-					source_kind: 'media_report'
-				})
-			],
+			evidence: [],
 			limitations: [],
 			budget: new ToolBudgetLedger(mergeToolBudget()).snapshot(),
 			toolAnswers: [
@@ -654,7 +642,9 @@ describe('disciplined newsroom agent harness', () => {
 					summary: 'A magnitude 4.7 earthquake occurred east of Aomori Prefecture at 16:38 JST',
 					confidence: 0.92,
 					limitations: [],
-					source_kind: 'official'
+					source_kind: 'official',
+					direct_verified: true,
+					temporal_scope: 'primary'
 				}),
 				normalizeEvidence({
 					source_name: 'Candidate news outlet',

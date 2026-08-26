@@ -737,6 +737,10 @@
 	});
 </script>
 
+<svelte:head>
+	<title>{data.conversation.title || 'Untitled thread'} · NewsCraft</title>
+</svelte:head>
+
 <header class="pane__header">
 	<div>
 		<div class="pane__header__title">

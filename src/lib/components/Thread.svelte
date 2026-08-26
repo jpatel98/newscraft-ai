@@ -644,11 +644,20 @@
 	:global(a.msg__action) {
 		text-decoration: none;
 	}
-	@media (max-width: 620px) {
+	@media (max-width: 620px), (orientation: landscape) and (max-width: 1024px) and (max-height: 600px) {
 		.answer-utility {
 			padding: 6px 10px;
 			overflow-x: auto;
 			justify-content: flex-start;
+		}
+		.answer-utility :global(.msg__action),
+		.answer-utility :global(.answer-actions__trigger) {
+			min-height: 44px;
+		}
+		.answer-utility__regenerate {
+			min-width: 44px;
+			justify-content: center;
+			padding-inline: 0;
 		}
 		.answer-utility__trust {
 			display: none;
