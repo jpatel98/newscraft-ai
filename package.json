@@ -19,6 +19,7 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest run && pnpm --filter @newscraft/shared test && pnpm --filter @newscraft/newsroom-harness test",
 		"eval:fixture": "NEWSROOM_EVAL_MODE=fixture node services/newsroom-harness/eval/run-eval.mjs",
+		"canary:jig183": "uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_183_canary.py",
 		"test:e2e": "playwright test",
 		"producer:acceptance": "node scripts/producer-acceptance.mjs",
 		"smoke:producer:fixture": "PRODUCER_ACCEPTANCE_SOURCE_MODE=fixture PRODUCER_ACCEPTANCE_REQUIRE_OPENAI=0 node scripts/producer-acceptance.mjs",
