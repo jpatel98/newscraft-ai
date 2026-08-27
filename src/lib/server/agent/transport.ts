@@ -980,6 +980,15 @@ export interface DurableHermesRunStartRequest {
 	traceId?: string;
 }
 
+export class HermesDurableOverloadError extends Error {
+	readonly code = 'overloaded';
+
+	constructor() {
+		super('Research service is temporarily at capacity. Try again shortly.');
+		this.name = 'HermesDurableOverloadError';
+	}
+}
+
 /** Start a durable worker owned by the NewsCraft Hermes service. */
 export async function startDurableHermesRun(input: DurableHermesRunStartRequest): Promise<void> {
 	const traceId = traceHeader(input.traceId);
@@ -1000,7 +1009,17 @@ export async function startDurableHermesRun(input: DurableHermesRunStartRequest)
 		})
 	});
 	if (!response.ok) {
-		const detail = await response.text().catch(() => '');
+		const text = await response.text().catch(() => '');
+		let body: { code?: unknown; detail?: unknown } | null = null;
+		try {
+			body = JSON.parse(text) as { code?: unknown; detail?: unknown };
+		} catch {
+			/* Keep the existing generic transport error for non-JSON failures. */
+		}
+		if (response.status === 429 && body?.code === 'overloaded') {
+			throw new HermesDurableOverloadError();
+		}
+		const detail = typeof body?.detail === 'string' ? body.detail : text;
 		throw new Error(`Hermes durable start failed (${response.status}): ${detail || response.statusText}`);
 	}
 }

@@ -678,7 +678,8 @@ export async function requestHermesRunCancellation(
 export async function failQueuedHermesRun(
 	accountId: string,
 	runId: string,
-	errorMessage = 'Research service did not start. Try again.'
+	errorMessage = 'Research service did not start. Try again.',
+	failureClass: 'start' | 'overload' = 'start'
 ): Promise<HermesRunRecord> {
 	const owner = requireValue(accountId, 'accountId');
 	const id = requireValue(runId, 'runId');
@@ -699,7 +700,7 @@ export async function failQueuedHermesRun(
 			accountId: owner,
 			cursor,
 			eventType: 'run.failed',
-			dataJson: JSON.stringify({ failure_class: 'start', error: { message: safeError } }),
+			dataJson: JSON.stringify({ failure_class: failureClass, error: { message: safeError } }),
 			createdAt: now
 		});
 		const [run] = (await tx
@@ -913,13 +914,15 @@ export async function releaseHermesRunLease(
 ): Promise<HermesRunRecord> {
 	const [run] = (await db
 		.update(hermesRuns)
-		.set({ leaseOwner: null, leaseToken: null, leaseExpiresAt: null, updatedAt: Date.now() })
+		.set({ state: 'queued', leaseOwner: null, leaseToken: null, leaseExpiresAt: null, updatedAt: Date.now() })
 		.where(
 			and(
 				eq(hermesRuns.id, requireValue(runId, 'runId')),
 				eq(hermesRuns.accountId, requireValue(accountId, 'accountId')),
 				eq(hermesRuns.leaseOwner, requireValue(leaseOwner, 'leaseOwner')),
-				eq(hermesRuns.leaseToken, requireValue(leaseToken, 'leaseToken'))
+				eq(hermesRuns.leaseToken, requireValue(leaseToken, 'leaseToken')),
+				inArray(hermesRuns.state, HERMES_ACTIVE_STATES),
+				isNull(hermesRuns.cancelRequestedAt)
 			)
 		)
 		.returning()) as HermesRunRecord[];
@@ -933,18 +936,30 @@ export async function reclaimQueuedOrExpiredHermesRuns(
 	now = Date.now()
 ): Promise<HermesRunRecord[]> {
 	const worker = requireValue(leaseOwner, 'leaseOwner');
-	const candidates = (await db
-		.select({ accountId: hermesRuns.accountId, id: hermesRuns.id })
-		.from(hermesRuns)
-		.where(
-			and(
-				isNull(hermesRuns.cancelRequestedAt),
-				inArray(hermesRuns.state, HERMES_ACTIVE_STATES),
-				or(isNull(hermesRuns.leaseExpiresAt), lt(hermesRuns.leaseExpiresAt, now))
-			)
-		)
-		.orderBy(asc(hermesRuns.createdAt))
-		.limit(Math.min(Math.max(limit, 1), 50))) as Array<{ accountId: string; id: string }>;
+	const boundedLimit = Math.min(Math.max(limit, 1), 50);
+	const activeStates = sql.join(HERMES_ACTIVE_STATES.map((state) => sql`${state}`), sql`, `);
+	const candidates = Array.from(
+		(await db.execute(sql`
+			SELECT account_id AS "accountId", id
+			FROM (
+				SELECT
+					account_id,
+					id,
+					tenant_key,
+					created_at,
+					ROW_NUMBER() OVER (
+						PARTITION BY tenant_key
+						ORDER BY created_at ASC, id ASC
+					) AS tenant_rank
+				FROM hermes_runs
+				WHERE cancel_requested_at IS NULL
+					AND state IN (${activeStates})
+					AND (lease_expires_at IS NULL OR lease_expires_at < ${now})
+			) eligible
+			ORDER BY tenant_rank ASC, created_at ASC, id ASC
+			LIMIT ${boundedLimit}
+		`)) as Iterable<{ accountId: string; id: string }>
+	);
 	const claimed: HermesRunRecord[] = [];
 	for (const candidate of candidates) {
 		const run = await claimHermesRunLease(candidate.accountId, candidate.id, worker, now);

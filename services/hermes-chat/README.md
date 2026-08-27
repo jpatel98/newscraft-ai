@@ -136,16 +136,26 @@ Do not promote the branch or change the VPS until these gates pass with the real
 
 The service also owns long-running NewsCraft jobs. NewsCraft creates the run
 record and stores the input. It calls `POST /v1/runs/start`. The service first
-claims the lease through the server-only NewsCraft run API. It then creates one
-asyncio task for the run and returns the HTTP acknowledgement. Closing the
-start request does not cancel that task.
+admits the run through a single-host round-robin scheduler, then claims the
+lease through the server-only NewsCraft run API. A waiting run holds no lease.
+The defaults are four active runs globally, two active runs per tenant, sixteen
+waiting runs globally, and four waiting runs per tenant. A full boundary
+returns the stable `overloaded` result and NewsCraft persists a safe failed
+state; it never silently turns overload into success. Closing the start request
+does not cancel an admitted task.
 
 The task sends ordered normalized events to the NewsCraft callback route. Each
 callback includes the run ID, account ID, tenant key, lease owner, lease token,
 and worker cursor. NewsCraft rejects a wrong token, tenant, lease, or cursor.
 The service renews the lease while Hermes runs. The cancel route cancels the
 same task. On service startup, the service claims queued or expired runs from
-the recovery route and starts them with their saved input and evidence.
+the recovery route in tenant-fair bounded batches and starts them with their
+saved input and evidence. A recovered lease is started only when a slot is
+available; otherwise it is returned through the authenticated release route,
+which persists `queued`, and the next eligible tenant in the batch is still
+considered. A serialized continuation refills released capacity until the
+recoverable backlog is drained, so no locally waiting recovery job holds a
+lease that can expire.
 
 Set these private service values together:
 

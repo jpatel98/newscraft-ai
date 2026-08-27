@@ -11,6 +11,7 @@ import {
 	deriveHermesTenantKey,
 	deriveSessionId,
 	gatewayHealth,
+	HermesDurableOverloadError,
 	normalizeHermesSse,
 	startDurableHermesRun,
 	streamChatCompletion,
@@ -398,6 +399,39 @@ describe('Hermes chat transport', () => {
 			})
 		).rejects.toThrow('trace binding');
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('keeps durable overload machine-readable for the persisted failure path', async () => {
+		const fetchMock = vi.fn().mockImplementation(
+			() => new Response(JSON.stringify({ code: 'overloaded', detail: 'safe capacity message' }), { status: 429 })
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const built = buildHermesRunInput(
+			{ messages: [{ role: 'user', content: 'A local test request.' }] },
+			'thread-a',
+			'run-a'
+		);
+
+		await expect(
+			startDurableHermesRun({
+				runId: 'run-a',
+				accountId: 'account-a',
+				tenantKey: 'tenant-key-a',
+				input: built.input,
+				seededCitations: built.seededCitations,
+				traceId: built.input.trace_id
+			})
+		).rejects.toBeInstanceOf(HermesDurableOverloadError);
+		await expect(
+			startDurableHermesRun({
+				runId: 'run-a',
+				accountId: 'account-a',
+				tenantKey: 'tenant-key-a',
+				input: built.input,
+				seededCitations: built.seededCitations,
+				traceId: built.input.trace_id
+			})
+		).rejects.toMatchObject({ code: 'overloaded' });
 	});
 
 	it('checks retrieval readiness before a research run and makes no fallback request', async () => {

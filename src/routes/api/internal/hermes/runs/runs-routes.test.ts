@@ -6,6 +6,8 @@ const dbMocks = vi.hoisted(() => ({
 	claimHermesRunLease: vi.fn(),
 	renewHermesRunLease: vi.fn(),
 	reclaimQueuedOrExpiredHermesRuns: vi.fn(),
+	failQueuedHermesRun: vi.fn(),
+	releaseHermesRunLease: vi.fn(),
 	requestHermesRunCancellation: vi.fn(),
 	finalizeHermesRunCancellation: vi.fn(),
 	listHermesRunEvents: vi.fn(),
@@ -33,6 +35,8 @@ vi.mock('$lib/server/chat-diagnostics', () => diagnosticMocks);
 
 import { POST as callback } from './callback/+server';
 import { POST as claim } from './claim/+server';
+import { POST as fail } from './fail/+server';
+import { POST as release } from './release/+server';
 import { POST as renew } from './renew/+server';
 import { GET as subscribe } from '../../../chat/runs/[id]/+server';
 import { POST as cancel } from '../../../chat/runs/[id]/cancel/+server';
@@ -81,6 +85,37 @@ function claimRequest(overrides: Record<string, unknown> = {}) {
 
 function renewRequest(overrides: Record<string, unknown> = {}) {
 	return new Request('http://localhost/api/internal/hermes/runs/renew', {
+		method: 'POST',
+		headers: { 'x-newscraft-hermes-token': 'run-token' },
+		body: JSON.stringify({
+			run_id: run.id,
+			account_id: user.id,
+			tenant_key: 'tenant_key_1',
+			lease_owner: 'worker-1',
+			lease_token: 'lease-1',
+			trace_id: 'trace_12345678',
+			...overrides
+		})
+	});
+}
+
+function failRequest(overrides: Record<string, unknown> = {}) {
+	return new Request('http://localhost/api/internal/hermes/runs/fail', {
+		method: 'POST',
+		headers: { 'x-newscraft-hermes-token': 'run-token' },
+		body: JSON.stringify({
+			run_id: run.id,
+			account_id: user.id,
+			tenant_key: 'tenant_key_1',
+			reason: 'overload',
+			trace_id: 'trace_12345678',
+			...overrides
+		})
+	});
+}
+
+function releaseRequest(overrides: Record<string, unknown> = {}) {
+	return new Request('http://localhost/api/internal/hermes/runs/release', {
 		method: 'POST',
 		headers: { 'x-newscraft-hermes-token': 'run-token' },
 		body: JSON.stringify({
@@ -208,6 +243,8 @@ describe('Hermes internal trace-bound control routes', () => {
 		dbMocks.getHermesRun.mockResolvedValue(run);
 		dbMocks.claimHermesRunLease.mockResolvedValue({ ...run, leaseToken: 'lease-2' });
 		dbMocks.renewHermesRunLease.mockResolvedValue(run);
+		dbMocks.failQueuedHermesRun.mockResolvedValue({ ...run, state: 'failed' });
+		dbMocks.releaseHermesRunLease.mockResolvedValue({ ...run, leaseOwner: null, leaseToken: null });
 	});
 
 	it('rejects a claim with no persisted trace binding supplied', async () => {
@@ -287,6 +324,62 @@ describe('Hermes internal trace-bound control routes', () => {
 		expect((await claim({ request: claimRequest({ trace_id: undefined }) } as any)).status).toBe(200);
 		expect((await renew({ request: renewRequest({ trace_id: undefined }) } as any)).status).toBe(200);
 		expect((await callback({ request: callbackRequest({ trace_id: undefined }) } as any)).status).toBe(200);
+	});
+});
+
+describe('Hermes overload and recovery lease routes', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		authMocks.verifyHermesRunCallback.mockReturnValue(true);
+		dbMocks.getHermesRun.mockResolvedValue(run);
+		dbMocks.failQueuedHermesRun.mockResolvedValue({ ...run, state: 'failed' });
+		dbMocks.releaseHermesRunLease.mockResolvedValue({ ...run, state: 'queued', leaseOwner: null, leaseToken: null });
+	});
+
+	it('persists overload through the existing queued-run failure repository path', async () => {
+		const response = await fail({ request: failRequest() } as any);
+		const body = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(body).toEqual({ state: 'failed' });
+		expect(dbMocks.failQueuedHermesRun).toHaveBeenCalledWith(
+			user.id,
+			run.id,
+			'Research service is temporarily at capacity. Try again shortly.',
+			'overload'
+		);
+		expect(JSON.stringify(body)).not.toContain('tenant_key_1');
+	});
+
+	it('rejects an admission failure trace mismatch before repository mutation', async () => {
+		const response = await fail({ request: failRequest({ trace_id: 'trace_87654321' }) } as any);
+		const body = await response.json();
+
+		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
+		expect(dbMocks.failQueuedHermesRun).not.toHaveBeenCalled();
+	});
+
+	it('returns a recovered lease through the existing repository lease path', async () => {
+		const response = await release({ request: releaseRequest() } as any);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ state: 'queued' });
+		expect(dbMocks.releaseHermesRunLease).toHaveBeenCalledWith(
+			user.id,
+			run.id,
+			'worker-1',
+			'lease-1'
+		);
+	});
+
+	it('rejects a recovery lease trace mismatch before repository mutation', async () => {
+		const response = await release({ request: releaseRequest({ trace_id: 'trace_87654321' }) } as any);
+		const body = await response.json();
+
+		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
+		expect(dbMocks.releaseHermesRunLease).not.toHaveBeenCalled();
 	});
 });
 

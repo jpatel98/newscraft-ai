@@ -48,10 +48,37 @@ Existing focused evidence before this change:
 6. Explicit cancellation changes the same run to `cancel_requested`, asks the
    Hermes service to cancel that run ID, and records the terminal `cancelled`
    event. Network loss has no such path.
-7. On service startup, a recovery poller claims queued or expired active runs
-   from NewsCraft. It resumes the same run ID and input. Stored sources and
-   answer checkpoints are included so recovery can continue the same stage
-   without discarding gathered evidence.
+7. On service startup, a bounded recovery poller claims queued or expired
+   active runs from NewsCraft. The repository returns candidates in tenant-fair
+   oldest-first rounds, so one tenant's backlog cannot fill the recovery batch.
+   The worker resumes the same run ID and input. Stored sources and answer
+   checkpoints are included so recovery can continue the same stage without
+   discarding gathered evidence. If a claimed run cannot fit the current
+   capacity, the worker returns its lease through the authenticated release
+   route, which persists `queued`, and continues through the batch. A
+   serialized continuation runs after capacity is released until the bounded
+   recoverable backlog is drained; no locally waiting recovery job holds a
+   lease.
+
+## Single-host concurrency and overload
+
+The durable worker admits runs with four explicit limits: four active runs per
+Hermes process, two active runs per tenant, sixteen waiting runs per process,
+and four waiting runs per tenant. These defaults are conservative until an
+authorized live measurement changes them. Waiting jobs use a round-robin
+tenant queue, so a noisy tenant cannot consume all active slots or all queue
+turns. A full queue returns `429` with code `overloaded`; NewsCraft persists a
+safe failed answer state that tells the user to try again shortly.
+
+The local JIG-185 load runner uses the production `DurableRunWorker` with
+disposable deterministic provider and callback doubles. Its result is local
+scheduler evidence, including recovery backlog refill and tenant fairness, not
+production capacity. A second host must not be added until an authorized
+single-host production window shows a written threshold miss: p95 admission
+wait above 30 seconds, capacity rejection above 1% of accepted runs, any
+duplicate invocation or answer, any cross-tenant result, or any
+lease/cancellation correctness failure. Until one of those live thresholds is
+measured and missed, the single host remains the release decision.
 
 ## Low-latency text delivery
 

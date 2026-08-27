@@ -21,6 +21,7 @@ const FAILURE_CLASSES = new Set([
 	'timeout',
 	'upstream',
 	'lease',
+	'overload',
 	'protocol',
 	'start',
 	'unknown'

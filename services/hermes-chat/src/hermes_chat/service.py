@@ -19,7 +19,14 @@ from fastapi import Request
 
 from . import HERMES_COMMIT
 from .contracts import CRON_TOOLSET, HERMES_TOOLSET
-from .durable import DurableRunError, DurableRunWorker
+from .durable import (
+    DEFAULT_MAX_ACTIVE_RUNS,
+    DEFAULT_MAX_ACTIVE_RUNS_PER_TENANT,
+    DEFAULT_MAX_QUEUED_RUNS,
+    DEFAULT_MAX_QUEUED_RUNS_PER_TENANT,
+    DurableRunError,
+    DurableRunWorker,
+)
 from .isolation import (
     TENANT_HEADER,
     TenantIsolation,
@@ -61,6 +68,10 @@ class Settings:
     model_api_key: str
     model_api_mode: str | None
     max_iterations: int
+    max_active_runs: int
+    max_active_runs_per_tenant: int
+    max_queued_runs: int
+    max_queued_runs_per_tenant: int
     web_provider: str
     browser_provider: str
     retrieval: RetrievalConfig
@@ -156,6 +167,31 @@ def _run_api_setting(value: str) -> str | None:
     return value
 
 
+def _durable_capacity_details(settings: Any, worker: Any) -> dict[str, Any]:
+    snapshot = getattr(worker, "capacity_snapshot", None)
+    if callable(snapshot):
+        return snapshot()
+    return {
+        "active_runs": 0,
+        "queued_runs": 0,
+        "rejected_runs": 0,
+        "limits": {
+            "max_active_runs": getattr(settings, "max_active_runs", DEFAULT_MAX_ACTIVE_RUNS),
+            "max_active_runs_per_tenant": getattr(
+                settings,
+                "max_active_runs_per_tenant",
+                DEFAULT_MAX_ACTIVE_RUNS_PER_TENANT,
+            ),
+            "max_queued_runs": getattr(settings, "max_queued_runs", DEFAULT_MAX_QUEUED_RUNS),
+            "max_queued_runs_per_tenant": getattr(
+                settings,
+                "max_queued_runs_per_tenant",
+                DEFAULT_MAX_QUEUED_RUNS_PER_TENANT,
+            ),
+        },
+    }
+
+
 def settings_from_env() -> Settings:
     try:
         port = int(os.environ.get("HERMES_AGUI_PORT", "8000"))
@@ -188,6 +224,34 @@ def settings_from_env() -> Settings:
         _required("EXA_API_KEY")
     if browser_provider == _BROWSER_USE_PROVIDER:
         _required("BROWSER_USE_API_KEY")
+    max_active_runs = _integer_setting(
+        "NEWSCRAFT_HERMES_MAX_ACTIVE_RUNS", DEFAULT_MAX_ACTIVE_RUNS, 1, 128
+    )
+    max_active_runs_per_tenant = _integer_setting(
+        "NEWSCRAFT_HERMES_MAX_ACTIVE_RUNS_PER_TENANT",
+        DEFAULT_MAX_ACTIVE_RUNS_PER_TENANT,
+        1,
+        128,
+    )
+    max_queued_runs = _integer_setting(
+        "NEWSCRAFT_HERMES_MAX_QUEUED_RUNS", DEFAULT_MAX_QUEUED_RUNS, 1, 1024
+    )
+    max_queued_runs_per_tenant = _integer_setting(
+        "NEWSCRAFT_HERMES_MAX_QUEUED_RUNS_PER_TENANT",
+        DEFAULT_MAX_QUEUED_RUNS_PER_TENANT,
+        1,
+        1024,
+    )
+    if max_active_runs_per_tenant > max_active_runs:
+        raise RuntimeError(
+            "NEWSCRAFT_HERMES_MAX_ACTIVE_RUNS_PER_TENANT cannot exceed "
+            "NEWSCRAFT_HERMES_MAX_ACTIVE_RUNS"
+        )
+    if max_queued_runs_per_tenant > max_queued_runs:
+        raise RuntimeError(
+            "NEWSCRAFT_HERMES_MAX_QUEUED_RUNS_PER_TENANT cannot exceed "
+            "NEWSCRAFT_HERMES_MAX_QUEUED_RUNS"
+        )
     return Settings(
         host=os.environ.get("HERMES_AGUI_HOST", "127.0.0.1").strip() or "127.0.0.1",
         port=port,
@@ -201,6 +265,10 @@ def settings_from_env() -> Settings:
         model_api_key=_required("NEWSCRAFT_HERMES_MODEL_API_KEY"),
         model_api_mode=os.environ.get("NEWSCRAFT_HERMES_MODEL_API_MODE", "").strip() or None,
         max_iterations=_integer_setting("NEWSCRAFT_HERMES_MAX_ITERATIONS", 25, 4, 90),
+        max_active_runs=max_active_runs,
+        max_active_runs_per_tenant=max_active_runs_per_tenant,
+        max_queued_runs=max_queued_runs,
+        max_queued_runs_per_tenant=max_queued_runs_per_tenant,
         web_provider=web_provider,
         browser_provider=browser_provider,
         retrieval=RetrievalConfig.from_env(),
@@ -1425,7 +1493,12 @@ def create_app(settings: Settings | None = None):
             result = await durable_worker.start(payload)
             return JSONResponse(result, status_code=202)
         except DurableRunError as exc:
-            return JSONResponse({"detail": str(exc)}, status_code=409)
+            response: dict[str, Any] = {"detail": str(exc)}
+            if exc.code:
+                response["code"] = exc.code
+            if exc.code == "overloaded":
+                response["state"] = "rejected"
+            return JSONResponse(response, status_code=exc.status_code or 409)
         except Exception:
             logger.exception("Durable Hermes start failed")
             return JSONResponse({"detail": "durable Hermes start failed"}, status_code=503)
@@ -1517,6 +1590,7 @@ def create_app(settings: Settings | None = None):
                 "durableRuns": {
                     "configured": durable_worker.configured,
                     "callback": durable_worker.configured,
+                    "concurrency": _durable_capacity_details(settings, durable_worker),
                 },
                 "accountIsolation": {
                     "tenantHeader": TENANT_HEADER,

@@ -11,21 +11,25 @@ export const GET: RequestHandler = async ({ request, url }) => {
 	}
 	const runs = await reclaimQueuedOrExpiredHermesRuns(leaseOwner, Math.min(requestedLimit, 100));
 	return json({
-		runs: runs.map((run) => ({
-			run_id: run.id,
-			account_id: run.accountId,
-			tenant_key: run.tenantKey,
-			input: JSON.parse(run.inputJson),
-		seeded_citations: JSON.parse(run.seededCitationsJson),
-		resume_snapshot: {
-			answer_text: run.answerText.slice(0, 64 * 1024),
-			sources: JSON.parse(run.sourcesJson),
-			citations: JSON.parse(run.citationsJson)
-		},
-		lease_owner: run.leaseOwner,
-			lease_token: run.leaseToken,
-			worker_cursor: run.workerCursor,
-			state: run.state
-		}))
+		runs: runs.map((run) => {
+			const input = JSON.parse(run.inputJson) as Record<string, unknown>;
+			return {
+				run_id: run.id,
+				account_id: run.accountId,
+				tenant_key: run.tenantKey,
+				input,
+				trace_id: typeof input.trace_id === 'string' ? input.trace_id : undefined,
+				seeded_citations: JSON.parse(run.seededCitationsJson),
+				resume_snapshot: {
+					answer_text: run.answerText.slice(0, 64 * 1024),
+					sources: JSON.parse(run.sourcesJson),
+					citations: JSON.parse(run.citationsJson)
+				},
+				lease_owner: run.leaseOwner,
+				lease_token: run.leaseToken,
+				worker_cursor: run.workerCursor,
+				state: run.state
+			};
+		})
 	});
 };

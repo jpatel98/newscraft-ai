@@ -8,6 +8,7 @@ import logging
 import re
 import secrets
 import socket
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping
 from urllib.parse import quote
@@ -17,7 +18,9 @@ import httpx
 from .contracts import (
     NEWSCRAFT_RUN_CALLBACK_PATH,
     NEWSCRAFT_RUN_CLAIM_PATH,
+    NEWSCRAFT_RUN_FAIL_PATH,
     NEWSCRAFT_RUN_RECOVER_PATH,
+    NEWSCRAFT_RUN_RELEASE_PATH,
     NEWSCRAFT_RUN_RENEW_PATH,
     RUN_LEASE_RENEW_INTERVAL_SECONDS,
     RUN_TOKEN_HEADER,
@@ -33,6 +36,55 @@ TEXT_BATCH_MAX_CHARS = 4_096
 TEXT_BATCH_FLUSH_INTERVAL_SECONDS = 0.05
 TEXT_EVENT_TYPE = "response.output_text.delta"
 TRACE_ID_RE = r"^[A-Za-z0-9._-]{8,128}$"
+
+DEFAULT_MAX_ACTIVE_RUNS = 4
+DEFAULT_MAX_ACTIVE_RUNS_PER_TENANT = 2
+DEFAULT_MAX_QUEUED_RUNS = 16
+DEFAULT_MAX_QUEUED_RUNS_PER_TENANT = 4
+OVERLOAD_ERROR_CODE = "overloaded"
+OVERLOAD_ERROR_MESSAGE = "Hermes run capacity is temporarily full. Try again shortly."
+
+
+@dataclass(frozen=True)
+class DurableConcurrencyLimits:
+    """Validated single-process admission limits for durable NewsCraft runs."""
+
+    max_active_runs: int = DEFAULT_MAX_ACTIVE_RUNS
+    max_active_runs_per_tenant: int = DEFAULT_MAX_ACTIVE_RUNS_PER_TENANT
+    max_queued_runs: int = DEFAULT_MAX_QUEUED_RUNS
+    max_queued_runs_per_tenant: int = DEFAULT_MAX_QUEUED_RUNS_PER_TENANT
+
+    @classmethod
+    def from_settings(cls, settings: Any) -> "DurableConcurrencyLimits":
+        values = {
+            "max_active_runs": getattr(settings, "max_active_runs", DEFAULT_MAX_ACTIVE_RUNS),
+            "max_active_runs_per_tenant": getattr(
+                settings,
+                "max_active_runs_per_tenant",
+                DEFAULT_MAX_ACTIVE_RUNS_PER_TENANT,
+            ),
+            "max_queued_runs": getattr(settings, "max_queued_runs", DEFAULT_MAX_QUEUED_RUNS),
+            "max_queued_runs_per_tenant": getattr(
+                settings,
+                "max_queued_runs_per_tenant",
+                DEFAULT_MAX_QUEUED_RUNS_PER_TENANT,
+            ),
+        }
+        ranges = {
+            "max_active_runs": (1, 128),
+            "max_active_runs_per_tenant": (1, 128),
+            "max_queued_runs": (1, 1024),
+            "max_queued_runs_per_tenant": (1, 1024),
+        }
+        for name, value in values.items():
+            minimum, maximum = ranges[name]
+            if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+                raise RuntimeError(f"{name} is outside the validated concurrency range")
+        if values["max_active_runs_per_tenant"] > values["max_active_runs"]:
+            raise RuntimeError("max_active_runs_per_tenant cannot exceed max_active_runs")
+        if values["max_queued_runs_per_tenant"] > values["max_queued_runs"]:
+            raise RuntimeError("max_queued_runs_per_tenant cannot exceed max_queued_runs")
+        return cls(**values)
 
 
 class DurableRunError(RuntimeError):
@@ -78,6 +130,8 @@ def _failure_class(error: BaseException) -> str:
     if isinstance(error, asyncio.CancelledError):
         return "cancelled"
     if isinstance(error, DurableRunError):
+        if error.code == OVERLOAD_ERROR_CODE:
+            return "overload"
         if error.code in {"stale_lease", "stale_callback"}:
             return "lease"
         if error.code == "protocol":
@@ -272,21 +326,64 @@ class DurableJob:
     text_buffer_chars: int = field(default=0, repr=False)
     text_flush_task: asyncio.Task[None] | None = field(default=None, repr=False)
     text_flush_error: BaseException | None = field(default=None, repr=False)
+    slot_reserved: bool = field(default=False, repr=False)
+    lease_acquired: bool = field(default=False, repr=False)
+    claim_ready: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+    start_observed: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+    claim_settlement_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    claim_settled: bool = field(default=False, repr=False)
+    claim_result: dict[str, Any] | None = field(default=None, repr=False)
+    claim_error: BaseException | None = field(default=None, repr=False)
+    cancel_publish_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    cancel_published: bool = field(default=False, repr=False)
 
 
 class DurableRunWorker:
-    """Owns Hermes tasks after the start endpoint returns."""
+    """Owns Hermes tasks after the start endpoint returns.
+
+    New runs wait in a bounded, in-memory round-robin queue before asking
+    NewsCraft for a lease. A waiting run therefore cannot hold a lease that
+    expires while it is waiting. Recovery payloads are different: the
+    recovery route has already claimed their lease, so they are admitted
+    immediately or released back to the recovery pool.
+    """
 
     def __init__(self, settings: Any, isolation: TenantIsolation):
         self.settings = settings
         self.isolation = isolation
         self.instance_id = f"{socket.gethostname()}-{secrets.token_hex(6)}"
+        self.limits = DurableConcurrencyLimits.from_settings(settings)
         self.jobs: dict[str, DurableJob] = {}
         self._lock = asyncio.Lock()
+        self._dispatch_lock = asyncio.Lock()
+        self._tenant_queues: dict[str, deque[str]] = {}
+        self._tenant_order: deque[str] = deque()
+        self._active_runs = 0
+        self._active_by_tenant: dict[str, int] = {}
+        self._rejected_runs = 0
+        self._recovery_lock = asyncio.Lock()
+        self._recovery_task: asyncio.Task[None] | None = None
+        self._recovery_pending = False
+        self._recovery_backlog_known = False
+        self._closed = False
 
     @property
     def configured(self) -> bool:
         return bool(self.settings.run_api_url and self.settings.run_api_token)
+
+    def capacity_snapshot(self) -> dict[str, Any]:
+        """Return aggregate capacity state without exposing tenant details."""
+        return {
+            "active_runs": self._active_runs,
+            "queued_runs": sum(len(queue) for queue in self._tenant_queues.values()),
+            "rejected_runs": self._rejected_runs,
+            "limits": {
+                "max_active_runs": self.limits.max_active_runs,
+                "max_active_runs_per_tenant": self.limits.max_active_runs_per_tenant,
+                "max_queued_runs": self.limits.max_queued_runs,
+                "max_queued_runs_per_tenant": self.limits.max_queued_runs_per_tenant,
+            },
+        }
 
     def _headers(self, trace_id: str | None = None) -> dict[str, str]:
         headers = {RUN_TOKEN_HEADER: self.settings.run_api_token or "", "content-type": "application/json"}
@@ -326,6 +423,94 @@ class DurableRunWorker:
         value = response.json()
         return value if isinstance(value, dict) else {}
 
+    def _queued_for_tenant_locked(self, tenant_key: str) -> int:
+        return len(self._tenant_queues.get(tenant_key, ()))
+
+    def _has_active_slot_locked(self, tenant_key: str) -> bool:
+        return (
+            self._active_runs < self.limits.max_active_runs
+            and self._active_by_tenant.get(tenant_key, 0) < self.limits.max_active_runs_per_tenant
+        )
+
+    def _enqueue_locked(self, job: DurableJob) -> None:
+        queue = self._tenant_queues.setdefault(job.tenant_key, deque())
+        if not queue:
+            self._tenant_order.append(job.tenant_key)
+        queue.append(job.run_id)
+
+    def _remove_queued_locked(self, job: DurableJob) -> bool:
+        queue = self._tenant_queues.get(job.tenant_key)
+        if not queue:
+            return False
+        try:
+            queue.remove(job.run_id)
+        except ValueError:
+            return False
+        if not queue:
+            self._tenant_queues.pop(job.tenant_key, None)
+            self._tenant_order = deque(
+                tenant for tenant in self._tenant_order if tenant != job.tenant_key
+            )
+        return True
+
+    def _next_queued_job_locked(self) -> DurableJob | None:
+        # One pass is enough: blocked tenants rotate to the back while an
+        # eligible tenant can make progress. This is weighted only by the
+        # explicit active-per-tenant limit, never by tenant identity.
+        for _ in range(len(self._tenant_order)):
+            tenant_key = self._tenant_order.popleft()
+            queue = self._tenant_queues.get(tenant_key)
+            if not queue:
+                self._tenant_queues.pop(tenant_key, None)
+                continue
+            if not self._has_active_slot_locked(tenant_key):
+                self._tenant_order.append(tenant_key)
+                continue
+            run_id = queue.popleft()
+            if queue:
+                self._tenant_order.append(tenant_key)
+            else:
+                self._tenant_queues.pop(tenant_key, None)
+            job = self.jobs.get(run_id)
+            if job is None or job.stop_reason:
+                continue
+            return job
+        return None
+
+    def _reserve_slot_locked(self, job: DurableJob) -> None:
+        if job.slot_reserved:
+            raise RuntimeError("durable run slot is already reserved")
+        job.slot_reserved = True
+        self._active_runs += 1
+        self._active_by_tenant[job.tenant_key] = self._active_by_tenant.get(job.tenant_key, 0) + 1
+
+    async def _release_slot(self, job: DurableJob) -> None:
+        async with self._lock:
+            if job.slot_reserved:
+                job.slot_reserved = False
+                self._active_runs = max(0, self._active_runs - 1)
+                count = self._active_by_tenant.get(job.tenant_key, 0) - 1
+                if count > 0:
+                    self._active_by_tenant[job.tenant_key] = count
+                else:
+                    self._active_by_tenant.pop(job.tenant_key, None)
+        if not self._closed:
+            await self._dispatch()
+            self._schedule_recovery()
+
+    async def _dispatch(self) -> None:
+        async with self._dispatch_lock:
+            while not self._closed:
+                async with self._lock:
+                    job = self._next_queued_job_locked()
+                    if job is None:
+                        return
+                    self._reserve_slot_locked(job)
+                    job.task = asyncio.create_task(
+                        self._admit_and_run(job),
+                        name=f"newscraft-hermes-admit-{job.run_id}",
+                    )
+
     async def start(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         run_id = _string(payload.get("run_id"), "run_id")
         account_id = _string(payload.get("account_id"), "account_id")
@@ -335,7 +520,207 @@ class DurableRunWorker:
         self.isolation.resolve(tenant_key)
         if str(run_input.get("runId") or run_input.get("run_id") or "").strip() not in {"", run_id}:
             raise DurableRunError("input run id does not match run id")
+        job: DurableJob | None = None
+        try:
+            async with self._lock:
+                if self._closed:
+                    raise DurableRunError("Hermes durable worker is shutting down", 503, "unavailable")
+                current = self.jobs.get(run_id)
+                if current:
+                    if current.account_id != account_id:
+                        raise DurableRunError("run account binding does not match")
+                    if current.tenant_key != tenant_key:
+                        raise DurableRunError("run tenant binding does not match")
+                    if trace_id and current.trace_id and current.trace_id != trace_id:
+                        raise DurableRunError("run trace binding does not match")
+                    if current.stop_reason == "cancelled":
+                        state = "cancelled"
+                    elif current.claim_error is not None:
+                        state = "failed"
+                    elif current.claim_result and (
+                        current.claim_result.get("terminal") or current.claim_result.get("duplicate")
+                    ):
+                        state = current.claim_result.get("state", "finished")
+                    elif current.lease_acquired and current.task and not current.task.done():
+                        state = "running"
+                    elif not current.lease_acquired and current.stop_reason is None:
+                        state = "queued"
+                    else:
+                        state = "finished"
+                    return {"accepted": True, "duplicate": True, "run_id": run_id, "state": state}
+                if (
+                    self._queued_for_tenant_locked(tenant_key) >= self.limits.max_queued_runs_per_tenant
+                    or sum(len(queue) for queue in self._tenant_queues.values()) >= self.limits.max_queued_runs
+                ):
+                    self._rejected_runs += 1
+                    raise DurableRunError(OVERLOAD_ERROR_MESSAGE, 429, OVERLOAD_ERROR_CODE)
+                job = DurableJob(
+                    run_id=run_id,
+                    account_id=account_id,
+                    tenant_key=tenant_key,
+                    input=run_input,
+                    seeded_citations=[item for item in payload.get("seeded_citations", []) if isinstance(item, dict)][:100],
+                    lease_owner="",
+                    lease_token="",
+                    trace_id=trace_id,
+                )
+                self.jobs[run_id] = job
+                self._enqueue_locked(job)
+
+            await self._dispatch()
+            was_admitted = job.task is not None
+            if was_admitted:
+                await job.claim_ready.wait()
+                if job.claim_error is not None:
+                    await self._settle_claim_outcome(job, persist_failure=False)
+                    raise job.claim_error
+                if job.claim_result and (
+                    job.claim_result.get("terminal") or job.claim_result.get("duplicate")
+                ):
+                    await self._settle_claim_outcome(job, persist_failure=False)
+                    return {
+                        "accepted": True,
+                        "duplicate": True,
+                        "run_id": run_id,
+                        "state": job.claim_result.get("state", "complete"),
+                    }
+            return {"accepted": True, "duplicate": False, "run_id": run_id, "state": "queued"}
+        finally:
+            if job is not None:
+                job.start_observed.set()
+
+    async def _fail_queued_after_admission_error(self, job: DurableJob) -> None:
+        """Persist a safe terminal state when admission rejects a saved run."""
+        body = {
+            "run_id": job.run_id,
+            "account_id": job.account_id,
+            "tenant_key": job.tenant_key,
+            "reason": "admission",
+        }
+        if job.trace_id:
+            body["trace_id"] = job.trace_id
+        try:
+            await self._newscraft("POST", NEWSCRAFT_RUN_FAIL_PATH, body)
+        except Exception:
+            # A transient control-plane outage leaves the saved unleased run
+            # available to the normal recovery poller. Never report the raw
+            # exception or tenant data through the service log.
+            logger.warning("NewsCraft could not persist a durable admission failure")
+
+    async def _settle_claim_outcome(self, job: DurableJob, *, persist_failure: bool) -> None:
+        """Settle one claim outcome and remove any unleased local ownership."""
+        async with job.claim_settlement_lock:
+            if job.claim_settled:
+                return
+            try:
+                if persist_failure and job.claim_error is not None:
+                    await self._fail_queued_after_admission_error(job)
+            finally:
+                async with self._lock:
+                    if self.jobs.get(job.run_id) is job and not job.lease_acquired:
+                        self.jobs.pop(job.run_id, None)
+                job.claim_settled = True
+
+    async def _remove_unleased_job(self, job: DurableJob) -> None:
         async with self._lock:
+            if self.jobs.get(job.run_id) is job and not job.lease_acquired:
+                self.jobs.pop(job.run_id, None)
+
+    async def _admit_and_run(self, job: DurableJob) -> None:
+        try:
+            owner = f"hermes:{self.instance_id}:{job.run_id}"
+            claim_body = {
+                "run_id": job.run_id,
+                "account_id": job.account_id,
+                "tenant_key": job.tenant_key,
+                "lease_owner": owner,
+            }
+            if job.trace_id:
+                claim_body["trace_id"] = job.trace_id
+            try:
+                claim = await self._newscraft("POST", NEWSCRAFT_RUN_CLAIM_PATH, claim_body)
+            except DurableRunError as exc:
+                if exc.status_code == 409 and exc.code == "lease_conflict":
+                    job.claim_result = {
+                        "accepted": True,
+                        "duplicate": True,
+                        "run_id": job.run_id,
+                        "state": "running",
+                    }
+                else:
+                    job.claim_error = exc
+                job.claim_ready.set()
+                await job.start_observed.wait()
+                if job.claim_error is not None:
+                    await self._settle_claim_outcome(job, persist_failure=True)
+                else:
+                    await self._settle_claim_outcome(job, persist_failure=False)
+                return
+            if claim.get("terminal"):
+                job.claim_result = claim
+                job.claim_ready.set()
+                await job.start_observed.wait()
+                await self._settle_claim_outcome(job, persist_failure=False)
+                return
+            job.lease_owner = _string(claim.get("lease_owner"), "lease_owner")
+            job.lease_token = _string(claim.get("lease_token"), "lease_token")
+            job.worker_cursor = int(claim.get("worker_cursor") or 0)
+            job.lease_acquired = True
+            job.claim_result = claim
+            job.claim_ready.set()
+            await self._run_claimed(job)
+        except asyncio.CancelledError:
+            if job.lease_acquired and job.stop_reason == "cancelled":
+                try:
+                    await self._publish_cancelled(job)
+                except BaseException:
+                    logger.exception("NewsCraft cancellation callback failed")
+            raise
+        except BaseException as exc:
+            if job.lease_acquired:
+                # The run already owns a lease. Its normal run path reports
+                # provider/callback failures; never turn a post-claim error
+                # into a queued admission failure.
+                logger.error("Durable Hermes admitted task failed")
+            elif job.claim_error is None:
+                job.claim_error = exc
+                job.claim_ready.set()
+                await job.start_observed.wait()
+                await self._settle_claim_outcome(job, persist_failure=True)
+        finally:
+            if not job.claim_ready.is_set():
+                job.claim_ready.set()
+            if not job.lease_acquired and (job.claim_settled or job.stop_reason in {"cancelled", "shutdown"}):
+                await self._remove_unleased_job(job)
+            await self._release_slot(job)
+
+    async def _run_claimed(self, job: DurableJob) -> None:
+        if job.stop_reason == "cancelled":
+            await self._publish_cancelled(job)
+            return
+        await self._run(job)
+
+    async def _run_recovered(self, job: DurableJob) -> None:
+        try:
+            await self._run_claimed(job)
+        finally:
+            await self._release_slot(job)
+
+    async def start_recovered(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        run_id = _string(payload.get("run_id"), "run_id")
+        account_id = _string(payload.get("account_id"), "account_id")
+        tenant_key = _string(payload.get("tenant_key"), "tenant_key")
+        lease_owner = _string(payload.get("lease_owner"), "lease_owner")
+        lease_token = _string(payload.get("lease_token"), "lease_token")
+        self.isolation.resolve(tenant_key)
+        run_input = _json_object(payload.get("input"), "input")
+        trace_id = _resolve_trace_id(run_input, payload.get("trace_id"))
+        if str(run_input.get("runId") or run_input.get("run_id") or "").strip() not in {"", run_id}:
+            raise DurableRunError("saved input run id does not match run id")
+        existing_state: str | None = None
+        async with self._lock:
+            if self._closed:
+                raise DurableRunError("Hermes durable worker is shutting down", 503, "unavailable")
             current = self.jobs.get(run_id)
             if current:
                 if current.account_id != account_id:
@@ -344,143 +729,233 @@ class DurableRunWorker:
                     raise DurableRunError("run tenant binding does not match")
                 if trace_id and current.trace_id and current.trace_id != trace_id:
                     raise DurableRunError("run trace binding does not match")
-                return {"accepted": True, "duplicate": True, "run_id": run_id, "state": "running" if current.task and not current.task.done() else "finished"}
-            owner = f"hermes:{self.instance_id}:{run_id}"
-            claim_body = {
-                "run_id": run_id,
-                "account_id": account_id,
-                "tenant_key": tenant_key,
-                "lease_owner": owner,
-            }
-            if trace_id:
-                claim_body["trace_id"] = trace_id
-            try:
-                claim = await self._newscraft("POST", NEWSCRAFT_RUN_CLAIM_PATH, claim_body)
-            except DurableRunError as exc:
-                # Another start request may have claimed this run between the
-                # idempotent NewsCraft insert and this service call. Only the
-                # explicit lease-conflict code is a harmless duplicate; other
-                # 409 responses must reach the caller.
-                if exc.status_code == 409 and exc.code == "lease_conflict":
-                    return {"accepted": True, "duplicate": True, "run_id": run_id, "state": "running"}
-                raise
-            if claim.get("terminal"):
-                return {"accepted": True, "duplicate": True, "run_id": run_id, "state": claim.get("state", "complete")}
-            job = DurableJob(
-                run_id=run_id,
-                account_id=account_id,
-                tenant_key=tenant_key,
-                input=run_input,
-                seeded_citations=[item for item in payload.get("seeded_citations", []) if isinstance(item, dict)][:100],
-                lease_owner=_string(claim.get("lease_owner"), "lease_owner"),
-                lease_token=_string(claim.get("lease_token"), "lease_token"),
-                worker_cursor=int(claim.get("worker_cursor") or 0),
-                trace_id=trace_id,
-            )
-            job.task = asyncio.create_task(self._run(job), name=f"newscraft-hermes-{run_id}")
-            self.jobs[run_id] = job
-            return {"accepted": True, "duplicate": False, "run_id": run_id, "state": "queued"}
+                if current.stop_reason == "cancelled":
+                    current_state = "cancelled"
+                elif current.lease_acquired and current.task and not current.task.done():
+                    current_state = "running"
+                elif not current.lease_acquired and current.stop_reason is None:
+                    current_state = "queued"
+                else:
+                    current_state = "finished"
+                # The recovery endpoint has already claimed this lease. Do
+                # not replace a local waiting job or start a second task;
+                # return the recovery lease below before acknowledging the
+                # local duplicate.
+                existing_state = current_state
+            if existing_state is None:
+                if not self._has_active_slot_locked(tenant_key):
+                    raise DurableRunError("recovered run capacity is unavailable", 503, "capacity")
+                job = DurableJob(
+                    run_id=run_id,
+                    account_id=account_id,
+                    tenant_key=tenant_key,
+                    input=run_input,
+                    seeded_citations=[item for item in payload.get("seeded_citations", []) if isinstance(item, dict)][:100],
+                    lease_owner=lease_owner,
+                    lease_token=lease_token,
+                    worker_cursor=int(payload.get("worker_cursor") or 0),
+                    trace_id=trace_id,
+                    lease_acquired=True,
+                )
+                resume_snapshot = payload.get("resume_snapshot")
+                if isinstance(resume_snapshot, dict):
+                    state = job.input.get("state")
+                    if not isinstance(state, dict):
+                        state = {}
+                    sources = resume_snapshot.get("sources")
+                    if isinstance(sources, list):
+                        state["newscraftSources"] = sources[:100]
+                    job.input["state"] = state
+                    context = job.input.get("context")
+                    if not isinstance(context, list):
+                        context = []
+                    context.append({
+                        "description": "Previously gathered NewsCraft evidence from this durable run",
+                        "value": json.dumps({
+                            "answer_text": str(resume_snapshot.get("answer_text") or "")[:64 * 1024],
+                            "sources": sources[:100] if isinstance(sources, list) else [],
+                            "citations": resume_snapshot.get("citations") if isinstance(resume_snapshot.get("citations"), list) else [],
+                        }),
+                    })
+                    job.input["context"] = context[-32:]
+                self._reserve_slot_locked(job)
+                job.task = asyncio.create_task(
+                    self._run_recovered(job),
+                    name=f"newscraft-hermes-recovered-{run_id}",
+                )
+                self.jobs[run_id] = job
+                return {"accepted": True, "duplicate": False, "run_id": run_id, "state": "recovered"}
+        await self._release_recovered_lease(payload, trace_id)
+        return {"accepted": True, "duplicate": True, "run_id": run_id, "state": existing_state}
 
-    async def start_recovered(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        run_id = _string(payload.get("run_id"), "run_id")
-        account_id = _string(payload.get("account_id"), "account_id")
-        tenant_key = _string(payload.get("tenant_key"), "tenant_key")
-        self.isolation.resolve(tenant_key)
-        run_input = _json_object(payload.get("input"), "input")
-        trace_id = _resolve_trace_id(run_input, payload.get("trace_id"))
-        if str(run_input.get("runId") or run_input.get("run_id") or "").strip() not in {"", run_id}:
-            raise DurableRunError("saved input run id does not match run id")
-        async with self._lock:
-            current = self.jobs.get(run_id)
-            if current and current.task and not current.task.done():
-                if current.account_id != account_id:
-                    raise DurableRunError("run account binding does not match")
-                if current.tenant_key != tenant_key:
-                    raise DurableRunError("run tenant binding does not match")
-                if trace_id and current.trace_id and current.trace_id != trace_id:
-                    raise DurableRunError("run trace binding does not match")
-                return {"accepted": True, "duplicate": True, "run_id": run_id, "state": "running"}
-            job = DurableJob(
-                run_id=run_id,
-                account_id=account_id,
-                tenant_key=tenant_key,
-                input=run_input,
-                seeded_citations=[item for item in payload.get("seeded_citations", []) if isinstance(item, dict)][:100],
-                lease_owner=_string(payload.get("lease_owner"), "lease_owner"),
-                lease_token=_string(payload.get("lease_token"), "lease_token"),
-                worker_cursor=int(payload.get("worker_cursor") or 0),
-                trace_id=trace_id,
-            )
-            resume_snapshot = payload.get("resume_snapshot")
-            if isinstance(resume_snapshot, dict):
-                state = job.input.get("state")
-                if not isinstance(state, dict):
-                    state = {}
-                sources = resume_snapshot.get("sources")
-                if isinstance(sources, list):
-                    state["newscraftSources"] = sources[:100]
-                job.input["state"] = state
-                context = job.input.get("context")
-                if not isinstance(context, list):
-                    context = []
-                context.append({
-                    "description": "Previously gathered NewsCraft evidence from this durable run",
-                    "value": json.dumps({
-                        "answer_text": str(resume_snapshot.get("answer_text") or "")[:64 * 1024],
-                        "sources": sources[:100] if isinstance(sources, list) else [],
-                        "citations": resume_snapshot.get("citations") if isinstance(resume_snapshot.get("citations"), list) else [],
-                    }),
-                })
-                job.input["context"] = context[-32:]
-            job.task = asyncio.create_task(self._run(job), name=f"newscraft-hermes-recovered-{run_id}")
-            self.jobs[run_id] = job
-            return {"accepted": True, "duplicate": False, "run_id": run_id, "state": "recovered"}
+    async def _release_recovered_lease(
+        self,
+        payload: Mapping[str, Any],
+        trace_id: str | None = None,
+    ) -> None:
+        body = {
+            "run_id": _string(payload.get("run_id"), "run_id"),
+            "account_id": _string(payload.get("account_id"), "account_id"),
+            "tenant_key": _string(payload.get("tenant_key"), "tenant_key"),
+            "lease_owner": _string(payload.get("lease_owner"), "lease_owner"),
+            "lease_token": _string(payload.get("lease_token"), "lease_token"),
+        }
+        if trace_id is None:
+            trace_id = _trace_id(payload.get("trace_id"))
+        if trace_id is None and isinstance(payload.get("input"), Mapping):
+            trace_id = _trace_id(payload["input"].get("trace_id"))
+        if trace_id:
+            body["trace_id"] = trace_id
+        try:
+            await self._newscraft("POST", NEWSCRAFT_RUN_RELEASE_PATH, body)
+        except Exception:
+            # The lease remains recoverable after expiry if this best-effort
+            # return path is interrupted.
+            logger.warning("NewsCraft could not return an unadmitted recovery lease")
 
     async def cancel(self, run_id: str, account_id: str | None = None, tenant_key: str | None = None) -> dict[str, Any]:
         async with self._lock:
             job = self.jobs.get(run_id)
-        if not job or not job.task or job.task.done():
+            if not job:
+                return {"accepted": True, "run_id": run_id, "state": "not_running"}
+            if account_id and job.account_id != account_id:
+                raise DurableRunError("run account binding does not match")
+            if tenant_key and job.tenant_key != tenant_key:
+                raise DurableRunError("run tenant binding does not match")
+            if not job.slot_reserved or not job.task:
+                if self._remove_queued_locked(job):
+                    job.stop_reason = "cancelled"
+                    return {"accepted": True, "run_id": run_id, "state": "not_running"}
+                if job.task is None or job.task.done():
+                    return {"accepted": True, "run_id": run_id, "state": "not_running"}
+            task = job.task
+            job.stop_reason = "cancelled"
+        if task is None or task.done():
             return {"accepted": True, "run_id": run_id, "state": "not_running"}
-        if account_id and job.account_id != account_id:
-            raise DurableRunError("run account binding does not match")
-        if tenant_key and job.tenant_key != tenant_key:
-            raise DurableRunError("run tenant binding does not match")
-        job.stop_reason = "cancelled"
-        job.task.cancel()
-        try:
-            await job.task
-        except asyncio.CancelledError:
-            pass
-        return {"accepted": True, "run_id": run_id, "state": "cancel_requested"}
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        return {
+            "accepted": True,
+            "run_id": run_id,
+            "state": "cancel_requested" if job.lease_acquired else "not_running",
+        }
+
+    def _schedule_recovery(self) -> None:
+        """Schedule one bounded recovery continuation after capacity returns."""
+        if self._closed or not self.configured or not self._recovery_backlog_known:
+            return
+        current = asyncio.current_task()
+        if self._recovery_task is not None and not self._recovery_task.done():
+            if self._recovery_task is not current:
+                self._recovery_pending = True
+            return
+        self._recovery_task = asyncio.create_task(
+            self.recover(),
+            name="newscraft-hermes-recovery-continuation",
+        )
+
+    async def _recover_batch(self) -> None:
+        async with self._lock:
+            if self._closed:
+                return
+            available = self.limits.max_active_runs - self._active_runs
+        if available <= 0:
+            # A recovery pass was requested while local work occupied every
+            # slot. Remember that a recoverable backlog may still exist so
+            # the next release can make one bounded attempt.
+            self._recovery_backlog_known = True
+            return
+        owner = f"hermes-recovery:{self.instance_id}"
+        request_limit = min(available, 100)
+        result = await self._newscraft(
+            "GET",
+            f"{NEWSCRAFT_RUN_RECOVER_PATH}?lease_owner={quote(owner)}&limit={request_limit}",
+        )
+        runs = [payload for payload in result.get("runs", []) if isinstance(payload, dict)]
+        self._recovery_backlog_known = len(runs) >= request_limit
+        for index, payload in enumerate(runs):
+            try:
+                await self.start_recovered(payload)
+            except DurableRunError as exc:
+                await self._release_recovered_lease(payload)
+                if exc.code == "capacity":
+                    # A tenant may be full while another tenant in the same
+                    # batch is eligible. Continue through the batch instead
+                    # of stranding the quiet tenant behind the noisy one.
+                    self._recovery_backlog_known = True
+                    continue
+                self._recovery_backlog_known = True
+                for remainder in runs[index + 1:]:
+                    await self._release_recovered_lease(remainder)
+                break
+            except Exception:
+                await self._release_recovered_lease(payload)
+                self._recovery_backlog_known = True
+                # Every remaining response already holds a lease. Return all
+                # of them before leaving this bounded recovery cycle.
+                for remainder in runs[index + 1:]:
+                    await self._release_recovered_lease(remainder)
+                break
 
     async def recover(self) -> None:
         if not self.configured:
             return
+        current = asyncio.current_task()
+        if current is None:
+            return
+        if self._recovery_task is not None and self._recovery_task is not current and not self._recovery_task.done():
+            self._recovery_pending = True
+            return
+        if self._recovery_task is None:
+            self._recovery_task = current
         try:
-            owner = f"hermes-recovery:{self.instance_id}"
-            result = await self._newscraft("GET", f"{NEWSCRAFT_RUN_RECOVER_PATH}?lease_owner={quote(owner)}&limit=100")
-            for payload in result.get("runs", []):
-                if isinstance(payload, dict):
-                    await self.start_recovered(payload)
+            async with self._recovery_lock:
+                if not self._closed:
+                    await self._recover_batch()
+        except asyncio.CancelledError:
+            raise
         except Exception:
             logger.exception("NewsCraft durable run recovery failed")
+        finally:
+            if self._recovery_task is current:
+                self._recovery_task = None
+                pending = self._recovery_pending
+                self._recovery_pending = False
+                if pending:
+                    self._schedule_recovery()
 
     async def close(self) -> None:
-        tasks = []
-        for job in self.jobs.values():
-            if job.task and not job.task.done():
-                job.stop_reason = "shutdown"
+        async with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            tasks: list[asyncio.Task[None]] = []
+            jobs = list(self.jobs.values())
+            recovery_task = self._recovery_task
+            self._recovery_pending = False
+            for job in jobs:
+                if job.slot_reserved and job.task and not job.task.done():
+                    job.stop_reason = "shutdown"
+                    tasks.append(job.task)
+                elif not job.slot_reserved:
+                    self._remove_queued_locked(job)
+                    if job.stop_reason is None:
+                        job.stop_reason = "shutdown"
+        for job in jobs:
+            if job.task and job.task in tasks:
                 try:
                     await self._flush_text(job)
                 except asyncio.CancelledError:
                     logger.info("NewsCraft text flush was cancelled during shutdown")
                 except Exception:
                     logger.exception("NewsCraft text flush failed during shutdown")
-                tasks.append(job.task)
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        if recovery_task and recovery_task is not asyncio.current_task() and not recovery_task.done():
+            recovery_task.cancel()
+            await asyncio.gather(recovery_task, return_exceptions=True)
 
     async def _stop_text_flush(self, job: DurableJob) -> None:
         task = job.text_flush_task
@@ -602,10 +1077,14 @@ class DurableRunWorker:
     async def _publish_cancelled(self, job: DurableJob) -> None:
         # NewsCraft rejects text callbacks after cancel_requested. Drop only
         # the unaccepted tail so it cannot block the terminal callback.
-        await self._stop_text_flush(job)
-        self._discard_text_buffer(job)
-        job.text_flush_error = None
-        await self._callback(job, "run.cancelled", {"failure_class": "cancelled", "status": "cancelled"})
+        async with job.cancel_publish_lock:
+            if job.cancel_published:
+                return
+            await self._stop_text_flush(job)
+            self._discard_text_buffer(job)
+            job.text_flush_error = None
+            await self._callback(job, "run.cancelled", {"failure_class": "cancelled", "status": "cancelled"})
+            job.cancel_published = True
 
     async def _renew(self, job: DurableJob) -> None:
         while True:

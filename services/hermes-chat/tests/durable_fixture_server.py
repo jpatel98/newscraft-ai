@@ -252,13 +252,18 @@ def create_app() -> FastAPI:
         try:
             payload = await request.json()
             if payload.get("tenant_key") != request.headers.get("x-newscraft-tenant-key", ""):
-                logger.warning("fixture start tenant mismatch run_id=%s", payload.get("run_id"))
+                logger.warning("fixture start tenant binding mismatch")
                 return JSONResponse({"detail": "tenant binding does not match"}, status_code=409)
             result = await worker.start(payload)
             return JSONResponse(result, status_code=202)
         except DurableRunError as exc:
-            logger.warning("fixture start rejected run_id=%s status=%s", payload.get("run_id"), exc.status_code)
-            return JSONResponse({"detail": str(exc)}, status_code=409)
+            logger.warning("fixture start rejected with status=%s", exc.status_code)
+            response: dict[str, Any] = {"detail": str(exc)}
+            if exc.code:
+                response["code"] = exc.code
+            if exc.code == "overloaded":
+                response["state"] = "rejected"
+            return JSONResponse(response, status_code=exc.status_code or 409)
 
     @app.post("/v1/runs/{run_id}/cancel")
     async def cancel(run_id: str, request: Request):
@@ -343,6 +348,11 @@ def create_app() -> FastAPI:
                     "stableTaskKey": True,
                     "persistentDockerWorkspace": True,
                     "isolatedBrowserProfiles": True,
+                },
+                "durableRuns": {
+                    "configured": worker.configured,
+                    "callback": worker.configured,
+                    "concurrency": worker.capacity_snapshot(),
                 },
             },
         }

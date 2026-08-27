@@ -13,6 +13,7 @@
 		"health:agent": "node scripts/check-health.mjs --url http://127.0.0.1:3001/api/health --expect ui",
 		"health:hermes": "node scripts/check-health.mjs --url http://127.0.0.1:8000/ready --expect hermes",
 		"dashboard:jig186": "node --experimental-strip-types scripts/jig-186-dashboard.mjs",
+		"canary:jig185": "uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_185_load.py",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "pnpm --filter @newscraft/shared build && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

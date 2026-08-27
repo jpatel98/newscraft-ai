@@ -5,6 +5,7 @@ import {
 	deriveHermesTenantKey,
 	buildHermesRunInput,
 	startDurableHermesRun,
+	HermesDurableOverloadError,
 	gatewayHealth,
 	type AgentMessage,
 	type AgentContent,
@@ -1239,14 +1240,20 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					seededCitations: durableSeededCitations,
 					traceId: durableTraceId
 				});
-			} catch {
-				durableRun = await failQueuedHermesRun(accountId, durableRun.id);
+			} catch (cause) {
+				const overloaded = cause instanceof HermesDurableOverloadError;
+				durableRun = await failQueuedHermesRun(
+					accountId,
+					durableRun.id,
+					overloaded ? 'Research service is temporarily at capacity. Try again shortly.' : undefined,
+					overloaded ? 'overload' : 'start'
+				);
 				recordChatDiagnostic(
 					convoId,
 					'chat.durable.terminal',
 						summarizeDurableRunTelemetry(durableRun, [], {
 							requestAcceptanceMs: Math.max(0, durableRun.createdAt - requestAcceptedAt),
-							failureClass: 'start'
+							failureClass: overloaded ? 'overload' : 'start'
 						}),
 						{ id: `durable-terminal:${durableRun.id}` }
 					);

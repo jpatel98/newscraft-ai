@@ -21,6 +21,7 @@ import {
 	listHermesRunEvents,
 	reclaimQueuedOrExpiredHermesRuns,
 	renewHermesRunLease,
+	releaseHermesRunLease,
 	requestHermesRunCancellation,
 	HermesRunRepositoryError
 } from './hermes-runs';
@@ -47,24 +48,24 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		await sql.end({ timeout: 1 });
 	});
 
-	async function seed(operation: string) {
-		const conversation = await createConversation(accountA);
+	async function seed(operation: string, accountId = accountA) {
+		const conversation = await createConversation(accountId);
 		const user = await addMessage({ conversationId: conversation.id, role: 'user', content: 'Research this.' });
 		const assistant = await addMessage({ conversationId: conversation.id, role: 'assistant', content: '', partial: true });
 		const idempotencyKey = `${operation}-${conversation.id}`;
 		return { conversation, user, assistant, idempotencyKey };
 	}
 
-	async function createRun(operation: string) {
-		const seeded = await seed(operation);
+	async function createRun(operation: string, accountId = accountA, tenantKey = `tenant-${accountId}`) {
+		const seeded = await seed(operation, accountId);
 		const result = await createOrGetHermesRun({
-			accountId: accountA,
+			accountId,
 			orgId: seeded.conversation.orgId,
 			conversationId: seeded.conversation.id,
 			userMessageId: seeded.user.id,
 			assistantMessageId: seeded.assistant.id,
 			idempotencyKey: seeded.idempotencyKey,
-			tenantKey: `tenant-${accountA}`,
+			tenantKey,
 			sessionId: `session-${seeded.conversation.id}`,
 			inputJson: JSON.stringify({ messages: [{ role: 'user', content: 'Research this.' }] }),
 			seededCitationsJson: '[]'
@@ -402,15 +403,37 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		const queued = await createRun('restart-reclaim-queued');
 		const firstClaim = await claimHermesRunLease(accountA, queued.run.id, 'old-worker', 1000);
 		expect(firstClaim).not.toBeNull();
+		const released = await releaseHermesRunLease(accountA, queued.run.id, 'old-worker', firstClaim!.leaseToken!);
+		expect(released).toMatchObject({ state: 'queued', leaseOwner: null, leaseToken: null });
 		const reclaimed = await reclaimQueuedOrExpiredHermesRuns('new-worker', 10, 1000 + HERMES_LEASE_MS + 1);
 		expect(reclaimed.map((run) => run.id)).toContain(queued.run.id);
 		expect(reclaimed.find((run) => run.id === queued.run.id)).toMatchObject({
-		leaseOwner: 'new-worker',
-		state: 'researching'
-	});
+			leaseOwner: 'new-worker',
+			state: 'researching'
+		});
 		expect(reclaimed.find((run) => run.id === queued.run.id)?.leaseToken).not.toBe(firstClaim?.leaseToken);
 
 		const active = await getActiveHermesRun(accountA, queued.conversation.id);
 		expect(active?.id).toBe(queued.run.id);
+	});
+
+	it('selects recovery candidates fairly across tenant backlogs', async () => {
+		const noisyOne = await createRun('fair-noisy-one', accountA, 'tenant-noisy');
+		const quiet = await createRun('fair-quiet-one', accountB, 'tenant-quiet');
+		const noisyTwo = await createRun('fair-noisy-two', accountA, 'tenant-noisy');
+		const noisyThree = await createRun('fair-noisy-three', accountA, 'tenant-noisy');
+
+		const claimed = await reclaimQueuedOrExpiredHermesRuns('fair-worker', 50, Date.now());
+		const claimedIds = claimed.map((run) => run.id);
+		expect(claimedIds).toContain(noisyOne.run.id);
+		expect(claimedIds).toContain(quiet.run.id);
+		expect(claimedIds).toContain(noisyTwo.run.id);
+		expect(claimedIds).toContain(noisyThree.run.id);
+		expect(claimedIds.indexOf(quiet.run.id)).toBeLessThan(claimedIds.indexOf(noisyTwo.run.id));
+		expect(claimedIds.indexOf(quiet.run.id)).toBeLessThan(claimedIds.indexOf(noisyThree.run.id));
+
+		for (const run of claimed) {
+			await releaseHermesRunLease(run.accountId, run.id, 'fair-worker', run.leaseToken!);
+		}
 	});
 });

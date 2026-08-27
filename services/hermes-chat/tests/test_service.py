@@ -59,6 +59,10 @@ class HermesChatServiceTests(unittest.TestCase):
         self.assertEqual(settings.model, "test-model")
         self.assertEqual(settings.model_base_url, "http://127.0.0.1:8767/v1")
         self.assertEqual(settings.max_iterations, 25)
+        self.assertEqual(settings.max_active_runs, 4)
+        self.assertEqual(settings.max_active_runs_per_tenant, 2)
+        self.assertEqual(settings.max_queued_runs, 16)
+        self.assertEqual(settings.max_queued_runs_per_tenant, 4)
         self.assertEqual(settings.web_provider, "newscraft-local")
         self.assertEqual(settings.browser_provider, "local")
 
@@ -317,7 +321,21 @@ class HermesChatServiceTests(unittest.TestCase):
             self.assertEqual(body["state"], "unavailable")
             self.assertEqual(
                 body["capabilities"]["durableRuns"],
-                {"configured": False, "callback": False},
+                {
+                    "configured": False,
+                    "callback": False,
+                    "concurrency": {
+                        "active_runs": 0,
+                        "queued_runs": 0,
+                        "rejected_runs": 0,
+                        "limits": {
+                            "max_active_runs": 4,
+                            "max_active_runs_per_tenant": 2,
+                            "max_queued_runs": 16,
+                            "max_queued_runs_per_tenant": 4,
+                        },
+                    },
+                },
             )
             self.assertRegex(body["processInstanceId"], r"^[a-f0-9]{32}$")
             self.assertNotIn("processInstanceId", public.json())
