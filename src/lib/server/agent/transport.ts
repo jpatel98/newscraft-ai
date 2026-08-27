@@ -21,6 +21,16 @@ export type AgentChatRequest = GatewayChatCompletionRequest;
 
 export interface GatewayHealth {
 	ok: boolean;
+	/** Required Hermes core readiness. Optional tool providers do not affect it. */
+	requiredReady: boolean;
+	/** Whether the optional retrieval path can serve document-backed work. */
+	webExtractionReady: boolean;
+	providers: {
+		browser: boolean | null;
+		webResearch: boolean | null;
+		webExtraction: boolean | null;
+		webLeadVerification: boolean | null;
+	};
 	status: number;
 	body: string;
 	url: string;
@@ -910,6 +920,9 @@ export async function streamChatCompletion(
 		if (requireWebExtraction) throw webExtractionReadinessError(health);
 		throw hermesIsolationReadinessError(health);
 	}
+	if (requireWebExtraction && !health.webExtractionReady) {
+		throw webExtractionReadinessError(health);
+	}
 	const run = buildRunInput(
 		body,
 		sessionId,
@@ -1077,11 +1090,30 @@ export async function completion(
 	};
 }
 
+function emptyGatewayProviders(): GatewayHealth['providers'] {
+	return {
+		browser: null,
+		webResearch: null,
+		webExtraction: null,
+		webLeadVerification: null
+	};
+}
+
+function providerCapability(value: unknown, requiredFields: string[] = []): boolean | null {
+	if (typeof value === 'boolean') return value;
+	const object = objectValue(value);
+	if (!object || typeof object.configured !== 'boolean') return null;
+	return object.configured && requiredFields.every((field) => object[field] === true);
+}
+
 export async function gatewayHealth(): Promise<GatewayHealth> {
 	const configuredUrl = (env.NEWSCRAFT_HERMES_URL || '').trim().replace(/\/$/, '');
 	if (!configuredUrl) {
 		return {
 			ok: false,
+			requiredReady: false,
+			webExtractionReady: false,
+			providers: emptyGatewayProviders(),
 			status: 0,
 			body: 'Hermes is not configured. Set NEWSCRAFT_HERMES_URL.',
 			json: null,
@@ -1093,6 +1125,9 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 	if (!token) {
 		return {
 			ok: false,
+			requiredReady: false,
+			webExtractionReady: false,
+			providers: emptyGatewayProviders(),
 			status: 0,
 			body: 'Hermes authentication is not configured. Set NEWSCRAFT_HERMES_API_TOKEN.',
 			json: null,
@@ -1108,16 +1143,12 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 		const body = await response.text();
 		const parsed = parseJson(body);
 		const value = objectValue(parsed);
-		const tools = Array.isArray(value?.tools)
-			? value.tools.filter((tool): tool is string => typeof tool === 'string')
-			: [];
 		const runtime = objectValue(value?.runtime);
 		const capabilities = objectValue(value?.capabilities);
 		const webExtraction = objectValue(capabilities?.webExtraction);
+		const webLeadVerification = objectValue(capabilities?.webLeadVerification);
 		const accountIsolation = objectValue(capabilities?.accountIsolation);
 		const requiredCapabilities = [
-			'browser',
-			'webResearch',
 			'terminal',
 			'files',
 			'codeExecution',
@@ -1125,31 +1156,37 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			'skills',
 			'memory'
 		];
+		const durableRuns = objectValue(capabilities?.durableRuns);
 		const reportedOk =
 			value?.ok === true &&
 			value.service === SERVICE_NAME &&
 			value.toolset === HERMES_TOOLSET &&
-			tools.includes('browser_navigate') &&
-			tools.includes('browser_snapshot') &&
 			Boolean(stringValue(runtime?.provider)) &&
 			Boolean(stringValue(runtime?.model)) &&
 			runtime?.endpointMode === 'explicit' &&
 			capabilities?.standard === true &&
 			requiredCapabilities.every((name) => capabilities?.[name] === true) &&
+			durableRuns?.configured === true &&
+			durableRuns?.callback === true &&
 			accountIsolation?.tenantHeader === 'x-newscraft-tenant-key' &&
 			accountIsolation?.contextLocalHome === true &&
 			accountIsolation?.stableTaskKey === true &&
 			accountIsolation?.persistentDockerWorkspace === true &&
-			accountIsolation?.isolatedBrowserProfiles === true &&
-			webExtraction?.configured === true &&
-			webExtraction.backend === 'newscraft-local' &&
-			webExtraction.archiveProvider === 'wayback' &&
-			webExtraction.tool === true &&
-			webExtraction.leadVerificationTool === true &&
-			objectValue(capabilities?.webLeadVerification)?.configured === true &&
-			objectValue(capabilities?.webLeadVerification)?.bounded === true;
+			accountIsolation?.isolatedBrowserProfiles === true;
+		const providers = {
+			browser: providerCapability(capabilities?.browser),
+			webResearch: providerCapability(capabilities?.webResearch),
+			webExtraction: providerCapability(webExtraction, ['tool', 'leadVerificationTool']),
+			webLeadVerification: providerCapability(webLeadVerification, ['tool', 'bounded'])
+		};
+		const webExtractionReady =
+			providers.webExtraction === true && providers.webLeadVerification === true;
+		const requiredReady = response.ok && reportedOk;
 		return {
-			ok: response.ok && reportedOk,
+			ok: requiredReady,
+			requiredReady,
+			webExtractionReady,
+			providers,
 			status: response.status,
 			body,
 			json: parsed,
@@ -1159,6 +1196,9 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 	} catch (error) {
 		return {
 			ok: false,
+			requiredReady: false,
+			webExtractionReady: false,
+			providers: emptyGatewayProviders(),
 			status: 0,
 			body: describeGatewayError(error),
 			json: null,

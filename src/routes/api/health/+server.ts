@@ -3,34 +3,64 @@ import { sql } from '$lib/server/db';
 import { gatewayHealth } from '$lib/server/agent/transport';
 import { getConversationDocumentService } from '$lib/server/documents/runtime';
 
-function publicError(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
+type ComponentState = 'ready' | 'degraded' | 'unavailable' | 'unknown';
+
+interface HealthComponent {
+	required: boolean;
+	ok: boolean | null;
+	state: ComponentState;
+	[key: string]: unknown;
 }
 
-async function appHealth() {
+function objectValue(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === 'object' && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function componentState(ok: boolean | null): ComponentState {
+	if (ok === true) return 'ready';
+	if (ok === false) return 'unavailable';
+	return 'unknown';
+}
+
+function providerReady(value: unknown, requiredFields: string[] = []): boolean | null {
+	if (typeof value === 'boolean') return value;
+	const object = objectValue(value);
+	if (!object || typeof object.configured !== 'boolean') return null;
+	return object.configured && requiredFields.every((field) => object[field] === true);
+}
+
+function providerComponent(value: unknown, requiredFields: string[] = []): HealthComponent {
+	const ok = providerReady(value, requiredFields);
+	return { required: false, ok, state: componentState(ok) };
+}
+
+function providerComponents(gatewayJson: unknown): Record<string, HealthComponent> {
+	const capabilities = objectValue(objectValue(gatewayJson)?.capabilities);
+	return {
+		browser: providerComponent(capabilities?.browser),
+		webResearch: providerComponent(capabilities?.webResearch),
+		webExtraction: providerComponent(capabilities?.webExtraction, ['tool', 'leadVerificationTool']),
+		webLeadVerification: providerComponent(capabilities?.webLeadVerification, ['tool', 'bounded'])
+	};
+}
+
+async function appHealth(): Promise<{ ok: boolean; database: 'postgres' }> {
 	try {
 		await sql`SELECT 1`;
-		return {
-			ok: true,
-			database: 'postgres'
-		};
-	} catch (err) {
-		return {
-			ok: false,
-			database: 'postgres',
-			error: publicError(err)
-		};
+		return { ok: true, database: 'postgres' };
+	} catch {
+		return { ok: false, database: 'postgres' };
 	}
 }
 
-let documentCapabilityCache: { ready: boolean; expiresAt: number } | null = null;
-
-async function documentsReady(gatewayJson: unknown): Promise<boolean> {
-	const now = Date.now();
-	if (documentCapabilityCache && documentCapabilityCache.expiresAt > now) {
-		return documentCapabilityCache.ready;
-	}
-	let ready = false;
+/**
+ * Check the app-owned document capability. This does not depend on Hermes:
+ * document storage is an app database capability, not a required gateway
+ * readiness signal.
+ */
+async function documentsReady(): Promise<boolean> {
 	try {
 		const [tables] = await sql<
 			Array<{ profiles: string | null; documents: string | null; pages: string | null }>
@@ -40,37 +70,83 @@ async function documentsReady(gatewayJson: unknown): Promise<boolean> {
 				to_regclass('public.conversation_documents')::text AS documents,
 				to_regclass('public.conversation_document_pages')::text AS pages
 		`;
-		const gateway =
-			gatewayJson && typeof gatewayJson === 'object'
-				? (gatewayJson as { capabilities?: { documents?: boolean } })
-				: null;
-		if (tables?.profiles && tables.documents && tables.pages && gateway?.capabilities?.documents === true) {
-			await getConversationDocumentService().verifyCapability();
-			ready = true;
-		}
+		if (!tables?.profiles || !tables.documents || !tables.pages) return false;
+		await getConversationDocumentService().verifyCapability();
+		return true;
 	} catch {
-		ready = false;
+		return false;
 	}
-	documentCapabilityCache = { ready, expiresAt: now + 30_000 };
-	return ready;
 }
 
-export const GET: RequestHandler = async ({ locals, url }) => {
+function gatewayDetails(gateway: Awaited<ReturnType<typeof gatewayHealth>>): HealthComponent {
+	return {
+		required: true,
+		ok: gateway.ok,
+		state: componentState(gateway.ok),
+		status: gateway.status,
+		service: gateway.service
+	};
+}
+
+export const GET: RequestHandler = async ({ locals }) => {
 	const [gateway, app] = await Promise.all([gatewayHealth(), appHealth()]);
-	const ok = app.ok && gateway.ok;
-	const documents = locals.user && ok ? await documentsReady(gateway.json) : false;
+	const requiredReady = app.ok && gateway.ok;
+	const documents = locals.user && app.ok ? await documentsReady() : false;
+	const providers = providerComponents(gateway.json);
+	const optionalDegraded =
+		Boolean(locals.user) &&
+		(!documents || Object.values(providers).some((component) => component.ok === false));
+	const state: 'ready' | 'degraded' | 'unavailable' = !requiredReady
+		? 'unavailable'
+		: optionalDegraded
+			? 'degraded'
+			: 'ready';
 	const base = {
-		ok,
+		ok: requiredReady,
 		service: 'newscraft-ui',
+		state,
 		time: new Date().toISOString()
 	};
-	const capabilityProbe = url.searchParams.get('capabilities') === '1';
+
+	if (!locals.user) {
+		return json(base, {
+			status: requiredReady ? 200 : 503,
+			headers: { 'Cache-Control': 'no-store' }
+		});
+	}
+
+	const authenticatedDetails = {
+		components: {
+			database: {
+				required: true,
+				ok: app.ok,
+				state: componentState(app.ok),
+				backend: app.database,
+				...(!app.ok ? { error: 'database_unavailable' } : {})
+			},
+			hermes: gatewayDetails(gateway),
+			documents: {
+				required: false,
+				ok: documents,
+				state: componentState(documents),
+				capability: 'conversation_documents'
+			},
+			providers
+		},
+		// Keep the small compatibility surface used by the document client and
+		// existing release checks. Raw gateway bodies and URLs stay server-only.
+		app: {
+			ok: app.ok,
+			database: app.database,
+			capabilities: { documents }
+		},
+		gateway: gatewayDetails(gateway)
+	};
+
 	return json(
-		locals.user
-			? { ...base, app: { ...app, capabilities: { documents } }, gateway }
-			: base,
+		{ ...base, ...authenticatedDetails },
 		{
-			status: ok || (capabilityProbe && app.ok) ? 200 : 503,
+			status: requiredReady ? 200 : 503,
 			headers: { 'Cache-Control': 'no-store' }
 		}
 	);

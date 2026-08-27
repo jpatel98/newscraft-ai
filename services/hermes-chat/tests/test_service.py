@@ -296,15 +296,119 @@ class HermesChatServiceTests(unittest.TestCase):
                 app = create_app(settings)
 
             with TestClient(app) as client:
-                response = client.get("/ready")
+                public = client.get("/ready")
+                response = client.get(
+                    "/ready",
+                    headers={"authorization": f"Bearer {settings.session_token}"},
+                )
 
+            self.assertEqual(public.status_code, 503)
+            self.assertEqual(
+                public.json(),
+                {
+                    "ok": False,
+                    "state": "unavailable",
+                    "service": "newscraft-hermes-chat",
+                },
+            )
             body = response.json()
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 503)
             self.assertFalse(body["ok"])
+            self.assertEqual(body["state"], "unavailable")
             self.assertEqual(
                 body["capabilities"]["durableRuns"],
                 {"configured": False, "callback": False},
             )
+
+    def test_ready_keeps_optional_provider_failure_separate_from_core_readiness(self) -> None:
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from hermes_chat import service as service_module
+
+        with tempfile.TemporaryDirectory() as root:
+            settings = SimpleNamespace(
+                host="127.0.0.1",
+                port=8768,
+                session_token="s" * 32,
+                public_host=None,
+                hermes_home=Path(root) / "home",
+                workspace=Path(root) / "workspace",
+                model_provider="test-provider",
+                model="test-model",
+                model_base_url="http://127.0.0.1:8767/v1",
+                model_api_key="test-key",
+                model_api_mode=None,
+                max_iterations=25,
+                web_provider="newscraft-local",
+                browser_provider="local",
+                retrieval=SimpleNamespace(),
+                run_api_url="http://127.0.0.1:8768/api/internal/hermes/runs",
+                run_api_token="run-token",
+                internal_agui_url="http://127.0.0.1:8768/",
+            )
+            worker = SimpleNamespace(
+                configured=True,
+                start=AsyncMock(),
+                cancel=AsyncMock(),
+                recover=AsyncMock(),
+                close=AsyncMock(),
+            )
+            import agui_adapter.server as agui_server
+            import hermes_cli.plugins as hermes_plugins
+            import model_tools
+
+            core_tools = [
+                "terminal",
+                "process",
+                "read_file",
+                "write_file",
+                "patch",
+                "execute_code",
+                "delegate_task",
+                "skills_list",
+                "skill_view",
+                "skill_manage",
+                "memory",
+                "cronjob",
+                "web_extract",
+                "verify_this_lead",
+            ]
+            with patch.object(service_module, "prepare_runtime"), \
+                patch.object(service_module, "_disable_shared_delegation_recovery"), \
+                patch.object(service_module, "_standard_auxiliary_tasks", return_value=set()), \
+                patch.object(service_module, "_write_runtime_config", return_value={}), \
+                patch.object(service_module, "_enable_tenant_cron_tool"), \
+                patch.object(service_module, "_install_tenant_runtime"), \
+                patch.object(service_module, "_install_iteration_limit"), \
+                patch.object(service_module, "_install_public_host_alias"), \
+                patch.object(service_module, "_startup_tool_names", return_value=core_tools), \
+                patch.object(service_module, "_browser_capability_ready", return_value=False), \
+                patch.object(service_module, "retrieval_readiness", return_value={"configured": True}), \
+                patch.object(service_module, "_tool_provider_readiness", return_value={
+                    "webSearch": {"configured": False},
+                    "webExtract": {"configured": True},
+                    "leadVerification": {"configured": True},
+                    "browser": {"configured": False},
+                }), \
+                patch.object(service_module, "DurableRunWorker", return_value=worker), \
+                patch.object(hermes_plugins, "discover_plugins"), \
+                patch.object(hermes_plugins, "get_plugin_auxiliary_tasks", return_value=[]), \
+                patch.object(agui_server, "create_app", return_value=FastAPI()), \
+                patch.object(model_tools, "get_tool_definitions", return_value=[]):
+                app = create_app(settings)
+
+            with TestClient(app) as client:
+                response = client.get(
+                    "/ready",
+                    headers={"authorization": f"Bearer {settings.session_token}"},
+                )
+
+            body = response.json()
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(body["ok"])
+            self.assertEqual(body["state"], "degraded")
+            self.assertFalse(body["capabilities"]["browser"])
+            self.assertFalse(body["toolProviders"]["webSearch"]["configured"])
 
     def test_rejects_an_unbounded_iteration_setting(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

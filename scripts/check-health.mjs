@@ -17,14 +17,14 @@ let lastError = '';
 for (let attempt = 1; attempt <= retries; attempt += 1) {
 	const result = await probe(url, { timeoutMs, headers: healthHeaders(expectKind) });
 	if (result.ok && expectedShapeOk(result.body, expectKind)) {
-		console.log(`OK: ${expectKind} health is ready at ${url}`);
+		console.log(`OK: ${expectKind} health is ready`);
 		process.exit(0);
 	}
 	lastError = result.error || explainFailure(result.body, expectKind) || `HTTP ${result.status}`;
 	if (attempt < retries) await delay(delayMs);
 }
 
-console.error(`ERROR: ${expectKind} health did not become ready at ${url}. ${lastError}`);
+console.error(`ERROR: ${expectKind} health did not become ready. ${lastError}`);
 process.exit(1);
 
 function parseArgs(values) {
@@ -57,48 +57,81 @@ async function probe(target, options) {
 		});
 		const text = await response.text();
 		const body = safeJson(text);
+		const httpReady = response.ok;
+		const bodyReady = body?.ok === true;
+		const statusBodyMatch = httpReady === bodyReady;
 		return {
-			ok: response.ok && body?.ok === true,
+			ok: httpReady && bodyReady && statusBodyMatch,
 			status: response.status,
 			body,
-			error: response.ok ? '' : `HTTP ${response.status}: ${text.slice(0, 300)}`
+			error: !statusBodyMatch
+				? 'health HTTP status and body readiness disagree'
+				: response.ok
+					? ''
+					: `HTTP ${response.status}`
 		};
-	} catch (err) {
+	} catch {
 		return {
 			ok: false,
 			status: 0,
 			body: null,
-			error: err instanceof Error ? err.message : String(err)
+			error: 'health probe did not respond'
 		};
 	}
 }
 
 function expectedShapeOk(body, kind) {
 	if (!body || body.ok !== true) return false;
+	if (kind !== 'generic' && !['ready', 'degraded'].includes(body.state)) return false;
 	if (kind === 'hermes') {
 		const tools = Array.isArray(body.tools) ? body.tools : [];
 		const capabilities = body.capabilities || {};
+		const requiredTools = [
+			'terminal',
+			'process',
+			'read_file',
+			'write_file',
+			'patch',
+			'execute_code',
+			'delegate_task',
+			'skills_list',
+			'skill_view',
+			'skill_manage',
+			'memory',
+			'cronjob'
+		];
 		return (
 			body.service === 'newscraft-hermes-chat' &&
 			body.toolset === 'hermes-acp' &&
 			body.runtime?.endpointMode === 'explicit' &&
-			tools.includes('browser_navigate') &&
-			tools.includes('browser_snapshot') &&
+			requiredTools.every((tool) => tools.includes(tool)) &&
 			capabilities.standard === true &&
-			capabilities.browser === true &&
-			capabilities.webResearch === true &&
 			capabilities.terminal === true &&
 			capabilities.files === true &&
 			capabilities.codeExecution === true &&
 			capabilities.delegation === true &&
 			capabilities.skills === true &&
-			capabilities.memory === true
+			capabilities.memory === true &&
+			capabilities.scheduledJobs === true &&
+			capabilities.durableRuns?.configured === true &&
+			capabilities.durableRuns?.callback === true &&
+			capabilities.accountIsolation?.tenantHeader === 'x-newscraft-tenant-key' &&
+			capabilities.accountIsolation?.contextLocalHome === true &&
+			capabilities.accountIsolation?.stableTaskKey === true &&
+			capabilities.accountIsolation?.persistentDockerWorkspace === true &&
+			capabilities.accountIsolation?.isolatedBrowserProfiles === true
 		);
 	}
 	if (kind === 'ui') {
 		if (body.service !== 'newscraft-ui') return false;
 		const hasPrivateDetails = body.app !== undefined || body.gateway !== undefined;
-		return !hasPrivateDetails || (body.app?.ok === true && body.gateway?.ok === true);
+		return (
+			!hasPrivateDetails ||
+			(body.app?.ok === true &&
+				body.gateway?.ok === true &&
+				body.components?.database?.ok === true &&
+				body.components?.hermes?.ok === true)
+		);
 	}
 	return true;
 }
@@ -114,7 +147,7 @@ function healthHeaders(kind) {
 
 function explainFailure(body, kind) {
 	if (!body) return '';
-	if (body.ok !== true) return body.error || body.gateway?.body || body.app?.error || 'health returned ok:false';
+	if (body.ok !== true) return 'health returned not ready';
 	if (!expectedShapeOk(body, kind)) return `health JSON did not match expected ${kind} shape`;
 	return '';
 }

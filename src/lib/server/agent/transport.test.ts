@@ -24,7 +24,7 @@ function aguiStream(...events: Array<Record<string, unknown>>): Response {
 	});
 }
 
-function isolationReadyResponse(): Response {
+function isolationReadyResponse(capabilityOverrides: Record<string, unknown> = {}): Response {
 	return new Response(
 		JSON.stringify({
 			ok: true,
@@ -56,7 +56,9 @@ function isolationReadyResponse(): Response {
 				codeExecution: true,
 				delegation: true,
 				skills: true,
-				memory: true
+				memory: true,
+				durableRuns: { configured: true, callback: true },
+				...capabilityOverrides
 			}
 		}),
 		{ status: 200 }
@@ -386,8 +388,9 @@ describe('Hermes chat transport', () => {
 						files: true,
 						codeExecution: true,
 						delegation: true,
-						skills: true,
-						memory: true
+					skills: true,
+					memory: true,
+					durableRuns: { configured: true, callback: true }
 					}
 				}),
 				{ status: 200 }
@@ -436,7 +439,8 @@ describe('Hermes chat transport', () => {
 				codeExecution: true,
 				delegation: true,
 				skills: true,
-				memory: true
+				memory: true,
+				durableRuns: { configured: true, callback: true }
 			}
 		};
 		const fetchMock = vi
@@ -851,14 +855,15 @@ describe('Hermes chat transport', () => {
 							tool: true,
 							leadVerificationTool: true
 						},
-						webLeadVerification: { configured: true, tool: true, bounded: true },
-						terminal: true,
-						files: true,
-						codeExecution: true,
-						delegation: true,
-						skills: true,
-						memory: true
-					}
+				webLeadVerification: { configured: true, tool: true, bounded: true },
+				terminal: true,
+				files: true,
+				codeExecution: true,
+				delegation: true,
+				skills: true,
+				memory: true,
+				durableRuns: { configured: true, callback: true }
+			}
 				}),
 				{ status: 200 }
 			)
@@ -879,7 +884,33 @@ describe('Hermes chat transport', () => {
 		);
 	});
 
-	 it('does not report an older Hermes service as isolation-ready', async () => {
+	it('keeps optional provider failures separate from required Hermes readiness', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				isolationReadyResponse({
+					browser: false,
+					webResearch: false,
+					webExtraction: { configured: false, tool: false, leadVerificationTool: false },
+					webLeadVerification: { configured: false, tool: false, bounded: true }
+				})
+			)
+		);
+
+		await expect(gatewayHealth()).resolves.toMatchObject({
+			ok: true,
+			requiredReady: true,
+			webExtractionReady: false,
+			providers: {
+				browser: false,
+				webResearch: false,
+				webExtraction: false,
+				webLeadVerification: false
+			}
+		});
+	});
+
+	it('does not report an older Hermes service as isolation-ready', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockResolvedValue(
@@ -1008,7 +1039,8 @@ describe('Hermes chat transport', () => {
 							codeExecution: true,
 							delegation: true,
 							skills: true,
-							memory: true
+							memory: true,
+							durableRuns: { configured: true, callback: true }
 						}
 					}),
 					{ status: 200 }

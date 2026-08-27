@@ -464,6 +464,26 @@ _STARTUP_REQUIRED_TOOL_NAMES = frozenset(
     {"terminal", "read_file", "write_file", "patch"}
 )
 
+# Provider-backed capabilities are reported separately from this core
+# readiness set. A missing browser, search, or extraction provider must not
+# turn a live Hermes process into a false unavailable signal.
+_READINESS_REQUIRED_TOOL_NAMES = frozenset(
+    {
+        "terminal",
+        "process",
+        "read_file",
+        "write_file",
+        "patch",
+        "execute_code",
+        "delegate_task",
+        "skills_list",
+        "skill_view",
+        "skill_manage",
+        "memory",
+        "cronjob",
+    }
+)
+
 
 def _startup_tool_names(get_tool_definitions: Any, config: Any) -> list[str]:
     """Assemble required terminal/file tools after a transient probe failure.
@@ -1443,21 +1463,21 @@ def create_app(settings: Settings | None = None):
         await durable_worker.close()
 
     @app.get("/ready")
-    async def ready() -> dict:
-        ready_ok = bool(
+    async def ready(request: Request):
+        from fastapi.responses import JSONResponse
+
+        ready_ok = bool(_READINESS_REQUIRED_TOOL_NAMES.issubset(tools) and durable_worker.configured)
+        optional_ready = bool(
             retrieval["configured"]
             and "web_extract" in tools
             and lead_verification_tool
-            and "cronjob" in tools
             and browser_ready
-            and durable_worker.configured
-            and all(
-                bool(provider["configured"])
-                for provider in tool_providers.values()
-            )
+            and all(bool(provider["configured"]) for provider in tool_providers.values())
         )
-        return {
+        state = "ready" if ready_ok and optional_ready else "degraded" if ready_ok else "unavailable"
+        details = {
             "ok": ready_ok,
+            "state": state,
             "service": "newscraft-hermes-chat",
             "hermesCommit": HERMES_COMMIT,
             "toolset": HERMES_TOOLSET,
@@ -1504,6 +1524,15 @@ def create_app(settings: Settings | None = None):
                 },
             },
         }
+        # The unauthenticated readiness response is intentionally small. The
+        # provider, runtime, tool, and isolation details require the same
+        # server token as the durable control plane.
+        payload = details if durable_authorized(request) else {
+            "ok": ready_ok,
+            "state": state,
+            "service": "newscraft-hermes-chat",
+        }
+        return JSONResponse(payload, status_code=200 if ready_ok else 503)
 
     return app
 
