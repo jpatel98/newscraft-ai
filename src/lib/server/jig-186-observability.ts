@@ -85,12 +85,20 @@ export const JIG186_DASHBOARD_DEFINITIONS: readonly DashboardDefinition[] = [
 		semantics: 'queued, researching, writing, reconnecting, cancel_requested, cancelled, failed, complete, or unknown'
 	},
 	{
-		metric: 'restarts',
+		metric: 'service_restarts',
+		telemetryField: 'health.components.hermes.processInstanceId',
+		unit: 'count',
+		aggregation: 'count transitions between distinct markers in time order',
+		missingData: 'missing or invalid markers are unknown; do not infer a restart',
+		semantics: 'one Hermes process restart when an authenticated readiness sample changes its opaque per-process marker'
+	},
+	{
+		metric: 'reconnects',
 		telemetryField: 'reconnect_count',
 		unit: 'count',
 		aggregation: 'sum by run and rate per completed run',
-		missingData: 'null is not a restart; missing summaries are counted separately',
-		semantics: 'one run/response reconnecting-to-reconnected cycle, counted at cycle start; this is not a process restart'
+		missingData: 'null is not a reconnect; missing summaries are counted separately',
+		semantics: 'one browser subscription reconnecting-to-reconnected cycle, counted once; this is not a service restart'
 	},
 	{
 		metric: 'failure_class',

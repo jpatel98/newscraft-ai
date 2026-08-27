@@ -62,10 +62,13 @@ the required components because optional checks and details stay behind the
 authenticated response.
 
 Hermes `GET /ready` follows the same rule. Its unauthenticated response has
-only the redacted summary. Its detailed tools, runtime, provider, and isolation
-fields require the server token. Hermes core readiness does not include
-provider-backed browser, search, or extraction status. Those values remain
-separate capability data.
+only the redacted summary. Its detailed tools, runtime, provider, process
+marker, and isolation fields require the server token. Hermes core readiness
+does not include provider-backed browser, search, or extraction status. Those
+values remain separate capability data. The authenticated provider values use
+`toolProviders` as the authoritative configuration result and also require the
+matching bounded capability and tool signals. A false or unknown optional
+provider result is not shown as ready.
 
 ## Dashboard definitions
 
@@ -81,12 +84,33 @@ machine-readable definitions are in
 | First text | `first_answer_ms`; p50 and p90 for complete runs | Count `first_answer`; exclude from latency quantiles |
 | Total duration | `total_duration_ms`; p50 and p90 for complete runs | Count `total_duration`; exclude from latency quantiles |
 | Terminal states | `terminal_state`; bounded category counts | Keep `unknown` visible |
-| Restarts | `reconnect_count`; sum and rate per completed run | One reconnecting-to-reconnected cycle counts once; this is not a process restart |
+| Service restarts | Authenticated `components.hermes.processInstanceId`; count changes between time-ordered samples | Missing or invalid markers are unknown; never infer a restart |
+| Reconnects | `reconnect_count`; sum and rate per completed run | One reconnecting-to-reconnected browser subscription cycle counts once; this is not a service restart |
 | Failure classes | `failure_class`; bounded category counts | `null` means no failure was recorded |
 
 Usage metadata keeps only bounded provider and tool categories plus counts.
 The server trace ID is a controlled correlation field. It is not a tenant,
 account, prompt, answer, URL, secret, or dashboard grouping dimension.
+
+## Local dashboard snapshot
+
+The repository provides a bounded local snapshot builder. It reads JSON from
+standard input and writes a redacted snapshot to standard output:
+
+```sh
+pnpm dashboard:jig186 < redacted-samples.json > dashboard-snapshot.json
+```
+
+The input has two arrays: authenticated redacted health samples and
+JIG-182 durable telemetry summaries. The builder accepts at most 10,000
+records per array. It ignores malformed records and unknown fields. It never
+returns process markers, traces, account IDs, tenant keys, prompts, answers,
+URLs, provider payloads, or secrets. It computes queue-wait, first-progress,
+first-text, and total-duration p50/p90 values; terminal-state and failure-class
+counts; reconnect totals; true Hermes service restart transitions; and the
+sustained alert results above. This is a local executable interface. It is not
+a hosted dashboard or a cross-tenant query. Non-negative integer durations over
+seven days and reconnect counts over 10,000 are treated as missing data.
 
 ## Alert evaluation
 

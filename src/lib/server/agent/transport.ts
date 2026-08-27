@@ -25,6 +25,8 @@ export interface GatewayHealth {
 	requiredReady: boolean;
 	/** Whether the optional retrieval path can serve document-backed work. */
 	webExtractionReady: boolean;
+	/** Opaque Hermes process marker. Only surfaced in authenticated health details. */
+	processInstanceId: string | null;
 	providers: {
 		browser: boolean | null;
 		webResearch: boolean | null;
@@ -1106,6 +1108,15 @@ function providerCapability(value: unknown, requiredFields: string[] = []): bool
 	return object.configured && requiredFields.every((field) => object[field] === true);
 }
 
+function combineCapabilitySignals(signals: Array<boolean | null>): boolean | null {
+	if (signals.some((signal) => signal === false)) return false;
+	return signals.every((signal) => signal === true) ? true : null;
+}
+
+function processInstanceId(value: unknown): string | null {
+	return typeof value === 'string' && /^[a-f0-9]{32}$/.test(value) ? value : null;
+}
+
 export async function gatewayHealth(): Promise<GatewayHealth> {
 	const configuredUrl = (env.NEWSCRAFT_HERMES_URL || '').trim().replace(/\/$/, '');
 	if (!configuredUrl) {
@@ -1113,6 +1124,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			ok: false,
 			requiredReady: false,
 			webExtractionReady: false,
+			processInstanceId: null,
 			providers: emptyGatewayProviders(),
 			status: 0,
 			body: 'Hermes is not configured. Set NEWSCRAFT_HERMES_URL.',
@@ -1127,6 +1139,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			ok: false,
 			requiredReady: false,
 			webExtractionReady: false,
+			processInstanceId: null,
 			providers: emptyGatewayProviders(),
 			status: 0,
 			body: 'Hermes authentication is not configured. Set NEWSCRAFT_HERMES_API_TOKEN.',
@@ -1143,8 +1156,12 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 		const body = await response.text();
 		const parsed = parseJson(body);
 		const value = objectValue(parsed);
+		const tools = Array.isArray(value?.tools)
+			? value.tools.filter((tool): tool is string => typeof tool === 'string')
+			: [];
 		const runtime = objectValue(value?.runtime);
 		const capabilities = objectValue(value?.capabilities);
+		const toolProviders = objectValue(value?.toolProviders);
 		const webExtraction = objectValue(capabilities?.webExtraction);
 		const webLeadVerification = objectValue(capabilities?.webLeadVerification);
 		const accountIsolation = objectValue(capabilities?.accountIsolation);
@@ -1174,10 +1191,26 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			accountIsolation?.persistentDockerWorkspace === true &&
 			accountIsolation?.isolatedBrowserProfiles === true;
 		const providers = {
-			browser: providerCapability(capabilities?.browser),
-			webResearch: providerCapability(capabilities?.webResearch),
-			webExtraction: providerCapability(webExtraction, ['tool', 'leadVerificationTool']),
-			webLeadVerification: providerCapability(webLeadVerification, ['tool', 'bounded'])
+			browser: combineCapabilitySignals([
+				providerCapability(toolProviders?.browser),
+				providerCapability(capabilities?.browser),
+				tools.includes('browser_navigate') && tools.includes('browser_snapshot')
+			]),
+			webResearch: combineCapabilitySignals([
+				providerCapability(toolProviders?.webSearch),
+				providerCapability(capabilities?.webResearch),
+				tools.includes('web_search')
+			]),
+			webExtraction: combineCapabilitySignals([
+				providerCapability(toolProviders?.webExtract),
+				providerCapability(webExtraction, ['tool', 'leadVerificationTool']),
+				tools.includes('web_extract')
+			]),
+			webLeadVerification: combineCapabilitySignals([
+				providerCapability(toolProviders?.leadVerification),
+				providerCapability(webLeadVerification, ['tool', 'bounded']),
+				tools.includes('verify_this_lead')
+			])
 		};
 		const webExtractionReady =
 			providers.webExtraction === true && providers.webLeadVerification === true;
@@ -1186,6 +1219,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			ok: requiredReady,
 			requiredReady,
 			webExtractionReady,
+			processInstanceId: processInstanceId(value?.processInstanceId),
 			providers,
 			status: response.status,
 			body,
@@ -1198,6 +1232,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			ok: false,
 			requiredReady: false,
 			webExtractionReady: false,
+			processInstanceId: null,
 			providers: emptyGatewayProviders(),
 			status: 0,
 			body: describeGatewayError(error),

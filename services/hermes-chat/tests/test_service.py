@@ -319,6 +319,8 @@ class HermesChatServiceTests(unittest.TestCase):
                 body["capabilities"]["durableRuns"],
                 {"configured": False, "callback": False},
             )
+            self.assertRegex(body["processInstanceId"], r"^[a-f0-9]{32}$")
+            self.assertNotIn("processInstanceId", public.json())
 
     def test_ready_keeps_optional_provider_failure_separate_from_core_readiness(self) -> None:
         from fastapi import FastAPI
@@ -398,17 +400,23 @@ class HermesChatServiceTests(unittest.TestCase):
                 app = create_app(settings)
 
             with TestClient(app) as client:
-                response = client.get(
+                first = client.get(
+                    "/ready",
+                    headers={"authorization": f"Bearer {settings.session_token}"},
+                )
+                second = client.get(
                     "/ready",
                     headers={"authorization": f"Bearer {settings.session_token}"},
                 )
 
-            body = response.json()
-            self.assertEqual(response.status_code, 200)
+            body = first.json()
+            self.assertEqual(first.status_code, 200)
             self.assertTrue(body["ok"])
             self.assertEqual(body["state"], "degraded")
             self.assertFalse(body["capabilities"]["browser"])
             self.assertFalse(body["toolProviders"]["webSearch"]["configured"])
+            self.assertRegex(body["processInstanceId"], r"^[a-f0-9]{32}$")
+            self.assertEqual(body["processInstanceId"], second.json()["processInstanceId"])
 
     def test_rejects_an_unbounded_iteration_setting(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

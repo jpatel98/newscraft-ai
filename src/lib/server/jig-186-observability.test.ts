@@ -43,9 +43,18 @@ describe('JIG-186 observability definitions', () => {
 			'first_text',
 			'total_duration',
 			'terminal_state',
-			'restarts',
+			'service_restarts',
+			'reconnects',
 			'failure_class'
 		]);
+		expect(JIG186_DASHBOARD_DEFINITIONS.find((definition) => definition.metric === 'service_restarts')).toMatchObject({
+			telemetryField: 'health.components.hermes.processInstanceId',
+			semantics: expect.stringContaining('process restart')
+		});
+		expect(JIG186_DASHBOARD_DEFINITIONS.find((definition) => definition.metric === 'reconnects')).toMatchObject({
+			telemetryField: 'reconnect_count',
+			semantics: expect.stringContaining('not a service restart')
+		});
 	});
 
 	it('does not alert on one cold readiness probe', () => {

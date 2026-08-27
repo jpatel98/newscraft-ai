@@ -102,6 +102,8 @@ function expectedShapeOk(body, kind) {
 		];
 		return (
 			body.service === 'newscraft-hermes-chat' &&
+			typeof body.processInstanceId === 'string' &&
+			/^[a-f0-9]{32}$/.test(body.processInstanceId) &&
 			body.toolset === 'hermes-acp' &&
 			body.runtime?.endpointMode === 'explicit' &&
 			requiredTools.every((tool) => tools.includes(tool)) &&

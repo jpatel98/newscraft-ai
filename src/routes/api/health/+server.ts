@@ -1,6 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { sql } from '$lib/server/db';
-import { gatewayHealth } from '$lib/server/agent/transport';
+import { gatewayHealth, type GatewayHealth } from '$lib/server/agent/transport';
 import { getConversationDocumentService } from '$lib/server/documents/runtime';
 
 type ComponentState = 'ready' | 'degraded' | 'unavailable' | 'unknown';
@@ -24,25 +24,16 @@ function componentState(ok: boolean | null): ComponentState {
 	return 'unknown';
 }
 
-function providerReady(value: unknown, requiredFields: string[] = []): boolean | null {
-	if (typeof value === 'boolean') return value;
-	const object = objectValue(value);
-	if (!object || typeof object.configured !== 'boolean') return null;
-	return object.configured && requiredFields.every((field) => object[field] === true);
-}
-
-function providerComponent(value: unknown, requiredFields: string[] = []): HealthComponent {
-	const ok = providerReady(value, requiredFields);
+function providerComponent(ok: boolean | null): HealthComponent {
 	return { required: false, ok, state: componentState(ok) };
 }
 
-function providerComponents(gatewayJson: unknown): Record<string, HealthComponent> {
-	const capabilities = objectValue(objectValue(gatewayJson)?.capabilities);
+function providerComponents(providers: GatewayHealth['providers']): Record<string, HealthComponent> {
 	return {
-		browser: providerComponent(capabilities?.browser),
-		webResearch: providerComponent(capabilities?.webResearch),
-		webExtraction: providerComponent(capabilities?.webExtraction, ['tool', 'leadVerificationTool']),
-		webLeadVerification: providerComponent(capabilities?.webLeadVerification, ['tool', 'bounded'])
+		browser: providerComponent(providers.browser),
+		webResearch: providerComponent(providers.webResearch),
+		webExtraction: providerComponent(providers.webExtraction),
+		webLeadVerification: providerComponent(providers.webLeadVerification)
 	};
 }
 
@@ -84,7 +75,8 @@ function gatewayDetails(gateway: Awaited<ReturnType<typeof gatewayHealth>>): Hea
 		ok: gateway.ok,
 		state: componentState(gateway.ok),
 		status: gateway.status,
-		service: gateway.service
+		service: gateway.service,
+		...(gateway.processInstanceId ? { processInstanceId: gateway.processInstanceId } : {})
 	};
 }
 
@@ -92,10 +84,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const [gateway, app] = await Promise.all([gatewayHealth(), appHealth()]);
 	const requiredReady = app.ok && gateway.ok;
 	const documents = locals.user && app.ok ? await documentsReady() : false;
-	const providers = providerComponents(gateway.json);
+	const providers = providerComponents(gateway.providers);
 	const optionalDegraded =
 		Boolean(locals.user) &&
-		(!documents || Object.values(providers).some((component) => component.ok === false));
+		(!documents || Object.values(providers).some((component) => component.ok !== true));
 	const state: 'ready' | 'degraded' | 'unavailable' = !requiredReady
 		? 'unavailable'
 		: optionalDegraded

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from fastapi import Request
 
@@ -43,6 +44,7 @@ _LOCAL_WEB_PROVIDER = "newscraft-local"
 _EXA_WEB_PROVIDER = "exa"
 _LOCAL_BROWSER_PROVIDER = "local"
 _BROWSER_USE_PROVIDER = "browser-use"
+_PROCESS_INSTANCE_ID = uuid4().hex
 
 
 @dataclass(frozen=True)
@@ -1479,6 +1481,7 @@ def create_app(settings: Settings | None = None):
             "ok": ready_ok,
             "state": state,
             "service": "newscraft-hermes-chat",
+            "processInstanceId": _PROCESS_INSTANCE_ID,
             "hermesCommit": HERMES_COMMIT,
             "toolset": HERMES_TOOLSET,
             "tools": tools,

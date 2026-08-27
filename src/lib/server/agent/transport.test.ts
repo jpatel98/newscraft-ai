@@ -24,14 +24,43 @@ function aguiStream(...events: Array<Record<string, unknown>>): Response {
 	});
 }
 
-function isolationReadyResponse(capabilityOverrides: Record<string, unknown> = {}): Response {
+function isolationReadyResponse(
+	capabilityOverrides: Record<string, unknown> = {},
+	toolProviderOverrides: Record<string, unknown> = {}
+): Response {
 	return new Response(
 		JSON.stringify({
 			ok: true,
 			service: 'newscraft-hermes-chat',
 			toolset: 'hermes-acp',
-			tools: ['browser_navigate', 'browser_snapshot', 'terminal', 'web_extract', 'verify_this_lead'],
+			processInstanceId: 'a'.repeat(32),
+			tools: [
+				'browser_navigate',
+				'browser_snapshot',
+				'web_search',
+				'web_extract',
+				'verify_this_lead',
+				'terminal',
+				'process',
+				'read_file',
+				'write_file',
+				'patch',
+				'execute_code',
+				'delegate_task',
+				'skills_list',
+				'skill_view',
+				'skill_manage',
+				'memory',
+				'cronjob'
+			],
 			runtime: { provider: 'openai', model: 'gpt-5-mini', endpointMode: 'explicit' },
+			toolProviders: {
+				webSearch: { configured: true },
+				webExtract: { configured: true },
+				leadVerification: { configured: true },
+				browser: { configured: true },
+				...toolProviderOverrides
+			},
 			capabilities: {
 				standard: true,
 				accountIsolation: {
@@ -413,8 +442,33 @@ describe('Hermes chat transport', () => {
 			ok: true,
 			service: 'newscraft-hermes-chat',
 			toolset: 'hermes-acp',
-			tools: ['web_search', 'web_extract', 'verify_this_lead', 'browser_navigate', 'browser_snapshot'],
+			processInstanceId: 'a'.repeat(32),
+			tools: [
+				'web_search',
+				'web_extract',
+				'verify_this_lead',
+				'browser_navigate',
+				'browser_snapshot',
+				'terminal',
+				'process',
+				'read_file',
+				'write_file',
+				'patch',
+				'execute_code',
+				'delegate_task',
+				'skills_list',
+				'skill_view',
+				'skill_manage',
+				'memory',
+				'cronjob'
+			],
 			runtime: { provider: 'custom', model: 'new-model', endpointMode: 'explicit' },
+			toolProviders: {
+				webSearch: { configured: true },
+				webExtract: { configured: true },
+				leadVerification: { configured: true },
+				browser: { configured: true }
+			},
 			capabilities: {
 				standard: true,
 				accountIsolation: {
@@ -906,6 +960,29 @@ describe('Hermes chat transport', () => {
 				webResearch: false,
 				webExtraction: false,
 				webLeadVerification: false
+			}
+		});
+	});
+
+	it('uses authoritative Hermes provider readiness when capabilities disagree', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				isolationReadyResponse({}, {
+					browser: { configured: false },
+					webSearch: { configured: false }
+				})
+			)
+		);
+
+		await expect(gatewayHealth()).resolves.toMatchObject({
+			ok: true,
+			requiredReady: true,
+			providers: {
+				browser: false,
+				webResearch: false,
+				webExtraction: true,
+				webLeadVerification: true
 			}
 		});
 	});
