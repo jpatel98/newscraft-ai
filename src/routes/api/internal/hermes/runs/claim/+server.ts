@@ -23,6 +23,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!traceBinding.ok) {
 		return json(
 			{
+				code: 'trace_binding',
 				detail:
 					traceBinding.reason === 'invalid' || traceBinding.reason === 'persisted_invalid'
 						? 'trace_id is invalid'
@@ -45,7 +46,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 	const claimed = await claimHermesRunLease(accountId, runId, leaseOwner);
 	if (!claimed || !claimed.leaseToken || !claimed.leaseOwner) {
-		return json({ detail: 'run lease is held by another worker' }, { status: 409 });
+		return json({ code: 'lease_conflict', detail: 'run lease is held by another worker' }, { status: 409 });
 	}
 	return json({
 		terminal: false,

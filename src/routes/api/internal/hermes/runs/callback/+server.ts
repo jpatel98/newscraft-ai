@@ -48,6 +48,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!traceBinding.ok) {
 		return json(
 			{
+				code: 'trace_binding',
 				detail:
 					traceBinding.reason === 'invalid' || traceBinding.reason === 'persisted_invalid'
 						? 'trace_id is invalid'

@@ -756,7 +756,7 @@ class DurableHermesWorkerTests(unittest.IsolatedAsyncioTestCase):
     async def test_duplicate_start_with_held_lease_returns_same_job_state(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             worker = self._worker(root)
-            worker._newscraft = AsyncMock(side_effect=DurableRunError("lease held", 409))
+            worker._newscraft = AsyncMock(side_effect=DurableRunError("lease held", 409, "lease_conflict"))
             result = await worker.start(self._payload())
             self.assertEqual(result, {
                 "accepted": True,
@@ -764,6 +764,36 @@ class DurableHermesWorkerTests(unittest.IsolatedAsyncioTestCase):
                 "run_id": "run-1",
                 "state": "running",
             })
+            self.assertEqual(worker.jobs, {})
+            worker._newscraft.assert_awaited_once()
+
+    async def test_trace_binding_409_is_not_reported_as_an_accepted_duplicate(self) -> None:
+        for rejection in ("missing", "malformed", "mismatched"):
+            with self.subTest(rejection=rejection), tempfile.TemporaryDirectory() as root:
+                worker = self._worker(root)
+                worker._newscraft = AsyncMock(
+                    side_effect=DurableRunError(f"{rejection} trace binding rejected", 409, "trace_binding")
+                )
+
+                with self.assertRaises(DurableRunError) as context:
+                    await worker.start(self._payload())
+
+                self.assertEqual(context.exception.status_code, 409)
+                self.assertEqual(context.exception.code, "trace_binding")
+                self.assertNotIn("trace_12345678", str(context.exception))
+                self.assertEqual(worker.jobs, {})
+                worker._newscraft.assert_awaited_once()
+
+    async def test_unclassified_claim_409_is_propagated_without_state_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            worker._newscraft = AsyncMock(side_effect=DurableRunError("claim rejected", 409))
+
+            with self.assertRaises(DurableRunError) as context:
+                await worker.start(self._payload())
+
+            self.assertEqual(context.exception.status_code, 409)
+            self.assertIsNone(context.exception.code)
             self.assertEqual(worker.jobs, {})
             worker._newscraft.assert_awaited_once()
 

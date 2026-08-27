@@ -126,22 +126,28 @@ describe('Hermes internal run routes', () => {
 
 	it('rejects a callback trace that does not match the persisted run trace', async () => {
 		const response = await callback({ request: callbackRequest({ trace_id: 'trace_87654321' }) } as any);
+		const body = await response.json();
 
 		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
 		expect(dbMocks.appendHermesRunEvent).not.toHaveBeenCalled();
 	});
 
 	it('rejects a callback with no trace before state mutation', async () => {
 		const response = await callback({ request: callbackRequest({ trace_id: undefined }) } as any);
+		const body = await response.json();
 
 		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
 		expect(dbMocks.appendHermesRunEvent).not.toHaveBeenCalled();
 	});
 
 	it('rejects a callback with a malformed trace before state mutation', async () => {
 		const response = await callback({ request: callbackRequest({ trace_id: 123 }) } as any);
+		const body = await response.json();
 
 		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
 		expect(dbMocks.appendHermesRunEvent).not.toHaveBeenCalled();
 	});
 
@@ -206,43 +212,66 @@ describe('Hermes internal trace-bound control routes', () => {
 
 	it('rejects a claim with no persisted trace binding supplied', async () => {
 		const response = await claim({ request: claimRequest({ trace_id: undefined }) } as any);
+		const body = await response.json();
 
 		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
 		expect(dbMocks.claimHermesRunLease).not.toHaveBeenCalled();
 	});
 
 	it('rejects a claim with a mismatched trace before state mutation', async () => {
 		const response = await claim({ request: claimRequest({ trace_id: 'trace_87654321' }) } as any);
+		const body = await response.json();
 
 		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
 		expect(dbMocks.claimHermesRunLease).not.toHaveBeenCalled();
 	});
 
 	it('rejects a claim with a malformed trace before state mutation', async () => {
 		const response = await claim({ request: claimRequest({ trace_id: 123 }) } as any);
+		const body = await response.json();
 
 		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
 		expect(dbMocks.claimHermesRunLease).not.toHaveBeenCalled();
+	});
+
+	it('labels a genuine claim lease conflict without exposing trace data', async () => {
+		dbMocks.getHermesRun.mockResolvedValue({ ...run, leaseOwner: 'worker-2', leaseToken: 'lease-other' });
+		dbMocks.claimHermesRunLease.mockResolvedValue(null);
+		const response = await claim({ request: claimRequest() } as any);
+		const body = await response.json();
+
+		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'lease_conflict', detail: 'run lease is held by another worker' });
+		expect(JSON.stringify(body)).not.toContain('trace_12345678');
 	});
 
 	it('rejects a renew with no persisted trace binding supplied', async () => {
 		const response = await renew({ request: renewRequest({ trace_id: undefined }) } as any);
+		const body = await response.json();
 
 		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
 		expect(dbMocks.renewHermesRunLease).not.toHaveBeenCalled();
 	});
 
 	it('rejects a renew with a mismatched trace before state mutation', async () => {
 		const response = await renew({ request: renewRequest({ trace_id: 'trace_87654321' }) } as any);
+		const body = await response.json();
 
 		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
 		expect(dbMocks.renewHermesRunLease).not.toHaveBeenCalled();
 	});
 
 	it('rejects a renew with a malformed trace before state mutation', async () => {
 		const response = await renew({ request: renewRequest({ trace_id: 123 }) } as any);
+		const body = await response.json();
 
 		expect(response.status).toBe(409);
+		expect(body).toMatchObject({ code: 'trace_binding' });
 		expect(dbMocks.renewHermesRunLease).not.toHaveBeenCalled();
 	});
 

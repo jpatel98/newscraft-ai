@@ -358,10 +358,10 @@ class DurableRunWorker:
                 claim = await self._newscraft("POST", NEWSCRAFT_RUN_CLAIM_PATH, claim_body)
             except DurableRunError as exc:
                 # Another start request may have claimed this run between the
-                # idempotent NewsCraft insert and this service call. The lease
-                # owner is the durable execution lock, so report the same job
-                # instead of turning a harmless duplicate into a browser error.
-                if exc.status_code == 409:
+                # idempotent NewsCraft insert and this service call. Only the
+                # explicit lease-conflict code is a harmless duplicate; other
+                # 409 responses must reach the caller.
+                if exc.status_code == 409 and exc.code == "lease_conflict":
                     return {"accepted": True, "duplicate": True, "run_id": run_id, "state": "running"}
                 raise
             if claim.get("terminal"):
