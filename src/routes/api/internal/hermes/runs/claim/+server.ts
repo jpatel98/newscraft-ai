@@ -1,10 +1,11 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { getHermesRun, claimHermesRunLease, HERMES_TERMINAL_STATES } from '$lib/server/db/hermes-runs';
 import { verifyHermesRunCallback } from '$lib/server/hermes-durable';
+import { validateDurableTraceBinding } from '$lib/server/durable-run-telemetry';
 
 export const POST: RequestHandler = async ({ request }) => {
 	if (!verifyHermesRunCallback(request)) return json({ detail: 'unauthorized' }, { status: 401 });
-	let body: { run_id?: string; account_id?: string; tenant_key?: string; lease_owner?: string };
+	let body: { run_id?: string; account_id?: string; tenant_key?: string; lease_owner?: string; trace_id?: unknown };
 	try {
 		body = (await request.json()) as typeof body;
 	} catch {
@@ -18,6 +19,18 @@ export const POST: RequestHandler = async ({ request }) => {
 	const existing = await getHermesRun(accountId, runId);
 	if (!existing) return json({ detail: 'run not found' }, { status: 404 });
 	if (existing.tenantKey !== tenantKey) return json({ detail: 'tenant binding does not match' }, { status: 404 });
+	const traceBinding = validateDurableTraceBinding(existing.inputJson, body.trace_id);
+	if (!traceBinding.ok) {
+		return json(
+			{
+				detail:
+					traceBinding.reason === 'invalid' || traceBinding.reason === 'persisted_invalid'
+						? 'trace_id is invalid'
+						: 'trace binding does not match'
+			},
+			{ status: 409 }
+		);
+	}
 	if (HERMES_TERMINAL_STATES.includes(existing.state as (typeof HERMES_TERMINAL_STATES)[number])) {
 		return json({ terminal: true, state: existing.state, worker_cursor: existing.workerCursor });
 	}

@@ -12,6 +12,7 @@ import {
 	deriveSessionId,
 	gatewayHealth,
 	normalizeHermesSse,
+	startDurableHermesRun,
 	streamChatCompletion,
 	type AgentMessage
 } from './transport';
@@ -260,7 +261,6 @@ describe('Hermes chat transport', () => {
 		};
 		expect(body).toMatchObject({
 			threadId: 'thread',
-			runId: 'trace_12345678',
 			state: { newscraftSources: [] },
 			tools: [],
 			forwardedProps: {
@@ -273,6 +273,9 @@ describe('Hermes chat transport', () => {
 				archiveFallback: 'wayback'
 			}
 		});
+		expect(body.runId).toMatch(/^[0-9a-f-]{36}$/);
+		expect(body.runId).not.toBe(body.trace_id);
+		expect(body.trace_id).toBe('trace_12345678');
 		expect(body.forwardedProps.stateWriterTools).toEqual([
 			expect.objectContaining({
 				name: 'record_newscraft_source',
@@ -284,6 +287,86 @@ describe('Hermes chat transport', () => {
 		const text = await response.text();
 		expect(text).toContain('event: agent.answer.replace');
 		expect(text).toContain('Hermes reply.');
+	});
+
+	it('carries one server trace through the durable start request and input', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
+		vi.stubGlobal('fetch', fetchMock);
+		const built = buildHermesRunInput(
+			{ messages: [{ role: 'user', content: 'A local test request.' }] },
+			'thread-a',
+			'run-a',
+			{ traceId: 'trace_12345678' }
+		);
+
+		await startDurableHermesRun({
+			runId: 'run-a',
+			accountId: 'account-a',
+			tenantKey: 'tenant-key-a',
+			input: built.input,
+			seededCitations: built.seededCitations,
+			traceId: 'trace_12345678'
+		});
+
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit & { headers: Record<string, string> };
+		const body = JSON.parse(init.body as string) as { trace_id: string; input: { trace_id: string } };
+		expect(init.headers).toMatchObject({
+			'x-request-id': 'trace_12345678',
+			'x-trace-id': 'trace_12345678'
+		});
+		expect(body.trace_id).toBe('trace_12345678');
+		expect(body.input.trace_id).toBe('trace_12345678');
+	});
+
+	it('keeps legacy trace-free durable starts trace-free', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
+		vi.stubGlobal('fetch', fetchMock);
+		const input = {
+			threadId: 'thread-a',
+			runId: 'run-a',
+			state: { newscraftSources: [] },
+			messages: [],
+			tools: [],
+			context: [],
+			forwardedProps: {}
+		} as any;
+
+		await startDurableHermesRun({
+			runId: 'run-a',
+			accountId: 'account-a',
+			tenantKey: 'tenant-key-a',
+			input,
+			seededCitations: []
+		});
+
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit & { headers: Record<string, string> };
+		const body = JSON.parse(init.body as string) as Record<string, unknown> & { input: Record<string, unknown> };
+		expect(init.headers).not.toHaveProperty('x-trace-id');
+		expect(body).not.toHaveProperty('trace_id');
+		expect(body.input).not.toHaveProperty('trace_id');
+	});
+
+	it('rejects a durable trace that does not match the saved input', async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+		const built = buildHermesRunInput(
+			{ messages: [{ role: 'user', content: 'A local test request.' }] },
+			'thread-a',
+			'run-a',
+			{ traceId: 'trace_12345678' }
+		);
+
+		await expect(
+			startDurableHermesRun({
+				runId: 'run-a',
+				accountId: 'account-a',
+				tenantKey: 'tenant-key-a',
+				input: built.input,
+				seededCitations: built.seededCitations,
+				traceId: 'trace_87654321'
+			})
+		).rejects.toThrow('trace binding');
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('checks retrieval readiness before a research run and makes no fallback request', async () => {

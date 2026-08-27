@@ -16,7 +16,6 @@ const PUBLIC_PREFIXES = [
 	'/api/e2e'
 ];
 let knownHasAccounts = false;
-const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
 const MARKETING_HOSTS = new Set(['newscraftai.com', 'www.newscraftai.com']);
 
 function hostnameWithoutPort(host: string): string {
@@ -27,19 +26,11 @@ function isMarketingHost(host: string): boolean {
 	return MARKETING_HOSTS.has(hostnameWithoutPort(host));
 }
 
-function readRequestTraceId(headers: Headers): string {
-	const candidate =
-		headers.get('x-request-id') ||
-		headers.get('x-trace-id') ||
-		headers.get('x-vercel-trace-id') ||
-		'';
-	const normalized = candidate.trim();
-	if (TRACE_ID_RE.test(normalized)) return normalized;
-	return newId();
-}
-
 export const handle: Handle = async ({ event, resolve }) => {
-	const traceId = readRequestTraceId(event.request.headers);
+	// The browser may replay or forge request headers. Generate the correlation
+	// id at the authenticated NewsCraft boundary and pass it downstream only
+	// through server-owned state.
+	const traceId = newId();
 	event.locals.traceId = traceId;
 	event.locals.isMarketingHost = isMarketingHost(event.url.host);
 	const cookie = event.cookies.get(SESSION_COOKIE_NAME);

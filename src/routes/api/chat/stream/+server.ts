@@ -106,6 +106,10 @@ import {
 	HermesRunRepositoryError
 } from '$lib/server/db/hermes-runs';
 import { hermesSubscriptionResponse } from '$lib/server/hermes-subscription';
+import {
+	summarizeDurableRunTelemetry,
+	traceIdFromHermesInput
+} from '$lib/server/durable-run-telemetry';
 
 interface Body {
 	conversation_id?: string;
@@ -115,7 +119,6 @@ interface Body {
 	resume?: boolean;
 	message_id?: string;
 	command?: ChatCommand;
-	trace_id?: string;
 	document_ids?: string[];
 	output_action?: 'producer_brief' | 'thirty_second_script' | 'interview_questions' | 'copy_with_citations';
 	source_message_id?: string;
@@ -125,7 +128,6 @@ interface Body {
 // Agent caps the request body around 1 MB; keep some headroom for the
 // surrounding JSON envelope, system prompt, and prior turns.
 const MAX_REQUEST_BYTES = 950 * 1024;
-const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
 const OUTPUT_ACTION_PROMPTS: Record<NonNullable<Body['output_action']>, string> = {
 	producer_brief:
 		'Turn the previous answer into a concise producer brief. Preserve confirmed facts, uncertainty, and every citation marker. Do not search for new information.',
@@ -176,21 +178,6 @@ function parseUserDocumentIds(value: string | null | undefined): string[] {
 	} catch {
 		return [];
 	}
-}
-
-function sanitizeTraceId(value: string | undefined | null): string | null {
-	const normalized = (value || '').trim();
-	if (!TRACE_ID_RE.test(normalized)) return null;
-	return normalized;
-}
-
-function resolveTraceId(request: Request, supplied?: string): string {
-	return (
-		sanitizeTraceId(supplied) ||
-		sanitizeTraceId(request.headers.get('x-trace-id')) ||
-		sanitizeTraceId(request.headers.get('x-request-id')) ||
-		newId()
-	);
 }
 
 function sanitizeContent(c: MessageContent | undefined): MessageContent | null {
@@ -722,6 +709,7 @@ async function builtinResponse(
 
 export const POST: RequestHandler = async ({ request, locals, getClientAddress }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
+	const requestAcceptedAt = Date.now();
 	const clientAddress = getClientAddress();
 	const rate = checkRateLimit(`chat:${locals.user.id}:${clientAddress}`, {
 		limit: 60,
@@ -740,7 +728,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	} catch {
 		throw error(400, 'invalid json');
 	}
-	const traceId = resolveTraceId(request, body.trace_id || locals.traceId);
+	// The request hook owns trace creation. Ignore browser JSON and headers.
+	const traceId = locals.traceId || newId();
 
 	// --- Resolve conversation + decide what to stream ---
 	const isResume = body.resume === true;
@@ -791,8 +780,10 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	const requestStartedAt = Date.now();
 	recordChatDiagnostic(convoId, 'chat.request', {
 		trace_id: traceId,
+		request_acceptance_ms: Math.max(0, requestStartedAt - requestAcceptedAt),
 		contentLength: len,
 		retry: body.retry === true,
+		retry_count: body.retry === true ? 1 : 0,
 		resume: isResume,
 		regenerate: body.regenerate === true,
 		newConversation: isNew
@@ -1190,7 +1181,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			{
 				recordSources: true,
 				webExtractConfigured: conversationContext.currentTurn?.researchRequired === true,
-				seededCitations: inheritedMetadata?.citations ?? []
+				seededCitations: inheritedMetadata?.citations ?? [],
+				traceId
 			}
 		);
 		let durableRun: Awaited<ReturnType<typeof createOrGetHermesRun>>['run'];
@@ -1211,6 +1203,13 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				seededCitationsJson: JSON.stringify(built.seededCitations)
 			}));
 			durableRunCreated = true;
+			if (created) {
+				recordChatDiagnostic(convoId, 'chat.durable.accepted', {
+					trace_id: traceId,
+					request_acceptance_ms: Math.max(0, durableRun.createdAt - requestAcceptedAt),
+					initial_state: durableRun.state
+				});
+			}
 		} catch (cause) {
 			if (cause instanceof HermesRunRepositoryError && cause.code === 'cross_account') {
 				throw error(404, 'conversation not found');
@@ -1218,6 +1217,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			throw cause;
 		}
 		if (created || durableRun.state === 'queued') {
+			const durableTraceId = traceIdFromHermesInput(durableRun.inputJson) || undefined;
 			try {
 				let durableInput = built.input;
 				let durableSeededCitations = built.seededCitations;
@@ -1236,14 +1236,20 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					accountId,
 					tenantKey: durableRun.tenantKey,
 					input: durableInput,
-					seededCitations: durableSeededCitations
+					seededCitations: durableSeededCitations,
+					traceId: durableTraceId
 				});
-			} catch (cause) {
-				recordChatDiagnostic(convoId, 'chat.durable_start_failed', {
-					trace_id: traceId,
-					errorName: cause instanceof Error ? cause.name : 'Error'
-				});
+			} catch {
 				durableRun = await failQueuedHermesRun(accountId, durableRun.id);
+				recordChatDiagnostic(
+					convoId,
+					'chat.durable.terminal',
+						summarizeDurableRunTelemetry(durableRun, [], {
+							requestAcceptanceMs: Math.max(0, durableRun.createdAt - requestAcceptedAt),
+							failureClass: 'start'
+						}),
+						{ id: `durable-terminal:${durableRun.id}` }
+					);
 			}
 		}
 		return hermesSubscriptionResponse({

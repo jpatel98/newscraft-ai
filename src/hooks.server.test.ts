@@ -7,5 +7,8 @@ describe('request bootstrap boundary', () => {
 
 		expect(source).not.toContain('ensureMigrated');
 		expect(source).not.toMatch(/CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE/i);
+		expect(source).toContain('const traceId = newId();');
+		expect(source).not.toContain("headers.get('x-request-id')");
+		expect(source).not.toContain("headers.get('x-trace-id')");
 	});
 });

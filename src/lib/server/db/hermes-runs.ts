@@ -699,7 +699,7 @@ export async function failQueuedHermesRun(
 			accountId: owner,
 			cursor,
 			eventType: 'run.failed',
-			dataJson: JSON.stringify({ error: { message: safeError } }),
+			dataJson: JSON.stringify({ failure_class: 'start', error: { message: safeError } }),
 			createdAt: now
 		});
 		const [run] = (await tx
@@ -864,7 +864,7 @@ export async function claimHermesRunLease(
 			leaseToken,
 			leaseExpiresAt: now + HERMES_LEASE_MS,
 			state: 'researching',
-			startedAt: now,
+			startedAt: sql`COALESCE(${hermesRuns.startedAt}, ${now})`,
 			updatedAt: now
 		})
 		.where(

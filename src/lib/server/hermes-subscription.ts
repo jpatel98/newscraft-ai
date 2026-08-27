@@ -5,6 +5,8 @@ import {
 	snapshotFromRun,
 	HERMES_TERMINAL_STATES
 } from '$lib/server/db/hermes-runs';
+import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
+import { traceIdFromHermesInput } from '$lib/server/durable-run-telemetry';
 
 export const HERMES_SUBSCRIPTION_POLL_MS = 100;
 
@@ -41,6 +43,14 @@ export async function hermesSubscriptionResponse({
 	const initial = await getHermesRun(accountId, runId);
 	if (!initial) return json({ detail: 'run not found' }, { status: 404 });
 	if (afterCursor > initial.cursor) return json({ detail: 'cursor is ahead of the saved run' }, { status: 409 });
+	const traceId = traceIdFromHermesInput(initial.inputJson);
+	recordChatDiagnostic(initial.conversationId, 'chat.durable.subscription', {
+		...(traceId ? { trace_id: traceId } : {}),
+		replay: afterCursor > 0,
+		reconnect_count: afterCursor > 0 ? 1 : 0,
+		after_cursor: afterCursor,
+		current_cursor: initial.cursor
+	});
 
 	const encoder = new TextEncoder();
 	const stream = new ReadableStream<Uint8Array>({
@@ -70,7 +80,8 @@ export async function hermesSubscriptionResponse({
 					sse('agent.meta', {
 						conversation_id: initial.conversationId,
 						run_id: initial.id,
-						cursor: initial.cursor
+						cursor: initial.cursor,
+						...(traceId ? { trace_id: traceId } : {})
 					})
 				);
 				enqueue(
@@ -80,6 +91,7 @@ export async function hermesSubscriptionResponse({
 						assistant_message_id: initial.assistantMessageId,
 						cursor: initial.cursor,
 						status: initial.state,
+						...(traceId ? { trace_id: traceId } : {}),
 						...snapshotFromRun(initial)
 					})
 				);

@@ -283,8 +283,10 @@ function buildRunInput(
 	runId: string,
 	recordSources = true,
 	webExtractConfigured = false,
-	seededCitations: ReadonlyArray<CitationRecord> = []
+	seededCitations: ReadonlyArray<CitationRecord> = [],
+	traceIdValue?: string
 ): BuiltRunInput {
+	const traceId = traceHeader(traceIdValue) || randomUUID();
 	const highestSeededNumber = seededCitations.reduce(
 		(highest, citation) => Math.max(highest, citation.citationNumber),
 		0
@@ -300,6 +302,7 @@ function buildRunInput(
 		input: {
 			threadId,
 			runId,
+			trace_id: traceId,
 			state: { newscraftSources: [] },
 			messages: body.messages.map((message, index) => toAguiMessage(message, index, runId)),
 			tools: [],
@@ -349,7 +352,8 @@ export function deriveHermesTenantKey(accountId: string): string {
 }
 
 function traceHeader(value: string | undefined): string | undefined {
-	const cleaned = (value || '').trim();
+	if (typeof value !== 'string') return undefined;
+	const cleaned = value.trim();
 	return TRACE_ID_RE.test(cleaned) ? cleaned : undefined;
 }
 
@@ -898,7 +902,8 @@ export async function streamChatCompletion(
 		throw new Error('Hermes requires an authenticated account scope.');
 	}
 	const sessionId = opts.sessionId ?? deriveSessionId(body.messages, opts.accountId);
-	const traceId = traceHeader(opts.traceId);
+	const traceId = traceHeader(opts.traceId) || randomUUID();
+	const runId = randomUUID();
 	const requireWebExtraction = opts.requireWebExtraction === true;
 	const health = await gatewayHealth();
 	if (!health.ok) {
@@ -908,13 +913,15 @@ export async function streamChatCompletion(
 	const run = buildRunInput(
 		body,
 		sessionId,
-		traceId || randomUUID(),
+		runId,
 		opts.recordSources !== false,
-		requireWebExtraction
+		requireWebExtraction,
+		[],
+		traceId
 	);
 	const response = await fetch(`${hermesUrl()}/`, {
 		method: 'POST',
-		headers: { ...requestHeaders(opts), 'x-hermes-session-id': sessionId },
+		headers: { ...requestHeaders({ ...opts, traceId }), 'x-hermes-session-id': sessionId },
 		body: JSON.stringify(run.input),
 		signal: opts.signal
 	});
@@ -934,6 +941,7 @@ export function buildHermesRunInput(
 		recordSources?: boolean;
 		webExtractConfigured?: boolean;
 		seededCitations?: ReadonlyArray<CitationRecord>;
+		traceId?: string;
 	} = {}
 ): BuiltRunInput {
 	return buildRunInput(
@@ -942,7 +950,8 @@ export function buildHermesRunInput(
 		runId,
 		options.recordSources !== false,
 		options.webExtractConfigured === true,
-		options.seededCitations
+		options.seededCitations,
+		options.traceId
 	);
 }
 
@@ -952,17 +961,25 @@ export interface DurableHermesRunStartRequest {
 	tenantKey: string;
 	input: HermesRunInput;
 	seededCitations: SeededCitation[];
+	/** Required for new runs; absent only for legacy saved runs without a trace. */
+	traceId?: string;
 }
 
 /** Start a durable worker owned by the NewsCraft Hermes service. */
 export async function startDurableHermesRun(input: DurableHermesRunStartRequest): Promise<void> {
+	const traceId = traceHeader(input.traceId);
+	const inputTraceId = traceHeader(input.input.trace_id);
+	if (input.input.trace_id !== undefined && (!inputTraceId || !traceId || inputTraceId !== traceId)) {
+		throw new Error('Hermes durable trace binding does not match.');
+	}
 	const response = await fetch(`${hermesUrl()}/v1/runs/start`, {
 		method: 'POST',
-		headers: { ...requestHeaders({ accountId: input.accountId }), 'content-type': 'application/json' },
+		headers: { ...requestHeaders({ accountId: input.accountId, traceId }), 'content-type': 'application/json' },
 		body: JSON.stringify({
 			run_id: input.runId,
 			account_id: input.accountId,
 			tenant_key: input.tenantKey,
+			...(traceId ? { trace_id: traceId } : {}),
 			input: input.input,
 			seeded_citations: input.seededCitations
 		})
@@ -976,12 +993,19 @@ export async function startDurableHermesRun(input: DurableHermesRunStartRequest)
 /** Request cancellation for the same durable Hermes run. */
 export async function cancelDurableHermesRun(
 	accountId: string,
-	runId: string
+	runId: string,
+	traceId?: string
 ): Promise<{ state: string }> {
+	const normalizedTraceId = traceHeader(traceId);
 	const response = await fetch(`${hermesUrl()}/v1/runs/${encodeURIComponent(runId)}/cancel`, {
 		method: 'POST',
-		headers: requestHeaders({ accountId }),
-		body: JSON.stringify({ run_id: runId, account_id: accountId, tenant_key: deriveHermesTenantKey(accountId) })
+		headers: requestHeaders({ accountId, traceId: normalizedTraceId }),
+		body: JSON.stringify({
+			run_id: runId,
+			account_id: accountId,
+			tenant_key: deriveHermesTenantKey(accountId),
+			...(normalizedTraceId ? { trace_id: normalizedTraceId } : {})
+		})
 	});
 	if (!response.ok && response.status !== 404) {
 		const detail = await response.text().catch(() => '');

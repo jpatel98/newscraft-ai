@@ -626,9 +626,63 @@ class DurableHermesWorkerTests(unittest.IsolatedAsyncioTestCase):
             "run_id": "run-1",
             "account_id": "account-1",
             "tenant_key": "tenant_key_1",
-            "input": {"runId": "run-1", "threadId": "thread-1", "messages": []},
+            "trace_id": "trace_12345678",
+            "input": {"runId": "run-1", "threadId": "thread-1", "trace_id": "trace_12345678", "messages": []},
             "seeded_citations": [],
         }
+
+    async def test_trace_is_bound_to_the_saved_input_and_forwarded_to_callbacks(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            worker._newscraft = AsyncMock(return_value={
+                "terminal": False,
+                "lease_owner": "owner-1",
+                "lease_token": "lease-1",
+                "worker_cursor": 0,
+            })
+            gate = asyncio.Event()
+
+            async def long_run(_job):
+                await gate.wait()
+
+            worker._run = long_run
+            payload = self._payload()
+            result = await worker.start(payload)
+            job = worker.jobs["run-1"]
+
+            self.assertEqual(result["accepted"], True)
+            self.assertEqual(job.trace_id, "trace_12345678")
+            self.assertEqual(worker._headers(job.trace_id)["x-trace-id"], "trace_12345678")
+            claim_body = worker._newscraft.await_args_list[0].args[2]
+            self.assertEqual(claim_body["trace_id"], "trace_12345678")
+
+            await worker._callback(job, "run.started", {"status": "researching"})
+            callback_body = worker._newscraft.await_args_list[1].args[2]
+            self.assertEqual(callback_body["trace_id"], "trace_12345678")
+
+            gate.set()
+            await worker.close()
+
+    async def test_trace_mismatch_is_rejected_before_claiming_a_run(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            payload = self._payload()
+            payload["trace_id"] = "trace_87654321"
+
+            with self.assertRaisesRegex(DurableRunError, "trace binding"):
+                await worker.start(payload)
+
+            worker._newscraft = AsyncMock()
+            self.assertFalse(worker._newscraft.await_args_list)
+
+    async def test_non_string_trace_is_rejected_before_claiming_a_run(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            payload = self._payload()
+            payload["trace_id"] = 12345678
+
+            with self.assertRaisesRegex(DurableRunError, "trace_id is invalid"):
+                await worker.start(payload)
 
     async def test_disconnect_does_not_cancel_worker_task(self) -> None:
         with tempfile.TemporaryDirectory() as root:

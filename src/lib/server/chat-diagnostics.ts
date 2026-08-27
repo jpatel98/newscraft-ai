@@ -8,6 +8,10 @@ export interface ChatDiagnosticEvent {
 	details: Record<string, unknown>;
 }
 
+export interface ChatDiagnosticOptions {
+	id?: string;
+}
+
 const MAX_EVENTS_PER_CONVERSATION = 80;
 const MAX_DETAIL_STRING = 500;
 const EVENT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -25,17 +29,20 @@ const eventsByConversation = new Map<string, ChatDiagnosticEvent[]>();
 export function recordChatDiagnostic(
 	conversationId: string,
 	type: string,
-	details: Record<string, unknown> = {}
+	details: Record<string, unknown> = {},
+	options: ChatDiagnosticOptions = {}
 ): void {
 	const now = Date.now();
+	const id = options.id?.trim() || `diag-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+	const existing = eventsByConversation.get(conversationId) ?? [];
+	if (existing.some((event) => event.id === id)) return;
 	const event = {
-		id: `diag-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+		id,
 		conversationId,
 		type,
 		createdAt: now,
 		details: sanitizeDetails(details)
 	};
-	const existing = eventsByConversation.get(conversationId) ?? [];
 	const next = [...existing.filter((event) => now - event.createdAt <= EVENT_TTL_MS), event].slice(
 		-MAX_EVENTS_PER_CONVERSATION
 	);

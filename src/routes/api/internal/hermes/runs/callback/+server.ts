@@ -2,11 +2,18 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import {
 	appendHermesRunEvent,
 	getHermesRun,
+	listHermesRunEvents,
 	HermesRunRepositoryError
 } from '$lib/server/db/hermes-runs';
 import { verifyHermesRunCallback } from '$lib/server/hermes-durable';
 import { generateConversationTitle } from '$lib/server/conversation-title';
 import { CHAT_TITLE_TIMEOUT_MS, withChatTimeout } from '$lib/server/chat-timeouts';
+import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
+import {
+	collectDurableRunEvents,
+	summarizeDurableRunTelemetry,
+	validateDurableTraceBinding
+} from '$lib/server/durable-run-telemetry';
 
 export const POST: RequestHandler = async ({ request }) => {
 	if (!verifyHermesRunCallback(request)) return json({ detail: 'unauthorized' }, { status: 401 });
@@ -18,6 +25,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		lease_token?: string;
 		worker_cursor?: number;
 		event_type?: string;
+		trace_id?: unknown;
 		data?: unknown;
 	};
 	try {
@@ -36,6 +44,18 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 	const existing = await getHermesRun(accountId, runId);
 	if (!existing || existing.tenantKey !== tenantKey) return json({ detail: 'run not found' }, { status: 404 });
+	const traceBinding = validateDurableTraceBinding(existing.inputJson, body.trace_id);
+	if (!traceBinding.ok) {
+		return json(
+			{
+				detail:
+					traceBinding.reason === 'invalid' || traceBinding.reason === 'persisted_invalid'
+						? 'trace_id is invalid'
+						: 'trace binding does not match'
+			},
+			{ status: 409 }
+		);
+	}
 	let dataJson: string;
 	try {
 		dataJson = JSON.stringify(body.data ?? {});
@@ -59,6 +79,21 @@ export const POST: RequestHandler = async ({ request }) => {
 				);
 			} catch {
 				/* A saved answer must not fail because its title could not be generated. */
+			}
+		}
+		if (result.run.state === 'complete' || result.run.state === 'failed' || result.run.state === 'cancelled') {
+			try {
+				const collection = await collectDurableRunEvents(accountId, runId, listHermesRunEvents);
+				recordChatDiagnostic(
+					result.run.conversationId,
+					'chat.durable.terminal',
+					summarizeDurableRunTelemetry(result.run, collection.events, {
+						eventsTruncated: collection.truncated
+					}),
+					{ id: `durable-terminal:${result.run.id}` }
+				);
+			} catch {
+				/* Telemetry must not change the durable callback result. */
 			}
 		}
 		return json({ cursor: result.event.cursor, state: result.run.state });

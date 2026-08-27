@@ -37,6 +37,8 @@ export interface HermesStateWriterTool {
 export interface HermesRunInput {
 	threadId: string;
 	runId: string;
+	/** Server-generated correlation id. Never accept this from browser input. */
+	trace_id?: string;
 	state: { newscraftSources: Array<Record<string, unknown>> };
 	messages: HermesAguiMessage[];
 	tools: [];

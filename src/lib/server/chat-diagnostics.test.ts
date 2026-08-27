@@ -47,6 +47,24 @@ describe('chat diagnostics', () => {
 		]);
 	});
 
+	it('deduplicates diagnostics with an explicit event id', () => {
+		recordChatDiagnostic(
+			'conversation-once',
+			'chat.durable.terminal',
+			{ state: 'complete' },
+			{ id: 'run-terminal-1' }
+		);
+		recordChatDiagnostic(
+			'conversation-once',
+			'chat.durable.terminal',
+			{ state: 'complete' },
+			{ id: 'run-terminal-1' }
+		);
+
+		expect(recentChatDiagnostics('conversation-once')).toHaveLength(1);
+		expect(dbMocks.saveChatDiagnostic).toHaveBeenCalledTimes(1);
+	});
+
 	it('merges persisted diagnostics with in-memory events without duplicates', async () => {
 		const persisted = {
 			id: 'diag-persisted',

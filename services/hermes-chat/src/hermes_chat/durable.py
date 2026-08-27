@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import secrets
 import socket
 from dataclasses import dataclass, field
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 TEXT_BATCH_MAX_CHARS = 4_096
 TEXT_BATCH_FLUSH_INTERVAL_SECONDS = 0.05
 TEXT_EVENT_TYPE = "response.output_text.delta"
+TRACE_ID_RE = r"^[A-Za-z0-9._-]{8,128}$"
 
 
 class DurableRunError(RuntimeError):
@@ -51,6 +53,46 @@ def _json_object(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise DurableRunError(f"{label} must be an object")
     return value
+
+
+def _trace_id(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise DurableRunError("trace_id is invalid")
+    result = value.strip()
+    if not result or not re.fullmatch(TRACE_ID_RE, result):
+        raise DurableRunError("trace_id is invalid")
+    return result
+
+
+def _resolve_trace_id(run_input: Mapping[str, Any], payload_value: Any) -> str | None:
+    input_trace = _trace_id(run_input.get("trace_id"))
+    payload_trace = _trace_id(payload_value)
+    if input_trace and payload_trace and input_trace != payload_trace:
+        raise DurableRunError("trace binding does not match")
+    return payload_trace or input_trace
+
+
+def _failure_class(error: BaseException) -> str:
+    if isinstance(error, asyncio.CancelledError):
+        return "cancelled"
+    if isinstance(error, DurableRunError):
+        if error.code in {"stale_lease", "stale_callback"}:
+            return "lease"
+        if error.code == "protocol":
+            return "protocol"
+        if error.code == "callback":
+            return "callback"
+        if error.status_code in {408, 504}:
+            return "timeout"
+        if error.status_code is not None:
+            return "upstream"
+    if isinstance(error, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(error, httpx.RequestError):
+        return "network"
+    return "unknown"
 
 
 def _event_payload(event_type: str, data: Mapping[str, Any]) -> dict[str, Any]:
@@ -112,13 +154,17 @@ def normalized_events(
             if isinstance(nested, dict)
             else nested
         ) or payload.get("message") or "Hermes returned an agent error."
-        return [_event_payload("response.failed", {"error": {"message": str(message)}})]
+        return [_event_payload("response.failed", {
+            "failure_class": "upstream",
+            "error": {"message": str(message)},
+        })]
     if kind == "RUN_FINISHED":
         events: list[dict[str, Any]] = []
         answer = "".join(text_parts)
         if not answer.strip():
             return [_event_payload("response.failed", {
-                "error": {"message": "Hermes ended before a completed response."}
+                "failure_class": "protocol",
+                "error": {"message": "Hermes ended before a completed response."},
             })]
         events.append(_event_payload("agent.answer.replace", {"content": answer}))
         events.append(_event_payload("response.completed", {"model": "hermes-chat"}))
@@ -217,6 +263,7 @@ class DurableJob:
     lease_owner: str
     lease_token: str
     worker_cursor: int = 0
+    trace_id: str | None = None
     task: asyncio.Task[None] | None = None
     stop_reason: str | None = None
     stale_lease: bool = False
@@ -241,8 +288,11 @@ class DurableRunWorker:
     def configured(self) -> bool:
         return bool(self.settings.run_api_url and self.settings.run_api_token)
 
-    def _headers(self) -> dict[str, str]:
-        return {RUN_TOKEN_HEADER: self.settings.run_api_token or "", "content-type": "application/json"}
+    def _headers(self, trace_id: str | None = None) -> dict[str, str]:
+        headers = {RUN_TOKEN_HEADER: self.settings.run_api_token or "", "content-type": "application/json"}
+        if trace_id:
+            headers.update({"x-request-id": trace_id, "x-trace-id": trace_id})
+        return headers
 
     def _newscraft_url(self, path: str) -> str:
         if not self.settings.run_api_url:
@@ -250,8 +300,14 @@ class DurableRunWorker:
         return f"{self.settings.run_api_url.rstrip('/')}{path}"
 
     async def _newscraft(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        trace_id = _trace_id(body.get("trace_id")) if isinstance(body, dict) else None
         async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.request(method, self._newscraft_url(path), headers=self._headers(), json=body)
+            response = await client.request(
+                method,
+                self._newscraft_url(path),
+                headers=self._headers(trace_id),
+                json=body,
+            )
         if response.status_code >= 400:
             code: str | None = None
             try:
@@ -260,6 +316,8 @@ class DurableRunWorker:
                     code = error_body["code"]
             except ValueError:
                 pass
+            if code is None:
+                code = "callback" if path.endswith(NEWSCRAFT_RUN_CALLBACK_PATH) else "network"
             raise DurableRunError(
                 f"NewsCraft durable run request failed ({response.status_code})",
                 response.status_code,
@@ -273,6 +331,7 @@ class DurableRunWorker:
         account_id = _string(payload.get("account_id"), "account_id")
         tenant_key = _string(payload.get("tenant_key"), "tenant_key")
         run_input = _json_object(payload.get("input"), "input")
+        trace_id = _resolve_trace_id(run_input, payload.get("trace_id"))
         self.isolation.resolve(tenant_key)
         if str(run_input.get("runId") or run_input.get("run_id") or "").strip() not in {"", run_id}:
             raise DurableRunError("input run id does not match run id")
@@ -283,15 +342,20 @@ class DurableRunWorker:
                     raise DurableRunError("run account binding does not match")
                 if current.tenant_key != tenant_key:
                     raise DurableRunError("run tenant binding does not match")
+                if trace_id and current.trace_id and current.trace_id != trace_id:
+                    raise DurableRunError("run trace binding does not match")
                 return {"accepted": True, "duplicate": True, "run_id": run_id, "state": "running" if current.task and not current.task.done() else "finished"}
             owner = f"hermes:{self.instance_id}:{run_id}"
+            claim_body = {
+                "run_id": run_id,
+                "account_id": account_id,
+                "tenant_key": tenant_key,
+                "lease_owner": owner,
+            }
+            if trace_id:
+                claim_body["trace_id"] = trace_id
             try:
-                claim = await self._newscraft("POST", NEWSCRAFT_RUN_CLAIM_PATH, {
-                    "run_id": run_id,
-                    "account_id": account_id,
-                    "tenant_key": tenant_key,
-                    "lease_owner": owner,
-                })
+                claim = await self._newscraft("POST", NEWSCRAFT_RUN_CLAIM_PATH, claim_body)
             except DurableRunError as exc:
                 # Another start request may have claimed this run between the
                 # idempotent NewsCraft insert and this service call. The lease
@@ -311,6 +375,7 @@ class DurableRunWorker:
                 lease_owner=_string(claim.get("lease_owner"), "lease_owner"),
                 lease_token=_string(claim.get("lease_token"), "lease_token"),
                 worker_cursor=int(claim.get("worker_cursor") or 0),
+                trace_id=trace_id,
             )
             job.task = asyncio.create_task(self._run(job), name=f"newscraft-hermes-{run_id}")
             self.jobs[run_id] = job
@@ -322,6 +387,7 @@ class DurableRunWorker:
         tenant_key = _string(payload.get("tenant_key"), "tenant_key")
         self.isolation.resolve(tenant_key)
         run_input = _json_object(payload.get("input"), "input")
+        trace_id = _resolve_trace_id(run_input, payload.get("trace_id"))
         if str(run_input.get("runId") or run_input.get("run_id") or "").strip() not in {"", run_id}:
             raise DurableRunError("saved input run id does not match run id")
         async with self._lock:
@@ -331,6 +397,8 @@ class DurableRunWorker:
                     raise DurableRunError("run account binding does not match")
                 if current.tenant_key != tenant_key:
                     raise DurableRunError("run tenant binding does not match")
+                if trace_id and current.trace_id and current.trace_id != trace_id:
+                    raise DurableRunError("run trace binding does not match")
                 return {"accepted": True, "duplicate": True, "run_id": run_id, "state": "running"}
             job = DurableJob(
                 run_id=run_id,
@@ -341,6 +409,7 @@ class DurableRunWorker:
                 lease_owner=_string(payload.get("lease_owner"), "lease_owner"),
                 lease_token=_string(payload.get("lease_token"), "lease_token"),
                 worker_cursor=int(payload.get("worker_cursor") or 0),
+                trace_id=trace_id,
             )
             resume_snapshot = payload.get("resume_snapshot")
             if isinstance(resume_snapshot, dict):
@@ -434,17 +503,20 @@ class DurableRunWorker:
 
     async def _send_callback_locked(self, job: DurableJob, event_type: str, data: dict[str, Any]) -> None:
         worker_cursor = job.worker_cursor + 1
+        callback_body = {
+            "run_id": job.run_id,
+            "account_id": job.account_id,
+            "tenant_key": job.tenant_key,
+            "lease_owner": job.lease_owner,
+            "lease_token": job.lease_token,
+            "worker_cursor": worker_cursor,
+            "event_type": event_type,
+            "data": _bounded_data(data),
+        }
+        if job.trace_id:
+            callback_body["trace_id"] = job.trace_id
         try:
-            await self._newscraft("POST", NEWSCRAFT_RUN_CALLBACK_PATH, {
-                "run_id": job.run_id,
-                "account_id": job.account_id,
-                "tenant_key": job.tenant_key,
-                "lease_owner": job.lease_owner,
-                "lease_token": job.lease_token,
-                "worker_cursor": worker_cursor,
-                "event_type": event_type,
-                "data": _bounded_data(data),
-            })
+            await self._newscraft("POST", NEWSCRAFT_RUN_CALLBACK_PATH, callback_body)
         except DurableRunError as exc:
             if exc.status_code == 409:
                 if exc.code == "stale_callback":
@@ -533,19 +605,22 @@ class DurableRunWorker:
         await self._stop_text_flush(job)
         self._discard_text_buffer(job)
         job.text_flush_error = None
-        await self._callback(job, "run.cancelled", {"status": "cancelled"})
+        await self._callback(job, "run.cancelled", {"failure_class": "cancelled", "status": "cancelled"})
 
     async def _renew(self, job: DurableJob) -> None:
         while True:
             await asyncio.sleep(RUN_LEASE_RENEW_INTERVAL_SECONDS)
             try:
-                await self._newscraft("POST", NEWSCRAFT_RUN_RENEW_PATH, {
+                body = {
                     "run_id": job.run_id,
                     "account_id": job.account_id,
                     "tenant_key": job.tenant_key,
                     "lease_owner": job.lease_owner,
                     "lease_token": job.lease_token,
-                })
+                }
+                if job.trace_id:
+                    body["trace_id"] = job.trace_id
+                await self._newscraft("POST", NEWSCRAFT_RUN_RENEW_PATH, body)
             except Exception:
                 job.stale_lease = True
                 job.stop_reason = "stale_lease"
@@ -570,10 +645,16 @@ class DurableRunWorker:
                 "content-type": "application/json",
                 "accept": "text/event-stream",
             }
+            if job.trace_id:
+                headers.update({"x-request-id": job.trace_id, "x-trace-id": job.trace_id})
             async with httpx.AsyncClient(timeout=None) as client:
                 async with client.stream("POST", self.settings.internal_agui_url, headers=headers, json=job.input) as response:
                     if response.status_code >= 400:
-                        raise DurableRunError(f"Hermes AG-UI request failed ({response.status_code})")
+                        raise DurableRunError(
+                            f"Hermes AG-UI request failed ({response.status_code})",
+                            response.status_code,
+                            "upstream",
+                        )
                     async for event, payload in iter_sse(response.aiter_lines()):
                         if job.stop_reason:
                             raise asyncio.CancelledError
@@ -582,7 +663,7 @@ class DurableRunWorker:
                         if _event_type(payload, event) == "RUN_FINISHED":
                             finished = True
             if not finished:
-                raise DurableRunError("Hermes ended before a completed response")
+                raise DurableRunError("Hermes ended before a completed response", code="protocol")
             if not text_parts:
                 return
         except asyncio.CancelledError:
@@ -597,6 +678,7 @@ class DurableRunWorker:
                 self._discard_text_buffer(job)
                 try:
                     await self._callback(job, "run.failed", {
+                        "failure_class": "callback",
                         "error": {"message": str(error or "NewsCraft callback failed")[:2_000]}
                     })
                 except Exception:
@@ -611,7 +693,10 @@ class DurableRunWorker:
         except Exception as exc:
             if not job.stale_lease:
                 try:
-                    await self._callback(job, "run.failed", {"error": {"message": str(exc)[:2_000]}})
+                    await self._callback(job, "run.failed", {
+                        "failure_class": _failure_class(exc),
+                        "error": {"message": str(exc)[:2_000]},
+                    })
                 except Exception:
                     logger.exception("NewsCraft failure callback failed")
         finally:
