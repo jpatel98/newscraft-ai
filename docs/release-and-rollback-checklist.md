@@ -160,23 +160,55 @@ tests, skipped tests, and the candidate hash.
 
 7. **Real-browser checks and console results**
 
-   The local gate must use an isolated configuration. The Playwright config
-   loads `.env.local` and maps `E2E_DATABASE_URL` to the web server's
-   `DATABASE_URL` through its [web-server environment](../playwright.config.ts#L6-L19).
-   Do not rely on that fallback. Before running the suite, set both database
-   variables explicitly to the same isolated test database and set both
-   NewsCraft and legacy gateway endpoints to loopback or an intentionally
-   unreachable local endpoint:
+   The local gate must use the dedicated [JIG-181 matrix runner](../scripts/jig-181-ui-matrix.mjs)
+   and [isolated Playwright configuration](../playwright.jig181.config.ts). Neither
+   configuration loads `.env.local` or accepts a database value from an implicit
+   fallback. The runner requires a separately supplied disposable-local authority
+   document and `JIG181_E2E_DATABASE_URL`; without both, the browser cases are
+   `BLOCKED` and the release command exits nonzero. Before running an authorized
+   local suite, set both database variables explicitly to the same isolated test
+   database and set both NewsCraft and legacy gateway endpoints to loopback or an
+   intentionally unreachable local endpoint:
 
    ```text
    isolated_e2e_database_url="${E2E_DATABASE_URL:?set an isolated test database URL}"
    export E2E_DATABASE_URL="$isolated_e2e_database_url"
    export DATABASE_URL="$isolated_e2e_database_url"
+   export JIG181_E2E_DATABASE_URL="$isolated_e2e_database_url"
+   export JIG181_CANDIDATE_SHA="$(git rev-parse HEAD)"
    export NEWSCRAFT_HERMES_URL='http://127.0.0.1:9'
    export AGENT_GATEWAY_URL='http://127.0.0.1:9'
-   test "$E2E_DATABASE_URL" = "$DATABASE_URL"
-   corepack pnpm test:e2e
+   test "$E2E_DATABASE_URL" = "$DATABASE_URL" && test "$E2E_DATABASE_URL" = "$JIG181_E2E_DATABASE_URL"
+   corepack pnpm ui:matrix:jig181 \
+     --source-sha "$JIG181_CANDIDATE_SHA" \
+     --candidate-sha "$JIG181_CANDIDATE_SHA" \
+     --run-browser \
+     --database-authority .tmp/jig-181/database-authority.json
    ```
+
+   The disposable-local authority file is JSON with exactly this schema; it
+   must be created under `.tmp/jig-181` and must never contain a production
+   value or credential:
+
+   ```json
+   {
+     "schema_version": 1,
+     "scope": "disposable-local",
+     "candidate_sha": "<exact local candidate SHA>",
+     "database_name": "newscraft_e2e_<lowercase-local-suffix>",
+     "loopback": true,
+     "allows_test_mutation": true,
+     "expires_at": "<UTC ISO-8601 timestamp within the next 24 hours>"
+   }
+   ```
+
+   All fields are required and additional fields are rejected. `candidate_sha`
+   must equal the clean checkout's candidate SHA, `database_name` must match
+   the explicitly supplied loopback database URL, and `expires_at` must be a
+   valid timestamp strictly in the future and no more than 24 hours from the
+   runner's clock. Expired, malformed, or longer-lived authority is
+   `BLOCKED`; the runner does not infer authority from environment or
+   `.env.local`.
 
    The value assigned to `isolated_e2e_database_url` must be an approved
    isolated test database value. Do not record that value. The explicit
@@ -186,11 +218,21 @@ tests, skipped tests, and the candidate hash.
    scope, or either endpoint is remote, this gate is `BLOCKED`.
 
    Record browser, viewport, test counts, screenshots or trace identifiers,
-   failed requests, `pageerror` events, and console results. The suite records
-   unexpected console errors and page errors in
-   [`collectPageProblems`](../tests/e2e/app.spec.ts#L7-L16). A test that uses a
-   browser-side stream fixture is still a browser UI test, but it is not proof
-   of a live Hermes request. Mark the live request check separately.
+   failed requests, `pageerror` events, console results, cumulative layout shift,
+   and duplicate durable-start requests. The matrix requires every named case,
+   zero unexpected errors or failed requests, CLS no greater than `0.1`, and zero
+   duplicate requests. Its machine-readable record is redacted and written below
+   `.tmp/jig-181`; it contains only aggregate evidence identifiers and counts. A
+   browser-side stream fixture is still a browser UI test, but it is not proof of
+   a live Hermes request. Mark the live request check separately.
+
+   The mobile release gate additionally requires a current, exact-candidate
+   evidence document for the named physical device **iPhone 17 Pro / Safari**.
+   It must declare `execution: physical_device`, `emulation: false`, a screenshot
+   or trace identifier, zero console/page/request/duplicate errors, and CLS no
+   greater than `0.1`. Desktop emulation never satisfies this gate. Missing,
+   stale, mismatched, duplicate, skipped, or blocked evidence is `BLOCK RELEASE`
+   and the public command exits nonzero.
 
    A separately authorized live browser check must use the candidate NewsCraft
    URL with no route interception. Record the URL, deployment identifier,

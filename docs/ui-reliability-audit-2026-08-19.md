@@ -59,3 +59,14 @@ Evidence: screenshot `25-stream-cadence-final-390x844.png` and the in-app Browse
 - The real Hermes service, production data, providers, credentials, and infrastructure were not used.
 - Durable reconnect/replay after a dropped subscription, two independent browser tabs, network throttling, 200% browser zoom, and orientation rotation in a physical browser need a later release check. The local visual-viewport behavior was checked through the existing automated viewport path and the in-app Browser bounds.
 - The transient screenshot `14-long-thread-top-390x844.png` and the first stream captures missed the fixed lower controls while the DOM bounds were already correct. Stable recaptures are `15`, `17`, and `25`; no layout fix is based on the transient repaint.
+
+## JIG-181 release-matrix boundary
+
+This historical audit is not a release-matrix record for a later candidate. The
+repeatable JIG-181 command is `pnpm ui:matrix:jig181`, which uses the dedicated
+Playwright configuration, exact checkout identity, bounded layout-shift and
+duplicate-request assertions, and a redacted evidence manifest. It requires an
+explicit disposable loopback database authority for authenticated browser
+execution. The named physical-device gate remains separate: desktop viewport
+emulation and this audit cannot satisfy the required iPhone 17 Pro / Safari
+check.
