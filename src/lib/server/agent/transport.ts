@@ -603,6 +603,9 @@ function recordedSourceFrames(payload: Record<string, unknown>, state: HermesNor
 		const candidateRetrieval = recordedUrl
 			? state.retrievalByUrl.get(canonicalUrl(recordedUrl))
 			: undefined;
+		// A state writer must not promote a candidate after Hermes rejected its
+		// retrieval. Keep rejected and unreadable candidates out of citations.
+		if (candidateRetrieval && candidateRetrieval.evidenceStatus !== 'accepted') continue;
 		const retrieval = candidateRetrieval?.evidenceStatus === 'accepted' ? candidateRetrieval : undefined;
 		const url = retrieval?.originalUrl || recordedUrl;
 		const title = stringValue(source?.title);

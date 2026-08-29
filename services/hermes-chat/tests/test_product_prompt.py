@@ -187,6 +187,40 @@ class NewsroomFixtureTests(unittest.TestCase):
             "a source change must use a distinct marker",
         )
 
+    def test_jig_188_regressions_are_covered_by_the_hermes_evaluation_set(self) -> None:
+        fixture_path = Path(__file__).parent / "fixtures" / "jig_188_quality_regressions.json"
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        cases = fixture["cases"]
+
+        expected_ids = {
+            "transit-publication-date",
+            "compact-gas-price-answer",
+            "aomori-rejected-candidate",
+        }
+        self.assertEqual({case["id"] for case in cases}, expected_ids)
+
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                answer = case["model_output"]
+                for phrase in case["must_contain"]:
+                    self.assertIn(phrase, answer)
+                for phrase in case["must_not_contain"]:
+                    self.assertNotIn(phrase, answer)
+
+                accepted_citations = [
+                    source["citation"]
+                    for source in case["sources"]
+                    if source["evidence_status"] == "accepted"
+                ]
+                self.assertEqual(re.findall(r"\[(\d+)\]", answer), accepted_citations)
+
+                for source in case["sources"]:
+                    if source["evidence_status"] == "rejected":
+                        self.assertNotIn(f"[{source['citation']}]", answer)
+                    if source.get("publication_at") and source.get("retrieval_time"):
+                        self.assertNotEqual(source["publication_at"], source["retrieval_time"])
+                        self.assertNotIn(source["retrieval_time"], answer)
+
 
 if __name__ == "__main__":
     unittest.main()

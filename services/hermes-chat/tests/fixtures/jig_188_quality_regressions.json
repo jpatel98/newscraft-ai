@@ -1,0 +1,93 @@
+{
+  "suite": "JIG-188 source-currentness and answer-quality regressions",
+  "cases": [
+    {
+      "id": "transit-publication-date",
+      "request": "Latest Toronto transit stories",
+      "sources": [
+        {
+          "citation": "1",
+          "title": "Transit agency publishes service plan",
+          "publication_at": "2026-05-30T13:00:00Z",
+          "retrieval_time": "2026-05-31T21:00:00Z",
+          "evidence_status": "accepted"
+        },
+        {
+          "citation": "2",
+          "title": "Feed item without source date",
+          "publication_at": null,
+          "retrieval_time": "2026-05-31T22:00:00Z",
+          "evidence_status": "rejected",
+          "rejection_reason": "unknown_timestamp"
+        }
+      ],
+      "model_output": "The transit agency published a service plan with source-dated information. [1]",
+      "must_contain": [
+        "The transit agency published a service plan with source-dated information. [1]"
+      ],
+      "must_not_contain": [
+        "2026-05-31T21:00:00Z",
+        "2026-05-31T22:00:00Z",
+        "Feed item without source date",
+        "publication date not found",
+        "accessed 2026-05-31"
+      ]
+    },
+    {
+      "id": "compact-gas-price-answer",
+      "request": "Latest on gas prices in the GTA",
+      "sources": [
+        {
+          "citation": "1",
+          "title": "Toronto and GTA gas prices",
+          "publication_at": "2026-05-27T12:00:00Z",
+          "retrieval_time": "2026-05-27T13:00:00Z",
+          "evidence_status": "accepted"
+        }
+      ],
+      "model_output": "GTA pump prices are expected to hold today, according to the CityNews fuel tracker. [1]",
+      "must_contain": [
+        "GTA pump prices are expected to hold today"
+      ],
+      "must_not_contain": [
+        "Sources:",
+        "publication date not found",
+        "## Lead Candidates",
+        "## Source Notes",
+        "Human Review"
+      ]
+    },
+    {
+      "id": "aomori-rejected-candidate",
+      "request": "What is the latest on earthquakes in Japan?",
+      "sources": [
+        {
+          "citation": "1",
+          "title": "Earthquake Information",
+          "publication_at": "2026-07-29T16:42:00Z",
+          "retrieval_time": "2026-07-29T16:49:00Z",
+          "evidence_status": "accepted"
+        },
+        {
+          "citation": "2",
+          "title": "Access denied",
+          "publication_at": null,
+          "retrieval_time": "2026-07-29T16:49:00Z",
+          "evidence_status": "rejected",
+          "rejection_reason": "live_blocked_http_403"
+        }
+      ],
+      "model_output": "A magnitude 4.7 earthquake occurred east of Aomori Prefecture at 16:38 JST. [1]",
+      "must_contain": [
+        "A magnitude 4.7 earthquake occurred east of Aomori Prefecture at 16:38 JST. [1]"
+      ],
+      "must_not_contain": [
+        "blocked",
+        "paywall",
+        "unavailable",
+        "could not be read",
+        "couldn't verify"
+      ]
+    }
+  ]
+}

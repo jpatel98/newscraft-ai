@@ -636,6 +636,110 @@ describe('Hermes chat transport', () => {
 		expect(text).toContain('"publishedAt":"2026-08-10T12:00:00Z"');
 	});
 
+	it('keeps a transit source date separate from its retrieval time', async () => {
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				const content = `The transit agency published a service plan. ${retrievalMarker({
+					originalUrl: 'https://transit.example.test/service-plan',
+					retrievedUrl: 'https://transit.example.test/service-plan',
+					pageTimestamp: '2026-05-30T13:00:00Z',
+					publishedAt: '2026-05-30T13:00:00Z',
+					retrievalTime: '2026-05-31T21:00:00Z'
+				})}`;
+				const event = {
+					type: 'TOOL_CALL_RESULT',
+					toolCallId: 'call-transit',
+					toolCallName: 'verify_this_lead',
+					content: JSON.stringify({
+						operation: 'verify_this_lead',
+						results: [
+							{
+								url: 'https://transit.example.test/service-plan',
+								title: 'Transit service plan',
+								content
+							}
+						]
+					})
+				};
+				controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+				controller.close();
+			}
+		});
+
+		const text = await new Response(normalizeHermesSse(source)).text();
+		const sourceFrame = text.slice(text.indexOf('event: agent.source.read'));
+		expect(sourceFrame).toContain('"publishedAt":"2026-05-30T13:00:00Z"');
+		expect(sourceFrame).toContain('"retrievalTime":"2026-05-31T21:00:00Z"');
+		expect(sourceFrame).not.toContain('"publishedAt":"2026-05-31T21:00:00Z"');
+	});
+
+	it('does not promote an Aomori-style recorded source after Hermes rejects its retrieval', async () => {
+		const rejectedUrl = 'https://example.test/japan-earthquake';
+		const officialUrl = 'https://www.jma.go.jp/bosai/map.html#contents=earthquake_map';
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				const events = [
+					{
+						type: 'TOOL_CALL_RESULT',
+						toolCallId: 'call-aomori',
+						toolCallName: 'verify_this_lead',
+						content: JSON.stringify({
+							operation: 'verify_this_lead',
+							results: [
+								{
+									url: rejectedUrl,
+									title: 'Access denied',
+									content: retrievalMarker({
+										originalUrl: rejectedUrl,
+										retrievedUrl: rejectedUrl,
+										evidenceStatus: 'rejected',
+										rejectionReason: 'live_blocked_http_403',
+										pageTimestamp: null,
+										publishedAt: null,
+										updatedAt: null
+									})
+								}
+							]
+						})
+					},
+					{
+						type: 'STATE_SNAPSHOT',
+						snapshot: {
+							newscraftSources: [
+								{
+									citationNumber: 1,
+									title: 'Earthquake Information',
+									url: officialUrl,
+									publicationDate: '2026-07-29T16:42:00Z',
+									sourceType: 'official',
+									supportingExcerpt: 'A magnitude 4.7 earthquake occurred east of Aomori Prefecture.'
+								},
+								{
+									citationNumber: 2,
+									title: 'Access denied',
+									url: rejectedUrl,
+									publicationDate: '2026-07-29T16:49:00Z',
+									sourceType: 'news_report',
+									supportingExcerpt: 'The candidate source could not be read.'
+								}
+							]
+						}
+					}
+				];
+				controller.enqueue(
+					new TextEncoder().encode(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''))
+				);
+				controller.close();
+			}
+		});
+
+		const text = await new Response(normalizeHermesSse(source)).text();
+		expect(text.match(/event: agent\.source\.read/g)).toHaveLength(1);
+		expect(text).toContain(`"url":"${officialUrl}"`);
+		expect(text).toContain('"citationNumber":1');
+		expect(text).not.toContain('"citationNumber":2');
+	});
+
 	it('keeps the original URL as citation identity after an archived extraction', async () => {
 		const original = 'https://cbc.ca/news/story';
 		const archived = 'https://web.archive.org/web/20260812120000/https://cbc.ca/news/story';
