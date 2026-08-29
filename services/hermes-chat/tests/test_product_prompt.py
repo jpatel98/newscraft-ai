@@ -27,6 +27,42 @@ UPSTREAM_IDENTITY = (
 )
 
 
+def citation_numbers(text: str) -> set[int]:
+    return {int(number) for number in re.findall(r"\[(\d+)\]", text)}
+
+
+def citation_support_score(fixture: dict[str, object]) -> dict[str, object]:
+    """Score fixture-declared claim-to-source mappings without judging prose."""
+    sources = fixture["sources"]
+    paragraphs = fixture["paragraphs"]
+    claims = fixture["expected_material_claims"]
+    source_by_citation = {
+        source["citation_number"]: source["id"]
+        for source in sources
+    }
+    paragraph_by_id = {paragraph["id"]: paragraph["text"] for paragraph in paragraphs}
+    evaluations = []
+    for claim in claims:
+        cited_numbers = citation_numbers(paragraph_by_id[claim["paragraph_id"]])
+        allowed_numbers = set(claim["allowed_citation_numbers"])
+        allowed_source_ids = set(claim["allowed_source_ids"])
+        supported = any(
+            citation in allowed_numbers
+            and source_by_citation.get(citation) in allowed_source_ids
+            for citation in cited_numbers
+        )
+        evaluations.append({"id": claim["id"], "supported": supported})
+
+    passed = sum(1 for evaluation in evaluations if evaluation["supported"])
+    total = len(evaluations)
+    return {
+        "passed": passed,
+        "total": total,
+        "ratio": passed / total if total else 1.0,
+        "claims": evaluations,
+    }
+
+
 class ProductPromptTests(unittest.TestCase):
     def test_product_identity_is_one_authoritative_final_layer(self) -> None:
         tenant_soul = f"{UPSTREAM_IDENTITY}\n\nUse concise bullets for routine work."
@@ -220,6 +256,37 @@ class NewsroomFixtureTests(unittest.TestCase):
                     if source.get("publication_at") and source.get("retrieval_time"):
                         self.assertNotEqual(source["publication_at"], source["retrieval_time"])
                         self.assertNotIn(source["retrieval_time"], answer)
+
+    def test_jig_190_scores_material_claim_support_at_paragraph_level(self) -> None:
+        fixture_path = Path(__file__).parent / "fixtures" / "jig_190_citation_support.json"
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+        score = citation_support_score(fixture)
+        self.assertEqual(score["passed"], 4)
+        self.assertEqual(score["total"], 5)
+        self.assertEqual(score["ratio"], 0.8)
+
+        claim_results = {claim["id"]: claim["supported"] for claim in score["claims"]}
+        expected_results = {
+            claim["id"]: claim["expected_supported"]
+            for claim in fixture["expected_material_claims"]
+        }
+        self.assertEqual(claim_results, expected_results)
+        self.assertFalse(claim_results["unsupported-fare-cut"])
+
+        paragraphs = {paragraph["id"]: paragraph["text"] for paragraph in fixture["paragraphs"]}
+        self.assertEqual(citation_numbers(paragraphs["transit"]), {1})
+        self.assertEqual(paragraphs["transit"].count("[1]"), 1)
+        self.assertGreaterEqual(paragraphs["transit"].count("."), 2)
+
+        source_change = fixture["source_change"]
+        changed_citations = [
+            citation_numbers(paragraphs[paragraph_id])
+            for paragraph_id in source_change["paragraph_ids"]
+        ]
+        self.assertEqual(changed_citations, [{1}, {2}])
+        self.assertEqual(source_change["expected_citation_numbers"], [1, 2])
+        self.assertNotEqual(*changed_citations)
 
 
 if __name__ == "__main__":

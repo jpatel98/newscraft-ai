@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	sanitizeCitationEventData,
 	sanitizeUnresolvedCitationMarkers,
+	truncateReadableAnswer,
 	StreamingCitationSanitizer,
 	StreamEventState,
 	sseFrame
@@ -747,6 +748,49 @@ describe('StreamEventState', () => {
 		).toBe(JSON.stringify({ choices: [{ delta: { content: 'Claim [1]. Unknown.' } }] }));
 	});
 
+	it('fails closed for rejected evidence and reused citation numbers across split markers', () => {
+		const accepted: CitationRecord = {
+			citationNumber: 1,
+			title: 'Accepted evidence',
+			url: 'https://example.com/accepted',
+			domain: 'example.com',
+			publicationDate: '2026-08-20',
+			sourceType: 'news_report',
+			supportingExcerpt: 'Directly supports the paragraph.'
+		};
+		const reused = { ...accepted, url: 'https://other.example/reused' };
+		const rejected: CitationRecord = {
+			...accepted,
+			citationNumber: 2,
+			url: 'https://example.com/rejected',
+			retrieval: {
+				originalUrl: 'https://example.com/rejected',
+				evidenceStatus: 'unreadable',
+				rejectionReason: 'live_timeout'
+			}
+		};
+		const citations = [accepted, reused, rejected];
+		const sanitizer = new StreamingCitationSanitizer(citations);
+		const first = sanitizer.push('First sentence. Second sentence [');
+		const second = sanitizer.push('1].');
+		const streamed = `${first}${second}${sanitizer.flush()}`;
+
+		expect(streamed).not.toContain('[1]');
+		expect(sanitizeUnresolvedCitationMarkers('First sentence. Second sentence [1].', citations)).toBe(
+			'First sentence. Second sentence.'
+		);
+		expect(sanitizeUnresolvedCitationMarkers('Blocked claim [2].', citations)).toBe('Blocked claim.');
+
+		const state = new StreamEventState();
+		expect(
+			state.apply(
+				'agent.citations',
+				JSON.stringify({ citations: [rejected] })
+			)
+		).toEqual([]);
+		expect(state.citationList()).toEqual([]);
+	});
+
 	it('buffers split citation markers while preserving the canonical final answer', () => {
 		const citation = (citationNumber: number): CitationRecord => ({
 			citationNumber,
@@ -947,6 +991,15 @@ describe('StreamEventState', () => {
 		expect(sanitizeUnresolvedCitationMarkers('Claim [1 foo', [])).toBe('Claim');
 		expect(sanitizeUnresolvedCitationMarkers('Claim [1.\ncontinued', [])).toBe('Claim');
 		expect(sanitizeUnresolvedCitationMarkers('Array [1,\n2', [])).toBe('Array [1,\n2');
+	});
+
+	it('truncates oversized answers at complete readable boundaries', () => {
+		const completeLine = 'The result is supported by the recorded source [1].';
+		const clippedLine = `${completeLine}\n${'an incomplete continuation '.repeat(20)}`;
+		expect(truncateReadableAnswer(clippedLine, completeLine.length + 10)).toBe(completeLine);
+
+		const clippedSentence = `The first sentence is complete. ${'the next sentence is still being written '.repeat(10)}`;
+		expect(truncateReadableAnswer(clippedSentence, 42)).toBe('The first sentence is complete.');
 	});
 
 	it('emits safe prefixes immediately and buffers unresolved Markdown constructs', () => {

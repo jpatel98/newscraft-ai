@@ -4,6 +4,7 @@ import {
 	type CitationSourceType,
 	type RetrievalProvenance
 } from '@newscraft/shared';
+import { resolvableCitationRecordForNumber, retrievalSupportsEvidence } from './tool-metadata';
 
 export interface StreamToolCall {
 	id: string;
@@ -233,6 +234,40 @@ function canonicalizeCitationText(value: string): string {
 	return value
 		.replace(/[ \t]+([,.;:!?])/gu, '$1')
 		.replace(/[ \t]{2,}/gu, ' ');
+}
+
+/** Keep the durable answer cap from ending in the middle of a readable line. */
+export function truncateReadableAnswer(value: string, maxChars: number, forceAtLimit = false): string {
+	if (
+		!Number.isFinite(maxChars) ||
+		maxChars <= 0 ||
+		value.length < maxChars ||
+		(value.length === maxChars && !forceAtLimit)
+	)
+		return value;
+	const prefix = value.slice(0, Math.floor(maxChars));
+	const lineBreak = prefix.lastIndexOf('\n');
+	if (lineBreak > 0) return prefix.slice(0, lineBreak).trimEnd();
+
+	const sentenceMatches = Array.from(prefix.matchAll(/[.!?](?=\s|$)/gu));
+	const sentence = sentenceMatches.at(-1);
+	if (sentence?.index !== undefined && sentence.index > 0) {
+		let end = sentence.index + 1;
+		while (end < prefix.length && /\s/u.test(prefix[end])) end += 1;
+		const citationTail = prefix.slice(end).match(/^(?:\[\d{1,4}\]\s*)+/u);
+		if (citationTail) end += citationTail[0].length;
+		return prefix.slice(0, end).trimEnd();
+	}
+
+	const wordBreak = prefix.lastIndexOf(' ');
+	return (wordBreak > 0 ? prefix.slice(0, wordBreak) : prefix).trimEnd();
+}
+
+function knownCitationNumbers(citations: ReadonlyArray<CitationRecord>): ReadonlySet<number> {
+	const numbers = new Set(citations.map((citation) => citation.citationNumber));
+	return new Set(
+		Array.from(numbers).filter((number) => Boolean(resolvableCitationRecordForNumber(citations, number)))
+	);
 }
 
 function codeDelimiter(value: string, start: number): string | null {
@@ -489,7 +524,7 @@ class IncrementalMarkdownTokenizer {
 
 	flush(): string {
 		if (this.finished) return '';
-		const known = new Set(this.citations.map((citation) => citation.citationNumber));
+		const known = knownCitationNumbers(this.citations);
 		if (this.rejected) {
 			this.appendRejectedReplacement(known, this.rejected.squareClosed || this.rejected.kind === 'destination');
 		}
@@ -515,7 +550,7 @@ class IncrementalMarkdownTokenizer {
 			this.canonicalText = this.emittedText;
 			return '';
 		}
-		const known = new Set(this.citations.map((citation) => citation.citationNumber));
+		const known = knownCitationNumbers(this.citations);
 		const state: MarkdownRenderState = {};
 		const rendered = final
 			? canonicalizeCitationText(renderMarkdown(this.source, known, true))
@@ -707,7 +742,7 @@ class IncrementalMarkdownTokenizer {
 	}
 
 	private knownCitations(): ReadonlySet<number> {
-		return new Set(this.citations.map((citation) => citation.citationNumber));
+		return knownCitationNumbers(this.citations);
 	}
 }
 
@@ -817,6 +852,7 @@ function citationFromValue(value: unknown): CitationRecord | null {
 		rawRetrieval && stringValue(rawRetrieval.originalUrl)
 			? (rawRetrieval as unknown as RetrievalProvenance)
 			: undefined;
+	if (!retrievalSupportsEvidence(retrieval)) return null;
 	return {
 		citationNumber,
 		title: stringValue(record.title) || url,
@@ -933,6 +969,7 @@ function sourceFromPayload(payload: JsonObject): StreamSourceUpdate | null {
 
 function sourceEventIsVerified(source: StreamSourceUpdate): boolean {
 	if (source.verified !== true) return false;
+	if (!retrievalSupportsEvidence(source.retrieval)) return false;
 	if (source.currentVerified !== true) return true;
 	if (!['primary', 'fallback'].includes(source.temporalScope || '')) return false;
 	return Number.isFinite(Date.parse(source.eventAt || source.updatedAt || source.publishedAt || ''));

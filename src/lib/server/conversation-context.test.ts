@@ -465,6 +465,23 @@ describe('conversation context builder', () => {
 		expect(context.lastSourceBackedAnswer).toBeUndefined();
 	});
 
+	it('does not carry an older citation into a fresh current request', () => {
+		const currentRequest = "What's the latest on the Toronto housing vote?";
+		const context = buildConversationContext({
+			messages: [
+				message('m1', 'user', 'Check the Toronto housing vote.'),
+				message('m2', 'assistant', 'The vote passed in 2024 [1].', [
+					citation(1, { publicationDate: '2024-03-14' })
+				])
+			],
+			currentRequest
+		});
+
+		expect(context.currentTurn).toMatchObject({ researchRequired: true, freshness: 'current' });
+		expect(context.activeTopic?.subject).toBe(currentRequest);
+		expect(context.lastSourceBackedAnswer).toBeUndefined();
+	});
+
 	it('keeps current freshness qualifiers authoritative on inherited-topic follow-ups', () => {
 		const messages = [
 			message('m1', 'user', 'Check the ECCC weather alert for Toronto on July 24, 2026.'),

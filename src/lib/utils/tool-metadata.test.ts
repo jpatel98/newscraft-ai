@@ -213,6 +213,65 @@ describe('tool metadata', () => {
 		]);
 	});
 
+	it('keeps paragraph-level support and excludes unreadable retrieval evidence', () => {
+		const accepted = {
+			citationNumber: 1,
+			title: 'Accepted direct article',
+			url: 'https://example.com/accepted',
+			domain: 'example.com',
+			publicationDate: '2026-08-20',
+			sourceType: 'news_report' as const,
+			supportingExcerpt: 'The article directly supports both sentences in this paragraph.',
+			retrieval: {
+				originalUrl: 'https://example.com/accepted',
+				evidenceStatus: 'accepted' as const,
+				retrievalTime: '2026-08-21T12:00:00Z'
+			}
+		};
+		const unreadable = {
+			...accepted,
+			citationNumber: 2,
+			title: 'Unreadable article',
+			url: 'https://example.com/unreadable',
+			retrieval: {
+				originalUrl: 'https://example.com/unreadable',
+				evidenceStatus: 'unreadable' as const,
+				rejectionReason: 'live_timeout'
+			}
+		};
+		const raw = serializeToolMetadata(
+			[],
+			[
+				{
+					id: unreadable.url,
+					url: unreadable.url,
+					title: unreadable.title,
+					domain: unreadable.domain,
+					status: 'used',
+					firstSeenAt: 1,
+					lastSeenAt: 2,
+					used: true,
+					retrieval: unreadable.retrieval
+				}
+			],
+			[accepted, unreadable]
+		);
+		const paragraph = 'The first sentence states the result. The second sentence explains it [1].';
+
+		expect(citationRecordsUsedInAnswer(paragraph, [accepted, unreadable])).toMatchObject([accepted]);
+		expect(allCitationMarkersResolve(raw, paragraph)).toBe(true);
+		expect(allCitationMarkersResolve(raw, 'The unreadable result is not evidence [2].')).toBe(false);
+		expect(sourceContextForFollowup(raw)).toContain('[1] Accepted direct article');
+		expect(sourceContextForFollowup(raw)).not.toContain('Unreadable article');
+		expect(sourceReceiptsForAnswer(raw, 'A paragraph without an inline link.')).toEqual([
+			{
+				url: 'https://example.com/accepted',
+				label: 'Accepted direct article',
+				domain: 'example.com'
+			}
+		]);
+	});
+
 	it('keeps first-party internal citation URLs resolvable through persisted metadata', () => {
 		const citation = {
 			citationNumber: 1,

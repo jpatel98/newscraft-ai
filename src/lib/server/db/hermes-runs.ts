@@ -8,7 +8,7 @@ import {
 	buildAnswerProvenanceBundle,
 	citationRecordsUsedInAnswer
 } from '$lib/utils/tool-metadata';
-import { sanitizeUnresolvedCitationMarkers } from '$lib/utils/stream-events';
+import { sanitizeUnresolvedCitationMarkers, truncateReadableAnswer } from '$lib/utils/stream-events';
 import type { CitationRecord } from '@newscraft/shared';
 import type { PersistedSource, StreamToolCall } from '$lib/utils/stream-events';
 
@@ -195,7 +195,10 @@ export function applyHermesRunEvent(
 	if (eventType === 'agent.answer.replace' && typeof data.content === 'string') {
 		answerText = data.content;
 	}
-	answerText = answerText.slice(0, HERMES_MAX_ANSWER_CHARS);
+	const resultingState = nextState(snapshot.state, eventType, data);
+	answerText = isTerminal(resultingState)
+		? truncateReadableAnswer(answerText, HERMES_MAX_ANSWER_CHARS, true)
+		: answerText.slice(0, HERMES_MAX_ANSWER_CHARS);
 
 	const sources = [...snapshot.sources];
 	const sourceValue = objectValue(data.source) || (eventType.startsWith('agent.source') ? data : null);
@@ -232,7 +235,7 @@ export function applyHermesRunEvent(
 	}
 
 	return {
-		state: nextState(snapshot.state, eventType, data),
+		state: resultingState,
 		answerText,
 		sources: sources.slice(-HERMES_MAX_SNAPSHOT_ITEMS),
 		citations: citations.slice(-HERMES_MAX_SNAPSHOT_ITEMS),

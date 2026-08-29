@@ -579,13 +579,21 @@ export function isInspectableCitationRecord(
 	if (!citation) return false;
 	const validUrl = isCitationUrl(citation.url);
 	return Boolean(
+		retrievalSupportsEvidence(citation.retrieval) &&
 		citation.title.trim() &&
-			!/^unknown source$/i.test(citation.title.trim()) &&
-			validUrl &&
-			citation.domain.trim() &&
-			!/^unknown source$/i.test(citation.domain.trim()) &&
-			citation.supportingExcerpt.trim()
+		!/^unknown source$/i.test(citation.title.trim()) &&
+		validUrl &&
+		citation.domain.trim() &&
+		!/^unknown source$/i.test(citation.domain.trim()) &&
+		citation.supportingExcerpt.trim()
 	);
+}
+
+/** Only direct, accepted retrievals can support an answer citation. */
+export function retrievalSupportsEvidence(retrieval: RetrievalProvenance | undefined): boolean {
+	const status =
+		typeof retrieval?.evidenceStatus === 'string' ? retrieval.evidenceStatus.trim().toLowerCase() : '';
+	return !status || status === 'accepted' || status === 'cited';
 }
 
 export function resolvedCitationNumbersForAnswer(
@@ -633,7 +641,7 @@ export function allCitationMarkersResolve(raw: string | null | undefined, answer
 
 export function usedSources(sources: PersistedSource[]): PersistedSource[] {
 	return sources
-		.filter((source) => source.used)
+		.filter((source) => source.used && retrievalSupportsEvidence(source.retrieval))
 		.sort((a, b) => a.firstSeenAt - b.firstSeenAt);
 }
 
@@ -649,7 +657,7 @@ export function sourceReceiptsForAnswer(
 	const live = liveSources
 		.map((source) => normalizeSource(source))
 		.filter((source): source is PersistedSource => Boolean(source))
-		.filter((source) => source.used);
+		.filter((source) => source.used && retrievalSupportsEvidence(source.retrieval));
 	const receipts = new Map<string, DisplaySourceReceipt>();
 
 	for (const source of [...parsedSources, ...live]) {
@@ -667,7 +675,7 @@ export function sourceReceiptsForAnswer(
 		});
 	}
 
-	for (const citation of parsed.citations) {
+	for (const citation of parsed.citations.filter(isInspectableCitationRecord)) {
 		const key = sourceUrlKey(citation.url);
 		if (!key || linked.has(key) || receipts.has(key)) continue;
 		const url = sourceReceiptUrl(citation.url);
@@ -692,7 +700,7 @@ export function sourceReceiptsForAnswer(
 
 export function sourceContextForFollowup(raw: string | null | undefined): string {
 	const parsed = parseToolMetadata(raw);
-	const citations = parsed.citations;
+	const citations = parsed.citations.filter(isInspectableCitationRecord);
 	const sources = usedSources(parsed.sources);
 	if (!citations.length && !sources.length) return '';
 	if (citations.length) {

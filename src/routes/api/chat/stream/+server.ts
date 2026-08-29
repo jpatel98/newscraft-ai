@@ -1399,9 +1399,9 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				streamState.citationList()
 			);
 			const capturedSources = captured.sources;
-			const capturedCitations = body.output_action
-				? citationRecordsUsedInAnswer(assistantBuf, captured.citations)
-				: captured.citations;
+			// Keep source leads in the source list, but attach only inspectable
+			// records that the final answer actually cites.
+			const capturedCitations = citationRecordsUsedInAnswer(assistantBuf, captured.citations);
 			const resolvedFinishStatus = resolveResearchFinishStatus({
 				requested: finishStatus,
 				researchRequired: conversationContext.currentTurn?.researchRequired === true,

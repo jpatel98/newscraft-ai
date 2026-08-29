@@ -25,6 +25,10 @@ describe('journalist trust components', () => {
 		expect(preview).toContain('@media (max-width: 640px)');
 		expect(preview).toContain('place-items: end stretch');
 		expect(preview).toContain("citation.supportingExcerpt || 'No supporting excerpt is available.'");
+		expect(preview).toContain('{publicationDateLabel(citation.publicationDate)}');
+		expect(preview).toContain('{citationSourceTypeLabel(citation.sourceType)}');
+		expect(preview).toContain('href={citation.url}');
+		expect(preview).toContain('href={citation.retrieval.archivedUrl}');
 	});
 
 	it('keeps the legacy source list unless every visible citation resolves', () => {

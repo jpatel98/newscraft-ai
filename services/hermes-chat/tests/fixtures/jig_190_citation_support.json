@@ -1,0 +1,72 @@
+{
+  "sources": [
+    {
+      "id": "source-transit",
+      "citation_number": 1
+    },
+    {
+      "id": "source-gas",
+      "citation_number": 2
+    }
+  ],
+  "paragraphs": [
+    {
+      "id": "transit",
+      "text": "The transit agency published the service advisory on August 29. Repairs are expected to continue through Friday. [1]"
+    },
+    {
+      "id": "gas",
+      "text": "The regional average gas price is $1.62 per litre this week. The report says the weekly average fell from the prior period. [2]"
+    },
+    {
+      "id": "unsupported",
+      "text": "The city will cut transit fares next month. [1]"
+    }
+  ],
+  "expected_material_claims": [
+    {
+      "id": "transit-publication",
+      "claim": "The transit agency published the service advisory on August 29.",
+      "paragraph_id": "transit",
+      "allowed_source_ids": ["source-transit"],
+      "allowed_citation_numbers": [1],
+      "expected_supported": true
+    },
+    {
+      "id": "transit-repair-window",
+      "claim": "Repairs are expected to continue through Friday.",
+      "paragraph_id": "transit",
+      "allowed_source_ids": ["source-transit"],
+      "allowed_citation_numbers": [1],
+      "expected_supported": true
+    },
+    {
+      "id": "gas-price",
+      "claim": "The regional average gas price is $1.62 per litre this week.",
+      "paragraph_id": "gas",
+      "allowed_source_ids": ["source-gas"],
+      "allowed_citation_numbers": [2],
+      "expected_supported": true
+    },
+    {
+      "id": "gas-weekly-change",
+      "claim": "The weekly average fell from the prior period.",
+      "paragraph_id": "gas",
+      "allowed_source_ids": ["source-gas"],
+      "allowed_citation_numbers": [2],
+      "expected_supported": true
+    },
+    {
+      "id": "unsupported-fare-cut",
+      "claim": "The city will cut transit fares next month.",
+      "paragraph_id": "unsupported",
+      "allowed_source_ids": [],
+      "allowed_citation_numbers": [],
+      "expected_supported": false
+    }
+  ],
+  "source_change": {
+    "paragraph_ids": ["transit", "gas"],
+    "expected_citation_numbers": [1, 2]
+  }
+}
