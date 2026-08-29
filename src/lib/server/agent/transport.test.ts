@@ -802,6 +802,42 @@ describe('Hermes chat transport', () => {
 		expect(text).toContain('event: agent.citations');
 	});
 
+	it('keeps recorded source excerpts readable and bounded', async () => {
+		const excerpt =
+			'The city confirmed the closure after the direct page read. ' +
+			'Officials gave the public an updated schedule. '.repeat(100);
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(
+					new TextEncoder().encode(
+						`data: ${JSON.stringify({
+							type: 'STATE_SNAPSHOT',
+							snapshot: {
+								newscraftSources: [
+									{
+										citationNumber: 1,
+										title: 'City closure update',
+										url: 'https://city.example.test/closure',
+										publicationDate: '2026-08-12',
+										sourceType: 'official',
+										supportingExcerpt: excerpt
+									}
+								]
+							}
+						})}\n\n`
+					)
+				);
+				controller.close();
+			}
+		});
+
+		const text = await new Response(normalizeHermesSse(source)).text();
+		const match = text.match(/"supportingExcerpt":"([^"]*)"/);
+		expect(match?.[1]).toBeDefined();
+		expect(match?.[1]).toContain('The city confirmed the closure');
+		expect(match?.[1]?.length).toBeLessThanOrEqual(1_200);
+	});
+
 	it('treats a standard Hermes browser read as a source but not as numbered citation authority', async () => {
 		const source = new ReadableStream<Uint8Array>({
 			start(controller) {

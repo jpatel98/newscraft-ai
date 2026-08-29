@@ -56,6 +56,14 @@ _CHALLENGE_MARKERS = (
     "verify you are human",
     "verify you are a human",
 )
+_PAYWALL_MARKERS = (
+    re.compile(r"\b(?:please\s+)?subscribe\s+to\s+(?:continue|read|access|unlock)\b"),
+    re.compile(r"\b(?:subscription|membership)\s+(?:is\s+)?required\s+to\s+(?:read|access|continue|view)\b"),
+    re.compile(r"\b(?:sign|log)\s+in\s+to\s+(?:continue|read|access|view)\b"),
+    re.compile(
+        r"\b(?:this|the)\s+(?:article|story|content)\s+is\s+(?:available|accessible)\s+only\s+to\s+subscribers?\b"
+    ),
+)
 _SENSITIVE_QUERY_KEYS = re.compile(
     r"(?:token|secret|password|credential|session|auth|api[_-]?key|access[_-]?key|signature|sig)",
     re.IGNORECASE,
@@ -580,6 +588,8 @@ def _challenge_reason(response: HttpResponse) -> str | None:
     if response.status >= 400:
         return f"live_http_{response.status}"
     body = _decode_body(response).lower()
+    if len(body) < 10_000 and any(marker.search(body) for marker in _PAYWALL_MARKERS):
+        return "live_paywall"
     if len(body) < 10_000 and any(marker in body for marker in _CHALLENGE_MARKERS):
         return "live_blocked_challenge"
     return None

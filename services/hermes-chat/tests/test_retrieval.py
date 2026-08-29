@@ -14,6 +14,7 @@ from hermes_chat.retrieval import (
     RetrievalConfig,
     VERIFY_LEAD_TOOL_NAME,
     _PublicRedirectHandler,
+    _challenge_reason,
     retrieval_readiness,
     register,
     verify_this_lead,
@@ -117,6 +118,218 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(result["metadata"]["originalUrl"], SOURCE_URL)
         self.assertEqual(result["metadata"]["requestCount"], 1)
         self.assertEqual(result["metadata"]["pageTimestamp"], "2026-08-12T12:00:00Z")
+        self.assertEqual(len(fetcher.calls), 1)
+
+    def test_retrieval_outcomes_form_a_deterministic_local_matrix(self) -> None:
+        malformed_body = ("<html><body><div>Broken page text. " + "Still not an article. " * 24).encode()
+        long_direct_body = ARTICLE_TEXT + " " + ARTICLE_TEXT * 2_000
+        cases = [
+            {
+                "name": "direct_readable_page",
+                "live": response(SOURCE_URL, body=article_html(body=long_direct_body)),
+                "expected_error": None,
+                "expected_status": "accepted",
+                "request_count": 1,
+                "page_timestamp": "2026-08-12T12:00:00Z",
+            },
+            {
+                "name": "bot_block",
+                "live": response(
+                    SOURCE_URL,
+                    body=b"<html><body>Just a moment. Verify you are human.</body></html>",
+                ),
+                "archive_fallback": False,
+                "expected_error": "live_blocked_challenge",
+                "expected_status": "unreadable",
+                "request_count": 1,
+            },
+            {
+                "name": "paywall",
+                "live": response(
+                    SOURCE_URL,
+                    body=article_html(
+                        title="Subscriber access",
+                        body=(
+                            "Please subscribe to continue reading this article. "
+                            "This article is available only to subscribers. "
+                            + "Access to the remaining report requires an active subscription. " * 12
+                        ),
+                    ),
+                ),
+                "archive_fallback": False,
+                "expected_error": "live_paywall",
+                "expected_status": "unreadable",
+                "request_count": 1,
+            },
+            {
+                "name": "malformed_page",
+                "live": response(SOURCE_URL, body=malformed_body),
+                "archive_fallback": False,
+                "expected_error": "page_quality",
+                "expected_status": "rejected",
+                "request_count": 1,
+            },
+            {
+                "name": "missing_timestamp",
+                "live": response(SOURCE_URL, body=article_html(published=None)),
+                "archive_fallback": False,
+                "expected_error": "unknown_timestamp",
+                "expected_status": "rejected",
+                "request_count": 1,
+            },
+            {
+                "name": "old_article",
+                "live": response(SOURCE_URL, body=article_html(published="2025-01-01T12:00:00Z")),
+                "expected_timestamp": "2026-08-12",
+                "archive_fallback": False,
+                "expected_error": "timestamp_mismatch",
+                "expected_status": "rejected",
+                "request_count": 1,
+                "page_timestamp": "2025-01-01T12:00:00Z",
+            },
+            {
+                "name": "conflicting_timestamp",
+                "live": response(
+                    SOURCE_URL,
+                    body=article_html(published="2026-08-01T12:00:00Z", modified="2026-08-12T12:00:00Z"),
+                ),
+                "expected_timestamp": "2026-08-12",
+                "archive_fallback": False,
+                "expected_error": None,
+                "expected_status": "accepted",
+                "request_count": 1,
+                "page_timestamp": "2026-08-12T12:00:00Z",
+            },
+            {
+                "name": "timeout",
+                "live": response(SOURCE_URL, error="timeout"),
+                "archive_fallback": False,
+                "expected_error": "live_timeout",
+                "expected_status": "unreadable",
+                "request_count": 1,
+            },
+            {
+                "name": "provider_failure",
+                "live": response(SOURCE_URL, error="network_error"),
+                "archive_fallback": False,
+                "expected_error": "live_network_error",
+                "expected_status": "unreadable",
+                "request_count": 1,
+            },
+            {
+                "name": "archive_hit",
+                "live": response(SOURCE_URL, status=403, body=b"Access denied"),
+                "expected_timestamp": "2026-08-12",
+                "expected_error": None,
+                "expected_status": "accepted",
+                "request_count": 3,
+                "page_timestamp": "2026-08-12T12:00:00Z",
+                "archive_hit": True,
+            },
+            {
+                "name": "archive_miss",
+                "live": response(SOURCE_URL, status=403, body=b"Access denied"),
+                "expected_error": "archive_miss",
+                "expected_status": "unreadable",
+                "request_count": 2,
+                "archive_miss": True,
+            },
+            {
+                "name": "duplicate_url",
+                "operation": "extract",
+            },
+        ]
+
+        for case in cases:
+            with self.subTest(outcome=case["name"]):
+                fetcher = FakeFetcher()
+                fetcher.live = case.get("live", fetcher.live)
+                if case.get("archive_miss"):
+                    fetcher.cdx = response(
+                        "https://web.archive.org/cdx/search/cdx",
+                        body=b"[]",
+                        content_type="application/json",
+                    )
+
+                provider = self.provider(fetcher, archive_fallback=case.get("archive_fallback", True))
+                if case.get("operation") == "extract":
+                    results = provider.extract([SOURCE_URL, SOURCE_URL])
+                    self.assertEqual(len(results), 1)
+                    self.assertEqual(len(fetcher.calls), 1)
+                    self.assertEqual(results[0]["metadata"]["evidenceStatus"], "accepted")
+                    continue
+
+                result = provider.verify_lead(
+                    SOURCE_URL,
+                    expected_timestamp=case.get("expected_timestamp"),
+                )
+                metadata = result["metadata"]
+                self.assertEqual(metadata["originalUrl"], SOURCE_URL)
+                self.assertEqual(metadata["requestCount"], case["request_count"])
+                self.assertEqual(metadata["evidenceStatus"], case["expected_status"])
+                if case["expected_error"] is None:
+                    self.assertNotIn("error", result)
+                    self.assertIn("confirmed event", result["content"])
+                    self.assertNotEqual(metadata["pageTimestamp"], metadata["retrievalTime"])
+                    self.assertLessEqual(len(result["content"]), 61_000)
+                else:
+                    self.assertEqual(result["error"], case["expected_error"])
+                if "page_timestamp" in case:
+                    self.assertEqual(metadata["pageTimestamp"], case["page_timestamp"])
+                if case.get("archive_hit"):
+                    self.assertEqual(metadata["originalUrl"], SOURCE_URL)
+                    self.assertEqual(metadata["archivedUrl"], fetcher.archive.url)
+                    self.assertEqual(metadata["fallbackReason"], "live_blocked_http_403")
+                    self.assertEqual(metadata["retrievalMode"], "archive")
+                if case.get("archive_miss"):
+                    self.assertIsNone(metadata["archivedUrl"])
+                    self.assertEqual(metadata["fallbackReason"], "live_blocked_http_403")
+                if case["name"] == "conflicting_timestamp":
+                    self.assertEqual(metadata["publishedAt"], "2026-08-01T12:00:00Z")
+                    self.assertEqual(metadata["updatedAt"], "2026-08-12T12:00:00Z")
+
+    def test_accepts_an_article_that_discusses_paywalls_and_subscription_policy(self) -> None:
+        fetcher = FakeFetcher()
+        fetcher.live = response(
+            SOURCE_URL,
+            body=article_html(
+                title="Why news paywalls matter",
+                body=(
+                    ARTICLE_TEXT
+                    + " This analysis explains how a paywall supports local reporting and what readers should know "
+                    + "about subscription policy and subscriber access."
+                ),
+            ),
+        )
+
+        self.assertIsNone(_challenge_reason(fetcher.live))
+        result = self.provider(fetcher, archive_fallback=False).verify_lead(SOURCE_URL)
+
+        self.assertNotIn("error", result)
+        self.assertEqual(result["metadata"]["evidenceStatus"], "accepted")
+        self.assertEqual(result["metadata"]["requestCount"], 1)
+
+    def test_rejects_a_true_200_subscriber_wall_without_bypassing_it(self) -> None:
+        fetcher = FakeFetcher()
+        fetcher.live = response(
+            SOURCE_URL,
+            body=article_html(
+                title="Subscriber access",
+                body=(
+                    "Please subscribe to continue reading this article. "
+                    "This article is available only to subscribers. "
+                    + "Access to the remaining report requires an active subscription. " * 12
+                ),
+            ),
+        )
+
+        self.assertEqual(_challenge_reason(fetcher.live), "live_paywall")
+        result = self.provider(fetcher, archive_fallback=False).verify_lead(SOURCE_URL)
+
+        self.assertEqual(result["error"], "live_paywall")
+        self.assertEqual(result["metadata"]["evidenceStatus"], "unreadable")
+        self.assertEqual(result["metadata"]["retrievedStatus"], 200)
+        self.assertEqual(result["metadata"]["requestCount"], 1)
         self.assertEqual(len(fetcher.calls), 1)
 
     def test_returns_a_bounded_timeout_failure(self) -> None:
@@ -251,6 +464,7 @@ class RetrievalTests(unittest.TestCase):
 
         self.assertEqual(result["error"], "snippet_only")
         self.assertIn("newscraft-retrieval:v1:", result["content"])
+        self.assertNotIn("A search lead.", result["content"])
 
     def test_deduplicates_duplicate_urls_without_a_second_request(self) -> None:
         fetcher = FakeFetcher()
