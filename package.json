@@ -16,6 +16,7 @@
 		"ui:matrix:jig181": "node scripts/jig-181-ui-matrix.mjs",
 		"canary:jig184": "node scripts/jig-184-recovery-matrix.mjs",
 		"canary:jig185": "uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_185_load.py",
+		"canary:jig197": "uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_197_load.py",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "pnpm --filter @newscraft/shared build && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
