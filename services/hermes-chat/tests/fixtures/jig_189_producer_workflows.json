@@ -1,0 +1,1195 @@
+{
+  "schema": "jig-189-producer-workflows",
+  "version": 1,
+  "default_mode": "local_fixture",
+  "categories": [
+    "breaking_news_update",
+    "source_comparison",
+    "fact_check",
+    "producer_brief",
+    "live_hit_notes",
+    "vo",
+    "intro",
+    "tease",
+    "banner",
+    "interview_questions",
+    "document_grounded",
+    "follow_up",
+    "correction",
+    "conflicting_sources",
+    "blocked_sources",
+    "stale_sources"
+  ],
+  "rubric_dimensions": [
+    "task_completion",
+    "currentness",
+    "source_quality",
+    "citation_support",
+    "caveats",
+    "format",
+    "newsroom_usefulness"
+  ],
+  "sources": [
+    {
+      "id": "fixture-breaking-wire",
+      "quality": "official",
+      "publication_at": "2026-08-29T08:00:00Z",
+      "retrieved_at": "2026-08-29T08:01:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-breaking-update",
+      "quality": "official",
+      "publication_at": "2026-08-29T09:15:00Z",
+      "retrieved_at": "2026-08-29T09:16:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-transit-advisory",
+      "quality": "official",
+      "publication_at": "2026-08-29T07:30:00Z",
+      "retrieved_at": "2026-08-29T07:31:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-city-release",
+      "quality": "official",
+      "publication_at": "2026-08-29T06:00:00Z",
+      "retrieved_at": "2026-08-29T06:01:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-community-observation",
+      "quality": "direct",
+      "publication_at": "2026-08-29T07:45:00Z",
+      "retrieved_at": "2026-08-29T07:47:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-regulator-record",
+      "quality": "official",
+      "publication_at": "2026-08-28T17:00:00Z",
+      "retrieved_at": "2026-08-28T17:01:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-weather-bulletin",
+      "quality": "official",
+      "publication_at": "2026-08-29T08:20:00Z",
+      "retrieved_at": "2026-08-29T08:21:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-desk-notes",
+      "quality": "document",
+      "publication_at": "2026-08-29T08:30:00Z",
+      "retrieved_at": "2026-08-29T08:31:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-field-notes",
+      "quality": "document",
+      "publication_at": "2026-08-29T08:45:00Z",
+      "retrieved_at": "2026-08-29T08:46:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-interview-memo",
+      "quality": "document",
+      "publication_at": "2026-08-28T11:00:00Z",
+      "retrieved_at": "2026-08-28T11:01:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-government-document",
+      "quality": "document",
+      "publication_at": "2026-08-01T12:00:00Z",
+      "retrieved_at": "2026-08-01T12:01:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-correction-bulletin",
+      "quality": "official",
+      "publication_at": "2026-08-29T10:00:00Z",
+      "retrieved_at": "2026-08-29T10:01:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-source-a",
+      "quality": "direct",
+      "publication_at": "2026-08-29T08:05:00Z",
+      "retrieved_at": "2026-08-29T08:06:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-source-b",
+      "quality": "secondary",
+      "publication_at": "2026-08-29T08:07:00Z",
+      "retrieved_at": "2026-08-29T08:08:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-update-later",
+      "quality": "official",
+      "publication_at": "2026-08-29T10:30:00Z",
+      "retrieved_at": "2026-08-29T10:31:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-policy-document",
+      "quality": "document",
+      "publication_at": "2026-08-10T12:00:00Z",
+      "retrieved_at": "2026-08-10T12:01:00Z",
+      "evidence_status": "accepted"
+    },
+    {
+      "id": "fixture-blocked-page",
+      "quality": "blocked",
+      "publication_at": null,
+      "retrieved_at": "2026-08-29T08:55:00Z",
+      "evidence_status": "rejected",
+      "rejection_reason": "blocked_source"
+    },
+    {
+      "id": "fixture-stale-page",
+      "quality": "stale",
+      "publication_at": "2026-01-10T08:00:00Z",
+      "retrieved_at": "2026-08-29T08:56:00Z",
+      "evidence_status": "rejected",
+      "rejection_reason": "stale_source"
+    }
+  ],
+  "live_subset": {
+    "workflow_ids": [
+      "desk-update-simultaneous",
+      "freshness-recheck-multi-turn"
+    ],
+    "enabled_by_default": false,
+    "requires_explicit_opt_in": true,
+    "execution_status": "not_run",
+    "provider_calls": 0
+  },
+  "workflows": [
+    {
+      "id": "breaking-update-local",
+      "category": "breaking_news_update",
+      "request": "Synthetic breaking update from the latest verified desk bulletin.",
+      "turns": ["initial"],
+      "workstreams": ["breaking_update"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-breaking-wire", "citation_number": 1, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-breaking-wire", "citation_number": 1},
+        {"source_id": "fixture-breaking-update", "citation_number": 2}
+      ],
+      "required_format_traits": ["lead_first", "citation_markers", "short_sentences"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "caveats_required": false,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "citation_source_pairs": [
+          {"source_id": "fixture-breaking-wire", "citation_number": 1}
+        ],
+        "caveats_present": false,
+        "format_traits": ["lead_first", "citation_markers", "short_sentences"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "breaking-update-multi-turn",
+      "category": "breaking_news_update",
+      "request": "Synthetic breaking update followed by a request to add the verified change.",
+      "turns": ["initial", "follow_up"],
+      "workstreams": ["breaking_update"],
+      "multi_turn": true,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-breaking-wire", "citation_number": 1, "required": true},
+        {"source_id": "fixture-breaking-update", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-breaking-wire", "citation_number": 1},
+        {"source_id": "fixture-breaking-update", "citation_number": 2}
+      ],
+      "required_format_traits": ["lead_first", "update_label", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "caveats_required": false,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "citation_source_pairs": [
+          {"source_id": "fixture-breaking-wire", "citation_number": 1},
+          {"source_id": "fixture-breaking-update", "citation_number": 2}
+        ],
+        "caveats_present": false,
+        "format_traits": ["lead_first", "update_label", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "source-comparison-local",
+      "category": "source_comparison",
+      "request": "Synthetic comparison of two current sources about the same event.",
+      "turns": ["initial"],
+      "workstreams": ["source_comparison"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-source-a", "citation_number": 1, "required": true},
+        {"source_id": "fixture-source-b", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-source-a", "citation_number": 1},
+        {"source_id": "fixture-source-b", "citation_number": 2}
+      ],
+      "required_format_traits": ["comparison_table", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "citation_source_pairs": [
+          {"source_id": "fixture-source-a", "citation_number": 1},
+          {"source_id": "fixture-source-b", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["comparison_table", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "source-comparison-simultaneous",
+      "category": "source_comparison",
+      "request": "Synthetic desk comparison while two source checks run in parallel.",
+      "turns": ["initial"],
+      "workstreams": ["source_a_check", "source_b_check"],
+      "multi_turn": false,
+      "simultaneous": true,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-source-a", "citation_number": 1, "required": true},
+        {"source_id": "fixture-source-b", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-source-a", "citation_number": 1},
+        {"source_id": "fixture-source-b", "citation_number": 2}
+      ],
+      "required_format_traits": ["comparison_table", "parallel_updates", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "citation_source_pairs": [
+          {"source_id": "fixture-source-a", "citation_number": 1},
+          {"source_id": "fixture-source-b", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["comparison_table", "parallel_updates", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "fact-check-claim",
+      "category": "fact_check",
+      "request": "Synthetic fact check against a city release and a regulator record.",
+      "turns": ["initial"],
+      "workstreams": ["claim_check"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-city-release", "citation_number": 1, "required": true},
+        {"source_id": "fixture-regulator-record", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-city-release", "citation_number": 1},
+        {"source_id": "fixture-regulator-record", "citation_number": 2}
+      ],
+      "required_format_traits": ["claim_verdict", "citation_markers", "caveat_label"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "citation_source_pairs": [
+          {"source_id": "fixture-city-release", "citation_number": 1},
+          {"source_id": "fixture-regulator-record", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["claim_verdict", "citation_markers", "caveat_label"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "producer-brief-morning",
+      "category": "producer_brief",
+      "request": "Synthetic morning producer brief from the latest desk and weather sources.",
+      "turns": ["initial"],
+      "workstreams": ["morning_brief"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-breaking-wire", "citation_number": 1, "required": true},
+        {"source_id": "fixture-weather-bulletin", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-breaking-wire", "citation_number": 1},
+        {"source_id": "fixture-weather-bulletin", "citation_number": 2}
+      ],
+      "required_format_traits": ["lead_first", "bullet_points", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "citation_source_pairs": [
+          {"source_id": "fixture-breaking-wire", "citation_number": 1},
+          {"source_id": "fixture-weather-bulletin", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["lead_first", "bullet_points", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "producer-brief-multi-turn",
+      "category": "producer_brief",
+      "request": "Synthetic brief followed by a request to add the confirmed city context.",
+      "turns": ["initial", "follow_up"],
+      "workstreams": ["producer_brief"],
+      "multi_turn": true,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-desk-notes", "citation_number": 1, "required": true},
+        {"source_id": "fixture-city-release", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-desk-notes", "citation_number": 1},
+        {"source_id": "fixture-city-release", "citation_number": 2}
+      ],
+      "required_format_traits": ["lead_first", "bullet_points", "follow_up_context", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "citation_source_pairs": [
+          {"source_id": "fixture-desk-notes", "citation_number": 1},
+          {"source_id": "fixture-city-release", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["lead_first", "bullet_points", "follow_up_context", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "live-hit-notes-local",
+      "category": "live_hit_notes",
+      "request": "Synthetic live-hit notes with source-backed time order.",
+      "turns": ["initial"],
+      "workstreams": ["live_hit"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-weather-bulletin", "citation_number": 1, "required": true},
+        {"source_id": "fixture-field-notes", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-weather-bulletin", "citation_number": 1},
+        {"source_id": "fixture-field-notes", "citation_number": 2}
+      ],
+      "required_format_traits": ["time_ordered_notes", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "citation_source_pairs": [
+          {"source_id": "fixture-weather-bulletin", "citation_number": 1},
+          {"source_id": "fixture-field-notes", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["time_ordered_notes", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "live-hit-notes-simultaneous",
+      "category": "live_hit_notes",
+      "request": "Synthetic live-hit notes while field and desk updates arrive together.",
+      "turns": ["initial"],
+      "workstreams": ["field_notes", "desk_update"],
+      "multi_turn": false,
+      "simultaneous": true,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-field-notes", "citation_number": 1, "required": true},
+        {"source_id": "fixture-desk-notes", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-field-notes", "citation_number": 1},
+        {"source_id": "fixture-desk-notes", "citation_number": 2}
+      ],
+      "required_format_traits": ["time_ordered_notes", "parallel_updates", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "document",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "document",
+        "citation_source_pairs": [
+          {"source_id": "fixture-field-notes", "citation_number": 1},
+          {"source_id": "fixture-desk-notes", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["time_ordered_notes", "parallel_updates", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "vo-local",
+      "category": "vo",
+      "request": "Synthetic voice-over copy from a current transit advisory.",
+      "turns": ["initial"],
+      "workstreams": ["vo"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-transit-advisory", "citation_number": 1, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-transit-advisory", "citation_number": 1}
+      ],
+      "required_format_traits": ["vo_script", "broadcast_length", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "caveats_required": false,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "citation_source_pairs": [
+          {"source_id": "fixture-transit-advisory", "citation_number": 1}
+        ],
+        "caveats_present": false,
+        "format_traits": ["vo_script", "broadcast_length", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "vo-document-grounded",
+      "category": "vo",
+      "request": "Synthetic voice-over copy grounded in an older public document.",
+      "turns": ["initial"],
+      "workstreams": ["vo"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-government-document", "citation_number": 1, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-government-document", "citation_number": 1}
+      ],
+      "required_format_traits": ["vo_script", "document_attribution", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "historical_context",
+        "source_quality": "document",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "historical_context",
+        "source_quality": "document",
+        "citation_source_pairs": [
+          {"source_id": "fixture-government-document", "citation_number": 1}
+        ],
+        "caveats_present": true,
+        "format_traits": ["vo_script", "document_attribution", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "intro-local",
+      "category": "intro",
+      "request": "Synthetic anchor intro for the current verified update.",
+      "turns": ["initial"],
+      "workstreams": ["intro"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-breaking-update", "citation_number": 1, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-breaking-update", "citation_number": 1}
+      ],
+      "required_format_traits": ["intro", "lead_first", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "caveats_required": false,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "citation_source_pairs": [
+          {"source_id": "fixture-breaking-update", "citation_number": 1}
+        ],
+        "caveats_present": false,
+        "format_traits": ["intro", "lead_first", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "tease-local",
+      "category": "tease",
+      "request": "Synthetic tease that keeps direct observation distinct from confirmed fact.",
+      "turns": ["initial"],
+      "workstreams": ["tease"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-community-observation", "citation_number": 1, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-community-observation", "citation_number": 1}
+      ],
+      "required_format_traits": ["tease", "caveat_label", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "direct",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "direct",
+        "citation_source_pairs": [
+          {"source_id": "fixture-community-observation", "citation_number": 1}
+        ],
+        "caveats_present": true,
+        "format_traits": ["tease", "caveat_label", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "banner-local",
+      "category": "banner",
+      "request": "Synthetic short banner from the current transit advisory.",
+      "turns": ["initial"],
+      "workstreams": ["banner"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-transit-advisory", "citation_number": 1, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-transit-advisory", "citation_number": 1}
+      ],
+      "required_format_traits": ["banner", "short_form", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "caveats_required": false,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "citation_source_pairs": [
+          {"source_id": "fixture-transit-advisory", "citation_number": 1}
+        ],
+        "caveats_present": false,
+        "format_traits": ["banner", "short_form", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "interview-questions-local",
+      "category": "interview_questions",
+      "request": "Synthetic interview questions grounded in a memo and field notes.",
+      "turns": ["initial"],
+      "workstreams": ["interview_questions"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-interview-memo", "citation_number": 1, "required": true},
+        {"source_id": "fixture-field-notes", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-interview-memo", "citation_number": 1},
+        {"source_id": "fixture-field-notes", "citation_number": 2}
+      ],
+      "required_format_traits": ["question_list", "source_context", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "document",
+        "caveats_required": false,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "document",
+        "citation_source_pairs": [
+          {"source_id": "fixture-interview-memo", "citation_number": 1},
+          {"source_id": "fixture-field-notes", "citation_number": 2}
+        ],
+        "caveats_present": false,
+        "format_traits": ["question_list", "source_context", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "interview-follow-up-multi-turn",
+      "category": "follow_up",
+      "request": "Synthetic interview questions followed by a request for a new update question.",
+      "turns": ["initial", "follow_up"],
+      "workstreams": ["interview_questions"],
+      "multi_turn": true,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-interview-memo", "citation_number": 1, "required": true},
+        {"source_id": "fixture-update-later", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-interview-memo", "citation_number": 1},
+        {"source_id": "fixture-update-later", "citation_number": 2}
+      ],
+      "required_format_traits": ["question_list", "follow_up_context", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "citation_source_pairs": [
+          {"source_id": "fixture-interview-memo", "citation_number": 1},
+          {"source_id": "fixture-update-later", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["question_list", "follow_up_context", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "document-grounded-summary",
+      "category": "document_grounded",
+      "request": "Synthetic summary grounded in two supplied public documents.",
+      "turns": ["initial"],
+      "workstreams": ["document_summary"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-policy-document", "citation_number": 1, "required": true},
+        {"source_id": "fixture-government-document", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-policy-document", "citation_number": 1},
+        {"source_id": "fixture-government-document", "citation_number": 2}
+      ],
+      "required_format_traits": ["summary_sections", "document_attribution", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "historical_context",
+        "source_quality": "document",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "historical_context",
+        "source_quality": "document",
+        "citation_source_pairs": [
+          {"source_id": "fixture-policy-document", "citation_number": 1},
+          {"source_id": "fixture-government-document", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["summary_sections", "document_attribution", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "follow-up-source-update",
+      "category": "follow_up",
+      "request": "Synthetic follow-up that distinguishes the original report from its later update.",
+      "turns": ["initial", "follow_up"],
+      "workstreams": ["source_update"],
+      "multi_turn": true,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-city-release", "citation_number": 1, "required": true},
+        {"source_id": "fixture-update-later", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-city-release", "citation_number": 1},
+        {"source_id": "fixture-update-later", "citation_number": 2}
+      ],
+      "required_format_traits": ["lead_first", "change_highlight", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "citation_source_pairs": [
+          {"source_id": "fixture-city-release", "citation_number": 1},
+          {"source_id": "fixture-update-later", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["lead_first", "change_highlight", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "correction-with-citation",
+      "category": "correction",
+      "request": "Synthetic correction that states what changed and cites the correction bulletin.",
+      "turns": ["initial"],
+      "workstreams": ["correction"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-correction-bulletin", "citation_number": 1, "required": true},
+        {"source_id": "fixture-city-release", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-correction-bulletin", "citation_number": 1},
+        {"source_id": "fixture-city-release", "citation_number": 2}
+      ],
+      "required_format_traits": ["correction_label", "what_changed", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "citation_source_pairs": [
+          {"source_id": "fixture-correction-bulletin", "citation_number": 1},
+          {"source_id": "fixture-city-release", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["correction_label", "what_changed", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "conflicting-source-brief",
+      "category": "conflicting_sources",
+      "request": "Synthetic brief that keeps two conflicting source accounts separate.",
+      "turns": ["initial"],
+      "workstreams": ["conflict_review"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-source-a", "citation_number": 1, "required": true},
+        {"source_id": "fixture-source-b", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-source-a", "citation_number": 1},
+        {"source_id": "fixture-source-b", "citation_number": 2}
+      ],
+      "required_format_traits": ["conflict_caveat", "comparison_table", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "conflict",
+        "source_quality": "mixed",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "conflict",
+        "source_quality": "mixed",
+        "citation_source_pairs": [
+          {"source_id": "fixture-source-a", "citation_number": 1},
+          {"source_id": "fixture-source-b", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["conflict_caveat", "comparison_table", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "blocked-source-fails-closed",
+      "category": "blocked_sources",
+      "request": "Synthetic request where the only candidate source is blocked.",
+      "turns": ["initial"],
+      "workstreams": ["blocked_source_check"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "retrieval_obstacles": [
+        {"source_id": "fixture-blocked-page", "reason": "blocked_source"}
+      ],
+      "expected_evidence": [],
+      "allowed_citation_source_pairs": [],
+      "required_format_traits": ["failure_reason", "no_unsupported_claims"],
+      "expected_failure_reasons": ["blocked_source"],
+      "expected": {
+        "outcome": "expected_failure",
+        "task_completed": false,
+        "currentness": "blocked",
+        "source_quality": "blocked",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "expected_failure",
+        "task_completed": false,
+        "currentness": "blocked",
+        "source_quality": "blocked",
+        "citation_source_pairs": [],
+        "caveats_present": true,
+        "format_traits": ["failure_reason", "no_unsupported_claims"],
+        "newsroom_usefulness": true,
+        "failure_reasons": ["blocked_source"]
+      }
+    },
+    {
+      "id": "stale-source-fails-closed",
+      "category": "stale_sources",
+      "request": "Synthetic latest-news request where the only readable source is stale.",
+      "turns": ["initial"],
+      "workstreams": ["stale_source_check"],
+      "multi_turn": false,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "retrieval_obstacles": [
+        {"source_id": "fixture-stale-page", "reason": "stale_source"}
+      ],
+      "expected_evidence": [],
+      "allowed_citation_source_pairs": [],
+      "required_format_traits": ["failure_reason", "freshness_caveat", "no_unsupported_claims"],
+      "expected_failure_reasons": ["stale_source"],
+      "expected": {
+        "outcome": "expected_failure",
+        "task_completed": false,
+        "currentness": "stale_rejected",
+        "source_quality": "stale",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "expected_failure",
+        "task_completed": false,
+        "currentness": "stale_rejected",
+        "source_quality": "stale",
+        "citation_source_pairs": [],
+        "caveats_present": true,
+        "format_traits": ["failure_reason", "freshness_caveat", "no_unsupported_claims"],
+        "newsroom_usefulness": true,
+        "failure_reasons": ["stale_source"]
+      }
+    },
+    {
+      "id": "desk-update-simultaneous",
+      "category": "producer_brief",
+      "request": "Synthetic desk update from two simultaneous newsroom workstreams.",
+      "turns": ["initial"],
+      "workstreams": ["breaking_update", "weather_update"],
+      "multi_turn": false,
+      "simultaneous": true,
+      "execution": {"default": "local_fixture", "live_opt_in": true},
+      "expected_evidence": [
+        {"source_id": "fixture-breaking-wire", "citation_number": 1, "required": true},
+        {"source_id": "fixture-weather-bulletin", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-breaking-wire", "citation_number": 1},
+        {"source_id": "fixture-weather-bulletin", "citation_number": 2}
+      ],
+      "required_format_traits": ["lead_first", "bullet_points", "parallel_updates", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "citation_source_pairs": [
+          {"source_id": "fixture-breaking-wire", "citation_number": 1},
+          {"source_id": "fixture-weather-bulletin", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["lead_first", "bullet_points", "parallel_updates", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "freshness-recheck-multi-turn",
+      "category": "breaking_news_update",
+      "request": "Synthetic freshness recheck followed by a request to use the later source.",
+      "turns": ["initial", "follow_up"],
+      "workstreams": ["freshness_recheck"],
+      "multi_turn": true,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": true},
+      "expected_evidence": [
+        {"source_id": "fixture-breaking-wire", "citation_number": 1, "required": true},
+        {"source_id": "fixture-update-later", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-breaking-wire", "citation_number": 1},
+        {"source_id": "fixture-update-later", "citation_number": 2}
+      ],
+      "required_format_traits": ["lead_first", "freshness_label", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "official",
+        "citation_source_pairs": [
+          {"source_id": "fixture-breaking-wire", "citation_number": 1},
+          {"source_id": "fixture-update-later", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["lead_first", "freshness_label", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    },
+    {
+      "id": "live-hit-notes-multi-turn",
+      "category": "live_hit_notes",
+      "request": "Synthetic live-hit notes followed by a request to add the latest field note.",
+      "turns": ["initial", "follow_up"],
+      "workstreams": ["live_hit"],
+      "multi_turn": true,
+      "simultaneous": false,
+      "execution": {"default": "local_fixture", "live_opt_in": false},
+      "expected_evidence": [
+        {"source_id": "fixture-field-notes", "citation_number": 1, "required": true},
+        {"source_id": "fixture-update-later", "citation_number": 2, "required": true}
+      ],
+      "allowed_citation_source_pairs": [
+        {"source_id": "fixture-field-notes", "citation_number": 1},
+        {"source_id": "fixture-update-later", "citation_number": 2}
+      ],
+      "required_format_traits": ["time_ordered_notes", "follow_up_context", "citation_markers"],
+      "expected_failure_reasons": [],
+      "expected": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "caveats_required": true,
+        "newsroom_usefulness": true
+      },
+      "observed": {
+        "outcome": "success",
+        "task_completed": true,
+        "currentness": "current",
+        "source_quality": "mixed",
+        "citation_source_pairs": [
+          {"source_id": "fixture-field-notes", "citation_number": 1},
+          {"source_id": "fixture-update-later", "citation_number": 2}
+        ],
+        "caveats_present": true,
+        "format_traits": ["time_ordered_notes", "follow_up_context", "citation_markers"],
+        "newsroom_usefulness": true,
+        "failure_reasons": []
+      }
+    }
+  ]
+}
