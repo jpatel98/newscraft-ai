@@ -36,6 +36,7 @@ HYDRA_UNITS = (
     "hermes-serve.service",
     "hermes-browser-cdp.service",
 )
+BROWSER_PROVIDERS = frozenset(("local", "browser-use"))
 
 
 class LiveFailure(RuntimeError):
@@ -159,6 +160,159 @@ def _run_after_restart(token: str, tenant: str, prompt: str, gate: str) -> str:
     raise LiveFailure(f"{gate}: AG-UI request failed after restart warm-up") from last_error
 
 
+def _browser_provider() -> str:
+    value = os.environ.get("NEWSCRAFT_HERMES_BROWSER_PROVIDER", "local").strip().lower() or "local"
+    if value not in BROWSER_PROVIDERS:
+        choices = ", ".join(sorted(BROWSER_PROVIDERS))
+        raise LiveFailure(f"unsupported browser provider; expected one of: {choices}")
+    return value
+
+
+def _browser_cookie_matrix(
+    token: str,
+    tenants: dict[str, str],
+    markers: dict[str, dict[str, str]],
+    browser_provider: str,
+    run: Callable[[str, str, str, str], str] = _run,
+) -> None:
+    if browser_provider not in BROWSER_PROVIDERS:
+        raise LiveFailure("unsupported browser provider")
+
+    cookie_expression = (
+        f"document.cookie = 'nc_live_marker={markers['a']['cookie']}; "
+        "Max-Age=86400; Path=/'; document.cookie"
+    )
+    if browser_provider == "browser-use":
+        account_a = run(
+            token,
+            tenants["a"],
+            "In this one agent request, use browser_navigate to open https://example.com/. "
+            f"Then use browser_console with expression {json.dumps(cookie_expression)} "
+            "to set the synthetic cookie and report the result. Then use browser_console "
+            'with expression "document.cookie" to read it back. Report both results.',
+            "browser-use-cookie-a",
+        )
+        _assert_contains(account_a, markers["a"]["cookie"], "account A browser-use cookie read-back")
+        account_b = run(
+            token,
+            tenants["b"],
+            "In this one agent request, use browser_navigate to open https://example.com/. "
+            'Then use browser_console with expression "document.cookie" and report the result. '
+            "Do not set a cookie.",
+            "browser-use-cookie-b",
+        )
+        _assert_absent(account_b, markers["a"]["cookie"], "account B foreign browser-use cookie")
+        print("browser_cookies=PASS (browser-use one-request contract)")
+        return
+
+    for label in ("a", "b"):
+        _assert_contains(
+            run(
+                token,
+                tenants[label],
+                "Use browser_navigate to open https://example.com/ and report the tool result.",
+                f"browser-navigate-{label}",
+            ),
+            "success",
+            f"browser navigation {label}",
+        )
+    _assert_contains(
+        run(
+            token,
+            tenants["a"],
+            f"Use browser_console with expression {json.dumps(cookie_expression)}. Report the tool result.",
+            "browser-cookie-set-a",
+        ),
+        markers["a"]["cookie"],
+        "account A browser cookie set",
+    )
+    _assert_absent(
+        run(
+            token,
+            tenants["b"],
+            'Use browser_console with expression "document.cookie" and report the tool result.',
+            "browser-cookie-read-b",
+        ),
+        markers["a"]["cookie"],
+        "account B foreign browser cookie",
+    )
+    _assert_contains(
+        run(
+            token,
+            tenants["a"],
+            'Use browser_console with expression "document.cookie" and report the tool result.',
+            "browser-cookie-read-a",
+        ),
+        markers["a"]["cookie"],
+        "account A browser cookie read",
+    )
+    print("browser_cookies=PASS (local durable profile)")
+
+
+def _browser_cookie_restart_check(
+    token: str,
+    tenants: dict[str, str],
+    markers: dict[str, dict[str, str]],
+    browser_provider: str,
+    run_after_restart: Callable[[str, str, str, str], str] = _run_after_restart,
+) -> None:
+    if browser_provider == "browser-use":
+        print("browser_cookie_persistence=NOT_APPLICABLE (browser-use sessions are ephemeral)")
+        return
+    if browser_provider != "local":
+        raise LiveFailure("unsupported browser provider")
+
+    for label in ("a", "b"):
+        _assert_contains(
+            run_after_restart(
+                token,
+                tenants[label],
+                "Use browser_navigate to open https://example.com/ and report the tool result.",
+                f"restart-browser-navigate-{label}",
+            ),
+            "success",
+            f"restart browser navigation {label}",
+        )
+    restarted_browser_a = run_after_restart(
+        token,
+        tenants["a"],
+        'Use browser_console with expression "document.cookie" and report the tool result.',
+        "restart-browser-a",
+    )
+    _assert_contains(restarted_browser_a, markers["a"]["cookie"], "restart browser cookie A")
+    restarted_browser_b = run_after_restart(
+        token,
+        tenants["b"],
+        'Use browser_console with expression "document.cookie" and report the tool result.',
+        "restart-browser-b",
+    )
+    _assert_absent(restarted_browser_b, markers["a"]["cookie"], "restart foreign browser cookie B")
+    print("browser_cookie_persistence=PASS (local durable profile)")
+
+
+def _cleanup_failure_message(cleanup_failures: list[tuple[str, Exception]]) -> str:
+    return "; ".join(
+        f"account {label} cleanup failed ({type(error).__name__})"
+        for label, error in cleanup_failures
+    )
+
+
+def _finish_live_run(
+    primary_failure: Exception | None,
+    cleanup_failures: list[tuple[str, Exception]],
+) -> None:
+    if primary_failure is not None:
+        if cleanup_failures:
+            raise LiveFailure(
+                f"{primary_failure}; {_cleanup_failure_message(cleanup_failures)}"
+            ) from primary_failure
+        raise primary_failure
+    if cleanup_failures:
+        raise LiveFailure(
+            f"synthetic cleanup failed; {_cleanup_failure_message(cleanup_failures)}"
+        ) from cleanup_failures[0][1]
+
+
 def _seed_history(source: Path, hermes_agent: Path, runtime: TenantRuntime, marker: str) -> None:
     import sys
 
@@ -261,6 +415,7 @@ def _cleanup(runtime: TenantRuntime) -> None:
 
 
 def main() -> int:
+    browser_provider = _browser_provider()
     token = os.environ["HERMES_AGUI_SESSION_TOKEN"]
     secret = os.environ["NEWSCRAFT_HERMES_TENANT_SECRET"]
     source = Path(os.environ["NEWSCRAFT_LIVE_HERMES_SOURCE"])
@@ -300,7 +455,8 @@ def main() -> int:
     }
     old_pid = _pid("newscraft-hermes-chat.service")
     hydra_before = _hydra_pids()
-    cleanup_failures: list[Exception] = []
+    cleanup_failures: list[tuple[str, Exception]] = []
+    primary_failure: Exception | None = None
     try:
         ready = _wait_ready(token)
         if not isinstance(ready.get("capabilities", {}).get("accountIsolation"), dict):
@@ -499,52 +655,7 @@ def main() -> int:
             _assert_contains(concurrent_results[label], markers[label]["workspace"], f"concurrent workspace {label}")
         print("simultaneous_account_requests=PASS")
 
-        for label in ("a", "b"):
-            _assert_contains(
-                _run(
-                    token,
-                    tenants[label],
-                    'Use browser_navigate to open https://example.com/ and report the tool result.',
-                    f"browser-navigate-{label}",
-                ),
-                "success",
-                f"browser navigation {label}",
-            )
-        cookie_expression = (
-            f"document.cookie = 'nc_live_marker={markers['a']['cookie']}; "
-            "Max-Age=86400; Path=/'; document.cookie"
-        )
-        _assert_contains(
-            _run(
-                token,
-                tenants["a"],
-                f"Use browser_console with expression {json.dumps(cookie_expression)}. Report the tool result.",
-                "browser-cookie-set-a",
-            ),
-            markers["a"]["cookie"],
-            "account A browser cookie set",
-        )
-        _assert_absent(
-            _run(
-                token,
-                tenants["b"],
-                'Use browser_console with expression "document.cookie" and report the tool result.',
-                "browser-cookie-read-b",
-            ),
-            markers["a"]["cookie"],
-            "account B foreign browser cookie",
-        )
-        _assert_contains(
-            _run(
-                token,
-                tenants["a"],
-                'Use browser_console with expression "document.cookie" and report the tool result.',
-                "browser-cookie-read-a",
-            ),
-            markers["a"]["cookie"],
-            "account A browser cookie read",
-        )
-        print("browser_cookies=PASS")
+        _browser_cookie_matrix(token, tenants, markers, browser_provider)
 
         restart_result = subprocess.run(
             ["systemctl", "--user", "restart", "--no-block", "newscraft-hermes-chat.service"],
@@ -606,13 +717,7 @@ def main() -> int:
             "restart-history-b",
         )
         _assert_absent(restarted_history_b, markers["a"]["chat"], "restart foreign history B")
-        restarted_browser_b = _run_after_restart(
-            token,
-            tenants["b"],
-            'Use browser_console with expression "document.cookie" and report the tool result.',
-            "restart-browser-b",
-        )
-        _assert_absent(restarted_browser_b, markers["a"]["cookie"], "restart foreign browser B")
+        _browser_cookie_restart_check(token, tenants, markers, browser_provider)
         restarted_process_b = _run_after_restart(
             token,
             tenants["b"],
@@ -620,16 +725,20 @@ def main() -> int:
             "restart-process-b",
         )
         _assert_absent(restarted_process_b, markers["a"]["process"], "restart foreign process B")
-        print("restart_persistence_and_hydra=PASS")
+        if browser_provider == "browser-use":
+            print("restart_persistence_and_hydra=PASS (browser-use cookie restart not applicable)")
+        else:
+            print("restart_persistence_and_hydra=PASS")
+    except Exception as exc:
+        primary_failure = exc
     finally:
-        for runtime in runtimes.values():
+        for label, runtime in runtimes.items():
             try:
                 _cleanup(runtime)
             except Exception as exc:
-                cleanup_failures.append(exc)
+                cleanup_failures.append((label, exc))
 
-    if cleanup_failures:
-        raise LiveFailure("synthetic cleanup failed") from cleanup_failures[0]
+    _finish_live_run(primary_failure, cleanup_failures)
     print("synthetic_cleanup=PASS")
     print("LIVE_PRODUCTION_MATRIX_PASS")
     return 0

@@ -379,9 +379,9 @@ uses a remote deployment. They need separate authorization.
     If the release includes live production verification, use the repository's
     separately authorized smoke path and record its exact output, including
     `LIVE_PRODUCTION_MATRIX_PASS` or the failure output. The source file is
-    [`services/hermes-chat/tests/live_production_smoke.py#L263-L264`](../services/hermes-chat/tests/live_production_smoke.py#L263-L264)
+    [`services/hermes-chat/tests/live_production_smoke.py#L417-L419`](../services/hermes-chat/tests/live_production_smoke.py#L417-L419)
     and its terminal result is defined at
-    [`live_production_smoke.py#L634-L642`](../services/hermes-chat/tests/live_production_smoke.py#L634-L642).
+    [`live_production_smoke.py#L742-L751`](../services/hermes-chat/tests/live_production_smoke.py#L742-L751).
     Do not run this path without explicit live authorization.
 
 ## Reusable release record
