@@ -9,6 +9,34 @@ export const NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL = [
 	'Keep text before tool calls brief because NewsCraft treats the last complete text block before run completion as its final answer. If a tool or model call fails, state the clear limitation.'
 ].join(' ');
 
+/**
+ * Compact runtime version of the NewsCraft broadcast-newswriting handbook.
+ * Keep this action focused on OC/VO. Other formats have different cue and
+ * output contracts.
+ */
+export const NEWSCRAFT_OCVO_WRITING_GUIDE = `Use only the selected answer to write a broadcast television OC/VO for a 25-to-30-second anchor read.
+
+Follow NewsCraft's OC/VO house style:
+- Lead with the actual news. Use one strong ON CAM sentence.
+- Use VO for three to five short sentences that add, rather than repeat, the who, what, where, when, impact, response, or confirmed next step.
+- Write for the ear. Use one main thought per sentence, active voice when natural, familiar words, and a direct conversational cadence.
+- Keep exact attribution, uncertainty, legal qualifiers, publication-ban or youth-identity safeguards, and every relevant citation marker. Keep each marker with the claim it supports. Citation markers are not spoken words.
+- Use present or immediate-past tense that fits the story. Make times, numbers, names, and acronyms natural to read aloud without changing facts.
+- If the selected answer identifies available pictures or sound, make the VO fit them. Do not invent pictures, sound, quotes, or facts.
+- Do not turn a press release, social post, allegation, or other attributed claim into confirmed fact.
+- Do not speculate, editorialize, exaggerate, use filler, search, or add unsupported context.
+
+Return only ready-to-air copy in uppercase, with no Markdown and this exact structure:
+{ON CAM}
+[ONE STRONG SENTENCE.]
+
+{VO}
+[THREE TO FIVE SHORT SENTENCES.]
+
+Keep the spoken copy between 55 and 75 words. Do not add a BANNER, TEASE, SOT, SU, second version, or explanation. If a material fact needed for safe copy is unclear, do not guess. Add:
+NEEDS EDITORIAL CHECK:
+[EXACT MISSING FACT.]`;
+
 export function resolveConversationSystemPrompt(value: string | null | undefined): string | null {
 	const trimmed = (value || '').trim();
 	return trimmed || null;

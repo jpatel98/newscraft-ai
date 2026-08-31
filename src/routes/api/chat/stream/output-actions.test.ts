@@ -1,17 +1,23 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { NEWSCRAFT_OCVO_WRITING_GUIDE } from '$lib/server/agent/prompts';
 
 describe('chat output action prompts', () => {
-	it('enforces the newsroom OC/VO format for the 30-second script action', () => {
-		const source = readFileSync(new URL('./+server.ts', import.meta.url), 'utf8');
+	it('enforces the NewsCraft OC/VO house style for the 30-second script action', () => {
+		const routeSource = readFileSync(new URL('./+server.ts', import.meta.url), 'utf8');
 
-		expect(source).toContain('write a broadcast television OC/VO package');
-		expect(source).toContain('**ON CAM**');
-		expect(source).toContain('**VO**');
-		expect(source).toContain('**BANNER**');
-		expect(source).toContain('3-to-5 concise sentences total');
-		expect(source).toContain('5-to-7-word lower-third');
-		expect(source).toContain('Do not add facts, speculate, editorialize');
-		expect(source).toContain('Preserve attribution, uncertainty, and every relevant citation marker');
+		expect(routeSource).toContain('thirty_second_script: NEWSCRAFT_OCVO_WRITING_GUIDE');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Lead with the actual news');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('{ON CAM}');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('{VO}');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('three to five short sentences that add');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('one main thought per sentence');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('publication-ban or youth-identity safeguards');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('every relevant citation marker');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Do not invent pictures, sound, quotes, or facts');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Do not add a BANNER');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('NEEDS EDITORIAL CHECK:');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).not.toContain('**ON CAM**');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).not.toContain('**BANNER**');
 	});
 });

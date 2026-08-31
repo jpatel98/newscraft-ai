@@ -97,6 +97,7 @@ import {
 } from '$lib/server/chat-timeouts';
 import {
 	NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL,
+	NEWSCRAFT_OCVO_WRITING_GUIDE,
 	resolveConversationSystemPrompt
 } from '$lib/server/agent/prompts';
 import {
@@ -132,21 +133,7 @@ const MAX_REQUEST_BYTES = 950 * 1024;
 const OUTPUT_ACTION_PROMPTS: Record<NonNullable<Body['output_action']>, string> = {
 	producer_brief:
 		'Turn the previous answer into a concise producer brief. Preserve confirmed facts, uncertainty, and every citation marker. Do not search for new information.',
-	thirty_second_script:
-		`Using only the previous answer, write a broadcast television OC/VO package for a 25-to-30-second anchor read.
-
-Use this exact structure:
-
-**ON CAM**
-[One strong opening sentence that immediately establishes what happened and, when known, where and when.]
-
-**VO**
-[Two to four short sentences with the essential details, attribution, impact, and confirmed next step.]
-
-**BANNER**
-[A simple 5-to-7-word lower-third, aiming for 45-to-55 characters.]
-
-Write the script copy and banner in uppercase. Keep the ON CAM and VO to 3-to-5 concise sentences total and about 55-to-75 spoken words. Use short, direct, conversational broadcast language in the present or immediate past tense. Write numbers, times, and acronyms for a natural anchor read without changing their meaning. Lead with immediate context, briefly expand the key facts, and end with the consequence, impact, or next step only when the source answer supports one. Preserve attribution, uncertainty, and every relevant citation marker. Keep citation markers attached to the claims they support; they do not count toward the spoken word target. Do not add facts, speculate, editorialize, use jargon, or search for new information. If a required detail is not confirmed in the source answer, omit it rather than inventing it.`,
+	thirty_second_script: NEWSCRAFT_OCVO_WRITING_GUIDE,
 	interview_questions:
 		'Using only the previous answer, draft focused interview questions that probe the known facts, gaps, and disagreements. Keep relevant citation markers. Do not search for new information.',
 	copy_with_citations:
