@@ -18,7 +18,9 @@ import {
 	getActiveHermesRun,
 	getHermesRun,
 	getHermesRunForAssistant,
+	getHermesRunSubscriptionState,
 	listHermesRunEvents,
+	listKnownHermesRunEvents,
 	reclaimQueuedOrExpiredHermesRuns,
 	renewHermesRunLease,
 	releaseHermesRunLease,
@@ -317,6 +319,8 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 	it('denies cross-account reads, callbacks, and cancellation', async () => {
 		const { run } = await createRun('cross-account');
 		expect(await getHermesRun(accountB, run.id)).toBeNull();
+		expect(await getHermesRunSubscriptionState(accountB, run.id)).toBeNull();
+		expect(await listKnownHermesRunEvents(accountB, run.id)).toEqual([]);
 		await expect(
 			createOrGetHermesRun({
 				accountId: accountB,

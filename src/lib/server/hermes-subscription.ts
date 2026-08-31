@@ -1,14 +1,17 @@
 import { json } from '@sveltejs/kit';
 import {
 	getHermesRun,
-	listHermesRunEvents,
+	getHermesRunSubscriptionState,
+	listKnownHermesRunEvents,
 	snapshotFromRun,
-	HERMES_TERMINAL_STATES
+	HERMES_TERMINAL_STATES,
+	type HermesRunSubscriptionState
 } from '$lib/server/db/hermes-runs';
 import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import { traceIdFromHermesInput } from '$lib/server/durable-run-telemetry';
 
-export const HERMES_SUBSCRIPTION_POLL_MS = 100;
+export const HERMES_SUBSCRIPTION_ACTIVE_POLL_MS = 250;
+export const HERMES_SUBSCRIPTION_MAX_POLL_MS = 2_000;
 
 export interface HermesSubscriptionRequest {
 	request: Request;
@@ -19,6 +22,14 @@ export interface HermesSubscriptionRequest {
 
 function sse(event: string, data: unknown, cursor?: number): string {
 	return `${cursor === undefined ? '' : `id: ${cursor}\n`}event: ${event}\ndata: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`;
+}
+
+export function nextHermesSubscriptionPollMs(currentMs: number, receivedEvents: boolean): number {
+	if (receivedEvents) return HERMES_SUBSCRIPTION_ACTIVE_POLL_MS;
+	return Math.min(
+		Math.max(currentMs, HERMES_SUBSCRIPTION_ACTIVE_POLL_MS) * 2,
+		HERMES_SUBSCRIPTION_MAX_POLL_MS
+	);
 }
 
 export function parseHermesSubscriptionCursor(request: Request, url: URL): number {
@@ -62,17 +73,17 @@ export async function hermesSubscriptionResponse({
 					/* The browser closed the subscription. */
 				}
 			};
-			const waitForNextPoll = () =>
+			const waitForNextPoll = (delayMs: number) =>
 				new Promise<void>((resolve) => {
-					const timer = setTimeout(resolve, HERMES_SUBSCRIPTION_POLL_MS);
-					request.signal.addEventListener(
-						'abort',
-						() => {
-							clearTimeout(timer);
-							resolve();
-						},
-						{ once: true }
-					);
+					const onAbort = () => {
+						clearTimeout(timer);
+						resolve();
+					};
+					const timer = setTimeout(() => {
+						request.signal.removeEventListener('abort', onAbort);
+						resolve();
+					}, delayMs);
+					request.signal.addEventListener('abort', onAbort, { once: true });
 				});
 
 			try {
@@ -97,23 +108,27 @@ export async function hermesSubscriptionResponse({
 				);
 
 				let cursor = afterCursor;
+				let runState: HermesRunSubscriptionState | null = initial;
+				let pollMs = HERMES_SUBSCRIPTION_ACTIVE_POLL_MS;
 				while (!request.signal.aborted) {
-					const run = await getHermesRun(accountId, runId);
-					if (!run) break;
-					const events = await listHermesRunEvents(accountId, runId, cursor, 500);
+					if (!runState) break;
+					const events = await listKnownHermesRunEvents(accountId, runId, cursor, 500);
 					for (const event of events) {
 						enqueue(sse(event.eventType, event.dataJson, event.cursor));
 						cursor = event.cursor;
 					}
 					if (
 						HERMES_TERMINAL_STATES.includes(
-							run.state as (typeof HERMES_TERMINAL_STATES)[number]
+							runState.state as (typeof HERMES_TERMINAL_STATES)[number]
 						) &&
-						cursor >= run.cursor
+						cursor >= runState.cursor
 					) {
 						break;
 					}
-					await waitForNextPoll();
+					await waitForNextPoll(pollMs);
+					if (request.signal.aborted) break;
+					runState = await getHermesRunSubscriptionState(accountId, runId);
+					pollMs = nextHermesSubscriptionPollMs(pollMs, events.length > 0);
 				}
 			} catch (cause) {
 				if (!request.signal.aborted) controller.error(cause);

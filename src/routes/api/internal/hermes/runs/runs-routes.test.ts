@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const dbMocks = vi.hoisted(() => ({
 	getHermesRun: vi.fn(),
+	getHermesRunSubscriptionState: vi.fn(),
 	appendHermesRunEvent: vi.fn(),
 	claimHermesRunLease: vi.fn(),
 	renewHermesRunLease: vi.fn(),
@@ -11,6 +12,7 @@ const dbMocks = vi.hoisted(() => ({
 	requestHermesRunCancellation: vi.fn(),
 	finalizeHermesRunCancellation: vi.fn(),
 	listHermesRunEvents: vi.fn(),
+	listKnownHermesRunEvents: vi.fn(),
 	snapshotFromRun: vi.fn((run) => ({ state: run.state, answerText: run.answerText || '', sources: [], citations: [], tools: [], errorMessage: null }))
 }));
 const authMocks = vi.hoisted(() => ({ verifyHermesRunCallback: vi.fn(), cancelDurableHermesRun: vi.fn() }));
@@ -388,7 +390,7 @@ describe('Hermes browser run routes', () => {
 		vi.clearAllMocks();
 		authMocks.verifyHermesRunCallback.mockReturnValue(true);
 		dbMocks.getHermesRun.mockResolvedValue({ ...run, state: 'complete', cursor: 2, workerCursor: 2 });
-		dbMocks.listHermesRunEvents.mockResolvedValue([
+		dbMocks.listKnownHermesRunEvents.mockResolvedValue([
 			{ cursor: 2, eventType: 'response.completed', dataJson: '{"ok":true}' }
 		]);
 		dbMocks.requestHermesRunCancellation.mockResolvedValue({ ...run, state: 'cancel_requested', cursor: 2 });
@@ -405,7 +407,9 @@ describe('Hermes browser run routes', () => {
 		} as any);
 		const body = await response.text();
 		expect(response.status).toBe(200);
-		expect(dbMocks.listHermesRunEvents).toHaveBeenCalledWith(user.id, run.id, 1, 500);
+		expect(dbMocks.getHermesRun).toHaveBeenCalledTimes(1);
+		expect(dbMocks.getHermesRunSubscriptionState).not.toHaveBeenCalled();
+		expect(dbMocks.listKnownHermesRunEvents).toHaveBeenCalledWith(user.id, run.id, 1, 500);
 		expect(body).toContain('id: 2');
 		expect(body).toContain('event: response.completed');
 		expect(body).toContain('"trace_id":"trace_12345678"');

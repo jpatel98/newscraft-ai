@@ -59,6 +59,15 @@ export interface HermesRunCreateInput {
 
 export type HermesRunRecord = typeof hermesRuns.$inferSelect;
 export type HermesRunEventRecord = typeof hermesRunEvents.$inferSelect;
+export type HermesRunEventRead = Pick<
+	HermesRunEventRecord,
+	'cursor' | 'eventType' | 'dataJson' | 'createdAt'
+>;
+export type HermesRunSubscriptionEvent = Pick<
+	HermesRunEventRecord,
+	'cursor' | 'eventType' | 'dataJson'
+>;
+export type HermesRunSubscriptionState = Pick<HermesRunRecord, 'state' | 'cursor'>;
 export type HermesRunMessageState = Pick<
 	HermesRunRecord,
 	'assistantMessageId' | 'state' | 'errorMessage'
@@ -427,6 +436,24 @@ export async function getHermesRun(
 	return (rows[0] as HermesRunRecord | undefined) || null;
 }
 
+/** Read only the fields needed by a live subscription poll. */
+export async function getHermesRunSubscriptionState(
+	accountId: string,
+	runId: string
+): Promise<HermesRunSubscriptionState | null> {
+	const rows = await db
+		.select({ state: hermesRuns.state, cursor: hermesRuns.cursor })
+		.from(hermesRuns)
+		.where(
+			and(
+				eq(hermesRuns.accountId, requireValue(accountId, 'accountId')),
+				eq(hermesRuns.id, requireValue(runId, 'runId'))
+			)
+		)
+		.limit(1);
+	return (rows[0] as HermesRunSubscriptionState | undefined) || null;
+}
+
 export async function getHermesRunForAssistant(
 	accountId: string,
 	conversationId: string,
@@ -490,24 +517,60 @@ export async function listHermesRunEvents(
 	runId: string,
 	afterCursor = 0,
 	limit = 500
-): Promise<HermesRunEventRecord[]> {
+): Promise<HermesRunEventRead[]> {
 	if (!Number.isSafeInteger(afterCursor) || afterCursor < 0) {
 		throw new HermesRunRepositoryError('invalid_input', 'afterCursor must be a non-negative integer');
 	}
 	const run = await getHermesRun(accountId, runId);
 	if (!run) throw new HermesRunRepositoryError('not_found', 'run not found');
 	return (await db
-		.select()
+		.select({
+			cursor: hermesRunEvents.cursor,
+			eventType: hermesRunEvents.eventType,
+			dataJson: hermesRunEvents.dataJson,
+			createdAt: hermesRunEvents.createdAt
+		})
 		.from(hermesRunEvents)
 		.where(
 			and(
 				eq(hermesRunEvents.accountId, requireValue(accountId, 'accountId')),
-					eq(hermesRunEvents.runId, run.id),
+				eq(hermesRunEvents.runId, run.id),
 				gt(hermesRunEvents.cursor, afterCursor)
 			)
 		)
 		.orderBy(asc(hermesRunEvents.cursor))
-		.limit(Math.min(Math.max(limit, 1), 1000))) as HermesRunEventRecord[];
+		.limit(Math.min(Math.max(limit, 1), 1000))) as HermesRunEventRead[];
+}
+
+/**
+ * List events after the caller has already verified the tenant-bound run.
+ * Both account and run remain part of the query boundary.
+ */
+export async function listKnownHermesRunEvents(
+	accountId: string,
+	runId: string,
+	afterCursor = 0,
+	limit = 500
+): Promise<HermesRunSubscriptionEvent[]> {
+	if (!Number.isSafeInteger(afterCursor) || afterCursor < 0) {
+		throw new HermesRunRepositoryError('invalid_input', 'afterCursor must be a non-negative integer');
+	}
+	return (await db
+		.select({
+			cursor: hermesRunEvents.cursor,
+			eventType: hermesRunEvents.eventType,
+			dataJson: hermesRunEvents.dataJson
+		})
+		.from(hermesRunEvents)
+		.where(
+			and(
+				eq(hermesRunEvents.accountId, requireValue(accountId, 'accountId')),
+				eq(hermesRunEvents.runId, requireValue(runId, 'runId')),
+				gt(hermesRunEvents.cursor, afterCursor)
+			)
+		)
+		.orderBy(asc(hermesRunEvents.cursor))
+		.limit(Math.min(Math.max(limit, 1), 1000))) as HermesRunSubscriptionEvent[];
 }
 
 export async function appendHermesRunEvent(
