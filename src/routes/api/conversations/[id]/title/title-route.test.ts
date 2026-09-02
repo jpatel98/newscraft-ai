@@ -44,7 +44,7 @@ describe('conversation title retry route', () => {
 		conversationMocks.getConversation.mockResolvedValue({
 			id: 'convo-1',
 			title: '',
-			updatedAt: Date.now() - 120_000
+			updatedAt: Date.now()
 		});
 		titleMocks.generateConversationTitle.mockResolvedValue({
 			row: { id: 'convo-1', title: 'Budget hearing recap', updatedAt: 123 },

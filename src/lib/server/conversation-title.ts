@@ -18,8 +18,33 @@ interface ConversationTitleResult {
 }
 
 const TITLE_SYSTEM =
-	'You generate a 4-to-8-word, sentence-case title for a conversation. ' +
-	'Reply with ONLY the title text — no quotes, no markdown, no trailing punctuation.';
+	'Write a specific 4-to-8-word, sentence-case title that summarizes the user\'s main task or topic. ' +
+	'Keep useful names, places, formats, and outcomes. Omit filler such as requests for help, greetings, and "this conversation." ' +
+	'Reply with ONLY the title text — no label, quotes, markdown, or trailing punctuation.';
+
+function isAutomaticTitlePlaceholder(value: string | null | undefined): boolean {
+	const normalized = (value ?? '').trim().toLowerCase();
+	return !normalized || normalized === '(untitled)' || normalized === 'new chat';
+}
+
+export function sanitizeConversationTitle(value: string): string {
+	const firstLine = value
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.find(Boolean);
+	if (!firstLine) return '';
+	return firstLine
+		.replace(/^title\s*:\s*/i, '')
+		.replace(/^["'`*_#\s]+|["'`*_#\s]+$/g, '')
+		.replace(/[.!?;:]+$/, '')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.split(' ')
+		.slice(0, 10)
+		.join(' ')
+		.slice(0, 80)
+		.trim();
+}
 
 export function fallbackConversationTitle(content: string): string {
 	const cleaned = content
@@ -28,9 +53,17 @@ export function fallbackConversationTitle(content: string): string {
 		.replace(/\s+/g, ' ')
 		.trim();
 	if (!cleaned) return 'New conversation';
-	const words = cleaned.split(' ').slice(0, 8);
+	const focused = cleaned
+		.replace(/^(?:um|uh|hey|hi)[,:\s-]*/i, '')
+		.replace(/^(?:can|could|would|will)\s+you\s+(?:please\s+)?/i, '')
+		.replace(/^please\s+/i, '')
+		.replace(/^i\s+(?:would\s+like|want|need)\s+(?:us|you)\s+to\s+/i, '')
+		.replace(/^(?:help\s+me\s+(?:to\s+)?|work\s+on\s+)/i, '')
+		.trim();
+	const words = (focused || cleaned).split(' ').slice(0, 8);
 	const title = words.join(' ').replace(/[.,;:!?]+$/, '');
-	return title.slice(0, 80) || 'New conversation';
+	const bounded = title.slice(0, 80).trim();
+	return bounded ? `${bounded.charAt(0).toUpperCase()}${bounded.slice(1)}` : 'New conversation';
 }
 
 export async function generateConversationTitle(
@@ -44,10 +77,12 @@ export async function generateConversationTitle(
 		return { row: fresh, title: fresh.title, generated: false };
 	}
 
-	const sourceMessages = (await getMessages(conversationId)).filter(
-		(m) => m.role === 'user' || m.role === 'assistant'
-	);
-	const seedHistory = sourceMessages.slice(0, 4).map<AgentMessage>((m) => {
+	const sourceMessages = await getMessages(conversationId);
+	const seedHistory: AgentMessage[] = [];
+	let lastSeedId = conversationId;
+	for (const m of sourceMessages) {
+		if (m.role !== 'user' && m.role !== 'assistant') continue;
+		if (m.role === 'assistant' && m.partial === 1) continue;
 		const parsed = parseContent(m.content);
 		const text =
 			typeof parsed === 'string'
@@ -56,14 +91,17 @@ export async function generateConversationTitle(
 						.filter((p) => p.type === 'text')
 						.map((p) => (p as { text: string }).text)
 						.join('\n');
-		return { role: m.role as 'user' | 'assistant', content: text };
-	});
+		if (!text.trim()) continue;
+		seedHistory.push({ role: m.role, content: text.trim() });
+		lastSeedId = m.id;
+		if (seedHistory.length === 4) break;
+	}
 	if (seedHistory.length === 0) {
 		return { row: fresh, title: fresh.title, generated: false };
 	}
 	let currentRow = fresh;
 	let fallbackGenerated = false;
-	if (!fresh.title) {
+	if (isAutomaticTitlePlaceholder(fresh.title)) {
 		const firstUser = seedHistory.find((message) => message.role === 'user');
 		const fallback = fallbackConversationTitle(
 			typeof firstUser?.content === 'string' ? firstUser.content : ''
@@ -87,16 +125,16 @@ export async function generateConversationTitle(
 		...seedHistory,
 		{ role: 'user', content: 'Title for this conversation:' }
 	];
-	const lastSeedId = sourceMessages[Math.min(sourceMessages.length, 4) - 1]?.id ?? conversationId;
 	const result = (await completion(
 		{ messages: titleMessages, stream: false, max_tokens: 24 },
 		{
 			accountId,
+			sessionId: `title-${conversationId}`,
 			idempotencyKey: options.idempotencyKey ?? `title-${conversationId}-${lastSeedId}`
 		}
 	)) as OpenAINonStream;
 	const raw = result.choices?.[0]?.message?.content ?? '';
-	const title = raw.trim().replace(/^["']|["']$/g, '').replace(/[.!?]+$/, '').slice(0, 80);
+	const title = sanitizeConversationTitle(raw);
 	if (!title) return { row: currentRow, title: currentRow.title, generated: fallbackGenerated };
 
 	const row = await setConversationTitleIfCurrent(

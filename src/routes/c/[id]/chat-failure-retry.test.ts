@@ -7,7 +7,7 @@ const threadSource = readFileSync(
 	'utf8'
 );
 
-	describe('chat failure retry UI', () => {
+describe('chat failure retry UI', () => {
 	it('subscribes to a loaded durable run on refresh without posting a new run', () => {
 		const connectStart = pageSource.indexOf('const connect = async () => {');
 		const connectEnd = pageSource.indexOf('\n\t\t\t\t};', connectStart);
@@ -20,6 +20,12 @@ const threadSource = readFileSync(
 		expect(connectSource.indexOf('await streamChat')).toBeLessThan(
 			connectSource.indexOf('await subscribeDurableRun')
 		);
+	});
+
+	it('requests an automatic title when the durable run confirms the saved prompt', () => {
+		expect(pageSource).toContain('async function requestFirstPromptTitle(conversationId: string)');
+		expect(pageSource).toContain('void requestFirstPromptTitle(meta.conversation_id);');
+		expect(pageSource).toContain('await invalidateAll();');
 	});
 	it('renders safe stream failures without raw thrown details', () => {
 		expect(pageSource).toContain('const message = streamFailureMessage(e);');
@@ -51,7 +57,7 @@ const threadSource = readFileSync(
 			'updateAssistantOverlay({ partial: partialAnswer, streaming: false });'
 		);
 		const endStream = pageSource.indexOf('if (chat.abort === controller) chat.endStream();');
-		const reload = pageSource.indexOf('await invalidateAll();');
+		const reload = pageSource.indexOf('await invalidateAll();', endStream);
 		expect(endStream).toBeGreaterThanOrEqual(0);
 		expect(reload).toBeGreaterThan(endStream);
 	});

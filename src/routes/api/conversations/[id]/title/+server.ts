@@ -9,7 +9,7 @@ export const POST: RequestHandler = async ({ locals, params }) => {
 	try {
 		const existing = await getConversation(locals.user.id, id);
 		if (!existing) throw error(404, 'not found');
-		if (!canRetryTitle(existing.title, existing.updatedAt)) {
+		if (!canGenerateTitle(existing.title)) {
 			throw error(400, 'title retry is not available');
 		}
 		const result = await generateConversationTitle(locals.user.id, id, { force: true });
@@ -27,10 +27,7 @@ export const POST: RequestHandler = async ({ locals, params }) => {
 	}
 };
 
-function canRetryTitle(titleValue: string | null | undefined, updatedAt: number): boolean {
+function canGenerateTitle(titleValue: string | null | undefined): boolean {
 	const title = (titleValue ?? '').trim().toLowerCase();
-	return (
-		(!title || title === '(untitled)' || title === 'new chat') &&
-		Date.now() - updatedAt > 60_000
-	);
+	return !title || title === '(untitled)' || title === 'new chat';
 }

@@ -38,6 +38,10 @@
 	} from '$lib/components/journalist-ui';
 	import { activeHTMLElement, focusDialog, restoreFocus, trapTabKey } from '$lib/utils/focus';
 	import { SerialTaskQueue } from '$lib/utils/serial-task-queue';
+	import {
+		needsAutomaticConversationTitle,
+		requestAutomaticConversationTitle
+	} from '$lib/client/conversation-title';
 	import X from 'lucide-svelte/icons/x';
 	import Send from 'lucide-svelte/icons/send-horizontal';
 
@@ -93,6 +97,7 @@
 	let activeRunCursor = $state(0);
 	let activeRunStatus = $state<string | null>(null);
 	let activeConversationId = untrack(() => data.conversation.id);
+	let automaticTitleRequestedFor: string | null = null;
 	let conversationGeneration = 0;
 
 	const persisted = $derived(persistedThreadMessages(data.messages, hiddenIds));
@@ -119,6 +124,26 @@
 
 	function clearFailureOverlays() {
 		overlay = overlay.filter((m) => !m.failure);
+	}
+
+	async function requestFirstPromptTitle(conversationId: string) {
+		if (
+			automaticTitleRequestedFor === conversationId ||
+			!needsAutomaticConversationTitle(data.conversation.title)
+		) {
+			return;
+		}
+		automaticTitleRequestedFor = conversationId;
+		try {
+			const title = await requestAutomaticConversationTitle(
+				conversationId,
+				data.conversation.title
+			);
+			if (!title || conversationId !== activeConversationId) return;
+			await invalidateAll();
+		} catch (err) {
+			console.warn('NewsCraft automatic title request failed', err);
+		}
 	}
 
 	async function executeStream(
@@ -269,6 +294,7 @@
 					signal: controller.signal,
 					onMeta: (meta: { conversation_id: string; run_id?: string }) => {
 						noteStreamEstablished();
+						void requestFirstPromptTitle(meta.conversation_id);
 						if (meta.run_id) {
 							localRunId = meta.run_id;
 							activeRunId = localRunId;
@@ -702,6 +728,7 @@
 		const nextConversationId = data.conversation.id;
 		if (nextConversationId === activeConversationId) return;
 		activeConversationId = nextConversationId;
+		automaticTitleRequestedFor = null;
 		conversationGeneration += 1;
 		chat.setCancelHandler(null);
 		if (chat.abort && !chat.abort.signal.aborted) chat.abort.abort();

@@ -15,7 +15,11 @@ vi.mock('$lib/server/db/conversations', () => ({
 	setConversationTitleIfCurrent: mocks.setConversationTitleIfCurrent
 }));
 
-import { fallbackConversationTitle, generateConversationTitle } from './conversation-title';
+import {
+	fallbackConversationTitle,
+	generateConversationTitle,
+	sanitizeConversationTitle
+} from './conversation-title';
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -33,6 +37,18 @@ describe('conversation title fallback', () => {
 		expect(fallbackConversationTitle('   ')).toBe('New conversation');
 	});
 
+	it('removes request filler from the fallback title', () => {
+		expect(fallbackConversationTitle('Um, I would like us to work on auto titling NewsCraft threads.')).toBe(
+			'Auto titling NewsCraft threads'
+		);
+	});
+
+	it('accepts only one bounded title line from the model', () => {
+		expect(sanitizeConversationTitle('Title: **Ontario budget OCVO.**\nExtra explanation')).toBe(
+			'Ontario budget OCVO'
+		);
+	});
+
 	it('does not replace a title that a person changes during generation', async () => {
 		const base = {
 			id: 'conversation-1',
@@ -48,7 +64,8 @@ describe('conversation title fallback', () => {
 			.mockResolvedValueOnce(base)
 			.mockResolvedValueOnce({ ...base, title: 'Manual title' });
 		mocks.getMessages.mockResolvedValue([
-			{ id: 'message-1', role: 'user', content: 'Latest Ontario news', partial: 0 }
+			{ id: 'message-1', role: 'user', content: 'Latest Ontario news', partial: 0 },
+			{ id: 'message-2', role: 'assistant', content: '', partial: 1 }
 		]);
 		mocks.completion.mockResolvedValue({ choices: [{ message: { content: 'Ontario news update' } }] });
 		mocks.setConversationTitleIfCurrent
@@ -63,6 +80,14 @@ describe('conversation title fallback', () => {
 			'conversation-1',
 			'Latest Ontario news',
 			'Ontario news update'
+		);
+		expect(mocks.completion).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messages: expect.not.arrayContaining([
+					expect.objectContaining({ role: 'assistant', content: '' })
+				])
+			}),
+			expect.objectContaining({ sessionId: 'title-conversation-1' })
 		);
 	});
 
@@ -89,5 +114,39 @@ describe('conversation title fallback', () => {
 
 		expect(result).toMatchObject({ title: 'Editor title', generated: false });
 		expect(mocks.completion).not.toHaveBeenCalled();
+	});
+
+	it('replaces an untitled placeholder with a useful fallback before the model reply', async () => {
+		const base = {
+			id: 'conversation-3',
+			accountId: 'account-1',
+			orgId: null,
+			title: '(untitled)',
+			systemPrompt: null,
+			createdAt: 1,
+			updatedAt: 1,
+			pinned: 0
+		};
+		mocks.getConversation.mockResolvedValue(base);
+		mocks.getMessages.mockResolvedValue([
+			{ id: 'message-3', role: 'user', content: 'Plan election night coverage', partial: 0 }
+		]);
+		mocks.setConversationTitleIfCurrent
+			.mockResolvedValueOnce({ ...base, title: 'Plan election night coverage' })
+			.mockResolvedValueOnce({ ...base, title: 'Election night coverage plan' });
+		mocks.completion.mockResolvedValue({
+			choices: [{ message: { content: 'Election night coverage plan' } }]
+		});
+
+		const result = await generateConversationTitle('account-1', 'conversation-3', { force: true });
+
+		expect(mocks.setConversationTitleIfCurrent).toHaveBeenNthCalledWith(
+			1,
+			'account-1',
+			'conversation-3',
+			'(untitled)',
+			'Plan election night coverage'
+		);
+		expect(result).toMatchObject({ title: 'Election night coverage plan', generated: true });
 	});
 });
