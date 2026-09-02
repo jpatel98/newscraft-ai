@@ -98,10 +98,12 @@
 	let activeRunStatus = $state<string | null>(null);
 	let activeConversationId = untrack(() => data.conversation.id);
 	let automaticTitleRequestedFor: string | null = null;
+	let automaticTitle = $state<string | null>(null);
 	let conversationGeneration = 0;
 
 	const persisted = $derived(persistedThreadMessages(data.messages, hiddenIds));
 	const messages = $derived([...persisted, ...overlay]);
+	const conversationTitle = $derived(automaticTitle ?? data.conversation.title);
 
 	const topic = $derived.by(() => {
 		const n = messages.length;
@@ -140,7 +142,11 @@
 				data.conversation.title
 			);
 			if (!title || conversationId !== activeConversationId) return;
-			await invalidateAll();
+			// Keep the generated title local while this run is active. Reloading the
+			// page here would merge the newly persisted turn with its optimistic
+			// overlay and render both copies. The stream finalizer already reloads
+			// the page after it removes the overlay.
+			automaticTitle = title;
 		} catch (err) {
 			console.warn('NewsCraft automatic title request failed', err);
 		}
@@ -729,6 +735,7 @@
 		if (nextConversationId === activeConversationId) return;
 		activeConversationId = nextConversationId;
 		automaticTitleRequestedFor = null;
+		automaticTitle = null;
 		conversationGeneration += 1;
 		chat.setCancelHandler(null);
 		if (chat.abort && !chat.abort.signal.aborted) chat.abort.abort();
@@ -765,13 +772,13 @@
 </script>
 
 <svelte:head>
-	<title>{data.conversation.title || 'Untitled thread'} · NewsCraft</title>
+	<title>{conversationTitle || 'Untitled thread'} · NewsCraft</title>
 </svelte:head>
 
 <header class="pane__header">
 	<div>
 		<div class="pane__header__title">
-			{data.conversation.title || 'Untitled thread'}
+			{conversationTitle || 'Untitled thread'}
 		</div>
 		<div class="pane__header__topic">{topic}</div>
 	</div>

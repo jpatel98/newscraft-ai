@@ -22,10 +22,16 @@ describe('chat failure retry UI', () => {
 		);
 	});
 
-	it('requests an automatic title when the durable run confirms the saved prompt', () => {
+	it('updates the automatic title without reloading persisted messages during the active stream', () => {
 		expect(pageSource).toContain('async function requestFirstPromptTitle(conversationId: string)');
 		expect(pageSource).toContain('void requestFirstPromptTitle(meta.conversation_id);');
-		expect(pageSource).toContain('await invalidateAll();');
+		const titleStart = pageSource.indexOf('async function requestFirstPromptTitle');
+		const titleEnd = pageSource.indexOf('\n\tasync function executeStream', titleStart);
+		const titleSource = pageSource.slice(titleStart, titleEnd);
+		expect(titleSource).toContain('automaticTitle = title;');
+		expect(titleSource).not.toContain('invalidateAll');
+		expect(pageSource).toContain("const conversationTitle = $derived(automaticTitle ?? data.conversation.title);");
+		expect(pageSource).toContain("<title>{conversationTitle || 'Untitled thread'} · NewsCraft</title>");
 	});
 	it('renders safe stream failures without raw thrown details', () => {
 		expect(pageSource).toContain('const message = streamFailureMessage(e);');
