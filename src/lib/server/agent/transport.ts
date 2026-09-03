@@ -48,6 +48,7 @@ export interface HermesRequestOptions {
 	traceId?: string;
 	recordSources?: boolean;
 	requireWebExtraction?: boolean;
+	enableWebExtraction?: boolean;
 }
 
 interface RawSseFrame {
@@ -920,6 +921,7 @@ export async function streamChatCompletion(
 	const traceId = traceHeader(opts.traceId) || randomUUID();
 	const runId = randomUUID();
 	const requireWebExtraction = opts.requireWebExtraction === true;
+	const enableWebExtraction = opts.enableWebExtraction === true;
 	const health = await gatewayHealth();
 	if (!health.ok) {
 		if (requireWebExtraction) throw webExtractionReadinessError(health);
@@ -933,7 +935,7 @@ export async function streamChatCompletion(
 		sessionId,
 		runId,
 		opts.recordSources !== false,
-		requireWebExtraction,
+		requireWebExtraction || (enableWebExtraction && health.webExtractionReady === true),
 		[],
 		traceId
 	);

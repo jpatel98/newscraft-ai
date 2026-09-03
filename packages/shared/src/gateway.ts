@@ -268,6 +268,8 @@ export interface ConversationCurrentTurn {
 	operation: ConversationOperation;
 	/** Routes this turn directly through research before synthesis. */
 	researchRequired: boolean;
+	/** Makes verified research available without requiring it for a complete source answer. */
+	researchAllowed?: boolean;
 	/** Current/latest results must be ordered newest-first and pass freshness checks. */
 	freshness?: 'current';
 	/** Structured control-plane contract for this authoritative latest turn. */

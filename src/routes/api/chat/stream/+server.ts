@@ -98,6 +98,7 @@ import {
 import {
 	NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL,
 	NEWSCRAFT_OCVO_WRITING_GUIDE,
+	NEWSCRAFT_STANDALONE_OUTPUT_GUIDE,
 	resolveConversationSystemPrompt
 } from '$lib/server/agent/prompts';
 import {
@@ -132,12 +133,12 @@ interface Body {
 const MAX_REQUEST_BYTES = 950 * 1024;
 const OUTPUT_ACTION_PROMPTS: Record<NonNullable<Body['output_action']>, string> = {
 	producer_brief:
-		'Turn the previous answer into a concise producer brief. Preserve confirmed facts, uncertainty, and every citation marker. Do not search for new information.',
+		`${NEWSCRAFT_STANDALONE_OUTPUT_GUIDE}\n\nWrite a concise producer brief. Put the central news and essential background first. Then give the verified details, impact, response, confirmed next step, and unresolved editorial checks.`,
 	thirty_second_script: NEWSCRAFT_OCVO_WRITING_GUIDE,
 	interview_questions:
-		'Using only the previous answer, draft focused interview questions that probe the known facts, gaps, and disagreements. Keep relevant citation markers. Do not search for new information.',
+		`${NEWSCRAFT_STANDALONE_OUTPUT_GUIDE}\n\nDraft focused interview questions. Start with enough verified context to identify the subject and purpose of the interview. Probe the known facts, material gaps, disagreements, accountability, impact, and next steps.`,
 	copy_with_citations:
-		'Rewrite the previous answer as clean publication-ready copy with its existing citation markers intact. Do not add facts or search for new information.'
+		`${NEWSCRAFT_STANDALONE_OUTPUT_GUIDE}\n\nWrite clean publication-ready copy. Lead with the central news, establish the essential background, and keep each citation marker with the claim it supports.`
 };
 const OUTPUT_ACTION_VISIBLE_REQUESTS: Record<NonNullable<Body['output_action']>, string> = {
 	producer_brief: 'Create a producer brief from this answer.',
@@ -1141,6 +1142,9 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			}
 		);
 	}
+	const researchToolsEnabled =
+		conversationContext.currentTurn?.researchRequired === true ||
+		conversationContext.currentTurn?.researchAllowed === true;
 
 	if (durableRequested) {
 		const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);
@@ -1168,7 +1172,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			candidateRunId,
 			{
 				recordSources: true,
-				webExtractConfigured: conversationContext.currentTurn?.researchRequired === true,
+				webExtractConfigured: researchToolsEnabled,
 				seededCitations: inheritedMetadata?.citations ?? [],
 				traceId
 			}
@@ -1279,7 +1283,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					accountId,
 					sessionId,
 					traceId,
-					requireWebExtraction: conversationContext.currentTurn?.researchRequired === true
+					requireWebExtraction: conversationContext.currentTurn?.researchRequired === true,
+					enableWebExtraction: conversationContext.currentTurn?.researchAllowed === true
 				}
 			),
 			CHAT_STREAM_MAX_MS,

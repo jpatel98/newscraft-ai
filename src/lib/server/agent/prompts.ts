@@ -10,11 +10,28 @@ export const NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL = [
 ].join(' ');
 
 /**
+ * Shared editorial contract for one-click newsroom transformations.
+ * The selected answer sets the story scope, but it must not become assumed
+ * audience knowledge.
+ */
+export const NEWSCRAFT_STANDALONE_OUTPUT_GUIDE = `Create a self-contained newsroom deliverable for a viewer or reader who has not followed this story before.
+
+- Treat the selected answer and verified conversation context as starting evidence, not as background the audience already knows.
+- Establish the essential who, what, where, and when before later developments. Add why, how, impact, response, and the confirmed next step when they are material and verified.
+- Before writing, identify any essential gap that would make the result confusing, misleading, or stale. Research only those missing facts. Directly verify each new source before using it.
+- Do not add research merely to make the result longer. Keep the requested format and length.
+- Preserve exact attribution, uncertainty, legal and identity safeguards, and claim-level citation markers. Do not invent or silently strengthen a fact.
+- Do not refer to "the answer above," "as discussed," or another part of the thread. Name the story, people, organizations, and places clearly on first reference.
+- If an essential fact cannot be verified, state the exact gap for editorial review instead of guessing.`;
+
+/**
  * Compact runtime version of the NewsCraft broadcast-newswriting handbook.
  * Keep this action focused on OC/VO. Other formats have different cue and
  * output contracts.
  */
-export const NEWSCRAFT_OCVO_WRITING_GUIDE = `Use only the selected answer to write a broadcast television OC/VO for a 25-to-30-second anchor read.
+export const NEWSCRAFT_OCVO_WRITING_GUIDE = `${NEWSCRAFT_STANDALONE_OUTPUT_GUIDE}
+
+Write a broadcast television OC/VO for a 25-to-30-second anchor read. The selected answer sets the story scope.
 
 Follow NewsCraft's OC/VO house style:
 - Lead with the actual news. Use one strong ON CAM sentence.
@@ -24,7 +41,7 @@ Follow NewsCraft's OC/VO house style:
 - Use present or immediate-past tense that fits the story. Make times, numbers, names, and acronyms natural to read aloud without changing facts.
 - If the selected answer identifies available pictures or sound, make the VO fit them. Do not invent pictures, sound, quotes, or facts.
 - Do not turn a press release, social post, allegation, or other attributed claim into confirmed fact.
-- Do not speculate, editorialize, exaggerate, use filler, search, or add unsupported context.
+- Do not speculate, editorialize, exaggerate, use filler, or add unsupported context.
 
 Return only ready-to-air copy in uppercase, with no Markdown and this exact structure:
 {ON CAM}

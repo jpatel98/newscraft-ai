@@ -548,6 +548,47 @@ describe('Hermes chat transport', () => {
 		expect(requestBody.forwardedProps.webExtractConfigured).toBe(true);
 	});
 
+	it('enables optional gap research when retrieval is ready', async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(isolationReadyResponse())
+			.mockResolvedValueOnce(aguiStream({ type: 'RUN_FINISHED' }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await streamChatCompletion(
+			{ messages: [{ role: 'user', content: 'Write a standalone producer brief.' }] },
+			{ accountId: 'account-a', enableWebExtraction: true }
+		);
+		const requestBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as {
+			forwardedProps: { webExtractConfigured: boolean };
+		};
+		expect(requestBody.forwardedProps.webExtractConfigured).toBe(true);
+	});
+
+	it('keeps optional transformations available when retrieval is not ready', async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				isolationReadyResponse(
+					{ webExtraction: { configured: false } },
+					{ webExtract: { configured: false } }
+				)
+			)
+			.mockResolvedValueOnce(aguiStream({ type: 'RUN_FINISHED' }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(
+			streamChatCompletion(
+				{ messages: [{ role: 'user', content: 'Write a standalone producer brief.' }] },
+				{ accountId: 'account-a', enableWebExtraction: true }
+			)
+		).resolves.toBeInstanceOf(Response);
+		const requestBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as {
+			forwardedProps: { webExtractConfigured: boolean };
+		};
+		expect(requestBody.forwardedProps.webExtractConfigured).toBe(false);
+	});
+
 	it('seeds attached document pages as inspectable citations', async () => {
 		const fetchMock = vi.fn().mockImplementation((input: unknown) =>
 			String(input).endsWith('/ready') ? isolationReadyResponse() : aguiStream({ type: 'RUN_FINISHED' })

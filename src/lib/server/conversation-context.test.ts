@@ -659,10 +659,17 @@ describe('conversation context builder', () => {
 		});
 
 		expect(context.intent).toBe('transform');
+		expect(context.currentTurn).toMatchObject({
+			operation: 'transform',
+			researchRequired: false,
+			researchAllowed: true
+		});
+		expect(context.currentTurn?.researchContract?.subject).toContain('Toronto transit update');
 		expect(context.sourceMessageId).toBe('m2');
 		expect(context.lastSourceBackedAnswer?.content).toBe(source);
 		expect(context.lastSourceBackedAnswer?.citations.map((item) => item.citationNumber)).toEqual([2]);
 		const fallback = conversationContextCompatibilityMessage(context);
+		expect(fallback).toContain('Research allowed for essential gaps: yes.');
 		expect(fallback).toContain(source);
 		expect(fallback).toContain('https://www.ttc.ca/service-advisories');
 		expect(fallback).not.toContain('heat warning');

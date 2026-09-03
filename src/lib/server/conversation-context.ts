@@ -172,6 +172,9 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 	// there is no intermediate proposal/approval state to resolve.
 	const resolvedRequest = currentRequest;
 	const researchRequired = requestNeedsResearch(resolvedRequest, diagnosticBound);
+	// A one-click transformation can use verified research to fill an essential
+	// gap, but a complete source answer must not trigger unnecessary research.
+	const researchAllowed = Boolean(input.outputAction);
 	const inheritsPriorState = diagnosticRequested
 		? diagnosticBound
 		: Boolean(input.sourceMessageId) || referencesPriorConversation(currentRequest, intent);
@@ -198,6 +201,7 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 			})
 			: undefined,
 		preserveBaseSubject: inheritsPriorState,
+		preserveBaseContract: Boolean(input.outputAction),
 		homeMarket: input.homeMarket,
 		timezone: input.timezone
 	});
@@ -210,8 +214,9 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 				resolvedRequest,
 				operation,
 				researchRequired,
+				...(researchAllowed ? { researchAllowed: true } : {}),
 				...(isCurrentResearchRequest(resolvedRequest) ? { freshness: 'current' as const } : {}),
-				...(researchRequired ? { researchContract } : {})
+				...(researchRequired || researchAllowed ? { researchContract } : {})
 		},
 		...(recentTurns.length ? { recentTurns } : {}),
 		...(topicPrompt
@@ -246,7 +251,10 @@ export function conversationContextCompatibilityMessage(context: ConversationCon
 					...(context.currentTurn.resolvedRequest !== context.currentTurn.content
 						? [`Resolved task: ${context.currentTurn.resolvedRequest}`]
 						: []),
-					`Research required: ${context.currentTurn.researchRequired ? 'yes' : 'no'}.`
+					`Research required: ${context.currentTurn.researchRequired ? 'yes' : 'no'}.`,
+					...(context.currentTurn.researchAllowed
+						? ['Research allowed for essential gaps: yes.']
+						: [])
 				]
 			: []),
 		...(topic
@@ -455,9 +463,13 @@ function buildResearchContract(input: {
 	baseResearchPrompt: string;
 	baseContract?: ResearchRequestContract;
 	preserveBaseSubject: boolean;
+	preserveBaseContract?: boolean;
 	homeMarket?: string;
 	timezone?: string;
 }): ResearchRequestContract {
+	// An output-action request changes the format, not the assignment. Keep the
+	// source answer's research scope so any gap research stays on the same story.
+	if (input.baseContract && input.preserveBaseContract) return input.baseContract;
 	if (input.baseContract && input.preserveBaseSubject) {
 		return mergeLatestResearchContract(input.baseContract, input.currentRequest, {
 			homeMarket: input.homeMarket,
