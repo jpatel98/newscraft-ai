@@ -1,8 +1,10 @@
 import type { LayoutServerLoad } from './$types';
 import { listConversations } from '$lib/server/db/conversations';
+import { CONVERSATIONS_DEPENDENCY } from '$lib/utils/load-dependencies';
 
-export const load: LayoutServerLoad = async ({ locals }) => {
+export const load: LayoutServerLoad = async ({ locals, depends }) => {
 	if (!locals.user) return { user: null, conversations: [], isMarketingHost: locals.isMarketingHost };
+	depends(CONVERSATIONS_DEPENDENCY);
 	return {
 		user: locals.user,
 		isMarketingHost: locals.isMarketingHost,

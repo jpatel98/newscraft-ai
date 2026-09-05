@@ -4,7 +4,7 @@
 
 	import { onMount, tick } from 'svelte';
 	import { page } from '$app/state';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto, invalidate, invalidateAll } from '$app/navigation';
 	import PanelLeft from 'lucide-svelte/icons/panel-left';
 	import SquarePen from 'lucide-svelte/icons/square-pen';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
@@ -19,6 +19,7 @@
 	import { groupByDate } from '$lib/utils/group-by-date';
 	import { formatRelativeTime } from '$lib/utils/time';
 	import { matchesAllTokens, searchTokens } from '$lib/utils/search-dedupe';
+	import { CONVERSATIONS_DEPENDENCY } from '$lib/utils/load-dependencies';
 
 	interface SidebarConvo {
 		id: string;
@@ -245,7 +246,7 @@
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ pinned: next })
 		});
-		await invalidateAll();
+		await invalidate(CONVERSATIONS_DEPENDENCY);
 	}
 
 	async function startRename(c: SidebarConvo) {
@@ -269,7 +270,7 @@
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ title: next })
 		});
-		await invalidateAll();
+		await invalidate(CONVERSATIONS_DEPENDENCY);
 	}
 
 	function canRetryTitle(c: SidebarConvo): boolean {

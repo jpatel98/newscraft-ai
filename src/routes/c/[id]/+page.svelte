@@ -37,6 +37,7 @@
 		DocumentUploadControls
 	} from '$lib/components/journalist-ui';
 	import { activeHTMLElement, focusDialog, restoreFocus, trapTabKey } from '$lib/utils/focus';
+	import { selectConversationDisplayTitle } from '$lib/utils/conversation-title-display';
 	import { SerialTaskQueue } from '$lib/utils/serial-task-queue';
 	import {
 		needsAutomaticConversationTitle,
@@ -103,7 +104,12 @@
 
 	const persisted = $derived(persistedThreadMessages(data.messages, hiddenIds));
 	const messages = $derived([...persisted, ...overlay]);
-	const conversationTitle = $derived(automaticTitle ?? data.conversation.title);
+	const sidebarConversationTitle = $derived(
+		data.conversations.find((conversation) => conversation.id === data.conversation.id)?.title
+	);
+	const conversationTitle = $derived(
+		selectConversationDisplayTitle(data.conversation.title, sidebarConversationTitle, automaticTitle)
+	);
 
 	const topic = $derived.by(() => {
 		const n = messages.length;
