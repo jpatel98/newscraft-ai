@@ -4,6 +4,8 @@ import { conversationDocumentPages, conversationDocuments } from '$lib/server/db
 import type {
 	ConversationDocumentPageRow,
 	ConversationDocumentRow,
+	DocumentPageKey,
+	DocumentPageStats,
 	DocumentRepository,
 	RankedDocumentPage
 } from './types';
@@ -140,21 +142,84 @@ export function createPostgresDocumentRepository(): DocumentRepository {
 			});
 		},
 
+		async getPageStats(documentIds) {
+			const ids = uniqueDocumentIds(documentIds);
+			if (ids.length === 0) return [];
+			const idValues = sql.join(ids.map((id) => sql`${id}`), sql`, `);
+			const result = await db.execute(sql`
+				SELECT
+					document_id AS "documentId",
+					count(*)::int AS "pageCount",
+					coalesce(sum(char_count), 0)::int AS "totalCharacters"
+				FROM conversation_document_pages
+				WHERE document_id IN (${idValues})
+				GROUP BY document_id
+				ORDER BY document_id ASC
+			`);
+			return Array.from(result as Iterable<DocumentPageStats>);
+		},
+
 		async listPages(documentIds) {
-			if (documentIds.length === 0) return [];
+			const ids = uniqueDocumentIds(documentIds);
+			if (ids.length === 0) return [];
 			return (await db
 				.select()
 				.from(conversationDocumentPages)
-				.where(inArray(conversationDocumentPages.documentId, Array.from(new Set(documentIds))))
+				.where(inArray(conversationDocumentPages.documentId, ids))
 				.orderBy(asc(conversationDocumentPages.documentId), asc(conversationDocumentPages.pageNumber))) as ConversationDocumentPageRow[];
 		},
 
+		async listPagesByKeys(documentIds, pageKeys) {
+			const ids = uniqueDocumentIds(documentIds);
+			if (ids.length === 0 || pageKeys.length === 0) return [];
+			const allowedIds = new Set(ids);
+			const keys = Array.from(
+				new Map(
+					pageKeys
+						.filter(
+							(key) =>
+								allowedIds.has(key.documentId) &&
+								Number.isInteger(key.pageNumber) &&
+								key.pageNumber > 0
+						)
+						.map((key) => [`${key.documentId}:${key.pageNumber}`, key] as const)
+				)
+				.values()
+			);
+			if (keys.length === 0) return [];
+			const keyWhere = or(
+				...keys.map((key) =>
+					and(
+						eq(conversationDocumentPages.documentId, key.documentId),
+						eq(conversationDocumentPages.pageNumber, key.pageNumber)
+					)
+				)
+			);
+			return (await db
+				.select()
+				.from(conversationDocumentPages)
+				.where(and(inArray(conversationDocumentPages.documentId, ids), keyWhere))
+				.orderBy(asc(conversationDocumentPages.documentId), asc(conversationDocumentPages.pageNumber))) as ConversationDocumentPageRow[];
+		},
+
+		async listPagesPrefix(documentIds, limit) {
+			const ids = uniqueDocumentIds(documentIds);
+			const boundedLimit = Math.floor(limit);
+			if (ids.length === 0 || boundedLimit < 1) return [];
+			return (await db
+				.select()
+				.from(conversationDocumentPages)
+				.where(inArray(conversationDocumentPages.documentId, ids))
+				.orderBy(asc(conversationDocumentPages.documentId), asc(conversationDocumentPages.pageNumber))
+				.limit(boundedLimit)) as ConversationDocumentPageRow[];
+		},
+
 		async searchPages(documentIds, query, limit) {
-			const ids = Array.from(new Set(documentIds));
+			const ids = uniqueDocumentIds(documentIds);
 			if (ids.length === 0 || limit < 1) return [];
 			const normalizedQuery = query.trim();
 			if (!normalizedQuery) {
-				return (await this.listPages(ids)).slice(0, limit).map((page) => ({ ...page, rank: 0 }));
+				return (await this.listPagesPrefix(ids, limit)).map((page) => ({ ...page, rank: 0 }));
 			}
 			const idValues = sql.join(ids.map((id) => sql`${id}`), sql`, `);
 			const result = await db.execute(sql`
@@ -215,6 +280,10 @@ export function createPostgresDocumentRepository(): DocumentRepository {
 			await db.delete(conversationDocuments).where(eq(conversationDocuments.accountId, accountId));
 		}
 	};
+}
+
+function uniqueDocumentIds(documentIds: string[]): string[] {
+	return Array.from(new Set(documentIds));
 }
 
 function ownerWhere(accountId: string, conversationId: string, documentId: string) {

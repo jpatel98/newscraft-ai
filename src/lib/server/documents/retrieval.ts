@@ -11,12 +11,15 @@ import type {
 	RankedDocumentPage
 } from './types';
 
+export type DocumentContextSelectionMode = 'auto' | 'full' | 'ranked';
+
 export function selectDocumentContext(input: {
 	documents: ConversationDocumentRow[];
 	pages: ConversationDocumentPageRow[];
 	rankedPages: RankedDocumentPage[];
 	charLimit?: number;
 	fullDocumentPageLimit?: number;
+	selectionMode?: DocumentContextSelectionMode;
 }): ConversationDocumentContext {
 	const charLimit = input.charLimit ?? DOCUMENT_CONTEXT_CHAR_LIMIT;
 	const fullDocumentPageLimit = input.fullDocumentPageLimit ?? FULL_DOCUMENT_PAGE_LIMIT;
@@ -24,6 +27,12 @@ export function selectDocumentContext(input: {
 	const pages = [...input.pages]
 		.filter((page) => documents.has(page.documentId))
 		.sort(pageOrder);
+	if (input.selectionMode === 'full') {
+		return buildContext(pages, documents, charLimit, true);
+	}
+	if (input.selectionMode === 'ranked') {
+		return selectRankedContext(pages, documents, input.rankedPages, charLimit);
+	}
 	const allTextLength = pages.reduce((sum, page) => sum + page.pageText.length, 0);
 	const storedPageCounts = new Map<string, number>();
 	for (const page of pages) {
@@ -38,9 +47,18 @@ export function selectDocumentContext(input: {
 		return buildContext(pages, documents, charLimit, true);
 	}
 
+	return selectRankedContext(pages, documents, input.rankedPages, charLimit);
+}
+
+function selectRankedContext(
+	pages: ConversationDocumentPageRow[],
+	documents: Map<string, ConversationDocumentRow>,
+	rankedPages: RankedDocumentPage[],
+	charLimit: number
+): ConversationDocumentContext {
 	const byKey = new Map(pages.map((page) => [pageKey(page.documentId, page.pageNumber), page]));
-	const ranked = input.rankedPages.length > 0
-		? [...input.rankedPages]
+	const ranked = rankedPages.length > 0
+		? [...rankedPages]
 				.sort((a, b) => b.rank - a.rank || pageOrder(a, b))
 				.slice(0, DOCUMENT_CONTEXT_MATCH_LIMIT)
 		: pages.slice(0, 6).map((page) => ({ ...page, rank: 0 }));

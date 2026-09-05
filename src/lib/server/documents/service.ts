@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { newId } from '$lib/utils/id';
 import {
+	DOCUMENT_CONTEXT_CHAR_LIMIT,
 	DOCUMENT_CONTEXT_MATCH_LIMIT,
+	FULL_DOCUMENT_PAGE_LIMIT,
 	MAX_PDF_BYTES,
 	MAX_PDF_PAGES,
 	SIGNED_DOWNLOAD_TTL_SECONDS
@@ -12,6 +14,7 @@ import { selectDocumentContext } from './retrieval';
 import type {
 	ConversationDocumentContext,
 	ConversationDocumentRow,
+	DocumentPageKey,
 	DocumentRepository,
 	DocumentStorage,
 	PdfExtractor,
@@ -222,13 +225,50 @@ export class ConversationDocumentService {
 			return { pages: [], totalCharacters: 0, usedFullDocuments: false };
 		}
 		const documentIds = documents.map((document) => document.id);
-		const pages = await this.repository.listPages(documentIds);
+		const pageStats = await this.repository.getPageStats(documentIds);
+		const statsByDocument = new Map(pageStats.map((stats) => [stats.documentId, stats]));
+		const everyDocumentFits = documents.every(
+			(document) =>
+				(document.pageCount ?? statsByDocument.get(document.id)?.pageCount ?? 0) <=
+					FULL_DOCUMENT_PAGE_LIMIT
+		);
+		const totalCharacters = documents.reduce(
+			(sum, document) => sum + (statsByDocument.get(document.id)?.totalCharacters ?? 0),
+			0
+		);
+
+		if (everyDocumentFits && totalCharacters <= DOCUMENT_CONTEXT_CHAR_LIMIT) {
+			const pages = await this.repository.listPages(documentIds);
+			return selectDocumentContext({
+				documents,
+				pages,
+				rankedPages: [],
+				selectionMode: 'full'
+			});
+		}
+
 		const rankedPages = await this.repository.searchPages(
 			documentIds,
 			input.query,
 			DOCUMENT_CONTEXT_MATCH_LIMIT
 		);
-		return selectDocumentContext({ documents, pages, rankedPages });
+		const seedPages =
+			rankedPages.length > 0
+				? rankedPages
+				: (await this.repository.listPagesPrefix(documentIds, DOCUMENT_CONTEXT_MATCH_LIMIT)).map(
+						(page) => ({ ...page, rank: 0 })
+					);
+		const readyDocumentIds = new Set(documentIds);
+		const scopedSeedPages = seedPages.filter((page) => readyDocumentIds.has(page.documentId));
+		const pageCounts = new Map(pageStats.map((stats) => [stats.documentId, stats.pageCount]));
+		const pageKeys = contextPageKeys(scopedSeedPages, pageCounts);
+		const pages = await this.repository.listPagesByKeys(documentIds, pageKeys);
+		return selectDocumentContext({
+			documents,
+			pages,
+			rankedPages: scopedSeedPages,
+			selectionMode: 'ranked'
+		});
 	}
 
 	async verifyCapability(): Promise<void> {
@@ -243,6 +283,23 @@ export class ConversationDocumentService {
 		if (!document) throw new DocumentError(404, 'document_not_found', 'PDF not found.');
 		return document;
 	}
+}
+
+function contextPageKeys(
+	pages: Array<{ documentId: string; pageNumber: number }>,
+	pageCounts: Map<string, number>
+): DocumentPageKey[] {
+	const keys = new Map<string, DocumentPageKey>();
+	for (const page of pages.slice(0, DOCUMENT_CONTEXT_MATCH_LIMIT)) {
+		for (const pageNumber of [page.pageNumber, page.pageNumber - 1, page.pageNumber + 1]) {
+			if (pageNumber < 1) continue;
+			const pageCount = pageCounts.get(page.documentId);
+			if (pageCount !== undefined && pageNumber > pageCount) continue;
+			const key = `${page.documentId}:${pageNumber}`;
+			if (!keys.has(key)) keys.set(key, { documentId: page.documentId, pageNumber });
+		}
+	}
+	return Array.from(keys.values());
 }
 
 function publicDocument(document: ConversationDocumentRow): PublicConversationDocument {

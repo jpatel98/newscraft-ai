@@ -42,6 +42,17 @@ export interface ConversationDocumentPageRow {
 	updatedAt: number;
 }
 
+export interface DocumentPageKey {
+	documentId: string;
+	pageNumber: number;
+}
+
+export interface DocumentPageStats {
+	documentId: string;
+	pageCount: number;
+	totalCharacters: number;
+}
+
 export interface RankedDocumentPage extends ConversationDocumentPageRow {
 	rank: number;
 }
@@ -108,7 +119,13 @@ export interface DocumentRepository {
 		pages: string[],
 		now: number
 	): Promise<ConversationDocumentRow>;
+	getPageStats(documentIds: string[]): Promise<DocumentPageStats[]>;
 	listPages(documentIds: string[]): Promise<ConversationDocumentPageRow[]>;
+	listPagesByKeys(
+		documentIds: string[],
+		pageKeys: DocumentPageKey[]
+	): Promise<ConversationDocumentPageRow[]>;
+	listPagesPrefix(documentIds: string[], limit: number): Promise<ConversationDocumentPageRow[]>;
 	searchPages(documentIds: string[], query: string, limit: number): Promise<RankedDocumentPage[]>;
 	listStoragePathsForConversation(accountId: string, conversationId: string): Promise<string[]>;
 	listStoragePathsForAccount(accountId: string): Promise<string[]>;
