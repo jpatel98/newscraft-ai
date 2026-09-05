@@ -246,6 +246,18 @@ describe('document context query flow', () => {
 				ranks: [['missing-large:13', 1]] as Array<[string, number]>
 			},
 			{
+				name: 'stale low page-count metadata',
+				documents: [document('stale-low', { pageCount: 1 })],
+				pages: pagesFor('stale-low', 30),
+				query: 'needle'
+			},
+			{
+				name: 'stale high page-count metadata',
+				documents: [document('stale-high', { pageCount: 40 })],
+				pages: pagesFor('stale-high', 3),
+				query: 'missing'
+			},
+			{
 				name: 'empty pages',
 				documents: [document('empty-pages', { pageCount: 2 })],
 				pages: [page('empty-pages', 1, ''), page('empty-pages', 2, 'visible')],
