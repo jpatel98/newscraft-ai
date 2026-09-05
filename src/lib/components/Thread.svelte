@@ -14,6 +14,8 @@
 	import SourceDisclosure from './SourceDisclosure.svelte';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { formatShortTime } from '$lib/utils/time';
+	import { tick } from 'svelte';
+	import type { HistoryGap } from '$lib/client/message-history';
 	import { durableRunPresentation } from '$lib/utils/durable-run-presentation';
 	import { parseToolMetadata, sourceReceiptsForAnswer } from '$lib/utils/tool-metadata';
 	import {
@@ -34,6 +36,20 @@
 		onRetryPersisted?: () => void;
 		onUseAnswer?: (action: AnswerUseAction, messageId: string) => Promise<void> | void;
 		onExportAnswer?: (messageId: string, url: string) => Promise<void> | void;
+		history?: {
+			hasOlder: boolean;
+			loading: boolean;
+			error: string | null;
+			status?: string | null;
+			gaps: HistoryGap[];
+			loadingGapIds?: string[];
+		};
+		historyMutation?: { kind: 'prepend' | 'merge'; version: number };
+		latestAssistantId?: string | null;
+		latestReadyAssistantId?: string | null;
+		onLoadOlder?: () => Promise<void> | void;
+		onRetryHistory?: () => Promise<void> | void;
+		onLoadGap?: (gap: HistoryGap) => Promise<void> | void;
 	}
 	let {
 		messages,
@@ -45,7 +61,14 @@
 		onRetryFailure,
 		onRetryPersisted,
 		onUseAnswer,
-		onExportAnswer
+		onExportAnswer,
+		history = { hasOlder: false, loading: false, error: null, status: null, gaps: [], loadingGapIds: [] },
+		historyMutation = { kind: 'merge', version: 0 },
+		latestAssistantId = null,
+		latestReadyAssistantId = null,
+		onLoadOlder,
+		onRetryHistory,
+		onLoadGap
 	}: Props = $props();
 
 	let scroller: HTMLDivElement | undefined = $state();
@@ -61,6 +84,9 @@
 	// Stay glued to the bottom while streaming, but only when the user hasn't
 	// scrolled up to read history. Default true so the first stream tail-follows.
 	let stickToBottom = $state(true);
+	let pendingHistoryAnchor = $state<{ id: string; offset: number } | null>(null);
+	let seenHistoryMutation = $state(0);
+	let restoredHistoryMutation = $state(0);
 
 	const THREAD_CONTAINMENT_THRESHOLD = 80;
 	const UNCONTAINED_TAIL_COUNT = 12;
@@ -100,6 +126,46 @@
 		stickToBottom = isNearBottom();
 	}
 
+	function captureHistoryAnchor(): { id: string; offset: number } | null {
+		if (!scroller) return null;
+		const scrollerRect = scroller.getBoundingClientRect();
+		const candidates = Array.from(scroller.querySelectorAll<HTMLElement>('[data-message-id]'));
+		for (const element of candidates) {
+			const rect = element.getBoundingClientRect();
+			if (rect.bottom >= scrollerRect.top) {
+				return { id: element.dataset.messageId || '', offset: rect.top - scrollerRect.top };
+			}
+		}
+		return null;
+	}
+
+	function restoreHistoryAnchor(anchor: { id: string; offset: number } | null): void {
+		if (!anchor?.id || !scroller) return;
+		const element = scroller.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(anchor.id)}"]`);
+		if (!element) return;
+		const scrollerRect = scroller.getBoundingClientRect();
+		const rect = element.getBoundingClientRect();
+		scroller.scrollTop += rect.top - scrollerRect.top - anchor.offset;
+	}
+
+	async function requestOlder(): Promise<void> {
+		if (!onLoadOlder || history.loading) return;
+		const focused = document.activeElement as HTMLElement | null;
+		await onLoadOlder();
+		await tick();
+		if (focused?.isConnected) focused.focus();
+		else scroller?.focus();
+	}
+
+	async function requestGap(gap: HistoryGap): Promise<void> {
+		if (!onLoadGap || history.loadingGapIds?.includes(gap.id)) return;
+		const focused = document.activeElement as HTMLElement | null;
+		await onLoadGap(gap);
+		await tick();
+		if (focused?.isConnected) focused.focus();
+		else scroller?.focus();
+	}
+
 	function messageIdFromHash(): string | null {
 		if (typeof location === 'undefined') return null;
 		const match = location.hash.match(/^#m=(.+)$/);
@@ -129,6 +195,27 @@
 			hashMessageId = null;
 			stickToBottom = true;
 		}
+	});
+
+	// Capture the anchor before a prepend changes the DOM. The parent increments
+	// this version in the same update as its message merge, so this is the
+	// user's current viewport, not the position from request start.
+	$effect.pre(() => {
+		const version = historyMutation?.version ?? 0;
+		if (version === seenHistoryMutation) return;
+		seenHistoryMutation = version;
+		pendingHistoryAnchor = historyMutation?.kind === 'prepend' ? captureHistoryAnchor() : null;
+	});
+
+	$effect(() => {
+		const version = historyMutation?.version ?? 0;
+		if (version === restoredHistoryMutation) return;
+		restoredHistoryMutation = version;
+		if (historyMutation?.kind !== 'prepend' || !pendingHistoryAnchor) return;
+		void tick().then(() => {
+			restoreHistoryAnchor(pendingHistoryAnchor);
+			pendingHistoryAnchor = null;
+		});
 	});
 
 	$effect(() => {
@@ -172,13 +259,18 @@
 		return formatShortTime(ts);
 	}
 
-	const lastAssistantId = $derived.by(() => {
+	const renderedLastAssistantId = $derived.by(() => {
 		for (let i = messages.length - 1; i >= 0; i--) {
 			if (messages[i].role === 'assistant') return messages[i].id;
 		}
 		return null;
 	});
+	const lastAssistantId = $derived(latestAssistantId ?? renderedLastAssistantId);
 	const latestReadyAssistant = $derived.by(() => {
+		if (latestReadyAssistantId) {
+			const target = messages.find((message) => message.id === latestReadyAssistantId);
+			return target && target.role === 'assistant' && !target.partial && !target.failure ? target : null;
+		}
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const message = messages[i];
 			if (message.role === 'assistant' && !message.partial && !message.failure) return message;
@@ -243,9 +335,34 @@
 	<div
 		class="thread {deferredBeforeIndex > 0 ? 'thread--contained' : ''}"
 		bind:this={scroller}
+		tabindex="-1"
 		onscroll={onScroll}
 	>
 		<div class="thread__inner">
+			{#if history.hasOlder}
+				<div class="history-control history-control--older" data-testid="load-older-control">
+					<button
+						type="button"
+						class="history-control__button"
+						disabled={history.loading}
+						onclick={() => void requestOlder()}
+						aria-label="Load older messages"
+					>
+						{history.loading ? 'Loading older messages…' : 'Load older messages'}
+					</button>
+				</div>
+			{/if}
+			{#if history.error}
+				<div class="history-control history-control--error" role="alert">
+					<span>{history.error}</span>
+					{#if onRetryHistory}
+						<button type="button" class="history-control__button" onclick={() => void onRetryHistory?.()}>Retry</button>
+					{/if}
+				</div>
+			{/if}
+			{#if history.status}
+				<div class="history-control" role="status">{history.status}</div>
+			{/if}
 			{#each messages as m, i (m.id)}
 				{@const prev = messages[i - 1]}
 				{@const stacked = prev && prev.role === m.role}
@@ -254,7 +371,7 @@
 				{@const messageText = textOf(m.content)}
 				{@const activeAssistant =
 					m.role === 'assistant' &&
-					m.id === lastAssistantId &&
+					m.id === renderedLastAssistantId &&
 					chat.activityConversationId === conversationId &&
 					!['complete', 'cancelled', 'failed'].includes(m.durableState || '')}
 				{@const citationRecords =
@@ -275,8 +392,22 @@
 						: []}
 				{@const failure = m.failure}
 				{@const runPresentation = durableRunPresentation(m.durableState)}
+				{#each history.gaps.filter((gap) => gap.before.id === m.id) as gap (gap.id)}
+					<div class="history-gap" data-testid="history-gap" role="separator">
+						<span>Some messages are not loaded.</span>
+						<button
+							type="button"
+							class="history-control__button"
+							disabled={history.loadingGapIds?.includes(gap.id)}
+							onclick={() => void requestGap(gap)}
+						>
+							{history.loadingGapIds?.includes(gap.id) ? 'Loading…' : 'Load missing messages'}
+						</button>
+					</div>
+				{/each}
 				<article
 					id={`m-${m.id}`}
+					data-message-id={m.id}
 					class="msg msg--{m.role} {stacked ? 'msg--stacked' : ''} {roleChange
 						? 'msg--role-change'
 						: ''} {deferred ? 'msg--deferred' : ''}"
@@ -552,6 +683,50 @@
 		min-width: 0;
 		display: grid;
 		grid-template-rows: minmax(0, 1fr) auto;
+	}
+	.history-control,
+	.history-gap {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		min-height: 38px;
+		margin: 8px auto;
+		padding: 6px 12px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-2);
+		background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		text-align: center;
+	}
+	.history-control--error {
+		color: var(--fg-danger, #b42318);
+	}
+	.history-control__button {
+		min-height: 28px;
+		padding: 0 10px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-2);
+		background: var(--bg-page);
+		color: var(--fg-1);
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.history-control__button:hover:not(:disabled) {
+		background: var(--bg-raised);
+		border-color: var(--border-strong);
+	}
+	.history-control__button:disabled {
+		cursor: wait;
+		opacity: 0.65;
+	}
+	.history-gap {
+		justify-content: space-between;
+		border-style: dashed;
+		color: var(--fg-3);
 	}
 	.answer-utility {
 		min-width: 0;

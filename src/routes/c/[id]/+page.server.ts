@@ -1,37 +1,64 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { getConversation, getMessages, parseContent } from '$lib/server/db/conversations';
+import {
+	getConversation,
+	getConversationActionSummary,
+	getLatestMessagesPage,
+	getMessageCount
+} from '$lib/server/db/conversations';
 import {
 	getActiveHermesRun,
-	listHermesRunsForConversation,
+	listHermesRunStatesForMessages,
 	snapshotFromRun
 } from '$lib/server/db/hermes-runs';
+import {
+	MESSAGE_PAGE_MAX_BYTES,
+	MESSAGE_PAGE_SIZE,
+	cursorOf,
+	rowsToThreadMessages,
+	trimNewestMessages,
+	type ThreadMessageView
+} from '$lib/server/conversation-history';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	const convo = await getConversation(locals.user.id, params.id);
 	if (!convo) throw error(404, 'not found');
-	const [messages, activeRun, durableRuns] = await Promise.all([
-		getMessages(convo.id),
+	const [candidateRows, totalCount, activeRun, actionSummary] = await Promise.all([
+		getLatestMessagesPage(convo.id, MESSAGE_PAGE_SIZE),
+		getMessageCount(convo.id),
 		getActiveHermesRun(locals.user.id, convo.id),
-		listHermesRunsForConversation(locals.user.id, convo.id)
+		getConversationActionSummary(convo.id)
 	]);
-	const runByAssistant = new Map<string, (typeof durableRuns)[number]>();
-	for (const run of durableRuns) {
-		if (!runByAssistant.has(run.assistantMessageId)) runByAssistant.set(run.assistantMessageId, run);
-	}
+	const durableRuns = await listHermesRunStatesForMessages(
+		locals.user.id,
+		convo.id,
+		candidateRows.map((message) => message.id)
+	);
+	const runByAssistant = new Map(durableRuns.map((run) => [run.assistantMessageId, run]));
+	const candidateMessages = rowsToThreadMessages(candidateRows, runByAssistant);
+	const messages = trimNewestMessages(candidateMessages, MESSAGE_PAGE_SIZE, MESSAGE_PAGE_MAX_BYTES);
+	const first = messages[0];
+	const last = messages[messages.length - 1];
+	const actionView = (message: (typeof actionSummary)[keyof typeof actionSummary]): ThreadMessageView | null =>
+		message ? rowsToThreadMessages([message], new Map())[0] : null;
 	return {
 		conversation: { id: convo.id, title: convo.title, updatedAt: convo.updatedAt },
-		messages: messages.map((m) => ({
-			id: m.id,
-			role: m.role,
-			content: parseContent(m.content),
-			toolCalls: m.toolCalls,
-			partial: m.partial === 1,
-			createdAt: m.createdAt,
-			durableState: runByAssistant.get(m.id)?.state ?? null,
-			durableError: runByAssistant.get(m.id)?.errorMessage ?? null
-		})),
+		messages,
+		history: {
+			pageSize: MESSAGE_PAGE_SIZE,
+			totalCount,
+			hasOlder: totalCount > messages.length || candidateRows.length > messages.length,
+			hasNewer: false,
+			olderCursor: first ? cursorOf(first) : null,
+			newestCursor: last ? cursorOf(last) : null
+		},
+		actionSummary: {
+			latestUser: actionView(actionSummary.latestUser),
+			latestAssistantId: actionSummary.latestAssistant?.id ?? null,
+			latestReadyAssistantId: actionSummary.latestReadyAssistant?.id ?? null,
+			latestUnfinishedAssistantId: actionSummary.latestUnfinishedAssistant?.id ?? null
+		},
 		durableRun: activeRun
 			? {
 					id: activeRun.id,

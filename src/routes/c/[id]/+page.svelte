@@ -40,13 +40,28 @@
 	import { selectConversationDisplayTitle } from '$lib/utils/conversation-title-display';
 	import { SerialTaskQueue } from '$lib/utils/serial-task-queue';
 	import {
+		compareCursor,
+		cursorOf as historyCursorOf,
+		deriveHistoryGaps,
+		MESSAGE_ID_BATCH_SIZE,
+		initialTailSegment,
+		mergeMessageRows,
+		mergeSegments,
+		segmentForMessages,
+		type HistoryCursor,
+		type HistoryGap,
+		type HistoryPageMeta,
+		type HistorySegment,
+		type HistoryMessage
+	} from '$lib/client/message-history';
+	import {
 		needsAutomaticConversationTitle,
 		requestAutomaticConversationTitle
 	} from '$lib/client/conversation-title';
 	import X from 'lucide-svelte/icons/x';
 	import Send from 'lucide-svelte/icons/send-horizontal';
 
-	type ThreadMessage = PersistedThreadMessage;
+	type ThreadMessage = PersistedThreadMessage & { createdAt: number };
 	type RunStreamArgs = StreamArgs & { conversation_id: string };
 	type FailedSend = { args: RunStreamArgs };
 	type DurableRunData = {
@@ -101,9 +116,41 @@
 	let automaticTitleRequestedFor: string | null = null;
 	let automaticTitle = $state<string | null>(null);
 	let conversationGeneration = 0;
+	let historyMessages = $state<ThreadMessage[]>(
+		untrack(() => [...(data.messages as ThreadMessage[])])
+	);
+	let historyMeta = $state<HistoryPageMeta>(
+		untrack(() => ({
+			pageSize: data.history.pageSize,
+			totalCount: data.history.totalCount,
+			hasOlder: data.history.hasOlder,
+			hasNewer: data.history.hasNewer,
+			olderCursor: data.history.olderCursor,
+			newerCursor: data.history.newestCursor
+		}))
+	);
+	let historySegments = $state<HistorySegment[]>([]);
+	let historyLoading = $state(false);
+	let historyError = $state<string | null>(null);
+	let historyErrorGap = $state<HistoryGap | null>(null);
+	let historyTargetStatus = $state<string | null>(null);
+	let historyMutationVersion = $state(0);
+	let historyMutationKind = $state<'prepend' | 'merge'>('merge');
+	let historyTombstones = $state<Set<string>>(new Set());
+	let historyAbortControllers = new Set<AbortController>();
+	let historyRequestGeneration = 0;
+	let historyMutationToken = 0;
+	let historyInitialized = false;
+	let lastPageMessagesRef: unknown = null;
+	let olderRequestActive = false;
+	let gapRequests = $state<Set<string>>(new Set());
 
-	const persisted = $derived(persistedThreadMessages(data.messages, hiddenIds));
+	const initialSegment = untrack(() => initialTailSegment(historyMessages, historyMeta.hasOlder));
+	if (initialSegment) historySegments = [initialSegment];
+
+	const persisted = $derived(persistedThreadMessages(historyMessages, hiddenIds));
 	const messages = $derived([...persisted, ...overlay]);
+	const historyGaps = $derived(deriveHistoryGaps(historySegments));
 	const sidebarConversationTitle = $derived(
 		data.conversations.find((conversation) => conversation.id === data.conversation.id)?.title
 	);
@@ -112,7 +159,7 @@
 	);
 
 	const topic = $derived.by(() => {
-		const n = messages.length;
+		const n = Math.max(messages.length, historyMeta.totalCount ?? 0);
 		if (n === 0) return '0 messages';
 		return `${n} message${n === 1 ? '' : 's'} · Updated ${formatThreadUpdated(
 			data.conversation.updatedAt
@@ -121,7 +168,7 @@
 
 	$effect(() => {
 		const reversed = [...persisted].reverse();
-		const lastUser = reversed.find((m) => m.role === 'user');
+		const lastUser = data.actionSummary.latestUser ?? reversed.find((m) => m.role === 'user');
 		chat.lastUserContent = lastUser ? contentText(lastUser.content) : null;
 		return () => {
 			chat.lastUserContent = null;
@@ -133,6 +180,317 @@
 	function clearFailureOverlays() {
 		overlay = overlay.filter((m) => !m.failure);
 	}
+
+	type HistoryResponse = {
+		mode: 'latest' | 'older' | 'range' | 'around' | 'ids';
+		messages: ThreadMessage[];
+		pageSize: number;
+		totalCount?: number;
+		hasOlder: boolean;
+		hasNewer: boolean;
+		olderCursor?: HistoryCursor | null;
+		newerCursor?: HistoryCursor | null;
+		gapBefore?: boolean;
+		gapAfter?: boolean;
+		hasMore?: boolean;
+		nextAfter?: HistoryCursor | null;
+		targetId?: string;
+	};
+
+	function encodeHistoryCursor(cursor: HistoryCursor): string {
+		return btoa(JSON.stringify(cursor)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+	}
+
+	function historyUrl(params: Record<string, string | number | undefined>): string {
+		const search = new URLSearchParams();
+		for (const [key, value] of Object.entries(params)) {
+			if (value !== undefined) search.set(key, String(value));
+		}
+		const query = search.toString();
+		return `/api/conversations/${encodeURIComponent(data.conversation.id)}/messages${query ? `?${query}` : ''}`;
+	}
+
+	async function requestHistory(path: string): Promise<HistoryResponse> {
+		const controller = new AbortController();
+		historyAbortControllers.add(controller);
+		try {
+			const response = await fetch(path, { signal: controller.signal, headers: { accept: 'application/json' } });
+			if (!response.ok) throw new Error(`history ${response.status}`);
+			return (await response.json()) as HistoryResponse;
+		} finally {
+			historyAbortControllers.delete(controller);
+		}
+	}
+
+	function historyRequestIsCurrent(generation: number, epoch: number, mutation: number): boolean {
+		return (
+			generation === conversationGeneration &&
+			epoch === historyRequestGeneration &&
+			mutation === historyMutationToken &&
+			data.conversation.id === activeConversationId
+		);
+	}
+
+	function rebaseHistorySegments(rows: ThreadMessage[]) {
+		const rebased = historySegments
+			.map((segment) => {
+				const inSegment = rows.filter((message) => {
+					const cursor = historyCursorOf(message);
+					return compareCursor(cursor, segment.start) >= 0 && compareCursor(cursor, segment.end) <= 0;
+				});
+				return segmentForMessages(segment.id, inSegment, segment.hasBefore, segment.hasAfter);
+			})
+			.filter((segment): segment is HistorySegment => segment !== null);
+		historySegments = mergeSegments(rebased);
+	}
+
+	function mergeHistoryRows(incoming: ThreadMessage[], kind: 'prepend' | 'merge' = 'merge') {
+		historyMutationKind = kind;
+		historyMutationVersion += 1;
+		historyMessages = mergeMessageRows(
+			historyMessages as HistoryMessage[],
+		incoming as HistoryMessage[],
+		historyTombstones
+		) as ThreadMessage[];
+	}
+
+	function refreshTailSegment() {
+		const tail = initialTailSegment(historyMessages, historyMeta.hasOlder, 'tail');
+		if (!tail) return;
+		historySegments = mergeSegments([...historySegments, tail]);
+	}
+
+	function markHistoryMutation(ids: string[] = []) {
+		historyMutationToken += 1;
+		historyRequestGeneration += 1;
+		if (ids.length) {
+			const next = new Set(historyTombstones);
+			for (const id of ids) next.add(id);
+			historyTombstones = next;
+			historyMessages = historyMessages.filter((message) => !next.has(message.id));
+			rebaseHistorySegments(historyMessages);
+		}
+	}
+
+	async function loadMessageIds(ids: string[]): Promise<void> {
+		const wanted = [...new Set(ids.filter(Boolean))];
+		if (wanted.length === 0) return;
+		const generation = conversationGeneration;
+		const epoch = historyRequestGeneration;
+		const mutation = historyMutationToken;
+		try {
+			for (let offset = 0; offset < wanted.length; offset += MESSAGE_ID_BATCH_SIZE) {
+				const batch = wanted.slice(offset, offset + MESSAGE_ID_BATCH_SIZE);
+				const result = await requestHistory(historyUrl({ ids: batch.join(',') }));
+				if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
+				if (result.messages.length) {
+					mergeHistoryRows(result.messages);
+					const segment = segmentForMessages(`ids:${batch[0]}`, result.messages, true, true);
+					if (segment) historySegments = mergeSegments([...historySegments, segment]);
+				}
+			}
+		} catch {
+			/* Keep the loaded history intact when a reconciliation request fails. */
+		}
+	}
+
+	async function reconcileLoadedIds(generation: number, epoch: number, mutation: number) {
+		const wanted = [...new Set(historyMessages.map((message) => message.id))];
+		let next = historyMessages as HistoryMessage[];
+		for (let offset = 0; offset < wanted.length; offset += MESSAGE_ID_BATCH_SIZE) {
+			const batch = wanted.slice(offset, offset + MESSAGE_ID_BATCH_SIZE);
+			try {
+				const result = await requestHistory(historyUrl({ ids: batch.join(',') }));
+				if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
+				const present = new Set(result.messages.map((message) => message.id));
+				next = mergeMessageRows(next, result.messages as HistoryMessage[], historyTombstones);
+				next = next.filter((message) => !batch.includes(message.id) || present.has(message.id));
+			} catch {
+				return;
+			}
+		}
+		if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
+		historyMutationKind = 'merge';
+		historyMutationVersion += 1;
+		historyMessages = next as ThreadMessage[];
+		rebaseHistorySegments(historyMessages);
+		refreshTailSegment();
+	}
+
+	async function loadOlder() {
+		if (olderRequestActive || historyLoading) return;
+		const firstSegment = historySegments[0];
+		if (!firstSegment?.hasBefore) return;
+		olderRequestActive = true;
+		historyLoading = true;
+		historyError = null;
+		historyErrorGap = null;
+		const generation = conversationGeneration;
+		const epoch = historyRequestGeneration;
+		const mutation = historyMutationToken;
+		try {
+			const result = await requestHistory(
+				historyUrl({ before: encodeHistoryCursor(firstSegment.start), limit: historyMeta.pageSize })
+			);
+			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
+			if (result.messages.length) {
+				mergeHistoryRows(result.messages, 'prepend');
+				const segment = segmentForMessages(
+					`older:${result.messages[0].id}`,
+					result.messages,
+					result.gapBefore ?? result.hasOlder,
+					result.gapAfter ?? false
+				);
+				if (segment) historySegments = mergeSegments([...historySegments, segment]);
+				historyMeta = {
+					...historyMeta,
+					hasOlder: result.gapBefore ?? result.hasOlder,
+					olderCursor: result.olderCursor ?? historyMeta.olderCursor
+				};
+			} else {
+				historySegments = historySegments.map((segment, index) =>
+					index === 0 ? { ...segment, hasBefore: false } : segment
+				);
+				historyMeta = { ...historyMeta, hasOlder: false };
+			}
+		} catch {
+			historyError = "Couldn't load older messages. Try again.";
+			historyErrorGap = null;
+		} finally {
+			if (generation === conversationGeneration) {
+				historyLoading = false;
+				olderRequestActive = false;
+			}
+		}
+	}
+
+	function closeHistoryGap(gap: HistoryGap) {
+		historySegments = historySegments.map((segment) => {
+			if (compareCursor(segment.end, gap.after) === 0) return { ...segment, hasAfter: false };
+			if (compareCursor(segment.start, gap.before) === 0) return { ...segment, hasBefore: false };
+			return segment;
+		});
+	}
+
+	async function loadGap(gap: HistoryGap) {
+		if (gapRequests.has(gap.id)) return;
+		gapRequests = new Set([...gapRequests, gap.id]);
+		historyError = null;
+		historyErrorGap = null;
+		const generation = conversationGeneration;
+		const epoch = historyRequestGeneration;
+		const mutation = historyMutationToken;
+		try {
+			const result = await requestHistory(
+				historyUrl({
+					after: encodeHistoryCursor(gap.after),
+					before: encodeHistoryCursor(gap.before),
+					limit: historyMeta.pageSize
+				})
+			);
+			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
+			if (result.messages.length) {
+				mergeHistoryRows(result.messages);
+				const segment = segmentForMessages(
+					`gap:${gap.id}`,
+					result.messages,
+					false,
+					result.hasMore === true
+				);
+				if (segment) historySegments = mergeSegments([...historySegments, segment]);
+			} else if (!result.hasMore) {
+				closeHistoryGap(gap);
+			}
+			historyErrorGap = null;
+		} catch {
+			historyError = "Couldn't load the missing messages. Try again.";
+			historyErrorGap = gap;
+		} finally {
+			gapRequests = new Set([...gapRequests].filter((id) => id !== gap.id));
+		}
+	}
+
+	async function loadAroundTarget(targetId: string) {
+		if (!targetId || historyMessages.some((message) => message.id === targetId)) {
+			if (targetId) historyTargetStatus = null;
+			return;
+		}
+		historyTargetStatus = null;
+		const generation = conversationGeneration;
+		const epoch = historyRequestGeneration;
+		const mutation = historyMutationToken;
+		try {
+			const result = await requestHistory(historyUrl({ around: targetId, before_count: 25, after_count: 25 }));
+			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
+			if (!result.messages.some((message) => message.id === targetId)) {
+				historyTargetStatus = 'That message is no longer available.';
+				return;
+			}
+			mergeHistoryRows(result.messages);
+			const segment = segmentForMessages(
+				`target:${targetId}`,
+				result.messages,
+				result.gapBefore ?? result.hasOlder,
+				result.gapAfter ?? result.hasNewer
+			);
+			if (segment) historySegments = mergeSegments([...historySegments, segment]);
+			await tick();
+			document.getElementById(`m-${targetId}`)?.scrollIntoView({ block: 'center' });
+		} catch {
+			historyTargetStatus = 'That message is no longer available.';
+		}
+	}
+
+	function retryHistory(): Promise<void> {
+		return historyErrorGap ? loadGap(historyErrorGap) : loadOlder();
+	}
+
+	function resetHistoryFromPageData() {
+		historyMessages = [...(data.messages as ThreadMessage[])];
+		historyMeta = {
+			pageSize: data.history.pageSize,
+			totalCount: data.history.totalCount,
+			hasOlder: data.history.hasOlder,
+			hasNewer: data.history.hasNewer,
+			olderCursor: data.history.olderCursor,
+			newerCursor: data.history.newestCursor
+		};
+		const tail = initialTailSegment(historyMessages, historyMeta.hasOlder, 'tail');
+		historySegments = tail ? [tail] : [];
+		historyTombstones = new Set();
+		historyError = null;
+		historyErrorGap = null;
+		historyTargetStatus = null;
+		gapRequests = new Set();
+	}
+
+	$effect(() => {
+		const pageConversationId = data.conversation.id;
+		const pageMessages = data.messages;
+		if (pageConversationId !== activeConversationId) return;
+		if (lastPageMessagesRef === null) {
+			lastPageMessagesRef = pageMessages;
+			historyInitialized = true;
+			return;
+		}
+		if (pageMessages === lastPageMessagesRef) return;
+		lastPageMessagesRef = pageMessages;
+		historyRequestGeneration += 1;
+		historyMeta = {
+			...historyMeta,
+			pageSize: data.history.pageSize,
+			totalCount: data.history.totalCount,
+			hasOlder: data.history.hasOlder,
+			olderCursor: data.history.olderCursor,
+			newerCursor: data.history.newestCursor
+		};
+		mergeHistoryRows(pageMessages as ThreadMessage[]);
+		refreshTailSegment();
+		if (historyInitialized) {
+			void reconcileLoadedIds(conversationGeneration, historyRequestGeneration, historyMutationToken);
+		}
+		historyInitialized = true;
+	});
 
 	async function requestFirstPromptTitle(conversationId: string) {
 		if (
@@ -207,7 +565,7 @@
 			? existingRun.answerText
 			: isResume
 			? (() => {
-					const src = data.messages.find((m) => m.id === resumingId);
+					const src = historyMessages.find((m) => m.id === resumingId);
 					if (!src) return '';
 					return contentText(src.content);
 				})()
@@ -609,6 +967,9 @@
 	}
 
 	async function handleRegenerate() {
+		if (data.actionSummary.latestAssistantId) {
+			markHistoryMutation([data.actionSummary.latestAssistantId]);
+		}
 		await runStream({ conversation_id: data.conversation.id, regenerate: true });
 	}
 
@@ -631,11 +992,24 @@
 				: retry.args.output_action
 					? ANSWER_ACTION_REQUESTS[retry.args.output_action]
 					: '';
-			const lastUserIndex = data.messages.findLastIndex((message) => message.role === 'user');
-			const lastUser = lastUserIndex >= 0 ? data.messages[lastUserIndex] : null;
+			const summaryUser = data.actionSummary.latestUser;
+			const summaryPartial = data.actionSummary.latestUnfinishedAssistantId;
+			if (
+				(summaryUser && !historyMessages.some((message) => message.id === summaryUser.id)) ||
+				(summaryPartial && !historyMessages.some((message) => message.id === summaryPartial))
+			) {
+				await loadMessageIds(
+					[
+						summaryUser?.id,
+						summaryPartial
+					].filter((id): id is string => Boolean(id))
+				);
+			}
+			const lastUserIndex = historyMessages.findLastIndex((message) => message.role === 'user');
+			const lastUser = lastUserIndex >= 0 ? historyMessages[lastUserIndex] : summaryUser;
 			const resumable =
 				lastUser && wanted && contentText(lastUser.content) === wanted
-					? data.messages
+					? historyMessages
 							.slice(lastUserIndex + 1)
 							.findLast((message) => message.role === 'assistant' && message.partial)
 					: null;
@@ -660,6 +1034,9 @@
 	}
 
 	async function handleRetryPersisted() {
+		if (data.actionSummary.latestAssistantId) {
+			markHistoryMutation([data.actionSummary.latestAssistantId]);
+		}
 		await runStream({
 			conversation_id: data.conversation.id,
 			retry: true
@@ -667,6 +1044,8 @@
 	}
 
 	async function handleDiscard(messageId: string) {
+		const previousTombstones = historyTombstones;
+		markHistoryMutation([messageId]);
 		try {
 			const claimResponse = await fetch(`/api/messages/${messageId}/claim-partial`, {
 				method: 'POST',
@@ -683,7 +1062,11 @@
 			});
 			if (!discardResponse.ok) throw new Error('partial discard failed');
 		} catch {
-			/* ignore — invalidateAll surfaces any persisted state */
+			/* Restore the row when the compare-and-set discard did not commit. */
+			historyMutationToken += 1;
+			historyRequestGeneration += 1;
+			historyTombstones = previousTombstones;
+			await loadMessageIds([messageId]);
 		}
 		try {
 			await invalidateAll();
@@ -727,8 +1110,22 @@
 				if (stashed) void handleSend(stashed);
 				else if (pending) void handleSend(pending);
 			}
+			const messageHash = location.hash.match(/^#m=(.+)$/);
+			if (messageHash) {
+				let targetId = '';
+				try {
+					targetId = decodeURIComponent(messageHash[1]);
+				} catch {
+					targetId = '';
+				}
+				if (targetId && !historyMessages.some((message) => message.id === targetId)) {
+					void loadAroundTarget(targetId);
+				}
+			}
 		}
 		return () => {
+			for (const controller of historyAbortControllers) controller.abort();
+			historyAbortControllers.clear();
 			chat.setCancelHandler(null);
 			// Navigation or component destruction closes only this browser
 			// subscription. It never calls the durable cancel route.
@@ -756,9 +1153,28 @@
 		activeRunStatus = null;
 		activeArtifact = null;
 		artifactOpen = false;
+		for (const controller of historyAbortControllers) controller.abort();
+		historyAbortControllers.clear();
+		historyRequestGeneration += 1;
+		lastPageMessagesRef = null;
+		historyInitialized = false;
+		resetHistoryFromPageData();
 		const durableRun = data.durableRun as DurableRunData | null;
 		if (durableRun) {
 			void runStream({ conversation_id: nextConversationId }, undefined, durableRun);
+		}
+		if (typeof location !== 'undefined') {
+			const match = location.hash.match(/^#m=(.+)$/);
+			if (match) {
+				try {
+					const targetId = decodeURIComponent(match[1]);
+					if (targetId && !historyMessages.some((message) => message.id === targetId)) {
+						void loadAroundTarget(targetId);
+					}
+				} catch {
+					/* Ignore malformed deep-link hashes. */
+				}
+			}
 		}
 	});
 
@@ -795,6 +1211,20 @@
 		<Thread
 			{messages}
 			conversationId={data.conversation.id}
+			history={{
+				hasOlder: historySegments[0]?.hasBefore ?? historyMeta.hasOlder,
+				loading: historyLoading,
+				error: historyError,
+				status: historyTargetStatus,
+				gaps: historyGaps,
+				loadingGapIds: [...gapRequests]
+			}}
+			historyMutation={{ kind: historyMutationKind, version: historyMutationVersion }}
+			latestAssistantId={data.actionSummary.latestAssistantId}
+			latestReadyAssistantId={data.actionSummary.latestReadyAssistantId}
+			onLoadOlder={loadOlder}
+			onLoadGap={loadGap}
+			onRetryHistory={retryHistory}
 			onRegenerate={handleRegenerate}
 			onResume={handleResume}
 			onDiscard={handleDiscard}
@@ -844,7 +1274,7 @@
 				<div>
 					<div id="feedback-title" class="feedback-dialog__title">Capture feedback</div>
 					<div id="feedback-desc" class="feedback-dialog__meta">
-						{messages.length} message{messages.length === 1 ? '' : 's'} in this thread
+						{historyMeta.totalCount ?? messages.length} message{(historyMeta.totalCount ?? messages.length) === 1 ? '' : 's'} in this thread
 					</div>
 				</div>
 				<button

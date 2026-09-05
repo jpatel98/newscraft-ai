@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { db, ensureDefaultOrganizationForAccount } from './index';
 import { conversations, hermesRuns, messageProvenance, messages } from './schema';
 import { newId } from '$lib/utils/id';
@@ -72,9 +72,193 @@ export async function getMessages(conversationId: string): Promise<MessageRow[]>
 		.orderBy(asc(messages.createdAt))) as MessageRow[];
 }
 
+export type ConversationActionSummary = {
+	latestUser: MessageRow | null;
+	latestAssistant: MessageRow | null;
+	latestReadyAssistant: MessageRow | null;
+	latestUnfinishedAssistant: MessageRow | null;
+};
+
+/** Read only the owner-scoped rows needed to decide latest-turn actions. */
+export async function getConversationActionSummary(
+	conversationId: string
+): Promise<ConversationActionSummary> {
+	const [latestUser, latestAssistant, latestReadyAssistant, latestUnfinishedAssistant] = await Promise.all([
+		db
+			.select()
+			.from(messages)
+			.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
+			.orderBy(desc(messages.createdAt), desc(messages.id))
+			.limit(1),
+		db
+			.select()
+			.from(messages)
+			.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'assistant')))
+			.orderBy(desc(messages.createdAt), desc(messages.id))
+			.limit(1),
+		db
+			.select()
+			.from(messages)
+			.where(
+				and(
+					eq(messages.conversationId, conversationId),
+					eq(messages.role, 'assistant'),
+					eq(messages.partial, 0)
+				)
+			)
+			.orderBy(desc(messages.createdAt), desc(messages.id))
+			.limit(1),
+		db
+			.select()
+			.from(messages)
+			.where(
+				and(
+					eq(messages.conversationId, conversationId),
+					eq(messages.role, 'assistant'),
+					eq(messages.partial, 1)
+				)
+			)
+			.orderBy(desc(messages.createdAt), desc(messages.id))
+			.limit(1)
+	]);
+	return {
+		latestUser: (latestUser[0] as MessageRow | undefined) ?? null,
+		latestAssistant: (latestAssistant[0] as MessageRow | undefined) ?? null,
+		latestReadyAssistant: (latestReadyAssistant[0] as MessageRow | undefined) ?? null,
+		latestUnfinishedAssistant: (latestUnfinishedAssistant[0] as MessageRow | undefined) ?? null
+	};
+}
+
 export interface MessagePageCursor {
 	createdAt: number;
 	id: string;
+}
+
+/** Read the newest rows first, with one extra row for a stable older-page check. */
+export async function getLatestMessagesPage(
+	conversationId: string,
+	limit: number
+): Promise<MessageRow[]> {
+	const rows = (await db
+		.select()
+		.from(messages)
+		.where(eq(messages.conversationId, conversationId))
+		.orderBy(desc(messages.createdAt), desc(messages.id))
+		.limit(limit + 1)) as MessageRow[];
+	return rows.reverse();
+}
+
+/** Read the rows immediately before a cursor, with one extra row for pagination. */
+export async function getMessagesBefore(
+	conversationId: string,
+	cursor: MessagePageCursor,
+	limit: number
+): Promise<MessageRow[]> {
+	const rows = (await db
+		.select()
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, conversationId),
+				or(
+					lt(messages.createdAt, cursor.createdAt),
+					and(eq(messages.createdAt, cursor.createdAt), lt(messages.id, cursor.id))
+				)
+			)
+		)
+		.orderBy(desc(messages.createdAt), desc(messages.id))
+		.limit(limit + 1)) as MessageRow[];
+	return rows.reverse();
+}
+
+/** Read a bounded exclusive range between two owned cursors. */
+export async function getMessagesBetween(
+	conversationId: string,
+	after: MessagePageCursor,
+	before: MessagePageCursor,
+	limit: number
+): Promise<MessageRow[]> {
+	return (await db
+		.select()
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, conversationId),
+				or(
+					gt(messages.createdAt, after.createdAt),
+					and(eq(messages.createdAt, after.createdAt), gt(messages.id, after.id))
+				),
+				or(
+					lt(messages.createdAt, before.createdAt),
+					and(eq(messages.createdAt, before.createdAt), lt(messages.id, before.id))
+				)
+			)
+		)
+		.orderBy(asc(messages.createdAt), asc(messages.id))
+		.limit(limit + 1)) as MessageRow[];
+}
+
+/** Read one target and bounded rows on both sides of it. */
+export async function getMessageWindow(
+	conversationId: string,
+	target: MessagePageCursor,
+	beforeLimit: number,
+	afterLimit: number
+): Promise<{ before: MessageRow[]; after: MessageRow[] }> {
+	const conversationFilter = eq(messages.conversationId, conversationId);
+	const [before, after] = await Promise.all([
+		db
+			.select()
+			.from(messages)
+			.where(
+				and(
+					conversationFilter,
+					or(
+						lt(messages.createdAt, target.createdAt),
+						and(eq(messages.createdAt, target.createdAt), lt(messages.id, target.id))
+					)
+				)
+			)
+			.orderBy(desc(messages.createdAt), desc(messages.id))
+			.limit(beforeLimit + 1),
+		db
+			.select()
+			.from(messages)
+			.where(
+				and(
+					conversationFilter,
+					or(
+						gt(messages.createdAt, target.createdAt),
+						and(eq(messages.createdAt, target.createdAt), gt(messages.id, target.id))
+					)
+				)
+			)
+			.orderBy(asc(messages.createdAt), asc(messages.id))
+			.limit(afterLimit + 1)
+	]);
+	return {
+		before: (before as MessageRow[]).reverse(),
+		after: after as MessageRow[]
+	};
+}
+
+export async function getMessageCount(conversationId: string): Promise<number> {
+	const [row] = (await db
+		.select({ count: sql<number>`count(*)::int` })
+		.from(messages)
+		.where(eq(messages.conversationId, conversationId))
+		.limit(1)) as Array<{ count: number }>;
+	return Number(row?.count ?? 0);
+}
+
+export async function getMessagesByIds(conversationId: string, ids: string[]): Promise<MessageRow[]> {
+	const uniqueIds = Array.from(new Set(ids));
+	if (uniqueIds.length === 0) return [];
+	return (await db
+		.select()
+		.from(messages)
+		.where(and(eq(messages.conversationId, conversationId), inArray(messages.id, uniqueIds)))
+		.orderBy(asc(messages.createdAt), asc(messages.id))) as MessageRow[];
 }
 
 /** Read one stable keyset page without changing the full-history getMessages API. */

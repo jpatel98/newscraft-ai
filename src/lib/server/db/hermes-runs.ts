@@ -512,6 +512,48 @@ export async function listHermesRunsForConversation(
 		.limit(500)) as HermesRunMessageState[];
 }
 
+/** Read the newest durable state for the explicitly requested assistant ids. */
+export async function listHermesRunStatesForMessages(
+	accountId: string,
+	conversationId: string,
+	messageIds: string[]
+): Promise<HermesRunMessageState[]> {
+	const owner = requireValue(accountId, 'accountId');
+	const conversation = requireValue(conversationId, 'conversationId');
+	const ids = Array.from(new Set(messageIds.map((id) => id.trim()).filter(Boolean)));
+	if (ids.length === 0) return [];
+	const rows = (await db
+		.select({
+			assistantMessageId: hermesRuns.assistantMessageId,
+			state: hermesRuns.state,
+			errorMessage: hermesRuns.errorMessage,
+			createdAt: hermesRuns.createdAt,
+			id: hermesRuns.id
+		})
+		.from(hermesRuns)
+		.where(
+			and(
+				eq(hermesRuns.accountId, owner),
+				eq(hermesRuns.conversationId, conversation),
+				inArray(hermesRuns.assistantMessageId, ids)
+			)
+		)
+		.orderBy(desc(hermesRuns.createdAt), desc(hermesRuns.id))) as Array<
+		Pick<HermesRunRecord, 'assistantMessageId' | 'state' | 'errorMessage' | 'createdAt' | 'id'>
+	>;
+	const latest = new Map<string, HermesRunMessageState>();
+	for (const row of rows) {
+		if (!latest.has(row.assistantMessageId)) {
+			latest.set(row.assistantMessageId, {
+				assistantMessageId: row.assistantMessageId,
+				state: row.state,
+				errorMessage: row.errorMessage
+			});
+		}
+	}
+	return [...latest.values()];
+}
+
 export async function listHermesRunEvents(
 	accountId: string,
 	runId: string,
