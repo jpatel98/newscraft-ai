@@ -18,6 +18,20 @@ body,
 	display: flex;
 	flex-direction: column;
 }
+#app[data-effective-zoom='true'] {
+	min-height: 0;
+}
+#app[data-effective-zoom='true'] .shell {
+	min-height: 0;
+	height: 100%;
+}
+#app[data-effective-zoom='true'] .shell--plain {
+	min-height: 100%;
+	height: 100%;
+}
+#app[data-effective-zoom='true'] .pane--plain {
+	min-height: 100%;
+}
 
 /* ---------- App shell ---------- *
  * Single-column layout. The drawer is a fixed overlay that slides in from the
@@ -2450,6 +2464,13 @@ body,
 		height: var(--visual-vh, 100dvh);
 		min-height: 0;
 		overflow: hidden;
+	}
+	.shell[data-keyboard-open='true'] {
+		top: 0;
+		height: 100dvh;
+		transform-origin: top left;
+		transform: translate3d(0, var(--visual-offset-top, 0px), 0)
+			scaleY(var(--visual-scale-y, 1));
 	}
 	.drawer__brand__full {
 		display: none;

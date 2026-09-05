@@ -465,18 +465,22 @@ test.describe.serial('NewsCraft app shell', () => {
 			window.visualViewport.dispatchEvent(new Event('resize'));
 		});
 		await expect(mobileShell).toHaveAttribute('data-keyboard-open', 'true');
-		await expect(mobileShell).toHaveCSS('top', '128px');
-		await expect(mobileShell).toHaveCSS('height', '390px');
 		const keyboardLayout = await page.evaluate(() => {
+			const element = document.querySelector<HTMLElement>('.shell')!;
+			const style = getComputedStyle(element);
 			const shell = document.querySelector<HTMLElement>('.shell')!.getBoundingClientRect();
 			const composer = document.querySelector<HTMLElement>('.composer-zone')!.getBoundingClientRect();
 			return {
+				visualOffsetTop: style.getPropertyValue('--visual-offset-top').trim(),
+				visualViewportHeight: style.getPropertyValue('--visual-vh').trim(),
 				shellTop: shell.top,
 				shellBottom: shell.bottom,
 				shellHeight: shell.height,
 				composerBottom: composer.bottom
 			};
 		});
+		expect(keyboardLayout.visualOffsetTop).toBe('128px');
+		expect(keyboardLayout.visualViewportHeight).toBe('390px');
 		expect(Math.abs(keyboardLayout.shellTop - 128)).toBeLessThan(2);
 		expect(Math.abs(keyboardLayout.shellHeight - 390)).toBeLessThan(2);
 		expect(Math.abs(keyboardLayout.composerBottom - keyboardLayout.shellBottom)).toBeLessThan(2);

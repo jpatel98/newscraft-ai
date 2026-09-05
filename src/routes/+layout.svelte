@@ -47,6 +47,7 @@
 	let keyboardOpen = $state(false);
 	let visualViewportHeight = $state('100dvh');
 	let visualViewportOffsetTop = $state('0px');
+	let visualViewportScaleY = $state('1');
 
 	// `now` snapshot for date-bucketing; refreshed on conversation list change so
 	// labels don't drift mid-session without forcing a tight re-eval each tick.
@@ -82,6 +83,44 @@
 	onMount(() => {
 		const mq = window.matchMedia('(max-width: 760px)');
 		let restingViewportHeight = 0;
+		const appRoot = document.getElementById('app');
+		let managedZoom = 1;
+		let normalisingZoom = false;
+		let zoomObserver: MutationObserver | null = null;
+		const clearEffectiveZoom = () => {
+			if (!appRoot) return;
+			delete appRoot.dataset.effectiveZoom;
+			appRoot.style.removeProperty('transform');
+			appRoot.style.removeProperty('transform-origin');
+			appRoot.style.removeProperty('width');
+			appRoot.style.removeProperty('height');
+			appRoot.style.removeProperty('min-height');
+			managedZoom = 1;
+		};
+		const applyEffectiveZoom = () => {
+			if (!appRoot || normalisingZoom) return;
+			const requestedZoom = Number.parseFloat(document.documentElement.style.zoom || '');
+			if (!Number.isFinite(requestedZoom) || requestedZoom <= 0 || requestedZoom === 1) {
+				if (managedZoom !== 1) clearEffectiveZoom();
+				return;
+			}
+			if (requestedZoom === managedZoom) return;
+			normalisingZoom = true;
+			zoomObserver?.disconnect();
+			managedZoom = requestedZoom;
+			document.documentElement.style.removeProperty('zoom');
+			appRoot.dataset.effectiveZoom = 'true';
+			appRoot.style.transformOrigin = 'top left';
+			appRoot.style.transform = `scale(${requestedZoom})`;
+			appRoot.style.width = `${100 / requestedZoom}%`;
+			appRoot.style.height = `${100 / requestedZoom}%`;
+			appRoot.style.minHeight = '0';
+			zoomObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+			normalisingZoom = false;
+		};
+		zoomObserver = new MutationObserver(applyEffectiveZoom);
+		zoomObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+		applyEffectiveZoom();
 
 		const applyMobile = () => {
 			isMobile = mq.matches;
@@ -89,6 +128,7 @@
 				keyboardOpen = false;
 				visualViewportHeight = '100dvh';
 				visualViewportOffsetTop = '0px';
+				visualViewportScaleY = '1';
 			}
 		};
 		const applyKeyboardState = () => {
@@ -96,12 +136,14 @@
 				keyboardOpen = false;
 				visualViewportHeight = '100dvh';
 				visualViewportOffsetTop = '0px';
+				visualViewportScaleY = '1';
 				return;
 			}
 			if (!window.visualViewport) {
 				keyboardOpen = false;
 				visualViewportHeight = `${window.innerHeight}px`;
 				visualViewportOffsetTop = '0px';
+				visualViewportScaleY = '1';
 				return;
 			}
 			const viewport = window.visualViewport;
@@ -128,6 +170,7 @@
 			// exact visible rectangle instead of leaving a dead strip below it.
 			visualViewportHeight = `${Math.max(1, Math.round(viewport.height))}px`;
 			visualViewportOffsetTop = `${Math.max(0, Math.round(viewport.offsetTop))}px`;
+			visualViewportScaleY = `${Math.min(1, viewport.height / Math.max(1, window.innerHeight))}`;
 		};
 		const onMediaChange = () => {
 			applyMobile();
@@ -176,6 +219,8 @@
 
 		return () => {
 			shellReady = false;
+			zoomObserver?.disconnect();
+			if (managedZoom !== 1) clearEffectiveZoom();
 			window.removeEventListener('keydown', handler);
 			mq.removeEventListener('change', onMediaChange);
 			window.removeEventListener('orientationchange', onOrientationChange);
@@ -566,7 +611,7 @@
 		class="shell {drawerOpen ? 'shell--drawer-open' : ''} {isThreadPage ? 'shell--thread' : 'shell--plain'}"
 		data-ready={shellReady ? 'true' : 'false'}
 		data-keyboard-open={keyboardOpen ? 'true' : 'false'}
-		style={`--visual-vh: ${visualViewportHeight}; --visual-offset-top: ${visualViewportOffsetTop};`}
+		style={`--visual-vh: ${visualViewportHeight}; --visual-offset-top: ${visualViewportOffsetTop}; --visual-scale-y: ${visualViewportScaleY};`}
 	>
 		<!-- Floating command bar — top-left, three icon buttons.
 		     Hides when the drawer is open (drawer's own header has the toggle). -->
