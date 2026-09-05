@@ -35,7 +35,14 @@ function sse(event: string, data: unknown, id?: number): string {
 	return `${id === undefined ? '' : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
-function snapshot(runId: string, conversationId: string, state: string, cursor: number, answerText = '') {
+function snapshot(
+	runId: string,
+	conversationId: string,
+	state: string,
+	cursor: number,
+	answerText = '',
+	errorMessage: string | null = null
+) {
 	return {
 		run_id: runId,
 		conversation_id: conversationId,
@@ -47,8 +54,16 @@ function snapshot(runId: string, conversationId: string, state: string, cursor: 
 		sources: [],
 		citations: [],
 		tools: [],
-		errorMessage: null
+		errorMessage
 	};
+}
+
+function failedBody(runId: string, conversationId: string): string {
+	return (
+		sse('agent.meta', { conversation_id: conversationId, run_id: runId }) +
+		sse('agent.persistence_error', { message: 'local fixture failure' }, 2) +
+		'data: [DONE]\n\n'
+	);
 }
 
 function completeBody(runId: string, conversationId: string): string {
@@ -131,6 +146,39 @@ async function openThread(page: Page, userMessage?: string) {
 	await page.goto(`/c/${conversationId}`);
 	await expect(page.locator('.pane__header__title')).toBeVisible();
 	return conversationId;
+}
+
+async function persistFixtureTurn(context: BrowserContext, conversationId: string, userMessage: string) {
+	const response = await context.request.post('/api/e2e/seed-conversation', {
+		data: {
+			secret: e2eSecret,
+			password,
+			conversationId,
+			userMessage,
+			assistantMessage: newFixtureAnswer,
+			assistantToolCalls: {
+				version: 1,
+				tools: [],
+				sources: [
+					{
+						id: 'local-fixture-source',
+						url: fixtureCitation.url,
+						title: fixtureCitation.title,
+						domain: fixtureCitation.domain,
+						status: 'used',
+						firstSeenAt: 1_000,
+						lastSeenAt: 1_100,
+						used: true
+					}
+				],
+				citations: [fixtureCitation]
+			}
+		},
+		headers: { 'content-type': 'application/json' }
+	});
+	if (!response.ok()) {
+		throw new Error(`JIG-181 durable fixture persistence failed: ${response.status()} ${await response.text()}`);
+	}
 }
 
 async function installMetrics(page: Page) {
@@ -246,6 +294,9 @@ function requireProject(testInfo: TestInfo, viewportId: string) {
 async function installDurableFixture(context: BrowserContext, mode: FixtureMode) {
 	const counts = { post: 0, reconnectGet: 0, cancel: 0 };
 	let activeMode = mode;
+	let lastConversationId = 'fixture-conversation';
+	let lastUserMessage = 'Local durable fixture turn';
+	let persisted = false;
 	await context.route('**/api/chat/runs**', async (route) => {
 		const request = route.request();
 		const url = new URL(request.url());
@@ -253,18 +304,34 @@ async function installDurableFixture(context: BrowserContext, mode: FixtureMode)
 			counts.post += 1;
 			let conversationId = 'fixture-conversation';
 			try {
-				const body = JSON.parse(request.postData() ?? '{}') as { conversation_id?: string };
+				const body = JSON.parse(request.postData() ?? '{}') as {
+					conversation_id?: string;
+					content?: string;
+				};
 				conversationId = body.conversation_id || conversationId;
+				lastUserMessage = body.content || lastUserMessage;
 			} catch {
 				/* The application will surface a normal request failure. */
 			}
-			if (activeMode === 'error-retry' && counts.post === 1) {
-				await route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"local fixture unavailable"}' });
+			lastConversationId = conversationId;
+			const requestMode = activeMode;
+			if (requestMode === 'error-retry' && counts.post === 1) {
+				// A terminal durable failure must expose the UI retry action without
+				// creating a browser-level failed-resource console entry.
+				await route.fulfill({
+					status: 200,
+					headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
+					body: failedBody('fixture-run-1', conversationId)
+				});
 				return;
 			}
 			const runId = 'fixture-run-1';
-			if (activeMode === 'reconnect') await new Promise((resolve) => setTimeout(resolve, 100));
-			const body = activeMode === 'reconnect' || activeMode === 'cancel'
+			if (requestMode === 'reconnect') await new Promise((resolve) => setTimeout(resolve, 100));
+			if (requestMode === 'error-retry' && counts.post === 2 && !persisted) {
+				await persistFixtureTurn(context, conversationId, lastUserMessage);
+				persisted = true;
+			}
+			const body = requestMode === 'reconnect' || requestMode === 'cancel' || requestMode === 'complete'
 				? reconnectBody(runId, conversationId)
 				: completeBody(runId, conversationId);
 			await route.fulfill({
@@ -287,8 +354,13 @@ async function installDurableFixture(context: BrowserContext, mode: FixtureMode)
 		if (url.pathname.startsWith('/api/chat/runs/') && request.method() === 'GET') {
 			counts.reconnectGet += 1;
 			const runId = url.pathname.split('/').at(-1) || 'fixture-run-1';
-			const conversationId = 'fixture-conversation';
-			const body = activeMode === 'cancel'
+			const conversationId = lastConversationId;
+			const requestMode = activeMode;
+			if (requestMode !== 'cancel' && !persisted) {
+				await persistFixtureTurn(context, conversationId, lastUserMessage);
+				persisted = true;
+			}
+			const body = requestMode === 'cancel'
 				? cancelledBody(runId, conversationId)
 				: completeBody(runId, conversationId);
 			await route.fulfill({
@@ -338,6 +410,26 @@ async function seedLongConversation(page: Page) {
 
 test.beforeAll(async ({ request }) => {
 	await ensureTestAccount(request);
+});
+
+test.beforeEach(async ({ context }) => {
+	// Keep browser evidence local and deterministic. These app-owned requests
+	// otherwise probe the intentionally unreachable Hermes endpoint during a
+	// fixture conversation and produce browser-level 5xx console entries.
+	await context.route('**/api/health**', async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({ app: { capabilities: { documents: false } } })
+		});
+	});
+	await context.route('**/api/conversations/*/title', async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({ title: 'Local fixture title' })
+		});
+	});
 });
 
 for (const viewport of JIG181_VIEWPORTS) {
@@ -519,9 +611,9 @@ test('JIG-181 persisted sources survive reload and layout remains stable', async
 	const readProblems = await installPageProblemCounters(page);
 	await openThread(page, 'Persisted source local matrix thread');
 	await expect(page.getByRole('button', { name: 'Citation 1: Local fixture source' })).toBeVisible();
-	await expect(page.locator('[data-testid="message-sources"]')).toBeVisible();
+	await expect(page.locator('[data-testid="message-sources"]')).toHaveCount(0);
 	await page.reload();
 	await expect(page.getByRole('button', { name: 'Citation 1: Local fixture source' })).toBeVisible();
-	await expect(page.locator('[data-testid="message-sources"]')).toBeVisible();
+	await expect(page.locator('[data-testid="message-sources"]')).toHaveCount(0);
 	await finishEvidence(page, testInfo, 'console_and_layout_stability', readProblems, 0);
 });
