@@ -3,6 +3,7 @@ import { POST as chatStream } from '../../../routes/api/chat/stream/+server';
 import { GET as exportConversation } from '../../../routes/api/conversations/[id]/export/+server';
 import { POST as claimPartial } from '../../../routes/api/messages/[id]/claim-partial/+server';
 import { POST as clearPartial } from '../../../routes/api/messages/[id]/clear-partial/+server';
+import * as hermesTransport from '../agent/transport';
 import { ensureMigrated, sql } from './index';
 import {
 	claimPartialAssistantMessage,
@@ -14,12 +15,29 @@ import {
 import * as conversationsDb from './conversations';
 import { getMessageProvenance } from './message-provenance';
 
+vi.mock('$env/dynamic/private', () => ({ env: process.env }));
+
 const databaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
+type GatewayResponseFactory = (signal?: AbortSignal) => Response;
+let activeGatewayResponse: GatewayResponseFactory | null = null;
 
 describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 	const accountId = `atomic-test-account-${Date.now()}`;
+	const originalHermesUrl = process.env.NEWSCRAFT_HERMES_URL;
+	const originalHermesToken = process.env.NEWSCRAFT_HERMES_API_TOKEN;
+	const originalHermesTenantSecret = process.env.NEWSCRAFT_HERMES_TENANT_SECRET;
+	const streamChatCompletionSpy = vi.spyOn(hermesTransport, 'streamChatCompletion');
 
 	beforeAll(async () => {
+		process.env.NEWSCRAFT_HERMES_URL = 'http://hermes.test';
+		process.env.NEWSCRAFT_HERMES_API_TOKEN = 'test-hermes-token';
+		process.env.NEWSCRAFT_HERMES_TENANT_SECRET = 'test-tenant-secret-0123456789012345';
+		streamChatCompletionSpy.mockImplementation(async (_body, options = {}) => {
+			const health = await hermesTransport.gatewayHealth();
+			if (!health.ok) throw new Error(health.body || 'Hermes readiness failed.');
+			if (!activeGatewayResponse) throw new Error('atomic stream fixture is not configured');
+			return activeGatewayResponse(options.signal);
+		});
 		await ensureMigrated();
 		const now = Date.now();
 		await sql`
@@ -31,12 +49,22 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 	afterAll(async () => {
 		await sql`DELETE FROM accounts WHERE id = ${accountId}`;
 		await sql.end({ timeout: 1 });
+		if (originalHermesUrl === undefined) delete process.env.NEWSCRAFT_HERMES_URL;
+		else process.env.NEWSCRAFT_HERMES_URL = originalHermesUrl;
+		if (originalHermesToken === undefined) delete process.env.NEWSCRAFT_HERMES_API_TOKEN;
+		else process.env.NEWSCRAFT_HERMES_API_TOKEN = originalHermesToken;
+		if (originalHermesTenantSecret === undefined) delete process.env.NEWSCRAFT_HERMES_TENANT_SECRET;
+		else process.env.NEWSCRAFT_HERMES_TENANT_SECRET = originalHermesTenantSecret;
+		activeGatewayResponse = null;
+		vi.unstubAllGlobals();
+		streamChatCompletionSpy.mockRestore();
 	});
 
 	it('commits replacement content, provenance, reload, export, and rejects a stale route retry', async () => {
 		const scenario = await seedPartial('replacement');
 		const authoritative = 'Authoritative replacement with complete citation [1].';
 		stubGateway(() => sseResponse([
+			citationFrame(),
 			['agent.answer.replace', JSON.stringify({ content: authoritative })],
 			['message', '[DONE]']
 		]));
@@ -56,6 +84,7 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 			'## Latest producer roundup\n\n- Flooding closed several roads after heavy rain, and crews are assessing drainage capacity [1].';
 		stubGateway(() => sseResponse([
 			['response.output_text.delta', JSON.stringify({ delta: rawDraft })],
+			citationFrame(),
 			['agent.answer.replace', JSON.stringify({ content: authoritative })],
 			['message', '[DONE]']
 		]));
@@ -66,10 +95,9 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 		await assertAuthoritative(scenario.conversationId, scenario.messageId, authoritative);
 		await expectExport(scenario.conversationId, authoritative);
 		const provenance = await getMessageProvenance(scenario.messageId);
-		const parsed = JSON.parse(provenance?.provenanceJson || '{}') as { stream?: { answerText?: string } };
-		expect(parsed.stream?.answerText).toBe(authoritative);
-		expect(parsed.stream?.answerText).not.toContain('Direct answer — story ideas');
-		expect(parsed.stream?.answerText).not.toContain('Budget Notes');
+		const parsed = JSON.parse(provenance?.provenanceJson || '{}') as { stream?: { assistantChars?: number } };
+		expect(parsed.stream?.assistantChars).toBe(authoritative.length);
+		expect(parsed.stream?.assistantChars).not.toBe(rawDraft.length + authoritative.length);
 	});
 
 	it('persists a large safe replacement without applying the pending-construct bound to the answer', async () => {
@@ -139,21 +167,22 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 		]));
 		const knownResponse = await invokeResume(knownScenario);
 		const knownStream = await knownResponse.text();
-		expect(knownStream).toContain('Claim [1].');
+		expect(knownStream).toContain('event: agent.answer.replace\ndata: {"content":"Claim "}');
+		expect(knownStream).toContain('event: response.output_text.delta\ndata: {"delta":"[1]."}');
 		await assertAuthoritative(knownScenario.conversationId, knownScenario.messageId, 'Claim [1].');
 		await expectExport(knownScenario.conversationId, 'Claim [1].');
 	});
 
-	it('uses the route CAS contract for normal resumed delta completion without duplication', async () => {
+	it('uses the route CAS contract for normal resumed replacement without duplication', async () => {
 		const scenario = await seedPartial('delta');
+		const expected = 'Partial draft for delta. resumed once.';
 		stubGateway(() => sseResponse([
-			['message', JSON.stringify({ choices: [{ delta: { content: ' resumed once.' }, finish_reason: 'stop' }] })],
+			['agent.answer.replace', JSON.stringify({ content: expected })],
 			['message', '[DONE]']
 		]));
 		const response = await invokeResume(scenario);
 		await response.text();
 
-		const expected = 'Partial draft for delta. resumed once.';
 		await assertAuthoritative(scenario.conversationId, scenario.messageId, expected);
 		await expectExport(scenario.conversationId, expected);
 	});
@@ -162,6 +191,7 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 		const scenario = await seedPartial('replacement-tail');
 		const authoritative = 'Authoritative answer [1].';
 		stubGateway(() => sseResponse([
+			citationFrame(),
 			['agent.answer.replace', JSON.stringify({ content: authoritative })],
 			['response.output_text.delta', JSON.stringify({ delta: ' Tail one.' })],
 			['response.output_text.delta', JSON.stringify({ delta: ' Tail two.' })],
@@ -182,6 +212,7 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 		const scenario = await seedPartial('replacement-abort');
 		const authoritative = 'Authoritative answer [1].';
 		stubGateway((signal) => hangingSseResponse([
+			citationFrame(),
 			['agent.answer.replace', JSON.stringify({ content: authoritative })],
 			['response.output_text.delta', JSON.stringify({ delta: ' Tail after abort.' })]
 		], signal));
@@ -207,6 +238,7 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 	it('surfaces cancellation persistence failure and leaves the claimed row resumable', async () => {
 		const scenario = await seedPartial('cancel-failure');
 		stubGateway((signal) => hangingSseResponse([
+			citationFrame(),
 			['agent.answer.replace', JSON.stringify({ content: 'Authoritative answer before failure [1].' })],
 			['response.output_text.delta', JSON.stringify({ delta: ' Tail before failure.' })]
 		], signal));
@@ -252,27 +284,31 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 		await expectExport(scenario.conversationId, String(parseContent(row?.content || '')));
 	});
 
-	it('keeps a crashed stream resumable, resumes once, and rejects a completed route retry', async () => {
+	it('keeps a crashed stream resumable, emits a safe partial terminal, and resumes once', async () => {
 		const scenario = await seedPartial('crash');
 		stubGateway(() => sseResponse([
 			['response.output_text.delta', JSON.stringify({ delta: ' crashed fragment.' })],
 			['response.failed', JSON.stringify({ error: { message: 'gateway stopped' } })]
 		]));
 		const crashed = await invokeResume(scenario);
-		await expect(crashed.text()).rejects.toBeTruthy();
+		const crashedStream = await crashed.text();
+		expect(crashedStream).toContain('crashed fragment.');
+		expect(crashedStream).toContain('The research run stopped before it finished');
 		const partial = await getMessageById(scenario.messageId);
 		expect(partial?.partial).toBe(1);
 		expect(partial?.resumeClaimedAt).toBeNull();
-		expect(parseContent(partial?.content || '')).toBe('Partial draft for crash. crashed fragment.');
+		expect(parseContent(partial?.content || '')).toContain('crashed fragment.');
+		expect(parseContent(partial?.content || '')).toContain('The research run stopped before it finished');
 		await assertProvenance(scenario.messageId);
 
+		const recoveredAnswer = 'Recovered answer after crash.';
 		stubGateway(() => sseResponse([
-			['message', JSON.stringify({ choices: [{ delta: { content: ' recovered once.' }, finish_reason: 'stop' }] })],
+			['agent.answer.replace', JSON.stringify({ content: recoveredAnswer })],
 			['message', '[DONE]']
 		]));
 		const recovered = await invokeResume(scenario);
 		await recovered.text();
-		const expected = 'Partial draft for crash. crashed fragment. recovered once.';
+		const expected = recoveredAnswer;
 		await assertAuthoritative(scenario.conversationId, scenario.messageId, expected);
 		await expectExport(scenario.conversationId, expected);
 
@@ -366,11 +402,75 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 		return { conversationId, messageId };
 	}
 
-	function stubGateway(response: (signal?: AbortSignal) => Response): void {
-		vi.stubGlobal('fetch', vi.fn(async (_input: unknown, init?: RequestInit) => response(init?.signal ?? undefined)));
+	function stubGateway(
+		response: GatewayResponseFactory,
+		options: { readiness?: () => Response } = {}
+	): void {
+		activeGatewayResponse = response;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: unknown, init?: RequestInit) => {
+				if (String(input).endsWith('/ready')) return options.readiness?.() ?? hermesReadyResponse();
+				return new Response('unexpected atomic fixture fetch', { status: 500 });
+			})
+		);
+	}
+
+	function hermesReadyResponse(): Response {
+		return new Response(
+			JSON.stringify({
+				ok: true,
+				service: 'newscraft-hermes-chat',
+				toolset: 'hermes-acp',
+				tools: ['browser_navigate', 'browser_snapshot', 'web_search', 'web_extract', 'verify_this_lead'],
+				runtime: { provider: 'fixture', model: 'hermes-fixture', endpointMode: 'explicit' },
+				capabilities: {
+					standard: true,
+					browser: true,
+					webResearch: true,
+					webExtraction: { configured: true, tool: true, leadVerificationTool: true },
+					webLeadVerification: { configured: true, tool: true, bounded: true },
+					terminal: true,
+					files: true,
+					codeExecution: true,
+					delegation: true,
+					skills: true,
+					memory: true,
+					durableRuns: { configured: true, callback: true },
+					accountIsolation: {
+						tenantHeader: 'x-newscraft-tenant-key',
+						contextLocalHome: true,
+						stableTaskKey: true,
+						persistentDockerWorkspace: true,
+						isolatedBrowserProfiles: true
+					}
+				}
+			}),
+			{ status: 200, headers: { 'content-type': 'application/json' } }
+		);
+	}
+
+	function citationFrame(excerpt = 'Authoritative fixture claim.'): [string, string] {
+		return [
+			'agent.citations',
+			JSON.stringify({
+				citations: [{
+					citationNumber: 1,
+					title: 'Authoritative fixture source',
+					url: 'https://fixture.example/source',
+					domain: 'fixture.example',
+					publicationDate: '2026-09-01',
+					sourceType: 'official',
+					supportingExcerpt: excerpt
+				}]
+			})
+		];
 	}
 
 	function sseResponse(frames: Array<[string, string]>): Response {
+		// The transport spy above performs the current JSON readiness probe. These
+		// frames are the post-normalization NewsCraft stream contract consumed by
+		// the route, which keeps this test focused on atomic replacement behavior.
 		const body = frames
 			.map(([event, data]) => `event: ${event}\ndata: ${data}\n\n`)
 			.join('');
