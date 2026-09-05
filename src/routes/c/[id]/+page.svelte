@@ -368,7 +368,7 @@
 
 	async function loadOlder() {
 		if (olderRequestActive || historyLoading) return;
-		const firstSegment = historySegments[0];
+		const firstSegment = historySegments[0] ?? initialTailSegment(historyMessages, historyMeta.hasOlder);
 		if (!firstSegment?.hasBefore) return;
 		olderRequestActive = true;
 		historyLoading = true;
@@ -528,6 +528,13 @@
 			}
 			historyError = "Couldn't load that message. Try again.";
 			historyErrorTarget = targetId;
+		}
+	}
+
+	function loadHashTarget(): void {
+		const targetId = currentHashMessageId();
+		if (targetId && !historyMessages.some((message) => message.id === targetId)) {
+			void loadAroundTarget(targetId);
 		}
 	}
 
@@ -1184,6 +1191,8 @@
 	}
 
 	onMount(() => {
+		const onHashChange = () => loadHashTarget();
+		window.addEventListener('hashchange', onHashChange);
 		void documentsCapabilityEnabled().then((enabled) => {
 			documentsEnabled = enabled;
 		});
@@ -1218,20 +1227,10 @@
 				if (stashed) void handleSend(stashed);
 				else if (pending) void handleSend(pending);
 			}
-			const messageHash = location.hash.match(/^#m=(.+)$/);
-			if (messageHash) {
-				let targetId = '';
-				try {
-					targetId = decodeURIComponent(messageHash[1]);
-				} catch {
-					targetId = '';
-				}
-				if (targetId && !historyMessages.some((message) => message.id === targetId)) {
-					void loadAroundTarget(targetId);
-				}
-			}
+			loadHashTarget();
 		}
 		return () => {
+			window.removeEventListener('hashchange', onHashChange);
 			for (const controller of historyAbortControllers) controller.abort();
 			historyAbortControllers.clear();
 			chat.setCancelHandler(null);
@@ -1271,19 +1270,7 @@
 		if (durableRun) {
 			void runStream({ conversation_id: nextConversationId }, undefined, durableRun);
 		}
-		if (typeof location !== 'undefined') {
-			const match = location.hash.match(/^#m=(.+)$/);
-			if (match) {
-				try {
-					const targetId = decodeURIComponent(match[1]);
-					if (targetId && !historyMessages.some((message) => message.id === targetId)) {
-						void loadAroundTarget(targetId);
-					}
-				} catch {
-					/* Ignore malformed deep-link hashes. */
-				}
-			}
-		}
+		loadHashTarget();
 	});
 
 	$effect(() => {

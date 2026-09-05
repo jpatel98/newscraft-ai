@@ -334,6 +334,7 @@
 <div class="thread-shell">
 	<div
 		class="thread {deferredBeforeIndex > 0 ? 'thread--contained' : ''}"
+		data-hydrated={scroller ? 'true' : 'false'}
 		bind:this={scroller}
 		tabindex="-1"
 		onscroll={onScroll}

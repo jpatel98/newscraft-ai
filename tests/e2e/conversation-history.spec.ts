@@ -96,6 +96,7 @@ test.describe('bounded conversation history', () => {
 
 		await page.goto(`/c/${fixture.conversationId}`);
 		const thread = page.locator('.thread');
+		await expect(thread).toHaveAttribute('data-hydrated', 'true');
 		const articles = thread.locator('article[data-message-id]');
 		await expect(articles).toHaveCount(50);
 		await expect(page.getByRole('button', { name: 'Load older messages' })).toBeVisible();
@@ -104,9 +105,11 @@ test.describe('bounded conversation history', () => {
 		await expect(articles).toHaveCount(100);
 
 		await page.goto(`/c/${fixture.conversationId}#m=${encodeURIComponent(fixture.targetId)}`);
+		await expect(page.locator('.thread')).toHaveAttribute('data-hydrated', 'true');
 		const target = page.locator(`#m-${fixture.targetId}`);
 		await expect(target).toBeVisible();
 		await expect(page.getByTestId('history-gap')).toHaveCount(1);
+		await target.scrollIntoViewIfNeeded();
 		const anchor = await target.boundingBox();
 		const threadBox = await thread.boundingBox();
 		if (!anchor || !threadBox) throw new Error('target anchor was not measurable');
@@ -115,6 +118,7 @@ test.describe('bounded conversation history', () => {
 		expect(Math.abs(targetCenter - threadCenter)).toBeLessThan(threadBox.height / 2);
 
 		await page.reload();
+		await expect(page.locator('.thread')).toHaveAttribute('data-hydrated', 'true');
 		await expect(target).toBeVisible();
 		await expect(page.getByTestId('history-gap')).toHaveCount(1);
 		await page.getByRole('button', { name: 'Load older messages' }).click();
@@ -152,22 +156,27 @@ test.describe('bounded conversation history', () => {
 		});
 
 		await page.goto(`/c/${first.conversationId}`);
+		await expect(page.locator('.thread')).toHaveAttribute('data-hydrated', 'true');
 		await page.getByRole('button', { name: 'Load older messages' }).click();
 		await expect(page.getByText("Couldn't load older messages. Try again.")).toBeVisible();
 		await page.getByRole('button', { name: 'Retry' }).click();
 		await expect(page.locator('article[data-message-id]')).toHaveCount(100);
 
-		await page.goto(`/c/${first.conversationId}#m=${encodeURIComponent(first.targetId)}`);
+		const retryTargetId = first.messageIds[50];
+		await page.goto(`/c/${first.conversationId}#m=${encodeURIComponent(retryTargetId)}`);
+		await expect(page.locator('.thread')).toHaveAttribute('data-hydrated', 'true');
 		await expect(page.getByText("Couldn't load that message. Try again.")).toBeVisible();
-		expect(new URL(page.url()).hash).toBe(`#m=${encodeURIComponent(first.targetId)}`);
+		expect(new URL(page.url()).hash).toBe(`#m=${encodeURIComponent(retryTargetId)}`);
 		await page.getByRole('button', { name: 'Retry' }).click();
-		await expect(page.locator(`#m-${first.targetId}`)).toBeVisible();
+		await expect(page.locator(`#m-${retryTargetId}`)).toBeVisible();
 
 		await page.goto(`/c/${second.conversationId}#m=${encodeURIComponent(deletedId)}`);
+		await expect(page.locator('.thread')).toHaveAttribute('data-hydrated', 'true');
 		await expect(page.getByText('That message is no longer available.')).toBeVisible();
 		expect(new URL(page.url()).hash).toBe('');
 
 		await page.goto(`/c/${first.conversationId}#m=${encodeURIComponent(second.messageIds[6])}`);
+		await expect(page.locator('.thread')).toHaveAttribute('data-hydrated', 'true');
 		await expect(page.getByText('That message is no longer available.')).toBeVisible();
 		expect(new URL(page.url()).hash).toBe('');
 
@@ -182,7 +191,7 @@ test.describe('bounded conversation history', () => {
 		await page.unroute('**/api/conversations/*/messages*');
 		await page.route('**/api/conversations/*/messages*', async (route) => {
 			const url = new URL(route.request().url());
-			if (url.searchParams.get('around') === first.messageIds[150]) {
+			if (url.searchParams.get('around') === first.messageIds[25]) {
 				staleStarted?.();
 				await staleReady;
 				try {
@@ -194,7 +203,7 @@ test.describe('bounded conversation history', () => {
 			}
 			await route.continue();
 		});
-		await page.goto(`/c/${first.conversationId}#m=${encodeURIComponent(first.messageIds[50])}`);
+		await page.goto(`/c/${first.conversationId}#m=${encodeURIComponent(first.messageIds[25])}`);
 		await staleRequest;
 		await page.goto(`/c/${second.conversationId}`);
 		if (releaseStaleResolve) releaseStaleResolve();
@@ -230,6 +239,7 @@ test.describe('bounded conversation history', () => {
 		});
 
 		await page.goto(`/c/${fixture.conversationId}`);
+		await expect(page.locator('.thread')).toHaveAttribute('data-hydrated', 'true');
 		await expect(page.locator(`#m-${updatedId}`)).toBeVisible();
 		await mutateHistory(page, {
 			conversationId: fixture.conversationId,
@@ -246,6 +256,6 @@ test.describe('bounded conversation history', () => {
 		await page.getByRole('button', { name: 'Send message' }).click();
 		await expect(page.getByText('Updated during refresh reconciliation')).toBeVisible({ timeout: 8_000 });
 		await expect(page.locator(`#m-${deletedId}`)).toHaveCount(0);
-		await expect(page.locator('article[data-message-id]')).toHaveCount(49);
+		await expect(page.locator('article[data-message-id]')).toHaveCount(50);
 	});
 });
