@@ -1,3 +1,4 @@
+import type { ArtifactSummary } from '$lib/types/artifacts';
 type Role = 'user' | 'assistant' | 'system' | 'tool';
 
 interface TextPart {
@@ -33,6 +34,8 @@ export interface ChatMessage {
 	durableState?: string | null;
 	/** Safe persisted failure text. The UI does not render raw technical details. */
 	durableError?: string | null;
+	/** Bounded server-owned artifact summaries attached to this message. */
+	artifacts?: ArtifactSummary[];
 }
 
 type AgentCommandKind = 'builtin' | 'skill';

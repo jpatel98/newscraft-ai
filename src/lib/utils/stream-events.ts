@@ -5,6 +5,7 @@ import {
 	type RetrievalProvenance
 } from '@newscraft/shared';
 import { resolvableCitationRecordForNumber, retrievalSupportsEvidence } from './tool-metadata';
+import type { ArtifactSummary } from '$lib/types/artifacts';
 
 export interface StreamToolCall {
 	id: string;
@@ -94,6 +95,7 @@ export interface StreamEventUpdate {
 	source?: PersistedSource;
 	plan?: StreamPlanUpdate;
 	citations?: CitationRecord[];
+	artifact?: ArtifactSummary;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -1085,6 +1087,48 @@ export class StreamEventState {
 			return [{ replace: content }];
 		}
 		if (event === 'agent.answer.partial') return [{ partial: true }];
+		if (event === 'artifact.ready') {
+			const raw = objectValue(payload.artifact) || payload;
+			const envelopeRevisionId = typeof payload.artifact_revision_id === 'string'
+				? payload.artifact_revision_id.trim()
+				: '';
+			const id = stringValue(raw.id);
+			const revisionId = stringValue(raw.revisionId ?? raw.revision_id);
+			const kind = stringValue(raw.kind);
+			const title = stringValue(raw.title);
+			const status = stringValue(raw.status);
+			const sourceMessageId = stringValue(raw.sourceMessageId ?? raw.source_message_id);
+			const revision = numberValue(raw.revision);
+			if (
+				!envelopeRevisionId ||
+				envelopeRevisionId !== revisionId ||
+				!id ||
+				!revisionId ||
+				!title ||
+				!sourceMessageId ||
+				revision === undefined ||
+				!Number.isSafeInteger(revision) ||
+				revision < 1 ||
+				!(['chart', 'table', 'image', 'markdown', 'map'] as const).includes(kind as ArtifactSummary['kind']) ||
+				status !== 'ready'
+			) return [];
+			return [{
+				artifact: {
+					id,
+					revisionId,
+					revision,
+					kind: kind as ArtifactSummary['kind'],
+					title,
+					status: status as ArtifactSummary['status'],
+					sourceMessageId,
+					createdAt: numberValue(raw.createdAt ?? raw.created_at) ?? now,
+					updatedAt: numberValue(raw.updatedAt ?? raw.updated_at) ?? now,
+					...(raw.fixture === true ? { fixture: true } : {}),
+					...(raw.preview && typeof raw.preview === 'object' ? { preview: raw.preview as ArtifactSummary['preview'] } : { preview: null }),
+					...(raw.error && typeof raw.error === 'object' ? { error: raw.error as ArtifactSummary['error'] } : { error: null })
+				}
+			}];
+		}
 		if (event === 'agent.persistence_error') {
 			return [{ failed: stringValue(payload.message) || 'answer persistence failed; retry to save the answer' }];
 		}

@@ -10,6 +10,59 @@ import {
 import type { CitationRecord } from '@newscraft/shared';
 
 describe('StreamEventState', () => {
+	it('surfaces server-backed artifact.ready summaries for live cards', () => {
+		const state = new StreamEventState();
+		const [update] = state.apply('artifact.ready', JSON.stringify({
+			artifact_revision_id: 'rev-1',
+			artifact: {
+				id: 'family-1',
+				revisionId: 'rev-1',
+				revision: 1,
+				kind: 'chart',
+				title: 'Live chart',
+				status: 'ready',
+				sourceMessageId: 'assistant-1',
+				createdAt: 100,
+				updatedAt: 110,
+				fixture: true,
+				preview: null,
+				error: null
+			}
+		}), 120);
+		expect(update.artifact).toMatchObject({ id: 'family-1', revisionId: 'rev-1', status: 'ready', fixture: true });
+	});
+
+	it('does not render malformed artifact.ready payloads', () => {
+		const state = new StreamEventState();
+		 expect(state.apply('artifact.ready', JSON.stringify({
+			artifact_revision_id: 'rev-1',
+			artifact: {
+				id: 'family-1', revisionId: 'rev-1', revision: 1,
+				kind: 'script', title: 'Unsafe', status: 'ready', sourceMessageId: 'assistant-1'
+			}
+		}))).toEqual([]);
+		expect(state.apply('artifact.ready', JSON.stringify({
+			artifact_revision_id: 'rev-1',
+			artifact: {
+				id: 'family-1', revisionId: 'rev-2', revision: 1,
+				kind: 'chart', title: 'Mismatched', status: 'ready', sourceMessageId: 'assistant-1'
+			}
+		}))).toEqual([]);
+		expect(state.apply('artifact.ready', JSON.stringify({
+			artifact: {
+				id: 'family-1', revisionId: 'rev-1', revision: 1,
+				kind: 'chart', title: 'Missing envelope', status: 'ready', sourceMessageId: 'assistant-1'
+			}
+		}))).toEqual([]);
+		expect(state.apply('artifact.ready', JSON.stringify({
+			artifact_revision_id: 'rev-1',
+			artifact: {
+				id: 'family-1', revisionId: 'rev-1', revision: 1,
+				kind: 'chart', title: 'Not ready', status: 'publishing', sourceMessageId: 'assistant-1'
+			}
+		}))).toEqual([]);
+	});
+
 	it('extracts Chat Completions deltas and Agent tool progress', () => {
 		const state = new StreamEventState();
 

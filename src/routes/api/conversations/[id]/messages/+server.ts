@@ -12,6 +12,7 @@ import {
 	type MessageRow
 } from '$lib/server/db/conversations';
 import { listHermesRunStatesForMessages } from '$lib/server/db/hermes-runs';
+import { listArtifactSummariesForMessages } from '$lib/server/db/artifacts';
 import {
 	MESSAGE_PAGE_MAX_BYTES,
 	MESSAGE_PAGE_SIZE,
@@ -86,6 +87,26 @@ function serializeRows(
 	return rows.map((row) => toThreadMessage(row, byMessage.get(row.id)));
 }
 
+async function attachArtifactSummaries(
+	accountId: string,
+	conversationId: string,
+	rows: ThreadMessageView[]
+): Promise<ThreadMessageView[]> {
+	let artifacts: Awaited<ReturnType<typeof listArtifactSummariesForMessages>> = [];
+	try {
+		artifacts = await listArtifactSummariesForMessages(accountId, conversationId, rows.map((row) => row.id));
+	} catch (cause) {
+		// Artifact cards are an optional projection of the message history. A
+		// migration/connection hiccup must not make the canonical conversation
+		// unreadable; the detail/library routes remain explicit failure surfaces.
+		console.warn('NewsCraft artifact summary hydration failed', cause);
+	}
+	if (!artifacts.length) return rows;
+	const byMessage = new Map<string, typeof artifacts>();
+	for (const artifact of artifacts) byMessage.set(artifact.sourceMessageId, [...(byMessage.get(artifact.sourceMessageId) ?? []), artifact]);
+	return rows.map((row) => ({ ...row, ...(byMessage.has(row.id) ? { artifacts: byMessage.get(row.id) } : {}) }));
+}
+
 function pageMeta(messages: ThreadMessageView[], hasOlder: boolean, hasNewer: boolean) {
 	const first = messages[0];
 	const last = messages[messages.length - 1];
@@ -134,7 +155,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 			candidateRows.map((row) => row.id)
 		);
 		const candidates = serializeRows(candidateRows, runs);
-		const messages = trimNewestMessages(candidates, limit, MESSAGE_PAGE_MAX_BYTES);
+		const messages = await attachArtifactSummaries(locals.user.id, conversation.id, trimNewestMessages(candidates, limit, MESSAGE_PAGE_MAX_BYTES));
 		return json(
 			{
 				mode,
@@ -159,7 +180,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 			candidateRows.map((row) => row.id)
 		);
 		const candidates = serializeRows(candidateRows, runs);
-		const messages = trimNewestMessages(candidates, limit, MESSAGE_PAGE_MAX_BYTES);
+		const messages = await attachArtifactSummaries(locals.user.id, conversation.id, trimNewestMessages(candidates, limit, MESSAGE_PAGE_MAX_BYTES));
 		return json(
 			{
 				mode,
@@ -193,7 +214,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 			candidateRows.map((row) => row.id)
 		);
 		const candidates = serializeRows(candidateRows, runs);
-		const messages = trimOldestMessages(candidates, limit, MESSAGE_PAGE_MAX_BYTES);
+		const messages = await attachArtifactSummaries(locals.user.id, conversation.id, trimOldestMessages(candidates, limit, MESSAGE_PAGE_MAX_BYTES));
 		const more = candidateRows.length > messages.length;
 		return json(
 			{
@@ -240,7 +261,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 			afterLimit,
 			MESSAGE_PAGE_MAX_BYTES
 		);
-		const messages = [...trimmed.before, trimmed.target, ...trimmed.after];
+		const messages = await attachArtifactSummaries(locals.user.id, conversation.id, [...trimmed.before, trimmed.target, ...trimmed.after]);
 		const beforeHasMore = window.before.length > trimmed.before.length;
 		const afterHasMore = window.after.length > trimmed.after.length;
 		return json(
@@ -268,7 +289,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	}
 	const rows = await getMessagesByIds(conversation.id, ids);
 	const runs = await listHermesRunStatesForMessages(locals.user.id, conversation.id, ids);
-	const messages = serializeRows(rows, runs);
+	const messages = await attachArtifactSummaries(locals.user.id, conversation.id, serializeRows(rows, runs));
 	return json(
 		{
 			mode: 'ids',

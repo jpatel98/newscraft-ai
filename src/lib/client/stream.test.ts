@@ -315,6 +315,29 @@ describe('streamChat error contract', () => {
 		expect(onRunState).toHaveBeenLastCalledWith('complete');
 	});
 
+	it('replays an artifact.ready event covered by the run snapshot', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				sseResponse(
+					'event: run.snapshot\n' +
+						'data: {"run_id":"run_1","conversation_id":"convo_1","assistant_message_id":"assistant_1","cursor":3,"status":"complete","state":"complete","answerText":"Final","sources":[],"citations":[],"tools":[],"errorMessage":null}\n\n' +
+						'id: 2\n' +
+						'event: artifact.ready\n' +
+						'data: {"artifact_revision_id":"rev-1","artifact":{"id":"family-1","revisionId":"rev-1","revision":1,"kind":"chart","title":"Recovered chart","status":"ready","sourceMessageId":"assistant_1","createdAt":1,"updatedAt":2}}\n\n'
+				)
+			)
+		);
+		const onArtifactReady = vi.fn();
+
+		await subscribeDurableRun('run_1', 0, {
+			onDelta: vi.fn(),
+			onArtifactReady
+		});
+
+		expect(onArtifactReady).toHaveBeenCalledWith(expect.objectContaining({ id: 'family-1', revisionId: 'rev-1' }));
+	});
+
 	it('reconnects to the same durable run with the saved cursor', async () => {
 		const fetchMock = vi.fn().mockResolvedValue(
 			sseResponse(

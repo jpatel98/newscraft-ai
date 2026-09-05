@@ -67,7 +67,12 @@ export const POST: RequestHandler = async ({ request }) => {
 		const result = await appendHermesRunEvent(accountId, runId, leaseOwner, leaseToken, {
 			eventType,
 			dataJson,
-			workerCursor: body.worker_cursor as number
+			workerCursor: body.worker_cursor as number,
+			artifactRevisionId: eventType === 'artifact.ready' && body.data && typeof body.data === 'object' && !Array.isArray(body.data)
+				? typeof (body.data as Record<string, unknown>).artifact_revision_id === 'string'
+					? ((body.data as Record<string, unknown>).artifact_revision_id as string)
+					: null
+				: null
 		});
 		if (result.run.state === 'complete') {
 			try {

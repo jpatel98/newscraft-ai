@@ -6,12 +6,13 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
 import hermes_chat.durable as durable_module
 from hermes_chat.contracts import RUN_TOKEN_HEADER
+from hermes_chat.artifact_publish import ArtifactPublishError
 from hermes_chat.durable import DurableJob, DurableRunError, DurableRunWorker
 from hermes_chat.isolation import TenantIsolation
 
@@ -149,6 +150,53 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             lease_token=f"lease-{run_id}",
             trace_id=trace_id,
         )
+
+    async def test_artifact_tool_rejects_unscoped_call_even_with_one_leased_job(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("run-a", "tenant_a", "trace_a12345678")
+            job.thread_id = "thread-a"
+            job.lease_acquired = True
+            worker.jobs[job.run_id] = job
+
+            with self.assertRaisesRegex(ArtifactPublishError, "trusted runtime binding"):
+                await worker.resolve_active_job()
+
+    async def test_artifact_tool_rejects_wrong_tenant_and_task_bindings(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("run-a", "tenant_a", "trace_a12345678")
+            job.thread_id = "thread-a"
+            job.lease_acquired = True
+            worker.jobs[job.run_id] = job
+
+            with self.assertRaisesRegex(ArtifactPublishError, "tenant binding"):
+                await worker.resolve_active_job(run_id="run-a", tenant_key="tenant_b")
+            with self.assertRaisesRegex(ArtifactPublishError, "task binding"):
+                await worker.resolve_active_job(run_id="run-a", task_id="thread-b")
+
+    async def test_artifact_tool_task_binding_selects_the_intended_job_concurrently(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            first = self._job("run-a", "tenant_a", "trace_a12345678")
+            first.thread_id = "thread-a"
+            first.lease_acquired = True
+            second = self._job("run-b", "tenant_b", "trace_b12345678")
+            second.thread_id = "thread-b"
+            second.lease_acquired = True
+            worker.jobs[first.run_id] = first
+            worker.jobs[second.run_id] = second
+
+            publish = AsyncMock(return_value={"artifact": {"id": "artifact-a"}})
+            with patch.object(worker, "publish_artifact_spec", publish):
+                result = await worker.publish_artifact_from_tool(
+                    {"spec": {"kind": "chart", "title": "A", "series": []}},
+                    task_id="thread-a",
+                )
+
+            self.assertEqual(result, {"artifact": {"id": "artifact-a"}})
+            publish.assert_awaited_once()
+            self.assertIs(publish.await_args.args[0], first)
 
     def _payload(self, run_id: str = "run-1", tenant_key: str = "tenant_key_1") -> dict[str, Any]:
         return {

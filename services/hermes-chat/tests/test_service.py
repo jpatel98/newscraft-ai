@@ -32,7 +32,8 @@ from hermes_chat.durable import (
     DurableRunWorker,
     normalized_events,
 )
-from hermes_chat.isolation import TenantIsolation
+from hermes_chat.isolation import TenantIsolation, TenantRun
+from hermes_chat.service import _register_artifact_tool
 
 
 class HermesChatServiceTests(unittest.TestCase):
@@ -390,6 +391,7 @@ class HermesChatServiceTests(unittest.TestCase):
                 "skill_manage",
                 "memory",
                 "cronjob",
+                "publish_artifact",
                 "web_extract",
                 "verify_this_lead",
             ]
@@ -557,6 +559,92 @@ class HermesChatServiceTests(unittest.TestCase):
 
         self.assertIsNone(entry.check_fn)
         self.assertEqual(registry._generation, 5)
+
+    def test_artifact_registry_handler_forwards_context_and_infrastructure_bindings(self) -> None:
+        """The registered handler must preserve trusted run metadata across the bridge."""
+        captured: dict[str, object] = {}
+
+        class Registry:
+            def register(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+        registry_module = ModuleType("tools.registry")
+        registry_module.registry = Registry()
+        worker = SimpleNamespace(
+            publish_artifact_from_tool=AsyncMock(return_value={"artifact": {"id": "artifact-1"}})
+        )
+
+        with tempfile.TemporaryDirectory() as root, patch.dict(
+            sys.modules, {"tools.registry": registry_module}
+        ):
+            isolation = TenantIsolation(Path(root) / "home", Path(root) / "workspace")
+            runtime = isolation.resolve("tenant_a")
+            _register_artifact_tool(worker)
+            handler = captured["handler"]
+            self.assertTrue(callable(handler))
+
+            async def invoke() -> str:
+                with patch(
+                    "hermes_chat.service.current_tenant_run",
+                    return_value=TenantRun(
+                        runtime=runtime,
+                        thread_id="thread-context",
+                        run_id="run-context",
+                    ),
+                ):
+                    return await handler(  # type: ignore[operator]
+                        {"spec": {"kind": "chart"}},
+                        task_id="newscraft-tenant_a",
+                        session_id="session-infrastructure",
+                    )
+
+            result = asyncio.run(invoke())
+
+        self.assertEqual(result, '{"artifact":{"id":"artifact-1"}}')
+        worker.publish_artifact_from_tool.assert_awaited_once_with(
+            {"spec": {"kind": "chart"}},
+            "run-context",
+            "tenant_a",
+            task_id="newscraft-tenant_a",
+            session_id="session-infrastructure",
+            thread_id="thread-context",
+        )
+
+    def test_artifact_registry_handler_without_context_uses_only_registry_kwargs(self) -> None:
+        captured: dict[str, object] = {}
+
+        class Registry:
+            def register(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+        registry_module = ModuleType("tools.registry")
+        registry_module.registry = Registry()
+        worker = SimpleNamespace(
+            publish_artifact_from_tool=AsyncMock(return_value={"revision_id": "revision-1"})
+        )
+
+        with patch.dict(sys.modules, {"tools.registry": registry_module}):
+            _register_artifact_tool(worker)
+            handler = captured["handler"]
+
+            async def invoke() -> str:
+                return await handler(  # type: ignore[operator]
+                    {"spec": {"kind": "markdown"}, "account_id": "model-selected"},
+                    task_id="thread-infrastructure",
+                    session_id="session-infrastructure",
+                )
+
+            result = asyncio.run(invoke())
+
+        self.assertEqual(result, '{"revision_id":"revision-1"}')
+        worker.publish_artifact_from_tool.assert_awaited_once_with(
+            {"spec": {"kind": "markdown"}, "account_id": "model-selected"},
+            None,
+            None,
+            task_id="thread-infrastructure",
+            session_id="session-infrastructure",
+            thread_id=None,
+        )
 
     def test_runtime_config_keeps_all_model_work_on_one_endpoint(self) -> None:
         config = _runtime_config(

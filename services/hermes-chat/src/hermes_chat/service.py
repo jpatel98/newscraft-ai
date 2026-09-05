@@ -5,6 +5,7 @@ import base64
 import hashlib
 import importlib
 import ipaddress
+import json
 import logging
 import os
 import secrets
@@ -551,6 +552,7 @@ _READINESS_REQUIRED_TOOL_NAMES = frozenset(
         "skill_manage",
         "memory",
         "cronjob",
+        "publish_artifact",
     }
 )
 
@@ -1310,6 +1312,13 @@ def _install_tenant_builder(agui_server: Any) -> None:
         agent = original(*args, **values)
         if agent is None or not hasattr(agent, "__dict__"):
             return agent
+        # The pinned AG-UI builder creates an AIAgent before it knows the
+        # server-assigned thread id, so it otherwise generates a fresh Hermes
+        # session id.  Registry handlers receive that id as ``session_id``;
+        # bind it to the authenticated AG-UI thread while the tenant scope is
+        # active so durable tools resolve the same leased run.  This is
+        # infrastructure metadata from the server, never model input.
+        agent.session_id = run.thread_id
         # The upstream conversation loop appends this prompt after the cached
         # standard scaffold, context files, memory, and thread text.
         agent.load_soul_identity = True
@@ -1394,6 +1403,70 @@ def _install_tenant_runtime(
     _install_tenant_run_scope(agui_server, settings, auxiliary_tasks, runtime_template, isolation)
 
 
+def _register_artifact_tool(durable_worker: DurableRunWorker) -> None:
+    """Expose the real server-backed artifact capability to Hermes ACP.
+
+    The registry handler resolves the current AG-UI run to the worker's
+    leased job. It never accepts account, conversation, source-message, host
+    path, or lease selectors from the model; those bindings come from the
+    authenticated run and the server-issued revision endpoint.
+    """
+    try:
+        from tools.registry import registry
+    except ImportError as exc:
+        raise TenantIsolationError("Pinned Hermes tool registry is unavailable") from exc
+
+    async def publish_artifact(args: Mapping[str, Any], **kwargs: Any) -> str:
+        active = current_tenant_run()
+        result = await durable_worker.publish_artifact_from_tool(
+            args,
+            active.run_id if active is not None else None,
+            active.runtime.key if active is not None else None,
+            task_id=kwargs.get("task_id") if isinstance(kwargs.get("task_id"), str) else None,
+            session_id=kwargs.get("session_id") if isinstance(kwargs.get("session_id"), str) else None,
+            thread_id=active.thread_id if active is not None else None,
+        )
+        return json.dumps(result, ensure_ascii=True, separators=(",", ":"))
+
+    registry.register(
+        name="publish_artifact",
+        toolset=HERMES_TOOLSET,
+        schema={
+            "name": "publish_artifact",
+            "description": (
+                "Publish a bounded chart, table, map, markdown, or image artifact in the current "
+                "NewsCraft answer. The server binds it to this answer and emits a live artifact card. "
+                "For an image, provide a virtual workspace path plus exact MIME, byte size, and SHA-256."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "spec": {
+                        "type": "object",
+                        "description": "Validated artifact specification; do not include account or message ids.",
+                        "additionalProperties": True,
+                    },
+                    "title": {"type": "string", "description": "Optional display title."},
+                    "path": {
+                        "type": "string",
+                        "description": "Image path in the active virtual workspace (for example /workspace/chart.png), never a host path.",
+                    },
+                    "mime_type": {"type": "string", "enum": ["image/png", "image/jpeg"]},
+                    "size": {"type": "integer", "minimum": 1, "maximum": 20971520},
+                    "checksum_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+                },
+                "required": ["spec"],
+                "additionalProperties": False,
+            },
+        },
+        handler=publish_artifact,
+        is_async=True,
+        description="Publish a server-verified artifact attached to the active NewsCraft answer.",
+        emoji="📊",
+        max_result_size_chars=50_000,
+    )
+
+
 def create_app(settings: Settings | None = None):
     """Create the pinned Hermes AG-UI runtime with its standard capabilities."""
     settings = settings or settings_from_env()
@@ -1453,6 +1526,9 @@ def create_app(settings: Settings | None = None):
     )
     _install_iteration_limit(agui_server, settings.max_iterations)
 
+    durable_worker = DurableRunWorker(settings, isolation)
+    _register_artifact_tool(durable_worker)
+
     tools = _startup_tool_names(get_tool_definitions, config)
     retrieval = retrieval_readiness(settings.retrieval)
     tool_providers = _tool_provider_readiness(settings)
@@ -1469,7 +1545,6 @@ def create_app(settings: Settings | None = None):
         bound_host=settings.host,
     )
     _install_public_host_alias(app, settings.host, settings.public_host)
-    durable_worker = DurableRunWorker(settings, isolation)
 
     def durable_authorized(request: Any) -> bool:
         authorization = request.headers.get("authorization", "")

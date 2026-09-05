@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { db } from './index';
-import { conversations, hermesRunEvents, hermesRuns, messages, messageProvenance } from './schema';
+import { conversations, hermesRunArtifactRefs, hermesRunEvents, hermesRuns, messages, messageProvenance } from './schema';
 import { newId } from '$lib/utils/id';
 import {
 	serializeToolMetadata,
@@ -40,6 +40,8 @@ export interface HermesRunEventInput {
 	eventType: string;
 	dataJson: string;
 	workerCursor: number;
+	/** Ready artifact revision to reference at this exact event cursor. */
+	artifactRevisionId?: string | null;
 }
 
 export interface HermesRunCreateInput {
@@ -652,6 +654,19 @@ export async function appendHermesRunEvent(
 		if (current.leaseOwner !== worker || current.leaseToken !== token || !current.leaseExpiresAt || current.leaseExpiresAt <= now) {
 			throw new HermesRunRepositoryError('stale_lease', 'run lease is stale');
 		}
+		// A callback can be replayed after the worker timed out waiting for the
+		// NewsCraft response. Treat an exact same-cursor replay as success, while
+		// still rejecting a competing payload that attempts to reuse that cursor.
+		if (input.workerCursor === current.workerCursor && current.cursor > 0) {
+			const [previous] = (await tx
+				.select()
+				.from(hermesRunEvents)
+				.where(and(eq(hermesRunEvents.runId, id), eq(hermesRunEvents.cursor, current.cursor)))
+				.limit(1)) as HermesRunEventRecord[];
+			if (previous && previous.eventType === eventType && previous.dataJson === dataJson) {
+				return { run: current, event: previous };
+			}
+		}
 		if (isTerminal(state)) throw new HermesRunRepositoryError('terminal', 'run is already terminal');
 		if (state === 'cancel_requested' && eventType !== 'run.cancelled' && eventType !== 'cancelled') {
 			throw new HermesRunRepositoryError('stale_callback', 'callbacks after cancellation are not accepted');
@@ -661,6 +676,67 @@ export async function appendHermesRunEvent(
 		}
 
 		const eventData = objectValue(parseJson<unknown>(dataJson, {})) || {};
+		const artifactRevisionId = typeof input.artifactRevisionId === 'string' ? input.artifactRevisionId.trim() : '';
+		const payloadArtifactRevisionId = typeof eventData.artifact_revision_id === 'string'
+			? eventData.artifact_revision_id.trim()
+			: '';
+		if (eventType === 'artifact.ready' && (!artifactRevisionId || payloadArtifactRevisionId !== artifactRevisionId)) {
+			throw new HermesRunRepositoryError('invalid_input', 'artifact.ready must identify the referenced revision');
+		}
+		if (eventType !== 'artifact.ready' && payloadArtifactRevisionId) {
+			throw new HermesRunRepositoryError('invalid_input', 'artifact revision is only valid on artifact.ready');
+		}
+		if (artifactRevisionId && eventType !== 'artifact.ready') {
+			throw new HermesRunRepositoryError('invalid_input', 'artifact reference is only valid on artifact.ready');
+		}
+		if (artifactRevisionId) {
+			const artifactPayload = objectValue(eventData.artifact);
+			const nestedRevisionId = typeof artifactPayload?.revisionId === 'string'
+				? artifactPayload.revisionId.trim()
+				: typeof artifactPayload?.revision_id === 'string'
+					? artifactPayload.revision_id.trim()
+					: '';
+			if (nestedRevisionId && nestedRevisionId !== artifactRevisionId) {
+				throw new HermesRunRepositoryError('invalid_input', 'artifact.ready summary does not match its revision');
+			}
+			const [artifact] = await tx.execute(sql`
+				SELECT r.id, r.revision, r.status, f.id AS family_id, f.kind, f.title, f.source_message_id
+				FROM artifact_revisions r
+				JOIN artifact_families f ON f.id = r.family_id
+				WHERE r.id = ${artifactRevisionId}
+					AND r.status = 'ready'
+					AND f.account_id = ${owner}
+					AND f.conversation_id = ${current.conversationId}
+					AND f.source_message_id = ${current.assistantMessageId}
+				FOR UPDATE OF r, f
+			`);
+			if (!artifact) throw new HermesRunRepositoryError('stale_callback', 'artifact is not ready or not bound to this run');
+			if (artifactPayload) {
+				const nestedKind = typeof artifactPayload.kind === 'string' ? artifactPayload.kind.trim() : '';
+				const nestedStatus = typeof artifactPayload.status === 'string' ? artifactPayload.status.trim() : '';
+				const nestedId = typeof artifactPayload.id === 'string' ? artifactPayload.id.trim() : '';
+				const nestedTitle = typeof artifactPayload.title === 'string' ? artifactPayload.title.trim() : '';
+				const nestedSourceMessageId = typeof (artifactPayload.sourceMessageId ?? artifactPayload.source_message_id) === 'string'
+					? String(artifactPayload.sourceMessageId ?? artifactPayload.source_message_id).trim()
+					: '';
+				const nestedRevision = typeof artifactPayload.revision === 'number' ? artifactPayload.revision : undefined;
+				if (nestedKind && !['chart', 'table', 'image', 'markdown', 'map'].includes(nestedKind)) {
+					throw new HermesRunRepositoryError('invalid_input', 'artifact.ready kind is invalid');
+				}
+				if (nestedStatus && nestedStatus !== 'ready') {
+					throw new HermesRunRepositoryError('invalid_input', 'artifact.ready status is invalid');
+				}
+				if (
+					(nestedId && nestedId !== artifact.family_id) ||
+					(nestedKind && nestedKind !== artifact.kind) ||
+					(nestedTitle && nestedTitle !== artifact.title) ||
+					(nestedSourceMessageId && nestedSourceMessageId !== artifact.source_message_id) ||
+					(nestedRevision !== undefined && (!Number.isSafeInteger(nestedRevision) || nestedRevision !== Number(artifact.revision)))
+				) {
+					throw new HermesRunRepositoryError('invalid_input', 'artifact.ready summary does not match its revision');
+				}
+			}
+		}
 		const nextSnapshot = applyHermesRunEventData(current, eventType, eventData);
 		const completedCitations =
 			nextSnapshot.state === 'complete'
@@ -690,6 +766,20 @@ export async function appendHermesRunEvent(
 			})
 			.returning()) as HermesRunEventRecord[];
 		if (!event) throw new Error('Hermes run event insert returned no row');
+		if (artifactRevisionId) {
+			await tx.insert(hermesRunArtifactRefs).values({
+				runId: id,
+				revisionId: artifactRevisionId,
+				cursor,
+				createdAt: now
+			}).onConflictDoUpdate({
+				target: [hermesRunArtifactRefs.runId, hermesRunArtifactRefs.revisionId],
+				set: {
+					cursor: sql`GREATEST(${hermesRunArtifactRefs.cursor}, EXCLUDED.cursor)`,
+					createdAt: now
+				}
+			});
+		}
 		const terminal = isTerminal(snapshot.state);
 		const sourceEvent = Boolean(objectValue(eventData.source)) || eventType.startsWith('agent.source');
 		const citationEvent = Array.isArray(eventData.citations) || snapshot.state === 'complete';

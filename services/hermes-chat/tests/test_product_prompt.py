@@ -639,7 +639,10 @@ class ProductPromptTests(unittest.TestCase):
             runtime = TenantIsolation(root / "home", root / "workspace").resolve(
                 "tenant-product-prompt"
             )
-            agent = SimpleNamespace(ephemeral_system_prompt="Thread override remains available.")
+            agent = SimpleNamespace(
+                ephemeral_system_prompt="Thread override remains available.",
+                session_id="hermes-generated-session",
+            )
             agui_server = SimpleNamespace(build_run_agent=lambda **_kwargs: agent)
 
             _install_tenant_builder(agui_server)
@@ -654,6 +657,7 @@ class ProductPromptTests(unittest.TestCase):
 
         self.assertIs(built, agent)
         self.assertTrue(agent.load_soul_identity)
+        self.assertEqual(agent.session_id, "thread")
         self.assertEqual(agent.ephemeral_system_prompt.count(NEWSCRAFT_IDENTITY_MARKER), 1)
         self.assertIn("Thread override remains available", agent.ephemeral_system_prompt)
 

@@ -7,6 +7,7 @@ import {
 } from '$lib/utils/stream-events';
 import type { ChatCommand, MessageContent } from '$lib/types';
 import type { CitationRecord } from '@newscraft/shared';
+import type { ArtifactSummary } from '$lib/types/artifacts';
 
 export const CHAT_STREAM_FAILURE_MESSAGE =
 	"I couldn't start that reply. Your message is still here. Try again.";
@@ -104,6 +105,7 @@ export interface StreamCallbacks {
 	onToolDone?: (id: string, tool?: StreamToolUpdate) => void;
 	onSource?: (source: PersistedSource) => void;
 	onCitations?: (citations: CitationRecord[]) => void;
+	onArtifactReady?: (artifact: ArtifactSummary) => void;
 	onPlan?: (plan: StreamPlanUpdate) => void;
 	onTitle?: (title: string) => void;
 	onPartial?: () => void;
@@ -147,8 +149,24 @@ async function consumeDurableResponse(response: Response, cb: StreamCallbacks): 
 			continue;
 		}
 		const eventCursor = ev.id === undefined ? undefined : Number(ev.id);
-		if (typeof eventCursor === 'number' && Number.isSafeInteger(eventCursor) && eventCursor <= snapshotCursor) continue;
-		if (typeof eventCursor === 'number' && Number.isSafeInteger(eventCursor)) cb.onRunCursor?.(eventCursor);
+		// Run snapshots carry the answer/tool/source projection, but artifacts are
+		// deliberately kept as event-backed records so the live card can be
+		// hydrated without making the snapshot unbounded.  Replays therefore must
+		// still deliver artifact.ready even when its persisted cursor is covered by
+		// the snapshot.  The page dedupes cards by family id, so this is safe on a
+		// reconnect and prevents a ready artifact from disappearing after the
+		// initial snapshot has advanced past its event.
+		if (
+			typeof eventCursor === 'number' &&
+			Number.isSafeInteger(eventCursor) &&
+			eventCursor <= snapshotCursor &&
+			ev.event !== 'artifact.ready'
+		) continue;
+		// A replayed artifact event may be older than the snapshot cursor. Deliver
+		// its card, but never move the resume cursor backwards.
+		if (typeof eventCursor === 'number' && Number.isSafeInteger(eventCursor) && eventCursor > snapshotCursor) {
+			cb.onRunCursor?.(eventCursor);
+		}
 		if (ev.event === 'run.cancel_requested') cb.onRunState?.('cancel_requested');
 		if (ev.event === 'run.cancelled' || ev.event === 'cancelled') cb.onRunState?.('cancelled');
 		if (ev.event === 'run.failed' || ev.event === 'response.failed') cb.onRunState?.('failed');
@@ -161,6 +179,7 @@ async function consumeDurableResponse(response: Response, cb: StreamCallbacks): 
 			if (update.delta) cb.onDelta(update.delta);
 			if (update.source) cb.onSource?.(update.source);
 			if (update.citations) cb.onCitations?.(update.citations);
+			if (update.artifact) cb.onArtifactReady?.(update.artifact);
 			if (update.plan) cb.onPlan?.(update.plan);
 			if (update.tool) {
 				if (update.tool.done) cb.onToolDone?.(update.tool.id, update.tool);

@@ -298,6 +298,173 @@ export const hermesRunEvents = pgTable(
 	})
 );
 
+/**
+ * Conversation artifacts are references to server-owned immutable object
+ * versions.  The revision row itself is immutable; only its lifecycle status
+ * and safe error metadata may change while publication is in flight.
+ */
+export const artifactFamilies = pgTable(
+	'artifact_families',
+	{
+		id: text('id').primaryKey(),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'cascade' }),
+		orgId: text('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+		conversationId: text('conversation_id')
+			.notNull()
+			.references(() => conversations.id, { onDelete: 'cascade' }),
+		sourceMessageId: text('source_message_id')
+			.notNull()
+			.references(() => messages.id, { onDelete: 'cascade' }),
+		kind: text('kind', { enum: ['chart', 'table', 'image', 'markdown', 'map'] }).notNull(),
+		title: text('title').notNull(),
+		latestRevisionId: text('latest_revision_id'),
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
+	},
+	(t) => ({
+		ownerMessageIdx: index('artifact_families_owner_message_idx').on(
+			t.accountId,
+			t.conversationId,
+			t.sourceMessageId,
+			t.updatedAt
+		),
+		conversationIdx: index('artifact_families_conversation_idx').on(t.accountId, t.conversationId, t.updatedAt)
+	})
+);
+
+export const artifactRevisions = pgTable(
+	'artifact_revisions',
+	{
+		id: text('id').primaryKey(),
+		familyId: text('family_id')
+			.notNull()
+			.references(() => artifactFamilies.id, { onDelete: 'cascade' }),
+		revision: integer('revision').notNull(),
+		status: text('status', {
+			enum: ['draft', 'publishing', 'ready', 'failed', 'cancelled', 'missing']
+		})
+			.notNull()
+			.default('draft'),
+		specJson: text('spec_json').notNull(),
+		specSha256: text('spec_sha256').notNull(),
+		baseRevisionId: text('base_revision_id'),
+		errorCode: text('error_code'),
+		errorMessage: text('error_message'),
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull(),
+		readyAt: timestampMs('ready_at')
+	},
+	(t) => ({
+		familyRevisionUnique: uniqueIndex('artifact_revisions_family_revision_unique').on(t.familyId, t.revision),
+		familyStatusIdx: index('artifact_revisions_family_status_idx').on(t.familyId, t.status, t.updatedAt)
+	})
+);
+
+export const artifactAssets = pgTable(
+	'artifact_assets',
+	{
+		id: text('id').primaryKey(),
+		revisionId: text('revision_id')
+			.notNull()
+			.references(() => artifactRevisions.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: ['source', 'preview', 'data'] }).notNull(),
+		objectKey: text('object_key').notNull(),
+		objectVersion: text('object_version').notNull(),
+		mimeType: text('mime_type').notNull(),
+		sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+		checksumSha256: text('checksum_sha256').notNull(),
+		width: integer('width'),
+		height: integer('height'),
+		createdAt: timestampMs('created_at').notNull(),
+		verifiedAt: timestampMs('verified_at').notNull()
+	},
+	(t) => ({
+		revisionRoleUnique: uniqueIndex('artifact_assets_revision_role_unique').on(t.revisionId, t.role),
+		objectVersionUnique: uniqueIndex('artifact_assets_object_version_unique').on(t.objectKey, t.objectVersion),
+		revisionIdx: index('artifact_assets_revision_idx').on(t.revisionId, t.createdAt)
+	})
+);
+
+export const artifactUploadGrants = pgTable(
+	'artifact_upload_grants',
+	{
+		id: text('id').primaryKey(),
+		revisionId: text('revision_id')
+			.notNull()
+			.references(() => artifactRevisions.id, { onDelete: 'cascade' }),
+		runId: text('run_id').references(() => hermesRuns.id, { onDelete: 'set null' }),
+		role: text('role', { enum: ['source', 'preview', 'data'] }).notNull(),
+		producerKey: text('producer_key').notNull(),
+		tokenHash: text('token_hash').notNull(),
+		stagingKey: text('staging_key').notNull(),
+		finalKey: text('final_key').notNull(),
+		uploadedObjectVersion: text('uploaded_object_version'),
+		allowedMime: text('allowed_mime').notNull(),
+		maxBytes: bigint('max_bytes', { mode: 'number' }).notNull(),
+		exactBytes: bigint('exact_bytes', { mode: 'number' }),
+		expectedSha256: text('expected_sha256'),
+		expiresAt: timestampMs('expires_at').notNull(),
+		state: text('state', { enum: ['issued', 'uploaded', 'consumed', 'expired', 'revoked'] })
+			.notNull()
+			.default('issued'),
+		createdAt: timestampMs('created_at').notNull(),
+		uploadedAt: timestampMs('uploaded_at'),
+		consumedAt: timestampMs('consumed_at')
+	},
+	(t) => ({
+		producerUnique: uniqueIndex('artifact_upload_grants_producer_unique').on(
+			t.revisionId,
+			t.role,
+			t.producerKey
+		),
+		stagingKeyUnique: uniqueIndex('artifact_upload_grants_staging_key_unique').on(t.stagingKey),
+		runIdx: index('artifact_upload_grants_run_idx').on(t.runId, t.state, t.expiresAt)
+	})
+);
+
+export const artifactVerifications = pgTable(
+	'artifact_verifications',
+	{
+		id: text('id').primaryKey(),
+		grantId: text('grant_id').references(() => artifactUploadGrants.id, { onDelete: 'set null' }),
+		objectKey: text('object_key').notNull(),
+		objectVersion: text('object_version').notNull(),
+		status: text('status', { enum: ['verified', 'rejected'] }).notNull(),
+		mimeType: text('mime_type'),
+		sizeBytes: bigint('size_bytes', { mode: 'number' }),
+		checksumSha256: text('checksum_sha256'),
+		width: integer('width'),
+		height: integer('height'),
+		reasonCode: text('reason_code'),
+		detailsJson: text('details_json').notNull().default('{}'),
+		createdAt: timestampMs('created_at').notNull()
+	},
+	(t) => ({
+		objectVersionIdx: index('artifact_verifications_object_version_idx').on(t.objectKey, t.objectVersion, t.createdAt),
+		grantIdx: index('artifact_verifications_grant_idx').on(t.grantId, t.createdAt)
+	})
+);
+
+export const hermesRunArtifactRefs = pgTable(
+	'hermes_run_artifact_refs',
+	{
+		runId: text('run_id')
+			.notNull()
+			.references(() => hermesRuns.id, { onDelete: 'cascade' }),
+		revisionId: text('revision_id')
+			.notNull()
+			.references(() => artifactRevisions.id, { onDelete: 'cascade' }),
+			cursor: integer('cursor').notNull(),
+		createdAt: timestampMs('created_at').notNull()
+	},
+	(t) => ({
+		primary: primaryKey({ columns: [t.runId, t.revisionId] }),
+		cursorIdx: index('hermes_run_artifact_refs_cursor_idx').on(t.runId, t.cursor)
+	})
+);
+
 export const chatFeedback = pgTable(
 	'chat_feedback',
 	{

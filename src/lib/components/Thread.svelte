@@ -12,6 +12,7 @@
 	import ToolActivity from './ToolActivity.svelte';
 	import PlanTimeline from './PlanTimeline.svelte';
 	import SourceDisclosure from './SourceDisclosure.svelte';
+	import ArtifactCard from './ArtifactCard.svelte';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { formatShortTime } from '$lib/utils/time';
 	import { tick } from 'svelte';
@@ -50,6 +51,7 @@
 		onLoadOlder?: () => Promise<void> | void;
 		onRetryHistory?: () => Promise<void> | void;
 		onLoadGap?: (gap: HistoryGap) => Promise<void> | void;
+		onOpenArtifact?: (artifact: import('$lib/types/artifacts').ArtifactSummary) => Promise<void> | void;
 	}
 	let {
 		messages,
@@ -68,7 +70,8 @@
 		latestReadyAssistantId = null,
 		onLoadOlder,
 		onRetryHistory,
-		onLoadGap
+		onLoadGap,
+		onOpenArtifact
 	}: Props = $props();
 
 	let scroller: HTMLDivElement | undefined = $state();
@@ -479,6 +482,14 @@
 								sources={sourceReceipts}
 								resolvedInline={citationState.allResolved}
 							/>
+						{/if}
+
+						{#if m.role === 'assistant' && m.artifacts?.length}
+							<div class="msg__artifacts" aria-label="Artifacts attached to this answer">
+								{#each m.artifacts as artifact (artifact.id)}
+									<ArtifactCard artifact={artifact} onOpen={(value) => onOpenArtifact?.(value)} />
+								{/each}
+							</div>
 						{/if}
 
 						{#if activeAssistant}

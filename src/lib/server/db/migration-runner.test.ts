@@ -1,6 +1,6 @@
 import postgres from 'postgres';
 import { afterAll, describe, expect, it } from 'vitest';
-import { EXPECTED_MIGRATION_COUNT, MIGRATION_TABLE } from './migration-contract';
+import { EXPECTED_MIGRATION_COUNT, MIGRATION_TABLE, MIGRATION_VERSIONS } from './migration-contract';
 import { runMigrations, splitMigrationStatements, type MigrationClient } from './migration-runner';
 
 class ConcurrentMigrationFakeClient implements MigrationClient {
@@ -101,7 +101,7 @@ describe('explicit Postgres migration runner', () => {
 		expect(client.maxConcurrentDdl).toBe(1);
 		expect(client.queries.filter((query) => query.includes('pg_advisory_xact_lock'))).toHaveLength(2);
 		expect(client.queries.filter((query) => query.includes(`CREATE TABLE IF NOT EXISTS ${MIGRATION_TABLE}`))).toHaveLength(2);
-		expect(results.every((result) => result.latest === '0015_durable_hermes_runs')).toBe(true);
+		expect(results.every((result) => result.latest === MIGRATION_VERSIONS.at(-1))).toBe(true);
 });
 });
 
@@ -126,8 +126,8 @@ describe.skipIf(!isolatedDatabaseUrl)('explicit migration runner against an isol
 			`SELECT count(*)::int AS count FROM ${MIGRATION_TABLE}`
 		);
 
-		expect(left.latest).toBe('0015_durable_hermes_runs');
-		expect(right.latest).toBe('0015_durable_hermes_runs');
+		expect(left.latest).toBe(MIGRATION_VERSIONS.at(-1));
+		expect(right.latest).toBe(MIGRATION_VERSIONS.at(-1));
 		expect(Number(row?.count)).toBeGreaterThanOrEqual(EXPECTED_MIGRATION_COUNT);
 	});
 });

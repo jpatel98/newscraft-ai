@@ -1,8 +1,9 @@
 <script lang="ts">
 	import Composer from '$lib/components/Composer.svelte';
-	import NewsroomArtifactPane, {
-		type ArtifactDraft
-	} from '$lib/components/NewsroomArtifactPane.svelte';
+import NewsroomArtifactPane, {
+	type ArtifactDraft
+} from '$lib/components/NewsroomArtifactPane.svelte';
+import ArtifactCanvas from '$lib/components/ArtifactCanvas.svelte';
 	import Thread from '$lib/components/Thread.svelte';
 	import type { CitationRecord } from '@newscraft/shared';
 	import type {
@@ -61,8 +62,9 @@
 		needsAutomaticConversationTitle,
 		requestAutomaticConversationTitle
 	} from '$lib/client/conversation-title';
-	import X from 'lucide-svelte/icons/x';
-	import Send from 'lucide-svelte/icons/send-horizontal';
+import X from 'lucide-svelte/icons/x';
+import Send from 'lucide-svelte/icons/send-horizontal';
+import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 
 	type ThreadMessage = PersistedThreadMessage & { createdAt: number };
 	type RunStreamArgs = StreamArgs & { conversation_id: string };
@@ -112,6 +114,7 @@
 	let hiddenIds = $state<Set<string>>(new Set());
 	let artifactOpen = $state(false);
 	let activeArtifact = $state<ArtifactDraft | null>(null);
+	let activeCanvasArtifact = $state<ArtifactDetail | null>(null);
 	let activeRunId = $state<string | null>(null);
 	let activeRunCursor = $state(0);
 	let activeRunStatus = $state<string | null>(null);
@@ -866,7 +869,14 @@
 						artifactCitations = citations;
 						updateArtifact({ citations });
 					},
-				onPlan: (plan: StreamPlanUpdate) => {
+					onArtifactReady: (ready: ArtifactSummary) => {
+						noteStreamEstablished();
+						const existing = asstMsg.artifacts ?? [];
+						updateAssistantOverlay({
+							artifacts: [...existing.filter((item) => item.id !== ready.id), ready]
+						});
+					},
+					onPlan: (plan: StreamPlanUpdate) => {
 						noteStreamEstablished();
 						chat.setPlan(plan);
 					},
@@ -1005,6 +1015,25 @@
 			},
 			{ action, sourceMessageId: messageId }
 		);
+	}
+
+	async function openArtifact(summary: ArtifactSummary) {
+		try {
+			const response = await fetch(
+				`/api/conversations/${encodeURIComponent(data.conversation.id)}/artifacts/${encodeURIComponent(summary.id)}?revision_id=${encodeURIComponent(summary.revisionId)}`,
+				{ headers: { accept: 'application/json' } }
+			);
+			if (!response.ok) throw new Error(`artifact ${response.status}`);
+			const payload = (await response.json()) as { artifact?: ArtifactDetail };
+			if (!payload.artifact) throw new Error('artifact detail missing');
+			activeCanvasArtifact = payload.artifact;
+		} catch {
+			activeCanvasArtifact = {
+				...summary,
+				spec: { kind: 'markdown', title: summary.title, markdown: summary.error?.message ?? 'This artifact could not be loaded.' },
+				assets: []
+			};
+		}
 	}
 
 	async function handleDocumentUpload(file: File, controls: DocumentUploadControls) {
@@ -1259,6 +1288,7 @@
 		activeRunCursor = 0;
 		activeRunStatus = null;
 		activeArtifact = null;
+		activeCanvasArtifact = null;
 		artifactOpen = false;
 		for (const controller of historyAbortControllers) controller.abort();
 		historyAbortControllers.clear();
@@ -1326,8 +1356,16 @@
 			onRetryFailure={handleRetryFailure}
 			onRetryPersisted={handleRetryPersisted}
 			onUseAnswer={handleUseAnswer}
+			onOpenArtifact={openArtifact}
 		/>
 	{/key}
+	{#if activeCanvasArtifact}
+		<ArtifactCanvas
+			artifact={activeCanvasArtifact}
+			conversationId={data.conversation.id}
+			onClose={() => (activeCanvasArtifact = null)}
+		/>
+	{/if}
 	{#if artifactOpen && activeArtifact}
 		<NewsroomArtifactPane
 			draft={activeArtifact}

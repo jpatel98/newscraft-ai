@@ -11,6 +11,7 @@ import {
 	listHermesRunStatesForMessages,
 	snapshotFromRun
 } from '$lib/server/db/hermes-runs';
+import { listArtifactSummariesForMessages } from '$lib/server/db/artifacts';
 import {
 	MESSAGE_PAGE_MAX_BYTES,
 	MESSAGE_PAGE_SIZE,
@@ -38,6 +39,29 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const runByAssistant = new Map(durableRuns.map((run) => [run.assistantMessageId, run]));
 	const candidateMessages = rowsToThreadMessages(candidateRows, runByAssistant);
 	const messages = trimNewestMessages(candidateMessages, MESSAGE_PAGE_SIZE, MESSAGE_PAGE_MAX_BYTES);
+	let artifacts: Awaited<ReturnType<typeof listArtifactSummariesForMessages>> = [];
+	try {
+		artifacts = await listArtifactSummariesForMessages(
+			locals.user.id,
+			convo.id,
+			messages.map((message) => message.id)
+		);
+	} catch (cause) {
+		// Artifact cards are optional history decoration. Keep the conversation
+		// page available when the artifact projection is unavailable during a
+		// migration or transient database failure.
+		console.warn('NewsCraft artifact summary hydration failed', cause);
+	}
+	const artifactsByMessage = new Map<string, typeof artifacts>();
+	for (const artifact of artifacts) {
+		const current = artifactsByMessage.get(artifact.sourceMessageId) ?? [];
+		current.push(artifact);
+		artifactsByMessage.set(artifact.sourceMessageId, current);
+	}
+	for (const message of messages) {
+		const attached = artifactsByMessage.get(message.id);
+		if (attached?.length) message.artifacts = attached;
+	}
 	const first = messages[0];
 	const last = messages[messages.length - 1];
 	const actionView = (message: (typeof actionSummary)[keyof typeof actionSummary]): ThreadMessageView | null =>

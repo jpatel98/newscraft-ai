@@ -24,10 +24,16 @@ from .contracts import (
     NEWSCRAFT_RUN_RECOVER_PATH,
     NEWSCRAFT_RUN_RELEASE_PATH,
     NEWSCRAFT_RUN_RENEW_PATH,
+    NEWSCRAFT_ARTIFACT_GRANT_PATH,
+    NEWSCRAFT_ARTIFACT_REVISION_PATH,
+    NEWSCRAFT_ARTIFACT_FINALIZE_PATH,
     RUN_LEASE_RENEW_INTERVAL_SECONDS,
     RUN_TOKEN_HEADER,
 )
 from .isolation import TenantIsolation
+from .artifact_publish import ArtifactPublishError, publish_workspace_file
+
+ARTIFACT_PRODUCER_KEY = "hermes-publish-artifact"
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +137,28 @@ def _resolve_trace_id(run_input: Mapping[str, Any], payload_value: Any) -> str |
     if input_trace and payload_trace and input_trace != payload_trace:
         raise DurableRunError("trace binding does not match")
     return payload_trace or input_trace
+
+
+def _run_thread_id(run_input: Mapping[str, Any]) -> str:
+    """Read the server-assigned AG-UI thread/session identity.
+
+    The value is used only as an infrastructure lookup key for tool dispatch;
+    it is never accepted from artifact tool arguments.  A durable start normally
+    contains ``threadId``.  ``thread_id``/``sessionId`` are accepted for saved
+    runs produced by older transport versions so recovery does not lose the
+    ability to bind a worker-thread tool call.
+    """
+    for name in ("threadId", "thread_id", "sessionId", "session_id"):
+        value = run_input.get(name)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            raise DurableRunError("thread identity is invalid")
+        value = value.strip()
+        if not value or len(value) > 256:
+            raise DurableRunError("thread identity is invalid")
+        return value
+    return ""
 
 
 def _failure_class(error: BaseException) -> str:
@@ -323,6 +351,11 @@ class DurableJob:
     seeded_citations: list[dict[str, Any]]
     lease_owner: str
     lease_token: str
+    # AG-UI's thread/session identity is carried as infrastructure metadata
+    # when a registry tool is bridged through a worker thread.  Keep it on the
+    # durable job so the publisher can still resolve the active run when the
+    # ContextVar set around _run_turn is not present in that thread.
+    thread_id: str = ""
     worker_cursor: int = 0
     trace_id: str | None = None
     task: asyncio.Task[None] | None = None
@@ -406,6 +439,265 @@ class DurableRunWorker:
         if not self.settings.run_api_url:
             raise DurableRunError("NewsCraft durable run API is not configured")
         return f"{self.settings.run_api_url.rstrip('/')}{path}"
+
+    async def publish_artifact_file(
+        self,
+        job: DurableJob,
+        *,
+        path: str,
+        revision_id: str,
+        role: str,
+        mime_type: str,
+        size: int,
+        checksum_sha256: str,
+    ) -> dict[str, Any]:
+        """Publish one file from the active tenant runtime.
+
+        This is an explicit worker capability for the scoped Hermes publisher;
+        callers must supply a server-created revision identity.  The helper
+        never returns a host path or object URL to the model and the final
+        NewsCraft verifier decides whether the asset becomes ready.
+        """
+        runtime = self.isolation.ensure(self.isolation.resolve(job.tenant_key))
+        if role not in {"source", "preview", "data"}:
+            raise ArtifactPublishError("artifact role is invalid")
+        if not isinstance(size, int) or isinstance(size, bool) or size < 1 or size > 20 * 1024 * 1024:
+            raise ArtifactPublishError("artifact size is invalid")
+        if not isinstance(checksum_sha256, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", checksum_sha256):
+            raise ArtifactPublishError("artifact checksum is invalid")
+        grant = await self._newscraft(
+            "POST",
+            NEWSCRAFT_ARTIFACT_GRANT_PATH.format(run_id=quote(job.run_id, safe="")),
+            {
+                "account_id": job.account_id,
+                "tenant_key": job.tenant_key,
+                "revision_id": revision_id,
+                "role": role,
+                # Producer identity is a server capability, never model input.
+                "producer_key": ARTIFACT_PRODUCER_KEY,
+                "allowed_mime": mime_type,
+                "max_bytes": min(size, 20 * 1024 * 1024),
+                "exact_bytes": size,
+                "expected_sha256": checksum_sha256,
+                "lease_owner": job.lease_owner,
+                "lease_token": job.lease_token,
+                "trace_id": job.trace_id,
+            },
+        )
+        client = _CURRENT_NEWSCRAFT_CLIENT.get() or self._new_http_client()
+        owns_client = _CURRENT_NEWSCRAFT_CLIENT.get() is None
+        try:
+            await publish_workspace_file(
+                client=client,
+                runtime=runtime,
+                path=path,
+                grant=grant,
+                mime_type=mime_type,
+                size=size,
+                checksum_sha256=checksum_sha256,
+                task_id=runtime.task_key,
+            )
+            result = await self._newscraft(
+                "POST",
+                NEWSCRAFT_ARTIFACT_FINALIZE_PATH.format(run_id=quote(job.run_id, safe="")),
+                {
+                    "account_id": job.account_id,
+                    "tenant_key": job.tenant_key,
+                    "grant_id": grant.get("grant_id"),
+                    "lease_owner": job.lease_owner,
+                    "lease_token": job.lease_token,
+                    "trace_id": job.trace_id,
+                },
+            )
+            artifact = result.get("artifact") if isinstance(result, dict) else None
+            await self._callback(job, "artifact.ready", {
+                "artifact_revision_id": revision_id,
+                "artifact": artifact if isinstance(artifact, dict) else result,
+            })
+            return result
+        except ArtifactPublishError:
+            raise
+        finally:
+            if owns_client:
+                await self._close_http_client(client)
+
+    async def publish_artifact_spec(
+        self,
+        job: DurableJob,
+        *,
+        spec: Mapping[str, Any],
+        title: str | None = None,
+        path: str | None = None,
+        mime_type: str | None = None,
+        size: int | None = None,
+        checksum_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        """Publish one inline artifact or a file-backed image.
+
+        NewsCraft issues the revision from the locked run identity. The model
+        supplies only the bounded spec and, for file assets, a virtual
+        workspace path plus an exact fingerprint; host paths and source
+        message ids never cross this boundary.
+        """
+        if not isinstance(spec, Mapping):
+            raise ArtifactPublishError("artifact spec must be an object")
+        raw_kind = spec.get("kind")
+        kind = raw_kind.strip() if isinstance(raw_kind, str) else ""
+        if path is not None:
+            if (
+                not isinstance(path, str)
+                or not path.strip()
+                or kind != "image"
+                or mime_type not in {"image/png", "image/jpeg"}
+                or not isinstance(size, int)
+                or isinstance(size, bool)
+                or size < 1
+                or size > 20 * 1024 * 1024
+                or not isinstance(checksum_sha256, str)
+                or not re.fullmatch(r"[a-fA-F0-9]{64}", checksum_sha256)
+            ):
+                raise ArtifactPublishError("file-backed artifacts require an image spec and exact file fingerprint")
+        elif kind == "image":
+            raise ArtifactPublishError("image artifacts require a workspace file path")
+        revision_result = await self._newscraft(
+            "POST",
+            NEWSCRAFT_ARTIFACT_REVISION_PATH.format(run_id=quote(job.run_id, safe="")),
+            {
+                "account_id": job.account_id,
+                "tenant_key": job.tenant_key,
+                "lease_owner": job.lease_owner,
+                "lease_token": job.lease_token,
+                "spec": dict(spec),
+                **({"title": title} if isinstance(title, str) and title.strip() else {}),
+                **({"trace_id": job.trace_id} if job.trace_id else {}),
+            },
+        )
+        revision_id = revision_result.get("revision_id")
+        artifact = revision_result.get("artifact")
+        if not isinstance(revision_id, str) or not revision_id:
+            raise ArtifactPublishError("artifact revision response is invalid")
+        if path is not None:
+            # The image revision is still draft when this call starts; the
+            # finalize path emits artifact.ready after verifier success.
+            return await self.publish_artifact_file(
+                job,
+                path=path,
+                revision_id=revision_id,
+                role="source",
+                mime_type=mime_type,
+                size=size,
+                checksum_sha256=checksum_sha256,
+            )
+        if not isinstance(artifact, dict):
+            raise ArtifactPublishError("inline artifact response is invalid")
+        await self._callback(job, "artifact.ready", {
+            "artifact_revision_id": revision_id,
+            "artifact": artifact,
+        })
+        return {"artifact": artifact, "revision_id": revision_id}
+
+    async def resolve_active_job(
+        self,
+        *,
+        run_id: str | None = None,
+        tenant_key: str | None = None,
+        task_id: str | None = None,
+        session_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> DurableJob:
+        """Resolve one leased job from trusted runtime metadata.
+
+        Most calls run inside :func:`tenant_run_scope`, but Hermes bridges an
+        async registry handler through a separate thread for some AG-UI paths.
+        ContextVars are not a safe sole ownership boundary for that bridge.  The
+        registry supplies ``task_id``/``session_id`` as infrastructure kwargs, so
+        we use those values only when the explicit run identity is unavailable and
+        reject an ambiguous lookup instead of guessing between concurrent runs.
+        """
+        normalized_run_id = str(run_id or "").strip()
+        normalized_tenant = str(tenant_key or "").strip()
+        normalized_task = str(task_id or "").strip()
+        normalized_session = str(session_id or thread_id or "").strip()
+        if not any((normalized_run_id, normalized_tenant, normalized_task, normalized_session)):
+            # A unique leased job is not an ownership proof.  The registry
+            # bridge can run outside the tenant ContextVar, so an unscoped
+            # invocation must fail closed even when only one job happens to
+            # be present today.
+            raise ArtifactPublishError("artifact publishing requires trusted runtime binding")
+        async with self._lock:
+            if normalized_run_id:
+                job = self.jobs.get(normalized_run_id)
+                candidates = [job] if job is not None else []
+            else:
+                candidates = [
+                    candidate
+                    for candidate in self.jobs.values()
+                    if candidate.lease_acquired
+                    and (
+                        not normalized_tenant
+                        or candidate.tenant_key == normalized_tenant
+                    )
+                    and (
+                        not normalized_task
+                        or candidate.thread_id == normalized_task
+                        or f"newscraft-{candidate.tenant_key}" == normalized_task
+                    )
+                    and (
+                        not normalized_session
+                        or candidate.thread_id == normalized_session
+                    )
+                ]
+            if len(candidates) != 1:
+                if not candidates:
+                    raise ArtifactPublishError("artifact publishing requires one active durable run")
+                raise ArtifactPublishError("artifact run identity is ambiguous")
+            job = candidates[0]
+            if job is None or not job.lease_acquired or not job.lease_token:
+                raise ArtifactPublishError("artifact publishing is available only during an active durable run")
+            if normalized_tenant and job.tenant_key != normalized_tenant:
+                raise ArtifactPublishError("artifact tenant binding does not match")
+            if normalized_run_id and job.run_id != normalized_run_id:
+                raise ArtifactPublishError("artifact run binding does not match")
+            if normalized_task and normalized_task not in {
+                job.thread_id,
+                f"newscraft-{job.tenant_key}",
+            }:
+                raise ArtifactPublishError("artifact task binding does not match")
+            if normalized_session and job.thread_id != normalized_session:
+                raise ArtifactPublishError("artifact session binding does not match")
+            return job
+
+    async def publish_artifact_from_tool(
+        self,
+        args: Mapping[str, Any],
+        run_id: str | None = None,
+        tenant_key: str | None = None,
+        *,
+        task_id: str | None = None,
+        session_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Publish through the active job selected by server infrastructure."""
+        job = await self.resolve_active_job(
+            run_id=run_id,
+            tenant_key=tenant_key,
+            task_id=task_id,
+            session_id=session_id,
+            thread_id=thread_id,
+        )
+        spec = args.get("spec") if isinstance(args, Mapping) else None
+        if not isinstance(spec, Mapping):
+            raise ArtifactPublishError("spec is required")
+        raw_size = args.get("size")
+        return await self.publish_artifact_spec(
+            job,
+            spec=spec,
+            title=args.get("title") if isinstance(args.get("title"), str) else None,
+            path=args.get("path") if isinstance(args.get("path"), str) and args.get("path").strip() else None,
+            mime_type=args.get("mime_type") if isinstance(args.get("mime_type"), str) else None,
+            size=raw_size if isinstance(raw_size, int) and not isinstance(raw_size, bool) else None,
+            checksum_sha256=args.get("checksum_sha256") if isinstance(args.get("checksum_sha256"), str) else None,
+        )
 
     def _new_http_client(self) -> httpx.AsyncClient:
         # A client is owned by one durable run or one unscoped control request.
@@ -570,6 +862,7 @@ class DurableRunWorker:
         tenant_key = _string(payload.get("tenant_key"), "tenant_key")
         run_input = _json_object(payload.get("input"), "input")
         trace_id = _resolve_trace_id(run_input, payload.get("trace_id"))
+        thread_id = _run_thread_id(run_input)
         self.isolation.resolve(tenant_key)
         if str(run_input.get("runId") or run_input.get("run_id") or "").strip() not in {"", run_id}:
             raise DurableRunError("input run id does not match run id")
@@ -586,6 +879,8 @@ class DurableRunWorker:
                         raise DurableRunError("run tenant binding does not match")
                     if trace_id and current.trace_id and current.trace_id != trace_id:
                         raise DurableRunError("run trace binding does not match")
+                    if thread_id and current.thread_id and current.thread_id != thread_id:
+                        raise DurableRunError("run thread binding does not match")
                     if current.stop_reason == "cancelled":
                         state = "cancelled"
                     elif current.claim_error is not None:
@@ -615,6 +910,7 @@ class DurableRunWorker:
                     seeded_citations=[item for item in payload.get("seeded_citations", []) if isinstance(item, dict)][:100],
                     lease_owner="",
                     lease_token="",
+                    thread_id=thread_id,
                     trace_id=trace_id,
                 )
                 self.jobs[run_id] = job
@@ -798,6 +1094,7 @@ class DurableRunWorker:
         self.isolation.resolve(tenant_key)
         run_input = _json_object(payload.get("input"), "input")
         trace_id = _resolve_trace_id(run_input, payload.get("trace_id"))
+        thread_id = _run_thread_id(run_input)
         if str(run_input.get("runId") or run_input.get("run_id") or "").strip() not in {"", run_id}:
             raise DurableRunError("saved input run id does not match run id")
         existing_state: str | None = None
@@ -812,6 +1109,8 @@ class DurableRunWorker:
                     raise DurableRunError("run tenant binding does not match")
                 if trace_id and current.trace_id and current.trace_id != trace_id:
                     raise DurableRunError("run trace binding does not match")
+                if thread_id and current.thread_id and current.thread_id != thread_id:
+                    raise DurableRunError("run thread binding does not match")
                 if current.stop_reason == "cancelled":
                     current_state = "cancelled"
                 elif current.lease_acquired and current.task and not current.task.done():
@@ -836,6 +1135,7 @@ class DurableRunWorker:
                     seeded_citations=[item for item in payload.get("seeded_citations", []) if isinstance(item, dict)][:100],
                     lease_owner=lease_owner,
                     lease_token=lease_token,
+                    thread_id=thread_id,
                     worker_cursor=int(payload.get("worker_cursor") or 0),
                     trace_id=trace_id,
                     lease_acquired=True,

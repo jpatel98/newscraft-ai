@@ -6,6 +6,7 @@ import {
 	type Role
 } from '$lib/server/db/conversations';
 import type { HermesRunMessageState } from '$lib/server/db/hermes-runs';
+import type { ArtifactSummary } from '$lib/server/artifacts/contracts';
 
 /** The UI requests at most this many persisted rows in one history page. */
 export const MESSAGE_PAGE_SIZE = 50;
@@ -23,11 +24,12 @@ export type ThreadMessageView = {
 	createdAt: number;
 	durableState: string | null;
 	durableError: string | null;
+	artifacts?: ArtifactSummary[];
 };
 
 export type MessageEnvelope = Pick<
 	ThreadMessageView,
-	'id' | 'role' | 'content' | 'toolCalls' | 'partial' | 'createdAt' | 'durableState' | 'durableError'
+	'id' | 'role' | 'content' | 'toolCalls' | 'partial' | 'createdAt' | 'durableState' | 'durableError' | 'artifacts'
 >;
 
 export function cursorOf(message: Pick<MessageRow, 'createdAt' | 'id'>): MessagePageCursor {
@@ -41,7 +43,8 @@ export function compareCursors(a: MessagePageCursor, b: MessagePageCursor): numb
 
 export function toThreadMessage(
 	message: MessageRow,
-	run?: HermesRunMessageState | null
+	run?: HermesRunMessageState | null,
+	artifacts?: ArtifactSummary[]
 ): ThreadMessageView {
 	return {
 		id: message.id,
@@ -51,7 +54,8 @@ export function toThreadMessage(
 		partial: message.partial === 1,
 		createdAt: message.createdAt,
 		durableState: run?.state ?? null,
-		durableError: run?.errorMessage ?? null
+		durableError: run?.errorMessage ?? null,
+		...(artifacts?.length ? { artifacts } : {})
 	};
 }
 
@@ -116,4 +120,3 @@ export function rowsToThreadMessages(
 ): ThreadMessageView[] {
 	return rows.map((row) => toThreadMessage(row, runs.get(row.id)));
 }
-

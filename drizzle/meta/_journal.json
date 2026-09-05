@@ -106,6 +106,20 @@
       "when": 1786227337000,
       "tag": "0014_runtime_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786227337001,
+      "tag": "0015_durable_hermes_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786227337002,
+      "tag": "0016_conversation_artifacts",
+      "breakpoints": true
     }
   ]
 }

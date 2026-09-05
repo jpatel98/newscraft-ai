@@ -12,6 +12,7 @@ const PUBLIC_PREFIXES = [
 	'/api/health',
 	'/api/agent/channel-posts',
 	'/api/internal/hermes/runs',
+	'/api/internal/artifacts/upload',
 	'/account-setup',
 	'/api/e2e'
 ];

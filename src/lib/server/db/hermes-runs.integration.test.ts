@@ -25,7 +25,6 @@ import {
 	renewHermesRunLease,
 	releaseHermesRunLease,
 	requestHermesRunCancellation,
-	HermesRunRepositoryError
 } from './hermes-runs';
 import { getMessageProvenance } from './message-provenance';
 
@@ -613,7 +612,14 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 				dataJson: '{}',
 				workerCursor: 1
 			})
-		).rejects.toBeInstanceOf(HermesRunRepositoryError);
+		).resolves.toMatchObject({ event: { cursor: 1 } });
+		await expect(
+			appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+				eventType: 'run.started',
+				dataJson: JSON.stringify({ different: true }),
+				workerCursor: 1
+			})
+		).rejects.toMatchObject({ code: 'stale_callback' });
 	});
 
 	it('records cancellation and does not allow a cancelled run to be claimed', async () => {
