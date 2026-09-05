@@ -238,6 +238,11 @@
 		}
 	}
 
+	function clearTargetHash(targetId: string): void {
+		if (typeof location === 'undefined' || currentHashMessageId() !== targetId) return;
+		replaceState(location.pathname + location.search, {});
+	}
+
 	async function requestHistory(path: string): Promise<HistoryFetch> {
 		const controller = new AbortController();
 		const revision = ++historyRevisionSequence;
@@ -491,6 +496,7 @@
 			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
 			if (!result.messages.some((message) => message.id === targetId)) {
 				historyTargetStatus = 'That message is no longer available.';
+				clearTargetHash(targetId);
 				return;
 			}
 			const merged = mergeMessageRowsAtRevision(
@@ -517,7 +523,7 @@
 			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
 			if (cause instanceof HistoryRequestError && cause.status === 404) {
 				historyTargetStatus = 'That message is no longer available.';
-				if (currentHashMessageId() === targetId) replaceState(location.pathname + location.search, {});
+				clearTargetHash(targetId);
 				return;
 			}
 			historyError = "Couldn't load that message. Try again.";
