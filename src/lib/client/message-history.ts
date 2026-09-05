@@ -27,6 +27,8 @@ export type HistoryPageMeta = {
 	newerCursor?: HistoryCursor | null;
 };
 
+export type HistoryRowRevisions = ReadonlyMap<string, number>;
+
 export function compareCursor(a: HistoryCursor, b: HistoryCursor): number {
 	if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
 	return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
@@ -51,6 +53,82 @@ export function mergeMessageRows(
 	return [...byId.values()].sort((a, b) => compareCursor(cursorOf(a), cursorOf(b)));
 }
 
+/**
+ * Merge a response only when it is at least as new as the response already
+ * accepted for that id. The revision is local request order, not a server
+ * timestamp. It prevents a slower response from replacing a newer response.
+ */
+export function mergeMessageRowsAtRevision(
+	existing: HistoryMessage[],
+	incoming: HistoryMessage[],
+	tombstones: ReadonlySet<string>,
+	revisions: HistoryRowRevisions,
+	revision: number
+): { messages: HistoryMessage[]; revisions: Map<string, number>; accepted: HistoryMessage[] } {
+	const byId = new Map<string, HistoryMessage>();
+	for (const message of existing) {
+		if (!tombstones.has(message.id)) byId.set(message.id, message);
+	}
+	const nextRevisions = new Map(revisions);
+	const accepted = new Map<string, HistoryMessage>();
+	for (const message of incoming) {
+		if (tombstones.has(message.id)) continue;
+		const currentRevision = nextRevisions.get(message.id);
+		if (currentRevision !== undefined && currentRevision > revision) continue;
+		byId.set(message.id, message);
+		accepted.set(message.id, message);
+		nextRevisions.set(message.id, revision);
+	}
+	return {
+		messages: [...byId.values()].sort((a, b) => compareCursor(cursorOf(a), cursorOf(b))),
+		revisions: nextRevisions,
+		accepted: [...accepted.values()].sort((a, b) => compareCursor(cursorOf(a), cursorOf(b)))
+	};
+}
+
+/**
+ * Reconcile one exact-id response into the current rows. Deletion is limited
+ * to ids from this request that have not changed since reconciliation began.
+ * Rows loaded by another page while this request waited remain intact.
+ */
+export function reconcileMessageBatch(
+	existing: HistoryMessage[],
+	incoming: HistoryMessage[],
+	batchIds: string[],
+	tombstones: ReadonlySet<string>,
+	revisions: HistoryRowRevisions,
+	revision: number,
+	baselineRevisions: HistoryRowRevisions
+): { messages: HistoryMessage[]; revisions: Map<string, number> } {
+	const merged = mergeMessageRowsAtRevision(
+		existing,
+		incoming,
+		tombstones,
+		revisions,
+		revision
+	);
+	const batch = new Set(batchIds);
+	const present = new Set(incoming.map((message) => message.id));
+	const nextRevisions = new Map(merged.revisions);
+	const messages = merged.messages.filter((message) => {
+		if (!batch.has(message.id) || present.has(message.id)) return true;
+		const currentRevision = nextRevisions.get(message.id) ?? -1;
+		const baselineRevision = baselineRevisions.get(message.id) ?? currentRevision;
+		if (currentRevision > baselineRevision || currentRevision > revision) return true;
+		nextRevisions.set(message.id, revision);
+		return false;
+	});
+	for (const id of batch) {
+		if (present.has(id)) continue;
+		const currentRevision = nextRevisions.get(id) ?? -1;
+		const baselineRevision = baselineRevisions.get(id) ?? currentRevision;
+		if (currentRevision <= baselineRevision && currentRevision <= revision) {
+			nextRevisions.set(id, revision);
+		}
+	}
+	return { messages, revisions: nextRevisions };
+}
+
 export function segmentForMessages(
 	id: string,
 	messages: HistoryMessage[],
@@ -73,6 +151,27 @@ export function initialTailSegment(
 	id = 'tail'
 ): HistorySegment | null {
 	return segmentForMessages(id, messages, hasOlder, false);
+}
+
+/**
+ * Exact-id reads prove only the returned rows. Keep each row isolated so a
+ * batch of disconnected ids cannot hide an unloaded interval.
+ */
+export function segmentsForExactMessages(messages: HistoryMessage[]): HistorySegment[] {
+	return messages.flatMap((message) => {
+		const segment = segmentForMessages(`id:${message.id}`, [message], true, true);
+		return segment ? [segment] : [];
+	});
+}
+
+/** Merge the contiguous page returned by a latest-page refresh. */
+export function mergeTailRefresh(
+	segments: HistorySegment[],
+	pageMessages: HistoryMessage[],
+	hasOlder: boolean
+): HistorySegment[] {
+	const tail = initialTailSegment(pageMessages, hasOlder, 'tail');
+	return tail ? mergeSegments([...segments, tail]) : segments;
 }
 
 export function mergeSegments(segments: HistorySegment[]): HistorySegment[] {

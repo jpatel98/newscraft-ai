@@ -45,8 +45,11 @@
 		deriveHistoryGaps,
 		MESSAGE_ID_BATCH_SIZE,
 		initialTailSegment,
-		mergeMessageRows,
+		mergeMessageRowsAtRevision,
+		mergeTailRefresh,
 		mergeSegments,
+		reconcileMessageBatch,
+		segmentsForExactMessages,
 		segmentForMessages,
 		type HistoryCursor,
 		type HistoryGap,
@@ -140,13 +143,17 @@
 	let historyAbortControllers = new Set<AbortController>();
 	let historyRequestGeneration = 0;
 	let historyMutationToken = 0;
+	let historyRevisionSequence = 0;
+	let historyRowRevisions = new Map<string, number>();
 	let historyInitialized = false;
 	let lastPageMessagesRef: unknown = null;
 	let olderRequestActive = false;
 	let gapRequests = $state<Set<string>>(new Set());
+	let historyErrorTarget = $state<string | null>(null);
 
 	const initialSegment = untrack(() => initialTailSegment(historyMessages, historyMeta.hasOlder));
 	if (initialSegment) historySegments = [initialSegment];
+	historyRowRevisions = new Map(untrack(() => historyMessages.map((message) => [message.id, 0])));
 
 	const persisted = $derived(persistedThreadMessages(historyMessages, hiddenIds));
 	const messages = $derived([...persisted, ...overlay]);
@@ -196,6 +203,16 @@
 		nextAfter?: HistoryCursor | null;
 		targetId?: string;
 	};
+	type HistoryFetch = { result: HistoryResponse; revision: number };
+
+	class HistoryRequestError extends Error {
+		readonly status: number;
+		constructor(status: number) {
+			super(`history ${status}`);
+			this.name = 'HistoryRequestError';
+			this.status = status;
+		}
+	}
 
 	function encodeHistoryCursor(cursor: HistoryCursor): string {
 		return btoa(JSON.stringify(cursor)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -210,13 +227,25 @@
 		return `/api/conversations/${encodeURIComponent(data.conversation.id)}/messages${query ? `?${query}` : ''}`;
 	}
 
-	async function requestHistory(path: string): Promise<HistoryResponse> {
+	function currentHashMessageId(): string | null {
+		if (typeof location === 'undefined') return null;
+		const match = location.hash.match(/^#m=(.+)$/);
+		if (!match) return null;
+		try {
+			return decodeURIComponent(match[1]);
+		} catch {
+			return null;
+		}
+	}
+
+	async function requestHistory(path: string): Promise<HistoryFetch> {
 		const controller = new AbortController();
+		const revision = ++historyRevisionSequence;
 		historyAbortControllers.add(controller);
 		try {
 			const response = await fetch(path, { signal: controller.signal, headers: { accept: 'application/json' } });
-			if (!response.ok) throw new Error(`history ${response.status}`);
-			return (await response.json()) as HistoryResponse;
+			if (!response.ok) throw new HistoryRequestError(response.status);
+			return { result: (await response.json()) as HistoryResponse, revision };
 		} finally {
 			historyAbortControllers.delete(controller);
 		}
@@ -244,29 +273,25 @@
 		historySegments = mergeSegments(rebased);
 	}
 
-	function mergeHistoryRows(incoming: ThreadMessage[], kind: 'prepend' | 'merge' = 'merge') {
-		historyMutationKind = kind;
-		historyMutationVersion += 1;
-		historyMessages = mergeMessageRows(
-			historyMessages as HistoryMessage[],
-		incoming as HistoryMessage[],
-		historyTombstones
-		) as ThreadMessage[];
-	}
-
-	function refreshTailSegment() {
-		const tail = initialTailSegment(historyMessages, historyMeta.hasOlder, 'tail');
-		if (!tail) return;
-		historySegments = mergeSegments([...historySegments, tail]);
+	function refreshTailSegment(pageMessages: ThreadMessage[], hasOlder: boolean) {
+		historySegments = mergeTailRefresh(
+			historySegments,
+			pageMessages as HistoryMessage[],
+			hasOlder
+		);
 	}
 
 	function markHistoryMutation(ids: string[] = []) {
 		historyMutationToken += 1;
 		historyRequestGeneration += 1;
 		if (ids.length) {
+			const revision = ++historyRevisionSequence;
 			const next = new Set(historyTombstones);
+			const nextRevisions = new Map(historyRowRevisions);
 			for (const id of ids) next.add(id);
+			for (const id of ids) nextRevisions.set(id, revision);
 			historyTombstones = next;
+			historyRowRevisions = nextRevisions;
 			historyMessages = historyMessages.filter((message) => !next.has(message.id));
 			rebaseHistorySegments(historyMessages);
 		}
@@ -281,12 +306,23 @@
 		try {
 			for (let offset = 0; offset < wanted.length; offset += MESSAGE_ID_BATCH_SIZE) {
 				const batch = wanted.slice(offset, offset + MESSAGE_ID_BATCH_SIZE);
-				const result = await requestHistory(historyUrl({ ids: batch.join(',') }));
+				const { result, revision } = await requestHistory(historyUrl({ ids: batch.join(',') }));
 				if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
 				if (result.messages.length) {
-					mergeHistoryRows(result.messages);
-					const segment = segmentForMessages(`ids:${batch[0]}`, result.messages, true, true);
-					if (segment) historySegments = mergeSegments([...historySegments, segment]);
+					const merged = mergeMessageRowsAtRevision(
+						historyMessages as HistoryMessage[],
+						result.messages as HistoryMessage[],
+						historyTombstones,
+						historyRowRevisions,
+						revision
+					);
+					historyMessages = merged.messages as ThreadMessage[];
+					historyRowRevisions = merged.revisions;
+					historyMutationKind = 'merge';
+					historyMutationVersion += 1;
+					rebaseHistorySegments(historyMessages);
+					const segments = segmentsForExactMessages(merged.accepted);
+					if (segments.length) historySegments = mergeSegments([...historySegments, ...segments]);
 				}
 			}
 		} catch {
@@ -296,25 +332,33 @@
 
 	async function reconcileLoadedIds(generation: number, epoch: number, mutation: number) {
 		const wanted = [...new Set(historyMessages.map((message) => message.id))];
-		let next = historyMessages as HistoryMessage[];
+		const baselineRevisions = new Map(
+			wanted.map((id) => [id, historyRowRevisions.get(id) ?? 0])
+		);
 		for (let offset = 0; offset < wanted.length; offset += MESSAGE_ID_BATCH_SIZE) {
 			const batch = wanted.slice(offset, offset + MESSAGE_ID_BATCH_SIZE);
 			try {
-				const result = await requestHistory(historyUrl({ ids: batch.join(',') }));
+				const { result, revision } = await requestHistory(historyUrl({ ids: batch.join(',') }));
 				if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
-				const present = new Set(result.messages.map((message) => message.id));
-				next = mergeMessageRows(next, result.messages as HistoryMessage[], historyTombstones);
-				next = next.filter((message) => !batch.includes(message.id) || present.has(message.id));
+				const reconciled = reconcileMessageBatch(
+					historyMessages as HistoryMessage[],
+					result.messages as HistoryMessage[],
+					batch,
+					historyTombstones,
+					historyRowRevisions,
+					revision,
+					baselineRevisions
+				);
+				historyMessages = reconciled.messages as ThreadMessage[];
+				historyRowRevisions = reconciled.revisions;
+				historyMutationKind = 'merge';
+				historyMutationVersion += 1;
+				rebaseHistorySegments(historyMessages);
 			} catch {
 				return;
 			}
 		}
 		if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
-		historyMutationKind = 'merge';
-		historyMutationVersion += 1;
-		historyMessages = next as ThreadMessage[];
-		rebaseHistorySegments(historyMessages);
-		refreshTailSegment();
 	}
 
 	async function loadOlder() {
@@ -329,15 +373,25 @@
 		const epoch = historyRequestGeneration;
 		const mutation = historyMutationToken;
 		try {
-			const result = await requestHistory(
+			const { result, revision } = await requestHistory(
 				historyUrl({ before: encodeHistoryCursor(firstSegment.start), limit: historyMeta.pageSize })
 			);
 			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
 			if (result.messages.length) {
-				mergeHistoryRows(result.messages, 'prepend');
+				const merged = mergeMessageRowsAtRevision(
+					historyMessages as HistoryMessage[],
+					result.messages as HistoryMessage[],
+					historyTombstones,
+					historyRowRevisions,
+					revision
+				);
+				historyMessages = merged.messages as ThreadMessage[];
+				historyRowRevisions = merged.revisions;
+				historyMutationKind = 'prepend';
+				historyMutationVersion += 1;
 				const segment = segmentForMessages(
-					`older:${result.messages[0].id}`,
-					result.messages,
+					`older:${merged.accepted[0]?.id ?? result.messages[0].id}`,
+					merged.accepted,
 					result.gapBefore ?? result.hasOlder,
 					result.gapAfter ?? false
 				);
@@ -354,6 +408,7 @@
 				historyMeta = { ...historyMeta, hasOlder: false };
 			}
 		} catch {
+			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
 			historyError = "Couldn't load older messages. Try again.";
 			historyErrorGap = null;
 		} finally {
@@ -381,7 +436,7 @@
 		const epoch = historyRequestGeneration;
 		const mutation = historyMutationToken;
 		try {
-			const result = await requestHistory(
+			const { result, revision } = await requestHistory(
 				historyUrl({
 					after: encodeHistoryCursor(gap.after),
 					before: encodeHistoryCursor(gap.before),
@@ -390,10 +445,20 @@
 			);
 			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
 			if (result.messages.length) {
-				mergeHistoryRows(result.messages);
+				const merged = mergeMessageRowsAtRevision(
+					historyMessages as HistoryMessage[],
+					result.messages as HistoryMessage[],
+					historyTombstones,
+					historyRowRevisions,
+					revision
+				);
+				historyMessages = merged.messages as ThreadMessage[];
+				historyRowRevisions = merged.revisions;
+				historyMutationKind = 'merge';
+				historyMutationVersion += 1;
 				const segment = segmentForMessages(
 					`gap:${gap.id}`,
-					result.messages,
+					merged.accepted,
 					false,
 					result.hasMore === true
 				);
@@ -401,8 +466,8 @@
 			} else if (!result.hasMore) {
 				closeHistoryGap(gap);
 			}
-			historyErrorGap = null;
 		} catch {
+			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
 			historyError = "Couldn't load the missing messages. Try again.";
 			historyErrorGap = gap;
 		} finally {
@@ -416,32 +481,56 @@
 			return;
 		}
 		historyTargetStatus = null;
+		historyError = null;
+		historyErrorTarget = null;
 		const generation = conversationGeneration;
 		const epoch = historyRequestGeneration;
 		const mutation = historyMutationToken;
 		try {
-			const result = await requestHistory(historyUrl({ around: targetId, before_count: 25, after_count: 25 }));
+			const { result, revision } = await requestHistory(historyUrl({ around: targetId, before_count: 25, after_count: 25 }));
 			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
 			if (!result.messages.some((message) => message.id === targetId)) {
 				historyTargetStatus = 'That message is no longer available.';
 				return;
 			}
-			mergeHistoryRows(result.messages);
+			const merged = mergeMessageRowsAtRevision(
+				historyMessages as HistoryMessage[],
+				result.messages as HistoryMessage[],
+				historyTombstones,
+				historyRowRevisions,
+				revision
+			);
+			historyMessages = merged.messages as ThreadMessage[];
+			historyRowRevisions = merged.revisions;
+			historyMutationKind = 'merge';
+			historyMutationVersion += 1;
 			const segment = segmentForMessages(
 				`target:${targetId}`,
-				result.messages,
+				merged.accepted,
 				result.gapBefore ?? result.hasOlder,
 				result.gapAfter ?? result.hasNewer
 			);
 			if (segment) historySegments = mergeSegments([...historySegments, segment]);
 			await tick();
 			document.getElementById(`m-${targetId}`)?.scrollIntoView({ block: 'center' });
-		} catch {
-			historyTargetStatus = 'That message is no longer available.';
+		} catch (cause) {
+			if (!historyRequestIsCurrent(generation, epoch, mutation)) return;
+			if (cause instanceof HistoryRequestError && cause.status === 404) {
+				historyTargetStatus = 'That message is no longer available.';
+				if (currentHashMessageId() === targetId) replaceState(location.pathname + location.search, {});
+				return;
+			}
+			historyError = "Couldn't load that message. Try again.";
+			historyErrorTarget = targetId;
 		}
 	}
 
 	function retryHistory(): Promise<void> {
+		if (historyErrorTarget) {
+			const targetId = historyErrorTarget;
+			historyErrorTarget = null;
+			return loadAroundTarget(targetId);
+		}
 		return historyErrorGap ? loadGap(historyErrorGap) : loadOlder();
 	}
 
@@ -458,9 +547,11 @@
 		const tail = initialTailSegment(historyMessages, historyMeta.hasOlder, 'tail');
 		historySegments = tail ? [tail] : [];
 		historyTombstones = new Set();
+		historyRowRevisions = new Map(historyMessages.map((message) => [message.id, 0]));
 		historyError = null;
 		historyErrorGap = null;
 		historyTargetStatus = null;
+		historyErrorTarget = null;
 		gapRequests = new Set();
 	}
 
@@ -484,8 +575,19 @@
 			olderCursor: data.history.olderCursor,
 			newerCursor: data.history.newestCursor
 		};
-		mergeHistoryRows(pageMessages as ThreadMessage[]);
-		refreshTailSegment();
+		const pageRevision = ++historyRevisionSequence;
+		const merged = mergeMessageRowsAtRevision(
+			historyMessages as HistoryMessage[],
+			pageMessages as HistoryMessage[],
+			historyTombstones,
+			historyRowRevisions,
+			pageRevision
+		);
+		historyMessages = merged.messages as ThreadMessage[];
+		historyRowRevisions = merged.revisions;
+		historyMutationKind = 'merge';
+		historyMutationVersion += 1;
+		refreshTailSegment(pageMessages as ThreadMessage[], data.history.hasOlder);
 		if (historyInitialized) {
 			void reconcileLoadedIds(conversationGeneration, historyRequestGeneration, historyMutationToken);
 		}

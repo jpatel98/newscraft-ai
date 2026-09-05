@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
 	deriveHistoryGaps,
 	initialTailSegment,
+	mergeMessageRowsAtRevision,
+	mergeTailRefresh,
 	mergeMessageRows,
 	mergeSegments,
+	reconcileMessageBatch,
+	segmentsForExactMessages,
 	segmentForMessages,
 	type HistoryMessage
 } from './message-history';
@@ -37,5 +41,56 @@ describe('message history client state', () => {
 		const merged = mergeSegments([tail, older]);
 		expect(merged).toHaveLength(1);
 		expect(deriveHistoryGaps(merged)).toEqual([]);
+	});
+
+	it('keeps a target window separate when a refresh updates only the latest page', () => {
+		const target = segmentForMessages('target', [row('m-100'), row('m-150')], true, true)!;
+		const tail = initialTailSegment([row('m-951'), row('m-1000')], true)!;
+		const refreshed = mergeTailRefresh([target, tail], [row('m-951'), row('m-1000')], true);
+		expect(refreshed).toHaveLength(2);
+		expect(deriveHistoryGaps(refreshed)).toHaveLength(1);
+	});
+
+	it('does not let an exact-id batch bridge disconnected rows', () => {
+		const target = segmentForMessages('target', [row('m-100'), row('m-150')], true, true)!;
+		const tail = initialTailSegment([row('m-951'), row('m-1000')], true)!;
+		const ids = segmentsForExactMessages([row('m-500'), row('m-600')]);
+		const merged = mergeSegments([target, tail, ...ids]);
+		expect(merged).toHaveLength(4);
+		expect(deriveHistoryGaps(merged)).toHaveLength(3);
+	});
+
+	it('keeps a page loaded during delayed exact-id reconciliation', () => {
+		const initial = [row('m-1'), row('m-2')];
+		const baseline = new Map(initial.map((message) => [message.id, 1]));
+		const newerPage = [row('m-10')];
+		const pageMerge = mergeMessageRowsAtRevision(initial, newerPage, new Set(), baseline, 3);
+		const reconciled = reconcileMessageBatch(
+			pageMerge.messages,
+			[row('m-1', 1)],
+			['m-1', 'm-2'],
+			new Set(),
+			pageMerge.revisions,
+			2,
+			baseline
+		);
+		expect(reconciled.messages.map((message) => message.id)).toEqual(['m-1', 'm-10']);
+	});
+
+	it('does not overwrite a newer row or revive a removed row', () => {
+		const current = [row('m-1')];
+		const revisions = new Map([['m-1', 4]]);
+		const baseline = new Map([['m-1', 2]]);
+		const result = reconcileMessageBatch(
+			current,
+			[row('m-1', 1)],
+			['m-1', 'm-2'],
+			new Set(['m-2']),
+			revisions,
+			3,
+			baseline
+		);
+		expect(result.messages[0]).toEqual(current[0]);
+		expect(result.messages.map((message) => message.id)).not.toContain('m-2');
 	});
 });
