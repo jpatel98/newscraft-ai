@@ -774,7 +774,18 @@ class DurableRunWorker:
     async def _run_recovered(self, job: DurableJob) -> None:
         try:
             async with self._control_client_scope(job):
-                await self._run_claimed(job)
+                try:
+                    await self._run_claimed(job)
+                except asyncio.CancelledError:
+                    # Cancellation can arrive after the recovery client is
+                    # created but before _run_claimed reaches _run(). Keep
+                    # the recovered lease's terminal callback in this scope.
+                    if job.lease_acquired and job.stop_reason == "cancelled":
+                        try:
+                            await self._publish_cancelled(job)
+                        except BaseException:
+                            logger.exception("NewsCraft cancellation callback failed")
+                    raise
         finally:
             await self._release_slot(job)
 

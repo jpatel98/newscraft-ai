@@ -62,6 +62,71 @@ class RecordingClient:
         self.closed = True
 
 
+class KeepAliveServer:
+    def __init__(self) -> None:
+        self.server: asyncio.AbstractServer | None = None
+        self.connections = 0
+        self.requests: list[dict[str, Any]] = []
+        self._writers: set[asyncio.StreamWriter] = set()
+
+    async def start(self) -> int:
+        self.server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+        socket = self.server.sockets[0]
+        return int(socket.getsockname()[1])
+
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        self.connections += 1
+        self._writers.add(writer)
+        try:
+            while True:
+                request_line = await reader.readline()
+                if not request_line:
+                    return
+                if not request_line.endswith(b"\r\n"):
+                    return
+                headers: dict[str, str] = {}
+                while True:
+                    line = await reader.readline()
+                    if line in {b"", b"\r\n"}:
+                        break
+                    name, _, value = line.decode("latin-1").rstrip("\r\n").partition(":")
+                    headers[name.lower()] = value.strip()
+                content_length = int(headers.get("content-length", "0"))
+                if content_length:
+                    await reader.readexactly(content_length)
+                parts = request_line.decode("latin-1").split()
+                self.requests.append({"method": parts[0], "path": parts[1], "headers": headers})
+                body = b"{}"
+                writer.write(
+                    b"HTTP/1.1 200 OK\r\n"
+                    b"Content-Type: application/json\r\n"
+                    b"Content-Length: 2\r\n"
+                    b"Connection: keep-alive\r\n"
+                    b"\r\n"
+                    + body
+                )
+                await writer.drain()
+        except (asyncio.IncompleteReadError, ConnectionError, OSError):
+            return
+        finally:
+            self._writers.discard(writer)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except (ConnectionError, OSError):
+                pass
+
+    async def close(self) -> None:
+        if self.server is not None:
+            self.server.close()
+            await self.server.wait_closed()
+        writers = list(self._writers)
+        for writer in writers:
+            writer.close()
+        if writers:
+            await asyncio.gather(*(writer.wait_closed() for writer in writers), return_exceptions=True)
+
+
 class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
     def _worker(self, root: str) -> DurableRunWorker:
         settings = SimpleNamespace(
@@ -112,7 +177,14 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             worker = self._worker(root)
             clients: list[RecordingClient] = []
 
-            def responder(_client: RecordingClient, _method: str, _url: str, _headers: dict[str, str], _body: Any):
+            def responder(_client: RecordingClient, _method: str, url: str, _headers: dict[str, str], _body: Any):
+                if url.endswith("/claim"):
+                    return FakeResponse(200, {
+                        "terminal": False,
+                        "lease_owner": "owner-1",
+                        "lease_token": "lease-1",
+                        "worker_cursor": 0,
+                    })
                 return FakeResponse(200, {})
 
             def factory(**_kwargs: Any) -> RecordingClient:
@@ -302,8 +374,12 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
                 clients.append(client)
                 return client
 
-            async def wait_for_cancel(_job: DurableJob) -> None:
-                await gate.wait()
+            async def wait_for_cancel(job: DurableJob) -> None:
+                try:
+                    await gate.wait()
+                except asyncio.CancelledError:
+                    await worker._publish_cancelled(job)
+                    raise
 
             worker._run = wait_for_cancel  # type: ignore[method-assign]
             with patch.object(durable_module.httpx, "AsyncClient", side_effect=factory):
@@ -369,6 +445,198 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(len(clients), 1)
             self.assertTrue(clients[0].closed)
+            self.assertEqual(worker._control_clients, set())
+
+    async def test_real_http_transport_reuses_one_keep_alive_connection_within_run_scope(self) -> None:
+        server = KeepAliveServer()
+        port = await server.start()
+        try:
+            with tempfile.TemporaryDirectory() as root:
+                worker = self._worker(root)
+                worker.settings.run_api_url = f"http://127.0.0.1:{port}/api/internal/hermes/runs"
+                job = self._job("run-real", "tenant_real", "trace_real12345678")
+                async with worker._control_client_scope(job):
+                    await worker._newscraft(
+                        "POST",
+                        "/claim",
+                        {"run_id": job.run_id, "tenant_key": job.tenant_key, "trace_id": job.trace_id},
+                    )
+                    await worker._newscraft(
+                        "POST",
+                        "/callback",
+                        {"run_id": job.run_id, "tenant_key": job.tenant_key, "trace_id": job.trace_id},
+                    )
+                self.assertEqual(worker._control_clients, set())
+                self.assertEqual(server.connections, 1)
+                self.assertEqual(len(server.requests), 2)
+                self.assertEqual(
+                    [request["path"] for request in server.requests],
+                    [
+                        "/api/internal/hermes/runs/claim",
+                        "/api/internal/hermes/runs/callback",
+                    ],
+                )
+                self.assertTrue(all(request["headers"].get("x-trace-id") == job.trace_id for request in server.requests))
+                self.assertTrue(all(request["headers"].get(RUN_TOKEN_HEADER) == "run-token" for request in server.requests))
+        finally:
+            await server.close()
+
+    async def test_next_admission_task_does_not_inherit_previous_closed_client(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            clients: list[RecordingClient] = []
+
+            def responder(_client: RecordingClient, _method: str, url: str, _headers: dict[str, str], _body: Any):
+                if url.endswith("/claim"):
+                    return FakeResponse(200, {
+                        "terminal": False,
+                        "lease_owner": "owner-1",
+                        "lease_token": "lease-1",
+                        "worker_cursor": 0,
+                    })
+                return FakeResponse(200, {})
+
+            def factory(**_kwargs: Any) -> RecordingClient:
+                client = RecordingClient(f"queued-{len(clients) + 1}", responder)
+                clients.append(client)
+                return client
+
+            async def finish(job: DurableJob) -> None:
+                await worker._callback(job, "response.completed", {"model": "fixture"})
+
+            worker._run = finish  # type: ignore[method-assign]
+            with patch.object(durable_module.httpx, "AsyncClient", side_effect=factory):
+                await worker.start(self._payload("run-first"))
+                await self._wait_until(lambda: len(clients) == 1 and clients[0].closed)
+                await worker.start(self._payload("run-second"))
+                await self._wait_until(lambda: len(clients) == 2 and clients[1].closed)
+
+            self.assertIsNot(clients[0], clients[1])
+            self.assertEqual([len(client.requests) for client in clients], [2, 2])
+            self.assertIsNone(durable_module._CURRENT_NEWSCRAFT_CLIENT.get())
+            self.assertEqual(worker._control_clients, set())
+
+    async def test_recovery_continuation_created_after_scope_has_no_run_client(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            observed: list[Any] = []
+            finished = asyncio.Event()
+
+            async def recovery_probe() -> None:
+                observed.append(durable_module._CURRENT_NEWSCRAFT_CLIENT.get())
+                finished.set()
+
+            worker.recover = recovery_probe  # type: ignore[method-assign]
+            worker._recovery_backlog_known = True
+            job = self._job("run-recovery-context", "tenant_context", "trace_context1234")
+            async with worker._control_client_scope(job):
+                self.assertIsNotNone(durable_module._CURRENT_NEWSCRAFT_CLIENT.get())
+            self.assertIsNone(durable_module._CURRENT_NEWSCRAFT_CLIENT.get())
+            async with worker._lock:
+                worker._reserve_slot_locked(job)
+            await worker._release_slot(job)
+            await asyncio.wait_for(finished.wait(), timeout=1)
+            self.assertEqual(observed, [None])
+
+    async def test_recovered_run_completion_closes_run_client(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            clients: list[RecordingClient] = []
+
+            def responder(_client: RecordingClient, _method: str, _url: str, _headers: dict[str, str], _body: Any):
+                return FakeResponse(200, {})
+
+            def factory(**_kwargs: Any) -> RecordingClient:
+                client = RecordingClient("recovered", responder)
+                clients.append(client)
+                return client
+
+            async def finish(job: DurableJob) -> None:
+                await worker._callback(job, "run.started", {"status": "researching"})
+                await worker._callback(job, "response.completed", {"model": "fixture"})
+
+            worker._run = finish  # type: ignore[method-assign]
+            payload = self._payload("run-recovered")
+            payload.update({"lease_owner": "owner-recovered", "lease_token": "lease-recovered"})
+            with patch.object(durable_module.httpx, "AsyncClient", side_effect=factory):
+                await worker.start_recovered(payload)
+                await self._wait_until(lambda: bool(clients) and clients[0].closed)
+
+            self.assertEqual(len(clients), 1)
+            self.assertEqual([request["url"].rsplit("/", 1)[-1] for request in clients[0].requests], ["callback", "callback"])
+            self.assertEqual(worker._control_clients, set())
+
+    async def test_recovered_cancellation_closes_run_client_after_terminal_callback(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            clients: list[RecordingClient] = []
+            gate = asyncio.Event()
+
+            def responder(_client: RecordingClient, _method: str, _url: str, _headers: dict[str, str], _body: Any):
+                return FakeResponse(200, {})
+
+            def factory(**_kwargs: Any) -> RecordingClient:
+                client = RecordingClient("recovered-cancel", responder)
+                clients.append(client)
+                return client
+
+            async def wait_for_cancel(_job: DurableJob) -> None:
+                await gate.wait()
+
+            worker._run = wait_for_cancel  # type: ignore[method-assign]
+            payload = self._payload("run-recovered-cancel")
+            payload.update({"lease_owner": "owner-recovered", "lease_token": "lease-recovered"})
+            with patch.object(durable_module.httpx, "AsyncClient", side_effect=factory):
+                await worker.start_recovered(payload)
+                await self._wait_until(lambda: bool(clients))
+                result = await worker.cancel("run-recovered-cancel")
+                self.assertEqual(result["state"], "cancel_requested")
+                await self._wait_until(lambda: bool(clients) and clients[0].closed)
+
+            self.assertEqual([request["url"].rsplit("/", 1)[-1] for request in clients[0].requests], ["callback"])
+            self.assertEqual(worker._control_clients, set())
+
+    async def test_shutdown_flushes_late_text_once_before_closing_run_client(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            clients: list[RecordingClient] = []
+            gate = asyncio.Event()
+
+            def responder(_client: RecordingClient, _method: str, url: str, _headers: dict[str, str], body: Any):
+                if url.endswith("/claim"):
+                    return FakeResponse(200, {
+                        "terminal": False,
+                        "lease_owner": "owner-1",
+                        "lease_token": "lease-1",
+                        "worker_cursor": 0,
+                    })
+                return FakeResponse(200, {})
+
+            def factory(**_kwargs: Any) -> RecordingClient:
+                client = RecordingClient("late-flush", responder)
+                clients.append(client)
+                return client
+
+            async def wait_for_shutdown(job: DurableJob) -> None:
+                await worker._callback(job, durable_module.TEXT_EVENT_TYPE, {"delta": "late text"})
+                await self._wait_until(lambda: job.text_flush_task is not None)
+                await gate.wait()
+
+            worker._run = wait_for_shutdown  # type: ignore[method-assign]
+            with patch.object(durable_module.httpx, "AsyncClient", side_effect=factory):
+                await worker.start(self._payload("run-late-flush"))
+                job = worker.jobs["run-late-flush"]
+                await self._wait_until(lambda: job.text_flush_task is not None)
+                await worker.close()
+                await self._wait_until(lambda: bool(clients) and clients[0].closed)
+
+            callback_requests = [
+                request
+                for request in clients[0].requests
+                if request["url"].endswith("/callback")
+            ]
+            self.assertEqual(len(callback_requests), 1)
+            self.assertEqual(callback_requests[0]["json"]["data"], {"delta": "late text"})
             self.assertEqual(worker._control_clients, set())
 
 
