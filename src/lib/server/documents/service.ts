@@ -260,8 +260,7 @@ export class ConversationDocumentService {
 					);
 		const readyDocumentIds = new Set(documentIds);
 		const scopedSeedPages = seedPages.filter((page) => readyDocumentIds.has(page.documentId));
-		const pageCounts = new Map(pageStats.map((stats) => [stats.documentId, stats.pageCount]));
-		const pageKeys = contextPageKeys(scopedSeedPages, pageCounts);
+		const pageKeys = contextPageKeys(scopedSeedPages);
 		const pages = await this.repository.listPagesByKeys(documentIds, pageKeys);
 		return selectDocumentContext({
 			documents,
@@ -285,16 +284,11 @@ export class ConversationDocumentService {
 	}
 }
 
-function contextPageKeys(
-	pages: Array<{ documentId: string; pageNumber: number }>,
-	pageCounts: Map<string, number>
-): DocumentPageKey[] {
+function contextPageKeys(pages: Array<{ documentId: string; pageNumber: number }>): DocumentPageKey[] {
 	const keys = new Map<string, DocumentPageKey>();
 	for (const page of pages.slice(0, DOCUMENT_CONTEXT_MATCH_LIMIT)) {
 		for (const pageNumber of [page.pageNumber, page.pageNumber - 1, page.pageNumber + 1]) {
 			if (pageNumber < 1) continue;
-			const pageCount = pageCounts.get(page.documentId);
-			if (pageCount !== undefined && pageNumber > pageCount) continue;
 			const key = `${page.documentId}:${pageNumber}`;
 			if (!keys.has(key)) keys.set(key, { documentId: page.documentId, pageNumber });
 		}

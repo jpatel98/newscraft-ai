@@ -316,9 +316,28 @@ describe('document context query flow', () => {
 			{ documentId: 'large', pageNumber: 1 },
 			{ documentId: 'large', pageNumber: 2 },
 			{ documentId: 'large', pageNumber: 30 },
-			{ documentId: 'large', pageNumber: 29 }
+			{ documentId: 'large', pageNumber: 29 },
+			{ documentId: 'large', pageNumber: 31 }
 		]);
 		expect(result.actual.pages.map((item) => item.pageNumber)).toEqual([1, 2, 30, 29]);
+	});
+
+	it('preserves sparse page hits and keeps selector output in parity', async () => {
+		const sparsePages = [page('sparse', 1), page('sparse', 3, 'needle on page 3')];
+		const result = await runCase(
+			[document('sparse', { pageCount: FULL_DOCUMENT_PAGE_LIMIT + 1 })],
+			sparsePages,
+			'needle',
+			[['sparse:3', 1]]
+		);
+
+		expect(result.calls.listPagesByKeys[0].keys).toEqual([
+			{ documentId: 'sparse', pageNumber: 3 },
+			{ documentId: 'sparse', pageNumber: 2 },
+			{ documentId: 'sparse', pageNumber: 4 }
+		]);
+		expect(result.actual).toEqual(result.expected);
+		expect(result.actual.pages.map((item) => item.pageNumber)).toEqual([3]);
 	});
 
 	it('uses a six-page prefix only for the nonempty no-match fallback', async () => {
