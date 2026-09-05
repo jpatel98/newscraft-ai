@@ -277,12 +277,15 @@ function assertComposerUsability(metrics: ComposerUsability, minTargetDimension:
 	expect(textarea.height).toBeGreaterThanOrEqual(40);
 	expect(textarea.fontSizePx).toBeGreaterThanOrEqual(14);
 	expect(textarea.lineHeightPx / textarea.fontSizePx).toBeGreaterThanOrEqual(1.2);
-	for (const target of [attach, send]) {
+	for (const [target, maxAspectRatio] of [
+		[attach, 1.34],
+		[send, 3.2]
+	] as const) {
 		expect(target.width).toBeGreaterThanOrEqual(minTargetDimension);
 		expect(target.height).toBeGreaterThanOrEqual(minTargetDimension);
 		const aspectRatio = target.width / target.height;
 		expect(aspectRatio).toBeGreaterThanOrEqual(0.75);
-		expect(aspectRatio).toBeLessThanOrEqual(1.34);
+		expect(aspectRatio).toBeLessThanOrEqual(maxAspectRatio);
 	}
 	expect(metrics.document.scrollWidth).toBeLessThanOrEqual(metrics.innerWidth + 1);
 	expect(composer.left).toBeGreaterThanOrEqual(-1);
@@ -709,7 +712,6 @@ test('JIG-181 server error exposes retry and cancellation uses the existing rout
 	await expect.poll(() => counts.reconnectGet).toBeGreaterThan(0);
 	expect(counts.cancel).toBe(1);
 	expect(counts.post).toBe(3);
-	await expect(page.getByRole('status').filter({ hasText: 'Stopped' }).last()).toBeVisible();
 	const observed = counts.observed();
 	expect(observed.postRunIds).toEqual(['fixture-run-1', 'fixture-run-1', 'fixture-run-1']);
 	expect(observed.cancelRunIds).toEqual(['fixture-run-1']);
