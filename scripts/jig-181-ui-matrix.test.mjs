@@ -6,8 +6,11 @@ import { join, resolve } from 'node:path';
 import {
 	JIG181_BASE_SHA,
 	JIG181_CASES,
+	JIG181_EVIDENCE_SCHEMA_VERSION,
+	JIG181_LAYOUT_SHIFT_THRESHOLD,
 	JIG181_MAX_AUTHORITY_LIFETIME_MS,
 	JIG181_REQUIRED_DEVICE,
+	JIG181_SETTLING_WINDOW_MS,
 	assertSafeArtifactPath,
 	buildPlaywrightCommand,
 	buildPlaywrightEnvironment,
@@ -23,7 +26,7 @@ import {
 	validatePhysicalDeviceEvidence,
 	writeReleaseRecord
 } from './jig-181-ui-matrix.mjs';
-import { duplicateDurableStartCount } from './jig-181-ui-matrix-contract.mjs';
+import { duplicateDurableStartCount, isSettlingCase } from './jig-181-ui-matrix-contract.mjs';
 
 const CANDIDATE_SHA = '0123456789abcdef0123456789abcdef01234567';
 const NOW = Date.parse('2026-08-27T16:00:00.000Z');
@@ -31,7 +34,7 @@ const RECORDED_AT = new Date(NOW).toISOString();
 
 function localManifest(candidateSha = CANDIDATE_SHA) {
 	return {
-		schema_version: 1,
+		schema_version: JIG181_EVIDENCE_SCHEMA_VERSION,
 		ticket: 'JIG-181',
 		candidate_sha: candidateSha,
 		captured_at: RECORDED_AT,
@@ -49,6 +52,8 @@ function localManifest(candidateSha = CANDIDATE_SHA) {
 			page_error_count: 0,
 			failed_request_count: 0,
 			layout_shift: 0,
+			transition_layout_shift: isSettlingCase(caseSpec.id) ? 0.2 : null,
+			settling_window_ms: isSettlingCase(caseSpec.id) ? JIG181_SETTLING_WINDOW_MS : null,
 			duplicate_request_count: 0,
 			recorded_at: RECORDED_AT
 		}))
@@ -69,7 +74,7 @@ function authority(expiresAt) {
 
 function deviceEvidence(candidateSha = CANDIDATE_SHA) {
 	return {
-		schema_version: 1,
+		schema_version: JIG181_EVIDENCE_SCHEMA_VERSION,
 		ticket: 'JIG-181',
 		candidate_sha: candidateSha,
 		captured_at: RECORDED_AT,
@@ -185,6 +190,26 @@ test('rejects incomplete, duplicate, unknown, stale, and mismatched browser evid
 		cases: valid.cases.map((item, index) => (index === 0 ? { ...item, browser_project: 'jig181-wrong-project' } : item))
 	};
 	assert.throws(() => validateLocalEvidenceManifest(mismatchedProject, CANDIDATE_SHA, NOW), /evidence_browser_project_mismatch/);
+});
+
+test('keeps transition CLS diagnostic while gating the bounded settling metric', () => {
+	const valid = localManifest();
+	const transitionCases = valid.cases.filter((item) => isSettlingCase(item.case_id));
+	assert.equal(transitionCases.length, 2);
+	assert.ok(transitionCases.every((item) => item.transition_layout_shift > JIG181_LAYOUT_SHIFT_THRESHOLD));
+	assert.equal(validateLocalEvidenceManifest(valid, CANDIDATE_SHA, NOW).accepted, true);
+
+	const autonomousShift = {
+		...valid,
+		cases: valid.cases.map((item) =>
+			item.case_id === 'keyboard_open_close'
+				? { ...item, layout_shift: JIG181_LAYOUT_SHIFT_THRESHOLD + 0.001 }
+				: item
+		)
+	};
+	const rejected = validateLocalEvidenceManifest(autonomousShift, CANDIDATE_SHA, NOW);
+	assert.equal(rejected.accepted, false);
+	assert.equal(rejected.case_counts.fail, 1);
 });
 
 test('database authority requires a bounded future expiry', () => {

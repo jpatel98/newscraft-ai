@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
 import {
 	JIG181_LAYOUT_SHIFT_THRESHOLD,
+	JIG181_SETTLING_WINDOW_MS,
 	JIG181_VIEWPORTS,
 	caseById,
 	duplicateDurableStartCount
@@ -27,6 +28,17 @@ type MatrixMetrics = {
 	duplicateRequestCount: number;
 	layoutShift: number;
 	layoutShiftSupported: boolean;
+};
+
+type SettlingWindowMetrics = {
+	layoutShift: number;
+	durationMs: number;
+};
+
+type EvidenceOptions = {
+	gatedLayoutShift?: number;
+	transitionLayoutShift?: number;
+	settlingWindowMs?: number;
 };
 
 type LayoutBox = {
@@ -211,15 +223,42 @@ async function installMetrics(page: Page) {
 			layoutShiftSupported:
 				typeof PerformanceObserver !== 'undefined' &&
 				Array.isArray(PerformanceObserver.supportedEntryTypes) &&
-				PerformanceObserver.supportedEntryTypes.includes('layout-shift')
+				PerformanceObserver.supportedEntryTypes.includes('layout-shift'),
+			settlingLayoutShift: 0,
+			settlingWindowActive: false,
+			settlingWindowStartedAt: null as number | null,
+			settlingWindowEndedAt: null as number | null
 		};
-		(window as Window & { __jig181Metrics?: typeof state }).__jig181Metrics = state;
+		const target = window as Window & {
+			__jig181Metrics?: typeof state;
+			__jig181StartSettlingWindow?: () => void;
+			__jig181EndSettlingWindow?: () => SettlingWindowMetrics;
+		};
+		target.__jig181Metrics = state;
+		target.__jig181StartSettlingWindow = () => {
+			state.settlingLayoutShift = 0;
+			state.settlingWindowStartedAt = performance.now();
+			state.settlingWindowEndedAt = null;
+			state.settlingWindowActive = true;
+		};
+		target.__jig181EndSettlingWindow = () => {
+			const endedAt = performance.now();
+			state.settlingWindowActive = false;
+			state.settlingWindowEndedAt = endedAt;
+			return {
+				layoutShift: state.settlingLayoutShift,
+				durationMs: endedAt - (state.settlingWindowStartedAt ?? endedAt)
+			};
+		};
 		if (!state.layoutShiftSupported) return;
 		try {
 			const observer = new PerformanceObserver((list) => {
 				for (const entry of list.getEntries()) {
 					const shift = entry as PerformanceEntry & { hadRecentInput?: boolean; value?: number };
-					if (!shift.hadRecentInput && typeof shift.value === 'number') state.layoutShift += shift.value;
+					if (!shift.hadRecentInput && typeof shift.value === 'number') {
+						state.layoutShift += shift.value;
+						if (state.settlingWindowActive) state.settlingLayoutShift += shift.value;
+					}
 				}
 			});
 			observer.observe({ type: 'layout-shift', buffered: true });
@@ -227,6 +266,44 @@ async function installMetrics(page: Page) {
 			state.layoutShiftSupported = false;
 		}
 	});
+}
+
+async function readTotalLayoutShift(page: Page): Promise<number> {
+	return page.evaluate(() => {
+		const state = (window as Window & { __jig181Metrics?: { layoutShift?: number } }).__jig181Metrics;
+		return typeof state?.layoutShift === 'number' ? state.layoutShift : Number.NaN;
+	});
+}
+
+async function measureSettlingWindow(page: Page, trigger?: () => Promise<void>): Promise<SettlingWindowMetrics> {
+	await page.evaluate(() => {
+		const target = window as Window & { __jig181StartSettlingWindow?: () => void };
+		if (!target.__jig181StartSettlingWindow) throw new Error('JIG-181 settling window is unavailable');
+		target.__jig181StartSettlingWindow();
+	});
+	if (trigger) await trigger();
+	await page.waitForTimeout(JIG181_SETTLING_WINDOW_MS);
+	return page.evaluate(() => {
+		const target = window as Window & { __jig181EndSettlingWindow?: () => SettlingWindowMetrics };
+		if (!target.__jig181EndSettlingWindow) throw new Error('JIG-181 settling window is unavailable');
+		return target.__jig181EndSettlingWindow();
+	});
+}
+
+function assertSettlingLayoutShift(layoutShift: number) {
+	expect(layoutShift).toBeLessThanOrEqual(JIG181_LAYOUT_SHIFT_THRESHOLD);
+}
+
+function assertSettlingWindow(window: SettlingWindowMetrics) {
+	expect(window.durationMs).toBeGreaterThanOrEqual(JIG181_SETTLING_WINDOW_MS - 50);
+	expect(window.durationMs).toBeLessThan(JIG181_SETTLING_WINDOW_MS + 100);
+	expect(window.layoutShift).toBeGreaterThanOrEqual(0);
+}
+
+async function captureTransitionScreenshot(page: Page, testInfo: TestInfo, name: string) {
+	const screenshotPath = testInfo.outputPath(`${name}.png`);
+	await page.screenshot({ path: screenshotPath, fullPage: false });
+	testInfo.attachments.push({ name: `jig181-${name}`, path: screenshotPath, contentType: 'image/png' });
 }
 
 async function readComposerUsability(page: Page): Promise<ComposerUsability> {
@@ -348,7 +425,8 @@ async function finishEvidence(
 	testInfo: TestInfo,
 	caseId: string,
 	metricsReader: (duplicateRequestCount: number) => Promise<MatrixMetrics>,
-	duplicateRequestCount: number
+	duplicateRequestCount: number,
+	options: EvidenceOptions = {}
 ) {
 	const caseSpec = caseById(caseId);
 	if (!caseSpec) throw new Error(`unknown JIG-181 case ${caseId}`);
@@ -358,7 +436,8 @@ async function finishEvidence(
 	expect(metrics.consoleErrorCount).toBe(0);
 	expect(metrics.pageErrorCount).toBe(0);
 	expect(metrics.failedRequestCount).toBe(0);
-	expect(metrics.layoutShift).toBeLessThanOrEqual(JIG181_LAYOUT_SHIFT_THRESHOLD);
+	const gatedLayoutShift = options.gatedLayoutShift ?? metrics.layoutShift;
+	assertSettlingLayoutShift(gatedLayoutShift);
 	expect(metrics.duplicateRequestCount).toBe(0);
 	const screenshotPath = testInfo.outputPath(`${caseId}.png`);
 	await page.screenshot({ path: screenshotPath, fullPage: false });
@@ -375,7 +454,9 @@ async function finishEvidence(
 			console_error_count: metrics.consoleErrorCount,
 			page_error_count: metrics.pageErrorCount,
 			failed_request_count: metrics.failedRequestCount,
-			layout_shift: metrics.layoutShift,
+			layout_shift: gatedLayoutShift,
+			transition_layout_shift: options.transitionLayoutShift ?? null,
+			settling_window_ms: options.settlingWindowMs ?? null,
 			duplicate_request_count: metrics.duplicateRequestCount,
 			state: 'PASS'
 		})
@@ -564,6 +645,7 @@ test('JIG-181 keyboard opens and closes with the visual viewport', async ({ page
 	const composer = page.getByLabel('Message NewsCraft');
 	const baseline = await readComposerUsability(page);
 	assertComposerUsability(baseline, 44);
+	const transitionBaseline = await readTotalLayoutShift(page);
 	await composer.focus();
 	await page.evaluate(() => {
 		if (!window.visualViewport) return;
@@ -579,6 +661,9 @@ test('JIG-181 keyboard opens and closes with the visual viewport', async ({ page
 	expect(keyboardOpen.shell.height).toBeCloseTo(keyboardOpen.visualViewport?.height ?? keyboardOpen.innerHeight, 0);
 	expect(keyboardOpen.composer.width).toBeCloseTo(baseline.composer.width, 0);
 	expect(keyboardOpen.textarea.height).toBeGreaterThanOrEqual(baseline.textarea.height - 1);
+	await captureTransitionScreenshot(page, testInfo, 'keyboard_open_transition');
+	const openSettling = await measureSettlingWindow(page);
+	assertSettlingWindow(openSettling);
 	await composer.blur();
 	await page.evaluate(() => {
 		if (!window.visualViewport) return;
@@ -590,7 +675,16 @@ test('JIG-181 keyboard opens and closes with the visual viewport', async ({ page
 	const keyboardClosed = await readComposerUsability(page);
 	assertComposerUsability(keyboardClosed, 44);
 	assertComposerInVisualViewport(keyboardClosed);
-	await finishEvidence(page, testInfo, 'keyboard_open_close', readProblems, 0);
+	await captureTransitionScreenshot(page, testInfo, 'keyboard_closed_transition');
+	const closedSettling = await measureSettlingWindow(page);
+	assertSettlingWindow(closedSettling);
+	const transitionLayoutShift = Math.max(0, (await readTotalLayoutShift(page)) - transitionBaseline);
+	const gatedLayoutShift = Math.max(openSettling.layoutShift, closedSettling.layoutShift);
+	await finishEvidence(page, testInfo, 'keyboard_open_close', readProblems, 0, {
+		gatedLayoutShift,
+		transitionLayoutShift,
+		settlingWindowMs: JIG181_SETTLING_WINDOW_MS
+	});
 });
 
 test('JIG-181 rotation preserves the bounded mobile layout', async ({ page }, testInfo) => {
@@ -664,6 +758,7 @@ test('JIG-181 reduced motion and effective 200 percent zoom remain usable', asyn
 	await page.emulateMedia({ reducedMotion: 'reduce' });
 	await signIn(page);
 	const baseline = await readComposerUsability(page);
+	const transitionBaseline = await readTotalLayoutShift(page);
 	await page.evaluate(() => {
 		document.documentElement.style.zoom = '2';
 	});
@@ -673,7 +768,47 @@ test('JIG-181 reduced motion and effective 200 percent zoom remain usable', asyn
 	assertComposerInVisualViewport(zoomed);
 	expect(zoomed.textarea.lineHeightPx / zoomed.textarea.fontSizePx).toBeGreaterThanOrEqual(1.2);
 	expect(zoomed.send.width).toBeGreaterThanOrEqual(baseline.send.width);
-	await finishEvidence(page, testInfo, 'zoom_200_reduced_motion', readProblems, 0);
+	await captureTransitionScreenshot(page, testInfo, 'zoom_200_transition');
+	const settling = await measureSettlingWindow(page);
+	assertSettlingWindow(settling);
+	const transitionLayoutShift = Math.max(0, (await readTotalLayoutShift(page)) - transitionBaseline);
+	await finishEvidence(page, testInfo, 'zoom_200_reduced_motion', readProblems, 0, {
+		gatedLayoutShift: settling.layoutShift,
+		transitionLayoutShift,
+		settlingWindowMs: JIG181_SETTLING_WINDOW_MS
+	});
+});
+
+test('JIG-181 settling probe rejects an autonomous layout shift', async ({ page }, testInfo) => {
+	requireProject(testInfo, 'desktop-1440x900');
+	await installMetrics(page);
+	const readProblems = await installPageProblemCounters(page);
+	await signIn(page);
+	const probe = await measureSettlingWindow(page, async () => {
+		await page.evaluate(() => {
+			const hero = document.querySelector<HTMLElement>('.chat-start__hero');
+			if (!hero?.parentElement) throw new Error('JIG-181 settling probe anchor is unavailable');
+			const marker = document.createElement('div');
+			marker.dataset.jig181SettlingProbe = 'true';
+			marker.style.height = '0px';
+			marker.style.width = '100%';
+			marker.style.background = 'transparent';
+			hero.parentElement.insertBefore(marker, hero);
+			window.setTimeout(() => {
+				marker.style.height = '480px';
+			}, 25);
+		});
+	});
+	expect(probe.durationMs).toBeGreaterThanOrEqual(JIG181_SETTLING_WINDOW_MS - 50);
+	expect(probe.durationMs).toBeLessThan(JIG181_SETTLING_WINDOW_MS + 100);
+	expect(probe.layoutShift).toBeGreaterThan(JIG181_LAYOUT_SHIFT_THRESHOLD);
+	expect(() => assertSettlingLayoutShift(probe.layoutShift)).toThrow();
+	const metrics = await readProblems(0);
+	expect(metrics.layoutShiftSupported).toBe(true);
+	expect(metrics.consoleErrorCount).toBe(0);
+	expect(metrics.pageErrorCount).toBe(0);
+	expect(metrics.failedRequestCount).toBe(0);
+	await page.evaluate(() => document.querySelector('[data-jig181-settling-probe]')?.remove());
 });
 
 test('JIG-181 reconnect reuses the durable run and does not resubmit', async ({ page, context }, testInfo) => {

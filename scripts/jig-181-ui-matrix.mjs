@@ -17,10 +17,12 @@ import {
 	JIG181_MAX_EVIDENCE_AGE_MS,
 	JIG181_REQUIRED_DEVICE,
 	JIG181_REQUIRED_GATE_IDS,
+	JIG181_SETTLING_WINDOW_MS,
 	JIG181_TICKET,
 	JIG181_VIEWPORTS,
 	caseById,
 	duplicateDurableStartCount,
+	isSettlingCase,
 	viewportById
 } from './jig-181-ui-matrix-contract.mjs';
 
@@ -30,7 +32,10 @@ export {
 	JIG181_EXPECTED_BRANCHES,
 	JIG181_REQUIRED_DEVICE,
 	JIG181_REQUIRED_GATE_IDS,
+	JIG181_EVIDENCE_SCHEMA_VERSION,
+	JIG181_LAYOUT_SHIFT_THRESHOLD,
 	JIG181_MAX_AUTHORITY_LIFETIME_MS,
+	JIG181_SETTLING_WINDOW_MS,
 	JIG181_VIEWPORTS,
 	duplicateDurableStartCount
 };
@@ -65,6 +70,8 @@ const EVIDENCE_CASE_KEYS = new Set([
 	'page_error_count',
 	'failed_request_count',
 	'layout_shift',
+	'transition_layout_shift',
+	'settling_window_ms',
 	'duplicate_request_count',
 	'recorded_at'
 ]);
@@ -240,6 +247,8 @@ function emptyEvidenceCase(caseSpec, reason) {
 		page_error_count: null,
 		failed_request_count: null,
 		layout_shift: null,
+		transition_layout_shift: null,
+		settling_window_ms: null,
 		duplicate_request_count: null,
 		recorded_at: null,
 		reason
@@ -260,6 +269,8 @@ function redactedEvidenceCase(item, caseSpec) {
 		page_error_count: item.page_error_count,
 		failed_request_count: item.failed_request_count,
 		layout_shift: item.layout_shift,
+		transition_layout_shift: item.transition_layout_shift,
+		settling_window_ms: item.settling_window_ms,
 		duplicate_request_count: item.duplicate_request_count,
 		recorded_at: item.recorded_at
 	};
@@ -281,6 +292,23 @@ function validateEvidenceCase(item, candidateSha, now) {
 		if (!isNonNegativeInteger(item[key])) throw new Error('evidence_metric_invalid');
 	}
 	if (!isFiniteNonNegative(item.layout_shift)) throw new Error('evidence_layout_shift_invalid');
+	if (!Object.prototype.hasOwnProperty.call(item, 'transition_layout_shift') ||
+		!Object.prototype.hasOwnProperty.call(item, 'settling_window_ms')) {
+		throw new Error('evidence_transition_metrics_missing');
+	}
+	if (item.transition_layout_shift !== null && !isFiniteNonNegative(item.transition_layout_shift)) {
+		throw new Error('evidence_transition_layout_shift_invalid');
+	}
+	if (item.settling_window_ms !== null && !isNonNegativeInteger(item.settling_window_ms)) {
+		throw new Error('evidence_settling_window_invalid');
+	}
+	if (isSettlingCase(item.case_id)) {
+		if (item.transition_layout_shift === null || item.settling_window_ms !== JIG181_SETTLING_WINDOW_MS) {
+			throw new Error('evidence_transition_metrics_missing');
+		}
+	} else if (item.transition_layout_shift !== null || item.settling_window_ms !== null) {
+		throw new Error('evidence_transition_metrics_unexpected');
+	}
 	if (item.screenshot_id !== null && !isSafeId(item.screenshot_id)) throw new Error('evidence_screenshot_id_invalid');
 	if (item.trace_id !== null && !isSafeId(item.trace_id)) throw new Error('evidence_trace_id_invalid');
 	if (item.state === 'PASS' && item.screenshot_id === null && item.trace_id === null) {
@@ -750,6 +778,8 @@ export function buildReleaseRecord({ identity, identityValid, localEvidence, dev
 		physical_device_evidence: deviceEvidence,
 		thresholds: {
 			max_layout_shift: JIG181_LAYOUT_SHIFT_THRESHOLD,
+			max_settling_layout_shift: JIG181_LAYOUT_SHIFT_THRESHOLD,
+			settling_window_ms: JIG181_SETTLING_WINDOW_MS,
 			max_duplicate_requests: JIG181_DUPLICATE_REQUEST_THRESHOLD,
 			max_evidence_age_ms: JIG181_MAX_EVIDENCE_AGE_MS
 		},
@@ -758,6 +788,7 @@ export function buildReleaseRecord({ identity, identityValid, localEvidence, dev
 		release_decision: release.release_decision,
 		limitations: [
 			'Browser execution requires an explicitly authorized disposable loopback database.',
+			'Keyboard and zoom cases record whole-transition layout shift as a diagnostic and gate a bounded settling window.',
 			'Effective CSS zoom is local browser evidence; native browser zoom and physical rotation remain separate device limits.',
 			'Physical iPhone evidence is not inferred from desktop emulation.',
 			'No production, external provider, remote endpoint, or live deployment evidence is represented.'
@@ -1056,6 +1087,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 			physical_device_evidence: emptyDeviceEvidence('physical_device_evidence_missing'),
 			thresholds: {
 				max_layout_shift: JIG181_LAYOUT_SHIFT_THRESHOLD,
+				max_settling_layout_shift: JIG181_LAYOUT_SHIFT_THRESHOLD,
+				settling_window_ms: JIG181_SETTLING_WINDOW_MS,
 				max_duplicate_requests: JIG181_DUPLICATE_REQUEST_THRESHOLD,
 				max_evidence_age_ms: JIG181_MAX_EVIDENCE_AGE_MS
 			},

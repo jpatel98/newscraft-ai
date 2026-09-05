@@ -45,10 +45,15 @@ export const JIG181_REQUIRED_DEVICE = Object.freeze({
 });
 
 export const JIG181_LAYOUT_SHIFT_THRESHOLD = 0.1;
+export const JIG181_SETTLING_WINDOW_MS = 250;
+export const JIG181_SETTLING_CASE_IDS = Object.freeze([
+	'keyboard_open_close',
+	'zoom_200_reduced_motion'
+]);
 export const JIG181_DUPLICATE_REQUEST_THRESHOLD = 0;
 export const JIG181_MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000;
 export const JIG181_MAX_AUTHORITY_LIFETIME_MS = 24 * 60 * 60 * 1000;
-export const JIG181_EVIDENCE_SCHEMA_VERSION = 1;
+export const JIG181_EVIDENCE_SCHEMA_VERSION = 2;
 
 /**
  * @param {number} observedPostCount
@@ -70,4 +75,9 @@ export function viewportById(viewportId) {
 /** @param {string} caseId */
 export function caseById(caseId) {
 	return JIG181_CASES.find((item) => item.id === caseId) ?? null;
+}
+
+/** @param {string} caseId */
+export function isSettlingCase(caseId) {
+	return JIG181_SETTLING_CASE_IDS.includes(caseId);
 }

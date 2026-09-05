@@ -226,6 +226,16 @@ tests, skipped tests, and the candidate hash.
    browser-side stream fixture is still a browser UI test, but it is not proof of
    a live Hermes request. Mark the live request check separately.
 
+   Evidence schema version 2 records `layout_shift` as the gated metric. For
+   `keyboard_open_close` and `zoom_200_reduced_motion`, it also records the raw
+   whole-transition value as `transition_layout_shift` and records
+   `settling_window_ms`. The raw transition value is diagnostic. The unchanged
+   `0.1` limit applies to the post-transition settling window. The window starts
+   after the interaction's DOM and usability assertions and runs for the bounded
+   250ms interval. A separate probe must show that an autonomous layout shift in
+   this interval fails the same limit. Do not suppress the raw entries or lower
+   the limit to make a transition pass.
+
    The mobile release gate additionally requires a current, exact-candidate
    evidence document for the named physical device **iPhone 17 Pro / Safari**.
    It must declare `execution: physical_device`, `emulation: false`, a screenshot

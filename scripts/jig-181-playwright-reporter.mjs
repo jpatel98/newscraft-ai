@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { copyFile, readFile, writeFile, chmod } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { assertSafeArtifactPath, ensureSafeArtifactDirectory } from './jig-181-ui-matrix.mjs';
+import { JIG181_EVIDENCE_SCHEMA_VERSION } from './jig-181-ui-matrix-contract.mjs';
 
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const CASE_ID_RE = /^[a-z0-9_]{1,80}$/;
@@ -18,6 +19,10 @@ function shift(value) {
 	return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+function windowMs(value) {
+	return Number.isInteger(value) && value > 0 ? value : null;
+}
+
 function parseEvidenceAnnotation(test) {
 	const annotation = test.annotations.find((item) => item.type === 'jig181-evidence');
 	if (!annotation?.description) return null;
@@ -26,6 +31,12 @@ function parseEvidenceAnnotation(test) {
 		if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
 		if (!CASE_ID_RE.test(value.case_id) || !safeId(value.browser_project) || value.browser_name !== 'chromium') return null;
 		if (!safeId(value.browser_version) || !safeId(value.viewport)) return null;
+		if (!Object.prototype.hasOwnProperty.call(value, 'transition_layout_shift') ||
+			!Object.prototype.hasOwnProperty.call(value, 'settling_window_ms')) return null;
+		const transitionLayoutShift = value.transition_layout_shift === null ? null : shift(value.transition_layout_shift);
+		const settlingWindowMs = value.settling_window_ms === null ? null : windowMs(value.settling_window_ms);
+		if ((value.transition_layout_shift !== null && transitionLayoutShift === null) ||
+			(value.settling_window_ms !== null && settlingWindowMs === null)) return null;
 		return {
 			case_id: value.case_id,
 			browser_project: value.browser_project,
@@ -36,6 +47,8 @@ function parseEvidenceAnnotation(test) {
 			page_error_count: metric(value.page_error_count),
 			failed_request_count: metric(value.failed_request_count),
 			layout_shift: shift(value.layout_shift),
+			transition_layout_shift: transitionLayoutShift,
+			settling_window_ms: settlingWindowMs,
 			duplicate_request_count: metric(value.duplicate_request_count),
 			state: value.state === 'PASS' ? 'PASS' : 'FAIL'
 		};
@@ -100,6 +113,8 @@ export default class Jig181PlaywrightReporter {
 				page_error_count: annotation.page_error_count,
 				failed_request_count: annotation.failed_request_count,
 				layout_shift: annotation.layout_shift,
+				transition_layout_shift: annotation.transition_layout_shift,
+				settling_window_ms: annotation.settling_window_ms,
 				duplicate_request_count: annotation.duplicate_request_count,
 				recorded_at: new Date().toISOString()
 			});
@@ -110,7 +125,7 @@ export default class Jig181PlaywrightReporter {
 		assertSafeArtifactPath(output);
 		const browserVersion = cases.find((item) => item.browser_version)?.browser_version || 'unknown';
 		const record = {
-			schema_version: 1,
+			schema_version: JIG181_EVIDENCE_SCHEMA_VERSION,
 			ticket: 'JIG-181',
 			candidate_sha: candidateSha,
 			captured_at: new Date().toISOString(),
