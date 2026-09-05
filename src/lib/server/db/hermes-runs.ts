@@ -189,12 +189,11 @@ export function snapshotFromRun(run: HermesRunRecord): HermesRunSnapshot {
 	};
 }
 
-export function applyHermesRunEvent(
+function applyHermesRunEventData(
 	run: HermesRunRecord,
 	eventType: string,
-	dataJson: string
+	data: Record<string, unknown>
 ): HermesRunSnapshot {
-	const data = objectValue(parseJson<unknown>(dataJson, {})) || {};
 	const snapshot = snapshotFromRun(run);
 	let answerText = snapshot.answerText;
 	if (eventType === 'response.output_text.delta') {
@@ -254,6 +253,14 @@ export function applyHermesRunEvent(
 				? stringValue(objectValue(data.error)?.message) || stringValue(data.message) || 'Hermes run failed.'
 				: snapshot.errorMessage
 	};
+}
+
+export function applyHermesRunEvent(
+	run: HermesRunRecord,
+	eventType: string,
+	dataJson: string
+): HermesRunSnapshot {
+	return applyHermesRunEventData(run, eventType, objectValue(parseJson<unknown>(dataJson, {})) || {});
 }
 
 export async function createOrGetHermesRun(
@@ -634,13 +641,11 @@ export async function appendHermesRunEvent(
 	const now = Date.now();
 
 	return db.transaction(async (tx: any) => {
-		await tx.execute(
-			sql`SELECT id FROM hermes_runs WHERE id = ${id} AND account_id = ${owner} FOR UPDATE`
-		);
 		const [current] = (await tx
 			.select()
 			.from(hermesRuns)
 			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
+			.for('update')
 			.limit(1)) as HermesRunRecord[];
 		if (!current) throw new HermesRunRepositoryError('not_found', 'run not found');
 		const state = normalizeState(current.state);
@@ -655,7 +660,8 @@ export async function appendHermesRunEvent(
 			throw new HermesRunRepositoryError('stale_callback', 'run callback cursor is not monotonic');
 		}
 
-		const nextSnapshot = applyHermesRunEvent(current, eventType, dataJson);
+		const eventData = objectValue(parseJson<unknown>(dataJson, {})) || {};
+		const nextSnapshot = applyHermesRunEventData(current, eventType, eventData);
 		const completedCitations =
 			nextSnapshot.state === 'complete'
 				? citationRecordsUsedInAnswer(nextSnapshot.answerText, nextSnapshot.citations)
@@ -685,33 +691,55 @@ export async function appendHermesRunEvent(
 			.returning()) as HermesRunEventRecord[];
 		if (!event) throw new Error('Hermes run event insert returned no row');
 		const terminal = isTerminal(snapshot.state);
+		const sourceEvent = Boolean(objectValue(eventData.source)) || eventType.startsWith('agent.source');
+		const citationEvent = Array.isArray(eventData.citations) || snapshot.state === 'complete';
+		const toolEvent = eventType === 'agent.tool.progress';
+		const runUpdate: Partial<typeof hermesRuns.$inferInsert> = {
+			cursor,
+			workerCursor: input.workerCursor,
+			updatedAt: now,
+			leaseExpiresAt: terminal ? null : now + HERMES_LEASE_MS
+		};
+		if (snapshot.state !== current.state) runUpdate.state = snapshot.state;
+		if (snapshot.answerText !== current.answerText) runUpdate.answerText = snapshot.answerText;
+		if (snapshot.errorMessage !== current.errorMessage) runUpdate.errorMessage = snapshot.errorMessage;
+		const startedAt = current.startedAt ?? now;
+		if (startedAt !== current.startedAt) runUpdate.startedAt = startedAt;
+		const completedAt = terminal ? now : current.completedAt;
+		if (completedAt !== current.completedAt) runUpdate.completedAt = completedAt;
+		// Keep the existing JSON text for event types that cannot change it.
+		// This avoids both serialization and an unnecessary column assignment.
+		if (sourceEvent) {
+			const sourcesJson = JSON.stringify(snapshot.sources);
+			if (sourcesJson !== current.sourcesJson) runUpdate.sourcesJson = sourcesJson;
+		}
+		if (citationEvent) {
+			const citationsJson = JSON.stringify(snapshot.citations);
+			if (citationsJson !== current.citationsJson) runUpdate.citationsJson = citationsJson;
+		}
+		if (toolEvent) {
+			const toolsJson = JSON.stringify(snapshot.tools);
+			if (toolsJson !== current.toolsJson) runUpdate.toolsJson = toolsJson;
+		}
 		const [run] = (await tx
 			.update(hermesRuns)
-			.set({
-				state: snapshot.state,
-				answerText: snapshot.answerText,
-				sourcesJson: JSON.stringify(snapshot.sources),
-				citationsJson: JSON.stringify(snapshot.citations),
-				toolsJson: JSON.stringify(snapshot.tools),
-				cursor,
-				workerCursor: input.workerCursor,
-				errorMessage: snapshot.errorMessage,
-				startedAt: current.startedAt ?? now,
-				updatedAt: now,
-				completedAt: terminal ? now : current.completedAt,
-				leaseExpiresAt: terminal ? null : now + HERMES_LEASE_MS
-			})
+			.set(runUpdate)
 			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
 			.returning()) as HermesRunRecord[];
 		if (!run) throw new HermesRunRepositoryError('not_found', 'run disappeared during event append');
 
+		const messageUpdate: Partial<typeof messages.$inferInsert> = {
+			content: snapshot.answerText,
+			partial: terminal && snapshot.state === 'complete' ? 0 : 1
+		};
+		// The first callback establishes metadata for the placeholder. Later
+		// text-only callbacks cannot change sources, citations, or tools.
+		if (current.cursor === 0 || sourceEvent || citationEvent || toolEvent || terminal) {
+			messageUpdate.toolCalls = serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations);
+		}
 		await tx
 			.update(messages)
-			.set({
-				content: snapshot.answerText,
-				partial: terminal && snapshot.state === 'complete' ? 0 : 1,
-				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations)
-			})
+			.set(messageUpdate)
 			.where(and(eq(messages.id, current.assistantMessageId), eq(messages.conversationId, current.conversationId)));
 		const provenance = buildAnswerProvenanceBundle({
 			messageId: current.assistantMessageId,
@@ -727,18 +755,19 @@ export async function appendHermesRunEvent(
 			finishStatus: snapshot.state === 'complete' ? 'completed' : snapshot.state === 'cancelled' ? 'cancelled' : snapshot.state === 'failed' ? 'failed' : 'partial',
 			transport: 'hermes_durable'
 		});
+		const provenanceJson = JSON.stringify(provenance);
 		await tx
 			.insert(messageProvenance)
 			.values({
 				messageId: current.assistantMessageId,
 				conversationId: current.conversationId,
-				provenanceJson: JSON.stringify(provenance),
+				provenanceJson,
 				createdAt: now,
 				updatedAt: now
 			})
 			.onConflictDoUpdate({
 				target: messageProvenance.messageId,
-				set: { provenanceJson: JSON.stringify(provenance), updatedAt: now }
+				set: { provenanceJson, updatedAt: now }
 			});
 		await tx.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, current.conversationId));
 		return { run, event };

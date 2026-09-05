@@ -27,6 +27,7 @@ import {
 	requestHermesRunCancellation,
 	HermesRunRepositoryError
 } from './hermes-runs';
+import { getMessageProvenance } from './message-provenance';
 
 const databaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
 
@@ -253,6 +254,249 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		expect(final.run.answerText).toBe('First.');
 		expect(final.run.state).toBe('complete');
 		expect((await listHermesRunEvents(accountA, run.id)).map((event) => event.cursor)).toEqual([1, 2, 3]);
+	});
+
+	it('preserves source, citation, tool, text, terminal, and provenance snapshots', async () => {
+		const seeded = await seed('all-event-kinds');
+		const citation = {
+			citationNumber: 1,
+			title: 'Primary source',
+			url: 'https://example.test/primary',
+			domain: 'example.test',
+			publicationDate: '2026-08-19',
+			sourceType: 'primary',
+			supportingExcerpt: 'Recorded evidence'
+		};
+		const { run } = await createOrGetHermesRun({
+			accountId: accountA,
+			orgId: seeded.conversation.orgId,
+			conversationId: seeded.conversation.id,
+			userMessageId: seeded.user.id,
+			assistantMessageId: seeded.assistant.id,
+			idempotencyKey: seeded.idempotencyKey,
+			tenantKey: `tenant-${accountA}`,
+			sessionId: `session-${seeded.conversation.id}`,
+			inputJson: '{}',
+			seededCitationsJson: JSON.stringify([citation])
+		});
+		const claimed = await claimHermesRunLease(accountA, run.id, 'worker-a');
+		const source = await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'agent.source.read',
+			dataJson: JSON.stringify({ source: { id: 'source-1', url: citation.url, title: citation.title } }),
+			workerCursor: 1
+		});
+		expect(JSON.parse(source.run.sourcesJson)).toEqual([
+			{ id: 'source-1', url: citation.url, title: citation.title }
+		]);
+
+		const withCitation = await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'agent.citations',
+			dataJson: JSON.stringify({ citations: [citation] }),
+			workerCursor: 2
+		});
+		expect(JSON.parse(withCitation.run.citationsJson)).toEqual([citation]);
+		const metadataAfterCitation = (await getMessages(seeded.conversation.id)).find(
+			(message) => message.id === seeded.assistant.id
+		)?.toolCalls;
+		expect(metadataAfterCitation).toContain('Primary source');
+
+		const withTool = await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'agent.tool.progress',
+			dataJson: JSON.stringify({ id: 'tool-1', name: 'search', status: 'completed' }),
+			workerCursor: 3
+		});
+		expect(JSON.parse(withTool.run.toolsJson)).toEqual([
+			{ id: 'tool-1', name: 'search', status: 'completed' }
+		]);
+		const metadataAfterTool = (await getMessages(seeded.conversation.id)).find(
+			(message) => message.id === seeded.assistant.id
+		)?.toolCalls;
+		expect(metadataAfterTool).not.toBe(metadataAfterCitation);
+
+		const withText = await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'response.output_text.delta',
+			dataJson: JSON.stringify({ delta: 'The source supports this [1].' }),
+			workerCursor: 4
+		});
+		expect(withText.run.answerText).toBe('The source supports this [1].');
+		expect(withText.run.sourcesJson).toBe(withTool.run.sourcesJson);
+		expect(withText.run.citationsJson).toBe(withTool.run.citationsJson);
+		expect(withText.run.toolsJson).toBe(withTool.run.toolsJson);
+		const metadataAfterText = (await getMessages(seeded.conversation.id)).find(
+			(message) => message.id === seeded.assistant.id
+		)?.toolCalls;
+		expect(metadataAfterText).toBe(metadataAfterTool);
+
+		const terminal = await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'response.completed',
+			dataJson: '{}',
+			workerCursor: 5
+		});
+		expect(terminal.run.state).toBe('complete');
+		expect(terminal.run.sourcesJson).toBe(withText.run.sourcesJson);
+		expect(JSON.parse(terminal.run.citationsJson)).toEqual([citation]);
+		expect(JSON.parse(terminal.run.toolsJson)).toEqual(JSON.parse(withTool.run.toolsJson));
+		const message = (await getMessages(seeded.conversation.id)).find(
+			(row) => row.id === seeded.assistant.id
+		);
+		expect(message).toMatchObject({ content: 'The source supports this [1].', partial: 0 });
+		expect(message?.toolCalls).toContain('tool-1');
+		const provenance = await getMessageProvenance(seeded.assistant.id);
+		const provenanceJson = JSON.parse(provenance?.provenanceJson || '{}') as {
+			stream?: { done?: boolean; finishStatus?: string; assistantChars?: number };
+		};
+		expect(provenanceJson.stream).toMatchObject({
+			done: true,
+			finishStatus: 'completed',
+			assistantChars: 'The source supports this [1].'.length
+		});
+		expect((await listHermesRunEvents(accountA, run.id)).map((event) => event.eventType)).toEqual([
+			'agent.source.read',
+			'agent.citations',
+			'agent.tool.progress',
+			'response.output_text.delta',
+			'response.completed'
+		]);
+	});
+
+	it('serializes concurrent callbacks under the run row lock', async () => {
+		const { run } = await createRun('concurrent-callbacks');
+		const claimed = await claimHermesRunLease(accountA, run.id, 'worker-a');
+		const results = await Promise.allSettled([
+			appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+				eventType: 'response.output_text.delta',
+				dataJson: JSON.stringify({ delta: 'one' }),
+				workerCursor: 1
+			}),
+			appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+				eventType: 'response.output_text.delta',
+				dataJson: JSON.stringify({ delta: 'two' }),
+				workerCursor: 1
+			})
+		]);
+
+		expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+		expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+		const rejected = results.find((result) => result.status === 'rejected');
+		expect(rejected).toMatchObject({ reason: { code: 'stale_callback' } });
+		expect((await listHermesRunEvents(accountA, run.id)).map((event) => event.cursor)).toEqual([1]);
+		expect((await getHermesRun(accountA, run.id))?.workerCursor).toBe(1);
+	});
+
+	it('rolls back the event and run snapshot when a durable message write fails', async () => {
+		const { run, conversation, assistant } = await createRun('callback-rollback');
+		const claimed = await claimHermesRunLease(accountA, run.id, 'worker-a');
+		await sql`
+			CREATE FUNCTION hermes_item6_fail_message_update() RETURNS trigger
+			LANGUAGE plpgsql AS $item6$
+			BEGIN
+				IF NEW.content = 'ROLLBACK_MARKER' THEN
+					RAISE EXCEPTION 'item6 rollback fixture';
+				END IF;
+				RETURN NEW;
+			END
+			$item6$
+		`;
+		await sql`
+			CREATE TRIGGER hermes_item6_fail_message_update
+			BEFORE UPDATE OF content ON messages
+			FOR EACH ROW EXECUTE FUNCTION hermes_item6_fail_message_update()
+		`;
+		try {
+			await expect(
+				appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+					eventType: 'response.output_text.delta',
+					dataJson: JSON.stringify({ delta: 'ROLLBACK_MARKER' }),
+					workerCursor: 1
+				})
+			).rejects.toThrow('Failed query: update "messages"');
+		} finally {
+			await sql`DROP TRIGGER IF EXISTS hermes_item6_fail_message_update ON messages`;
+			await sql`DROP FUNCTION IF EXISTS hermes_item6_fail_message_update()`;
+		}
+
+		expect(await getHermesRun(accountA, run.id)).toMatchObject({
+			cursor: 0,
+			workerCursor: 0,
+			state: 'researching',
+			answerText: ''
+		});
+		expect(await listHermesRunEvents(accountA, run.id)).toEqual([]);
+		expect((await getMessages(conversation.id)).find((message) => message.id === assistant.id)).toMatchObject({
+			content: '',
+			partial: 1
+		});
+	});
+
+	it('rejects an expired lease before writing a callback event', async () => {
+		const { run } = await createRun('expired-callback-lease');
+		const claimed = await claimHermesRunLease(accountA, run.id, 'worker-a');
+		await sql`UPDATE hermes_runs SET lease_expires_at = 0 WHERE id = ${run.id} AND account_id = ${accountA}`;
+
+		await expect(
+			appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+				eventType: 'response.output_text.delta',
+				dataJson: JSON.stringify({ delta: 'expired' }),
+				workerCursor: 1
+			})
+		).rejects.toMatchObject({ code: 'stale_lease' });
+		expect(await listHermesRunEvents(accountA, run.id)).toEqual([]);
+		expect((await getHermesRun(accountA, run.id))?.cursor).toBe(0);
+	});
+
+	it('returns a current reconnect snapshot and only newer events', async () => {
+		const { run } = await createRun('reconnect-snapshot');
+		const claimed = await claimHermesRunLease(accountA, run.id, 'worker-a');
+		await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'response.output_text.delta',
+			dataJson: JSON.stringify({ delta: 'Before reconnect.' }),
+			workerCursor: 1
+		});
+		const snapshot = await getHermesRunSubscriptionState(accountA, run.id);
+		expect(snapshot).toMatchObject({ state: 'writing', cursor: 1 });
+		expect(await listKnownHermesRunEvents(accountA, run.id, snapshot!.cursor)).toEqual([]);
+
+		await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'response.output_text.delta',
+			dataJson: JSON.stringify({ delta: ' After reconnect.' }),
+			workerCursor: 2
+		});
+		expect(await listKnownHermesRunEvents(accountA, run.id, snapshot!.cursor)).toMatchObject([
+			{ cursor: 2, eventType: 'response.output_text.delta' }
+		]);
+	});
+
+	it('omits unchanged snapshot and message metadata fields on text callbacks', async () => {
+		const { run } = await createRun('text-update-shape');
+		const claimed = await claimHermesRunLease(accountA, run.id, 'worker-a');
+		await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+			eventType: 'run.started',
+			dataJson: '{}',
+			workerCursor: 1
+		});
+		const options = (sql as any).options;
+		const previousDebug = options.debug;
+		const queries: string[] = [];
+		options.debug = (_connectionId: number, query: string) => queries.push(query);
+		try {
+			await appendHermesRunEvent(accountA, run.id, 'worker-a', claimed!.leaseToken!, {
+				eventType: 'response.output_text.delta',
+				dataJson: JSON.stringify({ delta: 'Only text changes.' }),
+				workerCursor: 2
+			});
+		} finally {
+			options.debug = previousDebug;
+		}
+
+		const runSelects = queries.filter((query) => /select[\s\S]+from "hermes_runs"/i.test(query));
+		const runUpdate = queries.find((query) => /update "hermes_runs"/i.test(query));
+		const messageUpdate = queries.find((query) => /update "messages"/i.test(query));
+		expect(runSelects).toHaveLength(1);
+		expect(runSelects[0]).toMatch(/for update/i);
+		expect(runUpdate).toBeDefined();
+		expect(runUpdate?.split(' returning ')[0]).not.toMatch(/sources_json|citations_json|tools_json/i);
+		expect(messageUpdate).toBeDefined();
+		expect(messageUpdate).not.toMatch(/tool_calls/i);
 	});
 
 	it('keeps only citation records used by the completed durable answer', async () => {
