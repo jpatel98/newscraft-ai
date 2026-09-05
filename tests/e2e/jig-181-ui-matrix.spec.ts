@@ -29,6 +29,29 @@ type MatrixMetrics = {
 	layoutShiftSupported: boolean;
 };
 
+type LayoutBox = {
+	left: number;
+	top: number;
+	right: number;
+	bottom: number;
+	width: number;
+	height: number;
+	fontSizePx: number;
+	lineHeightPx: number;
+};
+
+type ComposerUsability = {
+	innerWidth: number;
+	innerHeight: number;
+	visualViewport: { width: number; height: number; offsetTop: number } | null;
+	shell: LayoutBox;
+	composer: LayoutBox;
+	textarea: LayoutBox;
+	attach: LayoutBox;
+	send: LayoutBox;
+	document: { scrollWidth: number; scrollHeight: number; clientWidth: number; clientHeight: number };
+};
+
 type FixtureMode = 'complete' | 'reconnect' | 'error-retry' | 'cancel';
 
 function sse(event: string, data: unknown, id?: number): string {
@@ -206,6 +229,75 @@ async function installMetrics(page: Page) {
 	});
 }
 
+async function readComposerUsability(page: Page): Promise<ComposerUsability> {
+	return page.evaluate(() => {
+		const readBox = (selector: string): LayoutBox => {
+			const element = document.querySelector<HTMLElement>(selector);
+			if (!element) throw new Error(`JIG-181 usability element missing: ${selector}`);
+			const box = element.getBoundingClientRect();
+			const style = getComputedStyle(element);
+			return {
+				left: box.left,
+				top: box.top,
+				right: box.right,
+				bottom: box.bottom,
+				width: box.width,
+				height: box.height,
+				fontSizePx: Number.parseFloat(style.fontSize),
+				lineHeightPx: Number.parseFloat(style.lineHeight)
+			};
+		};
+		const viewport = window.visualViewport;
+		return {
+			innerWidth: window.innerWidth,
+			innerHeight: window.innerHeight,
+			visualViewport: viewport
+				? { width: viewport.width, height: viewport.height, offsetTop: viewport.offsetTop }
+				: null,
+			shell: readBox('.shell'),
+			composer: readBox('.composer'),
+			textarea: readBox('.composer__textarea'),
+			attach: readBox('.composer__icon-btn'),
+			send: readBox('.composer__send'),
+			document: {
+				scrollWidth: document.documentElement.scrollWidth,
+				scrollHeight: document.documentElement.scrollHeight,
+				clientWidth: document.documentElement.clientWidth,
+				clientHeight: document.documentElement.clientHeight
+			}
+		};
+	});
+}
+
+function assertComposerUsability(metrics: ComposerUsability, minTargetDimension: number) {
+	const { composer, textarea, attach, send } = metrics;
+	expect(composer.width).toBeGreaterThan(0);
+	expect(composer.height).toBeGreaterThan(0);
+	expect(textarea.width).toBeGreaterThan(0);
+	expect(textarea.height).toBeGreaterThanOrEqual(40);
+	expect(textarea.fontSizePx).toBeGreaterThanOrEqual(14);
+	expect(textarea.lineHeightPx / textarea.fontSizePx).toBeGreaterThanOrEqual(1.2);
+	for (const target of [attach, send]) {
+		expect(target.width).toBeGreaterThanOrEqual(minTargetDimension);
+		expect(target.height).toBeGreaterThanOrEqual(minTargetDimension);
+		const aspectRatio = target.width / target.height;
+		expect(aspectRatio).toBeGreaterThanOrEqual(0.75);
+		expect(aspectRatio).toBeLessThanOrEqual(1.34);
+	}
+	expect(metrics.document.scrollWidth).toBeLessThanOrEqual(metrics.innerWidth + 1);
+	expect(composer.left).toBeGreaterThanOrEqual(-1);
+	expect(composer.right).toBeLessThanOrEqual(metrics.innerWidth + 1);
+}
+
+function assertComposerInVisualViewport(metrics: ComposerUsability) {
+	const viewport = metrics.visualViewport;
+	if (!viewport) return;
+	const visibleBottom = viewport.offsetTop + viewport.height;
+	expect(metrics.composer.bottom).toBeGreaterThan(viewport.offsetTop);
+	expect(metrics.composer.top).toBeLessThan(visibleBottom);
+	expect(metrics.composer.bottom).toBeLessThanOrEqual(visibleBottom + 1);
+}
+
 async function readMetrics(page: Page, duplicateRequestCount: number): Promise<MatrixMetrics> {
 	const browserMetrics = await page.evaluate(() => {
 		const state = (window as Window & {
@@ -292,7 +384,15 @@ function requireProject(testInfo: TestInfo, viewportId: string) {
 }
 
 async function installDurableFixture(context: BrowserContext, mode: FixtureMode) {
-	const counts = { post: 0, reconnectGet: 0, cancel: 0 };
+	const runId = 'fixture-run-1';
+	const counts = {
+		post: 0,
+		reconnectGet: 0,
+		cancel: 0,
+		postRunIds: [] as string[],
+		reconnectRunIds: [] as string[],
+		cancelRunIds: [] as string[]
+	};
 	let activeMode = mode;
 	let lastConversationId = 'fixture-conversation';
 	let lastUserMessage = 'Local durable fixture turn';
@@ -302,6 +402,7 @@ async function installDurableFixture(context: BrowserContext, mode: FixtureMode)
 		const url = new URL(request.url());
 		if (url.pathname === '/api/chat/runs' && request.method() === 'POST') {
 			counts.post += 1;
+			counts.postRunIds.push(runId);
 			let conversationId = 'fixture-conversation';
 			try {
 				const body = JSON.parse(request.postData() ?? '{}') as {
@@ -321,11 +422,10 @@ async function installDurableFixture(context: BrowserContext, mode: FixtureMode)
 				await route.fulfill({
 					status: 200,
 					headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
-					body: failedBody('fixture-run-1', conversationId)
+					body: failedBody(runId, conversationId)
 				});
 				return;
 			}
-			const runId = 'fixture-run-1';
 			if (requestMode === 'reconnect') await new Promise((resolve) => setTimeout(resolve, 100));
 			if (requestMode === 'error-retry' && counts.post === 2 && !persisted) {
 				await persistFixtureTurn(context, conversationId, lastUserMessage);
@@ -343,17 +443,19 @@ async function installDurableFixture(context: BrowserContext, mode: FixtureMode)
 		}
 		if (url.pathname.endsWith('/cancel') && request.method() === 'POST') {
 			counts.cancel += 1;
-			const runId = url.pathname.split('/').at(-2) || 'fixture-run-1';
+			const requestedRunId = url.pathname.split('/').at(-2) || runId;
+			counts.cancelRunIds.push(requestedRunId);
 			await route.fulfill({
 				status: 202,
 				contentType: 'application/json',
-				body: JSON.stringify({ run_id: runId, cursor: 2, status: 'cancelled', state: 'cancelled' })
+				body: JSON.stringify({ run_id: requestedRunId, cursor: 2, status: 'cancelled', state: 'cancelled' })
 			});
 			return;
 		}
 		if (url.pathname.startsWith('/api/chat/runs/') && request.method() === 'GET') {
 			counts.reconnectGet += 1;
-			const runId = url.pathname.split('/').at(-1) || 'fixture-run-1';
+			const requestedRunId = url.pathname.split('/').at(-1) || runId;
+			counts.reconnectRunIds.push(requestedRunId);
 			const conversationId = lastConversationId;
 			const requestMode = activeMode;
 			if (requestMode !== 'cancel' && !persisted) {
@@ -361,8 +463,8 @@ async function installDurableFixture(context: BrowserContext, mode: FixtureMode)
 				persisted = true;
 			}
 			const body = requestMode === 'cancel'
-				? cancelledBody(runId, conversationId)
-				: completeBody(runId, conversationId);
+				? cancelledBody(requestedRunId, conversationId)
+				: completeBody(requestedRunId, conversationId);
 			await route.fulfill({
 				status: 200,
 				headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
@@ -383,7 +485,12 @@ async function installDurableFixture(context: BrowserContext, mode: FixtureMode)
 			return counts.cancel;
 		},
 		observed() {
-			return { ...counts };
+			return {
+				...counts,
+				postRunIds: [...counts.postRunIds],
+				reconnectRunIds: [...counts.reconnectRunIds],
+				cancelRunIds: [...counts.cancelRunIds]
+			};
 		},
 		setMode(next: FixtureMode) {
 			activeMode = next;
@@ -452,6 +559,8 @@ test('JIG-181 keyboard opens and closes with the visual viewport', async ({ page
 	const readProblems = await installPageProblemCounters(page);
 	await signIn(page);
 	const composer = page.getByLabel('Message NewsCraft');
+	const baseline = await readComposerUsability(page);
+	assertComposerUsability(baseline, 44);
 	await composer.focus();
 	await page.evaluate(() => {
 		if (!window.visualViewport) return;
@@ -460,6 +569,13 @@ test('JIG-181 keyboard opens and closes with the visual viewport', async ({ page
 		window.visualViewport.dispatchEvent(new Event('resize'));
 	});
 	await expect(page.locator('.shell')).toHaveAttribute('data-keyboard-open', 'true');
+	const keyboardOpen = await readComposerUsability(page);
+	assertComposerUsability(keyboardOpen, 44);
+	assertComposerInVisualViewport(keyboardOpen);
+	expect(keyboardOpen.shell.top).toBeCloseTo(keyboardOpen.visualViewport?.offsetTop ?? 0, 0);
+	expect(keyboardOpen.shell.height).toBeCloseTo(keyboardOpen.visualViewport?.height ?? keyboardOpen.innerHeight, 0);
+	expect(keyboardOpen.composer.width).toBeCloseTo(baseline.composer.width, 0);
+	expect(keyboardOpen.textarea.height).toBeGreaterThanOrEqual(baseline.textarea.height - 1);
 	await composer.blur();
 	await page.evaluate(() => {
 		if (!window.visualViewport) return;
@@ -468,6 +584,9 @@ test('JIG-181 keyboard opens and closes with the visual viewport', async ({ page
 		window.dispatchEvent(new Event('orientationchange'));
 	});
 	await expect(page.locator('.shell')).toHaveAttribute('data-keyboard-open', 'false');
+	const keyboardClosed = await readComposerUsability(page);
+	assertComposerUsability(keyboardClosed, 44);
+	assertComposerInVisualViewport(keyboardClosed);
 	await finishEvidence(page, testInfo, 'keyboard_open_close', readProblems, 0);
 });
 
@@ -541,10 +660,16 @@ test('JIG-181 reduced motion and effective 200 percent zoom remain usable', asyn
 	const readProblems = await installPageProblemCounters(page);
 	await page.emulateMedia({ reducedMotion: 'reduce' });
 	await signIn(page);
+	const baseline = await readComposerUsability(page);
 	await page.evaluate(() => {
 		document.documentElement.style.zoom = '2';
 	});
 	await expect(page.getByRole('heading', { name: 'What are you working on?' })).toBeVisible();
+	const zoomed = await readComposerUsability(page);
+	assertComposerUsability(zoomed, 44);
+	assertComposerInVisualViewport(zoomed);
+	expect(zoomed.textarea.lineHeightPx / zoomed.textarea.fontSizePx).toBeGreaterThanOrEqual(1.2);
+	expect(zoomed.send.width).toBeGreaterThanOrEqual(baseline.send.width);
 	await finishEvidence(page, testInfo, 'zoom_200_reduced_motion', readProblems, 0);
 });
 
@@ -559,6 +684,8 @@ test('JIG-181 reconnect reuses the durable run and does not resubmit', async ({ 
 	await expect(page.getByText(newFixtureAnswer).first()).toBeVisible();
 	await expect.poll(() => counts.reconnectGet).toBeGreaterThan(0);
 	expect(counts.post).toBe(1);
+	expect(counts.observed().postRunIds).toEqual(['fixture-run-1']);
+	expect(counts.observed().reconnectRunIds).toEqual(['fixture-run-1']);
 	await finishEvidence(page, testInfo, 'network_disconnect_reconnect', readProblems, duplicateDurableStartCount(counts.post, 1));
 });
 
@@ -582,6 +709,11 @@ test('JIG-181 server error exposes retry and cancellation uses the existing rout
 	await expect.poll(() => counts.reconnectGet).toBeGreaterThan(0);
 	expect(counts.cancel).toBe(1);
 	expect(counts.post).toBe(3);
+	await expect(page.getByRole('status').filter({ hasText: 'Stopped' }).last()).toBeVisible();
+	const observed = counts.observed();
+	expect(observed.postRunIds).toEqual(['fixture-run-1', 'fixture-run-1', 'fixture-run-1']);
+	expect(observed.cancelRunIds).toEqual(['fixture-run-1']);
+	expect(observed.reconnectRunIds).toEqual(['fixture-run-1']);
 	await finishEvidence(page, testInfo, 'server_error_retry_cancel', readProblems, duplicateDurableStartCount(counts.post, 3));
 });
 
@@ -601,6 +733,10 @@ test('JIG-181 stale tabs replay one saved run without a duplicate start', async 
 	await expect(secondTab.getByText(newFixtureAnswer).first()).toBeVisible();
 	expect(counts.post).toBe(1);
 	expect(counts.reconnectGet).toBeGreaterThan(0);
+	const observed = counts.observed();
+	expect(observed.postRunIds).toEqual(['fixture-run-1']);
+	expect(observed.reconnectRunIds.length).toBeGreaterThan(0);
+	expect(observed.reconnectRunIds.every((runId) => runId === 'fixture-run-1')).toBe(true);
 	await secondTab.close();
 	await finishEvidence(page, testInfo, 'stale_tab_duplicate_requests', readProblems, duplicateDurableStartCount(counts.post, 1));
 });
@@ -613,7 +749,13 @@ test('JIG-181 persisted sources survive reload and layout remains stable', async
 	await expect(page.getByRole('button', { name: 'Citation 1: Local fixture source' })).toBeVisible();
 	await expect(page.locator('[data-testid="message-sources"]')).toHaveCount(0);
 	await page.reload();
-	await expect(page.getByRole('button', { name: 'Citation 1: Local fixture source' })).toBeVisible();
+	const citation = page.getByRole('button', { name: 'Citation 1: Local fixture source' });
+	await expect(citation).toBeVisible();
 	await expect(page.locator('[data-testid="message-sources"]')).toHaveCount(0);
+	await citation.click();
+	const evidence = page.getByRole('dialog', { name: 'Local fixture source' });
+	await expect(evidence).toBeVisible();
+	await expect(evidence.getByText(fixtureCitation.supportingExcerpt, { exact: true })).toBeVisible();
+	await evidence.getByRole('button', { name: 'Close evidence preview' }).click();
 	await finishEvidence(page, testInfo, 'console_and_layout_stability', readProblems, 0);
 });
