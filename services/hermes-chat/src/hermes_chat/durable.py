@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import json
 import logging
 import re
@@ -36,6 +38,11 @@ TEXT_BATCH_MAX_CHARS = 4_096
 TEXT_BATCH_FLUSH_INTERVAL_SECONDS = 0.05
 TEXT_EVENT_TYPE = "response.output_text.delta"
 TRACE_ID_RE = r"^[A-Za-z0-9._-]{8,128}$"
+
+_CURRENT_NEWSCRAFT_CLIENT: contextvars.ContextVar[httpx.AsyncClient | None] = contextvars.ContextVar(
+    "newscraft_control_client",
+    default=None,
+)
 
 DEFAULT_MAX_ACTIVE_RUNS = 4
 DEFAULT_MAX_ACTIVE_RUNS_PER_TENANT = 2
@@ -336,6 +343,7 @@ class DurableJob:
     claim_error: BaseException | None = field(default=None, repr=False)
     cancel_publish_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     cancel_published: bool = field(default=False, repr=False)
+    control_client: httpx.AsyncClient | None = field(default=None, repr=False)
 
 
 class DurableRunWorker:
@@ -365,6 +373,9 @@ class DurableRunWorker:
         self._recovery_task: asyncio.Task[None] | None = None
         self._recovery_pending = False
         self._recovery_backlog_known = False
+        # One admitted job owns one client. Unscoped recovery/release calls
+        # own one-shot clients, and recovery serializes those calls.
+        self._control_clients: set[httpx.AsyncClient] = set()
         self._closed = False
 
     @property
@@ -396,15 +407,57 @@ class DurableRunWorker:
             raise DurableRunError("NewsCraft durable run API is not configured")
         return f"{self.settings.run_api_url.rstrip('/')}{path}"
 
+    def _new_http_client(self) -> httpx.AsyncClient:
+        # A client is owned by one durable run or one unscoped control request.
+        # Do not put auth, tenant, trace, or cookie state in client defaults.
+        client = httpx.AsyncClient(timeout=20)
+        self._control_clients.add(client)
+        return client
+
+    async def _close_http_client(self, client: httpx.AsyncClient) -> None:
+        try:
+            await client.aclose()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("NewsCraft control client close failed")
+        finally:
+            self._control_clients.discard(client)
+
+    @contextlib.asynccontextmanager
+    async def _control_client_scope(
+        self,
+        job: DurableJob | None = None,
+    ) -> AsyncIterator[httpx.AsyncClient]:
+        client = self._new_http_client()
+        if job is not None:
+            job.control_client = client
+        token = _CURRENT_NEWSCRAFT_CLIENT.set(client)
+        try:
+            yield client
+        finally:
+            _CURRENT_NEWSCRAFT_CLIENT.reset(token)
+            if job is not None and job.control_client is client:
+                job.control_client = None
+            await self._close_http_client(client)
+
     async def _newscraft(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         trace_id = _trace_id(body.get("trace_id")) if isinstance(body, dict) else None
-        async with httpx.AsyncClient(timeout=20) as client:
+        client = _CURRENT_NEWSCRAFT_CLIENT.get()
+        owns_client = client is None
+        if owns_client:
+            client = self._new_http_client()
+        assert client is not None
+        try:
             response = await client.request(
                 method,
                 self._newscraft_url(path),
                 headers=self._headers(trace_id),
                 json=body,
             )
+        finally:
+            if owns_client:
+                await self._close_http_client(client)
         if response.status_code >= 400:
             code: str | None = None
             try:
@@ -628,6 +681,35 @@ class DurableRunWorker:
 
     async def _admit_and_run(self, job: DurableJob) -> None:
         try:
+            async with self._control_client_scope(job):
+                try:
+                    await self._admit_and_run_in_scope(job)
+                except asyncio.CancelledError:
+                    if job.lease_acquired and job.stop_reason == "cancelled":
+                        try:
+                            await self._publish_cancelled(job)
+                        except BaseException:
+                            logger.exception("NewsCraft cancellation callback failed")
+                    raise
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:
+            if job.lease_acquired:
+                logger.error("Durable Hermes admitted task failed")
+            elif job.claim_error is None:
+                job.claim_error = exc
+                job.claim_ready.set()
+                await job.start_observed.wait()
+                await self._settle_claim_outcome(job, persist_failure=True)
+        finally:
+            if not job.claim_ready.is_set():
+                job.claim_ready.set()
+            if not job.lease_acquired and (job.claim_settled or job.stop_reason in {"cancelled", "shutdown"}):
+                await self._remove_unleased_job(job)
+            await self._release_slot(job)
+
+    async def _admit_and_run_in_scope(self, job: DurableJob) -> None:
+        try:
             owner = f"hermes:{self.instance_id}:{job.run_id}"
             claim_body = {
                 "run_id": job.run_id,
@@ -670,11 +752,6 @@ class DurableRunWorker:
             job.claim_ready.set()
             await self._run_claimed(job)
         except asyncio.CancelledError:
-            if job.lease_acquired and job.stop_reason == "cancelled":
-                try:
-                    await self._publish_cancelled(job)
-                except BaseException:
-                    logger.exception("NewsCraft cancellation callback failed")
             raise
         except BaseException as exc:
             if job.lease_acquired:
@@ -687,12 +764,6 @@ class DurableRunWorker:
                 job.claim_ready.set()
                 await job.start_observed.wait()
                 await self._settle_claim_outcome(job, persist_failure=True)
-        finally:
-            if not job.claim_ready.is_set():
-                job.claim_ready.set()
-            if not job.lease_acquired and (job.claim_settled or job.stop_reason in {"cancelled", "shutdown"}):
-                await self._remove_unleased_job(job)
-            await self._release_slot(job)
 
     async def _run_claimed(self, job: DurableJob) -> None:
         if job.stop_reason == "cancelled":
@@ -702,7 +773,8 @@ class DurableRunWorker:
 
     async def _run_recovered(self, job: DurableJob) -> None:
         try:
-            await self._run_claimed(job)
+            async with self._control_client_scope(job):
+                await self._run_claimed(job)
         finally:
             await self._release_slot(job)
 
@@ -944,7 +1016,15 @@ class DurableRunWorker:
         for job in jobs:
             if job.task and job.task in tasks:
                 try:
-                    await self._flush_text(job)
+                    client = job.control_client
+                    if client is None:
+                        await self._flush_text(job)
+                    else:
+                        token = _CURRENT_NEWSCRAFT_CLIENT.set(client)
+                        try:
+                            await self._flush_text(job)
+                        finally:
+                            _CURRENT_NEWSCRAFT_CLIENT.reset(token)
                 except asyncio.CancelledError:
                     logger.info("NewsCraft text flush was cancelled during shutdown")
                 except Exception:
