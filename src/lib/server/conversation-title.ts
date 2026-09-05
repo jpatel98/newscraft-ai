@@ -1,8 +1,9 @@
 import { completion, type AgentMessage } from '$lib/server/agent/transport';
 import {
 	getConversation,
-	getMessages,
+	getMessagesBatch,
 	parseContent,
+	type MessagePageCursor,
 	setConversationTitleIfCurrent,
 	type ConversationRow
 } from '$lib/server/db/conversations';
@@ -21,6 +22,7 @@ const TITLE_SYSTEM =
 	'Write a specific 4-to-8-word, sentence-case title that summarizes the user\'s main task or topic. ' +
 	'Keep useful names, places, formats, and outcomes. Omit filler such as requests for help, greetings, and "this conversation." ' +
 	'Reply with ONLY the title text — no label, quotes, markdown, or trailing punctuation.';
+const TITLE_MESSAGE_BATCH_SIZE = 16;
 
 function isAutomaticTitlePlaceholder(value: string | null | undefined): boolean {
 	const normalized = (value ?? '').trim().toLowerCase();
@@ -77,24 +79,31 @@ export async function generateConversationTitle(
 		return { row: fresh, title: fresh.title, generated: false };
 	}
 
-	const sourceMessages = await getMessages(conversationId);
 	const seedHistory: AgentMessage[] = [];
 	let lastSeedId = conversationId;
-	for (const m of sourceMessages) {
-		if (m.role !== 'user' && m.role !== 'assistant') continue;
-		if (m.role === 'assistant' && m.partial === 1) continue;
-		const parsed = parseContent(m.content);
-		const text =
-			typeof parsed === 'string'
-				? parsed
-				: parsed
-						.filter((p) => p.type === 'text')
-						.map((p) => (p as { text: string }).text)
-						.join('\n');
-		if (!text.trim()) continue;
-		seedHistory.push({ role: m.role, content: text.trim() });
-		lastSeedId = m.id;
-		if (seedHistory.length === 4) break;
+	let cursor: MessagePageCursor | null = null;
+	while (seedHistory.length < 4) {
+		const sourceMessages = await getMessagesBatch(conversationId, cursor, TITLE_MESSAGE_BATCH_SIZE);
+		if (sourceMessages.length === 0) break;
+		for (const m of sourceMessages) {
+			if (m.role !== 'user' && m.role !== 'assistant') continue;
+			if (m.role === 'assistant' && m.partial === 1) continue;
+			const parsed = parseContent(m.content);
+			const text =
+				typeof parsed === 'string'
+					? parsed
+					: parsed
+							.filter((p) => p.type === 'text')
+							.map((p) => (p as { text: string }).text)
+							.join('\n');
+			if (!text.trim()) continue;
+			seedHistory.push({ role: m.role, content: text.trim() });
+			lastSeedId = m.id;
+			if (seedHistory.length === 4) break;
+		}
+		if (seedHistory.length === 4 || sourceMessages.length < TITLE_MESSAGE_BATCH_SIZE) break;
+		const last = sourceMessages[sourceMessages.length - 1];
+		cursor = { createdAt: last.createdAt, id: last.id };
 	}
 	if (seedHistory.length === 0) {
 		return { row: fresh, title: fresh.title, generated: false };

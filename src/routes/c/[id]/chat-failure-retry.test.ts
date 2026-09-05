@@ -30,7 +30,7 @@ describe('chat failure retry UI', () => {
 		const titleSource = pageSource.slice(titleStart, titleEnd);
 		expect(titleSource).toContain('automaticTitle = title;');
 		expect(titleSource).not.toContain('invalidateAll');
-		expect(pageSource).toContain("const conversationTitle = $derived(automaticTitle ?? data.conversation.title);");
+		expect(pageSource).toContain('selectConversationDisplayTitle(');
 		expect(pageSource).toContain("<title>{conversationTitle || 'Untitled thread'} · NewsCraft</title>");
 	});
 	it('renders safe stream failures without raw thrown details', () => {

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNull, lt, or, sql } from 'drizzle-orm';
 import { db, ensureDefaultOrganizationForAccount } from './index';
 import { conversations, hermesRuns, messageProvenance, messages } from './schema';
 import { newId } from '$lib/utils/id';
@@ -70,6 +70,33 @@ export async function getMessages(conversationId: string): Promise<MessageRow[]>
 		.from(messages)
 		.where(eq(messages.conversationId, conversationId))
 		.orderBy(asc(messages.createdAt))) as MessageRow[];
+}
+
+export interface MessagePageCursor {
+	createdAt: number;
+	id: string;
+}
+
+/** Read one stable keyset page without changing the full-history getMessages API. */
+export async function getMessagesBatch(
+	conversationId: string,
+	after: MessagePageCursor | null = null,
+	limit = 16
+): Promise<MessageRow[]> {
+	const conversationFilter = eq(messages.conversationId, conversationId);
+	const cursorFilter = after
+		? or(
+				gt(messages.createdAt, after.createdAt),
+				and(eq(messages.createdAt, after.createdAt), gt(messages.id, after.id))
+			)
+		: undefined;
+	const where = cursorFilter ? and(conversationFilter, cursorFilter) : conversationFilter;
+	return (await db
+		.select()
+		.from(messages)
+		.where(where)
+		.orderBy(asc(messages.createdAt), asc(messages.id))
+		.limit(limit)) as MessageRow[];
 }
 
 export async function createConversation(accountId: string, systemPrompt?: string): Promise<ConversationRow> {
