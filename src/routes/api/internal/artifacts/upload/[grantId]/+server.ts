@@ -1,6 +1,12 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { getArtifactGrantByToken, markArtifactGrantUploadedForToken } from '$lib/server/db/artifacts';
-import { createLocalArtifactStorage, localArtifactStorageEnabled } from '$lib/server/artifacts/storage';
+import {
+	artifactStorageMode,
+	createArtifactObjectStorage,
+	createLocalArtifactStorage,
+	verifyArtifactObject
+} from '$lib/server/artifacts/storage';
+import { ArtifactValidationError } from '$lib/server/artifacts/contracts';
 
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
 
@@ -31,7 +37,7 @@ async function readBoundedBody(request: Request, maxBytes: number): Promise<Uint
 }
 
 export const PUT: RequestHandler = async ({ params, request, url }) => {
-	if (!localArtifactStorageEnabled()) return json({ detail: 'local artifact storage is disabled' }, { status: 503 });
+	if (artifactStorageMode() !== 'local') return json({ detail: 'proxy artifact upload is disabled' }, { status: 503 });
 	const grantId = params.grantId?.trim();
 	const token = url.searchParams.get('token')?.trim();
 	if (!grantId || !token) return json({ detail: 'grant token is required' }, { status: 401 });
@@ -66,5 +72,49 @@ export const PUT: RequestHandler = async ({ params, request, url }) => {
 		return json({ grant_id: grant.id, object_version: stored.version, bytes: stored.bytes });
 	} catch {
 		return json({ detail: 'artifact upload failed' }, { status: 503 });
+	}
+};
+
+/** Complete a direct Supabase signed upload. The bearer grant token is the
+ * callback capability; the server resolves and verifies the object itself so
+ * Vercel never receives the asset body. */
+export const POST: RequestHandler = async ({ params, url }) => {
+	if (artifactStorageMode() !== 'supabase') return json({ detail: 'direct artifact upload is disabled' }, { status: 503 });
+	const grantId = params.grantId?.trim();
+	const token = url.searchParams.get('token')?.trim();
+	if (!grantId || !token) return json({ detail: 'grant token is required' }, { status: 401 });
+	const grant = await getArtifactGrantByToken(grantId, token);
+	if (!grant) return json({ detail: 'grant not found' }, { status: 404 });
+	if (grant.expiresAt <= Date.now() || grant.state !== 'issued') return json({ detail: 'grant is expired or already consumed' }, { status: 409 });
+	let uploadedVersion: string | null = null;
+	try {
+		const storage = createArtifactObjectStorage();
+		if (!storage.statLatest) return json({ detail: 'artifact storage is unavailable' }, { status: 503 });
+		const latest = await storage.statLatest(grant.stagingKey);
+		if (!latest) return json({ detail: 'uploaded object is not ready' }, { status: 409 });
+		uploadedVersion = latest.version;
+		const verified = await verifyArtifactObject(storage, {
+			key: grant.stagingKey,
+			version: latest.version,
+			allowedMime: grant.allowedMime,
+			maxBytes: grant.maxBytes,
+			exactBytes: grant.exactBytes,
+			expectedSha256: grant.expectedSha256,
+			role: grant.role
+		});
+		const accepted = await markArtifactGrantUploadedForToken(grant.id, token, grant.stagingKey, latest.version);
+		if (!accepted) return json({ detail: 'grant was refreshed or already consumed' }, { status: 409 });
+		return json({ grant_id: grant.id, object_version: latest.version, bytes: verified.bytes });
+	} catch (cause) {
+		if (uploadedVersion && cause instanceof ArtifactValidationError) {
+			try {
+				await createArtifactObjectStorage().remove(grant.stagingKey, uploadedVersion);
+			} catch {
+				// Cleanup is best effort; the grant remains unbound and cannot be
+				// finalized until a fresh generation is issued.
+			}
+		}
+		const status = cause && typeof cause === 'object' && 'code' in cause ? 422 : 503;
+		return json({ detail: cause instanceof Error ? cause.message : 'artifact upload completion failed' }, { status });
 	}
 };
