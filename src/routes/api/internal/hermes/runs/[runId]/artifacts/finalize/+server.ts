@@ -10,9 +10,9 @@ import {
 } from '$lib/server/db/artifacts';
 import { ArtifactValidationError } from '$lib/server/artifacts/contracts';
 import {
-	createLocalArtifactStorage,
-	verifyArtifactObject,
-	localArtifactStorageEnabled
+	artifactStorageMode,
+	createArtifactObjectStorage,
+	verifyArtifactObject
 } from '$lib/server/artifacts/storage';
 import { getHermesRun } from '$lib/server/db/hermes-runs';
 
@@ -26,7 +26,7 @@ type FinalizeBody = {
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	if (!verifyHermesRunCallback(request)) return json({ detail: 'unauthorized' }, { status: 401 });
-	if (!localArtifactStorageEnabled()) return json({ detail: 'local artifact storage is disabled' }, { status: 503 });
+	if (artifactStorageMode() === 'disabled') return json({ detail: 'artifact storage is disabled' }, { status: 503 });
 	const runId = params.runId?.trim();
 	if (!runId) return json({ detail: 'run id required' }, { status: 400 });
 	let body: FinalizeBody;
@@ -65,7 +65,13 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	}
 	if (!grant.uploadedObjectVersion) return json({ detail: 'uploaded grant not found' }, { status: 404 });
 
-	const storage = createLocalArtifactStorage();
+	let storage: ReturnType<typeof createArtifactObjectStorage>;
+	try {
+		storage = createArtifactObjectStorage();
+		if (artifactStorageMode() === 'supabase' && storage.verifyPrivateBucket) await storage.verifyPrivateBucket();
+	} catch {
+		return json({ detail: 'artifact storage is unavailable' }, { status: 503 });
+	}
 	let copiedObject: { key: string; version: string } | null = null;
 	try {
 		const staged = await verifyArtifactObject(storage, {

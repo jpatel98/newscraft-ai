@@ -196,6 +196,55 @@ class ArtifactPublishTests(unittest.TestCase):
             self.assertEqual(client.payload[1], b"bytes")
             self.assertFalse(staged.exists())
 
+    def test_signed_upload_uses_server_completion_callback_for_object_version(self) -> None:
+        payload = b"period,value\n2026-09-01,4.2\n"
+        checksum = hashlib.sha256(payload).hexdigest()
+
+        class Response:
+            def __init__(self, value):
+                self.status_code = 200
+                self._value = value
+
+            def json(self):
+                return self._value
+
+        class Client:
+            def __init__(self):
+                self.put_payload = None
+                self.post_url = None
+
+            async def put(self, _url, *, headers, content):
+                self.put_payload = (headers, content)
+                return Response({"path": "staging/a"})
+
+            async def post(self, url, *, headers, content):
+                self.post_url = (url, headers, content)
+                return Response({"object_version": "version-signed-1234"})
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            runtime = self.make_runtime(root)
+            target = runtime.workspace / "report.csv"
+            target.write_bytes(payload)
+            client = Client()
+            result = asyncio.run(publish_workspace_file(
+                client=client,
+                runtime=runtime,
+                path="/workspace/report.csv",
+                grant={
+                    "upload_url": "https://project.supabase.co/storage/v1/object/upload/sign/staging/a?token=signed",
+                    "upload_mode": "signed",
+                    "upload_complete_url": "https://newscraft.test/api/internal/artifacts/upload/grant?token=grant-token",
+                    "max_bytes": len(payload),
+                },
+                mime_type="text/csv",
+                size=len(payload),
+                checksum_sha256=checksum,
+            ))
+            self.assertEqual(result["object_version"], "version-signed-1234")
+            self.assertEqual(client.put_payload[1], payload)
+            self.assertEqual(client.post_url[0], "https://newscraft.test/api/internal/artifacts/upload/grant?token=grant-token")
+
     def test_rejects_boolean_upload_bounds(self) -> None:
         class Client:
             async def put(self, *_args, **_kwargs):

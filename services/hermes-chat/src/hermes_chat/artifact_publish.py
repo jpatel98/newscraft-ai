@@ -328,6 +328,7 @@ async def upload_staged_file(
     mime_type: str,
     size: int,
     checksum_sha256: str,
+    require_object_version: bool = True,
 ) -> Mapping[str, Any]:
     """PUT exact bytes to the server-issued grant without exposing local paths."""
     if isinstance(size, bool) or not isinstance(size, int) or size < 1 or size > MAX_ARTIFACT_BYTES:
@@ -360,9 +361,36 @@ async def upload_staged_file(
         staged_path.unlink(missing_ok=True)
     if response.status_code >= 400:
         raise ArtifactPublishError(f"artifact upload rejected ({response.status_code})")
-    value = response.json()
+    if not require_object_version:
+        # Supabase signed-upload responses are storage-provider responses and
+        # intentionally do not become the durable object identity. The
+        # completion callback obtains and verifies the server-side version.
+        return {}
+    try:
+        value = response.json()
+    except ValueError as exc:
+        raise ArtifactPublishError("artifact upload response is invalid") from exc
     if not isinstance(value, dict) or not isinstance(value.get("object_version"), str):
         raise ArtifactPublishError("artifact upload response is invalid")
+    return value
+
+
+async def complete_staged_upload(
+    client: httpx.AsyncClient,
+    completion_url: str,
+) -> Mapping[str, Any]:
+    """Ask NewsCraft to verify and bind a direct storage upload generation."""
+    if not isinstance(completion_url, str) or not completion_url.startswith(("http://", "https://")):
+        raise ArtifactPublishError("artifact upload completion grant is invalid")
+    response = await client.post(completion_url, headers={"content-type": "application/json"}, content=b"{}")
+    if response.status_code >= 400:
+        raise ArtifactPublishError(f"artifact upload completion rejected ({response.status_code})")
+    try:
+        value = response.json()
+    except ValueError as exc:
+        raise ArtifactPublishError("artifact upload completion response is invalid") from exc
+    if not isinstance(value, dict) or not isinstance(value.get("object_version"), str):
+        raise ArtifactPublishError("artifact upload completion response is invalid")
     return value
 
 
@@ -379,6 +407,9 @@ async def publish_workspace_file(
 ) -> Mapping[str, Any]:
     """Validate a staged grant response and upload one exact file."""
     upload_url = grant.get("upload_url")
+    upload_mode = grant.get("upload_mode", "proxy")
+    if upload_mode not in {"proxy", "signed"}:
+        raise ArtifactPublishError("artifact upload grant mode is invalid")
     grant_max = grant.get("max_bytes")
     if not isinstance(upload_url, str) or not upload_url.startswith(("http://", "https://")):
         raise ArtifactPublishError("artifact upload grant is invalid")
@@ -433,4 +464,18 @@ async def publish_workspace_file(
     if staged_size != size or staged_hash != checksum_sha256:
         staged_path.unlink(missing_ok=True)
         raise ArtifactPublishError("artifact fingerprint changed before upload")
-    return await upload_staged_file(client, staged_path, upload_url, mime_type=mime_type, size=size, checksum_sha256=checksum_sha256)
+    result = await upload_staged_file(
+        client,
+        staged_path,
+        upload_url,
+        mime_type=mime_type,
+        size=size,
+        checksum_sha256=checksum_sha256,
+        require_object_version=upload_mode == "proxy",
+    )
+    if upload_mode == "signed":
+        completion_url = grant.get("upload_complete_url")
+        if not isinstance(completion_url, str) or not completion_url.startswith(("http://", "https://")):
+            raise ArtifactPublishError("artifact upload completion grant is invalid")
+        return await complete_staged_upload(client, completion_url)
+    return result

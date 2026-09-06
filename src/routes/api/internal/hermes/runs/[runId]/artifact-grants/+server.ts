@@ -1,5 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { localArtifactStorageEnabled } from '$lib/server/artifacts/storage';
+import { artifactStorageMode, createArtifactObjectStorage } from '$lib/server/artifacts/storage';
 import { createArtifactUploadGrant } from '$lib/server/db/artifacts';
 import { getHermesRun } from '$lib/server/db/hermes-runs';
 import { verifyHermesRunCallback } from '$lib/server/hermes-durable';
@@ -21,9 +21,8 @@ const HERMES_ARTIFACT_PRODUCER_KEY = 'hermes-publish-artifact';
 
 export const POST: RequestHandler = async ({ params, request, url }) => {
 	if (!verifyHermesRunCallback(request)) return json({ detail: 'unauthorized' }, { status: 401 });
-	// Only the local storage implementation is available in this service. Do
-	// not advertise an unimplemented backend based on an environment flag.
-	if (!localArtifactStorageEnabled()) {
+	const storageMode = artifactStorageMode();
+	if (storageMode === 'disabled') {
 		return json({ detail: 'artifact publication is disabled until a storage backend is approved' }, { status: 503 });
 	}
 	const runId = params.runId?.trim();
@@ -56,11 +55,32 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
 			exactBytes: body.exact_bytes,
 			expectedSha256: body.expected_sha256
 		});
-		const uploadUrl = new URL(`/api/internal/artifacts/upload/${encodeURIComponent(result.grant.id)}`, url);
-		uploadUrl.searchParams.set('token', result.token);
+		let uploadUrl: URL;
+		let uploadMode: 'proxy' | 'signed' = 'proxy';
+		let uploadCompleteUrl: string | undefined;
+		if (storageMode === 'supabase') {
+			try {
+				const storage = createArtifactObjectStorage();
+				if (!storage.createSignedUpload || !storage.verifyPrivateBucket) return json({ detail: 'artifact storage is unavailable' }, { status: 503 });
+				await storage.verifyPrivateBucket();
+				const target = await storage.createSignedUpload(result.grant.stagingKey);
+				uploadUrl = new URL(target.signedUrl);
+				uploadMode = 'signed';
+				const complete = new URL(`/api/internal/artifacts/upload/${encodeURIComponent(result.grant.id)}`, url);
+				complete.searchParams.set('token', result.token);
+				uploadCompleteUrl = complete.toString();
+			} catch {
+				return json({ detail: 'artifact storage is unavailable' }, { status: 503 });
+			}
+		} else {
+			uploadUrl = new URL(`/api/internal/artifacts/upload/${encodeURIComponent(result.grant.id)}`, url);
+			uploadUrl.searchParams.set('token', result.token);
+		}
 		return json({
 			grant_id: result.grant.id,
 			upload_url: uploadUrl.toString(),
+			upload_mode: uploadMode,
+			...(uploadCompleteUrl ? { upload_complete_url: uploadCompleteUrl } : {}),
 			staging_key: result.grant.stagingKey,
 			final_key: result.grant.finalKey,
 			allowed_mime: result.grant.allowedMime,

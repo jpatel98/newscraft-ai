@@ -1,7 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { getConversation } from '$lib/server/db/conversations';
 import { getArtifactAssetOwner } from '$lib/server/db/artifacts';
-import { createLocalArtifactStorage, localArtifactStorageEnabled } from '$lib/server/artifacts/storage';
+import { artifactStorageMode, createArtifactObjectStorage } from '$lib/server/artifacts/storage';
 
 export const GET: RequestHandler = async ({ params, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
@@ -14,9 +14,9 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	if (!conversation) throw error(404, 'not found');
 	const asset = await getArtifactAssetOwner(locals.user.id, conversationId, artifactId, revisionId, assetId);
 	if (!asset) throw error(404, 'not found');
-	if (!localArtifactStorageEnabled()) return json({ detail: 'asset delivery is not enabled' }, { status: 503 });
+	if (artifactStorageMode() === 'disabled') return json({ detail: 'asset delivery is not enabled' }, { status: 503 });
 	try {
-		const bytes = await createLocalArtifactStorage().get(asset.key, asset.version);
+		const bytes = await createArtifactObjectStorage().get(asset.key, asset.version);
 		return new Response(bytes as unknown as BodyInit, {
 			headers: {
 				'content-type': asset.mimeType,
