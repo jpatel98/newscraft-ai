@@ -124,3 +124,29 @@ CREATE TABLE IF NOT EXISTS hermes_run_artifact_refs (
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS hermes_run_artifact_refs_cursor_idx
 	ON hermes_run_artifact_refs (run_id, cursor);
+--> statement-breakpoint
+-- Artifact state is server-owned. Keep RLS enabled as defense in depth while
+-- leaving policies empty so client roles cannot read or mutate these tables.
+ALTER TABLE artifact_families ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE artifact_revisions ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE artifact_assets ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE artifact_upload_grants ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE artifact_verifications ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE hermes_run_artifact_refs ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+REVOKE ALL PRIVILEGES ON TABLE artifact_families FROM anon, authenticated;
+--> statement-breakpoint
+REVOKE ALL PRIVILEGES ON TABLE artifact_revisions FROM anon, authenticated;
+--> statement-breakpoint
+REVOKE ALL PRIVILEGES ON TABLE artifact_assets FROM anon, authenticated;
+--> statement-breakpoint
+REVOKE ALL PRIVILEGES ON TABLE artifact_upload_grants FROM anon, authenticated;
+--> statement-breakpoint
+REVOKE ALL PRIVILEGES ON TABLE artifact_verifications FROM anon, authenticated;
+--> statement-breakpoint
+REVOKE ALL PRIVILEGES ON TABLE hermes_run_artifact_refs FROM anon, authenticated;
