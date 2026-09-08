@@ -102,6 +102,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	let feedbackStatus = $state<string | null>(null);
 	let feedbackError = $state<string | null>(null);
 	let failedRetry = $state<FailedSend | null>(null);
+	let failureHiddenIds = $state<Set<string>>(new Set());
 	let feedbackDialog = $state<HTMLDivElement | null>(null);
 	let feedbackTextarea = $state<HTMLTextAreaElement | null>(null);
 	let feedbackOpener = $state<HTMLElement | null>(null);
@@ -188,7 +189,13 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	const streamQueue = new SerialTaskQueue();
 
 	function clearFailureOverlays() {
-		overlay = overlay.filter((m) => !m.failure);
+		overlay = overlay.filter((m) => !m.failure && m.durableState !== 'failed');
+		if (failureHiddenIds.size) {
+			const next = new Set(hiddenIds);
+			for (const id of failureHiddenIds) next.delete(id);
+			hiddenIds = next;
+			failureHiddenIds = new Set();
+		}
 	}
 
 	type HistoryResponse = {
@@ -747,6 +754,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		activeRunStatus = existingRun?.status ?? null;
 		let keepFailureAssistant = false;
 		let failureToRethrow: unknown = null;
+		let durableFailureSeen = existingRun?.status === 'failed';
 		let artifactCitations: CitationRecord[] = [];
 		if (artifact) {
 			activeArtifact = {
@@ -798,6 +806,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 						activeRunId = localRunId;
 						activeRunCursor = snapshot.cursor;
 						activeRunStatus = snapshot.status || snapshot.state;
+						if (activeRunStatus === 'failed') durableFailureSeen = true;
 						if (cancelRequested) void submitDurableCancel();
 						updateAssistantOverlay({ durableState: activeRunStatus });
 						if (snapshot.answerText !== asstText) {
@@ -816,24 +825,25 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 							});
 						}
 						for (const tool of snapshot.tools) chat.pushTool(tool);
-				},
-				onRunState: (state: string) => {
-					noteStreamEstablished();
-					activeRunStatus = state;
-					const terminal = state === 'complete' || state === 'cancelled' || state === 'failed';
-					if (state === 'cancel_requested') cancelAccepted = true;
-					if (terminal) {
-						cancelRequested = false;
-						clearCancelRetry();
-					}
-					updateAssistantOverlay({
-						durableState: state,
-						...(terminal
-							? { partial: state !== 'complete', streaming: false }
-							: {})
-					});
-				},
-				onDelta: (s: string) => {
+					},
+					onRunState: (state: string) => {
+						noteStreamEstablished();
+						activeRunStatus = state;
+						if (state === 'failed') durableFailureSeen = true;
+						const terminal = state === 'complete' || state === 'cancelled' || state === 'failed';
+						if (state === 'cancel_requested') cancelAccepted = true;
+						if (terminal) {
+							cancelRequested = false;
+							clearCancelRetry();
+						}
+						updateAssistantOverlay({
+							durableState: state,
+							...(terminal
+								? { partial: state !== 'complete', streaming: false }
+								: {})
+						});
+					},
+					onDelta: (s: string) => {
 						noteStreamEstablished();
 						chat.noteAssistantOutput(s);
 						asstText += s;
@@ -912,7 +922,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 			} catch (e) {
 				const aborted = (e as { name?: string })?.name === 'AbortError' || controller.signal.aborted;
 				const wantsPartialAnswer = aborted && chat.abortIntent === 'partial';
-				updateAssistantOverlay({ partial: false, streaming: false });
+				const durableFailure = durableFailureSeen || activeRunStatus === 'failed';
+				updateAssistantOverlay({ partial: durableFailure, streaming: false });
 				if (wantsPartialAnswer && asstText.trim() === seedContent.trim()) {
 					const note =
 						'I stopped the source run before the agent produced a usable answer. No partial answer was available yet.';
@@ -927,10 +938,12 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 					} catch {
 						/* the local overlay still tells the user what happened */
 					}
-				} else if (!aborted && activeRunStatus !== 'failed') {
-					const message = streamFailureMessage(e);
-					asstText = asstText.trim() ? `${asstText}\n\n${message}` : message;
-					updateAssistantOverlay({ content: asstText });
+				} else if (!aborted) {
+					if (!durableFailure) {
+						const message = streamFailureMessage(e);
+						asstText = asstText.trim() ? `${asstText}\n\n${message}` : message;
+						updateAssistantOverlay({ content: asstText });
+					}
 					if (isRetryableSend) {
 						updateAssistantOverlay({ failure: { retryable: true } });
 						failedRetry = {
@@ -940,6 +953,9 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 							}
 						};
 					}
+					// A terminal failed snapshot is already the authoritative persisted
+					// state. Keep its overlay through invalidateAll so a reconnect cannot
+					// briefly render a successful-looking partial before the retry affordance.
 					keepFailureAssistant = true;
 					if (isRetryableSend && !streamEstablished) failureToRethrow = e;
 				}
@@ -962,7 +978,13 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 				overlay = overlay.filter((m) => !ids.has(m.id));
 				if (resumingId) {
 					const next = new Set(hiddenIds);
-					next.delete(resumingId);
+					if (durableFailureSeen && keepFailureAssistant) {
+						const retained = new Set(failureHiddenIds);
+						retained.add(resumingId);
+						failureHiddenIds = retained;
+					} else {
+						next.delete(resumingId);
+					}
 					hiddenIds = next;
 				}
 				if (failureToRethrow) throw failureToRethrow;
@@ -1178,6 +1200,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	}
 
 	async function handleRetryPersisted() {
+		clearFailureOverlays();
 		if (data.actionSummary.latestAssistantId) {
 			markHistoryMutation([data.actionSummary.latestAssistantId]);
 		}
@@ -1281,6 +1304,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		chat.endStream();
 		overlay = [];
 		hiddenIds = new Set();
+		failureHiddenIds = new Set();
 		failedRetry = null;
 		documentAttachments = [];
 		feedbackOpen = false;

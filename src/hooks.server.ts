@@ -1,8 +1,8 @@
 import type { Handle } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
 import { verifySessionCookie, SESSION_COOKIE_NAME } from '$lib/server/auth/cookie';
-import { accountCount, getAccount } from '$lib/server/db/accounts';
-import { getActiveSession } from '$lib/server/db/sessions';
+import { accountCount } from '$lib/server/db/accounts';
+import { getActiveSessionAccount } from '$lib/server/db/sessions';
 import { newId } from '$lib/utils/id';
 
 const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
@@ -36,13 +36,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.isMarketingHost = isMarketingHost(event.url.host);
 	const cookie = event.cookies.get(SESSION_COOKIE_NAME);
 	const session = verifySessionCookie(cookie);
-	const activeSession = session
-		? await getActiveSession(session.sessionId, session.accountId)
+	const authenticated = session
+		? await getActiveSessionAccount(session.sessionId, session.accountId)
 		: null;
-	if (cookie && !activeSession) {
+	if (cookie && !authenticated) {
 		event.cookies.delete(SESSION_COOKIE_NAME, { path: '/' });
 	}
-	const account = activeSession ? await getAccount(activeSession.accountId) : undefined;
+	const account = authenticated?.account;
 	event.locals.user = account
 		? { id: account.id, email: account.email, name: account.name, role: account.role }
 		: null;

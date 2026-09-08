@@ -83,50 +83,71 @@ export type ConversationActionSummary = {
 export async function getConversationActionSummary(
 	conversationId: string
 ): Promise<ConversationActionSummary> {
-	const [latestUser, latestAssistant, latestReadyAssistant, latestUnfinishedAssistant] = await Promise.all([
-		db
-			.select()
-			.from(messages)
-			.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
-			.orderBy(desc(messages.createdAt), desc(messages.id))
-			.limit(1),
-		db
-			.select()
-			.from(messages)
-			.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'assistant')))
-			.orderBy(desc(messages.createdAt), desc(messages.id))
-			.limit(1),
-		db
-			.select()
-			.from(messages)
-			.where(
-				and(
-					eq(messages.conversationId, conversationId),
-					eq(messages.role, 'assistant'),
-					eq(messages.partial, 0)
-				)
-			)
-			.orderBy(desc(messages.createdAt), desc(messages.id))
-			.limit(1),
-		db
-			.select()
-			.from(messages)
-			.where(
-				and(
-					eq(messages.conversationId, conversationId),
-					eq(messages.role, 'assistant'),
-					eq(messages.partial, 1)
-				)
-			)
-			.orderBy(desc(messages.createdAt), desc(messages.id))
-			.limit(1)
-	]);
-	return {
-		latestUser: (latestUser[0] as MessageRow | undefined) ?? null,
-		latestAssistant: (latestAssistant[0] as MessageRow | undefined) ?? null,
-		latestReadyAssistant: (latestReadyAssistant[0] as MessageRow | undefined) ?? null,
-		latestUnfinishedAssistant: (latestUnfinishedAssistant[0] as MessageRow | undefined) ?? null
+	// All four action candidates come from the same conversation snapshot. Keep
+	// each candidate as an indexed, bounded lookup inside one round trip: this
+	// avoids opening four pool connections without materializing a long history.
+	const rows = await db.execute(sql`
+		(
+			SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls, m.partial,
+				m.resume_claimed_at, m.created_at, 'latestUser' AS bucket
+			FROM messages m
+			WHERE m.conversation_id = ${conversationId} AND m.role = 'user'
+			ORDER BY m.created_at DESC, m.id DESC
+			LIMIT 1
+		)
+		UNION ALL
+		(
+			SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls, m.partial,
+				m.resume_claimed_at, m.created_at, 'latestAssistant' AS bucket
+			FROM messages m
+			WHERE m.conversation_id = ${conversationId} AND m.role = 'assistant'
+			ORDER BY m.created_at DESC, m.id DESC
+			LIMIT 1
+		)
+		UNION ALL
+		(
+			SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls, m.partial,
+				m.resume_claimed_at, m.created_at, 'latestReadyAssistant' AS bucket
+			FROM messages m
+			WHERE m.conversation_id = ${conversationId}
+				AND m.role = 'assistant' AND m.partial = 0
+			ORDER BY m.created_at DESC, m.id DESC
+			LIMIT 1
+		)
+		UNION ALL
+		(
+			SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls, m.partial,
+				m.resume_claimed_at, m.created_at, 'latestUnfinishedAssistant' AS bucket
+			FROM messages m
+			WHERE m.conversation_id = ${conversationId}
+				AND m.role = 'assistant' AND m.partial = 1
+			ORDER BY m.created_at DESC, m.id DESC
+			LIMIT 1
+		)
+	`);
+	const summary: ConversationActionSummary = {
+		latestUser: null,
+		latestAssistant: null,
+		latestReadyAssistant: null,
+		latestUnfinishedAssistant: null
 	};
+	for (const row of rows as Array<Record<string, unknown>>) {
+		const message = {
+			id: String(row.id),
+			conversationId: String(row.conversation_id),
+			role: String(row.role) as Role,
+			content: String(row.content),
+			toolCalls: row.tool_calls == null ? null : String(row.tool_calls),
+			partial: Number(row.partial),
+			resumeClaimedAt: row.resume_claimed_at == null ? null : Number(row.resume_claimed_at),
+			createdAt: Number(row.created_at)
+		} satisfies MessageRow;
+		if (row.bucket === 'latestUser') summary.latestUser = message;
+		else if (row.bucket === 'latestAssistant') summary.latestAssistant = message;
+		else if (row.bucket === 'latestReadyAssistant') summary.latestReadyAssistant = message;
+		else if (row.bucket === 'latestUnfinishedAssistant') summary.latestUnfinishedAssistant = message;
+	}
+	return summary;
 }
 
 export interface MessagePageCursor {

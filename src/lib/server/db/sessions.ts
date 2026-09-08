@@ -1,8 +1,9 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
+import type { AccountRow } from './accounts';
 import { SESSION_COOKIE_MAX_AGE } from '$lib/server/auth/cookie';
 import { newId } from '$lib/utils/id';
 import { configuredDatabaseHostname, db } from './index';
-import { sessions } from './schema';
+import { accounts, sessions } from './schema';
 
 export const SESSION_TTL_MS = SESSION_COOKIE_MAX_AGE * 1000;
 const LAST_SEEN_WRITE_INTERVAL_MS = 5 * 60 * 1000;
@@ -14,6 +15,11 @@ export interface SessionRow {
 	expiresAt: number;
 	revokedAt: number | null;
 	lastSeenAt: number | null;
+}
+
+export interface ActiveSessionAccount {
+	session: SessionRow;
+	account: AccountRow;
 }
 
 export type SessionState = 'active' | 'missing' | 'revoked' | 'expired' | 'account_mismatch';
@@ -85,6 +91,53 @@ export async function getActiveSession(
 		row.lastSeenAt = now;
 	}
 	return row;
+}
+
+/**
+ * Authenticate a request with one tenant-scoped read. The session predicates
+ * stay in SQL so an expired or revoked cookie never hydrates an account, while
+ * the returned shape keeps the existing last-seen behavior for the request
+ * hook.
+ */
+export async function getActiveSessionAccount(
+	sessionId: string,
+	accountId: string,
+	now = Date.now()
+): Promise<ActiveSessionAccount | null> {
+	let row: { session: SessionRow; account: AccountRow } | undefined;
+	try {
+		[row] = (await db
+			.select({ session: sessions, account: accounts })
+			.from(sessions)
+			.innerJoin(accounts, eq(sessions.accountId, accounts.id))
+			.where(
+				and(
+					eq(sessions.id, sessionId),
+					eq(sessions.accountId, accountId),
+					isNull(sessions.revokedAt),
+					gt(sessions.expiresAt, now)
+				)
+			)
+			.limit(1)) as Array<{ session: SessionRow; account: AccountRow }>;
+	} catch (error) {
+		// Keep diagnostics useful for remote connection failures without logging
+		// SQL, parameters, session identifiers, DSNs, or error messages.
+		console.warn('[newscraft] active session lookup failed', {
+			errorChain: safeDatabaseErrorChain(error),
+			configuredHostname: safeDnsHostname(configuredDatabaseHostname())
+		});
+		throw error;
+	}
+	if (!row) return null;
+	const { session, account } = row;
+	if (!session.lastSeenAt || now - session.lastSeenAt >= LAST_SEEN_WRITE_INTERVAL_MS) {
+		await db
+			.update(sessions)
+			.set({ lastSeenAt: now })
+			.where(and(eq(sessions.id, sessionId), eq(sessions.accountId, accountId)));
+		session.lastSeenAt = now;
+	}
+	return { session, account };
 }
 
 export async function revokeSession(sessionId: string, accountId: string, now = Date.now()): Promise<void> {
