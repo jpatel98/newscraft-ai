@@ -20,7 +20,14 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 			conversation.id,
 			params.documentId
 		);
-		if (!isAllowedSignedStorageUrl(signedUrl, env.SUPABASE_URL ?? '', dev)) {
+		// Validate the signed URL against the backend that actually issued it.
+		// Keep the Supabase origin authoritative during rollback even if an old
+		// VPS base URL is still present in the environment.
+		const storageMode = env.NEWSCRAFT_STORAGE_MODE?.trim().toLowerCase();
+		const storageBaseUrl = storageMode === 'vps'
+			? env.NEWSCRAFT_STORAGE_BASE_URL?.trim() || ''
+			: env.SUPABASE_URL?.trim() || '';
+		if (!isAllowedSignedStorageUrl(signedUrl, storageBaseUrl, dev, storageMode === 'vps')) {
 			throw new DocumentError(503, 'document_storage_unavailable', 'PDF storage is unavailable right now.');
 		}
 		const destination = new URL(signedUrl);

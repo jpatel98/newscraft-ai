@@ -1,14 +1,14 @@
 import { createUnpdfExtractor } from './pdf';
 import { createPostgresDocumentRepository } from './repository';
 import { ConversationDocumentService } from './service';
-import { createSupabaseDocumentStorage } from './storage';
+import { createDocumentStorage } from './storage';
 
 let service: ConversationDocumentService | undefined;
 
 export function getConversationDocumentService(): ConversationDocumentService {
 	service ??= new ConversationDocumentService(
 		createPostgresDocumentRepository(),
-		createSupabaseDocumentStorage(),
+		createDocumentStorage(),
 		createUnpdfExtractor()
 	);
 	return service;

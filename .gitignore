@@ -23,6 +23,8 @@ Thumbs.db
 # App
 /data
 /.data
+/infra/*/data/
+/infra/*/backups/
 services/*/.data
 services/*/.tmp
 /.tmp

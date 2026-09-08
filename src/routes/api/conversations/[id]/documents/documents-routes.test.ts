@@ -9,10 +9,15 @@ const serviceMocks = vi.hoisted(() => ({
 	createDownloadUrl: vi.fn(),
 	deleteDocument: vi.fn()
 }));
+const privateEnv = vi.hoisted(() => ({
+	SUPABASE_URL: 'https://storage.example',
+	NEWSCRAFT_STORAGE_MODE: undefined as string | undefined,
+	NEWSCRAFT_STORAGE_BASE_URL: undefined as string | undefined
+}));
 
 vi.mock('$lib/server/db/conversations', () => conversationMocks);
 vi.mock('$app/environment', () => ({ dev: false }));
-vi.mock('$env/dynamic/private', () => ({ env: { SUPABASE_URL: 'https://storage.example' } }));
+vi.mock('$env/dynamic/private', () => ({ env: privateEnv }));
 vi.mock('$lib/server/documents/runtime', () => ({
 	getConversationDocumentService: () => serviceMocks
 }));
@@ -53,6 +58,8 @@ function event(options: { authenticated?: boolean; body?: unknown } = {}) {
 describe('conversation document routes', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		privateEnv.NEWSCRAFT_STORAGE_MODE = undefined;
+		privateEnv.NEWSCRAFT_STORAGE_BASE_URL = undefined;
 		conversationMocks.getConversation.mockResolvedValue(conversation);
 		serviceMocks.listDocuments.mockResolvedValue([]);
 		serviceMocks.createUploadTokens.mockResolvedValue([]);
@@ -111,6 +118,17 @@ describe('conversation document routes', () => {
 		expect(response.status).toBe(303);
 		expect(response.headers.get('location')).toBe('https://storage.example/signed-document');
 		expect(response.headers.get('cache-control')).toBe('no-store');
+	});
+
+	it('validates downloads against the active storage mode during a rollback window', async () => {
+		privateEnv.NEWSCRAFT_STORAGE_MODE = 'supabase';
+		privateEnv.NEWSCRAFT_STORAGE_BASE_URL = 'https://files.example';
+		serviceMocks.createDownloadUrl.mockResolvedValueOnce('https://storage.example/supabase-document');
+		await expect(downloadDocument(event())).resolves.toMatchObject({ status: 303 });
+
+		privateEnv.NEWSCRAFT_STORAGE_MODE = 'vps';
+		serviceMocks.createDownloadUrl.mockResolvedValueOnce('https://files.example/v1/download/vps-document');
+		await expect(downloadDocument(event())).resolves.toMatchObject({ status: 303 });
 	});
 
 	it('rejects signed download URLs outside the configured HTTPS storage origin', async () => {

@@ -626,6 +626,31 @@ export async function getFinalizedArtifactForGrant(
 	});
 }
 
+/** Return the consumed grant's summary together with the immutable object
+ * identity. Callers use this only when deciding whether a post-commit copy is
+ * safe to compensate; a consumed state alone is not enough because a network
+ * error may have happened after the transaction committed. */
+export async function getFinalizedArtifactObjectForGrant(
+	accountId: string,
+	grantId: string,
+	lease?: { runId: string; tenantKey: string; leaseOwner: string; leaseToken: string }
+): Promise<{ artifact: ArtifactSummary; objectKey: string; objectVersion: string } | null> {
+	const artifact = await getFinalizedArtifactForGrant(accountId, grantId, lease);
+	if (!artifact) return null;
+	const rows = await db.execute(sql`
+		SELECT a.object_key, a.object_version
+		FROM artifact_upload_grants g
+		JOIN artifact_assets a ON a.revision_id = g.revision_id AND a.role = g.role
+		JOIN artifact_revisions r ON r.id = g.revision_id
+		JOIN artifact_families f ON f.id = r.family_id
+		WHERE g.id = ${grantId} AND g.state = 'consumed' AND r.status = 'ready' AND f.account_id = ${accountId}
+		LIMIT 1
+	`);
+	const row = rows[0] as { object_key?: unknown; object_version?: unknown } | undefined;
+	if (typeof row?.object_key !== 'string' || typeof row.object_version !== 'string') return null;
+	return { artifact, objectKey: row.object_key, objectVersion: row.object_version };
+}
+
 export async function recordArtifactVerification(input: {
 	grantId?: string | null;
 	verified: boolean;

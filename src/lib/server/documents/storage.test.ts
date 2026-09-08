@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createSupabaseDocumentStorage } from './storage';
+import { createSupabaseDocumentStorage, createVpsDocumentStorage } from './storage';
+
+function jsonResponse(value: unknown, status = 200): Response {
+	return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
+}
 
 function supabaseModule(
 	options: { isPublic?: boolean; misconfigured?: boolean; signedUrl?: string } = {}
@@ -99,5 +103,25 @@ describe('Supabase document storage adapter', () => {
 		await expect(permissiveBucket.verifyPrivateBucket()).rejects.toMatchObject({
 			code: 'document_storage_unavailable'
 		});
+	});
+});
+
+describe('VPS document storage adapter', () => {
+	it('uses the gateway control plane and maps missing PDFs to upload_not_ready', async () => {
+		const baseUrl = 'https://files.example.test:10000';
+		const fetchImpl = vi.fn<typeof fetch>()
+			.mockResolvedValueOnce(jsonResponse({ path: 'org/conversation/document/file.pdf', token: 'upload-token', signedUrl: `${baseUrl}/v1/upload/upload-token` }))
+			.mockResolvedValueOnce(jsonResponse({ signedUrl: `${baseUrl}/v1/download/download-token` }))
+			.mockResolvedValueOnce(jsonResponse({}, 404));
+		const storage = createVpsDocumentStorage({ baseUrl, apiKey: 'server-secret', fetchImpl });
+		await expect(storage.createSignedUpload('org/conversation/document/file.pdf')).resolves.toMatchObject({ token: 'upload-token' });
+		await expect(storage.createSignedDownload('org/conversation/document/file.pdf', 60)).resolves.toBe(`${baseUrl}/v1/download/download-token`);
+		await expect(storage.download('org/conversation/document/file.pdf')).rejects.toMatchObject({ status: 409, code: 'upload_not_ready' });
+		expect(fetchImpl.mock.calls[0]?.[1]?.headers).toMatchObject({ 'x-storage-key': 'server-secret' });
+	});
+
+	it('fails closed when VPS credentials are missing', async () => {
+		const storage = createVpsDocumentStorage({ baseUrl: '', apiKey: '' });
+		await expect(storage.verifyPrivateBucket()).rejects.toMatchObject({ status: 503, code: 'document_storage_unavailable' });
 	});
 });

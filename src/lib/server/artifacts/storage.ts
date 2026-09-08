@@ -11,6 +11,7 @@ import {
 	type ArtifactAssetRole
 } from './contracts';
 import { isAllowedSignedStorageUrl } from '$lib/server/documents/signed-url';
+import { VpsStorageClient, VpsStorageError } from '$lib/server/storage/vps-client';
 
 /** The artifact bucket is deliberately separate from the PDF bucket. */
 export const ARTIFACT_STORAGE_BUCKET = 'newsroom-artifacts';
@@ -285,11 +286,99 @@ export function createSupabaseArtifactStorage(options: {
 	};
 }
 
-export type ArtifactStorageMode = 'local' | 'supabase' | 'disabled';
+export function createVpsArtifactStorage(options: {
+	baseUrl?: string;
+	apiKey?: string;
+	bucket?: string;
+	fetchImpl?: typeof fetch;
+	allowLoopbackHttp?: boolean;
+} = {}): ArtifactObjectStorage {
+	const baseUrl = (options.baseUrl ?? env.NEWSCRAFT_STORAGE_BASE_URL ?? '').trim();
+	const apiKey = (options.apiKey ?? env.NEWSCRAFT_STORAGE_API_KEY ?? '').trim();
+	const bucketName = (options.bucket ?? env.NEWSCRAFT_ARTIFACT_STORAGE_BUCKET ?? ARTIFACT_STORAGE_BUCKET).trim();
+	const client = baseUrl && apiKey
+		? new VpsStorageClient({ baseUrl, apiKey, fetchImpl: options.fetchImpl, allowLoopbackHttp: options.allowLoopbackHttp ?? dev })
+		: null;
+	const unavailableVps = () => new Error('persistent artifact storage is unavailable');
+
+	return {
+		async createSignedUpload(key) {
+			if (!client) throw unavailableVps();
+			try {
+				return await client.signUpload({ bucket: bucketName, key, maxBytes: ARTIFACT_MAX_ASSET_BYTES });
+			} catch {
+				throw unavailableVps();
+			}
+		},
+		async putStaged(key, bytes, contentType) {
+			safeKey(key);
+			if (!client) throw unavailableVps();
+			if (!ARTIFACT_STORAGE_MIME_TYPES.includes(contentType as (typeof ARTIFACT_STORAGE_MIME_TYPES)[number])) {
+				throw new ArtifactValidationError('mime_mismatch', 'artifact content type is unsupported');
+			}
+			if (bytes.byteLength < 1 || bytes.byteLength > ARTIFACT_MAX_ASSET_BYTES) {
+				throw new ArtifactValidationError('asset_too_large', 'asset is too large');
+			}
+			try {
+				const stored = await client.putObject({ bucket: bucketName, key, bytes, contentType });
+				return { ...stored, path: stored.path || key };
+			} catch {
+				throw unavailableVps();
+			}
+		},
+		async get(key, version) {
+			if (!client) throw unavailableVps();
+			try {
+				return await client.getObject({ bucket: bucketName, key, version });
+			} catch {
+				throw unavailableVps();
+			}
+		},
+		async stat(key, version) {
+			if (!client) throw unavailableVps();
+			try {
+				return await client.stat({ bucket: bucketName, key, version });
+			} catch (error) {
+				if (error instanceof VpsStorageError && error.status === 404) return null;
+				throw unavailableVps();
+			}
+		},
+		async statLatest(key) {
+			if (!client) throw unavailableVps();
+			try {
+				return await client.statLatest({ bucket: bucketName, key });
+			} catch (error) {
+				if (error instanceof VpsStorageError && error.status === 404) return null;
+				throw unavailableVps();
+			}
+		},
+		async remove(key, version) {
+			if (!client) throw unavailableVps();
+			try {
+				await client.remove({ bucket: bucketName, key, version });
+			} catch {
+				throw unavailableVps();
+			}
+		},
+		async verifyPrivateBucket() {
+			if (!client) throw unavailableVps();
+			try {
+				const policy = await client.verifyPolicy(bucketName);
+				const expected = [...ARTIFACT_STORAGE_MIME_TYPES].sort();
+				if (policy.maxBytes !== ARTIFACT_MAX_ASSET_BYTES || policy.mimeTypes.slice().sort().join(',') !== expected.join(',')) throw unavailableVps();
+			} catch {
+				throw unavailableVps();
+			}
+		}
+	};
+}
+
+export type ArtifactStorageMode = 'local' | 'supabase' | 'vps' | 'disabled';
 
 /** Select local storage only when explicitly enabled; never silently fall
  * back to a filesystem path when production credentials are absent. */
 export function artifactStorageMode(): ArtifactStorageMode {
+	if (env.NEWSCRAFT_STORAGE_MODE?.trim().toLowerCase() === 'vps') return 'vps';
 	if (localArtifactStorageEnabled()) return 'local';
 	if (
 		env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY &&
@@ -301,6 +390,7 @@ export function artifactStorageMode(): ArtifactStorageMode {
 export function createArtifactObjectStorage(): ArtifactObjectStorage {
 	const mode = artifactStorageMode();
 	if (mode === 'local') return createLocalArtifactStorage();
+	if (mode === 'vps') return createVpsArtifactStorage();
 	if (mode === 'supabase') return createSupabaseArtifactStorage();
 	throw unavailable();
 }

@@ -4,6 +4,7 @@ import {
 	ArtifactRepositoryError,
 	getArtifactGrant,
 	getFinalizedArtifactForGrant,
+	getFinalizedArtifactObjectForGrant,
 	markArtifactFailed,
 	finalizeArtifactReady,
 	recordArtifactVerification
@@ -68,11 +69,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	let storage: ReturnType<typeof createArtifactObjectStorage>;
 	try {
 		storage = createArtifactObjectStorage();
-		if (artifactStorageMode() === 'supabase' && storage.verifyPrivateBucket) await storage.verifyPrivateBucket();
+		if (artifactStorageMode() !== 'local' && storage.verifyPrivateBucket) await storage.verifyPrivateBucket();
 	} catch {
 		return json({ detail: 'artifact storage is unavailable' }, { status: 503 });
 	}
 	let copiedObject: { key: string; version: string } | null = null;
+	let finalizedArtifact: Awaited<ReturnType<typeof finalizeArtifactReady>> | null = null;
 	try {
 		const staged = await verifyArtifactObject(storage, {
 			key: grant.stagingKey,
@@ -102,7 +104,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			expectedSha256: grant.expectedSha256,
 			role: grant.role
 		});
-		const summary = await finalizeArtifactReady({
+		finalizedArtifact = await finalizeArtifactReady({
 			accountId,
 			grantId,
 			objectKey: grant.finalKey,
@@ -110,20 +112,30 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			verified,
 			lease
 		});
-		await storage.remove(grant.stagingKey, grant.uploadedObjectVersion);
-		return json({ artifact: summary });
+		// Finalization commits the immutable asset row before staging cleanup.
+		// Cleanup is best effort: a transient delete failure must never enter the
+		// compensation path and delete the now-referenced winning generation.
+		await storage.remove(grant.stagingKey, grant.uploadedObjectVersion).catch(() => undefined);
+		return json({ artifact: finalizedArtifact });
 	} catch (cause) {
 		const message = cause instanceof Error ? cause.message : 'artifact finalization failed';
+		if (finalizedArtifact) return json({ artifact: finalizedArtifact });
 		// Another finalizer may have won the grant lock and removed the staging
 		// object while this request was verifying it. A consumed grant with its
 		// immutable asset is an idempotent success; discard our unreferenced copy.
 		const latestGrant = await getArtifactGrant(accountId, grantId).catch(() => null);
 		if (latestGrant?.runId === runId && latestGrant.state === 'consumed') {
-			const artifact = await getFinalizedArtifactForGrant(accountId, grantId, lease).catch(() => null);
-			if (artifact) {
-				if (copiedObject) await storage.remove(copiedObject.key, copiedObject.version).catch(() => undefined);
-				return json({ artifact });
+			const finalized = await getFinalizedArtifactObjectForGrant(accountId, grantId, lease).catch(() => null);
+			if (finalized) {
+				if (copiedObject && (copiedObject.key !== finalized.objectKey || copiedObject.version !== finalized.objectVersion)) {
+					await storage.remove(copiedObject.key, copiedObject.version).catch(() => undefined);
+				}
+				return json({ artifact: finalized.artifact });
 			}
+			// The grant state is consumed, but the committed object's identity could
+			// not be read. Preserve the copy; deleting it here could destroy the
+			// winner after a post-commit database/network ambiguity.
+			return json({ detail: 'artifact finalization is temporarily unavailable' }, { status: 503 });
 		}
 		if (copiedObject) await storage.remove(copiedObject.key, copiedObject.version).catch(() => undefined);
 		if (cause instanceof ArtifactRepositoryError) {

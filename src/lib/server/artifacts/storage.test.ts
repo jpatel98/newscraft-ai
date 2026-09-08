@@ -5,10 +5,15 @@ import {
 	ARTIFACT_STORAGE_BUCKET,
 	ARTIFACT_STORAGE_MIME_TYPES,
 	createSupabaseArtifactStorage,
+	createVpsArtifactStorage,
 	verifyArtifactObject,
 	type ArtifactObjectStorage,
 	type StoredArtifactObject
 } from './storage';
+
+function response(value: unknown, status = 200): Response {
+	return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
+}
 
 function fakeStorage(bytes: Uint8Array, contentType = 'image/png', checksum = createHash('sha256').update(bytes).digest('hex')): ArtifactObjectStorage {
 	const meta: StoredArtifactObject = { key: 'artifacts/a', version: 'version-1234567890123456', bytes: bytes.byteLength, checksumSha256: checksum, contentType, path: '/private/tmp/fake' };
@@ -76,5 +81,18 @@ describe('Supabase artifact storage adapter', () => {
 		const storage = createSupabaseArtifactStorage({ url: 'https://project.supabase.co', serviceRoleKey: 'server-secret', bucket: ARTIFACT_STORAGE_BUCKET, loadModule: async () => ({ createClient }) });
 		await expect(storage.verifyPrivateBucket?.()).rejects.toThrow('persistent artifact storage is unavailable');
 		await expect(storage.createSignedUpload?.('staging/a')).rejects.toThrow('persistent artifact storage is unavailable');
+	});
+});
+
+describe('VPS artifact storage adapter', () => {
+	it('treats a missing immutable generation as absent', async () => {
+		const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response({}, 404));
+		const storage = createVpsArtifactStorage({
+			baseUrl: 'https://files.example.test:10000',
+			apiKey: 'server-secret',
+			fetchImpl
+		});
+		await expect(storage.stat('staging/a', 'a'.repeat(32))).resolves.toBeNull();
+		await expect(storage.statLatest?.('staging/a')).resolves.toBeNull();
 	});
 });

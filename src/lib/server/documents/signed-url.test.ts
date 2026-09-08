@@ -42,4 +42,30 @@ describe('signed document URLs', () => {
 			)
 		).toBe(false);
 	});
+
+	it('can require a configured gateway path prefix without affecting Supabase paths', () => {
+		expect(
+			isAllowedSignedStorageUrl(
+				'https://files.example.test/newscraft-storage/v1/download/token',
+				'https://files.example.test/newscraft-storage',
+				false,
+				true
+			)
+		).toBe(true);
+		expect(
+			isAllowedSignedStorageUrl(
+				'https://files.example.test/v1/download/token',
+				'https://files.example.test/newscraft-storage',
+				false,
+				true
+		)
+		).toBe(false);
+		expect(
+			isAllowedSignedStorageUrl(
+				'https://project.supabase.co/storage/v1/object/sign/file',
+				'https://project.supabase.co',
+				false
+			)
+		).toBe(true);
+	});
 });

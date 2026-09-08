@@ -75,11 +75,11 @@ export const PUT: RequestHandler = async ({ params, request, url }) => {
 	}
 };
 
-/** Complete a direct Supabase signed upload. The bearer grant token is the
+/** Complete a direct persistent-storage signed upload. The bearer grant token is the
  * callback capability; the server resolves and verifies the object itself so
  * Vercel never receives the asset body. */
 export const POST: RequestHandler = async ({ params, url }) => {
-	if (artifactStorageMode() !== 'supabase') return json({ detail: 'direct artifact upload is disabled' }, { status: 503 });
+	if (!['supabase', 'vps'].includes(artifactStorageMode())) return json({ detail: 'direct artifact upload is disabled' }, { status: 503 });
 	const grantId = params.grantId?.trim();
 	const token = url.searchParams.get('token')?.trim();
 	if (!grantId || !token) return json({ detail: 'grant token is required' }, { status: 401 });

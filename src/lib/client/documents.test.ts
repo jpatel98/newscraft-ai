@@ -107,6 +107,35 @@ describe('conversation document client', () => {
 		);
 	});
 
+	it('sends the raw PDF body to the VPS gateway upload token', async () => {
+		const file = pdfFile();
+		const fetchImpl = vi.fn()
+			.mockResolvedValueOnce(new Response(JSON.stringify({ documents: [{
+				document: { id: 'doc-vps', filename: file.name, state: 'uploading', pageCount: null, error: null },
+				upload: { path: 'org/doc-vps/notes.pdf', token: 'token', signedUrl: 'https://files.example.test:10000/v1/upload/token' }
+			}] }), { status: 201 }))
+			.mockResolvedValueOnce(new Response('{}', { status: 200 }))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ document: { id: 'doc-vps', filename: file.name, state: 'ready', pageCount: 1, error: null } }), { status: 200 }));
+		await expect(uploadConversationPdf('conversation-1', file, { fetch: fetchImpl })).resolves.toMatchObject({ id: 'doc-vps', state: 'ready' });
+		const request = fetchImpl.mock.calls[1]?.[1] as RequestInit;
+		expect(request.headers).toMatchObject({ 'content-type': 'application/pdf' });
+		expect(request.headers).not.toHaveProperty('content-length');
+		expect(request.body).toBe(file);
+	});
+
+	it('detects a prefixed VPS gateway upload URL', async () => {
+		const file = pdfFile();
+		const fetchImpl = vi.fn()
+			.mockResolvedValueOnce(new Response(JSON.stringify({ documents: [{
+				document: { id: 'doc-prefixed-vps', filename: file.name, state: 'uploading', pageCount: null, error: null },
+				upload: { path: 'org/doc-prefixed-vps/notes.pdf', token: 'token', signedUrl: 'https://files.example.test/newscraft-storage/v1/upload/token' }
+			}] }), { status: 201 }))
+			.mockResolvedValueOnce(new Response('{}', { status: 200 }))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ document: { id: 'doc-prefixed-vps', filename: file.name, state: 'ready', pageCount: 1, error: null } }), { status: 200 }));
+		await expect(uploadConversationPdf('conversation-1', file, { fetch: fetchImpl })).resolves.toMatchObject({ id: 'doc-prefixed-vps', state: 'ready' });
+		expect((fetchImpl.mock.calls[1]?.[1] as RequestInit).body).toBe(file);
+	});
+
 	it('deletes through the authenticated conversation route', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
 		await deleteConversationDocument('conversation/1', 'document/1', fetchImpl);

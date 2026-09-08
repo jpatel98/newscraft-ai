@@ -5,6 +5,7 @@ import { DocumentError } from './errors';
 import type { DocumentStorage } from './types';
 import { isAllowedSignedStorageUrl } from './signed-url';
 import { createClient } from '@supabase/supabase-js';
+import { VpsStorageClient, VpsStorageError } from '$lib/server/storage/vps-client';
 
 interface SupabaseResult<T> {
 	data: T | null;
@@ -139,6 +140,76 @@ export function createSupabaseDocumentStorage(options: {
 			}
 		}
 	};
+}
+
+export function createVpsDocumentStorage(options: {
+	baseUrl?: string;
+	apiKey?: string;
+	bucket?: string;
+	fetchImpl?: typeof fetch;
+	allowLoopbackHttp?: boolean;
+} = {}): DocumentStorage {
+	const baseUrl = (options.baseUrl ?? env.NEWSCRAFT_STORAGE_BASE_URL ?? '').trim();
+	const apiKey = (options.apiKey ?? env.NEWSCRAFT_STORAGE_API_KEY ?? '').trim();
+	const bucketName = (options.bucket ?? env.NEWSCRAFT_DOCUMENT_STORAGE_BUCKET ?? DOCUMENT_BUCKET).trim();
+	const client = baseUrl && apiKey
+		? new VpsStorageClient({ baseUrl, apiKey, fetchImpl: options.fetchImpl, allowLoopbackHttp: options.allowLoopbackHttp ?? dev })
+		: null;
+	const unavailableVps = () => new DocumentError(503, 'document_storage_unavailable', 'PDF storage is unavailable right now.');
+
+	return {
+		async createSignedUpload(path) {
+			if (!client) throw unavailableVps();
+			try {
+				return await client.signUpload({ bucket: bucketName, key: path, maxBytes: MAX_PDF_BYTES, contentType: PDF_MIME_TYPE });
+			} catch {
+				throw unavailableVps();
+			}
+		},
+		async download(path) {
+			if (!client) throw unavailableVps();
+			try {
+				return await client.getObject({ bucket: bucketName, key: path });
+			} catch (error) {
+				if (error instanceof VpsStorageError && error.status === 404) {
+					throw new DocumentError(409, 'upload_not_ready', 'The PDF upload is not ready.');
+				}
+				throw unavailableVps();
+			}
+		},
+		async createSignedDownload(path, expiresInSeconds) {
+			if (!client) throw unavailableVps();
+			try {
+				return await client.signDownload({ bucket: bucketName, key: path, expiresInSeconds });
+			} catch {
+				throw unavailableVps();
+			}
+		},
+		async remove(paths) {
+			if (!client) throw unavailableVps();
+			try {
+				await Promise.all(paths.map((key) => client.remove({ bucket: bucketName, key })));
+			} catch {
+				throw unavailableVps();
+			}
+		},
+		async verifyPrivateBucket() {
+			if (!client) throw unavailableVps();
+			try {
+				const policy = await client.verifyPolicy(bucketName);
+				if (policy.maxBytes !== MAX_PDF_BYTES || policy.mimeTypes.length !== 1 || policy.mimeTypes[0] !== PDF_MIME_TYPE) throw unavailableVps();
+			} catch {
+				throw unavailableVps();
+			}
+		}
+	};
+}
+
+/** Select the new VPS backend only when explicitly configured. The Supabase
+ * adapter remains available for a controlled rollback window. */
+export function createDocumentStorage(): DocumentStorage {
+	if (env.NEWSCRAFT_STORAGE_MODE?.trim().toLowerCase() === 'vps') return createVpsDocumentStorage();
+	return createSupabaseDocumentStorage();
 }
 
 function unavailable(): DocumentError {

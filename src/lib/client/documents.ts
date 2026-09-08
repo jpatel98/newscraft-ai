@@ -78,13 +78,19 @@ export async function uploadConversationPdf(
 	}
 	options.onCreated?.(created.document);
 
+	const signedDestination = new URL(created.upload.signedUrl);
+	// The gateway may be mounted behind a reverse-proxy path prefix. Match the
+	// protocol endpoint by path segment rather than assuming it is at `/`.
+	const vpsUpload = /\/v1\/upload\/[^/]+$/u.test(signedDestination.pathname);
 	const form = new FormData();
 	form.append('cacheControl', '3600');
 	form.append('', file);
 	const uploadResponse = await fetchImpl(created.upload.signedUrl, {
 		method: 'PUT',
-		headers: { 'x-upsert': 'false' },
-		body: form
+		headers: vpsUpload
+			? { 'content-type': 'application/pdf' }
+			: { 'x-upsert': 'false' },
+		body: vpsUpload ? file : form
 	});
 	if (!uploadResponse.ok) {
 		throw new ConversationDocumentError("Couldn't upload that PDF. Try again.");

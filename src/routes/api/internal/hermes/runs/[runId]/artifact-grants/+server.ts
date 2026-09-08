@@ -58,7 +58,7 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
 		let uploadUrl: URL;
 		let uploadMode: 'proxy' | 'signed' = 'proxy';
 		let uploadCompleteUrl: string | undefined;
-		if (storageMode === 'supabase') {
+		if (storageMode === 'supabase' || storageMode === 'vps') {
 			try {
 				const storage = createArtifactObjectStorage();
 				if (!storage.createSignedUpload || !storage.verifyPrivateBucket) return json({ detail: 'artifact storage is unavailable' }, { status: 503 });
