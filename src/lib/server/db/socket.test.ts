@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	FALLBACK_DNS_SERVERS,
 	FALLBACK_DNS_TIMEOUT_MS,
+	PREFERRED_ADDRESS_TTL_MS,
 	createDatabaseSocketFactory,
 	connectWithTimeout,
 	parseDatabaseUrl
@@ -15,6 +16,10 @@ function codedError(code: string): Error & { code: string } {
 
 function fakeSocket(): net.Socket {
 	return {} as net.Socket;
+}
+
+function fakeSocketWithRemoteAddress(remoteAddress: string): net.Socket {
+	return { remoteAddress } as net.Socket;
 }
 
 describe('database socket fallback', () => {
@@ -166,6 +171,79 @@ describe('database socket fallback', () => {
 
 		await expect(factory()).rejects.toMatchObject({ code: 'EPROTO' });
 		expect(connectCalls).toEqual(['db.example.test', '203.0.113.10']);
+	});
+
+	it('reuses a successful IPv4 address without extending its fixed expiry', async () => {
+		let nowMs = 0;
+		const connectCalls: string[] = [];
+		const connect = vi.fn(async (host: string) => {
+			connectCalls.push(host);
+			return fakeSocketWithRemoteAddress('203.0.113.55');
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, resolve4: vi.fn(), now: () => nowMs }
+		);
+
+		await factory();
+		nowMs = PREFERRED_ADDRESS_TTL_MS - 1;
+		await factory();
+		nowMs = PREFERRED_ADDRESS_TTL_MS + 1;
+		await factory();
+
+		expect(connectCalls).toEqual([
+			'db.example.test',
+			'203.0.113.55',
+			'db.example.test'
+		]);
+	});
+
+	it('invalidates a cached TCP address and falls through to fresh DNS candidates', async () => {
+		const connectCalls: string[] = [];
+		const resolve4 = vi.fn(async () => ['203.0.113.75']);
+		const connect = vi.fn(async (host: string) => {
+			connectCalls.push(host);
+			if (host === 'db.example.test') {
+				if (connectCalls.length === 1) return fakeSocketWithRemoteAddress('203.0.113.55');
+				throw codedError('ECONNREFUSED');
+			}
+			if (host === '203.0.113.55') throw codedError('ETIMEDOUT');
+			return fakeSocketWithRemoteAddress('203.0.113.75');
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, resolve4, now: () => 0 }
+		);
+
+		await factory();
+		await factory();
+
+		expect(connectCalls).toEqual([
+			'db.example.test',
+			'203.0.113.55',
+			'db.example.test',
+			'203.0.113.75'
+		]);
+		expect(resolve4).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not retry DNS after a cached non-retryable connection error', async () => {
+		const connectCalls: string[] = [];
+		const resolve4 = vi.fn();
+		const connect = vi.fn(async (host: string) => {
+			connectCalls.push(host);
+			if (host === 'db.example.test') return fakeSocketWithRemoteAddress('203.0.113.55');
+			throw codedError('EPROTO');
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, resolve4, now: () => 0 }
+		);
+
+		await factory();
+		await expect(factory()).rejects.toMatchObject({ code: 'EPROTO' });
+		expect(connectCalls).toEqual(['db.example.test', '203.0.113.55']);
+		expect(resolve4).not.toHaveBeenCalled();
 	});
 
 	it('destroys a socket when the factory-owned TCP timeout fires', async () => {

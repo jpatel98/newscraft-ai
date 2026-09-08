@@ -9,6 +9,7 @@ export const DEFAULT_DATABASE_SOCKET_TIMEOUT_MS = 10_000;
 export const FALLBACK_DNS_TIMEOUT_MS = 1_500;
 export const FALLBACK_DNS_TRIES = 1;
 export const FALLBACK_DNS_SERVERS = ['1.1.1.1', '8.8.8.8'] as const;
+export const PREFERRED_ADDRESS_TTL_MS = 30_000;
 // Reserve two candidate attempts after the initial hostname attempt. This
 // prevents one black-holed address from consuming the complete socket budget
 // before a fresh A-record candidate can be tried.
@@ -114,16 +115,46 @@ export function createDatabaseSocketFactory(
 		(() => new dns.Resolver({ timeout: FALLBACK_DNS_TIMEOUT_MS, tries: FALLBACK_DNS_TRIES }));
 	const now = options.now ?? Date.now;
 	const configuredTimeoutMs = normalizeTimeout(options.timeoutMs, DEFAULT_DATABASE_SOCKET_TIMEOUT_MS);
+	let preferredAddress: PreferredAddress | null = null;
+	const rememberFreshSocket = (socket: net.Socket): DatabaseSocket => {
+		const marked = markSocket(socket, endpoint);
+		const remoteAddress = marked.remoteAddress;
+		if (typeof remoteAddress === 'string' && net.isIP(remoteAddress) === 4) {
+			preferredAddress = {
+				address: remoteAddress,
+				expiresAt: now() + PREFERRED_ADDRESS_TTL_MS
+			};
+		}
+		return marked;
+	};
 
 	return async (postgresOptions = {}) => {
 		const timeoutMs = resolveFactoryTimeout(postgresOptions.connect_timeout, configuredTimeoutMs);
 		const deadline = now() + timeoutMs;
 		const initialAttemptTimeout = connectionAttemptSlice(timeoutMs, INITIAL_CONNECTION_ATTEMPT_SLOTS);
+		const cached = preferredAddress;
+		if (cached && cached.expiresAt <= now()) {
+			if (preferredAddress === cached) preferredAddress = null;
+		} else if (cached) {
+			const timeout = Math.min(remaining(deadline, now), initialAttemptTimeout);
+			if (timeout <= 0) throw socketTimeoutError(endpoint.hostname, timeoutMs);
+			try {
+				// Cache reuse intentionally does not call rememberFreshSocket: the
+				// expiry is measured from discovery and never extended by a hit.
+				return markSocket(await connect(cached.address, endpoint.port, timeout), endpoint);
+			} catch (error) {
+				// Only a TCP-level failure may invalidate and fall through to the
+				// existing hostname/DNS failover. TLS, auth, and protocol failures
+				// remain terminal and do not trigger another address.
+				if (!isRetryableConnectionError(error)) throw error;
+				if (preferredAddress === cached) preferredAddress = null;
+			}
+		}
 
 		try {
 			const timeout = Math.min(remaining(deadline, now), initialAttemptTimeout);
 			if (timeout <= 0) throw socketTimeoutError(endpoint.hostname, timeoutMs);
-			return markSocket(await connect(endpoint.hostname, endpoint.port, timeout), endpoint);
+			return rememberFreshSocket(await connect(endpoint.hostname, endpoint.port, timeout));
 		} catch (error) {
 			if (!isDnsLookupError(error) && !isRetryableConnectionError(error)) throw error;
 
@@ -141,10 +172,16 @@ export function createDatabaseSocketFactory(
 				connect,
 				initialError: error,
 				timeoutMs,
-				fallbackBudgetMs: Math.max(0, timeoutMs - initialAttemptTimeout)
+				fallbackBudgetMs: Math.max(0, timeoutMs - initialAttemptTimeout),
+				markFreshSocket: rememberFreshSocket
 			});
 		}
 	};
+}
+
+interface PreferredAddress {
+	address: string;
+	expiresAt: number;
 }
 
 interface CandidateConnectionInput {
@@ -156,6 +193,7 @@ interface CandidateConnectionInput {
 	initialError: unknown;
 	timeoutMs: number;
 	fallbackBudgetMs: number;
+	markFreshSocket: (socket: net.Socket) => DatabaseSocket;
 }
 
 async function connectToCandidates({
@@ -166,7 +204,8 @@ async function connectToCandidates({
 	connect,
 	initialError,
 	timeoutMs,
-	fallbackBudgetMs
+	fallbackBudgetMs,
+	markFreshSocket
 }: CandidateConnectionInput): Promise<DatabaseSocket> {
 	const candidates = uniqueIpv4(addresses);
 	let lastError: unknown = initialError;
@@ -177,7 +216,7 @@ async function connectToCandidates({
 		const timeout = connectionAttemptSlice(available, candidates.length - index);
 		budgetMs -= timeout;
 		try {
-			return markSocket(await connect(address, endpoint.port, timeout), endpoint);
+			return markFreshSocket(await connect(address, endpoint.port, timeout));
 		} catch (error) {
 			lastError = error;
 			// Connection-only failover is deliberately narrow. A TLS, auth, or
