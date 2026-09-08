@@ -1,0 +1,26 @@
+services:
+  storage:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: newscraft-storage
+    restart: unless-stopped
+    user: "1000:1000"
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:9100:9100"
+    volumes:
+      - ./data:/srv/newscraft-storage
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9100/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
