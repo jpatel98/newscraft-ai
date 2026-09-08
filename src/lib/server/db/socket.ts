@@ -9,6 +9,16 @@ export const DEFAULT_DATABASE_SOCKET_TIMEOUT_MS = 10_000;
 export const FALLBACK_DNS_TIMEOUT_MS = 1_500;
 export const FALLBACK_DNS_TRIES = 1;
 export const FALLBACK_DNS_SERVERS = ['1.1.1.1', '8.8.8.8'] as const;
+// Reserve two candidate attempts after the initial hostname attempt. This
+// prevents one black-holed address from consuming the complete socket budget
+// before a fresh A-record candidate can be tried.
+const INITIAL_CONNECTION_ATTEMPT_SLOTS = 3;
+const RETRYABLE_CONNECTION_ERROR_CODES = new Set([
+	'ETIMEDOUT',
+	'ECONNREFUSED',
+	'EHOSTUNREACH',
+	'ENETUNREACH'
+]);
 const RESOLVER_LOOKUP_ERROR_CODES = new Set([
 	'ENOTFOUND',
 	'EAI_AGAIN',
@@ -87,9 +97,10 @@ export function parseDatabaseUrl(value: string | undefined): ParsedDatabaseUrl |
 /**
  * Create the postgres.js async socket hook for one database endpoint.
  *
- * The first attempt uses the configured hostname. A TCP retry is allowed only
- * after ENOTFOUND/EAI_AGAIN; it resolves A records and connects to those
- * addresses while retaining the original hostname on the returned socket so
+ * The first attempt uses the configured hostname. A bounded address retry is
+ * allowed after a DNS lookup failure or a retryable TCP connection failure;
+ * it resolves fresh A records and connects to each candidate within the same
+ * caller-owned deadline. Returned sockets retain the original hostname so
  * postgres.js performs certificate validation against the database hostname.
  */
 export function createDatabaseSocketFactory(
@@ -107,13 +118,14 @@ export function createDatabaseSocketFactory(
 	return async (postgresOptions = {}) => {
 		const timeoutMs = resolveFactoryTimeout(postgresOptions.connect_timeout, configuredTimeoutMs);
 		const deadline = now() + timeoutMs;
+		const initialAttemptTimeout = connectionAttemptSlice(timeoutMs, INITIAL_CONNECTION_ATTEMPT_SLOTS);
 
 		try {
-			const timeout = remaining(deadline, now);
+			const timeout = Math.min(remaining(deadline, now), initialAttemptTimeout);
 			if (timeout <= 0) throw socketTimeoutError(endpoint.hostname, timeoutMs);
 			return markSocket(await connect(endpoint.hostname, endpoint.port, timeout), endpoint);
 		} catch (error) {
-			if (!isDnsLookupError(error)) throw error;
+			if (!isDnsLookupError(error) && !isRetryableConnectionError(error)) throw error;
 
 			const addresses = await resolveIpv4WithFallback(endpoint.hostname, {
 				timeoutMs: remaining(deadline, now),
@@ -121,20 +133,59 @@ export function createDatabaseSocketFactory(
 				createResolver,
 				now
 			});
-			let lastError: unknown = error;
-			for (const address of uniqueIpv4(addresses)) {
-				const timeout = remaining(deadline, now);
-				if (timeout <= 0) throw socketTimeoutError(endpoint.hostname, timeoutMs);
-				try {
-					return markSocket(await connect(address, endpoint.port, timeout), endpoint);
-				} catch (fallbackError) {
-					lastError = fallbackError;
-					if (isSocketTimeoutError(fallbackError)) throw fallbackError;
-				}
-			}
-			throw lastError;
+			return connectToCandidates({
+				addresses,
+				endpoint,
+				deadline,
+				now,
+				connect,
+				initialError: error,
+				timeoutMs,
+				fallbackBudgetMs: Math.max(0, timeoutMs - initialAttemptTimeout)
+			});
 		}
 	};
+}
+
+interface CandidateConnectionInput {
+	addresses: string[];
+	endpoint: DatabaseEndpoint;
+	deadline: number;
+	now: () => number;
+	connect: (hostname: string, port: number, timeoutMs: number) => Promise<net.Socket>;
+	initialError: unknown;
+	timeoutMs: number;
+	fallbackBudgetMs: number;
+}
+
+async function connectToCandidates({
+	addresses,
+	endpoint,
+	deadline,
+	now,
+	connect,
+	initialError,
+	timeoutMs,
+	fallbackBudgetMs
+}: CandidateConnectionInput): Promise<DatabaseSocket> {
+	const candidates = uniqueIpv4(addresses);
+	let lastError: unknown = initialError;
+	let budgetMs = fallbackBudgetMs;
+	for (const [index, address] of candidates.entries()) {
+		const available = Math.min(remaining(deadline, now), budgetMs);
+		if (available <= 0) throw socketTimeoutError(endpoint.hostname, timeoutMs);
+		const timeout = connectionAttemptSlice(available, candidates.length - index);
+		budgetMs -= timeout;
+		try {
+			return markSocket(await connect(address, endpoint.port, timeout), endpoint);
+		} catch (error) {
+			lastError = error;
+			// Connection-only failover is deliberately narrow. A TLS, auth, or
+			// protocol error must escape without trying another address.
+			if (!isRetryableConnectionError(error)) throw error;
+		}
+	}
+	throw lastError;
 }
 
 /**
@@ -291,12 +342,22 @@ function remaining(deadline: number, now: () => number): number {
 	return Math.max(0, deadline - now());
 }
 
+function connectionAttemptSlice(availableMs: number, attemptsRemaining: number): number {
+	if (availableMs <= 0) return 0;
+	const slots = Math.max(1, Math.floor(attemptsRemaining));
+	return Math.max(1, Math.min(availableMs, Math.floor(availableMs / slots)));
+}
+
 function uniqueIpv4(addresses: string[]): string[] {
 	return [...new Set(addresses.filter((address) => net.isIP(address) === 4))];
 }
 
 function isDnsLookupError(error: unknown): boolean {
 	return errorCode(error) === 'ENOTFOUND' || errorCode(error) === 'EAI_AGAIN';
+}
+
+function isRetryableConnectionError(error: unknown): boolean {
+	return RETRYABLE_CONNECTION_ERROR_CODES.has(errorCode(error) ?? '');
 }
 
 function isResolverLookupError(error: unknown): boolean {

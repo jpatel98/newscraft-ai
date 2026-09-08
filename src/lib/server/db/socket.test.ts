@@ -34,8 +34,8 @@ describe('database socket fallback', () => {
 		const socket = await factory({ connect_timeout: 30 });
 
 		expect(connectCalls).toEqual([
-			{ host: 'contabo.example.ts.net', port: 10000, timeoutMs: 10_000 },
-			{ host: '185.40.234.55', port: 10000, timeoutMs: 10_000 }
+			{ host: 'contabo.example.ts.net', port: 10000, timeoutMs: 3_333 },
+			{ host: '185.40.234.55', port: 10000, timeoutMs: 3_333 }
 		]);
 		expect(resolve4).toHaveBeenCalledWith('contabo.example.ts.net');
 		expect(socket.host).toBe('contabo.example.ts.net');
@@ -68,19 +68,104 @@ describe('database socket fallback', () => {
 		expect(socket.host).toBe('db.example.test');
 	});
 
-	it('does not retry or resolve a host after a non-DNS connection error', async () => {
+	it.each(['ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT'])(
+		'retries a host after a retryable TCP connection error (%s)',
+		async (code) => {
+			const resolve4 = vi.fn(async () => ['203.0.113.10']);
+			const connect = vi.fn(async (host: string) => {
+				if (host === 'db.example.test') throw codedError(code);
+				return fakeSocket();
+			});
+			const factory = createDatabaseSocketFactory(
+				{ hostname: 'db.example.test', port: 5432 },
+				{ connect, resolve4, now: () => 0 }
+			);
+
+			const socket = await factory();
+			expect(socket.host).toBe('db.example.test');
+			expect(connect).toHaveBeenCalledTimes(2);
+			expect(resolve4).toHaveBeenCalledWith('db.example.test');
+		}
+	);
+
+	it('does not retry or resolve a host after a non-retryable connection error', async () => {
 		const resolve4 = vi.fn();
 		const connect = vi.fn(async () => {
-			throw codedError('ECONNREFUSED');
+			throw codedError('EPROTO');
 		});
 		const factory = createDatabaseSocketFactory(
 			{ hostname: 'db.example.test', port: 5432 },
 			{ connect, resolve4 }
 		);
 
-		await expect(factory()).rejects.toMatchObject({ code: 'ECONNREFUSED' });
+		await expect(factory()).rejects.toMatchObject({ code: 'EPROTO' });
 		expect(connect).toHaveBeenCalledTimes(1);
 		expect(resolve4).not.toHaveBeenCalled();
+	});
+
+	it('fails over to a fresh A-record candidate within one bounded connection budget', async () => {
+		let nowMs = 0;
+		const connectCalls: Array<{ host: string; timeoutMs: number }> = [];
+		const connect = vi.fn(async (host: string, _port: number, timeoutMs: number) => {
+			connectCalls.push({ host, timeoutMs });
+			nowMs += timeoutMs;
+			if (host === 'db.example.test' || host === '185.40.234.55') throw codedError('ETIMEDOUT');
+			return fakeSocket();
+		});
+		const resolve4 = vi.fn(async () => ['185.40.234.55', '185.40.234.75', '185.40.234.198']);
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, resolve4, timeoutMs: 10_000, now: () => nowMs }
+		);
+
+		const socket = await factory();
+
+		expect(connectCalls.map(({ host }) => host)).toEqual([
+			'db.example.test',
+			'185.40.234.55',
+			'185.40.234.75'
+		]);
+		expect(connectCalls.reduce((total, call) => total + call.timeoutMs, 0)).toBeLessThanOrEqual(10_000);
+		expect(connectCalls.every(({ timeoutMs }) => timeoutMs > 0)).toBe(true);
+		expect(socket.host).toBe('db.example.test');
+		expect(socket.port).toBe(5432);
+	});
+
+	it('stops after the shared timeout budget instead of retrying indefinitely', async () => {
+		let nowMs = 0;
+		const connectCalls: Array<{ host: string; timeoutMs: number }> = [];
+		const connect = vi.fn(async (host: string, _port: number, timeoutMs: number) => {
+			connectCalls.push({ host, timeoutMs });
+			nowMs += timeoutMs;
+			throw codedError('ETIMEDOUT');
+		});
+		const resolve4 = vi.fn(async () => ['203.0.113.10', '203.0.113.11']);
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, resolve4, timeoutMs: 10_000, now: () => nowMs }
+		);
+
+		await expect(factory()).rejects.toMatchObject({ code: 'ETIMEDOUT' });
+		expect(connectCalls).toHaveLength(3);
+		expect(connectCalls.reduce((total, call) => total + call.timeoutMs, 0)).toBe(10_000);
+		expect(nowMs).toBe(10_000);
+	});
+
+	it('does not retry another address after a candidate TLS or protocol error', async () => {
+		const connectCalls: string[] = [];
+		const connect = vi.fn(async (host: string) => {
+			connectCalls.push(host);
+			if (host === 'db.example.test') throw codedError('ECONNREFUSED');
+			throw codedError('EPROTO');
+		});
+		const resolve4 = vi.fn(async () => ['203.0.113.10', '203.0.113.11']);
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, resolve4, now: () => 0 }
+		);
+
+		await expect(factory()).rejects.toMatchObject({ code: 'EPROTO' });
+		expect(connectCalls).toEqual(['db.example.test', '203.0.113.10']);
 	});
 
 	it('destroys a socket when the factory-owned TCP timeout fires', async () => {
