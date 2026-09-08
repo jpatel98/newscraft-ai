@@ -17,7 +17,8 @@ import {
 	createArtifactUploadGrant,
 	finalizeArtifactReady,
 	getArtifactDetail,
-	markArtifactGrantUploadedForToken
+	markArtifactGrantUploadedForToken,
+	markInlineArtifactReady
 } from './artifacts';
 import { createLocalArtifactStorage, verifyArtifactObject } from '$lib/server/artifacts/storage';
 
@@ -30,8 +31,9 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 	'base64'
 ));
 
-describe.skipIf(!databaseUrl)('artifact repository and durable-run integration', () => {
+	describe.skipIf(!databaseUrl)('artifact repository and durable-run integration', () => {
 	const accountId = `artifact-test-${Date.now()}`;
+	const foreignAccountId = `${accountId}-foreign`;
 	const createdObjects: Array<{ key: string; version: string }> = [];
 	const storage = createLocalArtifactStorage();
 
@@ -42,11 +44,16 @@ describe.skipIf(!databaseUrl)('artifact repository and durable-run integration',
 			INSERT INTO accounts (id, email, name, role, created_at, updated_at)
 			VALUES (${accountId}, ${`${accountId}@example.test`}, 'Artifact integration', 'member', ${now}, ${now})
 		`;
+		await sql`
+			INSERT INTO accounts (id, email, name, role, created_at, updated_at)
+			VALUES (${foreignAccountId}, ${`${foreignAccountId}@example.test`}, 'Foreign artifact integration', 'member', ${now}, ${now})
+		`;
 	});
 
 	afterAll(async () => {
 		for (const object of createdObjects) await storage.remove(object.key, object.version);
 		await sql`DELETE FROM accounts WHERE id = ${accountId}`;
+		await sql`DELETE FROM accounts WHERE id = ${foreignAccountId}`;
 		await sql.end({ timeout: 1 });
 	});
 
@@ -120,6 +127,21 @@ describe.skipIf(!databaseUrl)('artifact repository and durable-run integration',
 			role: 'source'
 		});
 		return { revision: created.revision, grant: grantResult.grant, token: grantResult.token, verified };
+	}
+
+	async function createInlineArtifact(ownerAccountId: string, label: string) {
+		const conversation = await createConversation(ownerAccountId);
+		const source = await addMessage({ conversationId: conversation.id, role: 'assistant', content: label });
+		const created = await createArtifactRevision({
+			accountId: ownerAccountId,
+			conversationId: conversation.id,
+			sourceMessageId: source.id,
+			kind: 'markdown',
+			title: label,
+			spec: { kind: 'markdown', title: label, markdown: `# ${label}` }
+		});
+		await markInlineArtifactReady(ownerAccountId, created.revision.id);
+		return { conversation, source, created };
 	}
 
 	it('rejects finalization after cancellation during object verification', async () => {
@@ -317,6 +339,23 @@ describe.skipIf(!databaseUrl)('artifact repository and durable-run integration',
 
 		const run = await getHermesRun(accountId, firstRun.run.id);
 		expect(run?.conversationId).toBe(firstRun.conversation.id);
+	});
+
+	it('scopes detail reads to the owning account, conversation, family, and revision', async () => {
+		const own = await createInlineArtifact(accountId, 'owned detail');
+		const otherConversation = await createConversation(accountId);
+		const foreign = await createInlineArtifact(foreignAccountId, 'foreign detail');
+		const unrelated = await createInlineArtifact(accountId, 'unrelated detail');
+
+		expect(await getArtifactDetail(accountId, own.conversation.id, own.created.family.id, own.created.revision.id)).toMatchObject({
+			id: own.created.family.id,
+			revisionId: own.created.revision.id,
+			status: 'ready'
+		});
+		expect(await getArtifactDetail(accountId, otherConversation.id, own.created.family.id, own.created.revision.id)).toBeNull();
+		expect(await getArtifactDetail(accountId, foreign.conversation.id, foreign.created.family.id, foreign.created.revision.id)).toBeNull();
+		expect(await getArtifactDetail(accountId, own.conversation.id, own.created.family.id, unrelated.created.revision.id)).toBeNull();
+		expect(await getArtifactDetail(accountId, own.conversation.id, 'missing-artifact-family', 'missing-artifact-revision')).toBeNull();
 	});
 
 });

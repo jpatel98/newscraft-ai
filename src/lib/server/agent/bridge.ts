@@ -1,60 +1,8 @@
 import type { AgentCommand, AgentSkillDetail, AgentSkillSummary } from '$lib/types';
-
-const LOCAL_COMMANDS: AgentCommand[] = [
-	{
-		name: 'Help',
-		slash: '/help',
-		description: 'Show available web commands.',
-		category: 'Chat',
-		kind: 'builtin',
-		enabled: true
-	},
-	{
-		name: 'Commands',
-		slash: '/commands',
-		description: 'Show available web commands.',
-		category: 'Chat',
-		kind: 'builtin',
-		enabled: true
-	},
-	{
-		name: 'Reasoning',
-		slash: '/reasoning',
-		description: 'Set reasoning for this thread: low, medium, high, or default.',
-		category: 'Chat',
-		argsHint: 'low|medium|high|default',
-		kind: 'builtin',
-		enabled: true
-	},
-	{
-		name: 'Status',
-		slash: '/status',
-		description: 'Check the configured Hermes runtime health.',
-		category: 'Chat',
-		kind: 'builtin',
-		enabled: true
-	},
-	{
-		name: 'Profile',
-		slash: '/profile',
-		description: 'Show the active web agent profile.',
-		category: 'Chat',
-		kind: 'builtin',
-		enabled: true
-	},
-	{
-		name: 'Feedback',
-		slash: '/feedback',
-		description: 'Capture this thread with a feedback comment.',
-		category: 'Chat',
-		argsHint: 'comment',
-		kind: 'builtin',
-		enabled: true
-	}
-];
+import { localAgentCommands } from '$lib/utils/agent-commands';
 
 export async function listAgentCommands(): Promise<AgentCommand[]> {
-	return LOCAL_COMMANDS;
+	return localAgentCommands();
 }
 
 export async function listAgentSkills(): Promise<AgentSkillSummary[]> {

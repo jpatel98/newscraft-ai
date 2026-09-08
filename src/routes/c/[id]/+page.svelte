@@ -41,6 +41,11 @@ import ArtifactCanvas from '$lib/components/ArtifactCanvas.svelte';
 	import { selectConversationDisplayTitle } from '$lib/utils/conversation-title-display';
 	import { SerialTaskQueue } from '$lib/utils/serial-task-queue';
 	import {
+		ArtifactDetailCache,
+		ArtifactRequestGate,
+		type ArtifactDetailCacheKey
+	} from '$lib/client/artifact-detail-cache';
+	import {
 		compareCursor,
 		cursorOf as historyCursorOf,
 		deriveHistoryGaps,
@@ -116,6 +121,9 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	let artifactOpen = $state(false);
 	let activeArtifact = $state<ArtifactDraft | null>(null);
 	let activeCanvasArtifact = $state<ArtifactDetail | null>(null);
+	let activeArtifactSummary = $state<ArtifactSummary | null>(null);
+	const artifactDetailCache = new ArtifactDetailCache();
+	const artifactRequestGate = new ArtifactRequestGate();
 	let activeRunId = $state<string | null>(null);
 	let activeRunCursor = $state(0);
 	let activeRunStatus = $state<string | null>(null);
@@ -1039,23 +1047,76 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		);
 	}
 
+	function artifactLoadingPlaceholder(summary: ArtifactSummary): ArtifactDetail {
+		return {
+			...summary,
+			status: 'publishing',
+			spec: { kind: 'markdown', title: summary.title, markdown: '' },
+			assets: []
+		};
+	}
+
+	function artifactUnavailablePlaceholder(summary: ArtifactSummary): ArtifactDetail {
+		return {
+			...summary,
+			status: 'missing',
+			error: { code: 'detail_unavailable', message: 'This artifact preview is temporarily unavailable. Try again.' },
+			spec: { kind: 'markdown', title: summary.title, markdown: '' },
+			assets: []
+		};
+	}
+
+	function artifactCacheKey(summary: ArtifactSummary, conversationId: string): ArtifactDetailCacheKey {
+		const accountId = data.user?.id;
+		if (!accountId) throw new Error('authenticated account context missing');
+		return {
+			accountId,
+			conversationId,
+			artifactId: summary.id,
+			revisionId: summary.revisionId
+		};
+	}
+
+	async function fetchArtifactDetail(key: ArtifactDetailCacheKey): Promise<ArtifactDetail | null> {
+		const response = await fetch(
+			`/api/conversations/${encodeURIComponent(key.conversationId)}/artifacts/${encodeURIComponent(key.artifactId)}?revision_id=${encodeURIComponent(key.revisionId)}`,
+			{ headers: { accept: 'application/json' } }
+		);
+		if (response.status === 404) return null;
+		if (!response.ok) throw new Error(`artifact ${response.status}`);
+		const payload = (await response.json()) as { artifact?: ArtifactDetail };
+		return payload.artifact ?? null;
+	}
+
 	async function openArtifact(summary: ArtifactSummary) {
+		const conversationId = data.conversation.id;
+		const token = artifactRequestGate.begin();
+		const key = artifactCacheKey(summary, conversationId);
+		activeArtifactSummary = summary;
+		// Mount the canvas before awaiting network work so the user gets immediate
+		// feedback and a slow request cannot look like a dead click.
+		activeCanvasArtifact = artifactLoadingPlaceholder(summary);
 		try {
-			const response = await fetch(
-				`/api/conversations/${encodeURIComponent(data.conversation.id)}/artifacts/${encodeURIComponent(summary.id)}?revision_id=${encodeURIComponent(summary.revisionId)}`,
-				{ headers: { accept: 'application/json' } }
-			);
-			if (!response.ok) throw new Error(`artifact ${response.status}`);
-			const payload = (await response.json()) as { artifact?: ArtifactDetail };
-			if (!payload.artifact) throw new Error('artifact detail missing');
-			activeCanvasArtifact = payload.artifact;
+			const detail = await artifactDetailCache.getOrFetch(key, () => fetchArtifactDetail(key));
+			if (!artifactRequestGate.isCurrent(token) || data.conversation.id !== conversationId) return;
+			if (activeArtifactSummary?.id !== summary.id || activeArtifactSummary.revisionId !== summary.revisionId) return;
+			activeCanvasArtifact = detail;
 		} catch {
-			activeCanvasArtifact = {
-				...summary,
-				spec: { kind: 'markdown', title: summary.title, markdown: summary.error?.message ?? 'This artifact could not be loaded.' },
-				assets: []
-			};
+			if (!artifactRequestGate.isCurrent(token) || data.conversation.id !== conversationId) return;
+			if (activeArtifactSummary?.id !== summary.id || activeArtifactSummary.revisionId !== summary.revisionId) return;
+			activeCanvasArtifact = artifactUnavailablePlaceholder(summary);
 		}
+	}
+
+	function retryArtifact(): void {
+		const summary = activeArtifactSummary;
+		if (summary) void openArtifact(summary);
+	}
+
+	function closeArtifactCanvas(): void {
+		artifactRequestGate.invalidate();
+		activeArtifactSummary = null;
+		activeCanvasArtifact = null;
 	}
 
 	async function handleDocumentUpload(file: File, controls: DocumentUploadControls) {
@@ -1283,6 +1344,9 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		}
 		return () => {
 			window.removeEventListener('hashchange', onHashChange);
+			artifactRequestGate.invalidate();
+			activeArtifactSummary = null;
+			activeCanvasArtifact = null;
 			for (const controller of historyAbortControllers) controller.abort();
 			historyAbortControllers.clear();
 			chat.setCancelHandler(null);
@@ -1312,6 +1376,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		activeRunCursor = 0;
 		activeRunStatus = null;
 		activeArtifact = null;
+		artifactRequestGate.invalidate();
+		activeArtifactSummary = null;
 		activeCanvasArtifact = null;
 		artifactOpen = false;
 		for (const controller of historyAbortControllers) controller.abort();
@@ -1387,7 +1453,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		<ArtifactCanvas
 			artifact={activeCanvasArtifact}
 			conversationId={data.conversation.id}
-			onClose={() => (activeCanvasArtifact = null)}
+			onClose={closeArtifactCanvas}
+			onRetry={retryArtifact}
 		/>
 	{/if}
 	{#if artifactOpen && activeArtifact}

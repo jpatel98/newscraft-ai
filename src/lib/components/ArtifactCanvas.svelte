@@ -17,8 +17,8 @@
 		validatedSourceUrl
 	} from '$lib/utils/artifact-presentation';
 
-	interface Props { artifact: ArtifactDetail; conversationId: string; onClose: () => void; }
-	let { artifact, conversationId, onClose }: Props = $props();
+	interface Props { artifact: ArtifactDetail; conversationId: string; onClose: () => void; onRetry?: () => void; }
+	let { artifact, conversationId, onClose, onRetry }: Props = $props();
 	let canvas = $state<HTMLElement | null>(null);
 	let tableOpen = $state(false);
 	let selectedSeries = $state(new Set<string>());
@@ -211,7 +211,7 @@
 		{#if artifact.status === 'publishing' || artifact.status === 'draft'}
 			<div class="canvas-state" role="status">Preparing this artifact. The written answer remains available.</div>
 		{:else if artifact.status === 'failed' || artifact.status === 'cancelled' || artifact.status === 'missing'}
-			<div class="canvas-state canvas-state--error" role="alert">{artifact.error?.message ?? 'This preview is unavailable. The written answer remains available.'}</div>
+			<div class="canvas-state canvas-state--error" role="alert"><span>{artifact.error?.message ?? 'This preview is unavailable. The written answer remains available.'}</span>{#if onRetry}<button type="button" class="canvas-state__retry" onclick={onRetry}>Try again</button>{/if}</div>
 		{:else}
 			<div class="canvas-toolbar">
 				<span>{chart?.unit ?? (map?.subtitle ?? '')}</span>
@@ -309,8 +309,9 @@
 	.canvas-toolbar__actions, .map-controls { display: flex; flex-wrap: wrap; gap: 6px; }
 	.canvas-toolbar button, .map-controls button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 9px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--bg-page); color: var(--fg-2); font: 10px var(--font-mono); cursor: pointer; }
 	.canvas-body { min-width: 0; min-height: 0; overflow: auto; padding: 4px 20px 20px; }
-	.canvas-state { margin: 16px 20px; padding: 12px; border: 1px solid var(--border-default); border-radius: 8px; color: var(--fg-2); font-size: 13px; }
+	.canvas-state { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 20px; padding: 12px; border: 1px solid var(--border-default); border-radius: 8px; color: var(--fg-2); font-size: 13px; }
 	.canvas-state--error { border-color: color-mix(in srgb, #b42318 30%, var(--border-default)); color: #9b2c2c; }
+	.canvas-state__retry { flex: 0 0 auto; min-height: 28px; padding: 0 9px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; font: 10px var(--font-mono); cursor: pointer; }
 	.legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
 	.legend button { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--border-soft); border-radius: 6px; background: var(--bg-page); color: var(--fg-2); font: 10px var(--font-mono); cursor: pointer; }
 	.legend span { width: 8px; height: 8px; border-radius: 50%; background: var(--series-color); }

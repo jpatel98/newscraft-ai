@@ -872,7 +872,9 @@ export async function getArtifactDetail(accountId: string, conversationId: strin
 		 a.id AS asset_id, a.role AS asset_role, a.mime_type AS asset_mime_type, a.size_bytes AS asset_size_bytes,
 		 a.checksum_sha256 AS asset_checksum_sha256, a.width AS asset_width, a.height AS asset_height,
 		 a.object_version AS asset_object_version
-		FROM artifact_families f JOIN artifact_revisions r ON r.family_id = f.id
+		FROM artifact_families f
+		JOIN conversations c ON c.id = f.conversation_id AND c.account_id = ${accountId}
+		JOIN artifact_revisions r ON r.family_id = f.id
 		LEFT JOIN artifact_assets a ON a.revision_id = r.id
 		WHERE f.account_id = ${accountId} AND f.conversation_id = ${conversationId} AND f.id = ${artifactId}
 		${revisionId ? sql`AND r.id = ${revisionId}` : sql`AND r.id = f.latest_revision_id`}

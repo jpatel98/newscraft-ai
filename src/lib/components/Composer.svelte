@@ -8,6 +8,7 @@
 	import X from 'lucide-svelte/icons/x';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { filterSlashCommands, parseSlashCommand } from '$lib/utils/slash';
+	import { localAgentCommands } from '$lib/utils/agent-commands';
 	import {
 		composerDraftStorageKey,
 		readComposerDraft,
@@ -76,8 +77,8 @@
 	let attachments = $state<Attachment[]>([]);
 	let dropActive = $state(false);
 	let attachError = $state<string | null>(null);
-	let commands = $state<AgentCommand[]>([]);
-	let commandsLoaded = $state(false);
+	let commands = $state<AgentCommand[]>(localAgentCommands());
+	let commandsLoaded = $state(true);
 	let slashIndex = $state(0);
 	let slashMenu: HTMLDivElement | undefined = $state();
 	let mounted = $state(false);
@@ -136,15 +137,6 @@
 		mounted = true;
 		hydrateDraft();
 		autosize();
-		fetch('/api/agent/commands')
-			.then((r) => (r.ok ? r.json() : { commands: [] }))
-			.then((j: { commands?: AgentCommand[] }) => {
-				commands = j.commands ?? [];
-				commandsLoaded = true;
-			})
-			.catch(() => {
-				commandsLoaded = true;
-			});
 	});
 
 	$effect(() => {
