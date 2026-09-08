@@ -12,6 +12,16 @@ const testDatabaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
 const configuredDatabaseUrl = testDatabaseUrl || env.DATABASE_URL;
 const databaseUrl = configuredDatabaseUrl || 'postgres://invalid:invalid@127.0.0.1:1/invalid';
 const poolMax = Number.parseInt(env.DATABASE_POOL_MAX || '', 10);
+
+export function configuredDatabaseHostname(): string | null {
+	if (!configuredDatabaseUrl) return null;
+	try {
+		return new URL(configuredDatabaseUrl).hostname || null;
+	} catch {
+		return null;
+	}
+}
+
 export const DEFAULT_ORGANIZATION_ID = 'org_default';
 const DEFAULT_ORGANIZATION_NAME = 'Newsroom';
 

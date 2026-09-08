@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { SESSION_COOKIE_MAX_AGE } from '$lib/server/auth/cookie';
 import { newId } from '$lib/utils/id';
-import { db } from './index';
+import { configuredDatabaseHostname, db } from './index';
 import { sessions } from './schema';
 
 export const SESSION_TTL_MS = SESSION_COOKIE_MAX_AGE * 1000;
@@ -19,18 +19,26 @@ export interface SessionRow {
 export type SessionState = 'active' | 'missing' | 'revoked' | 'expired' | 'account_mismatch';
 
 const MAX_DATABASE_ERROR_CAUSES = 4;
+const DNS_HOSTNAME_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 
-function safeDatabaseErrorChain(error: unknown): Array<{ name: string; code: string | null }> {
-	const chain: Array<{ name: string; code: string | null }> = [];
+function safeDnsHostname(value: unknown): string | null {
+	if (typeof value !== 'string') return null;
+	const hostname = value.trim().replace(/\.$/u, '').toLowerCase();
+	return DNS_HOSTNAME_RE.test(hostname) ? hostname : null;
+}
+
+function safeDatabaseErrorChain(error: unknown): Array<{ name: string; code: string | null; hostname: string | null }> {
+	const chain: Array<{ name: string; code: string | null; hostname: string | null }> = [];
 	const seen = new Set<object>();
 	let current: unknown = error;
 	while (chain.length < MAX_DATABASE_ERROR_CAUSES && current && typeof current === 'object') {
 		if (seen.has(current)) break;
 		seen.add(current);
-		const value = current as { name?: unknown; code?: unknown; cause?: unknown };
+		const value = current as { name?: unknown; code?: unknown; hostname?: unknown; cause?: unknown };
 		chain.push({
 			name: typeof value.name === 'string' ? value.name.slice(0, 64) : 'unknown',
-			code: typeof value.code === 'string' ? value.code.slice(0, 32) : null
+			code: typeof value.code === 'string' ? value.code.slice(0, 32) : null,
+			hostname: safeDnsHostname(value.hostname)
 		});
 		current = value.cause;
 	}
@@ -66,7 +74,8 @@ export async function getActiveSession(
 		// Keep diagnostics useful for remote connection failures without logging
 		// SQL, parameters, session identifiers, DSNs, or error messages.
 		console.warn('[newscraft] active session lookup failed', {
-			errorChain: safeDatabaseErrorChain(error)
+			errorChain: safeDatabaseErrorChain(error),
+			configuredHostname: safeDnsHostname(configuredDatabaseHostname())
 		});
 		throw error;
 	}
