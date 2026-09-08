@@ -18,6 +18,25 @@ export interface SessionRow {
 
 export type SessionState = 'active' | 'missing' | 'revoked' | 'expired' | 'account_mismatch';
 
+const MAX_DATABASE_ERROR_CAUSES = 4;
+
+function safeDatabaseErrorChain(error: unknown): Array<{ name: string; code: string | null }> {
+	const chain: Array<{ name: string; code: string | null }> = [];
+	const seen = new Set<object>();
+	let current: unknown = error;
+	while (chain.length < MAX_DATABASE_ERROR_CAUSES && current && typeof current === 'object') {
+		if (seen.has(current)) break;
+		seen.add(current);
+		const value = current as { name?: unknown; code?: unknown; cause?: unknown };
+		chain.push({
+			name: typeof value.name === 'string' ? value.name.slice(0, 64) : 'unknown',
+			code: typeof value.code === 'string' ? value.code.slice(0, 32) : null
+		});
+		current = value.cause;
+	}
+	return chain;
+}
+
 export async function createSession(accountId: string, now = Date.now()): Promise<SessionRow> {
 	const row: SessionRow = {
 		id: newId(),
@@ -36,11 +55,21 @@ export async function getActiveSession(
 	accountId: string,
 	now = Date.now()
 ): Promise<SessionRow | null> {
-	const [row] = (await db
-		.select()
-		.from(sessions)
-		.where(eq(sessions.id, sessionId))
-		.limit(1)) as SessionRow[];
+	let row: SessionRow | undefined;
+	try {
+		[row] = (await db
+			.select()
+			.from(sessions)
+			.where(eq(sessions.id, sessionId))
+			.limit(1)) as SessionRow[];
+	} catch (error) {
+		// Keep diagnostics useful for remote connection failures without logging
+		// SQL, parameters, session identifiers, DSNs, or error messages.
+		console.warn('[newscraft] active session lookup failed', {
+			errorChain: safeDatabaseErrorChain(error)
+		});
+		throw error;
+	}
 	if (sessionRowState(row, accountId, now) !== 'active') return null;
 	if (!row.lastSeenAt || now - row.lastSeenAt >= LAST_SEEN_WRITE_INTERVAL_MS) {
 		await db.update(sessions).set({ lastSeenAt: now }).where(eq(sessions.id, sessionId));
