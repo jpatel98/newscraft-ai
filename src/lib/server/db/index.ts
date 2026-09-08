@@ -17,6 +17,9 @@ const DEFAULT_ORGANIZATION_NAME = 'Newsroom';
 
 export const sql = postgres(databaseUrl, {
 	max: Number.isFinite(poolMax) && poolMax > 0 ? poolMax : 5,
+	// Reap idle sockets before a remote/Vercel connection can go stale. This
+	// bounds the first-query-after-idle failure without retrying mutations.
+	idle_timeout: 5,
 	prepare: false,
 	onnotice: () => {}
 });
