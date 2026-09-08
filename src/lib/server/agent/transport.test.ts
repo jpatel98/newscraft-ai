@@ -1343,6 +1343,17 @@ describe('Hermes chat transport', () => {
 		await expect(gatewayHealth()).resolves.toMatchObject({ ok: true, status: 200 });
 	});
 
+	it('uses a bounded five-second timeout for cold gateway readiness probes', async () => {
+		const timeout = vi.spyOn(AbortSignal, 'timeout');
+		const fetchMock = vi.fn().mockResolvedValue(isolationReadyResponse());
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(gatewayHealth()).resolves.toMatchObject({ ok: true, status: 200 });
+		expect(timeout).toHaveBeenCalledWith(5_000);
+		expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ signal: expect.any(AbortSignal) }));
+		timeout.mockRestore();
+	});
+
 	it('fails closed when Hermes configuration is missing', async () => {
 		delete process.env.NEWSCRAFT_HERMES_URL;
 		const fetchMock = vi.fn();

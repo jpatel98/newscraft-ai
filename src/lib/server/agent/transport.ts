@@ -79,6 +79,9 @@ interface BuiltRunInput {
 
 const DEFAULT_MODEL = 'hermes-chat';
 const SERVICE_NAME = 'newscraft-hermes-chat';
+// A cold HTTPS/Tailscale Funnel hop can exceed two seconds while healthy
+// requests are still well within a short readiness probe budget.
+const HERMES_HEALTH_TIMEOUT_MS = 5_000;
 const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
 const CITATION_SOURCE_TYPES = new Set([
 	'official',
@@ -1175,7 +1178,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 	try {
 		const response = await fetch(`${configuredUrl}/ready`, {
 			headers: { authorization: `Bearer ${token}`, 'x-hermes-session-token': token },
-			signal: AbortSignal.timeout(2_000)
+			signal: AbortSignal.timeout(HERMES_HEALTH_TIMEOUT_MS)
 		});
 		const body = await response.text();
 		const parsed = parseJson(body);
