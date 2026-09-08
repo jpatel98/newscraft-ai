@@ -305,6 +305,38 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(clients[0].closed)
             self.assertEqual(worker._control_clients, set())
 
+    async def test_artifact_revision_validation_detail_is_returned_to_the_model(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+
+            def responder(_client: RecordingClient, _method: str, _url: str, _headers: dict[str, str], _body: Any):
+                return FakeResponse(409, {"code": "invalid_spec", "detail": "chartType is unsupported"})
+
+            client = RecordingClient("artifact-validation", responder)
+            with patch.object(durable_module.httpx, "AsyncClient", return_value=client):
+                with self.assertRaises(DurableRunError) as context:
+                    await worker._newscraft("POST", "/run-1/artifacts/revisions", {})
+
+            self.assertEqual(context.exception.status_code, 409)
+            self.assertEqual(context.exception.code, "invalid_spec")
+            self.assertEqual(str(context.exception), "Artifact specification rejected: chartType is unsupported")
+            self.assertTrue(client.closed)
+
+    async def test_artifact_revision_does_not_forward_untrusted_validation_details(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+
+            def responder(_client: RecordingClient, _method: str, _url: str, _headers: dict[str, str], _body: Any):
+                return FakeResponse(409, {"code": "invalid_spec", "detail": "postgres://secret"})
+
+            client = RecordingClient("artifact-validation", responder)
+            with patch.object(durable_module.httpx, "AsyncClient", return_value=client):
+                with self.assertRaises(DurableRunError) as context:
+                    await worker._newscraft("POST", "/run-1/artifacts/revisions", {})
+
+            self.assertEqual(str(context.exception), "NewsCraft durable run request failed (409)")
+            self.assertTrue(client.closed)
+
     async def test_timeout_closes_unscoped_client(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             worker = self._worker(root)

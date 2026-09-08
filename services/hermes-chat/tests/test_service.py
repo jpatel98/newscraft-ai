@@ -610,6 +610,38 @@ class HermesChatServiceTests(unittest.TestCase):
             thread_id="thread-context",
         )
 
+    def test_artifact_registry_schema_describes_each_supported_spec_shape(self) -> None:
+        captured: dict[str, object] = {}
+
+        class Registry:
+            def register(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+        registry_module = ModuleType("tools.registry")
+        registry_module.registry = Registry()
+        worker = SimpleNamespace(publish_artifact_from_tool=AsyncMock())
+
+        with patch.dict(sys.modules, {"tools.registry": registry_module}):
+            _register_artifact_tool(worker)
+
+        schema = captured["schema"]
+        self.assertIsInstance(schema, dict)
+        parameters = schema["parameters"]  # type: ignore[index]
+        spec = parameters["properties"]["spec"]  # type: ignore[index]
+        variants = {
+            variant["properties"]["kind"]["enum"][0]
+            for variant in spec["oneOf"]
+        }
+        self.assertEqual(variants, {"chart", "table", "image", "markdown", "map"})
+        self.assertEqual(
+            next(variant for variant in spec["oneOf"] if variant["title"] == "Chart artifact")["required"],
+            ["kind", "title", "chartType", "series"],
+        )
+        self.assertIn("series[].points[]", spec["description"])
+        self.assertIn("do not use Vega-Lite", schema["description"])
+        self.assertIn("Required for image specs", parameters["properties"]["path"]["description"])
+        self.assertEqual(len(spec["examples"]), 5)
+
     def test_artifact_registry_handler_without_context_uses_only_registry_kwargs(self) -> None:
         captured: dict[str, object] = {}
 

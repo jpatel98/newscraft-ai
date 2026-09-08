@@ -1403,6 +1403,211 @@ def _install_tenant_runtime(
     _install_tenant_run_scope(agui_server, settings, auxiliary_tasks, runtime_template, isolation)
 
 
+def _artifact_source_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "minLength": 1, "maxLength": 160},
+            "label": {"type": "string", "minLength": 1, "maxLength": 200},
+            "url": {"type": "string", "maxLength": 2000},
+            "period": {"type": "string", "maxLength": 120},
+            "publicationDate": {"anyOf": [{"type": "string", "maxLength": 80}, {"type": "null"}]},
+            "updatedAt": {"anyOf": [{"type": "string", "maxLength": 80}, {"type": "null"}]},
+        },
+        "required": ["id", "label"],
+        "additionalProperties": False,
+    }
+
+
+def _artifact_spec_schema() -> dict[str, Any]:
+    source = _artifact_source_schema()
+    point = {
+        "type": "object",
+        "properties": {
+            "period": {"type": "string", "minLength": 1, "maxLength": 120},
+            "value": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+            "status": {"enum": ["observed", "missing", "estimated"]},
+            "sourceId": {"type": "string", "maxLength": 160},
+        },
+        "required": ["period", "value"],
+        "additionalProperties": False,
+    }
+    series = {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "minLength": 1, "maxLength": 80},
+            "label": {"type": "string", "minLength": 1, "maxLength": 120},
+            "unit": {"type": "string", "maxLength": 80},
+            "color": {
+                "type": "string",
+                "pattern": "^(?:#[0-9a-fA-F]{3,8}|[A-Za-z]{1,32})$",
+            },
+            "points": {"type": "array", "maxItems": 5000, "items": point},
+        },
+        "required": ["id", "label", "points"],
+        "additionalProperties": False,
+    }
+    chart = {
+        "type": "object",
+        "title": "Chart artifact",
+        "description": "Use chartType plus one or more series of period/value points. This is not Vega-Lite.",
+        "properties": {
+            "kind": {"enum": ["chart"]},
+            "title": {"type": "string", "minLength": 1, "maxLength": 200},
+            "subtitle": {"type": "string", "maxLength": 240},
+            "chartType": {"enum": ["line", "bar", "area", "scatter"]},
+            "unit": {"type": "string", "maxLength": 80},
+            "series": {"type": "array", "minItems": 1, "maxItems": 12, "items": series},
+            "sources": {"type": "array", "maxItems": 64, "items": source},
+        },
+        "required": ["kind", "title", "chartType", "series"],
+        "additionalProperties": False,
+    }
+    table = {
+        "type": "object",
+        "title": "Table artifact",
+        "description": "Columns define the allowed row keys; each cell is text, number, or null.",
+        "properties": {
+            "kind": {"enum": ["table"]},
+            "title": {"type": "string", "minLength": 1, "maxLength": 200},
+            "columns": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 32,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "minLength": 1, "maxLength": 80},
+                        "label": {"type": "string", "minLength": 1, "maxLength": 120},
+                        "type": {"enum": ["text", "number", "date"]},
+                    },
+                    "required": ["id", "label"],
+                    "additionalProperties": False,
+                },
+            },
+            "rows": {
+                "type": "array",
+                "maxItems": 5000,
+                "items": {
+                    "type": "object",
+                    "description": "Use the column ids as row keys.",
+                    "additionalProperties": {
+                        "anyOf": [{"type": "string", "maxLength": 2000}, {"type": "number"}, {"type": "null"}]
+                    },
+                },
+            },
+            "sources": {"type": "array", "maxItems": 64, "items": source},
+        },
+        "required": ["kind", "title", "columns", "rows"],
+        "additionalProperties": False,
+    }
+    image = {
+        "type": "object",
+        "title": "Image artifact",
+        "description": "The image bytes are supplied through the outer path, mime_type, size, and checksum_sha256 arguments.",
+        "properties": {
+            "kind": {"enum": ["image"]},
+            "title": {"type": "string", "minLength": 1, "maxLength": 200},
+            "alt": {"type": "string", "minLength": 1, "maxLength": 400},
+            "caption": {"type": "string", "maxLength": 400},
+            "sources": {"type": "array", "maxItems": 64, "items": source},
+        },
+        "required": ["kind", "title", "alt"],
+        "additionalProperties": False,
+    }
+    markdown = {
+        "type": "object",
+        "title": "Markdown artifact",
+        "description": "Use safe Markdown text; scripts, embeds, and javascript URLs are rejected.",
+        "properties": {
+            "kind": {"enum": ["markdown"]},
+            "title": {"type": "string", "minLength": 1, "maxLength": 200},
+            "markdown": {"type": "string", "minLength": 1, "maxLength": 32000},
+            "sources": {"type": "array", "maxItems": 64, "items": source},
+        },
+        "required": ["kind", "title", "markdown"],
+        "additionalProperties": False,
+    }
+    coordinate = {
+        "type": "array",
+        "description": "[longitude, latitude], with longitude -180..180 and latitude -90..90.",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {"type": "number"},
+    }
+    geometry = {
+        "oneOf": [
+            {"type": "object", "properties": {"type": {"enum": ["Point"]}, "coordinates": coordinate}, "required": ["type", "coordinates"], "additionalProperties": False},
+            {"type": "object", "properties": {"type": {"enum": ["LineString"]}, "coordinates": {"type": "array", "minItems": 2, "maxItems": 1000, "items": coordinate}}, "required": ["type", "coordinates"], "additionalProperties": False},
+            {"type": "object", "properties": {"type": {"enum": ["Polygon"]}, "coordinates": {"type": "array", "maxItems": 100, "items": {"type": "array", "maxItems": 1000, "items": coordinate}}}, "required": ["type", "coordinates"], "additionalProperties": False},
+        ]
+    }
+    map_spec = {
+        "type": "object",
+        "title": "Map artifact",
+        "description": "Use GeoJSON-like Point, LineString, or Polygon features with bounded coordinates.",
+        "properties": {
+            "kind": {"enum": ["map"]},
+            "title": {"type": "string", "minLength": 1, "maxLength": 200},
+            "subtitle": {"type": "string", "maxLength": 240},
+            "features": {
+                "type": "array",
+                "maxItems": 2000,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {"enum": ["Feature"]},
+                        "properties": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "maxLength": 120},
+                                "label": {"type": "string", "maxLength": 200},
+                                "layer": {"type": "string", "maxLength": 80},
+                            },
+                            "additionalProperties": False,
+                        },
+                        "geometry": geometry,
+                    },
+                    "required": ["type", "geometry"],
+                    "additionalProperties": False,
+                },
+            },
+            "layers": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "minLength": 1, "maxLength": 80},
+                        "label": {"type": "string", "minLength": 1, "maxLength": 120},
+                        "visible": {"type": "boolean"},
+                    },
+                    "required": ["id", "label"],
+                    "additionalProperties": False,
+                },
+            },
+            "sources": {"type": "array", "maxItems": 64, "items": source},
+        },
+        "required": ["kind", "title", "features"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "description": (
+            "Use exactly one supported NewsCraft artifact form. Do not send Vega-Lite or another arbitrary chart schema. "
+            "Charts use chartType and series[].points[]; images use the outer workspace file arguments."
+        ),
+        "oneOf": [chart, table, image, markdown, map_spec],
+        "examples": [
+            {"kind": "chart", "title": "Alpha and Beta", "chartType": "bar", "series": [{"id": "alpha", "label": "Alpha", "points": [{"period": "2026", "value": 3}]}, {"id": "beta", "label": "Beta", "points": [{"period": "2026", "value": 5}]}]},
+            {"kind": "table", "title": "Scores", "columns": [{"id": "name", "label": "Name", "type": "text"}, {"id": "score", "label": "Score", "type": "number"}], "rows": [{"name": "Alpha", "score": 3}]},
+            {"kind": "image", "title": "Generated chart", "alt": "A bar chart of Alpha and Beta"},
+            {"kind": "markdown", "title": "Key finding", "markdown": "## Finding\n\nAlpha scored **3**."},
+            {"kind": "map", "title": "Locations", "features": [{"type": "Feature", "properties": {"label": "Toronto"}, "geometry": {"type": "Point", "coordinates": [-79.38, 43.65]}}]},
+        ],
+    }
+
+
 def _register_artifact_tool(durable_worker: DurableRunWorker) -> None:
     """Expose the real server-backed artifact capability to Hermes ACP.
 
@@ -1436,24 +1641,21 @@ def _register_artifact_tool(durable_worker: DurableRunWorker) -> None:
             "description": (
                 "Publish a bounded chart, table, map, markdown, or image artifact in the current "
                 "NewsCraft answer. The server binds it to this answer and emits a live artifact card. "
-                "For an image, provide a virtual workspace path plus exact MIME, byte size, and SHA-256."
+                "Use the exact spec schema and examples; do not use Vega-Lite. For an image, provide a "
+                "virtual workspace path plus exact MIME, byte size, and SHA-256."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "spec": {
-                        "type": "object",
-                        "description": "Validated artifact specification; do not include account or message ids.",
-                        "additionalProperties": True,
-                    },
+                    "spec": _artifact_spec_schema(),
                     "title": {"type": "string", "description": "Optional display title."},
                     "path": {
                         "type": "string",
-                        "description": "Image path in the active virtual workspace (for example /workspace/chart.png), never a host path.",
+                        "description": "Required for image specs: path in the active virtual workspace (for example /workspace/chart.png), never a host path.",
                     },
-                    "mime_type": {"type": "string", "enum": ["image/png", "image/jpeg"]},
-                    "size": {"type": "integer", "minimum": 1, "maximum": 20971520},
-                    "checksum_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+                    "mime_type": {"type": "string", "enum": ["image/png", "image/jpeg"], "description": "Required for image specs."},
+                    "size": {"type": "integer", "minimum": 1, "maximum": 20971520, "description": "Required image byte size, matching the workspace file exactly."},
+                    "checksum_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$", "description": "Required lowercase or uppercase SHA-256 of the image file."},
                 },
                 "required": ["spec"],
                 "additionalProperties": False,

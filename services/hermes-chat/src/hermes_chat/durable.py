@@ -44,6 +44,8 @@ TEXT_BATCH_MAX_CHARS = 4_096
 TEXT_BATCH_FLUSH_INTERVAL_SECONDS = 0.05
 TEXT_EVENT_TYPE = "response.output_text.delta"
 TRACE_ID_RE = r"^[A-Za-z0-9._-]{8,128}$"
+_ARTIFACT_VALIDATION_CODES = frozenset({"invalid_spec", "spec_too_large"})
+_ARTIFACT_DETAIL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .,:'_()/+\-]{0,239}")
 
 _CURRENT_NEWSCRAFT_CLIENT: contextvars.ContextVar[httpx.AsyncClient | None] = contextvars.ContextVar(
     "newscraft_control_client",
@@ -105,6 +107,15 @@ class DurableRunError(RuntimeError):
         super().__init__(message)
         self.status_code = status_code
         self.code = code
+
+
+def _bounded_artifact_validation_detail(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    detail = " ".join(value.split())
+    if "://" in detail:
+        return None
+    return detail if _ARTIFACT_DETAIL_RE.fullmatch(detail) else None
 
 
 def _string(value: Any, label: str) -> str:
@@ -752,16 +763,23 @@ class DurableRunWorker:
                 await self._close_http_client(client)
         if response.status_code >= 400:
             code: str | None = None
+            error_body: dict[str, Any] | None = None
             try:
-                error_body = response.json()
+                parsed_body = response.json()
+                error_body = parsed_body if isinstance(parsed_body, dict) else None
                 if isinstance(error_body, dict) and isinstance(error_body.get("code"), str):
                     code = error_body["code"]
             except ValueError:
                 pass
             if code is None:
                 code = "callback" if path.endswith(NEWSCRAFT_RUN_CALLBACK_PATH) else "network"
+            message = f"NewsCraft durable run request failed ({response.status_code})"
+            if path.endswith("/artifacts/revisions") and code in _ARTIFACT_VALIDATION_CODES:
+                detail = _bounded_artifact_validation_detail(error_body.get("detail") if error_body else None)
+                if detail:
+                    message = f"Artifact specification rejected: {detail}"
             raise DurableRunError(
-                f"NewsCraft durable run request failed ({response.status_code})",
+                message,
                 response.status_code,
                 code,
             )
