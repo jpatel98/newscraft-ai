@@ -13,6 +13,8 @@ import {
 	type CitationRecord,
 	type RetrievalProvenance
 } from '@newscraft/shared';
+import { boundedNetworkError, safeNetworkHostname } from '$lib/server/network/diagnostics';
+import { fetchWithNewsCraftDns } from '$lib/server/network/http';
 
 export type AgentContentPart = GatewayContentPart;
 export type AgentContent = GatewayContent;
@@ -942,7 +944,7 @@ export async function streamChatCompletion(
 		[],
 		traceId
 	);
-	const response = await fetch(`${hermesUrl()}/`, {
+	const response = await fetchWithNewsCraftDns(`${hermesUrl()}/`, {
 		method: 'POST',
 		headers: { ...requestHeaders({ ...opts, traceId }), 'x-hermes-session-id': sessionId },
 		body: JSON.stringify(run.input),
@@ -1004,7 +1006,7 @@ export async function startDurableHermesRun(input: DurableHermesRunStartRequest)
 	if (input.input.trace_id !== undefined && (!inputTraceId || !traceId || inputTraceId !== traceId)) {
 		throw new Error('Hermes durable trace binding does not match.');
 	}
-	const response = await fetch(`${hermesUrl()}/v1/runs/start`, {
+	const response = await fetchWithNewsCraftDns(`${hermesUrl()}/v1/runs/start`, {
 		method: 'POST',
 		headers: { ...requestHeaders({ accountId: input.accountId, traceId }), 'content-type': 'application/json' },
 		body: JSON.stringify({
@@ -1039,7 +1041,7 @@ export async function cancelDurableHermesRun(
 	traceId?: string
 ): Promise<{ state: string }> {
 	const normalizedTraceId = traceHeader(traceId);
-	const response = await fetch(`${hermesUrl()}/v1/runs/${encodeURIComponent(runId)}/cancel`, {
+	const response = await fetchWithNewsCraftDns(`${hermesUrl()}/v1/runs/${encodeURIComponent(runId)}/cancel`, {
 		method: 'POST',
 		headers: requestHeaders({ accountId, traceId: normalizedTraceId }),
 		body: JSON.stringify({
@@ -1176,7 +1178,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 		};
 	}
 	try {
-		const response = await fetch(`${configuredUrl}/ready`, {
+		const response = await fetchWithNewsCraftDns(`${configuredUrl}/ready`, {
 			headers: { authorization: `Bearer ${token}`, 'x-hermes-session-token': token },
 			signal: AbortSignal.timeout(HERMES_HEALTH_TIMEOUT_MS)
 		});
@@ -1255,6 +1257,13 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			url: configuredUrl
 		};
 	} catch (error) {
+		let configuredHostname: string | null = null;
+		try {
+			configuredHostname = safeNetworkHostname(new URL(configuredUrl).hostname);
+		} catch {
+			/* Keep malformed configuration out of diagnostics. */
+		}
+		console.warn('[newscraft] Hermes health check failed', boundedNetworkError(error, configuredHostname));
 		return {
 			ok: false,
 			requiredReady: false,

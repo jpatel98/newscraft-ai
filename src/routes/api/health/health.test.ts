@@ -4,7 +4,7 @@ const dbMocks = vi.hoisted(() => ({ sql: vi.fn() }));
 const gatewayMocks = vi.hoisted(() => ({ gatewayHealth: vi.fn() }));
 const documentMocks = vi.hoisted(() => ({ getConversationDocumentService: vi.fn() }));
 
-vi.mock('$lib/server/db', () => ({ sql: dbMocks.sql }));
+vi.mock('$lib/server/db', () => ({ sql: dbMocks.sql, configuredDatabaseHostname: () => 'db.example.test' }));
 vi.mock('$lib/server/agent/transport', () => ({ gatewayHealth: gatewayMocks.gatewayHealth }));
 vi.mock('$lib/server/documents/runtime', () => ({
 	getConversationDocumentService: documentMocks.getConversationDocumentService

@@ -1,7 +1,8 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { sql } from '$lib/server/db';
+import { configuredDatabaseHostname, sql } from '$lib/server/db';
 import { gatewayHealth, type GatewayHealth } from '$lib/server/agent/transport';
 import { getConversationDocumentService } from '$lib/server/documents/runtime';
+import { boundedNetworkError } from '$lib/server/network/diagnostics';
 
 type ComponentState = 'ready' | 'degraded' | 'unavailable' | 'unknown';
 
@@ -41,7 +42,11 @@ async function appHealth(): Promise<{ ok: boolean; database: 'postgres' }> {
 	try {
 		await sql`SELECT 1`;
 		return { ok: true, database: 'postgres' };
-	} catch {
+	} catch (error) {
+		console.warn(
+			'[newscraft] app health database check failed',
+			boundedNetworkError(error, configuredDatabaseHostname())
+		);
 		return { ok: false, database: 'postgres' };
 	}
 }

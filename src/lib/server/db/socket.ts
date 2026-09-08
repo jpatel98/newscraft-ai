@@ -47,6 +47,15 @@ export interface DatabaseSocketFactoryOptions {
 	now?: () => number;
 }
 
+export interface Ipv4ResolutionOptions {
+	/** Cap the complete default and public-resolver lookup sequence. */
+	timeoutMs?: number;
+	/** Dependency seams keep DNS behavior deterministic in tests. */
+	resolve4?: (hostname: string) => Promise<string[]>;
+	createResolver?: () => ResolverLike;
+	now?: () => number;
+}
+
 export interface ParsedDatabaseUrl extends DatabaseEndpoint {
 	strictTls: boolean;
 	directTls: boolean;
@@ -106,7 +115,8 @@ export function createDatabaseSocketFactory(
 		} catch (error) {
 			if (!isDnsLookupError(error)) throw error;
 
-			const addresses = await resolveAddresses(endpoint.hostname, deadline, {
+			const addresses = await resolveIpv4WithFallback(endpoint.hostname, {
+				timeoutMs: remaining(deadline, now),
 				resolve4,
 				createResolver,
 				now
@@ -125,6 +135,27 @@ export function createDatabaseSocketFactory(
 			throw lastError;
 		}
 	};
+}
+
+/**
+ * Resolve A records with the configured resolver first, then one isolated
+ * public-DNS resolver when the configured resolver reports a DNS failure.
+ * Both attempts share one caller-owned deadline and no global resolver state
+ * is changed.
+ */
+export async function resolveIpv4WithFallback(
+	hostname: string,
+	options: Ipv4ResolutionOptions = {}
+): Promise<string[]> {
+	const now = options.now ?? Date.now;
+	const timeoutMs = normalizeResolutionTimeout(options.timeoutMs);
+	if (timeoutMs <= 0) throw socketTimeoutError(hostname, timeoutMs);
+	const resolve4 = options.resolve4 ?? ((value: string) => dns.resolve4(value));
+	const createResolver =
+		options.createResolver ??
+		(() => new dns.Resolver({ timeout: FALLBACK_DNS_TIMEOUT_MS, tries: FALLBACK_DNS_TRIES }));
+	const addresses = await resolveAddresses(hostname, now() + timeoutMs, { resolve4, createResolver, now });
+	return uniqueIpv4(addresses);
 }
 
 /**
@@ -182,11 +213,7 @@ export function connectWithTimeout(
 async function resolveAddresses(
 	hostname: string,
 	deadline: number,
-	dependencies: {
-		resolve4: (hostname: string) => Promise<string[]>;
-		createResolver: () => ResolverLike;
-		now: () => number;
-	}
+	dependencies: Pick<Required<Ipv4ResolutionOptions>, 'resolve4' | 'createResolver' | 'now'>
 ): Promise<string[]> {
 	const timeoutMs = remaining(deadline, dependencies.now);
 	if (timeoutMs <= 0) throw socketTimeoutError(hostname, 0);
@@ -211,6 +238,11 @@ async function resolveAddresses(
 			throw withCause(fallbackError, error);
 		}
 	}
+}
+
+function normalizeResolutionTimeout(value: number | undefined): number {
+	if (value === undefined) return FALLBACK_DNS_TIMEOUT_MS;
+	return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
 function withTimeout<T>(

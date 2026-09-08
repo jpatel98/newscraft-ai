@@ -1,4 +1,6 @@
 import { isAllowedSignedStorageUrl } from '$lib/server/documents/signed-url';
+import { boundedNetworkError } from '$lib/server/network/diagnostics';
+import { fetchWithNewsCraftDns } from '$lib/server/network/http';
 
 export interface VpsStorageClientOptions {
 	baseUrl: string;
@@ -50,7 +52,7 @@ export class VpsStorageClient {
 		if (baseUrl.search || baseUrl.hash) throw new Error('storage base URL must not contain a query or fragment');
 		if (!baseUrl.pathname.endsWith('/')) baseUrl.pathname += '/';
 		this.baseUrl = baseUrl;
-		this.fetchImpl = options.fetchImpl ?? fetch;
+		this.fetchImpl = options.fetchImpl ?? fetchWithNewsCraftDns;
 		this.allowLoopbackHttp = options.allowLoopbackHttp ?? false;
 	}
 
@@ -167,6 +169,10 @@ export class VpsStorageClient {
 				body: input.body,
 			});
 		} catch (cause) {
+			console.warn(
+				'[newscraft] storage gateway request failed',
+				boundedNetworkError(cause, this.baseUrl.hostname)
+			);
 			throw new VpsStorageError(cause instanceof Error ? cause.message : 'storage gateway request failed');
 		}
 	}
