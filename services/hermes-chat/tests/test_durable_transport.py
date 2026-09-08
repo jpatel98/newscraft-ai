@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -149,6 +150,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             lease_owner=f"owner-{run_id}",
             lease_token=f"lease-{run_id}",
             trace_id=trace_id,
+            owner_loop=asyncio.get_running_loop(),
         )
 
     async def test_artifact_tool_rejects_unscoped_call_even_with_one_leased_job(self) -> None:
@@ -197,6 +199,66 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result, {"artifact": {"id": "artifact-a"}})
             publish.assert_awaited_once()
             self.assertIs(publish.await_args.args[0], first)
+
+    async def test_artifact_tool_marshals_registry_loop_back_to_durable_owner(self) -> None:
+        """A Hermes worker-loop tool must not await owner-loop locks directly."""
+        with tempfile.TemporaryDirectory() as root:
+            owner_loop = asyncio.get_running_loop()
+            worker = self._worker(root)
+            job = self._job("run-a", "tenant_a", "trace_a12345678")
+            job.thread_id = "thread-a"
+            job.lease_acquired = True
+            job.owner_loop = owner_loop
+            worker._owner_loop = owner_loop
+            worker.jobs[job.run_id] = job
+
+            job.control_client = object()  # type: ignore[assignment]
+            callback_client = AsyncMock(return_value={})
+            worker._newscraft = callback_client  # type: ignore[method-assign]
+            publish_loops: list[asyncio.AbstractEventLoop] = []
+            publish_clients: list[Any] = []
+
+            async def publish(job_arg: DurableJob, **_kwargs: Any) -> dict[str, Any]:
+                publish_loops.append(asyncio.get_running_loop())
+                publish_clients.append(durable_module._CURRENT_NEWSCRAFT_CLIENT.get())
+                await worker._callback(job_arg, "artifact.ready", {
+                    "artifact_revision_id": "revision-a",
+                    "artifact": {"id": "artifact-a"},
+                })
+                return {"artifact": {"id": "artifact-a"}}
+
+            publish_mock = AsyncMock(side_effect=publish)
+            thread_started = threading.Event()
+
+            def invoke_from_worker_loop() -> dict[str, Any]:
+                thread_started.set()
+                return asyncio.run(worker.publish_artifact_from_tool(
+                    {"spec": {"kind": "chart", "title": "A", "series": []}},
+                    run_id="run-a",
+                    tenant_key="tenant_a",
+                    task_id="thread-a",
+                ))
+
+            await job.callback_lock.acquire()
+            try:
+                with patch.object(worker, "publish_artifact_spec", publish_mock):
+                    call = asyncio.create_task(asyncio.to_thread(invoke_from_worker_loop))
+                    for _ in range(200):
+                        if thread_started.is_set() and publish_mock.await_count:
+                            break
+                        await asyncio.sleep(0.001)
+                    self.assertTrue(thread_started.is_set())
+                    self.assertEqual(publish_mock.await_count, 1)
+                    job.callback_lock.release()
+                    result = await call
+            finally:
+                if job.callback_lock.locked():
+                    job.callback_lock.release()
+
+            self.assertEqual(result, {"artifact": {"id": "artifact-a"}})
+            self.assertEqual(publish_loops, [owner_loop])
+            self.assertIs(publish_clients[0], job.control_client)
+            callback_client.assert_awaited_once()
 
     def _payload(self, run_id: str = "run-1", tenant_key: str = "tenant_key_1") -> dict[str, Any]:
         return {

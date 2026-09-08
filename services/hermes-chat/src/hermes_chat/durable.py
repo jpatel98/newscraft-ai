@@ -388,6 +388,11 @@ class DurableJob:
     cancel_publish_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     cancel_published: bool = field(default=False, repr=False)
     control_client: httpx.AsyncClient | None = field(default=None, repr=False)
+    # Hermes can invoke a registry tool from a short-lived worker loop.  All
+    # durable job state belongs to the loop that admitted the run; retain that
+    # owner so tool publication can be marshalled back before touching locks or
+    # ContextVars created there.
+    owner_loop: asyncio.AbstractEventLoop | None = field(default=None, repr=False)
 
 
 class DurableRunWorker:
@@ -420,6 +425,14 @@ class DurableRunWorker:
         # One admitted job owns one client. Unscoped recovery/release calls
         # own one-shot clients, and recovery serializes those calls.
         self._control_clients: set[httpx.AsyncClient] = set()
+        # ``create_app`` normally constructs the worker before an ASGI loop
+        # exists; start/recover then bind it. When a caller constructs a worker
+        # inside an already-running loop (as isolated tests do), that loop is
+        # an authoritative owner too. Never infer ownership from a tool loop.
+        try:
+            self._owner_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self._owner_loop = None
         self._closed = False
 
     @property
@@ -663,7 +676,14 @@ class DurableRunWorker:
                     raise ArtifactPublishError("artifact publishing requires one active durable run")
                 raise ArtifactPublishError("artifact run identity is ambiguous")
             job = candidates[0]
-            if job is None or not job.lease_acquired or not job.lease_token:
+            if (
+                job is None
+                or self._closed
+                or job.stop_reason is not None
+                or (job.task is not None and job.task.done())
+                or not job.lease_acquired
+                or not job.lease_token
+            ):
                 raise ArtifactPublishError("artifact publishing is available only during an active durable run")
             if normalized_tenant and job.tenant_key != normalized_tenant:
                 raise ArtifactPublishError("artifact tenant binding does not match")
@@ -678,24 +698,11 @@ class DurableRunWorker:
                 raise ArtifactPublishError("artifact session binding does not match")
             return job
 
-    async def publish_artifact_from_tool(
+    async def _publish_artifact_for_job(
         self,
+        job: DurableJob,
         args: Mapping[str, Any],
-        run_id: str | None = None,
-        tenant_key: str | None = None,
-        *,
-        task_id: str | None = None,
-        session_id: str | None = None,
-        thread_id: str | None = None,
     ) -> dict[str, Any]:
-        """Publish through the active job selected by server infrastructure."""
-        job = await self.resolve_active_job(
-            run_id=run_id,
-            tenant_key=tenant_key,
-            task_id=task_id,
-            session_id=session_id,
-            thread_id=thread_id,
-        )
         spec = args.get("spec") if isinstance(args, Mapping) else None
         if not isinstance(spec, Mapping):
             raise ArtifactPublishError("spec is required")
@@ -709,6 +716,97 @@ class DurableRunWorker:
             size=raw_size if isinstance(raw_size, int) and not isinstance(raw_size, bool) else None,
             checksum_sha256=args.get("checksum_sha256") if isinstance(args.get("checksum_sha256"), str) else None,
         )
+
+    async def _publish_artifact_from_tool_on_owner_loop(
+        self,
+        args: Mapping[str, Any],
+        run_id: str | None = None,
+        tenant_key: str | None = None,
+        *,
+        task_id: str | None = None,
+        session_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Resolve and publish on the loop that owns the durable job.
+
+        ``run_coroutine_threadsafe`` propagates the caller's ContextVars. The
+        active control client is owned by this loop, so explicitly replace the
+        propagated value with the job-scoped client for the duration of the
+        operation (including revision, upload/finalize, and callback calls).
+        """
+        job = await self.resolve_active_job(
+            run_id=run_id,
+            tenant_key=tenant_key,
+            task_id=task_id,
+            session_id=session_id,
+            thread_id=thread_id,
+        )
+        token = _CURRENT_NEWSCRAFT_CLIENT.set(job.control_client)
+        try:
+            return await self._publish_artifact_for_job(job, args)
+        finally:
+            _CURRENT_NEWSCRAFT_CLIENT.reset(token)
+
+    async def publish_artifact_from_tool(
+        self,
+        args: Mapping[str, Any],
+        run_id: str | None = None,
+        tenant_key: str | None = None,
+        *,
+        task_id: str | None = None,
+        session_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Publish through the active job selected by server infrastructure.
+
+        Hermes' registry bridge may run this coroutine in a fresh event loop.
+        Durable jobs, locks, and their control client remain owned by the ASGI
+        loop, so marshal the complete operation before resolving the job.
+        """
+        current_loop = asyncio.get_running_loop()
+        owner_loop = self._owner_loop
+        normalized_run_id = str(run_id or "").strip()
+        # A run-id lookup is only a non-awaiting hint used to select the exact
+        # owner loop. The authoritative identity/lease checks still happen in
+        # resolve_active_job on that loop.
+        if normalized_run_id:
+            job = self.jobs.get(normalized_run_id)
+            if job is not None and job.owner_loop is not None:
+                owner_loop = job.owner_loop
+            elif job is not None and job.task is not None:
+                # Some isolated tests construct a job directly but still
+                # attach its task to the owner loop. Use that authoritative
+                # loop rather than adopting the registry caller's loop.
+                owner_loop = job.task.get_loop()
+        if owner_loop is None:
+            raise ArtifactPublishError("artifact publishing owner loop is unavailable")
+        if owner_loop is current_loop:
+            return await self._publish_artifact_from_tool_on_owner_loop(
+                args,
+                run_id=run_id,
+                tenant_key=tenant_key,
+                task_id=task_id,
+                session_id=session_id,
+                thread_id=thread_id,
+            )
+        if owner_loop.is_closed() or not owner_loop.is_running():
+            raise ArtifactPublishError("artifact publishing owner loop is unavailable")
+        future = asyncio.run_coroutine_threadsafe(
+            self._publish_artifact_from_tool_on_owner_loop(
+                args,
+                run_id=run_id,
+                tenant_key=tenant_key,
+                task_id=task_id,
+                session_id=session_id,
+                thread_id=thread_id,
+            ),
+            owner_loop,
+        )
+        try:
+            return await asyncio.wrap_future(future)
+        except asyncio.CancelledError:
+            future.cancel()
+            raise
 
     def _new_http_client(self) -> httpx.AsyncClient:
         # A client is owned by one durable run or one unscoped control request.
@@ -875,6 +973,9 @@ class DurableRunWorker:
                     )
 
     async def start(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        owner_loop = asyncio.get_running_loop()
+        if self._owner_loop is None or self._owner_loop.is_closed():
+            self._owner_loop = owner_loop
         run_id = _string(payload.get("run_id"), "run_id")
         account_id = _string(payload.get("account_id"), "account_id")
         tenant_key = _string(payload.get("tenant_key"), "tenant_key")
@@ -930,6 +1031,7 @@ class DurableRunWorker:
                     lease_token="",
                     thread_id=thread_id,
                     trace_id=trace_id,
+                    owner_loop=owner_loop,
                 )
                 self.jobs[run_id] = job
                 self._enqueue_locked(job)
@@ -994,6 +1096,11 @@ class DurableRunWorker:
                 self.jobs.pop(job.run_id, None)
 
     async def _admit_and_run(self, job: DurableJob) -> None:
+        owner_loop = asyncio.get_running_loop()
+        if job.owner_loop is None or job.owner_loop.is_closed():
+            job.owner_loop = owner_loop
+        if self._owner_loop is None or self._owner_loop.is_closed():
+            self._owner_loop = owner_loop
         try:
             async with self._control_client_scope(job):
                 try:
@@ -1086,6 +1193,11 @@ class DurableRunWorker:
         await self._run(job)
 
     async def _run_recovered(self, job: DurableJob) -> None:
+        owner_loop = asyncio.get_running_loop()
+        if job.owner_loop is None or job.owner_loop.is_closed():
+            job.owner_loop = owner_loop
+        if self._owner_loop is None or self._owner_loop.is_closed():
+            self._owner_loop = owner_loop
         try:
             async with self._control_client_scope(job):
                 try:
@@ -1104,6 +1216,9 @@ class DurableRunWorker:
             await self._release_slot(job)
 
     async def start_recovered(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        owner_loop = asyncio.get_running_loop()
+        if self._owner_loop is None or self._owner_loop.is_closed():
+            self._owner_loop = owner_loop
         run_id = _string(payload.get("run_id"), "run_id")
         account_id = _string(payload.get("account_id"), "account_id")
         tenant_key = _string(payload.get("tenant_key"), "tenant_key")
@@ -1157,6 +1272,7 @@ class DurableRunWorker:
                     worker_cursor=int(payload.get("worker_cursor") or 0),
                     trace_id=trace_id,
                     lease_acquired=True,
+                    owner_loop=owner_loop,
                 )
                 resume_snapshot = payload.get("resume_snapshot")
                 if isinstance(resume_snapshot, dict):
@@ -1299,6 +1415,9 @@ class DurableRunWorker:
                 break
 
     async def recover(self) -> None:
+        owner_loop = asyncio.get_running_loop()
+        if self._owner_loop is None or self._owner_loop.is_closed():
+            self._owner_loop = owner_loop
         if not self.configured:
             return
         current = asyncio.current_task()
@@ -1517,6 +1636,11 @@ class DurableRunWorker:
                 return
 
     async def _run(self, job: DurableJob) -> None:
+        owner_loop = asyncio.get_running_loop()
+        if job.owner_loop is None or job.owner_loop.is_closed():
+            job.owner_loop = owner_loop
+        if self._owner_loop is None or self._owner_loop.is_closed():
+            self._owner_loop = owner_loop
         renew_task = asyncio.create_task(self._renew(job), name=f"newscraft-hermes-renew-{job.run_id}")
         tool_arguments: dict[str, str] = {}
         tool_names: dict[str, str] = {}
