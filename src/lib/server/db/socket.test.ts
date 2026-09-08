@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events';
 import net from 'node:net';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	FALLBACK_DNS_SERVERS,
 	FALLBACK_DNS_TIMEOUT_MS,
 	PREFERRED_ADDRESS_TTL_MS,
+	TCP_CANDIDATE_STAGGER_MS,
 	createDatabaseSocketFactory,
 	connectWithTimeout,
 	parseDatabaseUrl
@@ -21,6 +22,15 @@ function fakeSocket(): net.Socket {
 function fakeSocketWithRemoteAddress(remoteAddress: string): net.Socket {
 	return { remoteAddress } as net.Socket;
 }
+
+function destroyableSocket(): net.Socket & { destroy: ReturnType<typeof vi.fn> } {
+	const socket = { destroy: vi.fn() } as unknown as net.Socket & { destroy: ReturnType<typeof vi.fn> };
+	return socket;
+}
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 describe('database socket fallback', () => {
 	it('preserves the database hostname for strict TLS SNI after an A-record fallback', async () => {
@@ -39,8 +49,8 @@ describe('database socket fallback', () => {
 		const socket = await factory({ connect_timeout: 30 });
 
 		expect(connectCalls).toEqual([
-			{ host: 'contabo.example.ts.net', port: 10000, timeoutMs: 3_333 },
-			{ host: '185.40.234.55', port: 10000, timeoutMs: 3_333 }
+			{ host: 'contabo.example.ts.net', port: 10000, timeoutMs: 1000 },
+			{ host: '185.40.234.55', port: 10000, timeoutMs: 4_500 }
 		]);
 		expect(resolve4).toHaveBeenCalledWith('contabo.example.ts.net');
 		expect(socket.host).toBe('contabo.example.ts.net');
@@ -109,18 +119,16 @@ describe('database socket fallback', () => {
 	});
 
 	it('fails over to a fresh A-record candidate within one bounded connection budget', async () => {
-		let nowMs = 0;
 		const connectCalls: Array<{ host: string; timeoutMs: number }> = [];
 		const connect = vi.fn(async (host: string, _port: number, timeoutMs: number) => {
 			connectCalls.push({ host, timeoutMs });
-			nowMs += timeoutMs;
 			if (host === 'db.example.test' || host === '185.40.234.55') throw codedError('ETIMEDOUT');
 			return fakeSocket();
 		});
 		const resolve4 = vi.fn(async () => ['185.40.234.55', '185.40.234.75', '185.40.234.198']);
 		const factory = createDatabaseSocketFactory(
 			{ hostname: 'db.example.test', port: 5432 },
-			{ connect, resolve4, timeoutMs: 10_000, now: () => nowMs }
+			{ connect, resolve4, timeoutMs: 10_000, now: () => 0 }
 		);
 
 		const socket = await factory();
@@ -130,30 +138,110 @@ describe('database socket fallback', () => {
 			'185.40.234.55',
 			'185.40.234.75'
 		]);
-		expect(connectCalls.reduce((total, call) => total + call.timeoutMs, 0)).toBeLessThanOrEqual(10_000);
 		expect(connectCalls.every(({ timeoutMs }) => timeoutMs > 0)).toBe(true);
+		expect(connectCalls.every(({ timeoutMs }) => timeoutMs <= 10_000)).toBe(true);
 		expect(socket.host).toBe('db.example.test');
 		expect(socket.port).toBe(5432);
 	});
 
-	it('stops after the shared timeout budget instead of retrying indefinitely', async () => {
-		let nowMs = 0;
+	it('stops all candidates at the shared deadline instead of retrying indefinitely', async () => {
+		vi.useFakeTimers();
 		const connectCalls: Array<{ host: string; timeoutMs: number }> = [];
-		const connect = vi.fn(async (host: string, _port: number, timeoutMs: number) => {
+		const signals: AbortSignal[] = [];
+		const connect = vi.fn(async (host: string, _port: number, timeoutMs: number, signal?: AbortSignal) => {
 			connectCalls.push({ host, timeoutMs });
-			nowMs += timeoutMs;
-			throw codedError('ETIMEDOUT');
+			if (signal) signals.push(signal);
+			if (host === 'db.example.test') throw codedError('ETIMEDOUT');
+			return new Promise<net.Socket>(() => undefined);
 		});
 		const resolve4 = vi.fn(async () => ['203.0.113.10', '203.0.113.11']);
 		const factory = createDatabaseSocketFactory(
 			{ hostname: 'db.example.test', port: 5432 },
-			{ connect, resolve4, timeoutMs: 10_000, now: () => nowMs }
+			{ connect, resolve4, timeoutMs: 400 }
 		);
 
-		await expect(factory()).rejects.toMatchObject({ code: 'ETIMEDOUT' });
-		expect(connectCalls).toHaveLength(3);
-		expect(connectCalls.reduce((total, call) => total + call.timeoutMs, 0)).toBe(10_000);
-		expect(nowMs).toBe(10_000);
+		const result = factory();
+		const rejection = expect(result).rejects.toMatchObject({ code: 'ETIMEDOUT' });
+		await vi.advanceTimersByTimeAsync(400);
+		await rejection;
+		expect(connectCalls.map(({ host }) => host)).toEqual([
+			'db.example.test',
+			'203.0.113.10',
+			'203.0.113.11'
+		]);
+		expect(signals.length).toBe(2);
+		expect(signals.every((signal) => signal.aborted)).toBe(true);
+		vi.useRealTimers();
+	});
+
+	it('starts a healthy candidate before a black-holed candidate times out', async () => {
+		vi.useFakeTimers();
+		let releaseBlackhole!: (socket: net.Socket) => void;
+		const blackhole = new Promise<net.Socket>((resolve) => {
+			releaseBlackhole = resolve;
+		});
+		const blackholeSocket = destroyableSocket();
+		const connectCalls: string[] = [];
+		const signals: AbortSignal[] = [];
+		const connect = vi.fn(async (host: string, _port: number, _timeoutMs: number, signal?: AbortSignal) => {
+			connectCalls.push(host);
+			if (signal) signals.push(signal);
+			if (host === 'db.example.test') throw codedError('ECONNREFUSED');
+			if (host === '203.0.113.10') return blackhole;
+			return fakeSocket();
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, resolve4: vi.fn(async () => ['203.0.113.10', '203.0.113.11']), timeoutMs: 1_000 }
+		);
+
+		const result = factory();
+		await vi.advanceTimersByTimeAsync(TCP_CANDIDATE_STAGGER_MS);
+		const socket = await result;
+
+		expect(socket.host).toBe('db.example.test');
+		expect(connectCalls).toEqual(['db.example.test', '203.0.113.10', '203.0.113.11']);
+		expect(signals.length).toBe(2);
+		expect(signals.filter((signal) => signal.aborted)).toHaveLength(1);
+		releaseBlackhole(blackholeSocket);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(blackholeSocket.destroy).toHaveBeenCalledTimes(1);
+		vi.useRealTimers();
+	});
+
+	it('reserves a later candidate when two earlier TCP attempts stall', async () => {
+		vi.useFakeTimers();
+		const connectCalls: string[] = [];
+		const signals: AbortSignal[] = [];
+		const connect = vi.fn(async (host: string, _port: number, _timeoutMs: number, signal?: AbortSignal) => {
+			connectCalls.push(host);
+			if (signal) signals.push(signal);
+			if (host === 'db.example.test') throw codedError('ECONNREFUSED');
+			if (host === '203.0.113.12') return fakeSocket();
+			return new Promise<net.Socket>(() => undefined);
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{
+				connect,
+				resolve4: vi.fn(async () => ['203.0.113.10', '203.0.113.11', '203.0.113.12']),
+				timeoutMs: 1_000
+			}
+		);
+
+		const result = factory();
+		await vi.advanceTimersByTimeAsync(250);
+		const socket = await result;
+
+		expect(socket.host).toBe('db.example.test');
+		expect(connectCalls).toEqual([
+			'db.example.test',
+			'203.0.113.10',
+			'203.0.113.11',
+			'203.0.113.12'
+		]);
+		expect(signals.filter((signal) => signal.aborted)).toHaveLength(2);
+		vi.useRealTimers();
 	});
 
 	it('does not retry another address after a candidate TLS or protocol error', async () => {
@@ -195,6 +283,26 @@ describe('database socket fallback', () => {
 			'db.example.test',
 			'203.0.113.55',
 			'db.example.test'
+		]);
+	});
+
+	it('keeps the cached-address probe separate from the short hostname probe', async () => {
+		const attempts: Array<{ host: string; timeoutMs: number }> = [];
+		const connect = vi.fn(async (host: string, _port: number, timeoutMs: number) => {
+			attempts.push({ host, timeoutMs });
+			return fakeSocketWithRemoteAddress('203.0.113.55');
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, now: () => 0, timeoutMs: 10_000 }
+		);
+
+		await factory();
+		await factory();
+
+		expect(attempts).toEqual([
+			{ host: 'db.example.test', timeoutMs: 1_000 },
+			{ host: '203.0.113.55', timeoutMs: 3_333 }
 		]);
 	});
 
@@ -265,6 +373,28 @@ describe('database socket fallback', () => {
 		socket.timeoutCallback?.();
 
 		await expect(promise).rejects.toMatchObject({ code: 'ETIMEDOUT' });
+		expect(socket.destroyedByTest).toBe(true);
+	});
+
+	it('aborts a socket when a competing candidate wins', async () => {
+		const socket = new EventEmitter() as net.Socket & {
+			timeoutCallback?: () => void;
+			destroyedByTest?: boolean;
+		};
+		socket.setTimeout = ((_milliseconds: number, callback?: () => void) => {
+			socket.timeoutCallback = callback;
+			return socket;
+		}) as net.Socket['setTimeout'];
+		socket.destroy = (() => {
+			socket.destroyedByTest = true;
+			socket.emit('close');
+			return socket;
+		}) as net.Socket['destroy'];
+		const controller = new AbortController();
+		const promise = connectWithTimeout('db.example.test', 5432, 17, () => socket, controller.signal);
+		controller.abort();
+
+		await expect(promise).rejects.toMatchObject({ code: 'ABORT_ERR', name: 'AbortError' });
 		expect(socket.destroyedByTest).toBe(true);
 	});
 

@@ -10,9 +10,12 @@ export const FALLBACK_DNS_TIMEOUT_MS = 1_500;
 export const FALLBACK_DNS_TRIES = 1;
 export const FALLBACK_DNS_SERVERS = ['1.1.1.1', '8.8.8.8'] as const;
 export const PREFERRED_ADDRESS_TTL_MS = 30_000;
-// Reserve two candidate attempts after the initial hostname attempt. This
-// prevents one black-holed address from consuming the complete socket budget
-// before a fresh A-record candidate can be tried.
+/** Delay between TCP candidate launches during the bounded fallback race. */
+export const TCP_CANDIDATE_STAGGER_MS = 150;
+const MAX_ACTIVE_TCP_CANDIDATES = 2;
+const INITIAL_HOSTNAME_TIMEOUT_CAP_MS = 1_000;
+// Reserve time for later candidates after the initial hostname attempt. The
+// fallback race itself caps in-flight sockets at MAX_ACTIVE_TCP_CANDIDATES.
 const INITIAL_CONNECTION_ATTEMPT_SLOTS = 3;
 const RETRYABLE_CONNECTION_ERROR_CODES = new Set([
 	'ETIMEDOUT',
@@ -52,7 +55,7 @@ export interface DatabaseSocketFactoryOptions {
 	/** Optional cap for the complete socket hook, including DNS fallback. */
 	timeoutMs?: number;
 	/** Dependency seams keep DNS/socket behavior deterministic in tests. */
-	connect?: (hostname: string, port: number, timeoutMs: number) => Promise<net.Socket>;
+	connect?: (hostname: string, port: number, timeoutMs: number, signal?: AbortSignal) => Promise<net.Socket>;
 	resolve4?: (hostname: string) => Promise<string[]>;
 	createResolver?: () => ResolverLike;
 	now?: () => number;
@@ -100,15 +103,17 @@ export function parseDatabaseUrl(value: string | undefined): ParsedDatabaseUrl |
  *
  * The first attempt uses the configured hostname. A bounded address retry is
  * allowed after a DNS lookup failure or a retryable TCP connection failure;
- * it resolves fresh A records and connects to each candidate within the same
- * caller-owned deadline. Returned sockets retain the original hostname so
- * postgres.js performs certificate validation against the database hostname.
+ * it resolves fresh A records and races candidates with a small stagger within
+ * the same caller-owned deadline. Returned sockets retain the original
+ * hostname so postgres.js performs certificate validation against the database
+ * hostname.
  */
 export function createDatabaseSocketFactory(
 	endpoint: DatabaseEndpoint,
 	options: DatabaseSocketFactoryOptions = {}
 ): (postgresOptions?: PostgresSocketOptions) => Promise<DatabaseSocket> {
-	const connect = options.connect ?? ((hostname, port, timeoutMs) => connectWithTimeout(hostname, port, timeoutMs));
+	const connect =
+		options.connect ?? ((hostname, port, timeoutMs, signal) => connectWithTimeout(hostname, port, timeoutMs, undefined, signal));
 	const resolve4 = options.resolve4 ?? ((hostname) => dns.resolve4(hostname));
 	const createResolver =
 		options.createResolver ??
@@ -131,12 +136,18 @@ export function createDatabaseSocketFactory(
 	return async (postgresOptions = {}) => {
 		const timeoutMs = resolveFactoryTimeout(postgresOptions.connect_timeout, configuredTimeoutMs);
 		const deadline = now() + timeoutMs;
-		const initialAttemptTimeout = connectionAttemptSlice(timeoutMs, INITIAL_CONNECTION_ATTEMPT_SLOTS);
+		// Keep the cold hostname probe bounded without applying that cap to a
+		// previously healthy cached address.
+		const initialAttemptTimeout = Math.min(
+			connectionAttemptSlice(timeoutMs, INITIAL_CONNECTION_ATTEMPT_SLOTS),
+			INITIAL_HOSTNAME_TIMEOUT_CAP_MS
+		);
+		const cachedAttemptTimeout = connectionAttemptSlice(timeoutMs, INITIAL_CONNECTION_ATTEMPT_SLOTS);
 		const cached = preferredAddress;
 		if (cached && cached.expiresAt <= now()) {
 			if (preferredAddress === cached) preferredAddress = null;
 		} else if (cached) {
-			const timeout = Math.min(remaining(deadline, now), initialAttemptTimeout);
+			const timeout = Math.min(remaining(deadline, now), cachedAttemptTimeout);
 			if (timeout <= 0) throw socketTimeoutError(endpoint.hostname, timeoutMs);
 			try {
 				// Cache reuse intentionally does not call rememberFreshSocket: the
@@ -189,11 +200,17 @@ interface CandidateConnectionInput {
 	endpoint: DatabaseEndpoint;
 	deadline: number;
 	now: () => number;
-	connect: (hostname: string, port: number, timeoutMs: number) => Promise<net.Socket>;
+	connect: (hostname: string, port: number, timeoutMs: number, signal?: AbortSignal) => Promise<net.Socket>;
 	initialError: unknown;
 	timeoutMs: number;
 	fallbackBudgetMs: number;
 	markFreshSocket: (socket: net.Socket) => DatabaseSocket;
+}
+
+interface CandidateAttempt {
+	controller: AbortController;
+	finished: boolean;
+	timer: ReturnType<typeof setTimeout>;
 }
 
 async function connectToCandidates({
@@ -208,23 +225,151 @@ async function connectToCandidates({
 	markFreshSocket
 }: CandidateConnectionInput): Promise<DatabaseSocket> {
 	const candidates = uniqueIpv4(addresses);
-	let lastError: unknown = initialError;
-	let budgetMs = fallbackBudgetMs;
-	for (const [index, address] of candidates.entries()) {
-		const available = Math.min(remaining(deadline, now), budgetMs);
-		if (available <= 0) throw socketTimeoutError(endpoint.hostname, timeoutMs);
-		const timeout = connectionAttemptSlice(available, candidates.length - index);
-		budgetMs -= timeout;
-		try {
-			return markFreshSocket(await connect(address, endpoint.port, timeout));
-		} catch (error) {
+	if (candidates.length === 0) throw initialError;
+
+	return new Promise<DatabaseSocket>((resolve, reject) => {
+		let settled = false;
+		let active = 0;
+		let nextIndex = 0;
+		let lastError: unknown = initialError;
+		let staggerTimer: ReturnType<typeof setTimeout> | undefined;
+		let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+		const attempts = new Set<CandidateAttempt>();
+
+		const clearTimers = () => {
+			if (staggerTimer !== undefined) clearTimeout(staggerTimer);
+			if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+			staggerTimer = undefined;
+			deadlineTimer = undefined;
+		};
+
+		const cancelAttempts = () => {
+			for (const attempt of attempts) {
+				attempt.finished = true;
+				clearTimeout(attempt.timer);
+				abortAttempt(attempt.controller);
+			}
+			attempts.clear();
+		};
+
+		const finish = (error: unknown) => {
+			if (settled) return;
+			settled = true;
+			clearTimers();
+			cancelAttempts();
+			reject(error);
+		};
+
+		const scheduleNext = () => {
+			if (
+				settled ||
+				nextIndex >= candidates.length ||
+				active >= MAX_ACTIVE_TCP_CANDIDATES ||
+				staggerTimer !== undefined
+			)
+				return;
+			const available = Math.min(remaining(deadline, now), Math.max(0, fallbackBudgetMs));
+			if (available <= 0) {
+				if (active === 0) finish(socketTimeoutError(endpoint.hostname, timeoutMs));
+				return;
+			}
+			staggerTimer = setTimeout(() => {
+				staggerTimer = undefined;
+				launchNext();
+				scheduleNext();
+			}, Math.min(TCP_CANDIDATE_STAGGER_MS, available));
+		};
+
+		const onConnectionError = (error: unknown) => {
+			active -= 1;
+			if (settled) return;
 			lastError = error;
 			// Connection-only failover is deliberately narrow. A TLS, auth, or
 			// protocol error must escape without trying another address.
-			if (!isRetryableConnectionError(error)) throw error;
+			if (!isRetryableConnectionError(error)) {
+				finish(error);
+				return;
+			}
+			// An immediate TCP refusal should advance without waiting for the
+			// stagger; a black-holed connection keeps the next candidate staggered.
+			if (nextIndex < candidates.length) launchNext();
+			else if (active === 0) finish(lastError);
+		};
+
+		const onConnectionSuccess = (socket: net.Socket) => {
+			active -= 1;
+			if (settled) {
+				destroySocket(socket);
+				return;
+			}
+			settled = true;
+			clearTimers();
+			cancelAttempts();
+			resolve(markFreshSocket(socket));
+		};
+
+		function launchNext() {
+			if (settled || nextIndex >= candidates.length || active >= MAX_ACTIVE_TCP_CANDIDATES) return;
+			const available = Math.min(remaining(deadline, now), Math.max(0, fallbackBudgetMs));
+			if (available <= 0) {
+				if (active === 0) finish(socketTimeoutError(endpoint.hostname, timeoutMs));
+				return;
+			}
+			const candidateIndex = nextIndex;
+			const address = candidates[nextIndex++];
+			const attemptTimeout = connectionAttemptSlice(available, candidates.length - candidateIndex);
+			const controller = new AbortController();
+			const attempt: CandidateAttempt = {
+				controller,
+				finished: false,
+				timer: setTimeout(() => {
+					if (attempt.finished || settled) return;
+					attempt.finished = true;
+					attempts.delete(attempt);
+					abortAttempt(controller);
+					onConnectionError(socketTimeoutError(endpoint.hostname, attemptTimeout));
+				}, attemptTimeout)
+			};
+			attempts.add(attempt);
+			active += 1;
+			let connection: Promise<net.Socket>;
+			try {
+				connection = Promise.resolve(connect(address, endpoint.port, attemptTimeout, controller.signal));
+			} catch (error) {
+				connection = Promise.reject(error);
+			}
+			connection.then(
+				(socket) => {
+					if (attempt.finished) {
+						destroySocket(socket);
+						return;
+					}
+					attempt.finished = true;
+					clearTimeout(attempt.timer);
+					attempts.delete(attempt);
+					onConnectionSuccess(socket);
+				},
+				(error) => {
+					if (attempt.finished) return;
+					attempt.finished = true;
+					clearTimeout(attempt.timer);
+					attempts.delete(attempt);
+					onConnectionError(error);
+				}
+			);
 		}
-	}
-	throw lastError;
+
+		launchNext();
+		scheduleNext();
+		const deadlineMs = remaining(deadline, now);
+		if (deadlineMs <= 0) {
+			if (active === 0) finish(socketTimeoutError(endpoint.hostname, timeoutMs));
+		} else {
+			deadlineTimer = setTimeout(() => {
+				if (!settled) finish(socketTimeoutError(endpoint.hostname, timeoutMs));
+			}, deadlineMs);
+		}
+	});
 }
 
 /**
@@ -258,10 +403,15 @@ export function connectWithTimeout(
 	port: number,
 	timeoutMs: number,
 	createConnection: (options: { host: string; port: number }) => net.Socket = ({ host, port: socketPort }) =>
-		net.connect({ host, port: socketPort })
+		net.connect({ host, port: socketPort }),
+	signal?: AbortSignal
 ): Promise<net.Socket> {
 	const timeout = normalizeTimeout(timeoutMs, DEFAULT_DATABASE_SOCKET_TIMEOUT_MS);
 	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(socketAbortError(hostname));
+			return;
+		}
 		let socket: net.Socket;
 		try {
 			socket = createConnection({ host: hostname, port });
@@ -276,16 +426,21 @@ export function connectWithTimeout(
 			settled = true;
 			socket.removeListener('error', onError);
 			socket.removeListener('connect', onConnect);
+			signal?.removeEventListener('abort', onAbort);
 			socket.setTimeout(0);
 			resolve(socket);
 		};
 		const onError = (error: Error) => {
 			fail(error);
 		};
+		const onAbort = () => {
+			fail(socketAbortError(hostname));
+		};
 		const fail = (error: Error) => {
 			if (settled) return;
 			settled = true;
 			socket.removeListener('connect', onConnect);
+			signal?.removeEventListener('abort', onAbort);
 			socket.setTimeout(0);
 			// Keep the error listener until close so destroy() cannot surface an
 			// unhandled late connection error after the promise has rejected.
@@ -296,6 +451,7 @@ export function connectWithTimeout(
 
 		socket.once('connect', onConnect);
 		socket.once('error', onError);
+		signal?.addEventListener('abort', onAbort, { once: true });
 		socket.setTimeout(timeout, () => fail(socketTimeoutError(hostname, timeout)));
 	});
 }
@@ -367,6 +523,24 @@ function markSocket(socket: net.Socket, endpoint: DatabaseEndpoint): DatabaseSoc
 	return tagged;
 }
 
+function destroySocket(socket: net.Socket): void {
+	try {
+		if (typeof socket.destroy === 'function') socket.destroy();
+	} catch {
+		// A losing candidate is best-effort cleanup; its connection promise is
+		// already observed and must not mask the winning socket.
+	}
+}
+
+function abortAttempt(controller: AbortController): void {
+	try {
+		controller.abort();
+	} catch {
+		// Abort listeners belong to the connector seam; one faulty listener must
+		// not prevent other losing candidates from being cancelled.
+	}
+}
+
 function resolveFactoryTimeout(value: unknown, configuredTimeoutMs: number): number {
 	const driverSeconds = typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 	if (driverSeconds === null) return configuredTimeoutMs;
@@ -418,6 +592,13 @@ function socketTimeoutError(hostname: string, timeoutMs: number): Error & { code
 		code: string;
 	};
 	error.code = 'ETIMEDOUT';
+	return error;
+}
+
+function socketAbortError(hostname: string): Error & { code: string } {
+	const error = new Error(`Cancelled database connection attempt for ${hostname}`) as Error & { code: string };
+	error.name = 'AbortError';
+	error.code = 'ABORT_ERR';
 	return error;
 }
 
