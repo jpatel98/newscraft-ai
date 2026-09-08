@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { db } from './index';
 import { conversations, hermesRunArtifactRefs, hermesRunEvents, hermesRuns, messages, messageProvenance } from './schema';
@@ -784,6 +784,13 @@ export async function appendHermesRunEvent(
 		const sourceEvent = Boolean(objectValue(eventData.source)) || eventType.startsWith('agent.source');
 		const citationEvent = Array.isArray(eventData.citations) || snapshot.state === 'complete';
 		const toolEvent = eventType === 'agent.tool.progress';
+		const answerEvent = eventType === 'agent.answer.replace';
+		// The run row and event log are the live durable snapshot. Avoid rewriting
+		// the message, provenance, and conversation rows for every ordinary text
+		// delta; those projections still update on the first event, metadata
+		// changes, answer replacement, and every terminal event.
+		const persistMessageSnapshot =
+			current.cursor === 0 || sourceEvent || citationEvent || toolEvent || answerEvent || terminal;
 		const runUpdate: Partial<typeof hermesRuns.$inferInsert> = {
 			cursor,
 			workerCursor: input.workerCursor,
@@ -818,48 +825,50 @@ export async function appendHermesRunEvent(
 			.returning()) as HermesRunRecord[];
 		if (!run) throw new HermesRunRepositoryError('not_found', 'run disappeared during event append');
 
-		const messageUpdate: Partial<typeof messages.$inferInsert> = {
-			content: snapshot.answerText,
-			partial: terminal && snapshot.state === 'complete' ? 0 : 1
-		};
-		// The first callback establishes metadata for the placeholder. Later
-		// text-only callbacks cannot change sources, citations, or tools.
-		if (current.cursor === 0 || sourceEvent || citationEvent || toolEvent || terminal) {
-			messageUpdate.toolCalls = serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations);
-		}
-		await tx
-			.update(messages)
-			.set(messageUpdate)
-			.where(and(eq(messages.id, current.assistantMessageId), eq(messages.conversationId, current.conversationId)));
-		const provenance = buildAnswerProvenanceBundle({
-			messageId: current.assistantMessageId,
-			conversationId: current.conversationId,
-			tools: snapshot.tools,
-			sources: snapshot.sources,
-			citations: snapshot.citations,
-			answerText: snapshot.answerText,
-			startedAt: run.startedAt ?? now,
-			endedAt: terminal ? now : undefined,
-			assistantChars: snapshot.answerText.length,
-			done: snapshot.state === 'complete',
-			finishStatus: snapshot.state === 'complete' ? 'completed' : snapshot.state === 'cancelled' ? 'cancelled' : snapshot.state === 'failed' ? 'failed' : 'partial',
-			transport: 'hermes_durable'
-		});
-		const provenanceJson = JSON.stringify(provenance);
-		await tx
-			.insert(messageProvenance)
-			.values({
+		if (persistMessageSnapshot) {
+			const messageUpdate: Partial<typeof messages.$inferInsert> = {
+				content: snapshot.answerText,
+				partial: terminal && snapshot.state === 'complete' ? 0 : 1
+			};
+			// The first callback establishes metadata for the placeholder. Later
+			// text-only callbacks cannot change sources, citations, or tools.
+			if (current.cursor === 0 || sourceEvent || citationEvent || toolEvent || terminal) {
+				messageUpdate.toolCalls = serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations);
+			}
+			await tx
+				.update(messages)
+				.set(messageUpdate)
+				.where(and(eq(messages.id, current.assistantMessageId), eq(messages.conversationId, current.conversationId)));
+			const provenance = buildAnswerProvenanceBundle({
 				messageId: current.assistantMessageId,
 				conversationId: current.conversationId,
-				provenanceJson,
-				createdAt: now,
-				updatedAt: now
-			})
-			.onConflictDoUpdate({
-				target: messageProvenance.messageId,
-				set: { provenanceJson, updatedAt: now }
+				tools: snapshot.tools,
+				sources: snapshot.sources,
+				citations: snapshot.citations,
+				answerText: snapshot.answerText,
+				startedAt: run.startedAt ?? now,
+				endedAt: terminal ? now : undefined,
+				assistantChars: snapshot.answerText.length,
+				done: snapshot.state === 'complete',
+				finishStatus: snapshot.state === 'complete' ? 'completed' : snapshot.state === 'cancelled' ? 'cancelled' : snapshot.state === 'failed' ? 'failed' : 'partial',
+				transport: 'hermes_durable'
 			});
-		await tx.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, current.conversationId));
+			const provenanceJson = JSON.stringify(provenance);
+			await tx
+				.insert(messageProvenance)
+				.values({
+					messageId: current.assistantMessageId,
+					conversationId: current.conversationId,
+					provenanceJson,
+					createdAt: now,
+					updatedAt: now
+				})
+				.onConflictDoUpdate({
+					target: messageProvenance.messageId,
+					set: { provenanceJson, updatedAt: now }
+				});
+			await tx.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, current.conversationId));
+		}
 		return { run, event };
 	});
 }
@@ -1072,6 +1081,124 @@ export async function finalizeHermesRunCancellation(
 			});
 		await tx.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, current.conversationId));
 		return run;
+	});
+}
+
+/**
+ * Close an active run whose worker lease has expired before a browser
+ * subscription starts polling it. The row lock plus owner/account predicates
+ * make this a no-op for a lease that was renewed or replaced concurrently;
+ * queued, unleased work remains available to the normal Hermes recovery loop.
+ */
+export async function reconcileExpiredHermesRun(
+	accountId: string,
+	runId: string,
+	now = Date.now()
+): Promise<HermesRunRecord | null> {
+	const owner = requireValue(accountId, 'accountId');
+	const id = requireValue(runId, 'runId');
+	const staleFailureMessage = 'Research stopped before it finished. Please try again.';
+	return db.transaction(async (tx: any) => {
+		const [current] = (await tx
+			.select()
+			.from(hermesRuns)
+			.where(and(eq(hermesRuns.id, id), eq(hermesRuns.accountId, owner)))
+			.for('update')
+			.limit(1)) as HermesRunRecord[];
+		if (!current) return null;
+		const currentState = normalizeState(current.state);
+		if (
+			currentState === 'queued' ||
+			isTerminal(currentState) ||
+			current.leaseOwner == null ||
+			current.leaseToken == null ||
+			current.leaseExpiresAt == null ||
+			current.leaseExpiresAt > now
+		) {
+			return current;
+		}
+
+		const cancelled = currentState === 'cancel_requested' || current.cancelRequestedAt != null;
+		const eventType = cancelled ? 'run.cancelled' : 'run.failed';
+		const eventData = cancelled
+			? { failure_class: 'cancelled', status: 'cancelled', reason: 'worker_lease_expired' }
+			: { failure_class: 'timeout', reason: 'worker_lease_expired', error: { message: staleFailureMessage } };
+		const cursor = current.cursor + 1;
+		const [updated] = (await tx
+			.update(hermesRuns)
+			.set({
+				state: cancelled ? 'cancelled' : 'failed',
+				...(cancelled ? {} : { errorMessage: staleFailureMessage }),
+				cursor,
+				updatedAt: now,
+				completedAt: now,
+				leaseOwner: null,
+				leaseToken: null,
+				leaseExpiresAt: null
+			})
+			.where(
+				and(
+					eq(hermesRuns.id, id),
+					eq(hermesRuns.accountId, owner),
+					eq(hermesRuns.leaseOwner, current.leaseOwner),
+					eq(hermesRuns.leaseToken, current.leaseToken),
+					lte(hermesRuns.leaseExpiresAt, now)
+				)
+			)
+			.returning()) as HermesRunRecord[];
+		if (!updated) throw new HermesRunRepositoryError('stale_lease', 'run lease changed during stale-run reconciliation');
+		const [event] = (await tx
+			.insert(hermesRunEvents)
+			.values({
+				runId: id,
+				accountId: owner,
+				cursor,
+				eventType,
+				dataJson: JSON.stringify(eventData),
+				createdAt: now
+			})
+			.returning()) as HermesRunEventRecord[];
+		if (!event) throw new Error('Hermes stale-run event insert returned no row');
+
+		const snapshot = snapshotFromRun(updated);
+		await tx
+			.update(messages)
+			.set({
+				content: snapshot.answerText,
+				partial: 1,
+				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations)
+			})
+			.where(and(eq(messages.id, updated.assistantMessageId), eq(messages.conversationId, updated.conversationId)));
+		const provenance = buildAnswerProvenanceBundle({
+			messageId: updated.assistantMessageId,
+			conversationId: updated.conversationId,
+			tools: snapshot.tools,
+			sources: snapshot.sources,
+			citations: snapshot.citations,
+			answerText: snapshot.answerText,
+			startedAt: updated.startedAt ?? current.createdAt,
+			endedAt: now,
+			assistantChars: snapshot.answerText.length,
+			done: false,
+			finishStatus: cancelled ? 'cancelled' : 'failed',
+			transport: 'hermes_durable'
+		});
+		const provenanceJson = JSON.stringify(provenance);
+		await tx
+			.insert(messageProvenance)
+			.values({
+				messageId: updated.assistantMessageId,
+				conversationId: updated.conversationId,
+				provenanceJson,
+				createdAt: now,
+				updatedAt: now
+			})
+			.onConflictDoUpdate({
+				target: messageProvenance.messageId,
+				set: { provenanceJson, updatedAt: now }
+			});
+		await tx.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, updated.conversationId));
+		return updated;
 	});
 }
 

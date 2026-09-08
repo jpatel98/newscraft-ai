@@ -3,6 +3,7 @@ import {
 	getHermesRun,
 	getHermesRunSubscriptionState,
 	listKnownHermesRunEvents,
+	reconcileExpiredHermesRun,
 	snapshotFromRun,
 	HERMES_TERMINAL_STATES,
 	type HermesRunSubscriptionState
@@ -53,14 +54,27 @@ export async function hermesSubscriptionResponse({
 }: HermesSubscriptionRequest): Promise<Response> {
 	const initial = await getHermesRun(accountId, runId);
 	if (!initial) return json({ detail: 'run not found' }, { status: 404 });
-	if (afterCursor > initial.cursor) return json({ detail: 'cursor is ahead of the saved run' }, { status: 409 });
-	const traceId = traceIdFromHermesInput(initial.inputJson);
-	recordChatDiagnostic(initial.conversationId, 'chat.durable.subscription', {
+	let run = initial;
+	const initialState = run.state as string;
+	if (
+		run.leaseExpiresAt !== null &&
+		run.leaseExpiresAt !== undefined &&
+		run.leaseExpiresAt <= Date.now() &&
+		!HERMES_TERMINAL_STATES.includes(initialState as (typeof HERMES_TERMINAL_STATES)[number])
+	) {
+		// A browser reconnect is a useful bounded recovery opportunity for a
+		// worker that disappeared. The repository rechecks the lease under a row
+		// lock, so a concurrently renewed/replaced lease remains untouched.
+		run = (await reconcileExpiredHermesRun(accountId, runId)) ?? run;
+	}
+	if (afterCursor > run.cursor) return json({ detail: 'cursor is ahead of the saved run' }, { status: 409 });
+	const traceId = traceIdFromHermesInput(run.inputJson);
+	recordChatDiagnostic(run.conversationId, 'chat.durable.subscription', {
 		...(traceId ? { trace_id: traceId } : {}),
 		replay: afterCursor > 0,
 		reconnect_count: afterCursor > 0 ? 1 : 0,
 		after_cursor: afterCursor,
-		current_cursor: initial.cursor
+		current_cursor: run.cursor
 	});
 
 	const encoder = new TextEncoder();
@@ -89,26 +103,26 @@ export async function hermesSubscriptionResponse({
 			try {
 				enqueue(
 					sse('agent.meta', {
-						conversation_id: initial.conversationId,
-						run_id: initial.id,
-						cursor: initial.cursor,
+						conversation_id: run.conversationId,
+						run_id: run.id,
+						cursor: run.cursor,
 						...(traceId ? { trace_id: traceId } : {})
 					})
 				);
 				enqueue(
 					sse('run.snapshot', {
-						run_id: initial.id,
-						conversation_id: initial.conversationId,
-						assistant_message_id: initial.assistantMessageId,
-						cursor: initial.cursor,
-						status: initial.state,
+						run_id: run.id,
+						conversation_id: run.conversationId,
+						assistant_message_id: run.assistantMessageId,
+						cursor: run.cursor,
+						status: run.state,
 						...(traceId ? { trace_id: traceId } : {}),
-						...snapshotFromRun(initial)
+						...snapshotFromRun(run)
 					})
 				);
 
 				let cursor = afterCursor;
-				let runState: HermesRunSubscriptionState | null = initial;
+				let runState: HermesRunSubscriptionState | null = run;
 				let pollMs = HERMES_SUBSCRIPTION_ACTIVE_POLL_MS;
 				while (!request.signal.aborted) {
 					if (!runState) break;

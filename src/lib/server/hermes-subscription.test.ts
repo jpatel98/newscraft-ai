@@ -4,13 +4,14 @@ const dbMocks = vi.hoisted(() => ({
 	getHermesRun: vi.fn(),
 	getHermesRunSubscriptionState: vi.fn(),
 	listKnownHermesRunEvents: vi.fn(),
-	snapshotFromRun: vi.fn(() => ({
-		state: 'researching',
-		answerText: '',
+	reconcileExpiredHermesRun: vi.fn(),
+	snapshotFromRun: vi.fn((run: { state?: string; answerText?: string; errorMessage?: string | null }) => ({
+		state: run.state || 'researching',
+		answerText: run.answerText || '',
 		sources: [],
 		citations: [],
 		tools: [],
-		errorMessage: null
+		errorMessage: run.errorMessage || null
 	}))
 }));
 
@@ -87,5 +88,46 @@ describe('Hermes subscription polling', () => {
 		expect(dbMocks.getHermesRunSubscriptionState).toHaveBeenCalledTimes(1);
 		expect(dbMocks.listKnownHermesRunEvents).toHaveBeenCalledTimes(2);
 		expect(body).toContain('event: response.completed');
+	});
+
+	it('reconciles an expired leased run before streaming its terminal event', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date(5_000));
+		const staleRun = {
+			...initialRun,
+			state: 'researching',
+			cursor: 0,
+			leaseOwner: 'worker-a',
+			leaseToken: 'lease-a',
+			leaseExpiresAt: 4_999
+		};
+		const reconciledRun = {
+			...staleRun,
+			state: 'failed',
+			cursor: 1,
+			leaseOwner: null,
+			leaseToken: null,
+			leaseExpiresAt: null,
+			errorMessage: 'Research stopped before it finished. Please try again.'
+		};
+		dbMocks.getHermesRun.mockResolvedValue(staleRun);
+		dbMocks.reconcileExpiredHermesRun.mockResolvedValue(reconciledRun);
+		dbMocks.listKnownHermesRunEvents.mockResolvedValue([
+			{ cursor: 1, eventType: 'run.failed', dataJson: '{"failure_class":"timeout"}' }
+		]);
+
+		const response = await hermesSubscriptionResponse({
+			request: new Request('http://localhost/api/chat/runs/run-1'),
+			accountId: 'account-1',
+			runId: 'run-1',
+			afterCursor: 0
+		});
+		const body = await response.text();
+
+		expect(dbMocks.reconcileExpiredHermesRun).toHaveBeenCalledWith('account-1', 'run-1');
+		expect(dbMocks.getHermesRunSubscriptionState).not.toHaveBeenCalled();
+		expect(body).toContain('status":"failed"');
+		expect(body).toContain('Research stopped before it finished. Please try again.');
+		expect(body).toContain('event: run.failed');
 	});
 });
