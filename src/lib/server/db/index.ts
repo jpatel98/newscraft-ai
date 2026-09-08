@@ -5,6 +5,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from './schema';
 import { settings } from './schema';
 import { runMigrations, type MigrationClient } from './migration-runner';
+import { createDatabaseSocketFactory, parseDatabaseUrl } from './socket';
 
 const testDatabaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
 // The explicitly scoped integration-test database wins when supplied, even
@@ -12,6 +13,7 @@ const testDatabaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
 const configuredDatabaseUrl = testDatabaseUrl || env.DATABASE_URL;
 const databaseUrl = configuredDatabaseUrl || 'postgres://invalid:invalid@127.0.0.1:1/invalid';
 const poolMax = Number.parseInt(env.DATABASE_POOL_MAX || '', 10);
+const databaseEndpoint = parseDatabaseUrl(configuredDatabaseUrl);
 
 export function configuredDatabaseHostname(): string | null {
 	if (!configuredDatabaseUrl) return null;
@@ -25,14 +27,28 @@ export function configuredDatabaseHostname(): string | null {
 export const DEFAULT_ORGANIZATION_ID = 'org_default';
 const DEFAULT_ORGANIZATION_NAME = 'Newsroom';
 
-export const sql = postgres(databaseUrl, {
+const postgresOptions = {
 	max: Number.isFinite(poolMax) && poolMax > 0 ? poolMax : 5,
 	// Reap idle sockets before a remote/Vercel connection can go stale. This
 	// bounds the first-query-after-idle failure without retrying mutations.
 	idle_timeout: 5,
 	prepare: false,
-	onnotice: () => {}
-});
+	onnotice: () => {},
+	...(databaseEndpoint
+		? {
+			// postgres.js accepts an async socket hook but does not expose it in
+			// its public TypeScript options. Keep the hook server-only and retain
+			// the URL hostname on the socket for certificate SNI.
+			socket: createDatabaseSocketFactory(databaseEndpoint),
+			...(databaseEndpoint.strictTls
+				? { ssl: { rejectUnauthorized: true, servername: databaseEndpoint.hostname } }
+				: {}),
+			...(databaseEndpoint.directTls ? { sslnegotiation: 'direct' as const } : {})
+		}
+		: {})
+};
+
+export const sql = postgres(databaseUrl, postgresOptions as Parameters<typeof postgres>[1]);
 export const db = drizzle(sql, { schema }) as any;
 
 export async function getSetting(key: string): Promise<string | undefined> {
