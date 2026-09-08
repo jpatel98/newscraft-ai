@@ -76,7 +76,7 @@ an administrator DSN in Vercel.
 ```sh
 node infra/sync-storage-files.mjs \
   --source /srv/newscraft-storage-source \
-  --destination /srv/newscraft-storage 
+  --destination /srv/newscraft-storage
 node infra/sync-storage-files.mjs \
   --source /srv/newscraft-storage-source \
   --destination /srv/newscraft-storage \

@@ -75,6 +75,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	}
 	let copiedObject: { key: string; version: string } | null = null;
 	let finalizedArtifact: Awaited<ReturnType<typeof finalizeArtifactReady>> | null = null;
+	let finalizeAttempted = false;
 	try {
 		const staged = await verifyArtifactObject(storage, {
 			key: grant.stagingKey,
@@ -104,6 +105,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			expectedSha256: grant.expectedSha256,
 			role: grant.role
 		});
+		// Once the transaction is attempted, an error does not prove that the
+		// commit did not happen. Keep any immutable copy until durable recovery
+		// identifies the committed winner.
+		finalizeAttempted = true;
 		finalizedArtifact = await finalizeArtifactReady({
 			accountId,
 			grantId,
@@ -123,7 +128,14 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		// Another finalizer may have won the grant lock and removed the staging
 		// object while this request was verifying it. A consumed grant with its
 		// immutable asset is an idempotent success; discard our unreferenced copy.
-		const latestGrant = await getArtifactGrant(accountId, grantId).catch(() => null);
+		let latestGrant;
+		try {
+			latestGrant = await getArtifactGrant(accountId, grantId);
+		} catch {
+			// Recovery could not establish whether the transaction committed. Keep
+			// the immutable copy; compensation is safe only with durable evidence.
+			return json({ detail: 'artifact finalization is temporarily unavailable' }, { status: 503 });
+		}
 		if (latestGrant?.runId === runId && latestGrant.state === 'consumed') {
 			const finalized = await getFinalizedArtifactObjectForGrant(accountId, grantId, lease).catch(() => null);
 			if (finalized) {
@@ -135,6 +147,18 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			// The grant state is consumed, but the committed object's identity could
 			// not be read. Preserve the copy; deleting it here could destroy the
 			// winner after a post-commit database/network ambiguity.
+			return json({ detail: 'artifact finalization is temporarily unavailable' }, { status: 503 });
+		}
+		if (!latestGrant || latestGrant.runId !== runId) {
+			// A missing or changed grant is also an unknown commit outcome. Do not
+			// delete a copy that may now be referenced by the durable winner.
+			return json({ detail: 'artifact finalization is temporarily unavailable' }, { status: 503 });
+		}
+		if (finalizeAttempted) {
+			// The grant is still reported as uploaded, but the finalize transaction
+			// may be committing asynchronously after a lost response. Do not delete
+			// the copy or classify the attempt as a safe loser without a durable
+			// winner identity.
 			return json({ detail: 'artifact finalization is temporarily unavailable' }, { status: 503 });
 		}
 		if (copiedObject) await storage.remove(copiedObject.key, copiedObject.version).catch(() => undefined);

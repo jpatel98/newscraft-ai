@@ -143,4 +143,30 @@ describe('artifact finalization cleanup', () => {
 		expect(response.status).toBe(503);
 		expect(remove).not.toHaveBeenCalled();
 	});
+
+	it('preserves a copy when finalization fails before recovery sees the consumed grant', async () => {
+		resetBase();
+		const remove = vi.fn().mockResolvedValue(undefined);
+		const fakeStorage = storage(remove);
+		mocks.createArtifactObjectStorage.mockReturnValue(fakeStorage);
+		mocks.finalizeArtifactReady.mockRejectedValue(new Error('database response was lost after commit'));
+		mocks.getArtifactGrant.mockResolvedValueOnce(grant).mockResolvedValueOnce(grant);
+
+		const response = await POST({ params: { runId: 'run-1' }, request: request() } as never);
+		expect(response.status).toBe(503);
+		expect(remove).not.toHaveBeenCalled();
+	});
+
+	it('preserves a copy when grant recovery itself is unavailable', async () => {
+		resetBase();
+		const remove = vi.fn().mockResolvedValue(undefined);
+		const fakeStorage = storage(remove);
+		mocks.createArtifactObjectStorage.mockReturnValue(fakeStorage);
+		mocks.finalizeArtifactReady.mockRejectedValue(new Error('database response was lost after commit'));
+		mocks.getArtifactGrant.mockResolvedValueOnce(grant).mockRejectedValueOnce(new Error('database unavailable'));
+
+		const response = await POST({ params: { runId: 'run-1' }, request: request() } as never);
+		expect(response.status).toBe(503);
+		expect(remove).not.toHaveBeenCalled();
+	});
 });
