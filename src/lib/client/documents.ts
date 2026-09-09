@@ -15,6 +15,18 @@ interface SignedUploadResult {
 	};
 }
 
+const CAPABILITY_CACHE_TTL_MS = 60_000;
+interface CapabilityCache {
+	value: boolean | null;
+	expiresAt: number;
+	pending: Promise<boolean> | null;
+}
+
+// Keep this per fetch implementation and account scope so tests/embedded
+// clients can inject their own transport without sharing a result with the
+// browser, and a sign-out/account switch never reuses another user's probe.
+const capabilityCaches = new WeakMap<object, Map<string, CapabilityCache>>();
+
 interface UploadConversationPdfOptions {
 	fetch?: typeof fetch;
 	onCreated?: (document: ConversationDocumentSummary) => void;
@@ -28,7 +40,30 @@ export class ConversationDocumentError extends Error {
 	}
 }
 
-export async function documentsCapabilityEnabled(fetchImpl: typeof fetch = fetch): Promise<boolean> {
+export async function documentsCapabilityEnabled(
+	fetchImpl: typeof fetch = fetch,
+	cacheScope = 'global'
+): Promise<boolean> {
+	const key = fetchImpl as unknown as object;
+	let scopedCaches = capabilityCaches.get(key);
+	if (!scopedCaches) {
+		scopedCaches = new Map();
+		capabilityCaches.set(key, scopedCaches);
+	}
+	let cache = scopedCaches.get(cacheScope);
+	if (!cache) {
+		cache = { value: null, expiresAt: 0, pending: null };
+		scopedCaches.set(cacheScope, cache);
+	}
+	if (cache.value !== null && cache.expiresAt > Date.now()) return cache.value;
+	if (cache.pending) return cache.pending;
+	cache.pending = readDocumentsCapability(fetchImpl, cache).finally(() => {
+		cache!.pending = null;
+	});
+	return cache.pending;
+}
+
+async function readDocumentsCapability(fetchImpl: typeof fetch, cache: CapabilityCache): Promise<boolean> {
 	try {
 		const response = await fetchImpl('/api/health?capabilities=1', {
 			headers: { accept: 'application/json' },
@@ -38,8 +73,16 @@ export async function documentsCapabilityEnabled(fetchImpl: typeof fetch = fetch
 		const body = (await response.json()) as {
 			app?: { capabilities?: { documents?: boolean } };
 		};
-		return body.app?.capabilities?.documents === true;
+		const enabled = body.app?.capabilities?.documents === true;
+		cache.value = enabled;
+		// A healthy negative response usually means the optional migration is not
+		// installed; keep it briefly, while a positive result remains stable for
+		// the session. Transport/parse failures below are never cached.
+		cache.expiresAt = Date.now() + (enabled ? CAPABILITY_CACHE_TTL_MS : 5_000);
+		return enabled;
 	} catch {
+		cache.value = null;
+		cache.expiresAt = 0;
 		return false;
 	}
 }

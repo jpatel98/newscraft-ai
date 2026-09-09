@@ -86,6 +86,16 @@ describe('NewsCraft health contract', () => {
 		expect(body.gateway).not.toHaveProperty('json');
 	});
 
+	it('serves the authenticated capability probe without checking Hermes', async () => {
+		const response = await GET(request(user, '?capabilities=1'));
+		const body = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(body).toEqual({ app: { capabilities: { documents: true } } });
+		expect(gatewayMocks.gatewayHealth).not.toHaveBeenCalled();
+		expect(dbMocks.sql).toHaveBeenCalledTimes(1);
+	});
+
 	it('keeps the public response redacted and aligned with HTTP readiness', async () => {
 		const response = await GET(request(null, '?capabilities=1'));
 		const body = await response.json();

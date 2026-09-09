@@ -27,6 +27,35 @@ describe('conversation document client', () => {
 		).resolves.toBe(false);
 	});
 
+	it('deduplicates an in-flight capability probe and retries transport failures', async () => {
+		let resolveProbe: ((response: Response) => void) | undefined;
+		const fetchImpl = vi.fn().mockImplementation(
+			() => new Promise<Response>((resolve) => (resolveProbe = resolve))
+		);
+		const first = documentsCapabilityEnabled(fetchImpl, 'account-a');
+		const second = documentsCapabilityEnabled(fetchImpl, 'account-a');
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		resolveProbe?.(new Response(JSON.stringify({ app: { capabilities: { documents: true } } })));
+		await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+
+		const flakyFetch = vi.fn()
+			.mockRejectedValueOnce(new Error('offline'))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ app: { capabilities: { documents: true } } })));
+		await expect(documentsCapabilityEnabled(flakyFetch, 'account-b')).resolves.toBe(false);
+		await expect(documentsCapabilityEnabled(flakyFetch, 'account-b')).resolves.toBe(true);
+		expect(flakyFetch).toHaveBeenCalledTimes(2);
+	});
+
+	it('keeps successful capability results separate per account scope', async () => {
+		const fetchImpl = vi.fn().mockImplementation(
+			() => Promise.resolve(new Response(JSON.stringify({ app: { capabilities: { documents: true } } })))
+		);
+		await expect(documentsCapabilityEnabled(fetchImpl, 'account-a')).resolves.toBe(true);
+		await expect(documentsCapabilityEnabled(fetchImpl, 'account-a')).resolves.toBe(true);
+		await expect(documentsCapabilityEnabled(fetchImpl, 'account-b')).resolves.toBe(true);
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+	});
+
 	it('hashes, uploads directly to the signed URL, then processes the PDF', async () => {
 		const file = pdfFile();
 		const onCreated = vi.fn();

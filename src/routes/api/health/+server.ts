@@ -85,7 +85,18 @@ function gatewayDetails(gateway: Awaited<ReturnType<typeof gatewayHealth>>): Hea
 	};
 }
 
-export const GET: RequestHandler = async ({ locals }) => {
+export const GET: RequestHandler = async ({ locals, url }) => {
+	// The document client only needs the optional app capability. Keep this
+	// authenticated probe deliberately narrow: the full health contract also
+	// checks Hermes and all providers, which makes opening a conversation pay for
+	// an unrelated gateway round trip.
+	if (locals.user && url.searchParams.get('capabilities') === '1') {
+		const documents = await documentsReady();
+		return json(
+			{ app: { capabilities: { documents } } },
+			{ status: 200, headers: { 'Cache-Control': 'no-store' } }
+		);
+	}
 	const [gateway, app] = await Promise.all([gatewayHealth(), appHealth()]);
 	const requiredReady = app.ok && gateway.ok;
 	const documents = locals.user && app.ok ? await documentsReady() : false;

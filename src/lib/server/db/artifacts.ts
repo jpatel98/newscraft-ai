@@ -611,7 +611,7 @@ export async function getFinalizedArtifactForGrant(
 		}
 		const rows = await tx.execute(sql`
 			SELECT f.id, r.id AS revision_id, r.revision, f.kind, f.title, r.status,
-				f.source_message_id, f.created_at, r.updated_at, r.spec_json, r.error_code, r.error_message,
+				f.source_message_id, f.created_at, r.updated_at, r.error_code, r.error_message,
 				(r.spec_json::jsonb->>'fixture')::boolean AS fixture,
 				pa.id AS preview_asset_id, pa.mime_type AS preview_mime_type, pa.size_bytes AS preview_size_bytes,
 				pa.width AS preview_width, pa.height AS preview_height
@@ -815,7 +815,7 @@ export async function markInlineArtifactReady(accountId: string, revisionId: str
 async function summaryForRevisionTx(tx: any, accountId: string, revisionId: string): Promise<ArtifactSummary> {
 	const rows = await tx.execute(sql`
 		SELECT f.id, r.id AS revision_id, r.revision, f.kind, f.title, r.status,
-		 f.source_message_id, f.created_at, r.updated_at, r.spec_json, r.error_code, r.error_message,
+		 f.source_message_id, f.created_at, r.updated_at, r.error_code, r.error_message,
 		 (r.spec_json::jsonb->>'fixture')::boolean AS fixture,
 		 pa.id AS preview_asset_id, pa.mime_type AS preview_mime_type, pa.size_bytes AS preview_size_bytes,
 		 pa.width AS preview_width, pa.height AS preview_height
@@ -833,7 +833,7 @@ export async function listArtifactSummariesForMessages(accountId: string, conver
 	if (!ids.length) return [];
 	const rows = await db.execute(sql`
 		SELECT f.id, r.id AS revision_id, r.revision, f.kind, f.title, r.status,
-		 f.source_message_id, f.created_at, r.updated_at, r.spec_json, r.error_code, r.error_message,
+		 f.source_message_id, f.created_at, r.updated_at, r.error_code, r.error_message,
 		 (r.spec_json::jsonb->>'fixture')::boolean AS fixture,
 		 pa.id AS preview_asset_id, pa.mime_type AS preview_mime_type, pa.size_bytes AS preview_size_bytes,
 		 pa.width AS preview_width, pa.height AS preview_height
@@ -849,7 +849,7 @@ export async function listArtifactLibrary(accountId: string, conversationId: str
 	const pageLimit = Math.min(Math.max(limit, 1), 50);
 	const rows = await db.execute(sql`
 		SELECT f.id, r.id AS revision_id, r.revision, f.kind, f.title, r.status,
-		 f.source_message_id, f.created_at, r.updated_at, r.spec_json, r.error_code, r.error_message,
+		 f.source_message_id, f.created_at, r.updated_at, r.error_code, r.error_message,
 		 (r.spec_json::jsonb->>'fixture')::boolean AS fixture,
 		 pa.id AS preview_asset_id, pa.mime_type AS preview_mime_type, pa.size_bytes AS preview_size_bytes,
 		 pa.width AS preview_width, pa.height AS preview_height

@@ -17,7 +17,21 @@ const PUBLIC_PREFIXES = [
 	'/api/e2e'
 ];
 let knownHasAccounts = false;
+let accountCountInFlight: Promise<number> | null = null;
 const MARKETING_HOSTS = new Set(['newscraftai.com', 'www.newscraftai.com']);
+
+async function hasAnyAccounts(): Promise<boolean> {
+	if (knownHasAccounts) return true;
+	// Several unauthenticated browser requests can arrive together on a fresh
+	// process (health, login, static data). Share the first count query instead
+	// of queueing one database read per request.
+	accountCountInFlight ??= accountCount().finally(() => {
+		accountCountInFlight = null;
+	});
+	const count = await accountCountInFlight;
+	if (count > 0) knownHasAccounts = true;
+	return count > 0;
+}
 
 function hostnameWithoutPort(host: string): string {
 	return host.toLowerCase().replace(/:\d+$/, '');
@@ -50,8 +64,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
 	const isMarketingHome = event.locals.isMarketingHost && path === '/';
 	const isPublic = isMarketingHome || PUBLIC_PATHS.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
-	const hasAccounts = knownHasAccounts || (await accountCount()) > 0;
-	if (hasAccounts) knownHasAccounts = true;
+	// A valid session already proves that at least one account exists. This
+	// avoids an extra account-count query on the first authenticated request.
+	const hasAccounts = event.locals.user ? true : await hasAnyAccounts();
+	if (event.locals.user) knownHasAccounts = true;
 
 	if (
 		!hasAccounts &&

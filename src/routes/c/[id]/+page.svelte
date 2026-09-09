@@ -1306,7 +1306,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	onMount(() => {
 		const onHashChange = () => loadHashTarget();
 		window.addEventListener('hashchange', onHashChange);
-		void documentsCapabilityEnabled().then((enabled) => {
+		void documentsCapabilityEnabled(fetch, data.user?.id ?? 'anonymous').then((enabled) => {
 			documentsEnabled = enabled;
 		});
 		if (data.durableRun) {
