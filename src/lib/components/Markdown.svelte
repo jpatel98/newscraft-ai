@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { CitationRecord } from '@newscraft/shared';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { highlight } from '$lib/utils/highlight';
 	import { prepareAssistantMarkdown, renderMarkdownToHtml } from '$lib/utils/markdown-render';
 	import { createMarkdownStreamScheduler } from '$lib/utils/markdown-stream-scheduler';
@@ -32,7 +32,11 @@
 		renderScheduler.update(content, partial);
 	});
 
-	onDestroy(() => renderScheduler.destroy());
+	onDestroy(() => {
+		disposed = true;
+		codeDecorationGeneration += 1;
+		renderScheduler.destroy();
+	});
 
 	const markdown = $derived(
 		assistant
@@ -50,6 +54,9 @@
 
 	let container: HTMLDivElement | undefined = $state();
 	let mounted = $state(false);
+	let disposed = false;
+	let codeDecorationGeneration = 0;
+	const pendingCodeBlocks = new WeakSet<HTMLPreElement>();
 	onMount(() => {
 		mounted = true;
 	});
@@ -135,37 +142,74 @@
 
 	// Highlight + decorate code blocks once streaming is done.
 	$effect(() => {
-		if (!mounted || !container || partial || (renderedPartial ?? false)) return;
-		const _ = html;
-		const blocks = Array.from(container.querySelectorAll<HTMLPreElement>('pre > code'));
-		if (blocks.length === 0) return;
+		const _rendered = html;
+		const _mounted = mounted;
+		const _partial = partial;
+		const _renderedPartial = renderedPartial;
+		const target = container;
+		const generation = ++codeDecorationGeneration;
+		void _rendered;
+		void _mounted;
+		void _partial;
+		void _renderedPartial;
+		if (!_mounted || !target || _partial || (_renderedPartial ?? false)) return;
 
-		void Promise.all(
-			blocks.map(async (codeEl) => {
-				const pre = codeEl.parentElement as HTMLPreElement;
-				if (pre.dataset.highlighted === '1') return;
-				pre.dataset.highlighted = '1';
+		// renderedContent changes in an effect, so the HTML produced by {@html}
+		// is committed on the following Svelte tick. Querying the container here
+		// can otherwise observe the previous partial DOM and never rerun.
+		void tick().then(() => {
+			if (disposed || generation !== codeDecorationGeneration || container !== target) return;
+			const blocks = Array.from(target.querySelectorAll<HTMLPreElement>('pre > code'));
+			if (blocks.length === 0) return;
 
-				const langClass = Array.from(codeEl.classList).find((c) => c.startsWith('language-'));
-				const lang = langClass ? langClass.slice(9) : 'text';
-				const text = codeEl.textContent ?? '';
+			void Promise.all(
+				blocks.map(async (codeEl) => {
+					const pre = codeEl.parentElement;
+					if (!(pre instanceof HTMLPreElement)) return;
+					if (pre.dataset.highlighted === '1' || pendingCodeBlocks.has(pre)) return;
+					pendingCodeBlocks.add(pre);
 
-				try {
-					const highlighted = await highlight(text, lang, 'light');
-					const wrapper = document.createElement('div');
-					wrapper.innerHTML = highlighted;
-					const newPre = wrapper.firstElementChild as HTMLPreElement | null;
-					if (newPre) {
-						newPre.classList.add('md-code');
-						newPre.dataset.lang = lang;
-						pre.replaceWith(newPre);
-						decorate(newPre, text);
+					const langClass = Array.from(codeEl.classList).find((c) => c.startsWith('language-'));
+					const lang = langClass ? langClass.slice(9) : 'text';
+					const text = codeEl.textContent ?? '';
+
+					try {
+						const highlighted = await highlight(text, lang, 'light');
+						if (
+							disposed ||
+							generation !== codeDecorationGeneration ||
+							container !== target ||
+							!pre.isConnected ||
+							!target.contains(pre)
+						)
+							return;
+						const wrapper = document.createElement('div');
+						wrapper.innerHTML = highlighted;
+						const newPre = wrapper.firstElementChild as HTMLPreElement | null;
+						if (newPre) {
+							newPre.classList.add('md-code');
+							newPre.dataset.lang = lang;
+							newPre.dataset.highlighted = '1';
+							pre.replaceWith(newPre);
+							decorate(newPre, text);
+						}
+					} catch {
+						if (
+							disposed ||
+							generation !== codeDecorationGeneration ||
+							container !== target ||
+							!pre.isConnected ||
+							!target.contains(pre)
+						)
+							return;
+						pre.dataset.highlighted = '1';
+						decorate(pre, text);
+					} finally {
+						pendingCodeBlocks.delete(pre);
 					}
-				} catch {
-					decorate(pre, text);
-				}
-			})
-		);
+				})
+			);
+		});
 	});
 
 	function decorate(pre: HTMLPreElement, text: string) {
