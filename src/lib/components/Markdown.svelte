@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { CitationRecord } from '@newscraft/shared';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { highlight } from '$lib/utils/highlight';
 	import { prepareAssistantMarkdown, renderMarkdownToHtml } from '$lib/utils/markdown-render';
 	import { isInspectableCitationRecord } from '$lib/utils/tool-metadata';
@@ -20,7 +20,57 @@
 		onCitationSelect
 	}: Props = $props();
 
-	const markdown = $derived(assistant ? prepareAssistantMarkdown(content) : content);
+	// Streaming answers can deliver many small deltas in one frame. Keep the
+	// latest content immediately, but coalesce partial renders to one Markdown
+	// parse per animation frame. A terminal update flushes synchronously so the
+	// final answer, replacement, failure, or snapshot is never left pending.
+	let renderedContent = $state<string | null>(null);
+	let renderedPartial = $state<boolean | null>(null);
+	let pendingContent = '';
+	let pendingPartial = false;
+	let renderFrame: number | null = null;
+	let renderTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function cancelPendingRender(): void {
+		if (renderFrame !== null) {
+			cancelAnimationFrame(renderFrame);
+			renderFrame = null;
+		}
+		if (renderTimer !== null) {
+			clearTimeout(renderTimer);
+			renderTimer = null;
+		}
+	}
+
+	function flushPendingRender(): void {
+		cancelPendingRender();
+		renderedContent = pendingContent;
+		renderedPartial = pendingPartial;
+	}
+
+	function schedulePartialRender(): void {
+		if (renderFrame !== null || renderTimer !== null) return;
+		if (typeof requestAnimationFrame === 'function') {
+			renderFrame = requestAnimationFrame(flushPendingRender);
+		} else {
+			renderTimer = setTimeout(flushPendingRender, 16);
+		}
+	}
+
+	$effect(() => {
+		pendingContent = content;
+		pendingPartial = partial;
+		if (partial) schedulePartialRender();
+		else flushPendingRender();
+	});
+
+	onDestroy(cancelPendingRender);
+
+	const markdown = $derived(
+		assistant
+			? prepareAssistantMarkdown(renderedContent ?? content)
+			: renderedContent ?? content
+	);
 
 	const html = $derived.by(() => {
 		try {
@@ -48,7 +98,7 @@
 	function decorateCitationMarkers() {
 		if (!container) return;
 		restoreCitationMarkers();
-		if (partial || !onCitationSelect || citations.length === 0) return;
+		if (partial || (renderedPartial ?? false) || !onCitationSelect || citations.length === 0) return;
 
 		const recordsByNumber = new Map<number, CitationRecord[]>();
 		for (const citation of citations) {
@@ -117,7 +167,7 @@
 
 	// Highlight + decorate code blocks once streaming is done.
 	$effect(() => {
-		if (!mounted || !container || partial) return;
+		if (!mounted || !container || partial || (renderedPartial ?? false)) return;
 		const _ = html;
 		const blocks = Array.from(container.querySelectorAll<HTMLPreElement>('pre > code'));
 		if (blocks.length === 0) return;

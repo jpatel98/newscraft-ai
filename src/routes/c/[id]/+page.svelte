@@ -1,9 +1,6 @@
 <script lang="ts">
 	import Composer from '$lib/components/Composer.svelte';
-import NewsroomArtifactPane, {
-	type ArtifactDraft
-} from '$lib/components/NewsroomArtifactPane.svelte';
-import ArtifactCanvas from '$lib/components/ArtifactCanvas.svelte';
+	import type { ArtifactDraft } from '$lib/components/NewsroomArtifactPane.svelte';
 	import Thread from '$lib/components/Thread.svelte';
 	import type { CitationRecord } from '@newscraft/shared';
 	import type {
@@ -67,9 +64,9 @@ import ArtifactCanvas from '$lib/components/ArtifactCanvas.svelte';
 		needsAutomaticConversationTitle,
 		requestAutomaticConversationTitle
 	} from '$lib/client/conversation-title';
-import X from 'lucide-svelte/icons/x';
-import Send from 'lucide-svelte/icons/send-horizontal';
-import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
+	import X from 'lucide-svelte/icons/x';
+	import Send from 'lucide-svelte/icons/send-horizontal';
+	import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 
 	type ThreadMessage = PersistedThreadMessage & { createdAt: number };
 	type RunStreamArgs = StreamArgs & { conversation_id: string };
@@ -122,6 +119,16 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	let activeArtifact = $state<ArtifactDraft | null>(null);
 	let activeCanvasArtifact = $state<ArtifactDetail | null>(null);
 	let activeArtifactSummary = $state<ArtifactSummary | null>(null);
+	type ArtifactCanvasComponent = typeof import('$lib/components/ArtifactCanvas.svelte')['default'];
+	type NewsroomArtifactPaneComponent = typeof import('$lib/components/NewsroomArtifactPane.svelte')['default'];
+	let ArtifactCanvas = $state<ArtifactCanvasComponent | null>(null);
+	let NewsroomArtifactPane = $state<NewsroomArtifactPaneComponent | null>(null);
+	let artifactCanvasLoadState = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let newsroomArtifactPaneLoadState = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let artifactCanvasLoadPromise: Promise<void> | null = null;
+	let newsroomArtifactPaneLoadPromise: Promise<void> | null = null;
+	let artifactReturnFocus = $state<HTMLElement | null>(null);
+	let artifactDraftReturnFocus = $state<HTMLElement | null>(null);
 	const artifactDetailCache = new ArtifactDetailCache();
 	const artifactRequestGate = new ArtifactRequestGate();
 	let activeRunId = $state<string | null>(null);
@@ -765,6 +772,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		let durableFailureSeen = existingRun?.status === 'failed';
 		let artifactCitations: CitationRecord[] = [];
 		if (artifact) {
+			artifactDraftReturnFocus = document.activeElement as HTMLElement | null;
+			void loadNewsroomArtifactPane();
 			activeArtifact = {
 				...artifact,
 				content: '',
@@ -1066,6 +1075,42 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		};
 	}
 
+	function loadArtifactCanvas(): Promise<void> {
+		if (ArtifactCanvas) return Promise.resolve();
+		if (artifactCanvasLoadPromise) return artifactCanvasLoadPromise;
+		artifactCanvasLoadState = 'loading';
+		artifactCanvasLoadPromise = import('$lib/components/ArtifactCanvas.svelte')
+			.then(({ default: component }) => {
+				ArtifactCanvas = component;
+				artifactCanvasLoadState = 'ready';
+			})
+			.catch(() => {
+				artifactCanvasLoadState = 'error';
+			})
+			.finally(() => {
+				artifactCanvasLoadPromise = null;
+			});
+		return artifactCanvasLoadPromise;
+	}
+
+	function loadNewsroomArtifactPane(): Promise<void> {
+		if (NewsroomArtifactPane) return Promise.resolve();
+		if (newsroomArtifactPaneLoadPromise) return newsroomArtifactPaneLoadPromise;
+		newsroomArtifactPaneLoadState = 'loading';
+		newsroomArtifactPaneLoadPromise = import('$lib/components/NewsroomArtifactPane.svelte')
+			.then(({ default: component }) => {
+				NewsroomArtifactPane = component;
+				newsroomArtifactPaneLoadState = 'ready';
+			})
+			.catch(() => {
+				newsroomArtifactPaneLoadState = 'error';
+			})
+			.finally(() => {
+				newsroomArtifactPaneLoadPromise = null;
+			});
+		return newsroomArtifactPaneLoadPromise;
+	}
+
 	function artifactCacheKey(summary: ArtifactSummary, conversationId: string): ArtifactDetailCacheKey {
 		const accountId = data.user?.id;
 		if (!accountId) throw new Error('authenticated account context missing');
@@ -1092,6 +1137,14 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		const conversationId = data.conversation.id;
 		const token = artifactRequestGate.begin();
 		const key = artifactCacheKey(summary, conversationId);
+		if (
+			!activeArtifactSummary ||
+			activeArtifactSummary.id !== summary.id ||
+			activeArtifactSummary.revisionId !== summary.revisionId
+		) {
+			artifactReturnFocus = document.activeElement as HTMLElement | null;
+		}
+		void loadArtifactCanvas();
 		activeArtifactSummary = summary;
 		// Mount the canvas before awaiting network work so the user gets immediate
 		// feedback and a slow request cannot look like a dead click.
@@ -1110,13 +1163,34 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 
 	function retryArtifact(): void {
 		const summary = activeArtifactSummary;
+		if (!ArtifactCanvas && artifactCanvasLoadState === 'error') void loadArtifactCanvas();
 		if (summary) void openArtifact(summary);
 	}
 
 	function closeArtifactCanvas(): void {
+		const returnFocus = artifactReturnFocus;
 		artifactRequestGate.invalidate();
+		artifactReturnFocus = null;
 		activeArtifactSummary = null;
 		activeCanvasArtifact = null;
+		void tick().then(() => {
+			if (returnFocus?.isConnected) returnFocus.focus();
+		});
+	}
+
+	function retryArtifactPaneLoad(): void {
+		if (!NewsroomArtifactPane && newsroomArtifactPaneLoadState === 'error') {
+			void loadNewsroomArtifactPane();
+		}
+	}
+
+	function closeArtifactDraft(): void {
+		const returnFocus = artifactDraftReturnFocus;
+		artifactOpen = false;
+		artifactDraftReturnFocus = null;
+		void tick().then(() => {
+			if (returnFocus?.isConnected) returnFocus.focus();
+		});
 	}
 
 	async function handleDocumentUpload(file: File, controls: DocumentUploadControls) {
@@ -1345,6 +1419,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		return () => {
 			window.removeEventListener('hashchange', onHashChange);
 			artifactRequestGate.invalidate();
+			artifactReturnFocus = null;
+			artifactDraftReturnFocus = null;
 			activeArtifactSummary = null;
 			activeCanvasArtifact = null;
 			for (const controller of historyAbortControllers) controller.abort();
@@ -1377,6 +1453,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		activeRunStatus = null;
 		activeArtifact = null;
 		artifactRequestGate.invalidate();
+		artifactReturnFocus = null;
+		artifactDraftReturnFocus = null;
 		activeArtifactSummary = null;
 		activeCanvasArtifact = null;
 		artifactOpen = false;
@@ -1450,20 +1528,78 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		/>
 	{/key}
 	{#if activeCanvasArtifact}
-		<ArtifactCanvas
-			artifact={activeCanvasArtifact}
-			conversationId={data.conversation.id}
-			onClose={closeArtifactCanvas}
-			onRetry={retryArtifact}
-		/>
+		{#if ArtifactCanvas}
+			<ArtifactCanvas
+				artifact={activeCanvasArtifact}
+				conversationId={data.conversation.id}
+				onClose={closeArtifactCanvas}
+				onRetry={retryArtifact}
+			/>
+		{:else}
+			<button
+				type="button"
+				class="lazy-artifact-backdrop"
+				aria-label="Close canvas"
+				tabindex="-1"
+				onclick={closeArtifactCanvas}
+			></button>
+			<div
+				class="lazy-artifact-shell"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="lazy-artifact-title"
+				tabindex="-1"
+				onkeydown={(event) => { if (event.key === 'Escape') closeArtifactCanvas(); }}
+			>
+				<header class="lazy-artifact-shell__header">
+					<div>
+						<div class="lazy-artifact-shell__eyebrow">Newsroom canvas</div>
+						<h2 id="lazy-artifact-title">{activeCanvasArtifact.title}</h2>
+					</div>
+					<button type="button" aria-label="Close canvas" onclick={closeArtifactCanvas}>×</button>
+				</header>
+				{#if artifactCanvasLoadState === 'error'}
+					<div class="lazy-artifact-shell__state" role="alert">
+						<span>Couldn't load this preview panel.</span>
+						<button type="button" onclick={retryArtifact}>Try again</button>
+					</div>
+				{:else}
+					<div class="lazy-artifact-shell__state" role="status">
+						Preparing this artifact. The written answer remains available.
+					</div>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 	{#if artifactOpen && activeArtifact}
-		<NewsroomArtifactPane
-			draft={activeArtifact}
-			disabled={chat.streaming}
-			onSelect={handleUseAnswer}
-			onClose={() => (artifactOpen = false)}
-		/>
+		{#if NewsroomArtifactPane}
+			<NewsroomArtifactPane
+				draft={activeArtifact}
+				disabled={chat.streaming}
+				onSelect={handleUseAnswer}
+				onClose={closeArtifactDraft}
+			/>
+		{:else}
+			<aside class="lazy-artifact-pane" aria-labelledby="lazy-artifact-pane-title">
+				<header class="lazy-artifact-pane__header">
+					<div>
+						<div class="lazy-artifact-pane__eyebrow">Newsroom artifact</div>
+						<h2 id="lazy-artifact-pane-title">Preparing newsroom copy</h2>
+					</div>
+					<button type="button" aria-label="Close artifact pane" onclick={closeArtifactDraft}>×</button>
+				</header>
+				{#if newsroomArtifactPaneLoadState === 'error'}
+					<div class="lazy-artifact-pane__state" role="alert">
+						<span>Couldn't load this artifact panel.</span>
+						<button type="button" onclick={retryArtifactPaneLoad}>Try again</button>
+					</div>
+				{:else}
+					<div class="lazy-artifact-pane__state" role="status">
+						Drafting the selected newsroom copy…
+					</div>
+				{/if}
+			</aside>
+		{/if}
 	{/if}
 </div>
 
@@ -1568,6 +1704,113 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		min-height: 0;
 		min-width: 0;
 		display: flex;
+	}
+	.lazy-artifact-shell,
+	.lazy-artifact-pane {
+		position: fixed;
+		z-index: 60;
+		border: 1px solid var(--border-default);
+		background: var(--bg-surface);
+		box-shadow: var(--shadow-3);
+	}
+	.lazy-artifact-shell {
+		inset: 10vh 10vw;
+		display: grid;
+		align-content: start;
+		gap: 18px;
+		padding: 20px;
+		border-radius: var(--radius-2);
+	}
+	.lazy-artifact-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 59;
+		border: 0;
+		padding: 0;
+		background: color-mix(in srgb, var(--ink-900) 28%, transparent);
+		cursor: default;
+	}
+	.lazy-artifact-backdrop:focus-visible {
+		outline: none;
+	}
+	.lazy-artifact-shell__header,
+	.lazy-artifact-pane__header {
+		display: flex;
+		align-items: start;
+		justify-content: space-between;
+		gap: 12px;
+	}
+	.lazy-artifact-shell__header h2,
+	.lazy-artifact-pane__header h2 {
+		margin: 4px 0 0;
+		font-family: var(--font-display);
+		font-size: 18px;
+		font-weight: 650;
+	}
+	.lazy-artifact-shell__header button,
+	.lazy-artifact-pane__header button {
+		min-width: 32px;
+		min-height: 32px;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-1);
+		background: transparent;
+		color: var(--fg-2);
+		font-size: 20px;
+		line-height: 1;
+		cursor: pointer;
+	}
+	.lazy-artifact-shell__header button:focus-visible,
+	.lazy-artifact-pane__header button:focus-visible,
+	.lazy-artifact-shell__state button:focus-visible,
+	.lazy-artifact-pane__state button:focus-visible {
+		outline: none;
+		box-shadow: var(--shadow-focus);
+	}
+	.lazy-artifact-shell__eyebrow,
+	.lazy-artifact-pane__eyebrow {
+		font: 10.5px var(--font-mono);
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--fg-3);
+	}
+	.lazy-artifact-shell__state,
+	.lazy-artifact-pane__state {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 42px;
+		padding: 12px;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-1);
+		color: var(--fg-2);
+		font-size: 13px;
+	}
+	.lazy-artifact-shell__state button,
+	.lazy-artifact-pane__state button {
+		margin-left: auto;
+		padding: 6px 10px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		background: var(--bg-page);
+		color: var(--fg-2);
+		font: 10.5px var(--font-mono);
+		cursor: pointer;
+	}
+	.lazy-artifact-pane {
+		top: 48px;
+		right: 0;
+		bottom: 0;
+		width: min(430px, 40vw);
+		padding: 18px;
+	}
+	@media (max-width: 860px) {
+		.lazy-artifact-shell {
+			inset: 48px 0 0;
+			border-radius: 0;
+		}
+		.lazy-artifact-pane {
+			width: 100%;
+		}
 	}
 	.feedback-backdrop {
 		position: fixed;
