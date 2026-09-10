@@ -3,6 +3,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { highlight } from '$lib/utils/highlight';
 	import { prepareAssistantMarkdown, renderMarkdownToHtml } from '$lib/utils/markdown-render';
+	import { createMarkdownStreamScheduler } from '$lib/utils/markdown-stream-scheduler';
 	import { isInspectableCitationRecord } from '$lib/utils/tool-metadata';
 
 	interface Props {
@@ -20,51 +21,18 @@
 		onCitationSelect
 	}: Props = $props();
 
-	// Streaming answers can deliver many small deltas in one frame. Keep the
-	// latest content immediately, but coalesce partial renders to one Markdown
-	// parse per animation frame. A terminal update flushes synchronously so the
-	// final answer, replacement, failure, or snapshot is never left pending.
 	let renderedContent = $state<string | null>(null);
 	let renderedPartial = $state<boolean | null>(null);
-	let pendingContent = '';
-	let pendingPartial = false;
-	let renderFrame: number | null = null;
-	let renderTimer: ReturnType<typeof setTimeout> | null = null;
-
-	function cancelPendingRender(): void {
-		if (renderFrame !== null) {
-			cancelAnimationFrame(renderFrame);
-			renderFrame = null;
-		}
-		if (renderTimer !== null) {
-			clearTimeout(renderTimer);
-			renderTimer = null;
-		}
-	}
-
-	function flushPendingRender(): void {
-		cancelPendingRender();
-		renderedContent = pendingContent;
-		renderedPartial = pendingPartial;
-	}
-
-	function schedulePartialRender(): void {
-		if (renderFrame !== null || renderTimer !== null) return;
-		if (typeof requestAnimationFrame === 'function') {
-			renderFrame = requestAnimationFrame(flushPendingRender);
-		} else {
-			renderTimer = setTimeout(flushPendingRender, 16);
-		}
-	}
-
-	$effect(() => {
-		pendingContent = content;
-		pendingPartial = partial;
-		if (partial) schedulePartialRender();
-		else flushPendingRender();
+	const renderScheduler = createMarkdownStreamScheduler(({ content: nextContent, partial: nextPartial }) => {
+		renderedContent = nextContent;
+		renderedPartial = nextPartial;
 	});
 
-	onDestroy(cancelPendingRender);
+	$effect(() => {
+		renderScheduler.update(content, partial);
+	});
+
+	onDestroy(() => renderScheduler.destroy());
 
 	const markdown = $derived(
 		assistant

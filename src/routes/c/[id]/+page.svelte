@@ -128,6 +128,7 @@
 	let artifactCanvasLoadPromise: Promise<void> | null = null;
 	let artifactCanvasLoadAttempt = 0;
 	let newsroomArtifactPaneLoadPromise: Promise<void> | null = null;
+	let newsroomArtifactPaneLoadAttempt = 0;
 	let artifactReturnFocus = $state<HTMLElement | null>(null);
 	let artifactDraftReturnFocus = $state<HTMLElement | null>(null);
 	let artifactLazyShell = $state<HTMLDivElement | null>(null);
@@ -1082,12 +1083,13 @@
 		if (artifactCanvasLoadPromise) return artifactCanvasLoadPromise;
 		artifactCanvasLoadState = 'loading';
 		// A failed native module import is cached as an errored module by the
-		// browser. Alternate tiny wrapper modules so the recovery action can
-		// actually fetch a fresh module after a transient chunk failure without
-		// duplicating the heavyweight canvas chunk.
+		// browser. Alternate fragment-keyed entries so recovery gets a fresh
+		// module identity even when a shared dependency chunk failed.
 		const load = artifactCanvasLoadAttempt++ % 2 === 0
-			? import('$lib/components/ArtifactCanvasLoaderA')
-			: import('$lib/components/ArtifactCanvasLoaderB');
+			// @ts-expect-error Vite resolves the fragment-keyed Svelte entries at build time.
+			? import('$lib/components/ArtifactCanvas.svelte#lazy-load-a')
+			// @ts-expect-error Vite resolves the fragment-keyed Svelte entries at build time.
+			: import('$lib/components/ArtifactCanvas.svelte#lazy-load-b');
 		artifactCanvasLoadPromise = load
 			.then(({ default: component }) => {
 				// The loading shell owns focus while this chunk is pending. Move focus
@@ -1181,7 +1183,12 @@
 		if (NewsroomArtifactPane) return Promise.resolve();
 		if (newsroomArtifactPaneLoadPromise) return newsroomArtifactPaneLoadPromise;
 		newsroomArtifactPaneLoadState = 'loading';
-		newsroomArtifactPaneLoadPromise = import('$lib/components/NewsroomArtifactPane.svelte')
+		const load = newsroomArtifactPaneLoadAttempt++ % 2 === 0
+			// @ts-expect-error Vite resolves the fragment-keyed Svelte entries at build time.
+			? import('$lib/components/NewsroomArtifactPane.svelte#lazy-load-a')
+			// @ts-expect-error Vite resolves the fragment-keyed Svelte entries at build time.
+			: import('$lib/components/NewsroomArtifactPane.svelte#lazy-load-b');
+		newsroomArtifactPaneLoadPromise = load
 			.then(({ default: component }) => {
 				NewsroomArtifactPane = component;
 				newsroomArtifactPaneLoadState = 'ready';
