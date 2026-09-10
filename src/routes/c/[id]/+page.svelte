@@ -126,9 +126,11 @@
 	let artifactCanvasLoadState = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	let newsroomArtifactPaneLoadState = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	let artifactCanvasLoadPromise: Promise<void> | null = null;
+	let artifactCanvasLoadAttempt = 0;
 	let newsroomArtifactPaneLoadPromise: Promise<void> | null = null;
 	let artifactReturnFocus = $state<HTMLElement | null>(null);
 	let artifactDraftReturnFocus = $state<HTMLElement | null>(null);
+	let artifactLazyShell = $state<HTMLDivElement | null>(null);
 	const artifactDetailCache = new ArtifactDetailCache();
 	const artifactRequestGate = new ArtifactRequestGate();
 	let activeRunId = $state<string | null>(null);
@@ -1079,8 +1081,25 @@
 		if (ArtifactCanvas) return Promise.resolve();
 		if (artifactCanvasLoadPromise) return artifactCanvasLoadPromise;
 		artifactCanvasLoadState = 'loading';
-		artifactCanvasLoadPromise = import('$lib/components/ArtifactCanvas.svelte')
+		// A failed native module import is cached as an errored module by the
+		// browser. Alternate tiny wrapper modules so the recovery action can
+		// actually fetch a fresh module after a transient chunk failure without
+		// duplicating the heavyweight canvas chunk.
+		const load = artifactCanvasLoadAttempt++ % 2 === 0
+			? import('$lib/components/ArtifactCanvasLoaderA')
+			: import('$lib/components/ArtifactCanvasLoaderB');
+		artifactCanvasLoadPromise = load
 			.then(({ default: component }) => {
+				// The loading shell owns focus while this chunk is pending. Move focus
+				// back to the original trigger before handing off so ArtifactCanvas
+				// cannot capture a soon-to-be-removed shell button as its return target.
+				if (
+					activeCanvasArtifact &&
+					artifactLazyShell?.contains(document.activeElement) &&
+					artifactReturnFocus?.isConnected
+				) {
+					artifactReturnFocus.focus();
+				}
 				ArtifactCanvas = component;
 				artifactCanvasLoadState = 'ready';
 			})
@@ -1092,6 +1111,71 @@
 			});
 		return artifactCanvasLoadPromise;
 	}
+
+	const LAZY_DIALOG_FOCUSABLE_SELECTOR = [
+		'button:not([disabled])',
+		'[href]',
+		'input:not([disabled])',
+		'select:not([disabled])',
+		'textarea:not([disabled])',
+		'[tabindex]:not([tabindex="-1"])'
+	].join(', ');
+
+	function lazyDialogFocusables(dialog: HTMLElement): HTMLElement[] {
+		return Array.from(dialog.querySelectorAll<HTMLElement>(LAZY_DIALOG_FOCUSABLE_SELECTOR)).filter(
+			(element) => {
+				const style = getComputedStyle(element);
+				return element.tabIndex >= 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			}
+		);
+	}
+
+	function handleLazyCanvasKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopPropagation();
+			closeArtifactCanvas();
+			return;
+		}
+		if (event.key !== 'Tab') return;
+
+		const dialog = event.currentTarget as HTMLElement;
+		const focusables = lazyDialogFocusables(dialog);
+		if (focusables.length === 0) {
+			event.preventDefault();
+			dialog.focus();
+			return;
+		}
+
+		const first = focusables[0];
+		const last = focusables[focusables.length - 1];
+		const active = document.activeElement;
+		if (event.shiftKey) {
+			if (active === first || active === dialog || !dialog.contains(active)) {
+				event.preventDefault();
+				last.focus();
+			}
+		} else if (active === last || active === dialog || !dialog.contains(active)) {
+			event.preventDefault();
+			first.focus();
+		}
+	}
+
+	$effect(() => {
+		const dialog = artifactLazyShell;
+		const activeArtifact = activeCanvasArtifact;
+		if (!dialog || !activeArtifact || ArtifactCanvas || dialog.contains(document.activeElement)) return;
+		queueMicrotask(() => {
+			if (
+				artifactLazyShell !== dialog ||
+				activeCanvasArtifact !== activeArtifact ||
+				ArtifactCanvas
+			)
+				return;
+			const [first] = lazyDialogFocusables(dialog);
+			(first ?? dialog).focus();
+		});
+	});
 
 	function loadNewsroomArtifactPane(): Promise<void> {
 		if (NewsroomArtifactPane) return Promise.resolve();
@@ -1544,12 +1628,13 @@
 				onclick={closeArtifactCanvas}
 			></button>
 			<div
+				bind:this={artifactLazyShell}
 				class="lazy-artifact-shell"
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby="lazy-artifact-title"
 				tabindex="-1"
-				onkeydown={(event) => { if (event.key === 'Escape') closeArtifactCanvas(); }}
+				onkeydown={handleLazyCanvasKeydown}
 			>
 				<header class="lazy-artifact-shell__header">
 					<div>
