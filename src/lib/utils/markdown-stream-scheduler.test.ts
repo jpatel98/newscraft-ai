@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createMarkdownStreamScheduler, type MarkdownStreamRender } from './markdown-stream-scheduler';
+import {
+	createMarkdownStreamScheduler,
+	type MarkdownStreamRender,
+	type MarkdownStreamSchedulerOptions
+} from './markdown-stream-scheduler';
 import { prepareAssistantMarkdown, renderMarkdownToHtml } from './markdown-render';
 
 function fakeFrameClock() {
@@ -24,6 +28,34 @@ function fakeFrameClock() {
 		},
 		pendingCount: () => callbacks.size,
 		cancelled
+	};
+}
+
+function fakeTimerClock() {
+	let nextHandle = 1;
+	let now = 0;
+	const callbacks = new Map<number, { callback: () => void; dueAt: number }>();
+	const cleared: number[] = [];
+	return {
+		setTimeout(callback: () => void, delayMs: number) {
+			const handle = nextHandle++;
+			callbacks.set(handle, { callback, dueAt: now + delayMs });
+			return handle;
+		},
+		clearTimeout(handle: number) {
+			cleared.push(handle);
+			callbacks.delete(handle);
+		},
+		advance(ms: number) {
+			now += ms;
+			for (const [handle, entry] of [...callbacks.entries()]) {
+				if (entry.dueAt > now) continue;
+				callbacks.delete(handle);
+				entry.callback();
+			}
+		},
+		pendingCount: () => callbacks.size,
+		cleared
 	};
 }
 
@@ -55,6 +87,63 @@ describe('markdown stream scheduler', () => {
 		expect(renders.at(-1)).toEqual({ content: 'replacement', partial: true });
 	});
 
+	it('bounds long partial parse bursts to the cadence and keeps the latest content', () => {
+		const frameClock = fakeFrameClock();
+		const timerClock = fakeTimerClock();
+		const renders: MarkdownStreamRender[] = [];
+		let parseCount = 0;
+		let naiveParseCount = 0;
+		const scheduler = createMarkdownStreamScheduler(
+			(render) => {
+				parseCount += 1;
+				renders.push({ content: renderMarkdownToHtml(render.content), partial: render.partial });
+			},
+			{
+				requestAnimationFrame: frameClock.requestAnimationFrame,
+				cancelAnimationFrame: frameClock.cancelAnimationFrame,
+				setTimeout: timerClock.setTimeout,
+				clearTimeout: timerClock.clearTimeout as MarkdownStreamSchedulerOptions['clearTimeout'],
+				partialContentThreshold: 10,
+				partialCadenceMs: 50
+			}
+		);
+
+		for (let index = 0; index < 200; index += 1) {
+			naiveParseCount += 1;
+			scheduler.update('**chunk ' + index + '** ' + 'x'.repeat(20), true);
+		}
+
+		expect(parseCount).toBe(0);
+		expect(frameClock.pendingCount()).toBe(0);
+		expect(timerClock.pendingCount()).toBe(1);
+		timerClock.advance(49);
+		expect(parseCount).toBe(0);
+		timerClock.advance(1);
+		expect(parseCount).toBe(1);
+		expect(parseCount).toBeLessThan(naiveParseCount);
+		expect(renders.at(-1)?.content).toContain('chunk 199');
+		expect(timerClock.pendingCount()).toBe(0);
+	});
+
+	it('replaces and cancels a queued long-answer cadence for an authoritative terminal update', () => {
+		const clock = fakeTimerClock();
+		const renders: MarkdownStreamRender[] = [];
+		const scheduler = createMarkdownStreamScheduler((render) => renders.push(render), {
+			requestAnimationFrame: undefined,
+			setTimeout: clock.setTimeout,
+			clearTimeout: clock.clearTimeout as MarkdownStreamSchedulerOptions['clearTimeout'],
+			partialContentThreshold: 1,
+			partialCadenceMs: 50
+		});
+
+		scheduler.update('queued partial', true);
+		scheduler.update('authoritative final', false);
+		clock.advance(100);
+
+		expect(renders).toEqual([{ content: 'authoritative final', partial: false }]);
+		expect(clock.cleared).toEqual([1]);
+	});
+
 	it('flushes terminal and failure replacements synchronously', () => {
 		const clock = fakeFrameClock();
 		const renders: MarkdownStreamRender[] = [];
@@ -82,6 +171,25 @@ describe('markdown stream scheduler', () => {
 
 		expect(renders).toEqual([]);
 		expect(clock.cancelled).toEqual([1]);
+	});
+
+	it('cancels a pending long-answer cadence when the component is destroyed', () => {
+		const clock = fakeTimerClock();
+		const renders: MarkdownStreamRender[] = [];
+		const scheduler = createMarkdownStreamScheduler((render) => renders.push(render), {
+			requestAnimationFrame: undefined,
+			setTimeout: clock.setTimeout,
+			clearTimeout: clock.clearTimeout as MarkdownStreamSchedulerOptions['clearTimeout'],
+			partialContentThreshold: 1,
+			partialCadenceMs: 50
+		});
+
+		scheduler.update('pending', true);
+		scheduler.destroy();
+		clock.advance(100);
+
+		expect(renders).toEqual([]);
+		expect(clock.cleared).toEqual([1]);
 	});
 
 	it('renders SSR initial content immediately and preserves final citation/code markup', () => {

@@ -3,12 +3,18 @@ export interface MarkdownStreamRender {
 	partial: boolean;
 }
 
+type MarkdownStreamTimerHandle = ReturnType<typeof setTimeout> | number;
+
 export interface MarkdownStreamSchedulerOptions {
 	requestAnimationFrame?: (callback: () => void) => number;
 	cancelAnimationFrame?: (handle: number) => void;
-	setTimeout?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
-	clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void;
+	setTimeout?: (callback: () => void, delayMs: number) => MarkdownStreamTimerHandle;
+	clearTimeout?: (handle: MarkdownStreamTimerHandle) => void;
 	frameDelayMs?: number;
+	/** Use a bounded timer cadence once a partial answer is large enough to parse. */
+	partialContentThreshold?: number;
+	/** Maximum partial Markdown parse cadence for long answers. */
+	partialCadenceMs?: number;
 }
 
 export interface MarkdownStreamScheduler {
@@ -18,9 +24,10 @@ export interface MarkdownStreamScheduler {
 }
 
 /**
-	Coalesce partial Markdown updates to one render per frame while making
-	terminal updates synchronous. The injected clock hooks keep this state
-	machine deterministic in tests and safe to use during SSR.
+	Coalesce partial Markdown updates to one render per frame (or a bounded
+	timer cadence for long answers) while making terminal updates synchronous.
+	The injected clock hooks keep this state machine deterministic in tests and
+	safe to use during SSR.
 */
 export function createMarkdownStreamScheduler(
 	onRender: (render: MarkdownStreamRender) => void,
@@ -31,11 +38,13 @@ export function createMarkdownStreamScheduler(
 	const scheduleTimeout = options.setTimeout ?? ((callback, delayMs) => setTimeout(callback, delayMs));
 	const clearScheduledTimeout = options.clearTimeout ?? ((handle) => clearTimeout(handle));
 	const frameDelayMs = options.frameDelayMs ?? 16;
+	const partialContentThreshold = Math.max(0, options.partialContentThreshold ?? 2_000);
+	const partialCadenceMs = Math.max(0, options.partialCadenceMs ?? 50);
 
 	let pendingContent = '';
 	let pendingPartial = false;
 	let frame: number | null = null;
-	let timer: ReturnType<typeof setTimeout> | null = null;
+	let timer: MarkdownStreamTimerHandle | null = null;
 	let destroyed = false;
 
 	function cancelPending(): void {
@@ -57,6 +66,13 @@ export function createMarkdownStreamScheduler(
 
 	function schedule(): void {
 		if (frame !== null || timer !== null || destroyed) return;
+		if (pendingContent.length >= partialContentThreshold && partialCadenceMs > 0) {
+			timer = scheduleTimeout(() => {
+				timer = null;
+				flush();
+			}, partialCadenceMs);
+			return;
+		}
 		if (requestFrame) {
 			frame = requestFrame(() => {
 				frame = null;
