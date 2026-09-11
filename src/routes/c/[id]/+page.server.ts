@@ -12,6 +12,7 @@ import {
 	snapshotFromRun
 } from '$lib/server/db/hermes-runs';
 import { listArtifactSummariesForMessages } from '$lib/server/db/artifacts';
+import { measureRequest } from '$lib/server/request-timing';
 import {
 	MESSAGE_PAGE_MAX_BYTES,
 	MESSAGE_PAGE_SIZE,
@@ -23,29 +24,30 @@ import {
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
-	const convo = await getConversation(locals.user.id, params.id);
+	const accountId = locals.user.id;
+	const convo = await measureRequest(locals, 'ownership', () => getConversation(accountId, params.id));
 	if (!convo) throw error(404, 'not found');
 	const [candidateRows, totalCount, activeRun, actionSummary] = await Promise.all([
-		getLatestMessagesPage(convo.id, MESSAGE_PAGE_SIZE),
-		getMessageCount(convo.id),
-		getActiveHermesRun(locals.user.id, convo.id),
-		getConversationActionSummary(convo.id)
+		measureRequest(locals, 'messages', () => getLatestMessagesPage(convo.id, MESSAGE_PAGE_SIZE)),
+		measureRequest(locals, 'message_count', () => getMessageCount(convo.id)),
+		measureRequest(locals, 'active_run', () => getActiveHermesRun(accountId, convo.id)),
+		measureRequest(locals, 'actions', () => getConversationActionSummary(convo.id))
 	]);
-	const durableRuns = await listHermesRunStatesForMessages(
-		locals.user.id,
+	const durableRuns = await measureRequest(locals, 'run_states', () => listHermesRunStatesForMessages(
+		accountId,
 		convo.id,
 		candidateRows.map((message) => message.id)
-	);
+	));
 	const runByAssistant = new Map(durableRuns.map((run) => [run.assistantMessageId, run]));
 	const candidateMessages = rowsToThreadMessages(candidateRows, runByAssistant);
 	const messages = trimNewestMessages(candidateMessages, MESSAGE_PAGE_SIZE, MESSAGE_PAGE_MAX_BYTES);
 	let artifacts: Awaited<ReturnType<typeof listArtifactSummariesForMessages>> = [];
 	try {
-		artifacts = await listArtifactSummariesForMessages(
-			locals.user.id,
+		artifacts = await measureRequest(locals, 'artifacts', () => listArtifactSummariesForMessages(
+			accountId,
 			convo.id,
 			messages.map((message) => message.id)
-		);
+		));
 	} catch (cause) {
 		// Artifact cards are optional history decoration. Keep the conversation
 		// page available when the artifact projection is unavailable during a

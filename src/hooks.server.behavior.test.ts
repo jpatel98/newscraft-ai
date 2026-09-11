@@ -15,6 +15,7 @@ function event(path = '/login') {
 	return {
 		cookies: { get: vi.fn(), delete: vi.fn() },
 		url: new URL(`http://localhost${path}`),
+		route: { id: path.startsWith('/c/') ? '/c/[id]' : path },
 		locals: {}
 	} as any;
 }
@@ -44,6 +45,27 @@ describe('request bootstrap account checks', () => {
 
 		expect(accountMocks.accountCount).not.toHaveBeenCalled();
 		expect(resolve).toHaveBeenCalledOnce();
+	});
+
+	it('exposes only fixed timing labels for authenticated chat requests', async () => {
+		const handle = await loadHandle();
+		authMocks.verifySessionCookie.mockReturnValue({ sessionId: 'private-session', accountId: 'private-account' });
+		sessionMocks.getActiveSessionAccount.mockResolvedValue({
+			account: { id: 'private-account', email: 'private@example.test', name: 'Editor', role: 'member' }
+		});
+		const response = await handle({
+			event: event('/c/private-conversation'),
+			resolve: () => new Response('ok', { headers: { 'server-timing': 'existing;dur=1' } })
+		} as any);
+		const header = response.headers.get('server-timing');
+		expect(header).toMatch(/^existing;dur=1, auth;dur=[\d.]+, resolve;dur=[\d.]+, total;dur=[\d.]+$/);
+		expect(header).not.toContain('private');
+	});
+
+	it('does not emit chat timings on public requests', async () => {
+		const handle = await loadHandle();
+		const response = await handle({ event: event('/login'), resolve: () => new Response('ok') } as any);
+		expect(response.headers.has('server-timing')).toBe(false);
 	});
 
 	it('shares one account count across concurrent unauthenticated requests', async () => {

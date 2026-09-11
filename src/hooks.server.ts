@@ -4,6 +4,7 @@ import { verifySessionCookie, SESSION_COOKIE_NAME } from '$lib/server/auth/cooki
 import { accountCount } from '$lib/server/db/accounts';
 import { getActiveSessionAccount } from '$lib/server/db/sessions';
 import { newId } from '$lib/utils/id';
+import { measureRequest, serverTimingHeader } from '$lib/server/request-timing';
 
 const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
 // /api/e2e is only active when E2E_SECRET is set (dev/test only); it self-
@@ -42,6 +43,10 @@ function isMarketingHost(host: string): boolean {
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
+	const requestStart = performance.now();
+	// Instrument the chat page and its SvelteKit data request only. The header
+	// is emitted after authentication and contains fixed labels and durations.
+	if (event.route.id === '/c/[id]') event.locals.requestTimings = [];
 	// The browser may replay or forge request headers. Generate the correlation
 	// id at the authenticated NewsCraft boundary and pass it downstream only
 	// through server-owned state.
@@ -51,7 +56,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const cookie = event.cookies.get(SESSION_COOKIE_NAME);
 	const session = verifySessionCookie(cookie);
 	const authenticated = session
-		? await getActiveSessionAccount(session.sessionId, session.accountId)
+		? await measureRequest(event.locals, 'auth', () => getActiveSessionAccount(session.sessionId, session.accountId))
 		: null;
 	if (cookie && !authenticated) {
 		event.cookies.delete(SESSION_COOKIE_NAME, { path: '/' });
@@ -90,7 +95,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 		throw redirect(303, '/');
 	}
 
-	const response = await resolve(event);
+	const response = await measureRequest(event.locals, 'resolve', () => resolve(event));
 	response.headers.set('x-trace-id', traceId);
+	if (event.locals.user && event.locals.requestTimings) {
+		event.locals.requestTimings.push({ name: 'total', duration: performance.now() - requestStart });
+		response.headers.append('server-timing', serverTimingHeader(event.locals.requestTimings));
+	}
 	return response;
 };
