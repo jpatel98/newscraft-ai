@@ -66,7 +66,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	}
 	const first = messages[0];
 	const last = messages[messages.length - 1];
-	const actionView = (message: (typeof actionSummary)[keyof typeof actionSummary]): ThreadMessageView | null =>
+	const actionView = (message: (typeof actionSummary)['latestUser']): ThreadMessageView | null =>
 		message ? rowsToThreadMessages([message], new Map())[0] : null;
 	return {
 		conversation: { id: convo.id, title: convo.title, updatedAt: convo.updatedAt },

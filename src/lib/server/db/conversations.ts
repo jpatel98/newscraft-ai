@@ -74,9 +74,9 @@ export async function getMessages(conversationId: string): Promise<MessageRow[]>
 
 export type ConversationActionSummary = {
 	latestUser: MessageRow | null;
-	latestAssistant: MessageRow | null;
-	latestReadyAssistant: MessageRow | null;
-	latestUnfinishedAssistant: MessageRow | null;
+	latestAssistant: Pick<MessageRow, 'id'> | null;
+	latestReadyAssistant: Pick<MessageRow, 'id'> | null;
+	latestUnfinishedAssistant: Pick<MessageRow, 'id'> | null;
 };
 
 /** Read only the owner-scoped rows needed to decide latest-turn actions. */
@@ -86,6 +86,8 @@ export async function getConversationActionSummary(
 	// All four action candidates come from the same conversation snapshot. Keep
 	// each candidate as an indexed, bounded lookup inside one round trip: this
 	// avoids opening four pool connections without materializing a long history.
+	// Assistant actions only use ids. Keep their large answer/tool payloads out
+	// of this projection; the message page already loads the visible content.
 	const rows = await db.execute(sql`
 		(
 			SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls, m.partial,
@@ -97,8 +99,9 @@ export async function getConversationActionSummary(
 		)
 		UNION ALL
 		(
-			SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls, m.partial,
-				m.resume_claimed_at, m.created_at, 'latestAssistant' AS bucket
+			SELECT m.id, NULL AS conversation_id, NULL AS role, NULL AS content,
+				NULL AS tool_calls, NULL AS partial, NULL AS resume_claimed_at,
+				NULL AS created_at, 'latestAssistant' AS bucket
 			FROM messages m
 			WHERE m.conversation_id = ${conversationId} AND m.role = 'assistant'
 			ORDER BY m.created_at DESC, m.id DESC
@@ -106,8 +109,9 @@ export async function getConversationActionSummary(
 		)
 		UNION ALL
 		(
-			SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls, m.partial,
-				m.resume_claimed_at, m.created_at, 'latestReadyAssistant' AS bucket
+			SELECT m.id, NULL AS conversation_id, NULL AS role, NULL AS content,
+				NULL AS tool_calls, NULL AS partial, NULL AS resume_claimed_at,
+				NULL AS created_at, 'latestReadyAssistant' AS bucket
 			FROM messages m
 			WHERE m.conversation_id = ${conversationId}
 				AND m.role = 'assistant' AND m.partial = 0
@@ -116,8 +120,9 @@ export async function getConversationActionSummary(
 		)
 		UNION ALL
 		(
-			SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls, m.partial,
-				m.resume_claimed_at, m.created_at, 'latestUnfinishedAssistant' AS bucket
+			SELECT m.id, NULL AS conversation_id, NULL AS role, NULL AS content,
+				NULL AS tool_calls, NULL AS partial, NULL AS resume_claimed_at,
+				NULL AS created_at, 'latestUnfinishedAssistant' AS bucket
 			FROM messages m
 			WHERE m.conversation_id = ${conversationId}
 				AND m.role = 'assistant' AND m.partial = 1
@@ -132,6 +137,15 @@ export async function getConversationActionSummary(
 		latestUnfinishedAssistant: null
 	};
 	for (const row of rows as Array<Record<string, unknown>>) {
+		if (
+			row.bucket === 'latestAssistant' ||
+			row.bucket === 'latestReadyAssistant' ||
+			row.bucket === 'latestUnfinishedAssistant'
+		) {
+			summary[row.bucket] = { id: String(row.id) };
+			continue;
+		}
+		if (row.bucket !== 'latestUser') continue;
 		const message = {
 			id: String(row.id),
 			conversationId: String(row.conversation_id),
@@ -142,10 +156,7 @@ export async function getConversationActionSummary(
 			resumeClaimedAt: row.resume_claimed_at == null ? null : Number(row.resume_claimed_at),
 			createdAt: Number(row.created_at)
 		} satisfies MessageRow;
-		if (row.bucket === 'latestUser') summary.latestUser = message;
-		else if (row.bucket === 'latestAssistant') summary.latestAssistant = message;
-		else if (row.bucket === 'latestReadyAssistant') summary.latestReadyAssistant = message;
-		else if (row.bucket === 'latestUnfinishedAssistant') summary.latestUnfinishedAssistant = message;
+		summary.latestUser = message;
 	}
 	return summary;
 }

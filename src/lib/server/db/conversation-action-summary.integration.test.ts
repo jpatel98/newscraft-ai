@@ -29,23 +29,33 @@ describe.skipIf(!databaseUrl)('conversation action summary repository', () => {
 			['user-new', 'user', 20, 0],
 			['ready-old', 'assistant', 30, 0],
 			['ready-new', 'assistant', 40, 0],
+			['ready-newer-id', 'assistant', 40, 0],
 			['unfinished-old', 'assistant', 50, 1],
 			['unfinished-new', 'assistant', 60, 1],
 			['assistant-latest', 'assistant', 70, 2]
 		] as const;
 		for (const [id, role, createdAt, partial] of rows) {
+			const content = role === 'assistant' ? 'Large assistant answer '.repeat(10_000) : id;
+			const toolCalls = role === 'assistant' ? JSON.stringify({ evidence: 'large metadata '.repeat(10_000) }) : null;
 			await sql`
 				INSERT INTO messages
 					(id, conversation_id, role, content, tool_calls, partial, resume_claimed_at, created_at)
-				VALUES (${id}, ${conversation.id}, ${role}, ${id}, NULL, ${partial}, NULL, ${createdAt})
+				VALUES (${id}, ${conversation.id}, ${role}, ${content}, ${toolCalls}, ${partial}, NULL, ${createdAt})
 			`;
 		}
 
 		await expect(getConversationActionSummary(conversation.id)).resolves.toEqual({
-			latestUser: expect.objectContaining({ id: 'user-new', createdAt: 20 }),
-			latestAssistant: expect.objectContaining({ id: 'assistant-latest', createdAt: 70 }),
-			latestReadyAssistant: expect.objectContaining({ id: 'ready-new', createdAt: 40 }),
-			latestUnfinishedAssistant: expect.objectContaining({ id: 'unfinished-new', createdAt: 60 })
+			latestUser: expect.objectContaining({ id: 'user-new', content: 'user-new', createdAt: 20 }),
+			latestAssistant: { id: 'assistant-latest' },
+			latestReadyAssistant: { id: 'ready-newer-id' },
+			latestUnfinishedAssistant: { id: 'unfinished-new' }
+		});
+	});
+
+	it('returns null candidates for an empty conversation', async () => {
+		const conversation = await createConversation(accountId);
+		await expect(getConversationActionSummary(conversation.id)).resolves.toEqual({
+			latestUser: null, latestAssistant: null, latestReadyAssistant: null, latestUnfinishedAssistant: null
 		});
 	});
 
