@@ -1,9 +1,8 @@
 <script lang="ts">
 	import Composer from '$lib/components/Composer.svelte';
-import NewsroomArtifactPane, {
-	type ArtifactDraft
-} from '$lib/components/NewsroomArtifactPane.svelte';
-import ArtifactCanvas from '$lib/components/ArtifactCanvas.svelte';
+	import type { ArtifactDraft } from '$lib/components/artifact-draft';
+	import ArtifactCanvasLoader from '$lib/components/ArtifactCanvasLoader.svelte';
+	import NewsroomArtifactPaneLoader from '$lib/components/NewsroomArtifactPaneLoader.svelte';
 	import Thread from '$lib/components/Thread.svelte';
 	import type { CitationRecord } from '@newscraft/shared';
 	import type {
@@ -122,6 +121,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	let activeArtifact = $state<ArtifactDraft | null>(null);
 	let activeCanvasArtifact = $state<ArtifactDetail | null>(null);
 	let activeArtifactSummary = $state<ArtifactSummary | null>(null);
+	let artifactReturnFocus = $state<HTMLElement | null>(null);
 	const artifactDetailCache = new ArtifactDetailCache();
 	const artifactRequestGate = new ArtifactRequestGate();
 	let activeRunId = $state<string | null>(null);
@@ -1092,6 +1092,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		const conversationId = data.conversation.id;
 		const token = artifactRequestGate.begin();
 		const key = artifactCacheKey(summary, conversationId);
+		artifactReturnFocus = activeArtifactSummary ? artifactReturnFocus : activeHTMLElement();
 		activeArtifactSummary = summary;
 		// Mount the canvas before awaiting network work so the user gets immediate
 		// feedback and a slow request cannot look like a dead click.
@@ -1114,9 +1115,12 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	}
 
 	function closeArtifactCanvas(): void {
+		const returnFocus = artifactReturnFocus;
 		artifactRequestGate.invalidate();
+		artifactReturnFocus = null;
 		activeArtifactSummary = null;
 		activeCanvasArtifact = null;
+		void tick().then(() => restoreFocus(returnFocus));
 	}
 
 	async function handleDocumentUpload(file: File, controls: DocumentUploadControls) {
@@ -1450,7 +1454,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		/>
 	{/key}
 	{#if activeCanvasArtifact}
-		<ArtifactCanvas
+		<ArtifactCanvasLoader
 			artifact={activeCanvasArtifact}
 			conversationId={data.conversation.id}
 			onClose={closeArtifactCanvas}
@@ -1458,7 +1462,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		/>
 	{/if}
 	{#if artifactOpen && activeArtifact}
-		<NewsroomArtifactPane
+		<NewsroomArtifactPaneLoader
 			draft={activeArtifact}
 			disabled={chat.streaming}
 			onSelect={handleUseAnswer}
