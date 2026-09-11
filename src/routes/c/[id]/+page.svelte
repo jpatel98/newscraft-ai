@@ -121,7 +121,6 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	let activeArtifact = $state<ArtifactDraft | null>(null);
 	let activeCanvasArtifact = $state<ArtifactDetail | null>(null);
 	let activeArtifactSummary = $state<ArtifactSummary | null>(null);
-	let artifactReturnFocus = $state<HTMLElement | null>(null);
 	const artifactDetailCache = new ArtifactDetailCache();
 	const artifactRequestGate = new ArtifactRequestGate();
 	let activeRunId = $state<string | null>(null);
@@ -1092,7 +1091,6 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		const conversationId = data.conversation.id;
 		const token = artifactRequestGate.begin();
 		const key = artifactCacheKey(summary, conversationId);
-		artifactReturnFocus = activeArtifactSummary ? artifactReturnFocus : activeHTMLElement();
 		activeArtifactSummary = summary;
 		// Mount the canvas before awaiting network work so the user gets immediate
 		// feedback and a slow request cannot look like a dead click.
@@ -1115,12 +1113,9 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	}
 
 	function closeArtifactCanvas(): void {
-		const returnFocus = artifactReturnFocus;
 		artifactRequestGate.invalidate();
-		artifactReturnFocus = null;
 		activeArtifactSummary = null;
 		activeCanvasArtifact = null;
-		void tick().then(() => restoreFocus(returnFocus));
 	}
 
 	async function handleDocumentUpload(file: File, controls: DocumentUploadControls) {

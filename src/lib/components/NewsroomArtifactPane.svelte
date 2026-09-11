@@ -8,13 +8,8 @@
 	import Markdown from './Markdown.svelte';
 	import { ANSWER_USE_ACTIONS, type AnswerUseAction } from './journalist-ui';
 
-	export interface ArtifactDraft {
-		action: AnswerUseAction;
-		sourceMessageId: string;
-		content: string;
-		citations: CitationRecord[];
-		status: 'generating' | 'ready' | 'error';
-	}
+	import type { ArtifactDraft } from './artifact-draft';
+	export type { ArtifactDraft } from './artifact-draft';
 
 	interface Props {
 		draft: ArtifactDraft;
