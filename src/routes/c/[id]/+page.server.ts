@@ -1,16 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import {
-	getConversation,
-	getConversationActionSummary,
-	getLatestMessagesPage,
-	getMessageCount
-} from '$lib/server/db/conversations';
-import {
-	getActiveHermesRun,
-	listHermesRunStatesForMessages,
-	snapshotFromRun
-} from '$lib/server/db/hermes-runs';
+import { getConversationLoad } from '$lib/server/db/conversation-load';
+import { snapshotFromRun } from '$lib/server/db/hermes-runs';
 import { listArtifactSummariesForMessages } from '$lib/server/db/artifacts';
 import { measureRequest } from '$lib/server/request-timing';
 import {
@@ -25,19 +16,9 @@ import {
 export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 	const accountId = locals.user.id;
-	const convo = await measureRequest(locals, 'ownership', () => getConversation(accountId, params.id));
-	if (!convo) throw error(404, 'not found');
-	const [candidateRows, totalCount, activeRun, actionSummary] = await Promise.all([
-		measureRequest(locals, 'messages', () => getLatestMessagesPage(convo.id, MESSAGE_PAGE_SIZE)),
-		measureRequest(locals, 'message_count', () => getMessageCount(convo.id)),
-		measureRequest(locals, 'active_run', () => getActiveHermesRun(accountId, convo.id)),
-		measureRequest(locals, 'actions', () => getConversationActionSummary(convo.id))
-	]);
-	const durableRuns = await measureRequest(locals, 'run_states', () => listHermesRunStatesForMessages(
-		accountId,
-		convo.id,
-		candidateRows.map((message) => message.id)
-	));
+	const loaded = await measureRequest(locals, 'chat_snapshot', () => getConversationLoad(accountId, params.id, MESSAGE_PAGE_SIZE));
+	if (!loaded) throw error(404, 'not found');
+	const { conversation: convo, messages: candidateRows, totalCount, activeRun, actionSummary, durableRuns } = loaded;
 	const runByAssistant = new Map(durableRuns.map((run) => [run.assistantMessageId, run]));
 	const candidateMessages = rowsToThreadMessages(candidateRows, runByAssistant);
 	const messages = trimNewestMessages(candidateMessages, MESSAGE_PAGE_SIZE, MESSAGE_PAGE_MAX_BYTES);

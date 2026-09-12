@@ -1,3 +1,4 @@
+import { retryRead } from './read-retry';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { AccountRow } from './accounts';
 import { SESSION_COOKIE_MAX_AGE } from '$lib/server/auth/cookie';
@@ -106,7 +107,7 @@ export async function getActiveSessionAccount(
 ): Promise<ActiveSessionAccount | null> {
 	let row: { session: SessionRow; account: AccountRow } | undefined;
 	try {
-		[row] = (await db
+		[row] = (await retryRead(() => db
 			.select({ session: sessions, account: accounts })
 			.from(sessions)
 			.innerJoin(accounts, eq(sessions.accountId, accounts.id))
@@ -118,7 +119,7 @@ export async function getActiveSessionAccount(
 					gt(sessions.expiresAt, now)
 				)
 			)
-			.limit(1)) as Array<{ session: SessionRow; account: AccountRow }>;
+			.limit(1))) as Array<{ session: SessionRow; account: AccountRow }>;
 	} catch (error) {
 		// Keep diagnostics useful for remote connection failures without logging
 		// SQL, parameters, session identifiers, DSNs, or error messages.

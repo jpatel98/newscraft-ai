@@ -1,5 +1,5 @@
 export type RequestTimingName =
-	| 'auth' | 'sidebar' | 'ownership' | 'messages' | 'message_count'
+	| 'chat_snapshot' | 'auth' | 'sidebar' | 'ownership' | 'messages' | 'message_count'
 	| 'active_run' | 'actions' | 'run_states' | 'artifacts' | 'resolve' | 'total';
 
 export interface RequestTiming {

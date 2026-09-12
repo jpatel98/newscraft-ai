@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { db, ensureDefaultOrganizationForAccount } from './index';
 import { conversations, hermesRuns, messageProvenance, messages } from './schema';
+import { retryRead } from './read-retry';
 import { newId } from '$lib/utils/id';
 import type { ContentPart, MessageContent } from '$lib/types';
 
@@ -47,12 +48,12 @@ export interface MessageRow {
 }
 
 export async function listConversations(accountId: string, limit = 100): Promise<ConversationRow[]> {
-	return (await db
+	return (await retryRead(() => db
 		.select()
 		.from(conversations)
 		.where(eq(conversations.accountId, accountId))
 		.orderBy(desc(conversations.pinned), desc(conversations.updatedAt))
-		.limit(limit)) as ConversationRow[];
+		.limit(limit))) as ConversationRow[];
 }
 
 export async function getConversation(accountId: string, id: string): Promise<ConversationRow | undefined> {

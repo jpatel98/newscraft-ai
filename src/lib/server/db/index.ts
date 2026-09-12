@@ -29,9 +29,10 @@ const DEFAULT_ORGANIZATION_NAME = 'Newsroom';
 
 const postgresOptions = {
 	max: Number.isFinite(poolMax) && poolMax > 0 ? poolMax : 5,
-	// Reap idle sockets before a remote/Vercel connection can go stale. This
-	// bounds the first-query-after-idle failure without retrying mutations.
-	idle_timeout: 5,
+	// Allow nearby navigations to reuse the pool, but retain bounded idle cleanup.
+	// TCP keepalive detects dead peers; selected idempotent reads can retry once.
+	idle_timeout: 15,
+	keep_alive: 5,
 	prepare: false,
 	onnotice: () => {},
 	...(databaseEndpoint

@@ -1,13 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const conversationMocks = vi.hoisted(() => ({
-	getConversation: vi.fn(),
-	getMessages: vi.fn(),
-	getLatestMessagesPage: vi.fn(),
-	getMessageCount: vi.fn(),
-	getConversationActionSummary: vi.fn(),
-	parseContent: vi.fn((value: string) => value)
-}));
+const loadMocks = vi.hoisted(() => ({ getConversationLoad: vi.fn() }));
+const artifactMocks = vi.hoisted(() => ({ listArtifactSummariesForMessages: vi.fn() }));
 const runMocks = vi.hoisted(() => ({
 	getActiveHermesRun: vi.fn(),
 	listHermesRunsForConversation: vi.fn(),
@@ -22,67 +16,53 @@ const runMocks = vi.hoisted(() => ({
 	}))
 }));
 
-vi.mock('$lib/server/db/conversations', () => conversationMocks);
+vi.mock('$lib/server/db/conversation-load', () => loadMocks);
+vi.mock('$lib/server/db/artifacts', () => artifactMocks);
 vi.mock('$lib/server/db/hermes-runs', () => runMocks);
 
 import { load } from './+page.server';
 
 describe('conversation durable run load', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		artifactMocks.listArtifactSummariesForMessages.mockResolvedValue([]);
+	});
+	const base = () => ({
+		conversation: { id: 'conversation-1', title: 'Thread', updatedAt: 7 },
+		messages: [], totalCount: 0, activeRun: null, durableRuns: [],
+		actionSummary: { latestUser: null, latestAssistant: null, latestReadyAssistant: null, latestUnfinishedAssistant: null }
+	});
+	const event = { params: { id: 'conversation-1' }, locals: { user: { id: 'account-1' } } };
+
 	it('returns the account-scoped active run snapshot for refresh recovery', async () => {
-		conversationMocks.getConversation.mockResolvedValue({ id: 'conversation-1', title: 'Thread', updatedAt: 7 });
-		conversationMocks.getLatestMessagesPage.mockResolvedValue([]);
-		conversationMocks.getMessageCount.mockResolvedValue(0);
-		conversationMocks.getConversationActionSummary.mockResolvedValue({
-			latestUser: null,
-			latestAssistant: null,
-			latestReadyAssistant: null,
-			latestUnfinishedAssistant: null
-		});
-		runMocks.getActiveHermesRun.mockResolvedValue({
-			id: 'run-1',
-			conversationId: 'conversation-1',
-			assistantMessageId: 'assistant-1',
-			cursor: 4,
-			state: 'writing'
-		});
-		runMocks.listHermesRunStatesForMessages.mockResolvedValue([]);
-
-		const result = (await load({
-			params: { id: 'conversation-1' },
-			locals: { user: { id: 'account-1' } }
-		} as any)) as any;
-
-		expect(conversationMocks.getLatestMessagesPage).toHaveBeenCalledWith('conversation-1', 50);
-		expect(conversationMocks.getMessageCount).toHaveBeenCalledWith('conversation-1');
-		expect(runMocks.getActiveHermesRun).toHaveBeenCalledWith('account-1', 'conversation-1');
-		expect(result.durableRun).toMatchObject({
-			id: 'run-1',
-			conversationId: 'conversation-1',
-			assistantMessageId: 'assistant-1',
-			cursor: 4,
-			status: 'writing',
-			answerText: 'Saved answer'
-		});
+		loadMocks.getConversationLoad.mockResolvedValue({ ...base(), activeRun: {
+			id: 'run-1', conversationId: 'conversation-1', assistantMessageId: 'assistant-1', cursor: 4, state: 'writing'
+		} });
+		const result = await load(event as any) as any;
+		expect(loadMocks.getConversationLoad).toHaveBeenCalledExactlyOnceWith('account-1', 'conversation-1', 50);
+		expect(result.durableRun).toMatchObject({ id: 'run-1', cursor: 4, status: 'writing', answerText: 'Saved answer' });
 	});
 
-	it('attaches the saved terminal run state to its assistant message', async () => {
-		conversationMocks.getConversation.mockResolvedValue({ id: 'conversation-1', title: 'Thread', updatedAt: 7 });
-		conversationMocks.getLatestMessagesPage.mockResolvedValue([
-			{ id: 'assistant-1', role: 'assistant', content: 'Partial answer', toolCalls: null, partial: 1, createdAt: 6 }
-		]);
-		conversationMocks.getMessageCount.mockResolvedValue(1);
-		conversationMocks.getConversationActionSummary.mockResolvedValue({
-			latestUser: null,
-			latestAssistant: null,
-			latestReadyAssistant: null,
-			latestUnfinishedAssistant: null
+	it('attaches terminal state and preserves the chat when optional artifacts fail', async () => {
+		loadMocks.getConversationLoad.mockResolvedValue({ ...base(), totalCount: 1,
+			messages: [{ id: 'assistant-1', role: 'assistant', content: 'Partial answer', toolCalls: null, partial: 1, createdAt: 6 }],
+			durableRuns: [{ assistantMessageId: 'assistant-1', state: 'cancelled', errorMessage: null }]
 		});
-		runMocks.getActiveHermesRun.mockResolvedValue(null);
-		runMocks.listHermesRunStatesForMessages.mockResolvedValue([
-			{ assistantMessageId: 'assistant-1', state: 'cancelled', errorMessage: null }
-		]);
+		artifactMocks.listArtifactSummariesForMessages.mockRejectedValue(new Error('unavailable'));
+		const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		try {
+			const result = await load(event as any) as any;
+			expect(result.messages[0]).toMatchObject({ durableState: 'cancelled', durableError: null });
+		} finally { warning.mockRestore(); }
+	});
 
-		const result = (await load({ params: { id: 'conversation-1' }, locals: { user: { id: 'account-1' } } } as any)) as any;
-		expect(result.messages[0]).toMatchObject({ durableState: 'cancelled', durableError: null });
+	it('returns 404 without loading artifacts when ownership is absent', async () => {
+		loadMocks.getConversationLoad.mockResolvedValue(null);
+		await expect(load(event as any)).rejects.toMatchObject({ status: 404 });
+		expect(artifactMocks.listArtifactSummariesForMessages).not.toHaveBeenCalled();
+	});
+	it('rejects an unauthenticated request before querying', async () => {
+		await expect(load({ ...event, locals: {} } as any)).rejects.toMatchObject({ status: 401 });
+		expect(loadMocks.getConversationLoad).not.toHaveBeenCalled();
 	});
 });
