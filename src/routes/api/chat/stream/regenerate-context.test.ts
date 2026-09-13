@@ -12,6 +12,8 @@ describe('chat regeneration context', () => {
 		expect(source).toContain('answerForLatestUser(existingMessages)');
 		expect(source).toContain("message.role !== 'assistant' || message.partial !== 1");
 		expect(source).toContain('resumeContinuationInstruction(');
+		expect(source).not.toContain('conversationContextCompatibilityMessage');
+		expect(source).toContain('conversation_context: conversationContext');
 		expect(source).toContain("mode: 'replace'");
 		expect(source).toContain('assistantReplacement !== null');
 		expect(source).toContain('finalizeResumedAssistantMessage');

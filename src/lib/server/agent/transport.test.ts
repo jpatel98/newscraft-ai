@@ -1,3 +1,4 @@
+import type { ConversationContext } from '@newscraft/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
@@ -182,6 +183,36 @@ describe('Hermes chat transport', () => {
 			expect.objectContaining({ citationNumber: 4, title: 'notes.pdf, page 1' })
 		]);
 		expect(built.input.forwardedProps?.citationStartNumber).toBe(5);
+	});
+
+	it('carries corrections and prior evidence once without a compatibility prompt', () => {
+		const context: ConversationContext = {
+			version: 1,
+			intent: 'transform',
+			currentTurn: {
+				content: 'Use the corrected branch count.',
+				resolvedRequest: 'Use the corrected branch count.',
+				operation: 'send',
+				researchRequired: false
+			},
+			claimStates: [{ text: 'Three branches', status: 'corrected', correction: 'Two branches' }],
+			lastSourceBackedAnswer: {
+				messageId: 'prior',
+				content: 'The pilot begins Monday. [1]',
+				citations: [{ citationNumber: 1, title: 'Council notice', url: 'https://example.test/notice',
+					domain: 'example.test', publicationDate: '2026-09-13', sourceType: 'official',
+					supportingExcerpt: 'The pilot begins Monday.' }]
+			}
+		};
+		const built = buildHermesRunInput({
+			messages: [{ role: 'user', content: context.currentTurn!.content }],
+			conversation_context: context
+		}, 'thread-context', 'run-context');
+		const entries = built.input.context.filter((entry) => entry.description === 'Conversation context');
+		expect(entries).toHaveLength(1);
+		expect(JSON.parse(entries[0].value)).toEqual(context);
+		expect(built.input.messages).toHaveLength(1);
+		expect(JSON.stringify(built.input.messages)).not.toContain('compatibility');
 	});
 
 	it('returns the Hermes cancellation result for durable recovery decisions', async () => {

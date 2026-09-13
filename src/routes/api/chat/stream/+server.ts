@@ -75,8 +75,7 @@ import { getConversationDocumentService } from '$lib/server/documents/runtime';
 import type { ConversationDocumentService } from '$lib/server/documents/service';
 import {
 	buildConversationContext,
-	conversationContextProvenanceMessageIds,
-	conversationContextCompatibilityMessage
+	conversationContextProvenanceMessageIds
 } from '$lib/server/conversation-context';
 import {
 	answerForLatestUser,
@@ -1075,15 +1074,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		);
 	}
 	if (body.output_action) appendSystemInstruction(history, OUTPUT_ACTION_PROMPTS[body.output_action]);
-	if (
-		conversationContext.activeTopic ||
-		conversationContext.lastSourceBackedAnswer ||
-		conversationContext.claimStates?.length
-	) {
-		// Older harnesses ignore conversation_context. A tagged system message
-		// preserves citation/correction state without mutating assistant prose.
-		appendSystemInstruction(history, conversationContextCompatibilityMessage(conversationContext));
-	}
+	// Hermes consumes conversation_context through AG-UI context. Do not repeat
+	// the prior answer, corrections and sources in a compatibility system message.
 
 	let researchContext: Awaited<ReturnType<typeof requestResearchContext>>;
 	try {
