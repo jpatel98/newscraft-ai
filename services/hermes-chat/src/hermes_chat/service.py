@@ -1297,6 +1297,47 @@ def _install_product_identity_scope() -> None:
         module.DEFAULT_AGENT_IDENTITY = NEWSCRAFT_RUNTIME_IDENTITY_POINTER
 
 
+def _tenant_stable_home_display(hermes_home: Path) -> str:
+    """Render a tenant home as a stable, tenant-independent display path.
+
+    Tenant homes live under ``<root>/tenants/<key>``. The exact key is the
+    only cross-tenant byte difference in the standard prompt scaffold, so
+    leaving it in that scaffold caps DeepSeek prefix-cache reuse of the
+    system-plus-tools prefix at the bytes before the tenant path. Feeding the
+    prompt a stable segment keeps the scaffold byte-identical across tenants
+    while staying byte-stable within one conversation, because the same
+    tenant always renders the same text.
+    """
+    return str(hermes_home.parent / "<tenant>")
+
+
+def _install_prompt_path_stability() -> None:
+    """Keep the tenant path out of the cached standard prompt scaffold.
+
+    ``agent.system_prompt`` interpolates ``get_hermes_home()`` into the
+    profile hint. Scope that seam so tenant runs render the stable display
+    path while every non-tenant use keeps the real home.
+    """
+    try:
+        system_prompt = importlib.import_module("agent.system_prompt")
+    except ImportError as exc:
+        raise TenantIsolationError("Pinned Hermes system prompt runtime is unavailable") from exc
+
+    current = getattr(system_prompt, "get_hermes_home", None)
+    if current is None:
+        raise TenantIsolationError("Pinned Hermes system prompt home seam is unavailable")
+    original = getattr(current, "_newscraft_unscoped_get_hermes_home", current)
+
+    def get_hermes_home_scoped():
+        run = current_tenant_run()
+        if run is None:
+            return original()
+        return _tenant_stable_home_display(run.runtime.hermes_home)
+
+    get_hermes_home_scoped._newscraft_unscoped_get_hermes_home = original  # type: ignore[attr-defined]
+    system_prompt.get_hermes_home = get_hermes_home_scoped
+
+
 def _install_tenant_builder(agui_server: Any) -> None:
     current = getattr(agui_server, "build_run_agent", None)
     if current is None:
@@ -1399,6 +1440,7 @@ def _install_tenant_runtime(
     _install_registry_scope()
     _install_agent_scope()
     _install_product_identity_scope()
+    _install_prompt_path_stability()
     _install_tenant_builder(agui_server)
     _install_tenant_run_scope(agui_server, settings, auxiliary_tasks, runtime_template, isolation)
 
