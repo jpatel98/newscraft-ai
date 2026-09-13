@@ -1,7 +1,7 @@
 {
 	"name": "NewsCraft",
 	"short_name": "NewsCraft",
-	"description": "NewsCraft mobile chat and newsroom field workflow.",
+	"description": "AI research and production assistance for journalists: story options, reporting angles, and editorial drafts.",
 	"start_url": "/",
 	"scope": "/",
 	"display": "standalone",

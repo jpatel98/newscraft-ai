@@ -18,7 +18,7 @@
 		<div class="card__eyebrow">NewsCraft · Create account</div>
 		<h1 class="card__title">Create your account.</h1>
 		<p class="card__copy" id="signup-note">
-			Bring source-backed research and newsroom-ready answers into your daily workflow.
+			Find story options, develop reporting angles, and draft copy with sources to review.
 		</p>
 
 		<div class="field">

@@ -1,13 +1,126 @@
-# NewsCraft AI — Source of Truth & Roadmap
+# NewsCraft AI — Current Product & Roadmap
 
-Last updated: 2026-07-11
+Last reviewed: 2026-09-05.
 
-This is the single canonical document for NewsCraft AI: what the product is,
-how it is built today, where it is going, and how to work on it. If any other
-file conflicts with this one, this file wins. There is intentionally only one
-doc — update it as the product changes instead of adding new ones.
+## Current product
 
----
+NewsCraft is an **AI research and production assistant for journalists**. It helps
+producers find relevant developments, weigh story options, develop reporting
+angles, and prepare briefs, intros, and scripts in one conversation, with sources
+available for review. The producer checks the evidence and makes the editorial call.
+
+**Pitch:** Find the story. Work the angle. Prepare the show.
+
+This definition is grounded in a review of the signed-in product and eight
+selected conversations (46 messages), alongside current repository source.
+See [the current product and usage review](docs/newscraft-product-and-usage-2026-09-05.md)
+for evidence, copy, capability boundaries, observed failures, and sampling limits.
+The 50 sidebar rows are a capped view, not a total account-usage measure.
+
+The recurring producer workflow is:
+
+1. Ask what is new or worth considering for a particular show and audience.
+2. Supply existing coverage and constraints such as deadline and geography.
+3. Develop an angle and explore potential voices, questions, and reporting steps.
+4. Ask for an intro, producer brief, or OC/VO; revise within the conversation.
+5. Review sources and copy before using the output.
+
+Saved threads support that workflow. The product is chat-first. Story tracking,
+automatic monitoring, assignment boards, and publishing pipelines are not the
+current product promise. Repeated manual refresh requests suggest a need for fresh
+information; they do not establish demand for a scheduler. The sampled user also
+explicitly rejected a speculative list of automation tools.
+
+## Current surface and capability boundaries
+
+- Live inspected UI: chat home, saved threads/search, conversation view, citation
+  controls, copy, Markdown export links, regeneration, and an image attachment control.
+- Live Use answer menu: Producer brief, Turn into OCVO, Interview questions,
+  Copy with citations. The sample includes completed intro and OC/VO requests;
+  not every menu action or download was exercised in this review.
+- Settings expose newsroom timezone, home market, and preferred domains, alongside
+  account/security/data controls. No settings were changed.
+- Conditional document/PDF support exists in source, but PDF controls were not
+  present in the inspected composer. Do not advertise universal PDF availability.
+- Research, source comparison, reporting plans, segment ideas, and drafting are
+  conversational workflows. Sources and suggestions still require editorial review.
+- A readable source, citation marker, or model statement of verification is not a
+  guarantee of factual accuracy. Potential guests are not confirmed bookings.
+
+## Current architecture reference
+
+The active repository path is **SvelteKit app → isolated Hermes service**.
+NewsCraft owns authenticated conversation history and durable run records;
+Hermes performs agent execution. See [the Hermes service README](services/hermes-chat/README.md)
+for current tooling, tenant isolation, run lifecycle, configuration and deployment gates.
+See [legacy runtime disposition](docs/legacy-runtime-disposition.md) for the old
+newsroom harness and removal boundaries. The legacy harness is not the current
+product runtime; its presence in old tests and documentation is not release evidence.
+
+Hermes exposes web/browser tools, files, code, skills, tenant memory and delegation.
+Those runtime tools are not each independently validated customer features.
+Scheduled-job management does not establish automatic execution: the service
+README explicitly retains a separate gate for the cron ticker. Do not promise
+scheduled delivery or notifications. External model/tool services may process
+requests; account isolation is not local-only processing. Keep the personal Hydra
+service separate from NewsCraft.
+
+This review inspected product pages and local code, not production infrastructure,
+provider configuration, latency, or complete release gates. The local landing
+checkout differs from the live homepage. Identify the actual deployment source
+before publishing revised copy.
+
+## Product rules
+
+- Publication/update time establishes freshness; access time does not. Treat an
+  unknown date as unknown and do not present it as current evidence.
+- Separate fact, allegation, inference, missing evidence and blocked-source limits.
+- Preserve attribution, numerical qualifiers and uncertainty through transformations.
+- Keep citations resolvable and evidence inspectable; no invented references.
+- Suggest reporting possibilities honestly; never infer booking availability or
+  coverage exclusivity from search results alone.
+- Keep private newsroom material out of public examples and general product identity.
+- Keep tool traces, credentials and infrastructure detail out of ordinary answers.
+- Journalists retain the final editorial and publication decision.
+- Keep labels and routes stable unless a requested change calls for modifying them.
+
+## Priorities grounded in current use
+
+1. **Understand the show.** Preserve audience, geography, already-covered topics and
+   the producer's corrections. An OTT show request must not become a streaming-industry
+   news query merely because of the acronym.
+2. **Make options reportable.** Distinguish an interesting headline from a feasible
+   assignment. State what must be confirmed about voices, visuals and timing.
+3. **Preserve evidence through drafting.** Check source links, dates and qualifiers
+   through follow-ups and shortened copy. The usage review documents an observed
+   price qualifier changing meaning in an intro.
+4. **Make refreshes dependable.** Evaluate failed replies and temporal inconsistencies
+   against real producer tasks. No historical pass is a standing production guarantee.
+5. **Measure usefulness.** Track producer-reported pursuit/use, factual corrections
+   and effort before claiming time savings or comparative superiority.
+
+These are proposed priorities, not authorization for runtime refactors, provider
+changes, deployment, database work, or a new feature programme. Tracker/scheduler
+expansion remains outside the current product scope until explicitly decided.
+
+## Working and validation
+
+Start with branch/status and preserve unrelated work. Use repository-owned source
+for prompt/copy changes. Use `pnpm check` for Svelte/TypeScript changes and relevant
+focused tests; consult the Hermes README for service-specific setup and gates.
+Local checks do not replace live-model evaluation or production acceptance.
+No push, deploy, provider, database, credential or personal-Hydra change is implied.
+
+## Historical implementation reference — July 2026
+
+The following material is retained for traceability. Its runtime descriptions,
+production statuses, milestones, paths, commands and roadmap phases are historical,
+not current instructions or claims of what ships. The current sections above and
+the linked Hermes README take precedence. Do not execute old deployment or cleanup
+steps from this archive without checking the current code and authorization.
+
+<details>
+<summary>Archived July product and implementation notes (last updated 2026-07-11)</summary>
 
 ## 1. What It Is
 
@@ -860,3 +973,5 @@ newscraft-ai/
   `services/newsroom-harness/src/tools/article-extraction.ts`,
   `services/newsroom-harness/src/db/repository.ts`,
   `services/newsroom-harness/prompts/newsroom-report.md`.
+
+</details>

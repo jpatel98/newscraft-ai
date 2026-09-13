@@ -19,6 +19,9 @@
 
 <svelte:head>
 	<title>{data.isMarketingHost ? 'NewsCraft AI' : 'New chat · NewsCraft'}</title>
+	{#if data.isMarketingHost}
+		<meta name="description" content="NewsCraft helps journalists find story options, develop reporting angles, and draft briefs, intros, and OC/VO copy with sources to review." />
+	{/if}
 </svelte:head>
 
 {#if data.isMarketingHost}
@@ -33,11 +36,12 @@
 
 		<section class="landing__hero">
 			<div class="landing__copy">
-				<p class="landing__eyebrow">Newsroom agent</p>
-				<h1 id="landing-title">AI assistance built for live editorial work.</h1>
+				<p class="landing__eyebrow">AI research and production assistant</p>
+				<h1 id="landing-title">Find the story. Work the angle. Prepare the show.</h1>
 				<p>
-					NewsCraft helps producers research, compare coverage, draft newsroom-ready copy, and keep
-					source discipline visible while stories move.
+					NewsCraft helps journalists find relevant developments, weigh story options, and turn
+					research into briefs, intros, and scripts. Explore the sources and refine the draft in
+					one conversation. You make the editorial call.
 				</p>
 				<div class="landing__actions">
 					<a class="landing__primary" href="https://agent.newscraftai.com/login">
@@ -48,25 +52,25 @@
 				</div>
 			</div>
 
-			<div class="landing__visual" aria-label="NewsCraft workflow preview">
+			<div class="landing__visual" aria-label="Illustrative NewsCraft producer workflow">
 				<div class="landing__panel">
 					<div class="landing__panel-head">
 						<span></span>
 						<span></span>
 						<span></span>
 					</div>
-					<div class="landing__prompt">Compare CBC and CTV coverage of the mayor.</div>
+					<div class="landing__prompt">What could we cover for the late show? We need fresh angles and people to interview.</div>
 					<div class="landing__step">
 						<Radio size="16" strokeWidth={1.8} />
-						<span>Search source-backed coverage</span>
+						<span>Research developments and review sources</span>
 					</div>
 					<div class="landing__step">
 						<GitCompareArrows size="16" strokeWidth={1.8} />
-						<span>Separate claims, context, and gaps</span>
+						<span>Weigh angles against what you have already covered</span>
 					</div>
 					<div class="landing__answer">
-						<strong>Producer brief</strong>
-						<p>Coverage differs on the policy angle, quoted voices, and what remains unconfirmed.</p>
+						<strong>From story option to first draft</strong>
+						<p>Choose an angle, explore potential voices, then ask for an intro. Confirm sources and interview availability before committing.</p>
 					</div>
 				</div>
 			</div>
@@ -75,18 +79,18 @@
 		<section class="landing__features" aria-label="NewsCraft capabilities">
 			<div>
 				<BadgeCheck size="18" strokeWidth={1.8} />
-				<h2>Source-aware answers</h2>
-				<p>Use live research when facts need verification, and answer directly when they do not.</p>
+				<h2>Find relevant developments</h2>
+				<p>Ask for news across your market and beat, compare coverage, and inspect the sources behind research answers.</p>
 			</div>
 			<div>
 				<Newspaper size="18" strokeWidth={1.8} />
-				<h2>Newsroom workflows</h2>
-				<p>Draft briefs, research beats, compare outlets, and turn notes into usable editorial output.</p>
+				<h2>Develop a reportable angle</h2>
+				<p>Share your show, deadline, and existing coverage. Explore story options, possible voices, and follow-up questions.</p>
 			</div>
 			<div>
 				<ShieldCheck size="18" strokeWidth={1.8} />
-				<h2>Controlled tools</h2>
-				<p>Keep auth, tenant scope, private-network safety, and tool boundaries enforced.</p>
+				<h2>Prepare copy for review</h2>
+				<p>Draft a producer brief, intro, OC/VO, or interview questions. Refine in the thread, then copy or export as Markdown.</p>
 			</div>
 		</section>
 	</main>
