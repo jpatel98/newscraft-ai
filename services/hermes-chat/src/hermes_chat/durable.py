@@ -373,6 +373,8 @@ class DurableJob:
     stop_reason: str | None = None
     stale_lease: bool = False
     callback_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    pending_events: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    pending_event_bytes: int = field(default=0, repr=False)
     text_buffer: list[str] = field(default_factory=list, repr=False)
     text_buffer_chars: int = field(default=0, repr=False)
     text_flush_task: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -1494,6 +1496,8 @@ class DurableRunWorker:
             job.text_flush_task = None
 
     def _discard_text_buffer(self, job: DurableJob) -> None:
+        job.pending_events.clear()
+        job.pending_event_bytes = 0
         job.text_buffer.clear()
         job.text_buffer_chars = 0
 
@@ -1535,6 +1539,11 @@ class DurableRunWorker:
         job.worker_cursor = worker_cursor
 
     async def _flush_text_locked(self, job: DurableJob) -> None:
+        if job.pending_events:
+            events = job.pending_events
+            job.pending_events = []
+            job.pending_event_bytes = 0
+            await self._send_event_batch_locked(job, events)
         if not job.text_buffer:
             return
         delta = "".join(job.text_buffer)
@@ -1593,7 +1602,70 @@ class DurableRunWorker:
                     name=f"newscraft-hermes-text-flush-{job.run_id}",
                 )
 
+    async def _send_event_batch_locked(self, job: DurableJob, events: list[dict[str, Any]]) -> None:
+        # Finish an in-flight commit/ack before publishing cancellation; otherwise
+        # the cancellation could reuse cursors that the server already accepted.
+        delivery = asyncio.create_task(self._deliver_event_batch_locked(job, events))
+        try:
+            await asyncio.shield(delivery)
+        except asyncio.CancelledError:
+            await delivery
+            raise
+
+    async def _deliver_event_batch_locked(self, job: DurableJob, events: list[dict[str, Any]]) -> None:
+        body = {
+            "run_id": job.run_id, "account_id": job.account_id,
+            "tenant_key": job.tenant_key, "lease_owner": job.lease_owner,
+            "lease_token": job.lease_token,
+            "events": [dict(event, worker_cursor=job.worker_cursor + index + 1)
+                       for index, event in enumerate(events)],
+        }
+        if job.trace_id:
+            body["trace_id"] = job.trace_id
+        try:
+            # Atomic persistence permits retrying the exact batch after a lost ack.
+            for attempt in range(2):
+                try:
+                    await self._newscraft("POST", NEWSCRAFT_RUN_CALLBACK_PATH, body)
+                    break
+                except httpx.TransportError:
+                    if attempt:
+                        raise
+        except DurableRunError as exc:
+            if exc.status_code == 409:
+                if exc.code == "stale_callback":
+                    job.stop_reason = "cancelled"
+                    raise asyncio.CancelledError
+                job.stale_lease = True
+                job.stop_reason = "stale_lease"
+            raise
+        job.worker_cursor += len(events)
+
+    async def _buffer_event(self, job: DurableJob, event_type: str, data: dict[str, Any]) -> None:
+        event = {"event_type": event_type, "data": _bounded_data(data)}
+        size = len(json.dumps(event, ensure_ascii=False).encode("utf-8"))
+        async with job.callback_lock:
+            self._raise_text_flush_error(job)
+            if job.pending_events and (len(job.pending_events) >= 32 or job.pending_event_bytes + size > 400 * 1024):
+                await self._flush_text_locked(job)
+            previous = job.pending_events[-1] if job.pending_events else None
+            if (event_type == TEXT_EVENT_TYPE and previous and previous["event_type"] == TEXT_EVENT_TYPE
+                    and isinstance(data.get("delta"), str) and isinstance(previous["data"].get("delta"), str)
+                    and len(previous["data"]["delta"]) + len(data["delta"]) <= TEXT_BATCH_MAX_CHARS):
+                previous["data"]["delta"] += data["delta"]
+            else:
+                job.pending_events.append(event)
+            # Conservatively count the uncoalesced size to keep the byte bound.
+            job.pending_event_bytes += size
+            if event_type in {"run.started", "artifact.ready", "run.complete", "run.finished", "response.completed", "response.failed", "run.failed", "run.cancelled", "cancelled"} or len(job.pending_events) >= 32:
+                await self._flush_text_locked(job)
+            elif job.text_flush_task is None or job.text_flush_task.done():
+                job.text_flush_task = asyncio.create_task(self._timed_text_flush(job))
+
     async def _callback(self, job: DurableJob, event_type: str, data: dict[str, Any]) -> None:
+        if job.claim_result and job.claim_result.get("callback_batch_version") == 1:
+            await self._buffer_event(job, event_type, data)
+            return
         if event_type == TEXT_EVENT_TYPE and isinstance(data.get("delta"), str) and data["delta"]:
             await self._buffer_text(job, data["delta"])
             return

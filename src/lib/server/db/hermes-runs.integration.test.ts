@@ -11,6 +11,7 @@ import { ensureMigrated, sql } from './index';
 import {
 	HERMES_LEASE_MS,
 	appendHermesRunEvent,
+	appendHermesRunEvents,
 	claimHermesRunLease,
 	createOrGetHermesRun,
 	failQueuedHermesRun,
@@ -75,6 +76,62 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		});
 		return { ...seeded, run: result.run };
 	}
+
+	it('atomically batches ordered events and replays a lost terminal acknowledgment', async () => {
+		const { run, conversation, assistant } = await createRun('batch');
+		const lease = (await claimHermesRunLease(accountA, run.id, 'batch-worker'))!;
+		const events = [
+			{ workerCursor: 1, eventType: 'run.started', dataJson: '{}' },
+			{ workerCursor: 2, eventType: 'agent.answer.replace', dataJson: JSON.stringify({ content: 'Batch answer' }) },
+			{ workerCursor: 3, eventType: 'response.completed', dataJson: '{}' }
+		];
+		const result = await appendHermesRunEvents(accountA, run.id, lease.leaseOwner!, lease.leaseToken!, events);
+		expect(result.run.state).toBe('complete');
+		expect(result.run.workerCursor).toBe(3);
+		expect(result.run.answerText).toBe('Batch answer');
+		const replay = await appendHermesRunEvents(accountA, run.id, lease.leaseOwner!, lease.leaseToken!, events);
+		expect(replay.event.cursor).toBe(result.event.cursor);
+		const saved = await listHermesRunEvents(accountA, run.id);
+		expect(saved.map(event => event.eventType)).toEqual(events.map(event => event.eventType));
+		expect(saved.map(event => event.cursor)).toEqual([1, 2, 3]);
+		const messages = await getMessages(conversation.id);
+		expect(messages.find(message => message.id === assistant.id)?.content).toBe('Batch answer');
+		await expect(appendHermesRunEvents(accountA, run.id, lease.leaseOwner!, lease.leaseToken!,
+			[...events.slice(0, 2), { ...events[2], dataJson: '{"changed":true}' }])).rejects.toMatchObject({ code: 'stale_callback' });
+	});
+
+	it('acknowledges a committed batch after cancellation intervenes', async () => {
+		const { run } = await createRun('batch-cancel-replay');
+		const lease = (await claimHermesRunLease(accountA, run.id, 'batch-worker'))!;
+		const events = [{ workerCursor: 1, eventType: 'run.started', dataJson: '{}' }];
+		await appendHermesRunEvents(accountA, run.id, lease.leaseOwner!, lease.leaseToken!, events);
+		await requestHermesRunCancellation(accountA, run.id);
+		const replay = await appendHermesRunEvents(accountA, run.id, lease.leaseOwner!, lease.leaseToken!, events);
+		expect(replay.run.state).toBe('cancel_requested');
+		expect(replay.run.workerCursor).toBe(1);
+		const cancelled = await appendHermesRunEvents(accountA, run.id, lease.leaseOwner!, lease.leaseToken!,
+			[{ workerCursor: 2, eventType: 'run.cancelled', dataJson: '{}' }]);
+		expect(cancelled.run.state).toBe('cancelled');
+	});
+
+	it('rolls back a batch with an event after completion and rejects invalid cursors and owners', async () => {
+		const { run } = await createRun('batch-rollback');
+		const lease = (await claimHermesRunLease(accountA, run.id, 'batch-worker'))!;
+		const append = (events: Parameters<typeof appendHermesRunEvents>[4]) =>
+			appendHermesRunEvents(accountA, run.id, lease.leaseOwner!, lease.leaseToken!, events);
+		await expect(append([
+			{ workerCursor: 1, eventType: 'response.completed', dataJson: '{}' },
+			{ workerCursor: 2, eventType: 'agent.answer.replace', dataJson: '{"text":"late"}' }
+		])).rejects.toMatchObject({ code: 'terminal' });
+		expect((await getHermesRun(accountA, run.id))?.workerCursor).toBe(0);
+		expect(await listHermesRunEvents(accountA, run.id)).toEqual([]);
+		await expect(append([{ workerCursor: 2, eventType: 'run.started', dataJson: '{}' }])).rejects.toMatchObject({ code: 'stale_callback' });
+		await expect(appendHermesRunEvents(accountB, run.id, lease.leaseOwner!, lease.leaseToken!,
+			[{ workerCursor: 1, eventType: 'run.started', dataJson: '{}' }])).rejects.toMatchObject({ code: 'not_found' });
+		await requestHermesRunCancellation(accountA, run.id);
+		await expect(append([{ workerCursor: 1, eventType: 'run.started', dataJson: '{}' }])).rejects.toMatchObject({ code: 'stale_callback' });
+		expect((await append([{ workerCursor: 1, eventType: 'run.cancelled', dataJson: '{}' }])).run.state).toBe('cancelled');
+	});
 
 	it('returns one run for two concurrent create calls with the same account and idempotency key', async () => {
 		const seeded = await seed('concurrent-create');

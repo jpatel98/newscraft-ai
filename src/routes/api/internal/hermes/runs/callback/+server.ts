@@ -1,6 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import {
-	appendHermesRunEvent,
+	appendHermesRunEvents,
 	getHermesRun,
 	listHermesRunEvents,
 	HermesRunRepositoryError
@@ -27,19 +27,26 @@ export const POST: RequestHandler = async ({ request }) => {
 		event_type?: string;
 		trace_id?: unknown;
 		data?: unknown;
+		events?: Array<{ worker_cursor?: number; event_type?: string; data?: unknown }>;
 	};
 	try {
 		body = (await request.json()) as typeof body;
 	} catch {
 		return json({ detail: 'invalid json' }, { status: 400 });
 	}
-	const accountId = body.account_id?.trim();
-	const runId = body.run_id?.trim();
-	const tenantKey = body.tenant_key?.trim();
-	const leaseOwner = body.lease_owner?.trim();
-	const leaseToken = body.lease_token?.trim();
-	const eventType = body.event_type?.trim();
-	if (!accountId || !runId || !tenantKey || !leaseOwner || !leaseToken || !eventType || !Number.isSafeInteger(body.worker_cursor)) {
+	if (!body || typeof body !== 'object') return json({ detail: 'invalid callback body' }, { status: 400 });
+	const accountId = typeof body.account_id === 'string' ? body.account_id.trim() : '';
+	const runId = typeof body.run_id === 'string' ? body.run_id.trim() : '';
+	const tenantKey = typeof body.tenant_key === 'string' ? body.tenant_key.trim() : '';
+	const leaseOwner = typeof body.lease_owner === 'string' ? body.lease_owner.trim() : '';
+	const leaseToken = typeof body.lease_token === 'string' ? body.lease_token.trim() : '';
+	const events = body.events ?? [body];
+	if (!Array.isArray(events) || events.length < 1 || events.length > 32 ||
+		(body.events !== undefined && (body.event_type !== undefined || body.worker_cursor !== undefined)) ||
+		events.some((event) => !event || typeof event.event_type !== 'string' || !event.event_type.trim() || !Number.isSafeInteger(event.worker_cursor))) {
+		return json({ detail: 'invalid callback events' }, { status: 400 });
+	}
+	if (!accountId || !runId || !tenantKey || !leaseOwner || !leaseToken) {
 		return json({ detail: 'callback fields are required' }, { status: 400 });
 	}
 	const existing = await getHermesRun(accountId, runId);
@@ -57,23 +64,18 @@ export const POST: RequestHandler = async ({ request }) => {
 			{ status: 409 }
 		);
 	}
-	let dataJson: string;
 	try {
-		dataJson = JSON.stringify(body.data ?? {});
-	} catch {
-		return json({ detail: 'callback data is not serializable' }, { status: 400 });
-	}
-	try {
-		const result = await appendHermesRunEvent(accountId, runId, leaseOwner, leaseToken, {
-			eventType,
-			dataJson,
-			workerCursor: body.worker_cursor as number,
-			artifactRevisionId: eventType === 'artifact.ready' && body.data && typeof body.data === 'object' && !Array.isArray(body.data)
-				? typeof (body.data as Record<string, unknown>).artifact_revision_id === 'string'
-					? ((body.data as Record<string, unknown>).artifact_revision_id as string)
+		const inputs = events.map((event) => ({
+			eventType: event.event_type!.trim(),
+			dataJson: JSON.stringify(event.data ?? {}),
+			workerCursor: event.worker_cursor as number,
+			artifactRevisionId: event.event_type!.trim() === 'artifact.ready' && event.data && typeof event.data === 'object' && !Array.isArray(event.data)
+				? typeof (event.data as Record<string, unknown>).artifact_revision_id === 'string'
+					? (event.data as Record<string, unknown>).artifact_revision_id as string
 					: null
 				: null
-		});
+		}));
+		const result = await appendHermesRunEvents(accountId, runId, leaseOwner, leaseToken, inputs);
 		if (result.run.state === 'complete') {
 			try {
 				await withChatTimeout(
@@ -105,7 +107,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ cursor: result.event.cursor, state: result.run.state });
 	} catch (cause) {
 		if (cause instanceof HermesRunRepositoryError) {
-			const status = cause.code === 'not_found' ? 404 : cause.code === 'terminal' ? 409 : 409;
+			const status = cause.code === 'not_found' ? 404 : cause.code === 'invalid_input' ? 400 : 409;
 			return json({ detail: cause.message, code: cause.code }, { status });
 		}
 		throw cause;

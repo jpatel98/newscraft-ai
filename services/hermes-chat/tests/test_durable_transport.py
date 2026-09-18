@@ -153,6 +153,111 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             owner_loop=asyncio.get_running_loop(),
         )
 
+    async def test_batch_burst_preserves_order_and_terminal_flush(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("batch", "tenant_a", "trace_a12345678")
+            job.claim_result = {"callback_batch_version": 1}
+            worker._newscraft = AsyncMock(return_value={})
+            for index in range(75):
+                await worker._callback(job, "agent.answer.delta", {"delta": str(index)})
+            await worker._callback(job, "response.completed", {})
+            bodies = [call.args[2] for call in worker._newscraft.await_args_list]
+            self.assertEqual([len(body["events"]) for body in bodies], [32, 32, 12])
+            events = [event for body in bodies for event in body["events"]]
+            self.assertEqual([event["worker_cursor"] for event in events], list(range(1, 77)))
+            self.assertEqual([event["data"]["delta"] for event in events[:-1]], [str(i) for i in range(75)])
+            self.assertEqual(events[-1]["event_type"], "response.completed")
+            self.assertEqual(job.worker_cursor, 76)
+            self.assertEqual(job.pending_events, [])
+            await worker._stop_text_flush(job)
+
+    async def test_batch_lost_ack_retries_identical_cursors(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("retry", "tenant_a", "trace_a12345678")
+            job.claim_result = {"callback_batch_version": 1}
+            worker._newscraft = AsyncMock(side_effect=[httpx.ReadTimeout("lost ack"), {}])
+            await worker._callback(job, "response.completed", {})
+            calls = worker._newscraft.await_args_list
+            self.assertEqual(calls[0].args, calls[1].args)
+            self.assertEqual(job.worker_cursor, 1)
+
+    async def test_batch_cancel_discards_unaccepted_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("cancel", "tenant_a", "trace_a12345678")
+            job.claim_result = {"callback_batch_version": 1}
+            worker._newscraft = AsyncMock(return_value={})
+            await worker._callback(job, "agent.answer.delta", {"delta": "pending"})
+            await worker._publish_cancelled(job)
+            events = worker._newscraft.await_args.args[2]["events"]
+            self.assertEqual([event["event_type"] for event in events], ["run.cancelled"])
+            self.assertEqual(job.worker_cursor, 1)
+
+    async def test_batch_timer_flushes_and_artifact_is_a_barrier(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("timer", "tenant_a", "trace_a12345678")
+            job.claim_result = {"callback_batch_version": 1}
+            worker._newscraft = AsyncMock(return_value={})
+            await worker._callback(job, "agent.answer.delta", {"delta": "one"})
+            await job.text_flush_task
+            self.assertEqual(job.worker_cursor, 1)
+            await worker._callback(job, "agent.answer.delta", {"delta": "two"})
+            await worker._callback(job, "artifact.ready", {"artifact_revision_id": "revision"})
+            self.assertEqual(job.worker_cursor, 3)
+            self.assertEqual(job.pending_events, [])
+            await worker._stop_text_flush(job)
+
+    async def test_batch_cancel_waits_for_inflight_ack_before_terminal_cursor(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("inflight", "tenant_a", "trace_a12345678")
+            job.claim_result = {"callback_batch_version": 1}
+            entered, release = asyncio.Event(), asyncio.Event()
+            bodies = []
+            async def send(_method, _path, body):
+                bodies.append(body)
+                if len(bodies) == 1:
+                    entered.set()
+                    await release.wait()
+                return {}
+            worker._newscraft = send
+            await worker._callback(job, durable_module.TEXT_EVENT_TYPE, {"delta": "accepted"})
+            await entered.wait()
+            cancel = asyncio.create_task(worker._publish_cancelled(job))
+            await asyncio.sleep(0)
+            release.set()
+            await cancel
+            self.assertEqual([body["events"][0]["worker_cursor"] for body in bodies], [1, 2])
+            self.assertEqual(bodies[-1]["events"][0]["event_type"], "run.cancelled")
+
+    async def test_batch_coalesces_adjacent_text_without_losing_content(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("text", "tenant_a", "trace_a12345678")
+            job.claim_result = {"callback_batch_version": 1}
+            worker._newscraft = AsyncMock(return_value={})
+            for _ in range(100):
+                await worker._callback(job, durable_module.TEXT_EVENT_TYPE, {"delta": "hello"})
+            await worker._callback(job, "response.completed", {})
+            events = worker._newscraft.await_args.args[2]["events"]
+            self.assertEqual(len(events), 2)
+            self.assertEqual(events[0]["data"]["delta"], "hello" * 100)
+            await worker._stop_text_flush(job)
+
+    async def test_batch_failure_does_not_advance_cursor(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("failure", "tenant_a", "trace_a12345678")
+            job.claim_result = {"callback_batch_version": 1}
+            worker._newscraft = AsyncMock(side_effect=httpx.ReadTimeout("lost ack"))
+            with self.assertRaises(httpx.ReadTimeout):
+                await worker._callback(job, "response.completed", {})
+            self.assertEqual(job.worker_cursor, 0)
+            self.assertEqual(worker._newscraft.await_count, 2)
+
     async def test_artifact_tool_rejects_unscoped_call_even_with_one_leased_job(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             worker = self._worker(root)

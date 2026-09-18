@@ -38,6 +38,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (existing.leaseOwner === leaseOwner && existing.leaseToken && existing.leaseExpiresAt && existing.leaseExpiresAt > Date.now()) {
 		return json({
 			terminal: false,
+		callback_batch_version: 1,
 			lease_owner: existing.leaseOwner,
 			lease_token: existing.leaseToken,
 			worker_cursor: existing.workerCursor,
@@ -50,6 +51,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 	return json({
 		terminal: false,
+		callback_batch_version: 1,
 		lease_owner: claimed.leaseOwner,
 		lease_token: claimed.leaseToken,
 		worker_cursor: claimed.workerCursor,

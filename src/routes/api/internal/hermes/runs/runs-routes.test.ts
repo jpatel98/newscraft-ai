@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const dbMocks = vi.hoisted(() => ({
 	getHermesRun: vi.fn(),
 	getHermesRunSubscriptionState: vi.fn(),
-	appendHermesRunEvent: vi.fn(),
+	appendHermesRunEvents: vi.fn(),
 	claimHermesRunLease: vi.fn(),
 	renewHermesRunLease: vi.fn(),
 	reclaimQueuedOrExpiredHermesRuns: vi.fn(),
@@ -137,7 +137,7 @@ describe('Hermes internal run routes', () => {
 		vi.clearAllMocks();
 		authMocks.verifyHermesRunCallback.mockReturnValue(true);
 		dbMocks.getHermesRun.mockResolvedValue(run);
-		dbMocks.appendHermesRunEvent.mockResolvedValue({ run, event: { cursor: 2 } });
+		dbMocks.appendHermesRunEvents.mockResolvedValue({ run, event: { cursor: 2 } });
 		dbMocks.listHermesRunEvents.mockResolvedValue([]);
 	});
 
@@ -152,13 +152,13 @@ describe('Hermes internal run routes', () => {
 		dbMocks.getHermesRun.mockResolvedValue(null);
 		const response = await callback({ request: callbackRequest({ account_id: 'account-2' }) } as any);
 		expect(response.status).toBe(404);
-		expect(dbMocks.appendHermesRunEvent).not.toHaveBeenCalled();
+		expect(dbMocks.appendHermesRunEvents).not.toHaveBeenCalled();
 	});
 
 	it('rejects a callback for the wrong tenant', async () => {
 		const response = await callback({ request: callbackRequest({ tenant_key: 'tenant_key_2' }) } as any);
 		expect(response.status).toBe(404);
-		expect(dbMocks.appendHermesRunEvent).not.toHaveBeenCalled();
+		expect(dbMocks.appendHermesRunEvents).not.toHaveBeenCalled();
 	});
 
 	it('rejects a callback trace that does not match the persisted run trace', async () => {
@@ -167,7 +167,7 @@ describe('Hermes internal run routes', () => {
 
 		expect(response.status).toBe(409);
 		expect(body).toMatchObject({ code: 'trace_binding' });
-		expect(dbMocks.appendHermesRunEvent).not.toHaveBeenCalled();
+		expect(dbMocks.appendHermesRunEvents).not.toHaveBeenCalled();
 	});
 
 	it('rejects a callback with no trace before state mutation', async () => {
@@ -176,7 +176,7 @@ describe('Hermes internal run routes', () => {
 
 		expect(response.status).toBe(409);
 		expect(body).toMatchObject({ code: 'trace_binding' });
-		expect(dbMocks.appendHermesRunEvent).not.toHaveBeenCalled();
+		expect(dbMocks.appendHermesRunEvents).not.toHaveBeenCalled();
 	});
 
 	it('rejects a callback with a malformed trace before state mutation', async () => {
@@ -185,7 +185,7 @@ describe('Hermes internal run routes', () => {
 
 		expect(response.status).toBe(409);
 		expect(body).toMatchObject({ code: 'trace_binding' });
-		expect(dbMocks.appendHermesRunEvent).not.toHaveBeenCalled();
+		expect(dbMocks.appendHermesRunEvents).not.toHaveBeenCalled();
 	});
 
 	it.each([
@@ -193,7 +193,7 @@ describe('Hermes internal run routes', () => {
 		['stale_callback', 'stale cursor']
 	])('rejects %s from the repository', async (code, message) => {
 		const error = new (await import('$lib/server/db/hermes-runs')).HermesRunRepositoryError(code as any, message);
-		dbMocks.appendHermesRunEvent.mockRejectedValue(error);
+		dbMocks.appendHermesRunEvents.mockRejectedValue(error);
 		const response = await callback({ request: callbackRequest() } as any);
 		const body = await response.json();
 		expect(response.status).toBe(409);
@@ -203,17 +203,34 @@ describe('Hermes internal run routes', () => {
 	it('appends an authenticated callback through the tenant-scoped repository', async () => {
 		const response = await callback({ request: callbackRequest() } as any);
 		expect(response.status).toBe(200);
-		expect(dbMocks.appendHermesRunEvent).toHaveBeenCalledWith(
+		expect(dbMocks.appendHermesRunEvents).toHaveBeenCalledWith(
 			user.id,
 			run.id,
 			'worker-1',
 			'lease-1',
-			expect.objectContaining({ workerCursor: 2, eventType: 'response.output_text.delta' })
+			[expect.objectContaining({ workerCursor: 2, eventType: 'response.output_text.delta' })]
 		);
 	});
 
+	it('accepts ordered event batches and rejects ambiguous or malformed batches', async () => {
+		const events = [
+			{ worker_cursor: 2, event_type: 'response.output_text.delta', data: { delta: 'one' } },
+			{ worker_cursor: 3, event_type: 'response.completed', data: {} }
+		];
+		const response = await callback({ request: callbackRequest({ worker_cursor: undefined, event_type: undefined, events }) } as any);
+		expect(response.status).toBe(200);
+		expect(dbMocks.appendHermesRunEvents).toHaveBeenLastCalledWith(user.id, run.id, 'worker-1', 'lease-1', [
+			expect.objectContaining({ workerCursor: 2, eventType: events[0].event_type }),
+			expect.objectContaining({ workerCursor: 3, eventType: events[1].event_type })
+		]);
+		for (const invalid of [[], [null], new Array(33).fill(events[0]), [{ event_type: 5 }]]) {
+			expect((await callback({ request: callbackRequest({ worker_cursor: undefined, event_type: undefined, events: invalid }) } as any)).status).toBe(400);
+		}
+		expect((await callback({ request: callbackRequest({ events }) } as any)).status).toBe(400);
+	});
+
 	it('generates one best-effort title after a durable answer completes', async () => {
-		dbMocks.appendHermesRunEvent.mockResolvedValue({
+		dbMocks.appendHermesRunEvents.mockResolvedValue({
 			run: { ...run, state: 'complete', assistantMessageId: 'assistant-1' },
 			event: { cursor: 2 }
 		});
@@ -318,7 +335,7 @@ describe('Hermes internal trace-bound control routes', () => {
 		dbMocks.getHermesRun.mockResolvedValue({ ...run, inputJson: JSON.stringify({ forwardedProps: {} }) });
 		dbMocks.claimHermesRunLease.mockResolvedValue({ ...run, inputJson: JSON.stringify({ forwardedProps: {} }) });
 		dbMocks.renewHermesRunLease.mockResolvedValue({ ...run, inputJson: JSON.stringify({ forwardedProps: {} }) });
-		dbMocks.appendHermesRunEvent.mockResolvedValue({
+		dbMocks.appendHermesRunEvents.mockResolvedValue({
 			run: { ...run, inputJson: JSON.stringify({ forwardedProps: {} }) },
 			event: { cursor: 2 }
 		});

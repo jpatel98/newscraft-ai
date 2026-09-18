@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { db } from './index';
 import { conversations, hermesRunArtifactRefs, hermesRunEvents, hermesRuns, messages, messageProvenance } from './schema';
@@ -625,21 +625,35 @@ export async function listKnownHermesRunEvents(
 }
 
 export async function appendHermesRunEvent(
+	accountId: string, runId: string, leaseOwner: string, leaseToken: string, input: HermesRunEventInput
+): Promise<{ run: HermesRunRecord; event: HermesRunEventRecord }> {
+	return appendHermesRunEvents(accountId, runId, leaseOwner, leaseToken, [input]);
+}
+
+export async function appendHermesRunEvents(
 	accountId: string,
 	runId: string,
 	leaseOwner: string,
 	leaseToken: string,
-	input: HermesRunEventInput
+	inputs: HermesRunEventInput[]
 ): Promise<{ run: HermesRunRecord; event: HermesRunEventRecord }> {
 	const owner = requireValue(accountId, 'accountId');
 	const id = requireValue(runId, 'runId');
 	const worker = requireValue(leaseOwner, 'leaseOwner');
 	const token = requireValue(leaseToken, 'leaseToken');
-	if (!Number.isSafeInteger(input.workerCursor) || input.workerCursor < 1) {
-		throw new HermesRunRepositoryError('invalid_input', 'workerCursor must be a positive integer');
+	if (!Array.isArray(inputs) || inputs.length < 1 || inputs.length > 32) {
+		throw new HermesRunRepositoryError('invalid_input', 'callback batch must contain 1 to 32 events');
 	}
-	const eventType = requireValue(input.eventType, 'eventType');
-	const dataJson = boundedJson(input.dataJson, 'event data');
+	const validated = inputs.map((input, index) => {
+		if (!Number.isSafeInteger(input.workerCursor) || input.workerCursor < 1 ||
+			(index > 0 && input.workerCursor !== inputs[index - 1].workerCursor + 1)) {
+			throw new HermesRunRepositoryError('invalid_input', 'batch worker cursors must be consecutive positive integers');
+		}
+		return { ...input, eventType: requireValue(input.eventType, 'eventType'), dataJson: boundedJson(input.dataJson, 'event data') };
+	});
+	if (validated.reduce((size, input) => size + Buffer.byteLength(input.dataJson), 0) > 512 * 1024) {
+		throw new HermesRunRepositoryError('invalid_input', 'callback batch exceeds 512 KiB');
+	}
 	const now = Date.now();
 
 	return db.transaction(async (tx: any) => {
@@ -650,141 +664,142 @@ export async function appendHermesRunEvent(
 			.for('update')
 			.limit(1)) as HermesRunRecord[];
 		if (!current) throw new HermesRunRepositoryError('not_found', 'run not found');
-		const state = normalizeState(current.state);
-		if (current.leaseOwner !== worker || current.leaseToken !== token || !current.leaseExpiresAt || current.leaseExpiresAt <= now) {
+		if (current.leaseOwner !== worker || current.leaseToken !== token) {
 			throw new HermesRunRepositoryError('stale_lease', 'run lease is stale');
 		}
-		// A callback can be replayed after the worker timed out waiting for the
-		// NewsCraft response. Treat an exact same-cursor replay as success, while
-		// still rejecting a competing payload that attempts to reuse that cursor.
-		if (input.workerCursor === current.workerCursor && current.cursor > 0) {
-			const [previous] = (await tx
-				.select()
-				.from(hermesRunEvents)
-				.where(and(eq(hermesRunEvents.runId, id), eq(hermesRunEvents.cursor, current.cursor)))
-				.limit(1)) as HermesRunEventRecord[];
-			if (previous && previous.eventType === eventType && previous.dataJson === dataJson) {
-				return { run: current, event: previous };
+		const lastInput = validated[validated.length - 1];
+		// Whole batches commit atomically. A lost acknowledgment can replay the
+		// exact last batch, including completion, without applying it twice.
+		if (lastInput.workerCursor === current.workerCursor && current.cursor >= validated.length) {
+			const previous = await tx.select().from(hermesRunEvents)
+				.where(and(eq(hermesRunEvents.runId, id), eq(hermesRunEvents.accountId, owner),
+					ne(hermesRunEvents.eventType, 'run.cancel_requested')))
+				.orderBy(desc(hermesRunEvents.cursor)).limit(validated.length);
+			previous.reverse();
+			if (previous.length === validated.length && previous.every((event: HermesRunEventRecord, index: number) =>
+				event.eventType === validated[index].eventType && event.dataJson === validated[index].dataJson)) {
+				return { run: current, event: previous[previous.length - 1] };
 			}
+			throw new HermesRunRepositoryError('stale_callback', 'callback replay differs from saved events');
 		}
-		if (isTerminal(state)) throw new HermesRunRepositoryError('terminal', 'run is already terminal');
-		if (state === 'cancel_requested' && eventType !== 'run.cancelled' && eventType !== 'cancelled') {
-			throw new HermesRunRepositoryError('stale_callback', 'callbacks after cancellation are not accepted');
+		if (!current.leaseExpiresAt || current.leaseExpiresAt <= now) {
+			throw new HermesRunRepositoryError('stale_lease', 'run lease is stale');
 		}
-		if (input.workerCursor !== (current.workerCursor || 0) + 1) {
-			throw new HermesRunRepositoryError('stale_callback', 'run callback cursor is not monotonic');
-		}
+		let working = current;
+		let snapshot = snapshotFromRun(current);
+		let sourceEvent = false, citationEvent = false, toolEvent = false, answerEvent = false;
+		const eventRows: typeof hermesRunEvents.$inferInsert[] = [];
+		const artifactRefs: Array<{ revisionId: string; cursor: number }> = [];
+		for (const input of validated) {
+			const { eventType, dataJson } = input;
+			const state = normalizeState(working.state);
+			if (isTerminal(state)) throw new HermesRunRepositoryError('terminal', 'run is already terminal');
+			if (state === 'cancel_requested' && eventType !== 'run.cancelled' && eventType !== 'cancelled') {
+				throw new HermesRunRepositoryError('stale_callback', 'callbacks after cancellation are not accepted');
+			}
+			if (input.workerCursor !== (working.workerCursor || 0) + 1) {
+				throw new HermesRunRepositoryError('stale_callback', 'run callback cursor is not monotonic');
+			}
 
-		const eventData = objectValue(parseJson<unknown>(dataJson, {})) || {};
-		const artifactRevisionId = typeof input.artifactRevisionId === 'string' ? input.artifactRevisionId.trim() : '';
-		const payloadArtifactRevisionId = typeof eventData.artifact_revision_id === 'string'
-			? eventData.artifact_revision_id.trim()
-			: '';
-		if (eventType === 'artifact.ready' && (!artifactRevisionId || payloadArtifactRevisionId !== artifactRevisionId)) {
-			throw new HermesRunRepositoryError('invalid_input', 'artifact.ready must identify the referenced revision');
-		}
-		if (eventType !== 'artifact.ready' && payloadArtifactRevisionId) {
-			throw new HermesRunRepositoryError('invalid_input', 'artifact revision is only valid on artifact.ready');
-		}
-		if (artifactRevisionId && eventType !== 'artifact.ready') {
-			throw new HermesRunRepositoryError('invalid_input', 'artifact reference is only valid on artifact.ready');
-		}
-		if (artifactRevisionId) {
-			const artifactPayload = objectValue(eventData.artifact);
-			const nestedRevisionId = typeof artifactPayload?.revisionId === 'string'
-				? artifactPayload.revisionId.trim()
-				: typeof artifactPayload?.revision_id === 'string'
-					? artifactPayload.revision_id.trim()
-					: '';
-			if (nestedRevisionId && nestedRevisionId !== artifactRevisionId) {
-				throw new HermesRunRepositoryError('invalid_input', 'artifact.ready summary does not match its revision');
+			const eventData = objectValue(parseJson<unknown>(dataJson, {})) || {};
+			const artifactRevisionId = typeof input.artifactRevisionId === 'string' ? input.artifactRevisionId.trim() : '';
+			const payloadArtifactRevisionId = typeof eventData.artifact_revision_id === 'string'
+				? eventData.artifact_revision_id.trim()
+				: '';
+			if (eventType === 'artifact.ready' && (!artifactRevisionId || payloadArtifactRevisionId !== artifactRevisionId)) {
+				throw new HermesRunRepositoryError('invalid_input', 'artifact.ready must identify the referenced revision');
 			}
-			const [artifact] = await tx.execute(sql`
-				SELECT r.id, r.revision, r.status, f.id AS family_id, f.kind, f.title, f.source_message_id
-				FROM artifact_revisions r
-				JOIN artifact_families f ON f.id = r.family_id
-				WHERE r.id = ${artifactRevisionId}
-					AND r.status = 'ready'
-					AND f.account_id = ${owner}
-					AND f.conversation_id = ${current.conversationId}
-					AND f.source_message_id = ${current.assistantMessageId}
-				FOR UPDATE OF r, f
-			`);
-			if (!artifact) throw new HermesRunRepositoryError('stale_callback', 'artifact is not ready or not bound to this run');
-			if (artifactPayload) {
-				const nestedKind = typeof artifactPayload.kind === 'string' ? artifactPayload.kind.trim() : '';
-				const nestedStatus = typeof artifactPayload.status === 'string' ? artifactPayload.status.trim() : '';
-				const nestedId = typeof artifactPayload.id === 'string' ? artifactPayload.id.trim() : '';
-				const nestedTitle = typeof artifactPayload.title === 'string' ? artifactPayload.title.trim() : '';
-				const nestedSourceMessageId = typeof (artifactPayload.sourceMessageId ?? artifactPayload.source_message_id) === 'string'
-					? String(artifactPayload.sourceMessageId ?? artifactPayload.source_message_id).trim()
-					: '';
-				const nestedRevision = typeof artifactPayload.revision === 'number' ? artifactPayload.revision : undefined;
-				if (nestedKind && !['chart', 'table', 'image', 'markdown', 'map'].includes(nestedKind)) {
-					throw new HermesRunRepositoryError('invalid_input', 'artifact.ready kind is invalid');
-				}
-				if (nestedStatus && nestedStatus !== 'ready') {
-					throw new HermesRunRepositoryError('invalid_input', 'artifact.ready status is invalid');
-				}
-				if (
-					(nestedId && nestedId !== artifact.family_id) ||
-					(nestedKind && nestedKind !== artifact.kind) ||
-					(nestedTitle && nestedTitle !== artifact.title) ||
-					(nestedSourceMessageId && nestedSourceMessageId !== artifact.source_message_id) ||
-					(nestedRevision !== undefined && (!Number.isSafeInteger(nestedRevision) || nestedRevision !== Number(artifact.revision)))
-				) {
+			if (eventType !== 'artifact.ready' && payloadArtifactRevisionId) {
+				throw new HermesRunRepositoryError('invalid_input', 'artifact revision is only valid on artifact.ready');
+			}
+			if (artifactRevisionId && eventType !== 'artifact.ready') {
+				throw new HermesRunRepositoryError('invalid_input', 'artifact reference is only valid on artifact.ready');
+			}
+			if (artifactRevisionId) {
+				const artifactPayload = objectValue(eventData.artifact);
+				const nestedRevisionId = typeof artifactPayload?.revisionId === 'string'
+					? artifactPayload.revisionId.trim()
+					: typeof artifactPayload?.revision_id === 'string'
+						? artifactPayload.revision_id.trim()
+						: '';
+				if (nestedRevisionId && nestedRevisionId !== artifactRevisionId) {
 					throw new HermesRunRepositoryError('invalid_input', 'artifact.ready summary does not match its revision');
 				}
-			}
-		}
-		const nextSnapshot = applyHermesRunEventData(current, eventType, eventData);
-		const completedCitations =
-			nextSnapshot.state === 'complete'
-				? citationRecordsUsedInAnswer(nextSnapshot.answerText, nextSnapshot.citations)
-				: nextSnapshot.citations;
-		const snapshot =
-			nextSnapshot.state === 'complete'
-				? {
-						...nextSnapshot,
-						answerText: sanitizeUnresolvedCitationMarkers(
-							nextSnapshot.answerText,
-							completedCitations
-						),
-						citations: completedCitations
+				const [artifact] = await tx.execute(sql`
+					SELECT r.id, r.revision, r.status, f.id AS family_id, f.kind, f.title, f.source_message_id
+					FROM artifact_revisions r
+					JOIN artifact_families f ON f.id = r.family_id
+					WHERE r.id = ${artifactRevisionId}
+						AND r.status = 'ready'
+						AND f.account_id = ${owner}
+						AND f.conversation_id = ${current.conversationId}
+						AND f.source_message_id = ${current.assistantMessageId}
+					FOR UPDATE OF r, f
+				`);
+				if (!artifact) throw new HermesRunRepositoryError('stale_callback', 'artifact is not ready or not bound to this run');
+				if (artifactPayload) {
+					const nestedKind = typeof artifactPayload.kind === 'string' ? artifactPayload.kind.trim() : '';
+					const nestedStatus = typeof artifactPayload.status === 'string' ? artifactPayload.status.trim() : '';
+					const nestedId = typeof artifactPayload.id === 'string' ? artifactPayload.id.trim() : '';
+					const nestedTitle = typeof artifactPayload.title === 'string' ? artifactPayload.title.trim() : '';
+					const nestedSourceMessageId = typeof (artifactPayload.sourceMessageId ?? artifactPayload.source_message_id) === 'string'
+						? String(artifactPayload.sourceMessageId ?? artifactPayload.source_message_id).trim()
+						: '';
+					const nestedRevision = typeof artifactPayload.revision === 'number' ? artifactPayload.revision : undefined;
+					if (nestedKind && !['chart', 'table', 'image', 'markdown', 'map'].includes(nestedKind)) {
+						throw new HermesRunRepositoryError('invalid_input', 'artifact.ready kind is invalid');
 					}
-				: nextSnapshot;
-		const cursor = current.cursor + 1;
-		const [event] = (await tx
-			.insert(hermesRunEvents)
-			.values({
-				runId: id,
-				accountId: owner,
-				cursor,
-				eventType,
-				dataJson,
-				createdAt: now
-			})
-			.returning()) as HermesRunEventRecord[];
-		if (!event) throw new Error('Hermes run event insert returned no row');
-		if (artifactRevisionId) {
-			await tx.insert(hermesRunArtifactRefs).values({
-				runId: id,
-				revisionId: artifactRevisionId,
-				cursor,
-				createdAt: now
-			}).onConflictDoUpdate({
-				target: [hermesRunArtifactRefs.runId, hermesRunArtifactRefs.revisionId],
-				set: {
-					cursor: sql`GREATEST(${hermesRunArtifactRefs.cursor}, EXCLUDED.cursor)`,
-					createdAt: now
+					if (nestedStatus && nestedStatus !== 'ready') {
+						throw new HermesRunRepositoryError('invalid_input', 'artifact.ready status is invalid');
+					}
+					if (
+						(nestedId && nestedId !== artifact.family_id) ||
+						(nestedKind && nestedKind !== artifact.kind) ||
+						(nestedTitle && nestedTitle !== artifact.title) ||
+						(nestedSourceMessageId && nestedSourceMessageId !== artifact.source_message_id) ||
+						(nestedRevision !== undefined && (!Number.isSafeInteger(nestedRevision) || nestedRevision !== Number(artifact.revision)))
+					) {
+						throw new HermesRunRepositoryError('invalid_input', 'artifact.ready summary does not match its revision');
+					}
 				}
-			});
+			}
+			const nextSnapshot = applyHermesRunEventData(working, eventType, eventData);
+			const completedCitations =
+				nextSnapshot.state === 'complete'
+					? citationRecordsUsedInAnswer(nextSnapshot.answerText, nextSnapshot.citations)
+					: nextSnapshot.citations;
+			snapshot =
+				nextSnapshot.state === 'complete'
+					? {
+							...nextSnapshot,
+							answerText: sanitizeUnresolvedCitationMarkers(
+								nextSnapshot.answerText,
+								completedCitations
+							),
+							citations: completedCitations
+						}
+					: nextSnapshot;
+			const cursor = working.cursor + 1;
+			eventRows.push({ runId: id, accountId: owner, cursor, eventType, dataJson, createdAt: now });
+			if (artifactRevisionId) artifactRefs.push({ revisionId: artifactRevisionId, cursor });
+			sourceEvent ||= Boolean(objectValue(eventData.source)) || eventType.startsWith('agent.source');
+			citationEvent ||= Array.isArray(eventData.citations) || snapshot.state === 'complete';
+			toolEvent ||= eventType === 'agent.tool.progress';
+			answerEvent ||= eventType === 'agent.answer.replace';
+			working = { ...working, cursor, workerCursor: input.workerCursor, state: snapshot.state,
+				answerText: snapshot.answerText, errorMessage: snapshot.errorMessage,
+				sourcesJson: JSON.stringify(snapshot.sources), citationsJson: JSON.stringify(snapshot.citations),
+				toolsJson: JSON.stringify(snapshot.tools) };
+		}
+		const inserted = await tx.insert(hermesRunEvents).values(eventRows).returning() as HermesRunEventRecord[];
+		const event = inserted.find((row) => row.cursor === working.cursor);
+		if (!event) throw new Error('Hermes run event insert returned no row');
+		for (const ref of artifactRefs) {
+			await tx.insert(hermesRunArtifactRefs).values({ runId: id, revisionId: ref.revisionId, cursor: ref.cursor, createdAt: now })
+				.onConflictDoUpdate({ target: [hermesRunArtifactRefs.runId, hermesRunArtifactRefs.revisionId],
+					set: { cursor: sql`GREATEST(${hermesRunArtifactRefs.cursor}, EXCLUDED.cursor)`, createdAt: now } });
 		}
 		const terminal = isTerminal(snapshot.state);
-		const sourceEvent = Boolean(objectValue(eventData.source)) || eventType.startsWith('agent.source');
-		const citationEvent = Array.isArray(eventData.citations) || snapshot.state === 'complete';
-		const toolEvent = eventType === 'agent.tool.progress';
-		const answerEvent = eventType === 'agent.answer.replace';
 		// The run row and event log are the live durable snapshot. Avoid rewriting
 		// the message, provenance, and conversation rows for every ordinary text
 		// delta; those projections still update on the first event, metadata
@@ -792,8 +807,8 @@ export async function appendHermesRunEvent(
 		const persistMessageSnapshot =
 			current.cursor === 0 || sourceEvent || citationEvent || toolEvent || answerEvent || terminal;
 		const runUpdate: Partial<typeof hermesRuns.$inferInsert> = {
-			cursor,
-			workerCursor: input.workerCursor,
+			cursor: working.cursor,
+			workerCursor: working.workerCursor,
 			updatedAt: now,
 			leaseExpiresAt: terminal ? null : now + HERMES_LEASE_MS
 		};
