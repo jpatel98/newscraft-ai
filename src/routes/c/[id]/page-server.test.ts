@@ -16,6 +16,8 @@ const runMocks = vi.hoisted(() => ({
 	}))
 }));
 
+vi.mock('$lib/server/db/projects', () => ({ getConversationProject: vi.fn().mockResolvedValue(undefined) }));
+
 vi.mock('$lib/server/db/conversation-load', () => loadMocks);
 vi.mock('$lib/server/db/artifacts', () => artifactMocks);
 vi.mock('$lib/server/db/hermes-runs', () => runMocks);

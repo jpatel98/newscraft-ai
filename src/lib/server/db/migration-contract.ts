@@ -22,7 +22,8 @@ export const MIGRATION_VERSIONS = [
 	'0013_conversation_documents',
 	'0014_runtime_reconciliation',
 	'0015_durable_hermes_runs',
-	'0016_conversation_artifacts'
+	'0016_conversation_artifacts',
+	'0017_topic_projects'
 ] as const;
 
 /** Versions represented by the legacy runtime-created schema. */

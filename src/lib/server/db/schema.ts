@@ -1,4 +1,5 @@
-import { bigint, index, integer, jsonb, pgTable, primaryKey, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql as schemaSql } from 'drizzle-orm';
+import { bigint, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, uniqueIndex } from 'drizzle-orm/pg-core';
 
 const timestampMs = (name: string) => bigint(name, { mode: 'number' });
 
@@ -91,6 +92,7 @@ export const conversations = pgTable('conversations', {
 	updatedAt: timestampMs('updated_at').notNull(),
 	pinned: integer('pinned').notNull().default(0)
 }, (t) => ({
+	idAccountUnique: uniqueIndex('conversations_id_account_unique').on(t.id, t.accountId),
 	accountUpdatedIdx: index('conversations_account_updated_idx').on(t.accountId, t.updatedAt),
 	orgUpdatedIdx: index('conversations_org_updated_idx').on(t.orgId, t.updatedAt),
 	accountPinnedUpdatedIdx: index('conversations_account_pinned_updated_idx').on(
@@ -693,3 +695,24 @@ export const agentChannelSources = pgTable(
 		typeIdx: index('agent_sources_type_idx').on(t.type)
 	})
 );
+
+export const projects = pgTable('projects', {
+ id: text('id').primaryKey(),
+ accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+ name: text('name').notNull(),
+ createdAt: timestampMs('created_at').notNull(),
+ updatedAt: timestampMs('updated_at').notNull()
+}, t => ({
+ nameLength: check('projects_name_check', schemaSql`length(btrim(${t.name})) BETWEEN 1 AND 100`),
+ idAccountUnique: uniqueIndex('projects_id_account_id_key').on(t.id, t.accountId),
+ accountUpdatedIdx: index('projects_account_updated_idx').on(t.accountId, t.updatedAt)
+}));
+export const projectConversations = pgTable('project_conversations', {
+ conversationId: text('conversation_id').primaryKey(),
+ accountId: text('account_id').notNull(),
+ projectId: text('project_id').notNull()
+}, t => ({
+ conversationOwner: foreignKey({ columns: [t.conversationId, t.accountId], foreignColumns: [conversations.id, conversations.accountId] }).onDelete('cascade'),
+ projectOwner: foreignKey({ columns: [t.projectId, t.accountId], foreignColumns: [projects.id, projects.accountId] }).onDelete('cascade'),
+ projectIdx: index('project_conversations_project_idx').on(t.accountId, t.projectId)
+}));

@@ -316,7 +316,7 @@ export async function getMessagesBatch(
 		.limit(limit)) as MessageRow[];
 }
 
-export async function createConversation(accountId: string, systemPrompt?: string): Promise<ConversationRow> {
+export async function createConversation(accountId: string, systemPrompt?: string, projectId?: string | null): Promise<ConversationRow> {
 	const now = Date.now();
 	const orgId = await ensureDefaultOrganizationForAccount(accountId);
 	const row: ConversationRow = {
@@ -329,7 +329,16 @@ export async function createConversation(accountId: string, systemPrompt?: strin
 		updatedAt: now,
 		pinned: 0
 	};
-	await db.insert(conversations).values(row);
+	if (!projectId) {
+		await db.insert(conversations).values(row);
+		return row;
+	}
+	await db.transaction(async (tx: typeof db) => {
+		const projects = await tx.execute(sql`SELECT id FROM projects WHERE id = ${projectId} AND account_id = ${accountId} FOR KEY SHARE`);
+		if (!projects.length) throw new Error('PROJECT_NOT_FOUND');
+		await tx.insert(conversations).values(row);
+		await tx.execute(sql`INSERT INTO project_conversations (conversation_id, account_id, project_id) VALUES (${row.id}, ${accountId}, ${projectId})`);
+	});
 	return row;
 }
 

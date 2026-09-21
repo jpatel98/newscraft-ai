@@ -1,3 +1,4 @@
+import { getConversationProject } from '$lib/server/db/projects';
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getConversationLoad } from '$lib/server/db/conversation-load';
@@ -50,6 +51,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const actionView = (message: (typeof actionSummary)['latestUser']): ThreadMessageView | null =>
 		message ? rowsToThreadMessages([message], new Map())[0] : null;
 	return {
+		project: await getConversationProject(accountId, params.id) ?? null,
 		conversation: { id: convo.id, title: convo.title, updatedAt: convo.updatedAt },
 		messages,
 		history: {

@@ -3,7 +3,7 @@
 	import '$lib/styles/components.css';
 
 	import { onMount, tick } from 'svelte';
-	import { page } from '$app/state';
+	import { page, navigating } from '$app/state';
 	import { goto, invalidate, invalidateAll } from '$app/navigation';
 	import PanelLeft from 'lucide-svelte/icons/panel-left';
 	import SquarePen from 'lucide-svelte/icons/square-pen';
@@ -37,7 +37,7 @@
 			page.url.pathname === '/setup' ||
 			page.url.pathname.startsWith('/account-setup')
 	);
-	const isThreadPage = $derived(page.url.pathname.startsWith('/c/'));
+	const isThreadPage = $derived(page.url.pathname.startsWith('/c/') && !page.url.pathname.endsWith('/project'));
 
 	let paletteOpen = $state(false);
 	let shellReady = $state(false);
@@ -636,6 +636,7 @@
 			</div>
 
 			<div class="drawer__quick-actions">
+				<a class="sidebar__primary-action" href="/projects" aria-current={page.url.pathname.startsWith('/projects') ? 'page' : undefined} onclick={onSelectThread}><span>Projects</span></a>
 				<a
 					class="sidebar__primary-action sidebar__primary-action--chat"
 					href="/"
@@ -810,6 +811,7 @@
 													{titleRetryBusyFor === c.id ? 'Retrying title' : 'Retry title'}
 												</button>
 											{/if}
+											<button type="button" role="menuitem" onclick={() => { menuFor = null; onSelectThread(); void goto(`/c/${c.id}/project`); }}>Move to project</button>
 											<button type="button" role="menuitem" onclick={() => startRename(c)}>
 												Rename
 											</button>
@@ -856,6 +858,7 @@
 		</aside>
 
 		<main class="pane {isThreadPage ? 'pane--thread' : 'pane--plain'}">
+			{#if navigating.to?.url.pathname.startsWith('/projects')}<p role="status" style="padding: 64px 24px 0">Loading project…</p>{/if}
 			{@render children()}
 		</main>
 	</div>
