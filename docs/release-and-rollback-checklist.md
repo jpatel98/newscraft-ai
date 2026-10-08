@@ -6,7 +6,8 @@ release, a deployment, a rollback, or live-system state.
 ## Scope
 
 The active product runtime is the NewsCraft SvelteKit app, NewsCraft durable
-state, and the isolated Hermes service. The browser calls NewsCraft. It does
+state, and the isolated NewsCraft-owned portable worker (under the compatible
+`services/hermes-chat` path). The browser calls NewsCraft. It does
 not call Hermes directly. The repository evidence for this boundary is in the
 [source of truth](../SOURCE_OF_TRUTH.md#L18-L22) and the [durable streaming
 release gates](durable-hermes-streaming.md#L71-L74).
@@ -92,7 +93,7 @@ tests, skipped tests, and the candidate hash.
 
    ```text
    corepack pnpm test
-   python -m unittest discover -s services/hermes-chat/tests -p 'test_*.py'
+   TMPDIR=/private/tmp PYTHONPATH=services/hermes-chat/src services/hermes-chat/.venv-owned/bin/python -m unittest discover -s services/hermes-chat/tests -p 'test_*.py'
    ```
 
    The first command runs the root Vitest suite, shared package tests, and the
@@ -130,7 +131,7 @@ tests, skipped tests, and the candidate hash.
      artifact identifier, deployed source hash, build-output manifest, and
      non-secret checksum.
    - **Hermes source or service artifact:** record the exact clean source
-     checkout hash or service-artifact identifier, pinned runtime commit, and
+     checkout hash or service-artifact identifier, locked dependency/runtime identity, and
      non-secret checksum.
 
    The repository has no generic `pack`, `release`, or `deploy` command. A
@@ -323,13 +324,13 @@ uses a remote deployment. They need separate authorization.
     Local check:
 
     ```text
-    corepack pnpm health:hermes
+    corepack pnpm health:runtime
     ```
 
     Authorized remote form:
 
     ```text
-    node scripts/check-health.mjs --url <authorized-https-hermes-ready-url> --expect hermes
+    node scripts/check-health.mjs --url <authorized-https-hermes-ready-url> --expect agent
     ```
 
     Record HTTP status, response time, service name, toolset, endpoint mode,
@@ -340,13 +341,13 @@ uses a remote deployment. They need separate authorization.
 15. **Service PID and unit**
 
     For the Contabo systemd unit, record the unit name from
-    [`newscraft-hermes-chat.service`](../services/hermes-chat/deploy/newscraft-hermes-chat.service#L1-L19),
+    [`newscraft-agent.service`](../services/hermes-chat/deploy/newscraft-agent.service#L1-L19),
     the active PID, active state, restart count, and the artifact or source
     hash used by that process. A separately authorized operator may use:
 
     ```text
-    systemctl is-active newscraft-hermes-chat.service
-    systemctl show newscraft-hermes-chat.service --property=MainPID --value
+    systemctl is-active newscraft-agent.service
+    systemctl show newscraft-agent.service --property=MainPID --value
     ```
 
     Do not paste the environment file or its values. The service unit uses a
@@ -363,15 +364,17 @@ uses a remote deployment. They need separate authorization.
     rollback. A missing deployment identifier or source-hash match is
     `BLOCKED`.
 
-17. **Hermes source and pinned runtime**
+17. **Owned worker source and locked runtime**
 
-    Record both values. `Hermes source hash` is the actual clean checkout hash
-    used by the candidate service. `Pinned runtime commit` is the expected
-    reviewed commit `5370d535ab926da41abe3ba4d9d975f1f94875d5`, enforced by the
-    [runtime installer](../services/hermes-chat/scripts/install-runtime.sh#L1-L5)
-    and its clean-checkout guard at
-    [`install-runtime.sh#L69-L85`](../services/hermes-chat/scripts/install-runtime.sh#L69-L85).
-    A mismatch, dirty checkout, or missing evidence is `BLOCKED`.
+    Record the exact clean NewsCraft source hash, the `pyproject.toml` and `uv.lock`
+    digests, CPython 3.11 identity and the built worker artifact. The selected
+    runner is `PortableAgentRunner`; no upstream Hermes commit is installed or
+    required. Validate `uv lock --check --offline --no-cache --no-python-downloads`
+    from `services/hermes-chat`. The installer uses locked dependencies and an
+    existing interpreter. For computer deployments, additionally record reviewed
+    OCI image digests, original daemon identity and browser seccomp hash; run the
+    synthetic Linux acceptance commands in [the executor runbook](../services/hermes-chat/deploy/executor.md).
+    A mismatch or absent required acceptance is `BLOCKED`.
 
 18. **Database migration boundary**
 
@@ -379,20 +382,21 @@ uses a remote deployment. They need separate authorization.
     baseline, the forward-compatibility decision, and the migration result
     identifier. The repository migration command reports `latest`, `applied`,
     and `baseline` in [`scripts/run-db-migrations.ts#L1-L23`](../scripts/run-db-migrations.ts#L1-L23).
-    The durable Hermes schema boundary is the
-    [`0015_durable_hermes_runs.sql` migration](../drizzle/0015_durable_hermes_runs.sql#L1-L54).
+    The owned durable schema boundary includes migrations through
+    [`0018_portable_agent_core.sql`](../drizzle/0018_portable_agent_core.sql).
     Running migrations changes database state and is outside this task. Do not
     mark this gate `PASS` without separately authorized database evidence.
 
-19. **Authorized live production smoke**
+19. **Authorized live acceptance**
 
-    If the release includes live production verification, use the repository's
-    separately authorized smoke path and record its exact output, including
-    `LIVE_PRODUCTION_MATRIX_PASS` or the failure output. The source file is
-    [`services/hermes-chat/tests/live_production_smoke.py#L417-L419`](../services/hermes-chat/tests/live_production_smoke.py#L417-L419)
-    and its terminal result is defined at
-    [`live_production_smoke.py#L742-L751`](../services/hermes-chat/tests/live_production_smoke.py#L742-L751).
-    Do not run this path without explicit live authorization.
+    Follow [the owned runtime acceptance contract](agent-live-validation-approval.md)
+    only after its database, provider-spending and host gates are authorized.
+    Historical `live_production_smoke.py` and the retired `live-validate-agent.py`
+    do not establish acceptance of the selected portable runtime. Record actual
+    account isolation, source/citation, immutable artifacts, replay, cancellation
+    and recovery observations. No paid call or production mutation is implied by
+    this checklist. The [2026-10-07 local matrix](agent-local-handoff.md) is local
+    engineering evidence and leaves release blocked.
 
 ## Reusable release record
 
@@ -419,7 +423,7 @@ Vercel rollback identifier:
 
 Hermes source hash:
 
-Pinned runtime commit:
+Locked dependency/runtime identity:
 
 Hermes artifact or runtime identifier:
 
@@ -452,7 +456,7 @@ Database migration boundary:
 | Readiness response |  |  |  |  |  |
 | Database migration boundary |  |  |  |  |  |
 | Vercel deployment identity |  |  |  |  |  |
-| Hermes source and pinned runtime |  |  |  |  |  |
+| Owned worker source and locked runtime |  |  |  |  |  |
 | Authorized live production smoke |  |  |  |  |  |
 
 ### Rollback record
@@ -467,7 +471,7 @@ Previous known-good NewsCraft hash:
 
 Previous known-good Hermes source hash:
 
-Previous known-good pinned runtime commit:
+Previous known-good locked dependency/runtime identity:
 
 Previous Vercel deployment or rollback identifier:
 
@@ -486,7 +490,7 @@ result:
 2. Preserve the candidate hashes, deployment identifiers, logs, screenshots,
    traces, test counts, and redacted readiness response.
 3. Select a known-good NewsCraft deployment and source hash. Select the paired
-   known-good Hermes source hash, pinned runtime commit, artifact, unit, and
+   known-good Hermes source hash, locked dependency/runtime identity, artifact, unit, and
    environment metadata. Do not copy secret values into this record.
 4. Roll back the Vercel deployment through the separately authorized release
    operator. Roll back the Hermes artifact and unit together. Record both

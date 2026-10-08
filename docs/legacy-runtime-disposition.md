@@ -1,5 +1,7 @@
 # Legacy runtime disposition
 
+**Current repository clarification — 2026-10-07:** the isolated service now selects NewsCraft-owned `PortableAgentRunner`, not the upstream Hermes runtime. Its protocol names remain compatible. See [SOURCE_OF_TRUTH](../SOURCE_OF_TRUTH.md). The original August decision and inventories below are **Historical**; their no-deletion/live-evidence gates remain applicable, but their Hermes-only runtime selection and deployment identifiers are not current claims.
+
 Status: JIG-179 decision record complete. Implementation and removal remain gated. No runtime, route, schema, deployment, provider, credential, database, or data change is made by this document.
 
 Repository: current isolated checkout
@@ -275,7 +277,7 @@ The migrations in [`drizzle/0005_missions.sql`](../drizzle/0005_missions.sql) co
 | [`services/newsroom-harness/tsconfig.json`](../services/newsroom-harness/tsconfig.json#L1) | Harness build configuration. | Quarantine, then remove | High static | Remove only with the package and build entrypoint. | Keep while any local harness build remains. |
 | [`services/newsroom-harness/HARNESS_REPOSITORY.md`](../services/newsroom-harness/HARNESS_REPOSITORY.md#L1) | Documents SQLite-first and optional Postgres mirror behavior. | Migrate documentation, then remove | Medium | Replace with the active Hermes durable-state contract. | Keep as historical reference until the replacement document is accepted. |
 | [`vercel.json`](../vercel.json#L1) | Root UI deployment headers. | Keep | High | Keep UI deployment checks separate from harness retirement. | Revert only if UI deployment behavior changes. |
-| [`services/hermes-chat/deploy/newscraft-hermes-chat.service`](../services/hermes-chat/deploy/newscraft-hermes-chat.service#L1), `.user.service`, and `Caddyfile.example` | Hermes service and reverse-proxy deployment references. | Keep | High | Run authorized Hermes readiness, service, isolation, and deployment checks. | Restore the prior Hermes unit and proxy configuration together. |
+| `services/hermes-chat/deploy/newscraft-hermes-chat.service` (historical; now [owned agent unit](../services/hermes-chat/deploy/newscraft-agent.service)), `.user.service`, and `Caddyfile.example` | Hermes service and reverse-proxy deployment references. | Keep | High | Run authorized Hermes readiness, service, isolation, and deployment checks. | Restore the prior Hermes unit and proxy configuration together. |
 | [`services/hermes-chat/tests/fixtures/Dockerfile.staging`](../services/hermes-chat/tests/fixtures/Dockerfile.staging#L1) | Hermes staging smoke fixture. | Keep as test-only | Medium | Keep staging isolation and durable callback tests. | Restore the previous fixture image definition if staging tests regress. |
 | [`ROADMAP.md`](../ROADMAP.md#L148) | Contains historical harness topology and a future Phase C cleanup plan. | Migrate documentation | Medium | Mark historical production statements and align the roadmap with this disposition. | Keep the original roadmap until an approved documentation update replaces it. |
 | [`docs/durable-hermes-streaming.md`](../docs/durable-hermes-streaming.md#L18) | Defines the active durable run ownership and replay contract. | Keep | High | Use as the active contract for producer and runtime migrations. | Revert only an approved contract revision. |
