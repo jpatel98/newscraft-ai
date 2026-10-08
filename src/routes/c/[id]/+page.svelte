@@ -1426,6 +1426,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		</div>
 		<div class="pane__header__topic">{topic}</div>
 	</div>
+	<a class="conversation-project-link" href={`/c/${data.conversation.id}/project`}>Move to project</a>
+	{#if data.project}<a class="conversation-project-link" href={`/projects/${data.project.id}`}>{data.project.name}</a>{/if}
 </header>
 
 <div class="conversation-workspace">
@@ -1570,6 +1572,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 </div>
 
 <style>
+	.conversation-project-link { font-size: 13px; padding: 8px; overflow-wrap: anywhere; }
 	.conversation-workspace {
 		flex: 1;
 		min-height: 0;

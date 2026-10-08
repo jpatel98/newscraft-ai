@@ -39,6 +39,7 @@
 		disabled?: boolean;
 		placeholder?: string;
 		draftKey?: string | null;
+		projectId?: string | null;
 		documentsEnabled?: boolean;
 		documentAttachments?: ComposerDocumentAttachment[];
 		onDocumentUpload?: (
@@ -52,6 +53,7 @@
 		disabled = false,
 		placeholder = 'Message NewsCraft',
 		draftKey = 'new',
+		projectId = null,
 		documentsEnabled = false,
 		documentAttachments = $bindable([]),
 		onDocumentUpload,
@@ -468,11 +470,12 @@
 			return;
 		}
 		busy = true;
+		const submittedDraftKey = draftStorageKey;
 		try {
 			const r = await fetch('/api/conversations', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: '{}'
+				body: JSON.stringify({ projectId })
 			});
 			if (!r.ok) throw new Error('create conversation failed');
 			const { id } = (await r.json()) as { id: string };
@@ -491,6 +494,8 @@
 				value = '';
 				attachments = [];
 			}
+			// Navigation unmounts the project composer before its draft effect can run.
+			if (projectId) writeComposerDraft(draftStorage(), submittedDraftKey, '');
 		} catch {
 			attachError = CREATE_FAILURE_MESSAGE;
 			queueMicrotask(() => {
