@@ -10,6 +10,10 @@ class ConcurrentMigrationFakeClient implements MigrationClient {
 	private versions = new Set<string>();
 	private advisoryTail = Promise.resolve();
 
+	constructor(initialVersions: readonly string[] = [], private readonly ledgerExists = true) {
+		this.versions = new Set(initialVersions);
+	}
+
 	async unsafe<T = unknown>(query: string, values?: unknown[]): Promise<T> {
 		const transaction = new MigrationTransaction(this);
 		try {
@@ -43,6 +47,7 @@ class ConcurrentMigrationFakeClient implements MigrationClient {
 		if (query.includes('SELECT version FROM')) {
 			return [...this.versions].map((version) => ({ version })) as T;
 		}
+		if (query.includes('to_regclass')) return [{ present: this.ledgerExists }] as T;
 		if (query.includes('information_schema.tables') || query.includes('information_schema.columns')) {
 			return [] as T;
 		}
@@ -104,11 +109,11 @@ describe('explicit Postgres migration runner', () => {
 		expect(results.every((result) => result.latest === MIGRATION_VERSIONS.at(-1))).toBe(true);
 });
 
-	it('retains artifact browser-role revocations without requiring Supabase roles on ordinary Postgres', async () => {
+	it('retains artifact and project browser-role revocations without requiring Supabase roles on ordinary Postgres', async () => {
 		const client = new ConcurrentMigrationFakeClient();
 		await runMigrations(client);
 		const guarded = client.queries.filter(query => query.startsWith('DO $newscraft_roles$'));
-		expect(guarded).toHaveLength(6);
+		expect(guarded).toHaveLength(8);
 		for (const query of guarded) {
 			expect(query).toContain("WHERE rolname = 'anon'");
 			expect(query).toContain("WHERE rolname = 'authenticated'");
@@ -116,6 +121,73 @@ describe('explicit Postgres migration runner', () => {
 			expect(query).toMatch(/REVOKE ALL PRIVILEGES ON TABLE \w+ FROM authenticated;/);
 		}
 		expect(client.queries.some(query => query.includes('artifact_families ENABLE ROW LEVEL SECURITY'))).toBe(true);
+		expect(client.queries.some(query => query.includes('projects ENABLE ROW LEVEL SECURITY'))).toBe(true);
+		expect(client.queries.some(query => query.includes('project_conversations ENABLE ROW LEVEL SECURITY'))).toBe(true);
+		expect(client.queries.some(query => /^REVOKE .* FROM anon, authenticated;$/m.test(query))).toBe(false);
+	});
+
+	it('applies only the explicitly expected topic migration from the 19-version merged ledger', async () => {
+		const initialVersions = MIGRATION_VERSIONS.filter(version => version !== '0017_topic_projects');
+		expect(initialVersions).toHaveLength(19);
+		const client = new ConcurrentMigrationFakeClient(initialVersions);
+		const result = await runMigrations(client, { expectedPending: ['0017_topic_projects'] });
+
+		expect(result).toEqual({ applied: ['0017_topic_projects'], baseline: false, latest: '0018_portable_agent_core' });
+		expect(client.queries[0]).toContain('pg_advisory_xact_lock');
+		expect(client.queries[1]).toContain('to_regclass');
+		expect(client.queries[2]).toContain('SELECT version FROM');
+		expect(client.queries.some(query => query.startsWith('CREATE TABLE projects ('))).toBe(true);
+		expect(client.queries.filter(query => query.startsWith('DO $newscraft_roles$'))).toHaveLength(2);
+		expect(client.queries.filter(query => query.includes(`INSERT INTO ${MIGRATION_TABLE}`))).toHaveLength(1);
+		await expect(runMigrations(client, { expectedPending: [] })).resolves.toEqual({
+			applied: [], baseline: false, latest: '0018_portable_agent_core'
+		});
+	});
+
+	it('refuses an additional missing migration before any DDL or baseline query', async () => {
+		const client = new ConcurrentMigrationFakeClient(MIGRATION_VERSIONS.filter(
+			version => version !== '0017_topic_projects' && version !== '0018_portable_agent_core'
+		));
+		await expect(runMigrations(client, { expectedPending: ['0017_topic_projects'] }))
+			.rejects.toThrow('pending versions do not match expectedPending');
+		expect(client.queries).toHaveLength(3);
+		expect(client.queries.every(query => query.startsWith('SELECT '))).toBe(true);
+	});
+
+	it('refuses initialization when only one migration was authorized, without creating a ledger', async () => {
+		const client = new ConcurrentMigrationFakeClient([], false);
+		await expect(runMigrations(client, { expectedPending: ['0017_topic_projects'] }))
+			.rejects.toThrow('pending versions do not match expectedPending');
+		expect(client.queries).toHaveLength(2);
+		expect(client.queries.every(query => query.startsWith('SELECT '))).toBe(true);
+	});
+
+	it.each([
+		['0017_topic_projects', '0017_topic_projects'],
+		['unrecognized_migration']
+	])('refuses duplicate or unknown expected versions: %s', async (...expectedPending) => {
+		const client = new ConcurrentMigrationFakeClient(MIGRATION_VERSIONS);
+		await expect(runMigrations(client, { expectedPending }))
+			.rejects.toThrow('expectedPending must contain unique known migration versions');
+		expect(client.queries).toHaveLength(1);
+	});
+
+	it('refuses an unknown recorded version even when the expected pending set otherwise matches', async () => {
+		const client = new ConcurrentMigrationFakeClient([...MIGRATION_VERSIONS, 'unrecognized_migration']);
+		await expect(runMigrations(client, { expectedPending: [] }))
+			.rejects.toThrow('ledger contains unknown migration versions');
+		expect(client.queries.every(query => query.startsWith('SELECT '))).toBe(true);
+	});
+
+	it('rechecks the expected pending set after acquiring the advisory lock', async () => {
+		const client = new ConcurrentMigrationFakeClient(MIGRATION_VERSIONS.filter(version => version !== '0017_topic_projects'));
+		const results = await Promise.allSettled([
+			runMigrations(client, { expectedPending: ['0017_topic_projects'] }),
+			runMigrations(client, { expectedPending: ['0017_topic_projects'] })
+		]);
+		expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+		expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+		expect(client.queries.filter(query => query.startsWith('CREATE TABLE projects ('))).toHaveLength(1);
 	});
 });
 

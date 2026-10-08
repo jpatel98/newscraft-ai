@@ -22,6 +22,13 @@ export interface MigrationRunResult {
 const MIGRATION_FILES = MIGRATION_VERSIONS.map((version) => `${version}.sql`);
 const MIGRATION_DIRECTORY = fileURLToPath(new URL('../../../../drizzle/', import.meta.url));
 const BREAKPOINT = /^\s*--> statement-breakpoint\s*$/m;
+const CONDITIONAL_ROLE_REVOKES: Readonly<Record<string, readonly string[]>> = {
+	'0016_conversation_artifacts.sql': [
+		'artifact_families', 'artifact_revisions', 'artifact_assets',
+		'artifact_upload_grants', 'artifact_verifications', 'hermes_run_artifact_refs'
+	],
+	'0017_topic_projects.sql': ['projects', 'project_conversations']
+};
 
 export function splitMigrationStatements(sql: string): string[] {
 	return sql
@@ -35,9 +42,8 @@ async function migrationStatements(fileName: string): Promise<string[]> {
 	return splitMigrationStatements(contents).map((statement) => {
 		// Preserve the historical migration bytes and all revocations on hosts
 		// that have Supabase roles. Ordinary Postgres has no such roles to revoke.
-		if (fileName !== '0016_conversation_artifacts.sql') return statement;
-		const revoke = /^REVOKE ALL PRIVILEGES ON TABLE (artifact_families|artifact_revisions|artifact_assets|artifact_upload_grants|artifact_verifications|hermes_run_artifact_refs) FROM anon, authenticated;$/.exec(statement);
-		if (!revoke) return statement;
+		const revoke = /^REVOKE ALL PRIVILEGES ON TABLE (\w+) FROM anon, authenticated;$/.exec(statement);
+		if (!revoke || !CONDITIONAL_ROLE_REVOKES[fileName]?.includes(revoke[1])) return statement;
 		return `DO $newscraft_roles$ BEGIN
 			IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
 				REVOKE ALL PRIVILEGES ON TABLE ${revoke[1]} FROM anon;
@@ -115,10 +121,35 @@ async function markLegacySchemaBaseline(transaction: MigrationClient): Promise<b
  */
 export async function runMigrations(
 	client: MigrationClient,
-	options: { appPasswordHash?: string } = {}
+	options: { appPasswordHash?: string; expectedPending?: readonly string[] } = {}
 ): Promise<MigrationRunResult> {
+	// Snapshot the caller's authorization before awaiting the transaction lock.
+	const expectedPending = options.expectedPending === undefined ? undefined : [...options.expectedPending];
 	return client.begin(async (transaction) => {
 		await transaction.unsafe("SELECT pg_advisory_xact_lock(hashtext('newscraft-ai:schema'))");
+		let rows: Array<{ version: string }> | undefined;
+		if (expectedPending !== undefined) {
+			const knownVersions = new Set<string>(MIGRATION_VERSIONS);
+			if (new Set(expectedPending).size !== expectedPending.length || expectedPending.some((version) => !knownVersions.has(version))) {
+				throw new Error('Refusing migrations: expectedPending must contain unique known migration versions.');
+			}
+			// Check the ledger without creating it: a scope mismatch must not run any DDL
+			// or attempt legacy baselining, even on an uninitialized database.
+			const [ledger] = await transaction.unsafe<Array<{ present: boolean }>>(
+				`SELECT to_regclass('public.${MIGRATION_TABLE}') IS NOT NULL AS present`
+			);
+			rows = ledger?.present ? await transaction.unsafe<Array<{ version: string }>>(
+				`SELECT version FROM ${MIGRATION_TABLE} ORDER BY version`
+			) : [];
+			if (rows.some(({ version }) => !knownVersions.has(version))) {
+				throw new Error('Refusing migrations: the ledger contains unknown migration versions.');
+			}
+			const recorded = new Set(rows.map(({ version }) => version));
+			const pending = MIGRATION_VERSIONS.filter((version) => !recorded.has(version));
+			if (pending.length !== expectedPending.length || pending.some((version) => !expectedPending.includes(version))) {
+				throw new Error(`Refusing migrations: pending versions do not match expectedPending. Pending: ${pending.join(', ') || '(none)'}.`);
+			}
+		}
 		await transaction.unsafe(
 			`CREATE TABLE IF NOT EXISTS ${MIGRATION_TABLE} (
 				version text PRIMARY KEY,
@@ -126,7 +157,7 @@ export async function runMigrations(
 			)`
 		);
 
-		const rows = await transaction.unsafe<Array<{ version: string }>>(
+		rows ??= await transaction.unsafe<Array<{ version: string }>>(
 			`SELECT version FROM ${MIGRATION_TABLE} ORDER BY version`
 		);
 		const applied = new Set(rows.map((row) => row.version));

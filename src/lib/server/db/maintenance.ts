@@ -1,21 +1,11 @@
 import { env } from '$env/dynamic/private';
 import { sql } from '$lib/server/db';
-import { EXPECTED_MIGRATION_COUNT, MIGRATION_TABLE, MIGRATION_VERSIONS } from './migration-contract';
+import { getMigrationStatus, missingMigrationStatus, type MigrationStatus } from './migration-status';
 
 interface CheckResult {
 	ok: boolean;
 	result?: string;
 	messages?: string[];
-	error?: string;
-}
-
-interface MigrationStatus {
-	ok: boolean;
-	table: string;
-	tableExists: boolean;
-	appliedCount?: number;
-	latest?: string;
-	expectedCount: number;
 	error?: string;
 }
 
@@ -41,7 +31,7 @@ function configuredDbPath(): string {
 
 export async function getMaintenanceStatus(): Promise<MaintenanceStatus> {
 	const check = await postgresCheck();
-	const migrations = check.ok ? await migrationStatus() : missingMigrationStatus('Postgres check failed');
+	const migrations = check.ok ? await getMigrationStatus(sql) : missingMigrationStatus('Postgres check failed');
 	return {
 		ok: check.ok && migrations.ok,
 		generatedAt: new Date().toISOString(),
@@ -56,42 +46,6 @@ export async function getMaintenanceStatus(): Promise<MaintenanceStatus> {
 			migrations
 		},
 		build: buildMetadata()
-	};
-}
-
-async function migrationStatus(): Promise<MigrationStatus> {
-	try {
-		const [table] = await sql.unsafe<Array<{ name: string | null }>>(
-			`SELECT to_regclass('public.${MIGRATION_TABLE}')::text AS name`
-		);
-		if (!table?.name) return missingMigrationStatus('Migration table is not initialized');
-		const [row] = await sql.unsafe<Array<{ applied_count: number; latest: string | null }>>(
-			`SELECT count(*)::int AS applied_count, max(version) AS latest FROM "${MIGRATION_TABLE}"`
-		);
-		const appliedCount = Number(row?.applied_count ?? 0);
-		return {
-			ok: appliedCount >= EXPECTED_MIGRATION_COUNT,
-			table: MIGRATION_TABLE,
-			tableExists: true,
-			appliedCount,
-			latest: row?.latest ?? undefined,
-			expectedCount: EXPECTED_MIGRATION_COUNT,
-			...(appliedCount >= EXPECTED_MIGRATION_COUNT ? {} : { error: 'Schema migrations are incomplete' })
-		};
-	} catch {
-		return missingMigrationStatus('Migration status query failed');
-	}
-}
-
-function missingMigrationStatus(error: string): MigrationStatus {
-	return {
-		ok: false,
-		table: MIGRATION_TABLE,
-		tableExists: false,
-		appliedCount: 0,
-		latest: MIGRATION_VERSIONS[0],
-		expectedCount: EXPECTED_MIGRATION_COUNT,
-		error
 	};
 }
 

@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import { splitMigrationStatements } from './migration-runner';
+import { EXPECTED_MIGRATION_COUNT, MIGRATION_TABLE, MIGRATION_VERSIONS } from './migration-contract';
+import { runMigrations, type MigrationClient } from './migration-runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql, ensureMigrated } from './index';
 import { createConversation, addMessage, getMessages } from './conversations';
@@ -54,11 +54,27 @@ describe.skipIf(!url)('account-owned topic projects', () => {
    await tx`INSERT INTO accounts VALUES ('existing')`;
    await tx`INSERT INTO conversations VALUES ('chat', 'existing', 'Keep this')`;
    await tx`INSERT INTO messages VALUES ('answer', 'chat', 'Keep sources and content')`;
-   const migration = await readFile(new URL('../../../../drizzle/0017_topic_projects.sql', import.meta.url), 'utf8');
-   for (const statement of splitMigrationStatements(migration)) await tx.unsafe(statement);
+   await tx.unsafe(`CREATE TABLE ${MIGRATION_TABLE} (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
+   for (const version of MIGRATION_VERSIONS.filter(version => version !== '0017_topic_projects')) {
+    await tx.unsafe(`INSERT INTO ${MIGRATION_TABLE} (version) VALUES ($1)`, [version]);
+   }
+   // The real runner must execute inside this schema's existing transaction,
+   // including its Supabase-role adaptation and guarded pending-version check.
+   const client: MigrationClient = {
+    unsafe: tx.unsafe as unknown as MigrationClient['unsafe'],
+    begin: callback => callback(client)
+   };
+   const result = await runMigrations(client, { expectedPending: ['0017_topic_projects'] });
+   expect(result.applied).toEqual(['0017_topic_projects']);
+   expect(result.baseline).toBe(false);
+   expect(await tx.unsafe(`SELECT count(*)::int AS count FROM ${MIGRATION_TABLE}`))
+    .toEqual([{ count: EXPECTED_MIGRATION_COUNT }]);
    expect(await tx`SELECT * FROM conversations`).toEqual([{ id: 'chat', account_id: 'existing', title: 'Keep this' }]);
    expect(await tx`SELECT * FROM messages`).toEqual([{ id: 'answer', conversation_id: 'chat', content: 'Keep sources and content' }]);
    expect(await tx`SELECT * FROM project_conversations`).toEqual([]);
+   expect(await tx`SELECT relname, relrowsecurity FROM pg_class JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+    WHERE nspname = ${schema} AND relname IN ('projects', 'project_conversations') ORDER BY relname`)
+    .toEqual([{ relname: 'project_conversations', relrowsecurity: true }, { relname: 'projects', relrowsecurity: true }]);
    await tx.unsafe(`DROP SCHEMA ${schema} CASCADE`);
   });
  });
