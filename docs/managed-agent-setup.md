@@ -1,13 +1,13 @@
 # Provider-neutral NewsCraft setup
 
-The filename is retained for existing links; the managed Agents design is superseded. NewsCraft owns orchestration and durable state. The authorized new database is initialized. The 2026-10-07 local follow-up verified TLS connectivity, both loopback health endpoints, signup/sign-in, and an empty saved conversation, then stopped both services. DeepSeek support below is fixture-verified; its key and separately approved paid acceptance remain pending. No paid API call or public deployment was performed.
+The filename is retained for existing links; the managed Agents design is superseded. NewsCraft owns orchestration and durable state. The owned runtime and DeepSeek support are merged on main (`4df5b3e`). On 2026-10-08 the dedicated key check passed, the guarded runner applied only the newly merged topic migration, and the new database reached its complete 20-version contract. Both loopback health endpoints, signup/fresh sign-in and an empty conversation passed, then both listeners stopped. DeepSeek provider access remains unverified and paid acceptance needs separate approval. No paid API call or public deployment was performed.
 
 For this checkout, the [local setup handoff](agent-local-handoff.md) has a prepared fresh Python environment, guarded local profile, executable commands and the exact remaining approvals. Its checker never falls back to the old database.
 
 ## Core setup
 
 1. For this checkout, use the already initialized Supabase project `newscraft-agent` (`ygsiifvjzdazfxflmpjq`, Free, Ohio). Jigar saved its server-only `DATABASE_URL`; the local handoff records the verified public CA configuration required with `sslmode=verify-full`. Supabase is optional for the product. Do not target, restore, delete or migrate data from the inactive old project.
-2. **Initialization is complete; do not rerun it.** The prior initialization handoff reports applying the exact [combined initial-schema artifact](../services/hermes-chat/deploy/newscraft-new-project-schema.sql) and verified all 19 migration records, 33 RLS-enabled tables and no browser/public table grants. Its immutable SHA and evidence are recorded in the local handoff. Future separately reviewed schema updates can use `pnpm db:migrate`; that generic runner is **not an empty-project verifier** and does not install Supabase role protections. The schema includes `0017_managed_agent_sessions` (unused historical table) and `0018_portable_agent_core` (run checkpoints and issuer-scoped identity mapping). There is no `db:bootstrap:supabase` command. Migrations do not run on app startup. The workspace lacks the Supabase CLI; core SQL follows the existing explicit Drizzle sequence.
+2. **Initialization is complete; do not rerun it.** The prior initialization handoff reports applying the exact [combined initial-schema artifact](../services/hermes-chat/deploy/newscraft-new-project-schema.sql) and verified all 19 migration records, 33 RLS-enabled tables and no browser/public table grants. Its immutable SHA and evidence are recorded in the local handoff. On 2026-10-08 the guarded runner added only `0017_topic_projects`, reaching 20/20 exact ledger versions and 35 RLS-enabled tables; both new tables have no public/browser grants. The narrow command and verified TLS configuration are in the [handoff Status](agent-local-handoff.md#status-as-of-2026-10-08). Future separately reviewed schema updates can use `pnpm db:migrate`; that generic runner is **not an empty-project verifier** and does not install the initial database-wide Supabase protections. The schema includes `0017_managed_agent_sessions` (unused historical table) and `0018_portable_agent_core` (run checkpoints and issuer-scoped identity mapping). There is no `db:bootstrap:supabase` command. Migrations do not run on app startup. The workspace lacks the Supabase CLI; core SQL follows the existing explicit Drizzle sequence.
 3. Leave `NEWSCRAFT_AUTH_PROVIDER=postgres` for concrete local account/password/session auth. Supply the existing app session signing secret through approved configuration (`APP_SESSION_SECRET`, at least 32 decoded base64 bytes). Signup always creates a member and private per-user organization; it never grants first-user admin or claims legacy data. Local signup does not verify ownership of an email inbox. Signed cookies are checked against revocable DB sessions. Account roles come from the database.
 4. Configure the existing private object service with `NEWSCRAFT_STORAGE_PROVIDER=vps`, `NEWSCRAFT_STORAGE_BASE_URL`, `NEWSCRAFT_STORAGE_API_KEY` and the document/artifact buckets. The adapter uses private scoped grants and immutable objects. The existing service must actually be available; this change does not deploy it. Artifact-only development storage can explicitly use `local` with `NEWSCRAFT_ARTIFACT_LOCAL_STORAGE=1` in development; it does not implement PDF storage or a production object service.
 5. Match app/worker listener and callback tokens, set the private `/api/internal/hermes/runs` callback URL, and preserve the tenant HMAC secret. Configure separate private worker state/staging roots. Do not put provider keys or storage secrets into browser configuration.
@@ -53,17 +53,13 @@ reviewed configuration before use; these dated floors cannot track future price
 changes automatically. Cache reports or missing responses never refund an
 admitted reservation.
 
-Jigar must privately add exactly one entry to
-`services/newsroom-harness/.env.local`, replacing the placeholder with the real
-key; do not paste the key into chat or a shell command:
-
-```dotenv
-DEEPSEEK_API_KEY=<YOUR_REAL_DEEPSEEK_API_KEY>
-```
+Jigar has privately saved the dedicated `DEEPSEEK_API_KEY` in
+`services/newsroom-harness/.env.local`. The passive DeepSeek checker exits **0**
+with every row OK as measured on **2026-10-08**. Preserve that private entry;
+do not paste or copy it into chat, commands, reports or memory.
 
 That existing file is only a private credential reference for the owned worker;
-this does not select or start the historical newsroom harness. No DeepSeek key
-exists yet and none was invented. Existing private profiles are preserved. The
+this does not select or start the historical newsroom harness. Existing private profiles are preserved. The
 explicit helper option applies the following reviewed DeepSeek settings in
 memory: provider `deepseek`, model `deepseek-flash`, Messages base URL above,
 input/output ceilings **$0.30/$1.20 per million**, public search, **8** model
@@ -89,12 +85,18 @@ storage; artifact delivery still needs live validation.
 
 Exact separate approval sentence:
 
-> I approve one public/synthetic DeepSeek acceptance run using deepseek-flash through the Messages API with thinking disabled and public search only, capped at 8 model requests, 120,000 cumulative reserved input tokens, 2,048 output tokens per request, 180 seconds, and a $0.06 application reservation budget at peak ceilings of $0.30/M input and $1.20/M output; no automatic retries or repeat run.
+> I approve one synthetic DeepSeek acceptance run using deepseek-flash through the Messages API with thinking disabled, synthetic research, local checkpoints and local files only, capped at 8 model requests, 120,000 cumulative reserved input tokens, 2,048 output tokens per request, 180 seconds, and a $0.06 application reservation budget at peak ceilings of $0.30/M input and $1.20/M output; no automatic retries or repeat run.
 
-This proposed approval does not authorize deployment, a Linux host change, or
-access to prohibited services. If artifact acceptance requires additional
-infrastructure permission, resolve that gate separately before starting the paid
-run; see [live acceptance boundaries](agent-live-validation-approval.md).
+After that separate approval, run once:
+`node scripts/agent-deepseek-acceptance.mjs --execute --approved-usd 0.06`.
+The passive `--check` command and complete pre-run checklist are in the
+[handoff Status](agent-local-handoff.md#status-as-of-2026-10-08).
+This standalone acceptance uses real DeepSeek inference with synthetic research
+and local checkpoint/artifact validation. It has no app/database/storage/browser
+or public retrieval access. The one-shot directory prevents automatic repeats,
+including after failure. This scope keeps the prohibited storage host untouched;
+full app artifact delivery still needs separately authorized infrastructure.
+See [live acceptance boundaries](agent-live-validation-approval.md).
 
 ## Optional Supabase adapters
 
@@ -110,10 +112,10 @@ For Supabase Auth, configure the site URL and exact allowed `https://<app>/auth/
 
 The active runtime has a concrete [rootless OCI terminal/filesystem and interactive browser adapter](../services/hermes-chat/deploy/executor.md). Its scoped snapshots/private browser storage, operation receipts, admission, cancellation, crash recovery and actual-limit guard have deterministic coverage. Browser → verified citation → Markdown/CSV → replay is covered through all three model adapters. A pre-provisioned authorized Linux host and live executor/browser acceptance are still required; this Mac is not that host. Browser activation additionally needs an immutable reviewed image and approval of a hash-pinned deny-by-default Chromium user-namespace seccomp profile. No host/policy change has been made. The historical Docker broker is not selected. Research and validated Markdown/CSV rendering do not require an executor.
 
-`node scripts/test-agent-postgres-fixture.mjs` passed 54 real integration checks on a disposable loopback Postgres 16.15 instance, including local signup/session revocation, two-account separation, private checkpoint CAS/lease/cancellation and artifacts. All 19 migrations produced 33 tables. This exposed and fixed the historical artifact migration's assumption that Supabase browser roles exist: the explicit runner now conditionally revokes those roles when present, without modifying historical SQL or the already applied new-project artifact. The fixture was stopped and removed. It does not configure or verify Supabase, production object storage or a provider account.
+On 2026-10-08, `node scripts/test-agent-postgres-fixture.mjs` passed **64** real integration checks on a disposable loopback Postgres 16.15 instance, including local signup/session revocation, two-account separation, private checkpoint CAS/lease/cancellation and artifacts. All **20** migrations produced **35** tables. The topic upgrade also preserved populated conversations/messages. The artifact and topic migrations had assumed Supabase browser roles exist: the explicit runner now conditionally revokes those roles when present, without modifying historical SQL or the already applied new-project artifact. The fixture was stopped and removed. It does not configure or verify Supabase, production object storage or a provider account.
 
-Local startup is authorized after the passive checker passes; public deployment is prohibited. The local follow-up verified database connectivity, both health endpoints, real local signup/sign-in and an empty saved conversation. It left the disposable records intact and stopped both listeners. Schema and public-table restrictions were not re-audited in that follow-up. Outstanding live checks include two-user row/settings/object isolation, optional Supabase auth, source fetching, provider access, artifact grants/checksums/download and worker recovery. DeepSeek additionally needs its real key. The [public/synthetic live acceptance](agent-live-validation-approval.md) needs separate paid-model approval before inference; no such run has occurred.
+Local startup is authorized after the passive checker passes; public deployment is prohibited. The local follow-up verified database connectivity, both health endpoints, real local signup/sign-in and an empty saved conversation. It left the disposable records intact and stopped both listeners. The October 8 follow-up also verified the exact migration contract, table RLS counts and the two new tables' revoked browser/public grants. Outstanding live checks include two-user row/settings/object isolation, optional Supabase auth, source fetching, provider access, artifact grants/checksums/download and worker recovery. The DeepSeek key configuration gate is resolved. The [public/synthetic live acceptance](agent-live-validation-approval.md) needs separate paid-model approval before inference; no such run has occurred.
 
 ## Current local verification
 
-Use the [current handoff Status](agent-local-handoff.md#status-as-of-2026-10-07) for fresh DeepSeek test counts and the earlier measured matrices. Prior implementation logs are historical. No provider/production result is inferred from fixtures.
+Use the [current handoff Status](agent-local-handoff.md#status-as-of-2026-10-08) for fresh DeepSeek test counts and the earlier measured matrices. Prior implementation logs are historical. No provider/production result is inferred from fixtures.

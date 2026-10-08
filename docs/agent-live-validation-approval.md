@@ -1,18 +1,32 @@
 # Owned runtime live acceptance — not run
 
-## DeepSeek update — 2026-10-07
+## DeepSeek update — 2026-10-08
 
-The newly requested provider route is the fixture-verified DeepSeek Messages
-adapter. Its real key and separate paid approval are still missing. Use the
+The DeepSeek Messages adapter and owned runtime are merged on main (`4df5b3e`).
+The dedicated key check passes; paid approval is still pending. Use the
 [current DeepSeek setup and $0.06 approval text](managed-agent-setup.md#deepseek-setup-and-proposed-acceptance)
-and [local handoff Status](agent-local-handoff.md#status-as-of-2026-10-07).
+and [local handoff Status](agent-local-handoff.md#status-as-of-2026-10-08).
 Earlier OpenAI pricing/approval proposals below are historical alternatives,
 not approval to spend. All infrastructure, storage, deployment and host boundaries
-remain in force; no paid provider call was made during implementation.
+remain in force; no paid provider call has been made during this validation.
+
+Prepared command after the exact approval in the handoff:
+
+```sh
+node scripts/agent-deepseek-acceptance.mjs --execute --approved-usd 0.06
+```
+
+Run `--check` first with Node 24. The command is a one-shot real DeepSeek/owned-loop
+acceptance with synthetic research, local checkpoints and local Markdown/CSV
+validation. It contacts only DeepSeek, and blocks a repeat even after failure.
+It does not start the app, access Postgres or remote storage, or use a browser,
+executor or public retrieval. This scope preserves the Contabo/Hydra prohibition.
+It is not the full application acceptance matrix below. That matrix still needs
+separate authorization and suitable artifact infrastructure.
 
 The active architecture uses direct interchangeable model adapters and NewsCraft-owned orchestration. Managed Agents and the previous Docker broker validation are superseded. The old `scripts/live-validate-agent.py` CLI is retired and exits before credentials or execution.
 
-Existing OpenAI credential reuse is approved. The authorized new database `ygsiifvjzdazfxflmpjq` was initialized previously; do not rerun initialization. The 2026-10-07 follow-up verified local health, signup/sign-in and an empty conversation with full TLS verification, then stopped both listeners. The DeepSeek checker now reports only the missing dedicated key. Public deployment and paid calls remain prohibited without their separate authorization. Use [the setup guide](managed-agent-setup.md), this disposable project and public/synthetic content. Review current model prices, reservation ceilings, optional search charges and the run's allowance before approving it. App reservations are not provider billing guarantees.
+Existing OpenAI credential reuse is approved. The authorized new database `ygsiifvjzdazfxflmpjq` was initialized previously; do not rerun initialization. On 2026-10-08 only `0017_topic_projects` was added through the guarded runner: ledger20, schema complete, 35 RLS-enabled public tables and no public/browser grants on the two new tables. The DeepSeek profile passed both local health checks and signup/fresh sign-in/empty-conversation validation with zero chat requests. Private readiness reports `accessVerified: false`. Both listeners stopped and their ports were free. Public deployment and paid calls remain prohibited without their separate authorization. Use [the setup guide](managed-agent-setup.md) and review current model prices and reservations before approving the scoped command. App reservations are not provider billing guarantees.
 
 Acceptance after separate authorization:
 
@@ -28,4 +42,4 @@ Record redacted provider request IDs, local budget reservations, public saved ev
 
 The rootless OCI terminal/filesystem and interactive browser adapters have deterministic coverage, including a browser → cited answer → Markdown/CSV flow and lost-acknowledgement recovery. Separate synthetic Linux acceptance commands are ready; see [executor/browser acceptance](../services/hermes-chat/deploy/executor.md). They need an authorized suitable Linux host, reviewed immutable images and approval of an existing hash-pinned deny-by-default Chromium seccomp profile with user-namespace allowances. No Docker/Colima/cloud sandbox service was started, image built, policy installed or host provisioned here. Browser resources are bounded at 1 CPU/1 GiB/128 PIDs per active run, in addition to the terminal's 1 CPU/256 MiB. Host cost is not established; no spend was approved. Separately, 53 application database checks passed on a disposable local Postgres fixture, which was stopped and removed; these do not establish Supabase connectivity.
 
-The current offline evidence is [the 2026-10-07 handoff Status](agent-local-handoff.md#status-as-of-2026-10-07). Earlier counts in this acceptance proposal are historical; none substitutes for the remaining live steps above.
+The current evidence is [the 2026-10-08 handoff Status](agent-local-handoff.md#status-as-of-2026-10-08). Earlier counts in this acceptance proposal are historical; none substitutes for the remaining live steps above.

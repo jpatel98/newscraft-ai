@@ -1,4 +1,100 @@
-# Status as of 2026-10-07
+# Status as of 2026-10-08
+
+**Working locally:** owned orchestration and DeepSeek support are merged on
+`main` via PR #7, merge `4df5b3e`. Jigar saved the dedicated key privately;
+`node scripts/agent-local.mjs check --provider deepseek` exits **0**, every row
+OK. No key or connection string was displayed, copied into commands, or committed.
+
+Measured with Node **24.21.0**, pnpm **9.15.9**, and locked CPython **3.11**:
+
+| Check | Measured result |
+| --- | --- |
+| Authorized new database | Guarded repo runner applied **only `0017_topic_projects`**, with no baseline/initialization. Exact migration contract **20/20**, schema status `ok: true`. |
+| Table protections | **35/35** public tables have RLS enabled. Both new project tables have no PUBLIC/`anon`/`authenticated` table grants. Older grants were not re-audited. |
+| UI `/api/health` and worker `/ready` | Both HTTP **200**, `ok: true`, `state: ready`. Private worker readiness: provider `deepseek`, model `deepseek-flash`, `apiMode: messages`, owned orchestration, **`accessVerified: false`**. |
+| Signup / fresh sign-in | Passed through loopback forms in isolated headless Chrome. |
+| Empty conversation | Create/list/reopen passed; creation and history HTTP **200**, **0 messages / 0 chat requests**. |
+| Shutdown | Launcher exited **0** after SIGINT. Exclusive bind/close confirmed ports **3001/8000 free**. |
+| `pnpm check` | **0 errors / 0 warnings**. |
+| Setup / launcher fixtures | **28 / 7 passed**. |
+| `pnpm test` | App **708 passed / 54 DB-gated skips**, shared **7 passed**, historical harness **343 passed / 2 opt-in live skips**. |
+| Disposable Postgres fixture | **64 tests / 9 files passed**, **20 migrations / 35 tables**; its own fixture stopped and removed. |
+| Full owned Python suite | **588 passed**, including **18** standalone acceptance fixtures and the real localhost HTTP test. Run with `TMPDIR=/private/tmp` on this Mac; the default symlinked temp path is intentionally rejected by isolation. |
+| Standalone acceptance `--check` | Exit **0**, credential reference exists, one-shot scope unused, **0 network requests**. This check reads only path metadata; the separate setup checker validates key shape. |
+
+Retained disposable account: `local-smoke-20261008-fa6dc0de@example.invalid`;
+conversation: `0muzpp56m7fdbf9777a33c814`. Password and cookies were not saved.
+No database records were deleted. Browser requests to chat, optional storage
+capability probes and external origins were blocked during this smoke check.
+
+Local migration commit: `770b2e3` (`Guard the local topic migration and verify the exact schema contract`).
+
+**Changed:** added an exact pending-migration guard under the runner's advisory
+lock, portable role revocations for the topic migration, and a shared schema
+checker that requires the exact version set instead of accepting a row count.
+The narrow local database command uses the existing guarded target and verified
+TLS; historical SQL and the initial schema artifact remain unchanged. Regression
+coverage preserves populated topic-upgrade data. The prepared acceptance command
+has exclusive admission, retained uncertain-request reservations, honest access
+reporting, exact CSV/header/row validation and a deterministic deadline test.
+
+To repeat safe configuration/schema checks or local startup:
+
+```sh
+cd /Users/macserver/Development/newscraft-ai
+export PATH="/Users/macserver/.local/share/fnm/node-versions/v24.21.0/installation/bin:$PATH"
+export NODE_EXTRA_CA_CERTS="$PWD/config/certs/supabase-prod-ca-2021.crt"
+node scripts/agent-local.mjs check --provider deepseek
+pnpm --filter @newscraft/newsroom-harness exec tsx ../../scripts/agent-local-db.ts inspect
+# Optional authorized startup; Ctrl-C stops both listeners:
+node scripts/agent-local.mjs start --provider deepseek
+```
+
+The already completed migration used the same command with `apply-topic` in
+place of `inspect`. It refuses any pending set other than the one topic migration;
+an already complete ledger is a verified no-op. Do not reinitialize the project.
+
+**Prepared, not executed:** `node scripts/agent-deepseek-acceptance.mjs --check`
+checks the standalone acceptance configuration without a provider call. The paid
+command below exercises the real DeepSeek adapter and owned portable loop with
+synthetic research, local checkpoints and validated local Markdown/CSV artifacts.
+Only DeepSeek receives network requests. This deliberately scoped acceptance
+does not verify app callback durability, public retrieval, remote storage,
+download grants, Linux isolation or browser execution. The existing app storage
+profile remains outside this run because Contabo/Hydra access is prohibited.
+
+Pre-run checklist:
+
+1. Obtain Jigar's separate sentence below; no paid execution is authorized yet.
+2. Use the Node/Python versions above; the passive setup and acceptance checks
+   must pass. Recheck current provider pricing against the fixed peak ceilings.
+3. Keep `deepseek-flash`, Messages, thinking disabled, **8** model requests,
+   **120,000** cumulative reserved input tokens, **2,048** output tokens/request,
+   **180 seconds**, and **$0.06** reservation cap. No paid search.
+4. Keep `.data/deepseek-acceptance-20261008` unused. The command's exclusive
+   one-shot admission blocks a repeat even after failure; do not remove/reset it.
+5. Keep app services stopped. No database, app storage, executor, deployment,
+   old project or prohibited host is involved. Retain the private local
+   `.data/deepseek-acceptance-20261008/report.json` and generated artifacts for review.
+
+Exact approval sentence:
+
+> I approve one synthetic DeepSeek acceptance run using deepseek-flash through the Messages API with thinking disabled, synthetic research, local checkpoints and local files only, capped at 8 model requests, 120,000 cumulative reserved input tokens, 2,048 output tokens per request, 180 seconds, and a $0.06 application reservation budget at peak ceilings of $0.30/M input and $1.20/M output; no automatic retries or repeat run.
+
+After that approval, from this checkout with Node 24 on PATH, execute **once**:
+
+```sh
+node scripts/agent-deepseek-acceptance.mjs --execute --approved-usd 0.06
+```
+
+The unrounded maximum is **$0.0556608**; reservations round upward and are never
+refunded for lost responses. This is an application reservation, not a provider
+billing guarantee. **Blocked on Jigar:** that paid approval and the separate
+Linux executor host/image/seccomp decision. Provider access, answer quality,
+remote artifacts and Linux acceptance remain **Unverified**. Nothing was pushed,
+deployed, or sent to a paid provider during this validation.
+
+## Historical DeepSeek implementation verification — 2026-10-07
 
 **DeepSeek provider update:** the owned runtime now supports
 `NEWSCRAFT_AGENT_MODEL_PROVIDER=deepseek` with a dedicated `DEEPSEEK_API_KEY`
@@ -18,15 +114,12 @@ public search, peak **$0.30/M input / $1.20/M output**, 8 model requests,
 is **$0.0556608** before conservative per-request rounding. Cache discounts and
 lost responses do not refund reservations; this is not a provider billing cap.
 
-**Blocked on Jigar:** privately add the real key to
-`services/newsroom-harness/.env.local` as exactly one line (replace the placeholder):
+The dedicated key was absent during this historical implementation check.
+That gate is resolved by the 2026-10-08 validation above.
 
-```dotenv
-DEEPSEEK_API_KEY=<YOUR_REAL_DEEPSEEK_API_KEY>
-```
-
-No DeepSeek key was invented, copied or exposed. Its paid acceptance still needs
-this separate approval sentence:
+No DeepSeek key was invented, copied or exposed. The following historical broader
+proposal was not approved; the prepared synthetic-only command above has the
+current approval sentence:
 
 > I approve one public/synthetic DeepSeek acceptance run using deepseek-flash through the Messages API with thinking disabled and public search only, capped at 8 model requests, 120,000 cumulative reserved input tokens, 2,048 output tokens per request, 180 seconds, and a $0.06 application reservation budget at peak ceilings of $0.30/M input and $1.20/M output; no automatic retries or repeat run.
 

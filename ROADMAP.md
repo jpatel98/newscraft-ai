@@ -1,6 +1,6 @@
 # NewsCraft AI — Current Product & Roadmap
 
-Architecture reviewed: 2026-10-07. Product/usage review: 2026-09-05.
+Architecture reviewed: 2026-10-08. Product/usage review: 2026-09-05.
 
 ## Current product
 
@@ -70,7 +70,10 @@ Chromium on an approved Linux worker. Private conversation files, browser storag
 and operation receipts live on its retained SQLite volume; this persistence is
 separate from Postgres. **Working locally:** new-project database connectivity,
 signup/sign-in and an empty saved conversation. **Blocked:** actual Linux/Chromium
-acceptance, the new DeepSeek key and separately approved paid-model acceptance.
+acceptance and separately approved paid-model acceptance. The owned runtime and
+DeepSeek support are merged on `main` (`4df5b3e`). The dedicated key passes the
+passive checker; the new database has the complete 20-version migration contract.
+DeepSeek loopback readiness and empty-conversation auth checks passed on 2026-10-08.
 Readiness describes configuration, not provider or deployment success.
 
 See [the worker README](services/hermes-chat/README.md),

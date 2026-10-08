@@ -1,6 +1,6 @@
 # NewsCraft AI source of truth
 
-Verification date: 2026-10-07 (America/Toronto). Scope: the Mac mini checkout,
+Verification date: 2026-10-08 (America/Toronto). Scope: the Mac mini checkout,
 offline fixtures, disposable loopback Postgres and the recorded local startup
 follow-up against the authorized new database. No production deployment, paid
 provider call or Linux executor acceptance was run.
@@ -44,7 +44,7 @@ Browser -> SvelteKit app -> Postgres conversations/runs/events/checkpoints
 | Component | Repository evidence | Status and limit |
 | --- | --- | --- |
 | Selected orchestration | [portable.py](services/hermes-chat/src/hermes_chat/portable.py), [service.py](services/hermes-chat/src/hermes_chat/service.py) | **Repository verified / Working:** canonical owned loop, saved intent/receipts, recovery, budgets and cleanup fixtures. |
-| Model protocols | [model_adapters.py](services/hermes-chat/src/hermes_chat/model_adapters.py) | **Working:** mocked OpenAI Responses, Anthropic Messages and dedicated DeepSeek Messages flows. **Blocked:** DeepSeek key and paid approval. **Unverified:** provider access and answer quality. |
+| Model protocols | [model_adapters.py](services/hermes-chat/src/hermes_chat/model_adapters.py) | **Working:** mocked OpenAI Responses, Anthropic Messages and dedicated DeepSeek Messages flows. **Working:** dedicated key configuration and local DeepSeek readiness. **Blocked:** paid approval. **Unverified:** provider access and answer quality. |
 | Durable state | [hermes-runs.ts](src/lib/server/db/hermes-runs.ts), [agent-runtime.ts](src/lib/server/db/agent-runtime.ts), [0018](drizzle/0018_portable_agent_core.sql) | **Working:** Postgres lease, cursor, idempotency, cancellation and checkpoint CAS tests. Private state is not public replay. |
 | Authentication | [auth/backend.ts](src/lib/server/auth/backend.ts), [auth/postgres.ts](src/lib/server/auth/postgres.ts), [auth/supabase.ts](src/lib/server/auth/supabase.ts) | **Working:** Postgres password accounts and signed revocable sessions by default; explicit optional Supabase adapter tested with doubles. Cloud auth is **Unverified**. |
 | Retrieval | [search_adapters.py](services/hermes-chat/src/hermes_chat/search_adapters.py), [retrieval.py](services/hermes-chat/src/hermes_chat/retrieval.py) | **Working:** independent public DDGS discovery, bounded public fetch/archive and exact excerpt checks in fixtures. Optional OpenAI search is a separately reserved paid request. |
@@ -96,19 +96,23 @@ CPython 3.11 in `.venv-owned` are the verified local tools. The full JavaScript
 matrix retains the historical harness as a compatibility check; its fixture eval
 is not acceptance of the owned runtime's live answer quality.
 
-**User-reported prior completion:** project `newscraft-agent`
-(`ygsiifvjzdazfxflmpjq`) already has all 19 migrations and 33 protected public
-tables. The local follow-up verified connectivity/auth/conversations, without
-reinitializing or repeating the migration/RLS/grant audit. **Working:** a
-separate disposable loopback Postgres fixture exercises the migration sequence,
-local auth, account separation, leases/checkpoints and artifact ownership, then
-stops and removes itself. That fixture does not prove the cloud target's state.
+**Working / measured 2026-10-08:** owned orchestration and DeepSeek support are
+merged on `main` (`4df5b3e`). The guarded runner applied only the missing
+`0017_topic_projects` to the authorized new project `ygsiifvjzdazfxflmpjq`.
+The exact migration ledger is **20/20**, schema status is complete, and all
+**35 public tables** have RLS enabled. The two new project tables have no
+PUBLIC/anon/authenticated table grants; older grants were not re-audited.
+Initialization was not repeated. Separate disposable Postgres tests exercise
+migration, tenancy and durable-state behavior without contacting this project.
 
-**Working:** Jigar saved `DATABASE_URL`; public CA trust with full TLS verification
-enabled loopback health, signup/sign-in and an empty saved conversation. Both
-listeners were stopped. **Blocked:** the new DeepSeek profile requires Jigar's
-dedicated key and separate approval for one proposed **$0.06** application
-reservation; see [current pricing and limits](docs/managed-agent-setup.md#deepseek-setup-and-proposed-acceptance).
+**Working:** Jigar's database and dedicated DeepSeek key pass the passive checker.
+With full TLS verification and the documented public CA, both loopback health
+endpoints returned 200/ready; private readiness named DeepSeek Messages with
+`accessVerified: false`. Signup, fresh sign-in and an empty saved conversation
+passed with zero chat requests. Both listeners stopped and ports were free.
+**Blocked:** separate approval for the prepared **$0.06** synthetic DeepSeek
+acceptance, which uses only local checkpoints/artifacts and no app storage;
+see [the measured handoff and command](docs/agent-local-handoff.md#status-as-of-2026-10-08).
 The earlier $4.23 OpenAI proposal was not run. Actual computer/browser acceptance needs an approved
 Linux executor host. No Docker/Colima/Lima reinstall or new cloud resource is
 part of this work. See [deployment decision](docs/agent-deployment-decision.md).
@@ -124,7 +128,7 @@ documentation and memory.
 ## Historical code and release boundaries
 
 **Historical:** `managed.py`, the old runner in `runtime.py`, the old
-`ComputerSandbox`, migration 0017, and the TypeScript newsroom harness are
+`ComputerSandbox`, `0017_managed_agent_sessions`, and the TypeScript newsroom harness are
 retained unselected. The active runner still reuses tool schemas/validators from
 `runtime.py`; active OCI uses fixed payload helpers from `sandbox.py`. Their
 presence is intentional, not authorization to enable or delete them. Legacy
