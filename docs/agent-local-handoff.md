@@ -54,45 +54,37 @@ The already completed migration used the same command with `apply-topic` in
 place of `inspect`. It refuses any pending set other than the one topic migration;
 an already complete ledger is a verified no-op. Do not reinitialize the project.
 
-**Prepared, not executed:** `node scripts/agent-deepseek-acceptance.mjs --check`
-checks the standalone acceptance configuration without a provider call. The paid
-command below exercises the real DeepSeek adapter and owned portable loop with
-synthetic research, local checkpoints and validated local Markdown/CSV artifacts.
-Only DeepSeek receives network requests. This deliberately scoped acceptance
-does not verify app callback durability, public retrieval, remote storage,
-download grants, Linux isolation or browser execution. The existing app storage
-profile remains outside this run because Contabo/Hydra access is prohibited.
+**Executed once on 2026-10-08 (approved):** Jigar approved the one-shot paid
+acceptance with the exact sentence below, and
+`node scripts/agent-deepseek-acceptance.mjs --execute --approved-usd 0.06` was
+run once from this checkout with Node 24 and `TMPDIR=/private/tmp`. It
+exercised the real DeepSeek adapter and owned portable loop with synthetic
+research, local checkpoints and validated local Markdown/CSV artifacts. Only
+DeepSeek received network requests.
 
-Pre-run checklist:
+| Measure | Result |
+| --- | --- |
+| Outcome | `accepted`, `passed: true`, `provider_access_verified: true`, `repeat_allowed: false`. |
+| Model requests | **5 admitted / 5 completed** of the 8 allowed; `deepseek-flash`, Messages, thinking disabled. |
+| Reservations | **105,560** input tokens of 120,000; **10,240** output tokens (5 × 2,048); reserved cost **$0.043958** of the $0.06 cap. Application reservation, not a provider bill. |
+| Research | Synthetic fixture source, publication date `2026-01-15T12:00:00Z` taken from page metadata, not the retrieval date. |
+| Artifacts | `artifacts/1-brief.md` (856 bytes) and `artifacts/2-evidence.csv` (262 bytes) with the exact supporting sentence, source URL, publication date and `[1]` citation; digests recorded in `report.json`. |
+| Model behaviour | First `record_newscraft_source` call used an invalid source type and was rejected; the model retried with a valid type. The final answer labels the material synthetic. |
 
-1. Obtain Jigar's separate sentence below; no paid execution is authorized yet.
-2. Use the Node/Python versions above; the passive setup and acceptance checks
-   must pass. Recheck current provider pricing against the fixed peak ceilings.
-3. Keep `deepseek-flash`, Messages, thinking disabled, **8** model requests,
-   **120,000** cumulative reserved input tokens, **2,048** output tokens/request,
-   **180 seconds**, and **$0.06** reservation cap. No paid search.
-4. Keep `.data/deepseek-acceptance-20261008` unused. The command's exclusive
-   one-shot admission blocks a repeat even after failure; do not remove/reset it.
-5. Keep app services stopped. No database, app storage, executor, deployment,
-   old project or prohibited host is involved. Retain the private local
-   `.data/deepseek-acceptance-20261008/report.json` and generated artifacts for review.
+Private evidence is retained, git-ignored, under
+`.data/deepseek-acceptance-20261008/` (`admission.json`, `checkpoint.json`,
+`report.json`, `request-1..5.json`, `artifacts/`). The exclusive one-shot
+admission is now consumed; a second run needs a new identity and a new approval.
+This scoped acceptance did not verify app callback durability, public retrieval,
+remote storage, download grants, Linux isolation or browser execution.
 
-Exact approval sentence:
+Approval sentence that was given:
 
 > I approve one synthetic DeepSeek acceptance run using deepseek-flash through the Messages API with thinking disabled, synthetic research, local checkpoints and local files only, capped at 8 model requests, 120,000 cumulative reserved input tokens, 2,048 output tokens per request, 180 seconds, and a $0.06 application reservation budget at peak ceilings of $0.30/M input and $1.20/M output; no automatic retries or repeat run.
 
-After that approval, from this checkout with Node 24 on PATH, execute **once**:
-
-```sh
-node scripts/agent-deepseek-acceptance.mjs --execute --approved-usd 0.06
-```
-
-The unrounded maximum is **$0.0556608**; reservations round upward and are never
-refunded for lost responses. This is an application reservation, not a provider
-billing guarantee. **Blocked on Jigar:** that paid approval and the separate
-Linux executor host/image/seccomp decision. Provider access, answer quality,
-remote artifacts and Linux acceptance remain **Unverified**. Nothing was pushed,
-deployed, or sent to a paid provider during this validation.
+**Still separate:** the Linux executor host/image/seccomp decision. Remote
+artifacts, public retrieval and Linux acceptance remain **Unverified**. Nothing
+was deployed.
 
 ## Historical DeepSeek implementation verification — 2026-10-07
 

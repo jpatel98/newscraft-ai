@@ -70,5 +70,5 @@ Historical replacement matrix measured on 2026-10-07, before the DeepSeek update
 | Disposable Postgres / local helper | 54 / 18 passed; fixture stopped and removed |
 | Svelte check / build / offline lock | Passed; 0 check errors or warnings |
 | Historical fixture eval | 25/25 prompts, 17/17 trust traps |
-| Local startup / live acceptance | Database-entry gate subsequently resolved by the recorded follow-up; paid acceptance not run |
+| Local startup / live acceptance | Database-entry gate resolved by the recorded follow-up; one approved synthetic DeepSeek acceptance run passed on 2026-10-08 (5 requests, $0.043958 reserved of $0.06), see docs/agent-local-handoff.md |
 | Playwright | Skipped: explicit database-backed setup required |
