@@ -12,16 +12,30 @@ const PROFILE = '.env.agent-local';
 const CREDENTIAL = 'services/newsroom-harness/.env.local';
 const PYTHON = 'services/hermes-chat/.venv-owned/bin/python';
 
-export function localDefaults(root = ROOT) {
+const MODEL_PROFILES = {
+    openai: {
+        NEWSCRAFT_AGENT_MODEL_PROVIDER: 'openai', NEWSCRAFT_AGENT_MODEL: 'gpt-6-astra',
+        NEWSCRAFT_AGENT_INPUT_PRICE_CEILING: '25', NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING: '75',
+        NEWSCRAFT_AGENT_MAX_COST_USD: '4.23'
+    },
+    deepseek: {
+        NEWSCRAFT_AGENT_MODEL_PROVIDER: 'deepseek', NEWSCRAFT_AGENT_MODEL: 'deepseek-flash',
+        NEWSCRAFT_AGENT_INPUT_PRICE_CEILING: '0.30', NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING: '1.20',
+        NEWSCRAFT_AGENT_MAX_COST_USD: '0.06'
+    }
+};
+
+export function localDefaults(root = ROOT, provider = 'openai') {
+    if (!Object.hasOwn(MODEL_PROFILES, provider)) throw new Error('Unsupported local model provider.');
     return {
         DATABASE_URL: '', NEWSCRAFT_AUTH_PROVIDER: 'postgres', NEWSCRAFT_STORAGE_PROVIDER: 'vps',
         NEWSCRAFT_SETUP_PROJECT_REF: 'ygsiifvjzdazfxflmpjq',
-        NEWSCRAFT_AGENT_MODEL_PROVIDER: 'openai', NEWSCRAFT_AGENT_MODEL: 'gpt-6-astra',
         OPENAI_BASE_URL: 'https://api.openai.com/v1',
+        DEEPSEEK_BASE_URL: 'https://api.deepseek.com/anthropic',
         NEWSCRAFT_AGENT_WEB_PROVIDER: 'public', NEWSCRAFT_AGENT_BROWSER_PROVIDER: 'disabled',
-        NEWSCRAFT_AGENT_INPUT_PRICE_CEILING: '25', NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING: '75',
         NEWSCRAFT_AGENT_MAX_STEPS: '8', NEWSCRAFT_AGENT_MAX_INPUT_TOKENS: '120000',
-        NEWSCRAFT_AGENT_MAX_OUTPUT_TOKENS: '2048', NEWSCRAFT_AGENT_MAX_COST_USD: '4.23', NEWSCRAFT_AGENT_MAX_SECONDS: '180',
+        NEWSCRAFT_AGENT_MAX_OUTPUT_TOKENS: '2048', NEWSCRAFT_AGENT_MAX_SECONDS: '180',
+        ...MODEL_PROFILES[provider],
         NEWSCRAFT_AGENT_MAX_ACTIVE_RUNS: '1', NEWSCRAFT_AGENT_MAX_ACTIVE_RUNS_PER_TENANT: '1',
         NEWSCRAFT_AGENT_MAX_QUEUED_RUNS: '1', NEWSCRAFT_AGENT_MAX_QUEUED_RUNS_PER_TENANT: '1',
         NEWSCRAFT_AGENT_HOST: '127.0.0.1', NEWSCRAFT_AGENT_PORT: '8000', NEWSCRAFT_AGENT_PUBLIC_HOST: '',
@@ -58,6 +72,27 @@ function readEnvironment(path, required = false) {
     const stat = lstatSync(path);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 256 * 1024) throw new Error('invalid file');
     return parse(readFileSync(path));
+}
+
+function selectedCredentialReady(path, keyName) {
+    const stat = lstatSync(path);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 256 * 1024) return false;
+    // Match the worker's selected-key grammar rather than dotenv's permissive
+    // parsing: malformed or bare declarations count, and quotes must be paired.
+    const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(readFileSync(path));
+    const strip = value => value.replace(/^[\p{White_Space}\x1c-\x1f]+|[\p{White_Space}\x1c-\x1f]+$/gu, '');
+    const matches = [];
+    for (let line of content.split(/\r\n|[\n\v\f\r\x1c-\x1e\x85\u2028\u2029]/)) {
+        line = strip(line);
+        if (line.startsWith('export ')) line = strip(line.slice(7));
+        const separator = line.indexOf('=');
+        const name = separator === -1 ? line : line.slice(0, separator);
+        if (strip(name) === keyName) matches.push({ separator, value: separator === -1 ? '' : strip(line.slice(separator + 1)) });
+    }
+    if (matches.length !== 1 || matches[0].separator === -1) return false;
+    let { value } = matches[0];
+    if (value.length >= 2 && value[0] === value.at(-1) && ['"', "'"].includes(value[0])) value = value.slice(1, -1);
+    return /^sk-[^\s\x1c-\x1f\x85'\"]{20,}$/.test(value);
 }
 
 function databaseIdentity(value) {
@@ -119,7 +154,7 @@ function dependencyFilesReady(root) {
 /** No I/O beyond bounded local file reads. The environment is private and
  * deliberately non-enumerable so JSON/logging the result cannot print secrets.
  * A future authorized migration wrapper can explicitly use .environment. */
-export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion = process.versions.node } = {}) {
+export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion = process.versions.node, provider } = {}) {
     const checks = [];
     const check = (name, ok, detail) => { checks.push({ name, ok, detail }); return ok; };
     const result = environment => {
@@ -142,11 +177,16 @@ export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion 
         return result(null);
     }
     check('files', true, 'Existing files read in memory; no files rewritten.');
-    const defaults = localDefaults(root);
+    const selectedProvider = provider ?? profile.NEWSCRAFT_AGENT_MODEL_PROVIDER ?? 'openai';
+    const supportedProvider = Object.hasOwn(MODEL_PROFILES, selectedProvider);
+    check('model provider', supportedProvider, 'The guarded local profile supports OpenAI or DeepSeek with its own approved credential reference.');
+    const defaults = localDefaults(root, supportedProvider ? selectedProvider : 'openai');
     const allowed = new Set(Object.keys(defaults));
     check('profile', Object.keys(profile).every(key => allowed.has(key)), 'The profile accepts only documented local defaults and an explicit database target.');
-    const config = { ...defaults, ...profile };
-    const fixed = ['NEWSCRAFT_SETUP_PROJECT_REF', 'NEWSCRAFT_AUTH_PROVIDER', 'NEWSCRAFT_STORAGE_PROVIDER', 'NEWSCRAFT_AGENT_MODEL_PROVIDER', 'NEWSCRAFT_AGENT_MODEL', 'OPENAI_BASE_URL',
+    // Explicit CLI selection replaces only the reviewed model profile in memory.
+    // Database, credential-file and local-listener guards still inspect the profile.
+    const config = { ...defaults, ...profile, ...(provider !== undefined && supportedProvider ? MODEL_PROFILES[provider] : {}) };
+    const fixed = ['NEWSCRAFT_SETUP_PROJECT_REF', 'NEWSCRAFT_AUTH_PROVIDER', 'NEWSCRAFT_STORAGE_PROVIDER', 'NEWSCRAFT_AGENT_MODEL_PROVIDER', 'NEWSCRAFT_AGENT_MODEL', 'OPENAI_BASE_URL', 'DEEPSEEK_BASE_URL',
         'NEWSCRAFT_AGENT_WEB_PROVIDER', 'NEWSCRAFT_AGENT_BROWSER_PROVIDER', 'NEWSCRAFT_AGENT_HOST', 'NEWSCRAFT_AGENT_PORT',
         'NEWSCRAFT_AGENT_PUBLIC_HOST', 'NEWSCRAFT_AGENT_URL', 'NEWSCRAFT_AGENT_RUN_API_URL',
         'NEWSCRAFT_AGENT_MAX_ACTIVE_RUNS', 'NEWSCRAFT_AGENT_MAX_ACTIVE_RUNS_PER_TENANT',
@@ -154,13 +194,13 @@ export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion 
         'NEWSCRAFT_AGENT_STATE_HOME', 'NEWSCRAFT_AGENT_WORKSPACE', 'NEWSCRAFT_AGENT_BIN', 'NEWSCRAFT_AGENT_CREDENTIAL_FILE'];
     check('local configuration', fixed.every(key => config[key] === defaults[key]), 'Uses the owned interpreter, approved key reference and local listeners; no legacy runtime fallback.');
     const limits = { NEWSCRAFT_AGENT_MAX_STEPS: [1, 8], NEWSCRAFT_AGENT_MAX_INPUT_TOKENS: [1000, 120000],
-        NEWSCRAFT_AGENT_MAX_OUTPUT_TOKENS: [256, 2048], NEWSCRAFT_AGENT_MAX_COST_USD: [0.001, 4.23], NEWSCRAFT_AGENT_MAX_SECONDS: [10, 180] };
+        NEWSCRAFT_AGENT_MAX_OUTPUT_TOKENS: [256, 2048], NEWSCRAFT_AGENT_MAX_COST_USD: [0.001, Number(defaults.NEWSCRAFT_AGENT_MAX_COST_USD)], NEWSCRAFT_AGENT_MAX_SECONDS: [10, 180] };
     check('budgets', Object.entries(limits).every(([key, [min, max]]) => {
         const value = Number(config[key]); return Number.isFinite(value) && value >= min && value <= max &&
             (key === 'NEWSCRAFT_AGENT_MAX_COST_USD' || Number.isInteger(value));
-    }) && Number(config.NEWSCRAFT_AGENT_INPUT_PRICE_CEILING) >= 25 && Number(config.NEWSCRAFT_AGENT_INPUT_PRICE_CEILING) <= 100000 &&
-        Number(config.NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING) >= 75 && Number(config.NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING) <= 100000,
-    'Reviewed ceilings and local reservations are configured; at most $4.23 per run, not a provider billing guarantee.');
+    }) && Number(config.NEWSCRAFT_AGENT_INPUT_PRICE_CEILING) >= Number(defaults.NEWSCRAFT_AGENT_INPUT_PRICE_CEILING) && Number(config.NEWSCRAFT_AGENT_INPUT_PRICE_CEILING) <= 100000 &&
+        Number(config.NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING) >= Number(defaults.NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING) && Number(config.NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING) <= 100000,
+    `Reviewed ceilings and local reservations are configured; at most $${defaults.NEWSCRAFT_AGENT_MAX_COST_USD} per run, not a provider billing guarantee.`);
 
     const supplied = (env.NEWSCRAFT_SETUP_DATABASE_URL || profile.DATABASE_URL || '').trim();
     const identity = databaseIdentity(supplied);
@@ -193,16 +233,14 @@ export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion 
     const session = token('app session secret', ['APP_SESSION_SECRET'], 1);
     check('session shape', /^[A-Za-z0-9+/]+={0,2}$/.test(session) && Buffer.from(session, 'base64').length >= 32, 'Session signing secret must decode to at least 32 bytes.');
     let credentialReady = false;
+    const credentialName = selectedProvider === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'OPENAI_API_KEY';
     try {
-        const path = resolve(root, CREDENTIAL);
-        const credential = readEnvironment(path, true).OPENAI_API_KEY || '';
-        const declarations = readFileSync(path, 'utf8').split(/\r?\n/).filter(line => /^\s*(?:export\s+)?OPENAI_API_KEY\s*=/.test(line));
-        credentialReady = declarations.length === 1 && /^sk-\S{20,}$/.test(credential);
+        credentialReady = selectedCredentialReady(resolve(root, CREDENTIAL), credentialName);
     } catch { /* Report no paths, file contents or original exception. */ }
-    check('approved credential', credentialReady, 'Approved existing OpenAI reference has one usable key shape; no key is copied or printed.');
+    check('approved credential', credentialReady, `Approved ${credentialName} reference must have one usable key shape; no key is copied or printed.`);
     check('dependency files', dependencyFilesReady(root), 'Owned interpreter and required package files must exist; import execution is not performed.');
     const environment = { ...inherited, ...config, DATABASE_URL: supplied,
-        NEWSCRAFT_TEST_DATABASE_URL: '', OPENAI_API_KEY: '', NEWSCRAFT_SETUP_DATABASE_URL: '',
+        NEWSCRAFT_TEST_DATABASE_URL: '', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '', DEEPSEEK_API_KEY: '', NEWSCRAFT_SETUP_DATABASE_URL: '',
         NEWSCRAFT_AGENT_API_TOKEN: listener, NEWSCRAFT_HERMES_API_TOKEN: listener,
         NEWSCRAFT_AGENT_SESSION_TOKEN: listener, HERMES_AGUI_SESSION_TOKEN: listener,
         NEWSCRAFT_AGENT_RUN_API_TOKEN: callback, NEWSCRAFT_HERMES_RUN_API_TOKEN: callback,
@@ -212,12 +250,19 @@ export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion 
 
 export function checkLocal(options) { return resolveLocalSetup(options).report; }
 
-export async function runLocal(command, { root = ROOT, env = process.env, nodeVersion = process.versions.node, spawn = spawnProcess, write = line => console.log(line) } = {}) {
+export function parseLocalArguments(args) {
+    if (args.length === 1) return { command: args[0], provider: undefined };
+    if (args.length === 3 && args[1] === '--provider') return { command: args[0], provider: args[2] };
+    return { command: '', provider: undefined };
+}
+
+export async function runLocal(command, { root = ROOT, env = process.env, nodeVersion = process.versions.node, provider, spawn = spawnProcess, write = line => console.log(line) } = {}) {
     if (command === 'prepare') {
+        if (provider !== undefined) { write('Provider selection is supported only for check or start.'); return 2; }
         const status = prepareLocal({ root }); write(status.message); return status.ok ? 0 : 1;
     }
-    if (!['check', 'start'].includes(command)) { write('Usage: node scripts/agent-local.mjs prepare|check|start'); return 2; }
-    const { report, environment } = resolveLocalSetup({ root, env, nodeVersion });
+    if (!['check', 'start'].includes(command)) { write('Usage: node scripts/agent-local.mjs prepare|check|start [--provider openai|deepseek]'); return 2; }
+    const { report, environment } = resolveLocalSetup({ root, env, nodeVersion, provider });
     for (const item of report.checks) write(`${item.ok ? 'OK' : 'BLOCKED'}: ${item.name}. ${item.detail}`);
     for (const limitation of report.limitations) write(`NOTE: ${limitation}`);
     if (!report.ok || command === 'check') return report.ok ? 0 : 1;
@@ -232,5 +277,6 @@ export async function runLocal(command, { root = ROOT, env = process.env, nodeVe
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-    process.exitCode = await runLocal(process.argv.length === 3 ? process.argv[2] : '');
+    const { command, provider } = parseLocalArguments(process.argv.slice(2));
+    process.exitCode = await runLocal(command, { provider });
 }

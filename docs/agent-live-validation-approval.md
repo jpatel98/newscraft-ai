@@ -19,3 +19,12 @@ Record redacted provider request IDs, local budget reservations, public saved ev
 The rootless OCI terminal/filesystem and interactive browser adapters have deterministic coverage, including a browser → cited answer → Markdown/CSV flow and lost-acknowledgement recovery. Separate synthetic Linux acceptance commands are ready; see [executor/browser acceptance](../services/hermes-chat/deploy/executor.md). They need an authorized suitable Linux host, reviewed immutable images and approval of an existing hash-pinned deny-by-default Chromium seccomp profile with user-namespace allowances. No Docker/Colima/cloud sandbox service was started, image built, policy installed or host provisioned here. Browser resources are bounded at 1 CPU/1 GiB/128 PIDs per active run, in addition to the terminal's 1 CPU/256 MiB. Host cost is not established; no spend was approved. Separately, 53 application database checks passed on a disposable local Postgres fixture, which was stopped and removed; these do not establish Supabase connectivity.
 
 The current offline evidence is [the 2026-10-07 measured matrix](agent-local-handoff.md#measured-verification-in-this-session). Earlier counts in this acceptance proposal are historical; none substitutes for the unrun live steps above.
+# DeepSeek update — 2026-10-07
+
+The newly requested provider route is the fixture-verified DeepSeek Messages
+adapter. Its real key and separate paid approval are still missing. Use the
+[current DeepSeek setup and $0.06 approval text](managed-agent-setup.md#deepseek-setup-and-proposed-acceptance)
+and [local handoff Status](agent-local-handoff.md#status-as-of-2026-10-07).
+Earlier OpenAI pricing/approval proposals below are historical alternatives,
+not approval to spend. All infrastructure, storage, deployment and host boundaries
+remain in force; no paid provider call was made during implementation.

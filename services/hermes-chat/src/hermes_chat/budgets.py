@@ -3,8 +3,10 @@
 Reservations are never refunded: missing responses and usage records cannot
 make a crashed request free. Operators supply reviewed price/image ceilings.
 """
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 import json
+
+from .provider_policy import DEEPSEEK_PRICE_FLOORS
 
 
 def policy(settings):
@@ -18,8 +20,20 @@ def policy(settings):
 
 
 def configured(settings):
-    return (settings.input_cost_per_million > 0 and settings.output_cost_per_million > 0
-            and (settings.web_provider != "openai" or getattr(settings, "search_cost_ceiling_usd", 0) > 0))
+    try:
+        prices = [Decimal(str(settings.input_cost_per_million)), Decimal(str(settings.output_cost_per_million))]
+        if not all(price.is_finite() and price > 0 for price in prices):
+            return False
+        if getattr(settings, "model_provider", None) == "deepseek":
+            floors = DEEPSEEK_PRICE_FLOORS.get(settings.model)
+            if floors is None or any(price < Decimal(floor) for price, floor in zip(prices, floors)):
+                return False
+        if settings.web_provider == "openai":
+            search = Decimal(str(getattr(settings, "search_cost_ceiling_usd", 0)))
+            return search.is_finite() and search > 0
+        return True
+    except (InvalidOperation, ValueError):
+        return False
 
 
 def input_bound(adapter, *, messages, private, instructions, tools, image_tokens):

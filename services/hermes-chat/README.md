@@ -2,7 +2,7 @@
 
 NewsCraft owns orchestration, messages, runs, public events, citations and artifacts in ordinary Postgres. `service.py` directly selects `PortableAgentRunner` in `portable.py`; it does not call a managed agent harness. Existing `hermes_chat` and `/api/internal/hermes/runs` identifiers preserve app protocol compatibility.
 
-The model boundary has two concrete HTTP adapters: OpenAI Responses and Anthropic Messages. They translate the same canonical messages/tool definitions into different provider protocols. OpenAI encrypted reasoning continuation stays in private run state, never public history or events. Anthropic thinking blocks are not requested or exposed. Providers/models can change at a clean new turn; an existing run must retain its original adapter and budget policy. There is no arbitrary in-flight provider interchange.
+The model boundary has three concrete provider adapters: OpenAI Responses, Anthropic Messages, and DeepSeek's Messages-compatible endpoint. They translate the same canonical messages/tool definitions. DeepSeek selects a dedicated key/base URL, disables thinking explicitly, omits unsupported OpenAI fields and Anthropic service-tier selection, and rejects retired/unknown model names before dispatch. OpenAI encrypted reasoning continuation stays in private run state, never public history or events. Anthropic thinking blocks are not requested or exposed. Providers/models can change at a clean new turn; an existing run must retain its original adapter and budget policy. There is no arbitrary in-flight provider interchange.
 
 ## Research and files
 
@@ -28,7 +28,7 @@ Blocking retrieval uses a shared cancellation/deadline signal before subsequent 
 
 Use the root and worker `.env.example` files, then [the provider-neutral setup guide](../../docs/managed-agent-setup.md). Postgres auth and existing VPS object storage are defaults; Supabase Auth/Storage are explicit optional adapters. No Supabase variables are required by the core schema or default auth path. Model credentials remain server-side; existing OpenAI credential reuse is approved, with no key copy or new key creation required.
 
-For this checkout, [the local setup handoff](../../docs/agent-local-handoff.md) uses a separate locked `.venv-owned` and a guarded `.env.agent-local` profile. It preserves the old environment and refuses to inherit the old database target. Preparation/checking never starts a process or contacts a provider.
+For this checkout, [the local setup handoff](../../docs/agent-local-handoff.md) uses a separate locked `.venv-owned` and a guarded `.env.agent-local` profile. It preserves the old environment and refuses to inherit the old database target. Preparation/checking never starts a process or contacts a provider. Select DeepSeek with `node scripts/agent-local.mjs check --provider deepseek` (or `start --provider deepseek` after configuration passes). This applies the reviewed Flash model, Messages endpoint, peak prices and $0.06 reservation cap in memory without rewriting the private profile. Only `DEEPSEEK_API_KEY` in the approved credential file can enable that profile; no other provider key is substituted.
 
 `GET /ready` reports local configuration only: `orchestration: newscraft`, `apiMode: responses|messages`, `accessVerified: false`, configured terminal/workspace/browser capabilities, and local reservation bounds. Missing reviewed price ceilings or a failed configured executor/browser policy fail readiness. Readiness does not call a paid API or prove live execution/provider/storage access.
 

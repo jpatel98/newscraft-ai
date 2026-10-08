@@ -63,8 +63,8 @@ class OwnedAgentServiceTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self._settings(root, NEWSCRAFT_EXECUTOR_SOCKET="/fixture/private/docker.sock")
 
-    def _app(self, root: str, configured: bool = True, capability_ready: bool = True):
-        settings = self._settings(root)
+    def _app(self, root: str, configured: bool = True, capability_ready: bool = True, **environment: str):
+        settings = self._settings(root, **environment)
         worker = SimpleNamespace(
             configured=configured,
             start=AsyncMock(return_value={"accepted": True, "run_id": "run-1", "state": "queued"}),
@@ -137,7 +137,7 @@ class OwnedAgentServiceTests(unittest.TestCase):
     def test_reads_only_selected_openai_key_from_existing_file_without_copy(self):
         with tempfile.TemporaryDirectory() as root:
             source = Path(root) / ".env.local"
-            content = 'UNRELATED_SECRET=do-not-load\nexport OPENAI_API_KEY="fixture-existing-key"\n'
+            content = 'UNRELATED_SECRET=do-not-load\nDEEPSEEK_API_KEY=ignored-one\nDEEPSEEK_API_KEY=ignored-two\nexport OPENAI_API_KEY="fixture-existing-key"\n'
             source.write_text(content)
             settings = self._settings(root, OPENAI_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE=str(source))
             self.assertEqual(settings.model_api_key, "fixture-existing-key")
@@ -166,6 +166,123 @@ class OwnedAgentServiceTests(unittest.TestCase):
             self.assertEqual(settings.model, "gpt-6-astra")
             settings = self._settings(root, NEWSCRAFT_AGENT_MODEL="fixture-model")
             self.assertEqual(settings.model, "fixture-model")
+
+    def test_deepseek_defaults_to_current_model_and_messages_endpoint(self):
+        with tempfile.TemporaryDirectory() as root:
+            settings = self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL="",
+                DEEPSEEK_API_KEY="fixture-deepseek", ANTHROPIC_API_KEY="unrelated-anthropic",
+                ANTHROPIC_BASE_URL="https://unrelated.example/v1")
+            self.assertEqual(settings.model_provider, "deepseek")
+            self.assertEqual(settings.model, "deepseek-flash")
+            self.assertEqual(settings.model_api_mode, "messages")
+            self.assertEqual(settings.model_base_url, "https://api.deepseek.com/anthropic")
+            self.assertEqual(settings.model_api_key, "fixture-deepseek")
+            self.assertEqual(settings.search_api_key, "")
+            self.assertNotIn("fixture-deepseek", repr(settings))
+            explicit = self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL="deepseek-v4-pro",
+                DEEPSEEK_API_KEY="fixture-deepseek", DEEPSEEK_BASE_URL="http://127.0.0.1:8767/anthropic/")
+            self.assertEqual(explicit.model, "deepseek-v4-pro")
+            self.assertEqual(explicit.model_base_url, "http://127.0.0.1:8767/anthropic")
+
+    def test_deepseek_readiness_reports_selected_adapter_without_claiming_provider_access(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, _, _, _ = self._app(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL="deepseek-flash",
+                DEEPSEEK_API_KEY="fixture-deepseek")
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                response = client.get("/ready", headers=self._headers())
+                public = client.get("/ready").json()
+            self.assertEqual(response.status_code, 200)
+            runtime = response.json()["runtime"]
+            self.assertEqual(runtime["provider"], "deepseek")
+            self.assertEqual(runtime["model"], "deepseek-flash")
+            self.assertEqual(runtime["apiMode"], "messages")
+            self.assertFalse(runtime["accessVerified"])
+            self.assertNotIn("fixture-deepseek", response.text)
+            self.assertNotIn("runtime", public)
+
+    def test_deepseek_rejects_legacy_aliases_and_unknown_models_before_reading_credentials(self):
+        with tempfile.TemporaryDirectory() as root, \
+            patch.object(service_module, "_credential_from_file", side_effect=AssertionError("must not read")):
+            for model in ("deepseek-chat", "deepseek-reasoner", "claude-sonnet", "deepseek-v4-flash", "typo-model"):
+                with self.subTest(model=model), self.assertRaisesRegex(RuntimeError, "must be deepseek-flash or deepseek-v4-pro"):
+                    self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL=model,
+                        NEWSCRAFT_AGENT_CREDENTIAL_FILE="/must-not-read")
+
+    def test_deepseek_reads_only_selected_key_from_existing_file_without_copy(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / ".env.local"
+            content = 'UNRELATED_SECRET=do-not-load\nOPENAI_API_KEY=unrelated-one\nOPENAI_API_KEY=unrelated-two\nexport DEEPSEEK_API_KEY="fixture-deepseek-file"\n'
+            source.write_text(content)
+            settings = self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL="deepseek-flash",
+                OPENAI_API_KEY="", DEEPSEEK_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE=str(source))
+            self.assertEqual(settings.model_api_key, "fixture-deepseek-file")
+            self.assertEqual(settings.search_api_key, "")
+            self.assertEqual(source.read_text(), content)
+            self.assertFalse(settings.hermes_home.exists())
+            self.assertFalse(settings.workspace.exists())
+            self.assertNotIn("DEEPSEEK_API_KEY", os.environ)
+            self.assertNotIn("UNRELATED_SECRET", os.environ)
+
+    def test_deepseek_credential_file_rejects_missing_duplicate_and_malformed_selected_key_safely(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / "synthetic.env"
+            for content in (
+                "OPENAI_API_KEY=unrelated-secret\n",
+                "DEEPSEEK_API_KEY=fixture-one\nDEEPSEEK_API_KEY=fixture-two\n",
+                "DEEPSEEK_API_KEY=fixture-one\nDEEPSEEK_API_KEY=\n",
+                "DEEPSEEK_API_KEY=fixture-one\nDEEPSEEK_API_KEY\n",
+                "DEEPSEEK_API_KEY=\n",
+                'DEEPSEEK_API_KEY="fixture-unclosed\n',
+                "DEEPSEEK_API_KEY=fixture-invalid'\n",
+                'DEEPSEEK_API_KEY="fixture with whitespace"\n',
+            ):
+                source.write_text(content)
+                with self.subTest(content=content), self.assertRaises(RuntimeError) as caught:
+                    self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL="deepseek-flash",
+                        DEEPSEEK_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE=str(source))
+                self.assertEqual(str(caught.exception),
+                    "NEWSCRAFT_AGENT_CREDENTIAL_FILE must contain exactly one usable DEEPSEEK_API_KEY")
+
+    def test_deepseek_environment_key_has_priority_and_public_search_needs_no_other_key(self):
+        with tempfile.TemporaryDirectory() as root, \
+            patch.object(service_module, "_credential_from_file", side_effect=AssertionError("must not read")):
+            settings = self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL="deepseek-flash",
+                DEEPSEEK_API_KEY="fixture-deepseek", OPENAI_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE="/not-used",
+                NEWSCRAFT_AGENT_WEB_PROVIDER="public")
+            self.assertEqual(settings.model_api_key, "fixture-deepseek")
+            self.assertEqual(settings.search_api_key, "")
+
+    def test_deepseek_missing_key_does_not_fall_back_to_another_provider(self):
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaisesRegex(RuntimeError, "DEEPSEEK_API_KEY is required"):
+                self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL="deepseek-flash",
+                    DEEPSEEK_API_KEY="", ANTHROPIC_API_KEY="unrelated-anthropic")
+
+    def test_deepseek_optional_openai_search_selects_a_separate_file_key(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / "synthetic.env"
+            source.write_text("OPENAI_API_KEY=fixture-search\nDEEPSEEK_API_KEY=fixture-model-key\nUNRELATED_KEY=ignored\n")
+            settings = self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL="deepseek-flash",
+                OPENAI_API_KEY="", DEEPSEEK_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE=str(source),
+                NEWSCRAFT_AGENT_WEB_PROVIDER="openai", NEWSCRAFT_AGENT_SEARCH_CALL_PRICE_CEILING="0.25")
+            self.assertEqual(settings.model_api_key, "fixture-model-key")
+            self.assertEqual(settings.search_api_key, "fixture-search")
+            self.assertEqual(settings.search_cost_ceiling_usd, 0.25)
+            self.assertNotIn("fixture-search", repr(settings))
+            source.write_text("DEEPSEEK_API_KEY=fixture-model-key\n")
+            with self.assertRaisesRegex(RuntimeError, "exactly one usable OPENAI_API_KEY"):
+                self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL="deepseek-flash",
+                    OPENAI_API_KEY="", DEEPSEEK_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE=str(source),
+                    NEWSCRAFT_AGENT_WEB_PROVIDER="openai")
+
+    def test_deepseek_rejects_unsafe_endpoint_without_exposing_its_contents(self):
+        with tempfile.TemporaryDirectory() as root:
+            for base_url in ("http://remote.example/anthropic", "https://user:fixture-secret@remote.example/anthropic",
+                             "https://api.deepseek.com/anthropic?key=fixture-secret"):
+                with self.subTest(base_url=base_url), self.assertRaises(RuntimeError) as caught:
+                    self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="deepseek", NEWSCRAFT_AGENT_MODEL="deepseek-flash",
+                        DEEPSEEK_API_KEY="fixture-deepseek", DEEPSEEK_BASE_URL=base_url)
+                self.assertNotIn("fixture-secret", str(caught.exception))
 
     def test_anthropic_public_search_needs_no_openai_credential(self):
         with tempfile.TemporaryDirectory() as root:

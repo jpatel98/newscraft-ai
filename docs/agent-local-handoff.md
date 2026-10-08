@@ -1,5 +1,43 @@
 # Status as of 2026-10-07
 
+**DeepSeek provider update:** the owned runtime now supports
+`NEWSCRAFT_AGENT_MODEL_PROVIDER=deepseek` with a dedicated `DEEPSEEK_API_KEY`
+reference and `DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic`. It reuses
+Messages tool encoding, explicitly disables thinking, omits provider-incompatible
+fields, and keeps the existing durable checkpoints and reservations. Current
+official docs list `deepseek-flash` and `deepseek-v4-pro`; the requested historical
+`deepseek-chat`/`deepseek-reasoner` names are retired and rejected locally. DeepSeek
+now also supports Responses, but this implementation selects Messages. See
+[verified sources, prices and setup](managed-agent-setup.md#deepseek-setup-and-proposed-acceptance).
+
+The new guarded selection is `check --provider deepseek` or
+`start --provider deepseek`. It preserves `.env.agent-local` and applies Flash,
+public search, peak **$0.30/M input / $1.20/M output**, 8 model requests,
+120,000 cumulative reserved input tokens, 2,048 output tokens per request,
+180 seconds and a **$0.06** application cap in memory. The maximum token charge
+is **$0.0556608** before conservative per-request rounding. Cache discounts and
+lost responses do not refund reservations; this is not a provider billing cap.
+
+**Blocked on Jigar:** privately add the real key to
+`services/newsroom-harness/.env.local` as exactly one line (replace the placeholder):
+
+```dotenv
+DEEPSEEK_API_KEY=<YOUR_REAL_DEEPSEEK_API_KEY>
+```
+
+No DeepSeek key was invented, copied or exposed. Its paid acceptance still needs
+this separate approval sentence:
+
+> I approve one public/synthetic DeepSeek acceptance run using deepseek-flash through the Messages API with thinking disabled and public search only, capped at 8 model requests, 120,000 cumulative reserved input tokens, 2,048 output tokens per request, 180 seconds, and a $0.06 application reservation budget at peak ceilings of $0.30/M input and $1.20/M output; no automatic retries or repeat run.
+
+Provider access and live artifact delivery remain unverified. The Linux executor
+host/images/seccomp decision remains separate. Existing prohibitions on
+Contabo/Hydra, old Supabase, paid calls without approval, deployment and pushes
+remain in effect. The test evidence below distinguishes the new provider fixtures
+from the earlier successful local startup.
+
+## Earlier local startup validation (2026-10-07)
+
 **Working locally:** Jigar saved the new project's database configuration. The
 passive checker exits **0**. Node **24.21.0** startup initially reproduced UI
 HTTP **503**, `ok: false`, `state: unavailable`, while the worker was ready.
@@ -32,9 +70,10 @@ templates under Jigar's explicit follow-up authorization. The earlier six local
 replacement commits and their full verification matrix remain below. No private
 environment file was changed or committed. Nothing was pushed or deployed.
 
-**Still blocked on Jigar:** separately approve the single **$4.23 paid acceptance
-run**, and select an authorized **Linux executor host** with reviewed images and
-seccomp policy. The database-entry and local startup gates are resolved. No paid
+**Original remaining gates:** the earlier **$4.23 OpenAI acceptance proposal**
+was never approved or run; the new **$0.06 DeepSeek proposal** above is now the
+requested route. Select an authorized **Linux executor host** with reviewed images
+and seccomp policy separately. The database-entry and local startup gates are resolved. No paid
 model call, storage acceptance, migration or production change was performed.
 
 Next commands on the Mac mini:
@@ -43,9 +82,9 @@ Next commands on the Mac mini:
 cd /Users/macserver/Development/newscraft-ai
 export PATH="/Users/macserver/.local/share/fnm/node-versions/v24.21.0/installation/bin:$PATH"
 export NODE_EXTRA_CA_CERTS="$PWD/config/certs/supabase-prod-ca-2021.crt"
-node scripts/agent-local.mjs check
+node scripts/agent-local.mjs check --provider deepseek
 # After every configuration check passes, local startup is already authorized:
-node scripts/agent-local.mjs start
+node scripts/agent-local.mjs start --provider deepseek
 ```
 
 In another terminal, `curl --fail http://127.0.0.1:3001/api/health` and
@@ -143,7 +182,10 @@ this initialized new target is the only authorized target. `/api/health` and
 `/ready` may then be checked on loopback before clean shutdown. The measured
 public readiness response reports service state; it is not a model/storage proof.
 
-The proposed separate paid test is one public/synthetic source-to-cited-answer
+The historical OpenAI proposal below has not been approved or run; use the
+DeepSeek-priced proposal in the Status section for the newly requested route.
+
+That proposed separate paid test was one public/synthetic source-to-cited-answer
 and Markdown/CSV run: OpenAI `gpt-6-astra`, default tier, public search, 180 seconds,
 at most 8 model requests, 120,000 cumulative reserved input tokens and 2,048
 output tokens per request. Configured price ceilings are $25/$75 per million,

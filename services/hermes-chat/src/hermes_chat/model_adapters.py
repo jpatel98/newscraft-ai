@@ -13,6 +13,7 @@ from typing import Any, Protocol
 import httpx
 
 from .runtime import strict_schema
+from .provider_policy import DEEPSEEK_MODELS
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
@@ -150,6 +151,13 @@ class OpenAIResponses(HTTPModel):
 
 class AnthropicMessages(HTTPModel):
     name = "anthropic"
+    path = "/messages"
+
+    def request_options(self, model):
+        return {"service_tier": "standard_only"}
+
+    def request_headers(self):
+        return {"x-api-key": self.settings.model_api_key, "anthropic-version": "2023-06-01"}
 
     def budget_input(self, *, messages, private, instructions, tools):
         return {"system": instructions, "messages": self.encode(messages),
@@ -180,8 +188,8 @@ class AnthropicMessages(HTTPModel):
         return result
 
     async def complete(self, *, model, instructions, messages, tools, max_output, private):
-        response = await self.post("/messages", {"x-api-key": self.settings.model_api_key, "anthropic-version": "2023-06-01"},
-            {"model": model, "max_tokens": max_output, "service_tier": "standard_only",
+        response = await self.post(self.path, self.request_headers(),
+            {"model": model, "max_tokens": max_output, **self.request_options(model),
              **self.budget_input(messages=messages, private=private, instructions=instructions, tools=tools)})
         if response.get("stop_reason") not in {"end_turn", "tool_use", "stop_sequence"} or not isinstance(response.get("content"), list):
             raise ModelError("The model did not return a complete response.")
@@ -197,8 +205,53 @@ class AnthropicMessages(HTTPModel):
         return ModelReply({"role": "assistant", "content": blocks}, {}, usage(response.get("usage")))
 
 
+class DeepSeekMessages(AnthropicMessages):
+    """DeepSeek's Messages dialect; no implicit model or reasoning-mode mapping.
+
+    Non-thinking mode supports tools and avoids private thinking continuation.
+    Its explicit output cap is reserved in full before each paid request, just
+    like the other adapters. Provider-side usage/cache discounts never refund it.
+    """
+
+    name = "deepseek"
+    path = "/v1/messages"
+
+    def validate_input(self, model, messages):
+        self.request_options(model)
+        for message in messages:
+            if any(part["type"] == "image" for part in message["content"]):
+                if model != "deepseek-flash":
+                    raise ModelError("The selected DeepSeek model does not support images; select deepseek-flash.")
+                if message["role"] != "user":
+                    raise ModelError("DeepSeek image inputs must be user messages.")
+
+    def budget_input(self, *, messages, private, instructions, tools):
+        try:
+            self.validate_input(self.settings.model, messages)
+        except ModelError as exc:
+            # The owned loop rejects invalid budget inputs before reserving or
+            # persisting a dispatch, while retaining its normal failure cleanup.
+            raise ValueError(str(exc)) from None
+        return super().budget_input(messages=messages, private=private, instructions=instructions, tools=tools)
+
+    async def complete(self, *, model, instructions, messages, tools, max_output, private):
+        self.validate_input(model, messages)
+        if model != self.settings.model:
+            raise ModelError("The requested DeepSeek model does not match its configured budget policy.")
+        return await super().complete(model=model, instructions=instructions, messages=messages,
+                                      tools=tools, max_output=max_output, private=private)
+
+    def request_options(self, model):
+        if model not in DEEPSEEK_MODELS:
+            raise ModelError("Select a supported DeepSeek model: deepseek-flash or deepseek-v4-pro; retired aliases are not mapped.")
+        return {"thinking": {"type": "disabled"}}
+
+    def request_headers(self):
+        return {"x-api-key": self.settings.model_api_key}
+
+
 def create_model(settings) -> ModelAdapter:
-    adapters = {"openai": OpenAIResponses, "anthropic": AnthropicMessages}
+    adapters = {"openai": OpenAIResponses, "anthropic": AnthropicMessages, "deepseek": DeepSeekMessages}
     if settings.model_provider not in adapters:
         raise ModelError("The configured model adapter is unavailable.")
     return adapters[settings.model_provider](settings)

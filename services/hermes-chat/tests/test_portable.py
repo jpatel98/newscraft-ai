@@ -12,7 +12,7 @@ import httpx
 from hermes_chat import budgets
 from hermes_chat.isolation import TenantIsolation
 from hermes_chat.durable import DurableRunWorker, DurableRunError
-from hermes_chat.model_adapters import OpenAIResponses, AnthropicMessages
+from hermes_chat.model_adapters import OpenAIResponses, AnthropicMessages, DeepSeekMessages
 from hermes_chat.portable import PortableAgentRunner, RunError, RecoveryPending
 from hermes_chat.retrieval import ResearchTools, NewsCraftWebProvider, RetrievalConfig
 from hermes_chat.search_adapters import PublicSearch, OpenAISearch
@@ -89,7 +89,7 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json=data)
         client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
         self.clients.append(client)
-        model = (OpenAIResponses if provider == "openai" else AnthropicMessages)(self.settings, client=client)
+        model = {"openai": OpenAIResponses, "anthropic": AnthropicMessages, "deepseek": DeepSeekMessages}[provider](self.settings, client=client)
         fetcher = FakeFetcher()
         def research(config):
             return ResearchTools(config, NewsCraftWebProvider(config, fetcher=fetcher),
@@ -200,6 +200,17 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_browser_cited_markdown_csv_flow_with_anthropic_adapter(self):
         await self.browser_flow("anthropic")
+
+    def configure_deepseek(self):
+        self.settings.model_provider = "deepseek"
+        self.settings.model = "deepseek-flash"
+        self.settings.model_base_url = "https://api.deepseek.com/anthropic"
+        self.settings.input_cost_per_million = 0.30
+        self.settings.output_cost_per_million = 1.20
+
+    async def test_browser_cited_markdown_csv_flow_with_deepseek_adapter(self):
+        self.configure_deepseek()
+        await self.browser_flow("deepseek")
 
     async def test_browser_receipt_recovers_lost_postgres_ack_with_citations_and_no_repeat(self):
         from test_browser_controller import browser_factory, URL
@@ -405,8 +416,14 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
                              ["reasoning", "function_call", "function_call_output"])
         else:
             self.assertTrue(self.requests[0][0].endswith("/messages"))
-            self.assertEqual(second["service_tier"], "standard_only")
-            self.assertEqual(self.requests[0][2]["anthropic-version"], "2023-06-01")
+            if provider == "anthropic":
+                self.assertEqual(second["service_tier"], "standard_only")
+                self.assertEqual(self.requests[0][2]["anthropic-version"], "2023-06-01")
+            else:
+                self.assertEqual(self.requests[0][0], "https://api.deepseek.com/anthropic/v1/messages")
+                self.assertNotIn("service_tier", second)
+                self.assertNotIn("include", second)
+                self.assertEqual(second["thinking"], {"type": "disabled"})
             self.assertEqual(second["messages"][-1]["content"][0]["type"], "tool_result")
             self.assertIn("input_schema", second["tools"][0])
             self.assertNotIn("PRIVATE_", json.dumps(second))
@@ -416,6 +433,47 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_messages_research_files_and_replay(self):
         await self.flow("anthropic")
+
+    async def test_deepseek_research_files_and_replay(self):
+        self.configure_deepseek()
+        await self.flow("deepseek")
+
+    async def test_deepseek_uncertain_request_retains_full_reservation_and_never_replays(self):
+        self.configure_deepseek()
+        runner = self.runner([httpx.ReadTimeout("private provider response")])
+        with self.assertRaisesRegex(RunError, "uncertain"):
+            await self.collect(runner)
+        budget = copy.deepcopy(self.store.data["state"]["budget"])
+        self.assertGreater(budget["cost_microusd"], 0)
+        self.assertEqual(budget["output_tokens"], self.settings.max_output_tokens)
+        self.assertEqual(self.store.data["state"]["phase"], "failed")
+        with self.assertRaisesRegex(RunError, "already ended"):
+            await self.collect(self.runner([]))
+        self.assertEqual(self.store.data["state"]["budget"], budget)
+        self.assertEqual(len(self.requests), 1)
+
+    async def test_deepseek_rejects_discounted_price_ceilings_before_dispatch(self):
+        self.configure_deepseek()
+        for name, price in (("input_cost_per_million", 0.006), ("input_cost_per_million", 0.15),
+                            ("output_cost_per_million", 0.6)):
+            with self.subTest(setting=name, price=price):
+                previous = getattr(self.settings, name)
+                setattr(self.settings, name, price)
+                try:
+                    runner = self.runner([])
+                    self.assertFalse((await runner.readiness())["configured"])
+                    with self.assertRaisesRegex(RunError, "price ceilings"):
+                        await self.collect(runner)
+                    self.assertEqual(self.requests, [])
+                finally:
+                    setattr(self.settings, name, previous)
+
+    async def test_deepseek_provider_change_cannot_replay_a_saved_openai_run(self):
+        await self.collect(self.runner([answer()]))
+        self.configure_deepseek()
+        with self.assertRaisesRegex(RunError, "original model adapter"):
+            await self.collect(self.runner([]))
+        self.assertEqual(len(self.requests), 1)
 
     async def test_uncertain_model_request_is_charged_and_never_replayed(self):
         runner = self.runner([httpx.ReadTimeout("raw secret response")])

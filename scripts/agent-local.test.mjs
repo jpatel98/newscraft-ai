@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parse } from 'dotenv';
-import { prepareLocal, resolveLocalSetup, checkLocal, runLocal } from './agent-local.mjs';
+import { localDefaults, parseLocalArguments, prepareLocal, resolveLocalSetup, checkLocal, runLocal } from './agent-local.mjs';
 
 const KEY = 'sk-public-synthetic-fixture-not-a-real-key';
 const TOKEN = 'public-synthetic-listener-token-123456';
@@ -279,4 +279,178 @@ test('start errors and invalid commands reveal no exception values and fail clos
     assert.equal(await runLocal('start', { root, env, write: line => output.push(line), spawn() { throw new Error(`${NEW_DB} ${TOKEN}`); } }), 1);
     assert.ok(!output.join('\n').includes(NEW_DB)); assert.ok(!output.join('\n').includes(TOKEN));
     assert.equal(await runLocal('--migrate', { root, env, write() {}, spawn() { assert.fail('must not spawn'); } }), 2);
+});
+
+test('explicit DeepSeek selection uses only its approved file key and preserves existing files', t => {
+    const { root, env, put } = fixture(t);
+    put('services/newsroom-harness/.env.local', `DEEPSEEK_API_KEY=${KEY}\nUNRELATED_SECRET=never-load-me\n`);
+    const before = existingFiles(root), profile = readFileSync(join(root, '.env.agent-local'), 'utf8');
+    const resolved = resolveLocalSetup({ root, provider: 'deepseek', env: { ...env,
+        NEWSCRAFT_AGENT_MODEL_PROVIDER: 'openai', NEWSCRAFT_AGENT_MODEL: 'unapproved-model',
+        OPENAI_BASE_URL: 'https://unapproved.example.test', DEEPSEEK_BASE_URL: 'https://unapproved.example.test',
+        OPENAI_API_KEY: 'sk-unapproved-openai-key-123456', ANTHROPIC_API_KEY: 'sk-unapproved-anthropic-key-123456',
+        DEEPSEEK_API_KEY: 'sk-unapproved-deepseek-key-123456' } });
+    assert.equal(resolved.report.ok, true);
+    const child = resolved.environment;
+    assert.equal(child.NEWSCRAFT_AGENT_MODEL_PROVIDER, 'deepseek');
+    assert.equal(child.NEWSCRAFT_AGENT_MODEL, 'deepseek-flash');
+    assert.equal(child.DEEPSEEK_BASE_URL, 'https://api.deepseek.com/anthropic');
+    assert.equal(child.NEWSCRAFT_AGENT_MAX_COST_USD, '0.06');
+    assert.equal(child.NEWSCRAFT_AGENT_INPUT_PRICE_CEILING, '0.30');
+    assert.equal(child.NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING, '1.20');
+    assert.equal(child.NEWSCRAFT_AGENT_WEB_PROVIDER, 'public');
+    assert.equal(child.NEWSCRAFT_AGENT_CREDENTIAL_FILE, join(root, 'services/newsroom-harness/.env.local'));
+    for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY']) assert.equal(child[name], '');
+    assert.equal(child.UNRELATED_SECRET, undefined);
+    assert.ok(!JSON.stringify(resolved).includes(KEY));
+    assert.ok(!JSON.stringify(resolved).includes(NEW_DB));
+    assert.equal(Object.getOwnPropertyDescriptor(resolved, 'environment').enumerable, false);
+    assert.deepEqual(existingFiles(root), before);
+    assert.equal(readFileSync(join(root, '.env.agent-local'), 'utf8'), profile);
+});
+
+test('DeepSeek can be selected by a reviewed local profile without CLI overrides', t => {
+    const { root, env, put } = fixture(t);
+    put('services/newsroom-harness/.env.local', `DEEPSEEK_API_KEY=${KEY}\n`);
+    put('.env.agent-local', Object.entries(localDefaults(root, 'deepseek')).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n'));
+    const resolved = resolveLocalSetup({ root, env });
+    assert.equal(resolved.report.ok, true);
+    assert.equal(resolved.environment.NEWSCRAFT_AGENT_MODEL_PROVIDER, 'deepseek');
+    assert.equal(resolved.environment.NEWSCRAFT_AGENT_MAX_COST_USD, '0.06');
+});
+
+test('missing, wrong-provider, malformed and duplicate DeepSeek references block start without leaking', async t => {
+    const { root, env, put } = fixture(t);
+    for (const value of ['', `OPENAI_API_KEY=${KEY}\n`, `ANTHROPIC_API_KEY=${KEY}\n`,
+        'DEEPSEEK_API_KEY=malformed-secret\n', 'DEEPSEEK_API_KEY="sk-secret with spaces"\n',
+        `DEEPSEEK_API_KEY=${KEY}\nexport DEEPSEEK_API_KEY=${KEY}\n`]) {
+        put('services/newsroom-harness/.env.local', value);
+        const output = [];
+        const code = await runLocal('start', { root, provider: 'deepseek',
+            env: { ...env, DEEPSEEK_API_KEY: KEY, OPENAI_API_KEY: KEY, ANTHROPIC_API_KEY: KEY },
+            write: line => output.push(line), spawn() { assert.fail('must not spawn without selected file credential'); } });
+        assert.equal(code, 1);
+        assert.match(output.join('\n'), /BLOCKED: approved credential.*DEEPSEEK_API_KEY/);
+        for (const sensitive of [KEY, 'malformed-secret', 'sk-secret with spaces', NEW_DB]) assert.ok(!output.join('\n').includes(sensitive));
+    }
+});
+
+test('selected-key grammar rejects malformed declarations that permissive dotenv parsing accepts', async t => {
+    const { root, env, put } = fixture(t);
+    for (const [provider, name] of [['openai', 'OPENAI_API_KEY'], ['deepseek', 'DEEPSEEK_API_KEY']]) {
+        for (const value of [
+            `${name}=${KEY}\n${name}\n`, `${name}=${KEY}\nexport ${name}\n`,
+            `${name}="${KEY}\n`, `${name}='${KEY}\n`, `${name}=${KEY}"\n`,
+            `${name}="${KEY}'\n`, `${name}=${KEY}'embedded\n`,
+            `${name}="${KEY} with spaces"\n`, `${name}=${KEY} # comment\n`,
+            `${name}=${KEY}\x1fhidden\n`, `${name}=\n`, `${name}\n`,
+            `\ufeff${name}=${KEY}\n`, Buffer.concat([Buffer.from(`${name}=${KEY}`), Buffer.from([0xff])])
+        ]) {
+            put('services/newsroom-harness/.env.local', value);
+            const output = [];
+            assert.equal(await runLocal('start', { root, env, provider, write: line => output.push(line),
+                spawn() { assert.fail('malformed selected credentials must not start'); } }), 1);
+            assert.match(output.join('\n'), /BLOCKED: approved credential/);
+            assert.ok(!output.join('\n').includes(KEY));
+        }
+    }
+});
+
+test('selected-key grammar accepts exactly one plain or correctly quoted declaration', t => {
+    const { root, env, put } = fixture(t);
+    for (const [provider, name] of [['openai', 'OPENAI_API_KEY'], ['deepseek', 'DEEPSEEK_API_KEY']]) {
+        for (const value of [`${name}=${KEY}\n`, `${name}="${KEY}"\n`, `${name}='${KEY}'\n`,
+            `  export ${name} = "${KEY}"  \r\n`, `# ${name}=ignored-comment\n${name}=${KEY}\nUNRELATED_SECRET=ignored\n`]) {
+            put('services/newsroom-harness/.env.local', value);
+            assert.equal(checkLocal({ root, env, provider }).ok, true);
+        }
+    }
+});
+
+test('DeepSeek rejects retired models and unsupported profile endpoints', t => {
+    const { root, env, put } = fixture(t);
+    put('services/newsroom-harness/.env.local', `DEEPSEEK_API_KEY=${KEY}\n`);
+    const defaults = localDefaults(root, 'deepseek');
+    for (const override of [
+        { NEWSCRAFT_AGENT_MODEL: 'deepseek-chat' }, { NEWSCRAFT_AGENT_MODEL: 'deepseek-reasoner' },
+        { NEWSCRAFT_AGENT_MODEL: 'gpt-6-astra' }, { DEEPSEEK_BASE_URL: 'https://api.deepseek.com' },
+        { DEEPSEEK_BASE_URL: 'https://api.deepseek.com/anthropic/v1' },
+        { DEEPSEEK_BASE_URL: 'https://api.deepseek.com.attacker.test/anthropic' },
+        { DEEPSEEK_BASE_URL: 'http://api.deepseek.com/anthropic' }
+    ]) {
+        put('.env.agent-local', Object.entries({ ...defaults, ...override }).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n'));
+        const resolved = resolveLocalSetup({ root, env });
+        assert.equal(resolved.report.ok, false);
+        assert.equal(resolved.report.checks.find(item => item.name === 'local configuration').ok, false);
+    }
+});
+
+test('DeepSeek enforces its peak price floors and bounded acceptance reservation cap', t => {
+    const { root, env, put } = fixture(t);
+    put('services/newsroom-harness/.env.local', `DEEPSEEK_API_KEY=${KEY}\n`);
+    const defaults = localDefaults(root, 'deepseek');
+    assert.equal((120000 * 0.30 + 8 * 2048 * 1.20) / 1e6, 0.0556608);
+    for (const override of [
+        { NEWSCRAFT_AGENT_INPUT_PRICE_CEILING: '0.2999' }, { NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING: '1.1999' },
+        { NEWSCRAFT_AGENT_INPUT_PRICE_CEILING: 'NaN' }, { NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING: 'Infinity' },
+        { NEWSCRAFT_AGENT_MAX_COST_USD: '0.060001' }, { NEWSCRAFT_AGENT_MAX_COST_USD: '4.23' },
+        { NEWSCRAFT_AGENT_MAX_STEPS: '9' }, { NEWSCRAFT_AGENT_MAX_INPUT_TOKENS: '120001' },
+        { NEWSCRAFT_AGENT_MAX_OUTPUT_TOKENS: '2049' }, { NEWSCRAFT_AGENT_MAX_SECONDS: '181' }
+    ]) {
+        put('.env.agent-local', Object.entries({ ...defaults, ...override }).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n'));
+        const report = checkLocal({ root, env });
+        assert.equal(report.ok, false);
+        assert.equal(report.checks.find(item => item.name === 'budgets').ok, false);
+    }
+});
+
+test('DeepSeek CLI selection preserves database and credential-reference guards', async t => {
+    const { root, env, put } = fixture(t);
+    put('services/newsroom-harness/.env.local', `DEEPSEEK_API_KEY=${KEY}\n`);
+    const profile = readFileSync(join(root, '.env.agent-local'), 'utf8');
+    for (const target of [OLD_DB, TEST_DB, NEW_DB.replace('verify-full', 'require'), NEW_DB.replace(PROJECT_REF, 'otherprojectreference')]) {
+        assert.equal(await runLocal('start', { root, provider: 'deepseek', env: { ...env, NEWSCRAFT_SETUP_DATABASE_URL: target },
+            write() {}, spawn() { assert.fail('provider selection cannot bypass database guard'); } }), 1);
+    }
+    assert.equal(readFileSync(join(root, '.env.agent-local'), 'utf8'), profile);
+    put('.env.agent-local', profile.replace('NEWSCRAFT_AGENT_CREDENTIAL_FILE=', '#NEWSCRAFT_AGENT_CREDENTIAL_FILE=') + '\nNEWSCRAFT_AGENT_CREDENTIAL_FILE="/unapproved/credential"\n');
+    assert.equal(await runLocal('start', { root, provider: 'deepseek', env, write() {},
+        spawn() { assert.fail('provider selection cannot bypass credential-file guard'); } }), 1);
+});
+
+test('DeepSeek check stays passive and explicit start passes the selected bounded profile', async t => {
+    const { root, env, put } = fixture(t);
+    put('services/newsroom-harness/.env.local', `DEEPSEEK_API_KEY=${KEY}\n`);
+    const before = existingFiles(root), profile = readFileSync(join(root, '.env.agent-local'), 'utf8');
+    assert.equal(await runLocal('check', { root, env, provider: 'deepseek', write() {}, spawn() { assert.fail('check must be passive'); } }), 0);
+    let calls = 0;
+    assert.equal(await runLocal('start', { root, env, provider: 'deepseek', write() {}, spawn(command, args, options) {
+        calls++;
+        assert.equal(options.env.NEWSCRAFT_AGENT_MODEL_PROVIDER, 'deepseek');
+        assert.equal(options.env.NEWSCRAFT_AGENT_MODEL, 'deepseek-flash');
+        assert.equal(options.env.NEWSCRAFT_AGENT_MAX_COST_USD, '0.06');
+        assert.equal(options.env.DATABASE_URL, NEW_DB);
+        assert.equal(options.env.DEEPSEEK_API_KEY, '');
+        const child = new EventEmitter(); child.kill = () => {};
+        queueMicrotask(() => child.emit('exit', 0)); return child;
+    } }), 0);
+    assert.equal(calls, 1);
+    assert.deepEqual(existingFiles(root), before);
+    assert.equal(readFileSync(join(root, '.env.agent-local'), 'utf8'), profile);
+});
+
+test('provider CLI parsing is strict and unsupported selection is redacted', async t => {
+    const { root, env } = fixture(t);
+    assert.deepEqual(parseLocalArguments(['check', '--provider', 'deepseek']), { command: 'check', provider: 'deepseek' });
+    assert.deepEqual(parseLocalArguments(['start', '--provider', 'deepseek']), { command: 'start', provider: 'deepseek' });
+    assert.deepEqual(parseLocalArguments(['check']), { command: 'check', provider: undefined });
+    for (const args of [[], ['check', '--provider'], ['check', '--provider=deepseek'], ['check', '--provider', 'deepseek', '--start']]) {
+        assert.deepEqual(parseLocalArguments(args), { command: '', provider: undefined });
+    }
+    const output = [];
+    assert.equal(await runLocal('start', { root, env, provider: 'unapproved-secret-provider', write: line => output.push(line),
+        spawn() { assert.fail('must not spawn unsupported provider'); } }), 1);
+    assert.ok(!output.join('\n').includes('unapproved-secret-provider'));
+    assert.match(output.join('\n'), /BLOCKED: model provider/);
+    assert.equal(await runLocal('prepare', { root, env, provider: 'deepseek', write() {} }), 2);
 });

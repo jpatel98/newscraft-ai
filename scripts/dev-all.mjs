@@ -9,59 +9,67 @@ import { config as loadEnv } from 'dotenv';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const serviceRoot = resolve(root, 'services/hermes-chat');
-loadEnv({ path: resolve(root, '.env.local'), override: false, quiet: true });
-loadEnv({ path: resolve(serviceRoot, '.env'), override: false, quiet: true });
-
-const args = new Set(process.argv.slice(2));
-const agentOnly = args.has('--agent-only') || args.has('--hermes-only');
 const uiUrl = 'http://127.0.0.1:3001';
-const configuredAgentUrl = (process.env.NEWSCRAFT_AGENT_URL || process.env.NEWSCRAFT_HERMES_URL || 'http://127.0.0.1:8000').replace(
-	/\/$/,
-	''
-);
-const agentEndpoint = parseLocalAgentUrl(configuredAgentUrl);
-const agentUrl = agentEndpoint.origin;
-const allPorts = [
-	{ name: 'UI', port: 3001, healthUrl: `${uiUrl}/api/health`, kind: 'ui' },
-	{ name: 'Agent', port: agentEndpoint.port, healthUrl: `${agentUrl}/ready`, kind: 'agent' }
-];
-const activePorts = agentOnly ? allPorts.slice(1) : allPorts;
+let agentOnly, agentEndpoint, agentUrl;
 
-if (args.has('--stop')) {
-	stopRepoListeners(allPorts);
-	process.exit(0);
-}
+// Importing the credential selector for synthetic tests must not read local
+// configuration, inspect listeners or start processes.
+async function main() {
+	loadEnv({ path: resolve(root, '.env.local'), override: false, quiet: true });
+	loadEnv({ path: resolve(serviceRoot, '.env'), override: false, quiet: true });
 
-const listeners = getListeners(activePorts);
-const occupied = [...listeners.values()].flat();
+	const args = new Set(process.argv.slice(2));
+	agentOnly = args.has('--agent-only') || args.has('--hermes-only');
+	const configuredAgentUrl = (process.env.NEWSCRAFT_AGENT_URL || process.env.NEWSCRAFT_HERMES_URL || 'http://127.0.0.1:8000').replace(
+		/\/$/,
+		''
+	);
+	agentEndpoint = parseLocalAgentUrl(configuredAgentUrl);
+	agentUrl = agentEndpoint.origin;
+	const allPorts = [
+		{ name: 'UI', port: 3001, healthUrl: `${uiUrl}/api/health`, kind: 'ui' },
+		{ name: 'Agent', port: agentEndpoint.port, healthUrl: `${agentUrl}/ready`, kind: 'agent' }
+	];
+	const activePorts = agentOnly ? allPorts.slice(1) : allPorts;
 
-if (occupied.length > 0) {
-	const healthy = await Promise.all(activePorts.map((service) => isHealthy(service)));
-	const repoOwned = occupied.every((processInfo) => processInfo.command.includes(root));
-	if (repoOwned && healthy.every(Boolean)) {
-		console.log('NewsCraft dev is already running.');
-		if (!agentOnly) console.log(`UI:     ${uiUrl}`);
-		console.log(`Agent:  ${agentUrl}`);
-		console.log('Use Ctrl-C in the terminal that started it, or run `corepack pnpm dev:stop`.');
+	if (args.has('--stop')) {
+		stopRepoListeners(allPorts);
 		process.exit(0);
 	}
 
-	console.error('Cannot start NewsCraft dev because a required local port is occupied.');
-	for (const service of activePorts) {
-		for (const processInfo of listeners.get(service.port) ?? []) {
-			console.error(`- ${service.name} port ${service.port}: PID ${processInfo.pid}, ${processInfo.command}`);
+	const listeners = getListeners(activePorts);
+	const occupied = [...listeners.values()].flat();
+
+	if (occupied.length > 0) {
+		const healthy = await Promise.all(activePorts.map((service) => isHealthy(service)));
+		const repoOwned = occupied.every((processInfo) => processInfo.command.includes(root));
+		if (repoOwned && healthy.every(Boolean)) {
+			console.log('NewsCraft dev is already running.');
+			if (!agentOnly) console.log(`UI:     ${uiUrl}`);
+			console.log(`Agent:  ${agentUrl}`);
+			console.log('Use Ctrl-C in the terminal that started it, or run `corepack pnpm dev:stop`.');
+			process.exit(0);
 		}
+
+		console.error('Cannot start NewsCraft dev because a required local port is occupied.');
+		for (const service of activePorts) {
+			for (const processInfo of listeners.get(service.port) ?? []) {
+				console.error(`- ${service.name} port ${service.port}: PID ${processInfo.pid}, ${processInfo.command}`);
+			}
+		}
+		process.exit(1);
 	}
-	process.exit(1);
+
+	try {
+		configureAgentEnvironment();
+		await startDevServers();
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exit(1);
+	}
 }
 
-try {
-	configureAgentEnvironment();
-	await startDevServers();
-} catch (error) {
-	console.error(error instanceof Error ? error.message : String(error));
-	process.exit(1);
-}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
 
 function parseLocalAgentUrl(value) {
 	let parsed;
@@ -103,18 +111,34 @@ function configureAgentEnvironment() {
 	process.env.NEWSCRAFT_HERMES_TENANT_SECRET ||= process.env.NEWSCRAFT_AGENT_TENANT_SECRET;
 	process.env.NEWSCRAFT_AGENT_STATE_HOME ||= process.env.NEWSCRAFT_HERMES_HOME || '';
 	process.env.NEWSCRAFT_AGENT_WORKSPACE ||= process.env.NEWSCRAFT_HERMES_WORKSPACE || '';
-	// Read the approved existing OpenAI key in the service only. No secret file is copied
-	// and unrelated harness credentials are never sourced into the UI process.
-	const provider = process.env.NEWSCRAFT_AGENT_MODEL_PROVIDER || 'openai';
-	const needsOpenAI = provider === 'openai' || process.env.NEWSCRAFT_AGENT_WEB_PROVIDER === 'openai';
-	if (needsOpenAI) process.env.NEWSCRAFT_AGENT_CREDENTIAL_FILE ||= resolve(root, 'services/newsroom-harness/.env.local');
+	configureAgentProviderCredentials(process.env);
 	const required = ['NEWSCRAFT_AGENT_TENANT_SECRET', 'NEWSCRAFT_AGENT_STATE_HOME', 'NEWSCRAFT_AGENT_WORKSPACE']
 		.filter((name) => !(process.env[name] || '').trim());
 	if (required.length) throw new Error(`Agent local configuration is missing: ${required.join(', ')}`);
-	if (needsOpenAI && !process.env.OPENAI_API_KEY && !existsSync(process.env.NEWSCRAFT_AGENT_CREDENTIAL_FILE)) {
-		throw new Error('The approved OpenAI credential file is unavailable. Set NEWSCRAFT_AGENT_CREDENTIAL_FILE to its existing location.');
+}
+
+export function configureAgentProviderCredentials(environment, { rootDirectory = root, fileExists = existsSync } = {}) {
+	// The service reads only the selected provider's key. The launcher passes a
+	// file reference; unrelated harness credentials are never loaded into the UI.
+	const provider = environment.NEWSCRAFT_AGENT_MODEL_PROVIDER || 'openai';
+	const credentialNames = { openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', deepseek: 'DEEPSEEK_API_KEY' };
+	if (!Object.hasOwn(credentialNames, provider)) throw new Error('Unsupported agent model provider.');
+	// The worker's narrow credential-file reader supports only OpenAI/DeepSeek.
+	if (provider === 'anthropic' && !(environment.ANTHROPIC_API_KEY || '').trim()) {
+		throw new Error('The model adapter requires ANTHROPIC_API_KEY in the environment.');
 	}
-	if (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY) throw new Error('The Anthropic model adapter requires ANTHROPIC_API_KEY.');
+	const needsOpenAI = provider === 'openai' || environment.NEWSCRAFT_AGENT_WEB_PROVIDER === 'openai';
+	if (needsOpenAI || provider === 'deepseek') {
+		environment.NEWSCRAFT_AGENT_CREDENTIAL_FILE ||= resolve(rootDirectory, 'services/newsroom-harness/.env.local');
+	}
+	const required = new Set([credentialNames[provider]]);
+	if (needsOpenAI) required.add('OPENAI_API_KEY');
+	for (const name of required) {
+		if (!(environment[name] || '').trim() &&
+			!(environment.NEWSCRAFT_AGENT_CREDENTIAL_FILE && fileExists(environment.NEWSCRAFT_AGENT_CREDENTIAL_FILE))) {
+			throw new Error(`The model/search adapter requires ${name} or its existing NEWSCRAFT_AGENT_CREDENTIAL_FILE reference.`);
+		}
+	}
 }
 
 async function startDevServers() {

@@ -26,6 +26,7 @@ from .durable import (
     DurableRunWorker,
 )
 from .isolation import TENANT_HEADER, TenantIsolation, TenantIsolationError
+from .provider_policy import DEEPSEEK_MODELS
 from .retrieval import RetrievalConfig, retrieval_readiness
 
 logger = logging.getLogger(__name__)
@@ -152,8 +153,10 @@ def _public_host_setting(value: str) -> str | None:
     return value
 
 
-def _credential_from_file(path: str) -> str:
-    """Read only the approved OpenAI credential in memory; never source or copy its file."""
+def _credential_from_file(path: str, key_name: str = "OPENAI_API_KEY") -> str:
+    """Select one approved credential in memory; never source or copy its file."""
+    if key_name not in {"OPENAI_API_KEY", "DEEPSEEK_API_KEY"}:
+        raise RuntimeError("Unsupported credential-file key reference")
     candidate = Path(path).expanduser()
     if not candidate.is_absolute() or candidate.is_symlink() or not candidate.is_file():
         raise RuntimeError("NEWSCRAFT_AGENT_CREDENTIAL_FILE must reference a regular absolute file")
@@ -163,21 +166,22 @@ def _credential_from_file(path: str) -> str:
         lines = candidate.read_text().splitlines()
     except (OSError, UnicodeError):
         raise RuntimeError("NEWSCRAFT_AGENT_CREDENTIAL_FILE is not readable") from None
-    matches = []
+    matches: list[tuple[str, str]] = []
     for line in lines:
         line = line.strip()
         if line.startswith("export "):
             line = line[7:].lstrip()
         name, separator, value = line.partition("=")
-        if separator and name.strip() == "OPENAI_API_KEY":
-            value = value.strip()
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in {chr(34), chr(39)}:
-                value = value[1:-1]
-            if value and not any(character.isspace() for character in value):
-                matches.append(value)
+        if name.strip() == key_name:
+            matches.append((separator, value.strip()))
     if len(matches) != 1:
-        raise RuntimeError("NEWSCRAFT_AGENT_CREDENTIAL_FILE must contain exactly one usable OPENAI_API_KEY")
-    return matches[0]
+        raise RuntimeError(f"NEWSCRAFT_AGENT_CREDENTIAL_FILE must contain exactly one usable {key_name}")
+    separator, value = matches[0]
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {chr(34), chr(39)}:
+        value = value[1:-1]
+    if not separator or not value or any(character.isspace() or character in {chr(34), chr(39)} for character in value):
+        raise RuntimeError(f"NEWSCRAFT_AGENT_CREDENTIAL_FILE must contain exactly one usable {key_name}")
+    return value
 
 
 def settings_from_env() -> Settings:
@@ -195,21 +199,30 @@ def settings_from_env() -> Settings:
     if bool(run_api_url) != bool(run_api_token):
         raise RuntimeError("NEWSCRAFT_AGENT_RUN_API_URL and NEWSCRAFT_AGENT_RUN_API_TOKEN must be set together")
     provider = _setting("NEWSCRAFT_AGENT_MODEL_PROVIDER", "openai")
-    if provider not in {"openai", "anthropic"}:
-        raise RuntimeError("NEWSCRAFT_AGENT_MODEL_PROVIDER must be openai or anthropic")
-    credential_file = _setting("NEWSCRAFT_AGENT_CREDENTIAL_FILE")
-    model_key = _setting("OPENAI_API_KEY" if provider == "openai" else "ANTHROPIC_API_KEY")
-    if not model_key and provider == "openai" and credential_file:
-        model_key = _credential_from_file(credential_file)
-    if not model_key:
-        raise RuntimeError(("OPENAI_API_KEY" if provider == "openai" else "ANTHROPIC_API_KEY") + " is required for the configured model adapter")
-    model = _setting("NEWSCRAFT_AGENT_MODEL", "gpt-6-astra" if provider == "openai" else "")
+    if provider not in {"openai", "anthropic", "deepseek"}:
+        raise RuntimeError("NEWSCRAFT_AGENT_MODEL_PROVIDER must be openai, anthropic or deepseek")
+    key_name, base_url_name, default_base_url, default_model = {
+        "openai": ("OPENAI_API_KEY", "OPENAI_BASE_URL", "https://api.openai.com/v1", "gpt-6-astra"),
+        "anthropic": ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1", ""),
+        "deepseek": ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic", "deepseek-flash"),
+    }[provider]
+    model = _setting("NEWSCRAFT_AGENT_MODEL", default_model)
     if not model:
         raise RuntimeError("NEWSCRAFT_AGENT_MODEL is required for the selected provider")
+    # DeepSeek's compatible endpoint silently maps unknown model names. Reject
+    # aliases here so the dispatched model matches its explicit price ceiling.
+    if provider == "deepseek" and model not in DEEPSEEK_MODELS:
+        raise RuntimeError("DeepSeek NEWSCRAFT_AGENT_MODEL must be deepseek-flash or deepseek-v4-pro")
+    credential_file = _setting("NEWSCRAFT_AGENT_CREDENTIAL_FILE")
+    model_key = _setting(key_name)
+    if not model_key and provider in {"openai", "deepseek"} and credential_file:
+        model_key = _credential_from_file(credential_file, key_name)
+    if not model_key:
+        raise RuntimeError(key_name + " is required for the configured model adapter")
     web_provider = _setting("NEWSCRAFT_AGENT_WEB_PROVIDER", "public")
     if web_provider not in {"public", "openai"}:
         raise RuntimeError("NEWSCRAFT_AGENT_WEB_PROVIDER must be public or openai")
-    search_key = model_key if provider == "openai" else _setting("OPENAI_API_KEY")
+    search_key = (model_key if provider == "openai" else _setting("OPENAI_API_KEY")) if web_provider == "openai" else ""
     if web_provider == "openai" and not search_key and credential_file:
         search_key = _credential_from_file(credential_file)
     if web_provider == "openai" and not search_key:
@@ -248,7 +261,7 @@ def settings_from_env() -> Settings:
         workspace=workspace,
         model_provider=provider,
         model=model,
-        model_base_url=_http_endpoint(_setting("OPENAI_BASE_URL" if provider == "openai" else "ANTHROPIC_BASE_URL", "https://api.openai.com/v1" if provider == "openai" else "https://api.anthropic.com/v1"), "MODEL_BASE_URL"),
+        model_base_url=_http_endpoint(_setting(base_url_name, default_base_url), "MODEL_BASE_URL"),
         model_api_key=model_key,
         model_api_mode="responses" if provider == "openai" else "messages",
         max_iterations=_integer_setting("NEWSCRAFT_AGENT_MAX_STEPS", 12, 1, 90, "NEWSCRAFT_HERMES_MAX_ITERATIONS"),
