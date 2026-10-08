@@ -10,6 +10,19 @@ import {
 import type { CitationRecord } from '@newscraft/shared';
 
 describe('StreamEventState', () => {
+	it('restores public activity deterministically and deduplicates replayed explanations', () => {
+		const state = new StreamEventState();
+		state.apply('agent.plan', JSON.stringify({ source: 'model', steps: [{ id: 'read', label: 'Check official figures', status: 'running' }], reasoning: 'private' }));
+		state.apply('agent.plan', JSON.stringify({ source: 'model', steps: [{ id: 'read', label: 'Check official figures', status: 'ok' }] }));
+		const decision = JSON.stringify({ id: 'decision-1', summary: 'The official release provides the baseline.', stepId: 'read', reasoning: 'private' });
+		expect(state.apply('agent.decision', decision)).toEqual([{ decision: { id: 'decision-1', summary: 'The official release provides the baseline.', stepId: 'read' } }]);
+		expect(state.apply('agent.decision', decision)).toEqual([]);
+		expect(state.planSnapshot()?.steps[0].status).toBe('ok');
+		expect(state.decisionList()).toHaveLength(1);
+		expect(state.apply('agent.reasoning', JSON.stringify({ content: 'private' }))).toEqual([]);
+		expect(state.apply('agent.decision', JSON.stringify({ id: 'private', reasoning: 'private' }))).toEqual([]);
+	});
+
 	it('surfaces server-backed artifact.ready summaries for live cards', () => {
 		const state = new StreamEventState();
 		const [update] = state.apply('artifact.ready', JSON.stringify({

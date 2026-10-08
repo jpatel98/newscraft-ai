@@ -5,6 +5,7 @@ import {
 	listKnownHermesRunEvents,
 	reconcileExpiredHermesRun,
 	snapshotFromRun,
+	HERMES_RECOVERY_GRACE_MS,
 	HERMES_TERMINAL_STATES,
 	type HermesRunSubscriptionState
 } from '$lib/server/db/hermes-runs';
@@ -59,12 +60,12 @@ export async function hermesSubscriptionResponse({
 	if (
 		run.leaseExpiresAt !== null &&
 		run.leaseExpiresAt !== undefined &&
-		run.leaseExpiresAt <= Date.now() &&
+		run.leaseExpiresAt <= Date.now() - HERMES_RECOVERY_GRACE_MS &&
 		!HERMES_TERMINAL_STATES.includes(initialState as (typeof HERMES_TERMINAL_STATES)[number])
 	) {
-		// A browser reconnect is a useful bounded recovery opportunity for a
-		// worker that disappeared. The repository rechecks the lease under a row
-		// lock, so a concurrently renewed/replaced lease remains untouched.
+		// Leave expired work reclaimable while the worker recovery loop runs.
+		// Beyond that grace, the repository rechecks timing and lease identity
+		// under a row lock before settling the disappeared worker's run.
 		run = (await reconcileExpiredHermesRun(accountId, runId)) ?? run;
 	}
 	if (afterCursor > run.cursor) return json({ detail: 'cursor is ahead of the saved run' }, { status: 409 });
@@ -78,9 +79,15 @@ export async function hermesSubscriptionResponse({
 	});
 
 	const encoder = new TextEncoder();
+	// The Node adapter cancels the response reader on disconnect even after the
+	// incoming request has ended, when request.signal no longer reports it.
+	// This controller stops only this subscriber's polling, never the run.
+	const subscriptionAbort = new AbortController();
+	const signal = AbortSignal.any([request.signal, subscriptionAbort.signal]);
 	const stream = new ReadableStream<Uint8Array>({
 		async start(controller) {
 			const enqueue = (value: string) => {
+				if (signal.aborted) return;
 				try {
 					controller.enqueue(encoder.encode(value));
 				} catch {
@@ -89,15 +96,16 @@ export async function hermesSubscriptionResponse({
 			};
 			const waitForNextPoll = (delayMs: number) =>
 				new Promise<void>((resolve) => {
+					if (signal.aborted) { resolve(); return; }
 					const onAbort = () => {
 						clearTimeout(timer);
 						resolve();
 					};
 					const timer = setTimeout(() => {
-						request.signal.removeEventListener('abort', onAbort);
+						signal.removeEventListener('abort', onAbort);
 						resolve();
 					}, delayMs);
-					request.signal.addEventListener('abort', onAbort, { once: true });
+					signal.addEventListener('abort', onAbort, { once: true });
 				});
 
 			try {
@@ -124,7 +132,7 @@ export async function hermesSubscriptionResponse({
 				let cursor = afterCursor;
 				let runState: HermesRunSubscriptionState | null = run;
 				let pollMs = HERMES_SUBSCRIPTION_ACTIVE_POLL_MS;
-				while (!request.signal.aborted) {
+				while (!signal.aborted) {
 					if (!runState) break;
 					const events = await listKnownHermesRunEvents(accountId, runId, cursor, 500);
 					for (const event of events) {
@@ -140,20 +148,23 @@ export async function hermesSubscriptionResponse({
 						break;
 					}
 					await waitForNextPoll(pollMs);
-					if (request.signal.aborted) break;
+					if (signal.aborted) break;
 					runState = await getHermesRunSubscriptionState(accountId, runId);
 					pollMs = nextHermesSubscriptionPollMs(pollMs, events.length > 0);
 				}
 			} catch (cause) {
-				if (!request.signal.aborted) controller.error(cause);
+				if (!signal.aborted) controller.error(cause);
 				return;
+			} finally {
+				subscriptionAbort.abort();
 			}
 			try {
 				controller.close();
 			} catch {
 				/* already closed */
 			}
-		}
+		},
+		cancel() { subscriptionAbort.abort(); }
 	});
 
 	return new Response(stream, {

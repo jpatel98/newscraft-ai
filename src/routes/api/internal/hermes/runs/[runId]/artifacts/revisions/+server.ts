@@ -11,6 +11,8 @@ type RevisionBody = {
 	lease_token?: string;
 	title?: string;
 	spec?: unknown;
+	file_backed?: boolean;
+	publication_key?: string;
 };
 
 /** Server-issued artifact identity for the active durable Hermes run. */
@@ -45,7 +47,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			leaseToken,
 			title: body.title,
 			spec,
-			readyInline: spec.kind !== 'image'
+			readyInline: spec.kind !== 'image' && body.file_backed !== true,
+			publicationKey: body.publication_key
 		});
 		const artifact = await getArtifactDetail(accountId, created.family.conversationId, created.family.id, created.revision.id);
 		return json({

@@ -9,9 +9,9 @@ import {
 export { cancelDurableHermesRun, startDurableHermesRun };
 export type { DurableHermesRunStartRequest };
 
-/** Authenticate only the private Hermes service callback surface. */
+/** Authenticate the private owned-agent callback surface; preserve its wire header. */
 export function verifyHermesRunCallback(request: Request): boolean {
-	const expected = (env.NEWSCRAFT_HERMES_RUN_API_TOKEN || '').trim();
+	const expected = (env.NEWSCRAFT_AGENT_RUN_API_TOKEN || env.NEWSCRAFT_HERMES_RUN_API_TOKEN || '').trim();
 	if (!expected) return false;
 	const presented = request.headers.get('x-newscraft-hermes-token') || '';
 	const expectedBytes = Buffer.from(expected);
@@ -20,5 +20,5 @@ export function verifyHermesRunCallback(request: Request): boolean {
 }
 
 export function hermesRunCallbackConfigured(): boolean {
-	return Boolean((env.NEWSCRAFT_HERMES_RUN_API_TOKEN || '').trim());
+	return Boolean((env.NEWSCRAFT_AGENT_RUN_API_TOKEN || env.NEWSCRAFT_HERMES_RUN_API_TOKEN || '').trim());
 }

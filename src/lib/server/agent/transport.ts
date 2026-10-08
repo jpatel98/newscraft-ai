@@ -161,13 +161,13 @@ const NEWSCRAFT_SOURCE_WRITER = {
 } as const;
 
 function hermesUrl(): string {
-	const value = (env.NEWSCRAFT_HERMES_URL || '').trim().replace(/\/$/, '');
+	const value = (env.NEWSCRAFT_AGENT_URL || env.NEWSCRAFT_HERMES_URL || '').trim().replace(/\/$/, '');
 	if (!value) throw new Error('Hermes is not configured. Set NEWSCRAFT_HERMES_URL.');
 	return value;
 }
 
 function hermesToken(): string {
-	const value = (env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
+	const value = (env.NEWSCRAFT_AGENT_API_TOKEN || env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
 	if (!value) {
 		throw new Error('Hermes authentication is not configured. Set NEWSCRAFT_HERMES_API_TOKEN.');
 	}
@@ -175,7 +175,7 @@ function hermesToken(): string {
 }
 
 function hermesTenantSecret(): string {
-	const value = (env.NEWSCRAFT_HERMES_TENANT_SECRET || '').trim();
+	const value = (env.NEWSCRAFT_AGENT_TENANT_SECRET || env.NEWSCRAFT_HERMES_TENANT_SECRET || '').trim();
 	if (!value) {
 		throw new Error(
 			'Hermes tenant isolation is not configured. Set NEWSCRAFT_HERMES_TENANT_SECRET.'
@@ -1147,7 +1147,7 @@ function processInstanceId(value: unknown): string | null {
 }
 
 export async function gatewayHealth(): Promise<GatewayHealth> {
-	const configuredUrl = (env.NEWSCRAFT_HERMES_URL || '').trim().replace(/\/$/, '');
+	const configuredUrl = (env.NEWSCRAFT_AGENT_URL || env.NEWSCRAFT_HERMES_URL || '').trim().replace(/\/$/, '');
 	if (!configuredUrl) {
 		return {
 			ok: false,
@@ -1162,7 +1162,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			url: ''
 		};
 	}
-	const token = (env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
+	const token = (env.NEWSCRAFT_AGENT_API_TOKEN || env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
 	if (!token) {
 		return {
 			ok: false,

@@ -1,5 +1,9 @@
 import {
 	isCitationUrl,
+	normalizePublicAgentPlan,
+	normalizePublicAgentDecision,
+	type PublicAgentPlan,
+	type PublicAgentDecision,
 	type CitationRecord,
 	type CitationSourceType,
 	type RetrievalProvenance
@@ -11,6 +15,8 @@ interface ToolMetadataEnvelope {
 	tools: StreamToolCall[];
 	sources: PersistedSource[];
 	citations?: CitationRecord[];
+	plan?: PublicAgentPlan;
+	decisions?: PublicAgentDecision[];
 }
 
 export interface AnswerProvenanceBundle {
@@ -67,6 +73,8 @@ export interface ParsedToolMetadata {
 	tools: StreamToolCall[];
 	sources: PersistedSource[];
 	citations: CitationRecord[];
+	plan?: PublicAgentPlan;
+	decisions?: PublicAgentDecision[];
 }
 
 export interface DisplaySourceReceipt {
@@ -431,6 +439,8 @@ export function parseToolMetadata(raw: string | null | undefined): ParsedToolMet
 
 		const envelope = objectValue(parsed);
 		if (!envelope || envelope.version !== 1) return { tools: [], sources: [], citations: [] };
+		const plan = normalizePublicAgentPlan(envelope.plan);
+		const decisions = normalizeActivityDecisions(envelope.decisions);
 		return {
 			tools: Array.isArray(envelope.tools)
 				? envelope.tools
@@ -446,7 +456,9 @@ export function parseToolMetadata(raw: string | null | undefined): ParsedToolMet
 				? envelope.citations
 						.map(normalizeCitation)
 						.filter((citation): citation is CitationRecord => Boolean(citation))
-				: []
+				: [],
+			...(plan ? { plan } : {}),
+			...(decisions.length ? { decisions } : {})
 		};
 	} catch {
 		return { tools: [], sources: [], citations: [] };
@@ -456,10 +468,24 @@ export function parseToolMetadata(raw: string | null | undefined): ParsedToolMet
 export function serializeToolMetadata(
 	tools: StreamToolCall[],
 	sources: PersistedSource[],
-	citations: CitationRecord[] = []
+	citations: CitationRecord[] = [],
+	activity: { plan?: PublicAgentPlan | null; decisions?: PublicAgentDecision[] } = {}
 ): string | null {
-	if (tools.length === 0 && sources.length === 0 && citations.length === 0) return null;
-	return JSON.stringify({ version: 1, tools, sources, citations } satisfies ToolMetadataEnvelope);
+	const plan = normalizePublicAgentPlan(activity.plan);
+	const decisions = normalizeActivityDecisions(activity.decisions);
+	if (tools.length === 0 && sources.length === 0 && citations.length === 0 && !plan && !decisions.length) return null;
+	return JSON.stringify({ version: 1, tools, sources, citations,
+		...(plan ? { plan } : {}), ...(decisions.length ? { decisions } : {}) } satisfies ToolMetadataEnvelope);
+}
+
+function normalizeActivityDecisions(value: unknown): PublicAgentDecision[] {
+	if (!Array.isArray(value)) return [];
+	const decisions = new Map<string, PublicAgentDecision>();
+	for (const raw of value.slice(-50)) {
+		const decision = normalizePublicAgentDecision(raw);
+		if (decision) decisions.set(decision.id, decision);
+	}
+	return [...decisions.values()];
 }
 
 export function buildAnswerProvenanceBundle(input: BuildAnswerProvenanceInput): AnswerProvenanceBundle {
@@ -547,6 +573,8 @@ export function mergeToolMetadata(
 	}
 
 	return {
+		...(existing.plan ? { plan: existing.plan } : {}),
+		...(existing.decisions?.length ? { decisions: existing.decisions } : {}),
 		tools: Array.from(toolsById.values()),
 		sources: Array.from(sourcesByUrl.values()),
 		citations: Array.from(citationsByRecord.values()).sort(

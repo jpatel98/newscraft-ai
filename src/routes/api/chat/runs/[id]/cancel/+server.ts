@@ -35,8 +35,8 @@ export const POST: RequestHandler = async ({ locals, params }) => {
 				run = await finalizeHermesRunCancellation(locals.user.id, runId);
 			}
 		} catch {
-			// The durable state remains cancel_requested. No new worker can claim
-			// it; the caller can retry cancellation when Hermes is reachable.
+			// The durable state remains cancel_requested. A recovering worker can
+			// claim it for cleanup, but dispatch checkpoints reject new work.
 		}
 	}
 	if (!wasTerminal && run.state === 'cancelled') {
