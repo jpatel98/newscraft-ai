@@ -1,6 +1,6 @@
 version = 1
 revision = 3
-requires-python = ">=3.11"
+requires-python = ">=3.11, <3.12"
 resolution-markers = [
     "python_full_version >= '3.13'",
     "python_full_version < '3.13'",
@@ -471,7 +471,7 @@ wheels = [
 ]
 
 [[package]]
-name = "newscraft-hermes-chat"
+name = "newscraft-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

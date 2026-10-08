@@ -1,29 +1,22 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 import os
 import sys
-import asyncio
-import threading
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from hermes_chat.contracts import CRON_TOOLSET, HERMES_TOOLSET
-from hermes_chat.service import (
-    _browser_capability_ready,
-    _enable_tenant_cron_tool,
-    _install_iteration_limit,
-    _install_public_host_alias,
-    _runtime_config,
-    _set_iteration_limit,
-    _startup_tool_names,
-    _tool_provider_readiness,
-    create_app,
-    prepare_runtime,
-    settings_from_env,
-)
+from fastapi.testclient import TestClient
+import httpx
+
+from hermes_chat import service as service_module
+from hermes_chat.service import Settings, create_app, prepare_runtime, settings_from_env, _durable_recovery_loop
 from hermes_chat.durable import (
     TEXT_BATCH_FLUSH_INTERVAL_SECONDS,
     TEXT_BATCH_MAX_CHARS,
@@ -33,835 +26,419 @@ from hermes_chat.durable import (
     normalized_events,
 )
 from hermes_chat.isolation import TenantIsolation, TenantRun
-from hermes_chat.service import _register_artifact_tool
 
 
-class HermesChatServiceTests(unittest.TestCase):
+class OwnedAgentServiceTests(unittest.TestCase):
     def _environment(self, root: str) -> dict[str, str]:
         return {
-            "HERMES_AGUI_HOST": "127.0.0.1",
-            "HERMES_AGUI_PORT": "8768",
-            "HERMES_AGUI_SESSION_TOKEN": "a" * 32,
-            "NEWSCRAFT_HERMES_HOME": str(Path(root) / "home"),
-            "NEWSCRAFT_HERMES_WORKSPACE": str(Path(root) / "workspace"),
-            "NEWSCRAFT_HERMES_MODEL_PROVIDER": "local-test",
-            "NEWSCRAFT_HERMES_MODEL": "test-model",
-            "NEWSCRAFT_HERMES_MODEL_BASE_URL": "http://127.0.0.1:8767/v1",
-            "NEWSCRAFT_HERMES_MODEL_API_KEY": "local-test-key",
+            "NEWSCRAFT_AGENT_HOST": "127.0.0.1",
+            "NEWSCRAFT_AGENT_PORT": "8768",
+            "NEWSCRAFT_AGENT_SESSION_TOKEN": "a" * 32,
+            "NEWSCRAFT_AGENT_STATE_HOME": str(Path(root) / "state"),
+            "NEWSCRAFT_AGENT_WORKSPACE": str(Path(root) / "workspace"),
+            "NEWSCRAFT_AGENT_MODEL": "fixture-model",
+            "NEWSCRAFT_AGENT_INPUT_PRICE_CEILING": "10",
+            "NEWSCRAFT_AGENT_OUTPUT_PRICE_CEILING": "60",
+            "OPENAI_BASE_URL": "http://127.0.0.1:8767/v1",
+            "OPENAI_API_KEY": "fixture-key",
+            "NEWSCRAFT_AGENT_RUN_API_URL": "https://newscraft.test/api/internal/hermes/runs",
+            "NEWSCRAFT_AGENT_RUN_API_TOKEN": "fixture-run-token",
         }
 
-    def test_requires_one_explicit_model_endpoint(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
-            os.environ, self._environment(temp_dir), clear=True
-        ):
-            settings = settings_from_env()
+    def _settings(self, root: str, **environment: str) -> Settings:
+        with patch.dict(os.environ, {**self._environment(root), **environment}, clear=True):
+            return settings_from_env()
 
-        self.assertEqual(settings.model_provider, "local-test")
-        self.assertEqual(settings.model, "test-model")
-        self.assertEqual(settings.model_base_url, "http://127.0.0.1:8767/v1")
-        self.assertEqual(settings.max_iterations, 25)
-        self.assertEqual(settings.max_active_runs, 4)
-        self.assertEqual(settings.max_active_runs_per_tenant, 2)
-        self.assertEqual(settings.max_queued_runs, 16)
-        self.assertEqual(settings.max_queued_runs_per_tenant, 4)
-        self.assertEqual(settings.web_provider, "newscraft-local")
-        self.assertEqual(settings.browser_provider, "local")
+    def test_executor_requires_an_explicit_immutable_image_and_socket(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertIsNone(self._settings(root).executor)
+            image = "sha256:" + "a" * 64
+            settings = self._settings(root, NEWSCRAFT_EXECUTOR_IMAGE=image, NEWSCRAFT_EXECUTOR_SOCKET="/fixture/private/docker.sock")
+            self.assertEqual(settings.executor.image, image)
+            self.assertEqual(settings.executor.state_root, settings.hermes_home / "computer")
+            with self.assertRaises((ValueError, RuntimeError)):
+                self._settings(root, NEWSCRAFT_EXECUTOR_IMAGE="python:latest", NEWSCRAFT_EXECUTOR_SOCKET="/fixture/private/docker.sock")
+            with self.assertRaises(RuntimeError):
+                self._settings(root, NEWSCRAFT_EXECUTOR_IMAGE=image)
+            with self.assertRaises(RuntimeError):
+                self._settings(root, NEWSCRAFT_EXECUTOR_SOCKET="/fixture/private/docker.sock")
 
-    def test_requires_provider_keys_for_exa_and_browser_use(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            environment = self._environment(temp_dir)
-            environment.update(
-                {
-                    "NEWSCRAFT_HERMES_WEB_PROVIDER": "exa",
-                    "NEWSCRAFT_HERMES_BROWSER_PROVIDER": "browser-use",
-                }
-            )
-            with patch.dict(os.environ, environment, clear=True):
-                with self.assertRaisesRegex(RuntimeError, "EXA_API_KEY"):
-                    settings_from_env()
+    def _app(self, root: str, configured: bool = True, capability_ready: bool = True):
+        settings = self._settings(root)
+        worker = SimpleNamespace(
+            configured=configured,
+            start=AsyncMock(return_value={"accepted": True, "run_id": "run-1", "state": "queued"}),
+            cancel=AsyncMock(return_value={"accepted": True, "run_id": "run-1", "state": "cancel_requested"}),
+            recover=AsyncMock(), close=AsyncMock(), publish_artifact_from_tool=AsyncMock(), runtime_checkpoint=AsyncMock(),
+            capacity_snapshot=lambda: {"active_runs": 0, "queued_runs": 0, "limits": {}},
+        )
+        runner = SimpleNamespace(readiness=AsyncMock(return_value={
+            "configured": capability_ready, "tools": ["plan", "decision", "publish_markdown", "publish_csv", "web_search", "verify_this_lead", "web_extract", "record_newscraft_source"],
+            "terminal": False, "files": capability_ready, "browser": False, "sandbox": "unconfigured",
+        }))
+        runtime_module = ModuleType("hermes_chat.portable")
+        runtime_module.PortableAgentRunner = Mock(return_value=runner)
+        with patch.dict(sys.modules, {"hermes_chat.portable": runtime_module}), \
+            patch.object(service_module, "DurableRunWorker", return_value=worker), \
+            patch.object(service_module, "retrieval_readiness", return_value={"configured": True}):
+            app = create_app(settings)
+        return app, worker, runner, settings
 
-            environment["EXA_API_KEY"] = "exa-test-key"
-            with patch.dict(os.environ, environment, clear=True):
-                with self.assertRaisesRegex(RuntimeError, "BROWSER_USE_API_KEY"):
-                    settings_from_env()
+    def test_browser_configuration_requires_immutable_image_and_reviewed_profile_together(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = {"NEWSCRAFT_EXECUTOR_IMAGE": "sha256:" + "a" * 64,
+                "NEWSCRAFT_EXECUTOR_SOCKET": "/fixture/docker.sock",
+                "NEWSCRAFT_BROWSER_IMAGE": "sha256:" + "b" * 64,
+                "NEWSCRAFT_BROWSER_SECCOMP_PROFILE": "/fixture/reviewed.json",
+                "NEWSCRAFT_BROWSER_SECCOMP_SHA256": "c" * 64}
+            settings = self._settings(root, **env)
+            self.assertEqual(settings.browser_provider, "rootless-oci")
+            for name in env:
+                partial = dict(env)
+                partial.pop(name)
+                with self.subTest(name=name), self.assertRaises((ValueError, RuntimeError)):
+                    self._settings(root, **partial)
 
-            environment["BROWSER_USE_API_KEY"] = "browser-use-test-key"
-            with patch.dict(os.environ, environment, clear=True):
-                settings = settings_from_env()
+    def test_authenticated_readiness_reports_configured_browser_without_claiming_live_verification(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, _, runner, _ = self._app(root)
+            runner.readiness.return_value.update(browser=True, terminal=True, workspaceFiles=True)
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                private = client.get("/ready", headers=self._headers()).json()
+                public = client.get("/ready").json()
+            self.assertEqual(private["toolProviders"]["browser"], {"configured": True, "verified": False})
+            self.assertTrue(private["capabilities"]["browser"])
+            self.assertFalse(private["runtime"]["accessVerified"])
+            self.assertNotIn("toolProviders", public)
 
-        self.assertEqual(settings.web_provider, "exa")
-        self.assertEqual(settings.browser_provider, "browser-use")
+    def _headers(self, tenant: str = "tenant-key-123") -> dict[str, str]:
+        return {"host": "127.0.0.1:8768", "authorization": f"Bearer {'a' * 32}", "x-newscraft-tenant-key": tenant}
 
-    def test_accepts_a_bounded_iteration_setting(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            environment = self._environment(temp_dir)
-            environment["NEWSCRAFT_HERMES_MAX_ITERATIONS"] = "12"
-            with patch.dict(os.environ, environment, clear=True):
-                settings = settings_from_env()
-
+    def test_explicit_owned_openai_endpoint_and_budgets(self):
+        with tempfile.TemporaryDirectory() as root:
+            settings = self._settings(root)
+        self.assertEqual(settings.model_provider, "openai")
+        self.assertEqual(settings.model_api_mode, "responses")
+        self.assertEqual(settings.model, "fixture-model")
         self.assertEqual(settings.max_iterations, 12)
+        self.assertEqual(settings.max_seconds, 180)
+        self.assertEqual(settings.max_input_tokens, 120000)
+        self.assertEqual(settings.max_output_tokens, 4096)
+        self.assertEqual(settings.max_cost_usd, 2)
+        self.assertEqual(settings.browser_provider, "disabled")
 
-    def test_accepts_one_explicit_public_proxy_host(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            environment = self._environment(temp_dir)
-            environment["NEWSCRAFT_HERMES_PUBLIC_HOST"] = "hermes.example.com"
-            with patch.dict(os.environ, environment, clear=True):
-                settings = settings_from_env()
-
-        self.assertEqual(settings.public_host, "hermes.example.com")
-
-    def test_rejects_a_public_proxy_url(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            environment = self._environment(temp_dir)
-            environment["NEWSCRAFT_HERMES_PUBLIC_HOST"] = "https://hermes.example.com"
-            with patch.dict(os.environ, environment, clear=True):
-                with self.assertRaisesRegex(RuntimeError, "must be one hostname"):
-                    settings_from_env()
-
-    def test_public_host_alias_keeps_the_exact_host_guard(self) -> None:
-        from fastapi import FastAPI, Request
-        from fastapi.responses import JSONResponse
-        from fastapi.testclient import TestClient
-        from agui_adapter.auth import host_accepted
-
-        app = FastAPI()
-
-        @app.middleware("http")
-        async def loopback_host_guard(request: Request, call_next):
-            if not host_accepted(request.headers.get("host", ""), "127.0.0.1"):
-                return JSONResponse(status_code=400, content={"detail": "Invalid Host header."})
-            return await call_next(request)
-
-        @app.get("/")
-        async def root():
-            return {"ok": True}
-
-        _install_public_host_alias(app, "127.0.0.1", "hermes.example.com")
-
-        with TestClient(app) as client:
-            self.assertEqual(
-                client.get("/", headers={"host": "hermes.example.com"}).status_code,
-                200,
-            )
-            self.assertEqual(
-                client.get("/", headers={"host": "attacker.example"}).status_code,
-                400,
-            )
-
-    def test_durable_routes_accept_http_requests_and_forward_bindings(self) -> None:
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-        from hermes_chat import service as service_module
-
+    def test_secret_fields_are_not_in_settings_repr(self):
         with tempfile.TemporaryDirectory() as root:
-            settings = SimpleNamespace(
-                host="127.0.0.1",
-                port=8768,
-                session_token="s" * 32,
-                public_host=None,
-                hermes_home=Path(root) / "home",
-                workspace=Path(root) / "workspace",
-                model_provider="test-provider",
-                model="test-model",
-                model_base_url="http://127.0.0.1:8767/v1",
-                model_api_key="test-key",
-                model_api_mode=None,
-                max_iterations=25,
-                web_provider="newscraft-local",
-                browser_provider="local",
-                retrieval=SimpleNamespace(),
-                run_api_url="https://newscraft.test/api/internal/hermes/runs",
-                run_api_token="run-token",
-                internal_agui_url="http://127.0.0.1:8768/",
-            )
-            worker = SimpleNamespace(
-                configured=True,
-                start=AsyncMock(return_value={"accepted": True, "run_id": "run-1", "state": "queued"}),
-                cancel=AsyncMock(return_value={"accepted": True, "run_id": "run-1", "state": "cancel_requested"}),
-                recover=AsyncMock(),
-                close=AsyncMock(),
-            )
-            import agui_adapter.server as agui_server
-            import hermes_cli.plugins as hermes_plugins
-            import model_tools
+            settings = self._settings(root)
+        self.assertNotIn("fixture-key", repr(settings))
+        self.assertNotIn("fixture-run-token", repr(settings))
+        self.assertNotIn("a" * 32, repr(settings))
 
-            with patch.object(service_module, "prepare_runtime"), \
-                patch.object(service_module, "_disable_shared_delegation_recovery"), \
-                patch.object(service_module, "_standard_auxiliary_tasks", return_value=set()), \
-                patch.object(service_module, "_write_runtime_config", return_value={}), \
-                patch.object(service_module, "_enable_tenant_cron_tool"), \
-                patch.object(service_module, "_install_tenant_runtime"), \
-                patch.object(service_module, "_install_iteration_limit"), \
-                patch.object(service_module, "_install_public_host_alias"), \
-                patch.object(service_module, "_startup_tool_names", return_value=["web_extract", "cronjob"]), \
-                patch.object(service_module, "_browser_capability_ready", return_value=True), \
-                patch.object(service_module, "retrieval_readiness", return_value={"configured": True}), \
-                patch.object(service_module, "_tool_provider_readiness", return_value={
-                    "webSearch": {"configured": True},
-                    "webExtract": {"configured": True},
-                    "leadVerification": {"configured": True},
-                    "browser": {"configured": True},
-                }), \
-                patch.object(service_module, "DurableRunWorker", return_value=worker), \
-                patch.object(hermes_plugins, "discover_plugins"), \
-                patch.object(hermes_plugins, "get_plugin_auxiliary_tasks", return_value=[]), \
-                patch.object(agui_server, "create_app", return_value=FastAPI()), \
-                patch.object(model_tools, "get_tool_definitions", return_value=[]):
-                app = create_app(settings)
-
-            headers = {
-                "authorization": f"Bearer {settings.session_token}",
-                "x-newscraft-tenant-key": "tenant-key-1",
-            }
-            with TestClient(app) as client:
-                start = client.post(
-                    "/v1/runs/start",
-                    headers=headers,
-                    json={
-                        "run_id": "run-1",
-                        "account_id": "account-1",
-                        "tenant_key": "tenant-key-1",
-                        "input": {"runId": "run-1"},
-                    },
-                )
-                cancel = client.post(
-                    "/v1/runs/run-1/cancel",
-                    headers=headers,
-                    json={
-                        "run_id": "run-1",
-                        "account_id": "account-1",
-                        "tenant_key": "tenant-key-1",
-                    },
-                )
-
-            self.assertEqual(start.status_code, 202)
-            self.assertEqual(cancel.status_code, 202)
-            worker.start.assert_awaited_once()
-            worker.cancel.assert_awaited_once_with("run-1", "account-1", "tenant-key-1")
-
-    def test_ready_is_false_when_durable_callback_is_not_configured(self) -> None:
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-        from hermes_chat import service as service_module
-
+    def test_reads_only_selected_openai_key_from_existing_file_without_copy(self):
         with tempfile.TemporaryDirectory() as root:
-            settings = SimpleNamespace(
-                host="127.0.0.1",
-                port=8768,
-                session_token="s" * 32,
-                public_host=None,
-                hermes_home=Path(root) / "home",
-                workspace=Path(root) / "workspace",
-                model_provider="test-provider",
-                model="test-model",
-                model_base_url="http://127.0.0.1:8767/v1",
-                model_api_key="test-key",
-                model_api_mode=None,
-                max_iterations=25,
-                web_provider="newscraft-local",
-                browser_provider="local",
-                retrieval=SimpleNamespace(),
-                run_api_url=None,
-                run_api_token=None,
-                internal_agui_url="http://127.0.0.1:8768/",
-            )
-            worker = SimpleNamespace(
-                configured=False,
-                start=AsyncMock(),
-                cancel=AsyncMock(),
-                recover=AsyncMock(),
-                close=AsyncMock(),
-            )
-            import agui_adapter.server as agui_server
-            import hermes_cli.plugins as hermes_plugins
-            import model_tools
+            source = Path(root) / ".env.local"
+            content = 'UNRELATED_SECRET=do-not-load\nexport OPENAI_API_KEY="fixture-existing-key"\n'
+            source.write_text(content)
+            settings = self._settings(root, OPENAI_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE=str(source))
+            self.assertEqual(settings.model_api_key, "fixture-existing-key")
+            self.assertEqual(source.read_text(), content)
+            self.assertFalse(settings.hermes_home.exists())
+            self.assertFalse(settings.workspace.exists())
+            self.assertNotIn("UNRELATED_SECRET", os.environ)
 
-            with patch.object(service_module, "prepare_runtime"), \
-                patch.object(service_module, "_disable_shared_delegation_recovery"), \
-                patch.object(service_module, "_standard_auxiliary_tasks", return_value=set()), \
-                patch.object(service_module, "_write_runtime_config", return_value={}), \
-                patch.object(service_module, "_enable_tenant_cron_tool"), \
-                patch.object(service_module, "_install_tenant_runtime"), \
-                patch.object(service_module, "_install_iteration_limit"), \
-                patch.object(service_module, "_install_public_host_alias"), \
-                patch.object(service_module, "_startup_tool_names", return_value=["web_extract", "cronjob"]), \
-                patch.object(service_module, "_browser_capability_ready", return_value=True), \
-                patch.object(service_module, "retrieval_readiness", return_value={"configured": True}), \
-                patch.object(service_module, "_tool_provider_readiness", return_value={
-                    "webSearch": {"configured": True},
-                    "webExtract": {"configured": True},
-                    "leadVerification": {"configured": True},
-                    "browser": {"configured": True},
-                }), \
-                patch.object(service_module, "DurableRunWorker", return_value=worker), \
-                patch.object(hermes_plugins, "discover_plugins"), \
-                patch.object(hermes_plugins, "get_plugin_auxiliary_tasks", return_value=[]), \
-                patch.object(agui_server, "create_app", return_value=FastAPI()), \
-                patch.object(model_tools, "get_tool_definitions", return_value=[]):
-                app = create_app(settings)
+    def test_credential_file_rejects_symlink_duplicates_and_missing_key(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / ".env.local"
+            source.write_text("OPENAI_API_KEY=one\nOPENAI_API_KEY=two\n")
+            with self.assertRaisesRegex(RuntimeError, "exactly one"):
+                self._settings(root, OPENAI_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE=str(source))
+            link = Path(root) / "link"
+            link.symlink_to(source)
+            with self.assertRaisesRegex(RuntimeError, "regular absolute"):
+                self._settings(root, OPENAI_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE=str(link))
+            source.write_text("OTHER_KEY=fixture-value\n")
+            with self.assertRaisesRegex(RuntimeError, "exactly one"):
+                self._settings(root, OPENAI_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE=str(source))
 
-            with TestClient(app) as client:
-                public = client.get("/ready")
-                response = client.get(
-                    "/ready",
-                    headers={"authorization": f"Bearer {settings.session_token}"},
-                )
+    def test_defaults_to_documented_direct_model_and_explicit_adapter(self):
+        with tempfile.TemporaryDirectory() as root:
+            settings = self._settings(root, NEWSCRAFT_AGENT_MODEL="")
+            self.assertEqual(settings.model, "gpt-6-astra")
+            settings = self._settings(root, NEWSCRAFT_AGENT_MODEL="fixture-model")
+            self.assertEqual(settings.model, "fixture-model")
 
-            self.assertEqual(public.status_code, 503)
-            self.assertEqual(
-                public.json(),
-                {
-                    "ok": False,
-                    "state": "unavailable",
-                    "service": "newscraft-hermes-chat",
-                },
-            )
-            body = response.json()
+    def test_anthropic_public_search_needs_no_openai_credential(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(service_module, "_credential_from_file", side_effect=AssertionError("must not read")):
+                settings = self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="anthropic", ANTHROPIC_API_KEY="fixture-anthropic",
+                    OPENAI_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE="/not-used", NEWSCRAFT_AGENT_WEB_PROVIDER="public")
+            self.assertEqual(settings.model_api_key, "fixture-anthropic")
+            self.assertEqual(settings.model_api_mode, "messages")
+            self.assertEqual(settings.search_api_key, "")
+
+    def test_anthropic_optional_openai_search_reads_only_the_approved_reference(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / "synthetic.env"
+            source.write_text("OPENAI_API_KEY=fixture-search\nUNRELATED_KEY=ignored\n")
+            settings = self._settings(root, NEWSCRAFT_AGENT_MODEL_PROVIDER="anthropic", ANTHROPIC_API_KEY="fixture-anthropic",
+                OPENAI_API_KEY="", NEWSCRAFT_AGENT_CREDENTIAL_FILE=str(source), NEWSCRAFT_AGENT_WEB_PROVIDER="openai",
+                NEWSCRAFT_AGENT_SEARCH_CALL_PRICE_CEILING="0.25")
+            self.assertEqual(settings.model_api_key, "fixture-anthropic")
+            self.assertEqual(settings.search_api_key, "fixture-search")
+            self.assertEqual(settings.search_cost_ceiling_usd, 0.25)
+
+    def test_environment_key_has_priority_without_reading_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            settings = self._settings(root, NEWSCRAFT_AGENT_CREDENTIAL_FILE="/missing/file")
+        self.assertEqual(settings.model_api_key, "fixture-key")
+
+    def test_duplicate_authorization_is_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, *_ = self._app(root)
+            headers = [*self._headers().items(), ("authorization", "Bearer " + "a" * 32)]
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                self.assertEqual(client.post("/v1/runs/start", json={"tenant_key": "tenant-key-123"}, headers=headers).status_code, 401)
+            worker.start.assert_not_awaited()
+
+    def test_legacy_model_key_does_not_silently_select_upstream_provider(self):
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY"):
+                self._settings(root, OPENAI_API_KEY="", NEWSCRAFT_HERMES_MODEL_API_KEY="legacy-key")
+
+    def test_rejects_unsafe_endpoint_and_unbounded_budget(self):
+        with tempfile.TemporaryDirectory() as root:
+            for environment in (
+                {"OPENAI_BASE_URL": "http://remote.example/v1"},
+                {"OPENAI_BASE_URL": "https://user:secret@remote.example/v1"},
+                {"NEWSCRAFT_AGENT_MAX_STEPS": "0"},
+                {"NEWSCRAFT_AGENT_MAX_COST_USD": "NaN"},
+                {"NEWSCRAFT_AGENT_MAX_SECONDS": "99999"},
+                {"NEWSCRAFT_AGENT_MODEL_PROVIDER": "other"},
+                {"NEWSCRAFT_AGENT_BROWSER_PROVIDER": "browser-use"},
+            ):
+                with self.subTest(environment=environment), self.assertRaises(RuntimeError):
+                    self._settings(root, **environment)
+
+    def test_rejects_overlapping_roots_and_symlink(self):
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaisesRegex(RuntimeError, "separate"):
+                self._settings(root, NEWSCRAFT_AGENT_STATE_HOME=str(Path(root) / "workspace"))
+            target = Path(root) / "real"
+            target.mkdir()
+            link = Path(root) / "link"
+            link.symlink_to(target, target_is_directory=True)
+            with self.assertRaisesRegex(RuntimeError, "symlink"):
+                self._settings(root, NEWSCRAFT_AGENT_STATE_HOME=str(link))
+
+    def test_prepare_runtime_preserves_process_environment_and_cwd(self):
+        with tempfile.TemporaryDirectory() as root:
+            settings = self._settings(root)
+            before = dict(os.environ)
+            cwd = Path.cwd()
+            prepare_runtime(settings)
+            self.assertEqual(dict(os.environ), before)
+            self.assertEqual(Path.cwd(), cwd)
+            self.assertEqual(settings.hermes_home.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(settings.workspace.stat().st_mode & 0o777, 0o700)
+
+    def test_routes_require_bearer_and_exact_host(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, runner, settings = self._app(root)
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                self.assertEqual(client.get("/ready", headers={"host": "attacker.example"}).status_code, 400)
+                result = client.post("/v1/runs/start", json={}, headers={"host": "127.0.0.1"})
+                self.assertEqual(result.status_code, 401)
+                result = client.post("/v1/runs/start", json={}, headers={"host": "127.0.0.1", "x-hermes-session-token": "a" * 32})
+                self.assertEqual(result.status_code, 401)
+            worker.start.assert_not_awaited()
+            self.assertIs(runner.publisher, worker.publish_artifact_from_tool)
+
+    def test_direct_model_execution_is_removed(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, runner, _ = self._app(root)
+            runner.run = Mock(side_effect=AssertionError("direct model call is forbidden"))
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                response = client.post("/", json={"threadId": "thread-1", "runId": "run-1"}, headers=self._headers())
+            self.assertEqual(response.status_code, 410)
+            runner.run.assert_not_called()
+            worker.start.assert_not_awaited()
+
+    def test_shutdown_cancels_and_awaits_periodic_recovery(self):
+        reached_sleep = threading.Event()
+
+        async def stopped_sleep(seconds):
+            self.assertEqual(seconds, 15)
+            reached_sleep.set()
+            await asyncio.Event().wait()
+
+        original = _durable_recovery_loop
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, *_ = self._app(root)
+            with patch.object(service_module, "_durable_recovery_loop", new=lambda active: original(active, sleep=stopped_sleep)):
+                with TestClient(app, base_url="http://127.0.0.1:8768"):
+                    self.assertTrue(reached_sleep.wait(timeout=1))
+                    task = app.state.recovery_task
+                    self.assertFalse(task.done())
+                self.assertTrue(task.done())
+                self.assertTrue(task.cancelled())
+            worker.recover.assert_awaited_once()
+            worker.close.assert_awaited_once()
+
+    def test_durable_start_forwards_authenticated_bindings(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, *_ = self._app(root)
+            payload = {"run_id": "run-1", "account_id": "account-1", "tenant_key": "tenant-key-123", "input": {"runId": "run-1", "threadId": "thread-1"}}
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                response = client.post("/v1/runs/start", json=payload, headers=self._headers())
+            self.assertEqual(response.status_code, 202)
+            worker.start.assert_awaited_once_with(payload)
+            worker.recover.assert_awaited_once()
+            worker.close.assert_awaited_once()
+
+    def test_start_failure_does_not_log_transport_exception_details(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, *_ = self._app(root)
+            worker.start.side_effect = RuntimeError("fixture-secret-request-detail")
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                with self.assertLogs("hermes_chat.service", level="ERROR") as logs:
+                    response = client.post("/v1/runs/start", json={"tenant_key": "tenant-key-123"}, headers=self._headers())
             self.assertEqual(response.status_code, 503)
-            self.assertFalse(body["ok"])
-            self.assertEqual(body["state"], "unavailable")
-            self.assertEqual(
-                body["capabilities"]["durableRuns"],
-                {
-                    "configured": False,
-                    "callback": False,
-                    "concurrency": {
-                        "active_runs": 0,
-                        "queued_runs": 0,
-                        "rejected_runs": 0,
-                        "limits": {
-                            "max_active_runs": 4,
-                            "max_active_runs_per_tenant": 2,
-                            "max_queued_runs": 16,
-                            "max_queued_runs_per_tenant": 4,
-                        },
-                    },
-                },
-            )
-            self.assertRegex(body["processInstanceId"], r"^[a-f0-9]{32}$")
-            self.assertNotIn("processInstanceId", public.json())
+            self.assertNotIn("fixture-secret-request-detail", response.text + "\n".join(logs.output))
+            self.assertTrue(all(record.exc_info is None for record in logs.records))
 
-    def test_ready_keeps_optional_provider_failure_separate_from_core_readiness(self) -> None:
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-        from hermes_chat import service as service_module
+    def test_info_logging_never_records_signed_transport_urls(self):
+        levels = {name: logging.getLogger(name).level for name in ("httpx", "httpcore")}
+        try:
+            for name in levels:
+                logging.getLogger(name).setLevel(logging.DEBUG)
+            with tempfile.TemporaryDirectory() as root, self.assertLogs(level="INFO") as logs:
+                self._app(root)
+                service_module.logger.info("Fixture service configured")
+                with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200))) as client:
+                    client.put("https://storage.example.test/object?token=fixture-signed-secret", content=b"fixture")
+            self.assertNotIn("fixture-signed-secret", "\n".join(logs.output))
+            self.assertNotIn("HTTP Request", "\n".join(logs.output))
+            self.assertTrue(all(logging.getLogger(name).getEffectiveLevel() >= logging.WARNING for name in levels))
+        finally:
+            for name, level in levels.items():
+                logging.getLogger(name).setLevel(level)
 
+    def test_start_rejects_missing_duplicate_and_mismatched_tenant(self):
         with tempfile.TemporaryDirectory() as root:
-            settings = SimpleNamespace(
-                host="127.0.0.1",
-                port=8768,
-                session_token="s" * 32,
-                public_host=None,
-                hermes_home=Path(root) / "home",
-                workspace=Path(root) / "workspace",
-                model_provider="test-provider",
-                model="test-model",
-                model_base_url="http://127.0.0.1:8767/v1",
-                model_api_key="test-key",
-                model_api_mode=None,
-                max_iterations=25,
-                web_provider="newscraft-local",
-                browser_provider="local",
-                retrieval=SimpleNamespace(),
-                run_api_url="http://127.0.0.1:8768/api/internal/hermes/runs",
-                run_api_token="run-token",
-                internal_agui_url="http://127.0.0.1:8768/",
-            )
-            worker = SimpleNamespace(
-                configured=True,
-                start=AsyncMock(),
-                cancel=AsyncMock(),
-                recover=AsyncMock(),
-                close=AsyncMock(),
-            )
-            import agui_adapter.server as agui_server
-            import hermes_cli.plugins as hermes_plugins
-            import model_tools
+            app, worker, *_ = self._app(root)
+            payload = {"tenant_key": "tenant-key-123"}
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                headers = self._headers()
+                headers.pop("x-newscraft-tenant-key")
+                self.assertEqual(client.post("/v1/runs/start", json=payload, headers=headers).status_code, 409)
+                duplicate = [*self._headers().items(), ("x-newscraft-tenant-key", "tenant-key-123")]
+                self.assertEqual(client.post("/v1/runs/start", json=payload, headers=duplicate).status_code, 409)
+                self.assertEqual(client.post("/v1/runs/start", json=payload, headers=self._headers("other-tenant-key")).status_code, 409)
+            worker.start.assert_not_awaited()
 
-            core_tools = [
-                "terminal",
-                "process",
-                "read_file",
-                "write_file",
-                "patch",
-                "execute_code",
-                "delegate_task",
-                "skills_list",
-                "skill_view",
-                "skill_manage",
-                "memory",
-                "cronjob",
-                "publish_artifact",
-                "web_extract",
-                "verify_this_lead",
-            ]
-            with patch.object(service_module, "prepare_runtime"), \
-                patch.object(service_module, "_disable_shared_delegation_recovery"), \
-                patch.object(service_module, "_standard_auxiliary_tasks", return_value=set()), \
-                patch.object(service_module, "_write_runtime_config", return_value={}), \
-                patch.object(service_module, "_enable_tenant_cron_tool"), \
-                patch.object(service_module, "_install_tenant_runtime"), \
-                patch.object(service_module, "_install_iteration_limit"), \
-                patch.object(service_module, "_install_public_host_alias"), \
-                patch.object(service_module, "_startup_tool_names", return_value=core_tools), \
-                patch.object(service_module, "_browser_capability_ready", return_value=False), \
-                patch.object(service_module, "retrieval_readiness", return_value={"configured": True}), \
-                patch.object(service_module, "_tool_provider_readiness", return_value={
-                    "webSearch": {"configured": False},
-                    "webExtract": {"configured": True},
-                    "leadVerification": {"configured": True},
-                    "browser": {"configured": False},
-                }), \
-                patch.object(service_module, "DurableRunWorker", return_value=worker), \
-                patch.object(hermes_plugins, "discover_plugins"), \
-                patch.object(hermes_plugins, "get_plugin_auxiliary_tasks", return_value=[]), \
-                patch.object(agui_server, "create_app", return_value=FastAPI()), \
-                patch.object(model_tools, "get_tool_definitions", return_value=[]):
-                app = create_app(settings)
+    def test_start_rejects_invalid_json_objects(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, *_ = self._app(root)
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                self.assertEqual(client.post("/v1/runs/start", json=[], headers=self._headers()).status_code, 400)
+                self.assertEqual(client.post("/v1/runs/start", content="{bad", headers=self._headers()).status_code, 400)
+            worker.start.assert_not_awaited()
 
-            with TestClient(app) as client:
-                first = client.get(
-                    "/ready",
-                    headers={"authorization": f"Bearer {settings.session_token}"},
-                )
-                second = client.get(
-                    "/ready",
-                    headers={"authorization": f"Bearer {settings.session_token}"},
-                )
+    def test_overload_keeps_stable_rejected_response(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, *_ = self._app(root)
+            worker.start.side_effect = DurableRunError("queue full", 429, "overloaded")
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                response = client.post("/v1/runs/start", json={"tenant_key": "tenant-key-123"}, headers=self._headers())
+            self.assertEqual(response.status_code, 429)
+            self.assertEqual(response.json()["state"], "rejected")
+            self.assertEqual(response.json()["code"], "overloaded")
 
-            body = first.json()
-            self.assertEqual(first.status_code, 200)
-            self.assertTrue(body["ok"])
-            self.assertEqual(body["state"], "degraded")
-            self.assertFalse(body["capabilities"]["browser"])
-            self.assertFalse(body["toolProviders"]["webSearch"]["configured"])
-            self.assertRegex(body["processInstanceId"], r"^[a-f0-9]{32}$")
-            self.assertEqual(body["processInstanceId"], second.json()["processInstanceId"])
+    def test_cancel_requires_all_original_bindings(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, *_ = self._app(root)
+            payload = {"run_id": "run-1", "account_id": "account-1", "tenant_key": "tenant-key-123"}
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                self.assertEqual(client.post("/v1/runs/run-2/cancel", json=payload, headers=self._headers()).status_code, 409)
+                self.assertEqual(client.post("/v1/runs/run-1/cancel", json=payload, headers=self._headers()).status_code, 202)
+            worker.cancel.assert_awaited_once_with("run-1", "account-1", "tenant-key-123")
 
-    def test_rejects_an_unbounded_iteration_setting(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            environment = self._environment(temp_dir)
-            environment["NEWSCRAFT_HERMES_MAX_ITERATIONS"] = "500"
-            with patch.dict(os.environ, environment, clear=True):
-                with self.assertRaisesRegex(RuntimeError, "must be between 4 and 90"):
-                    settings_from_env()
+    def test_readiness_requires_owned_runtime_and_durable_callbacks(self):
+        with tempfile.TemporaryDirectory() as root:
+            for durable, runtime in ((False, True), (True, False)):
+                app, *_ = self._app(root, configured=durable, capability_ready=runtime)
+                with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                    response = client.get("/ready", headers=self._headers())
+                self.assertEqual(response.status_code, 503)
+                self.assertFalse(response.json()["ok"])
 
-    def test_sets_the_native_agent_iteration_limit_before_the_run(self) -> None:
-        agent = SimpleNamespace(max_iterations=90, iteration_budget=object())
-        original_budget = agent.iteration_budget
+    def test_public_readiness_redacts_model_and_private_capabilities(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, *_ = self._app(root)
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                public = client.get("/ready").json()
+                private = client.get("/ready", headers=self._headers()).json()
+            self.assertEqual(set(public), {"ok", "state", "service"})
+            self.assertEqual(private["service"], "newscraft-agent")
+            self.assertEqual(private["runtime"]["apiMode"], "responses")
+            self.assertEqual(private["runtime"]["orchestration"], "newscraft")
+            self.assertTrue(private["capabilities"]["boundedLoop"]["costBudget"])
+            self.assertFalse(private["capabilities"]["browser"])
+            self.assertNotIn("hermesCommit", private)
+            self.assertNotIn("delegation", private["capabilities"])
+            self.assertNotIn("fixture-key", str(private))
+            fixture = json.loads((Path(__file__).resolve().parents[3] / "src/lib/server/agent/fixtures/owned-readiness.json").read_text())
+            for key in ("tools", "runtime", "toolProviders", "capabilities"):
+                self.assertEqual(private[key], fixture[key])
 
-        result = _set_iteration_limit(agent, 25)
 
-        self.assertIs(result, agent)
-        self.assertEqual(agent.max_iterations, 25)
-        self.assertIs(agent.iteration_budget, original_budget)
+class PeriodicRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_poll_recovers_lease_that_was_not_expired_on_startup(self):
+        expired = False
+        recovered = []
+        checks = []
+        sleeps = []
 
-    def test_installs_one_non_stacking_agui_builder_wrapper(self) -> None:
-        created: list[SimpleNamespace] = []
+        async def recover():
+            checks.append(expired)
+            if expired:
+                recovered.append("saved-run")
 
-        def original_builder(*_args, **_kwargs):
-            agent = SimpleNamespace(max_iterations=90, iteration_budget=object())
-            created.append(agent)
-            return agent
+        async def advance_lease_time(seconds):
+            nonlocal expired
+            sleeps.append(seconds)
+            if len(sleeps) == 2:
+                raise asyncio.CancelledError
+            expired = True
 
-        module = SimpleNamespace(build_run_agent=original_builder)
-        _install_iteration_limit(module, 25)
-        first_wrapper = module.build_run_agent
-        _install_iteration_limit(module, 12)
-        bounded = module.build_run_agent()
+        worker = SimpleNamespace(recover=recover)
+        with self.assertRaises(asyncio.CancelledError):
+            await _durable_recovery_loop(worker, sleep=advance_lease_time)
+        self.assertEqual(checks, [False, True])
+        self.assertEqual(recovered, ["saved-run"])
+        self.assertEqual(sleeps, [15, 15])
 
-        self.assertIsNot(module.build_run_agent, first_wrapper)
-        self.assertEqual(len(created), 1)
-        self.assertEqual(bounded.max_iterations, 12)
+    async def test_failed_poll_retries_without_logging_request_details(self):
+        worker = SimpleNamespace(recover=AsyncMock(side_effect=[RuntimeError("fixture-secret-request-detail"), None]))
+        intervals = []
 
-    def test_rejects_a_remote_plain_http_model_endpoint(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            environment = self._environment(temp_dir)
-            environment["NEWSCRAFT_HERMES_MODEL_BASE_URL"] = "http://model.example/v1"
-            with patch.dict(os.environ, environment, clear=True):
-                with self.assertRaisesRegex(RuntimeError, "must use HTTPS"):
-                    settings_from_env()
+        async def advance(seconds):
+            intervals.append(seconds)
+            if len(intervals) == 2:
+                raise asyncio.CancelledError
 
-    def test_rejects_shared_home_and_workspace(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            environment = self._environment(temp_dir)
-            environment["NEWSCRAFT_HERMES_WORKSPACE"] = environment["NEWSCRAFT_HERMES_HOME"]
-            with patch.dict(os.environ, environment, clear=True):
-                with self.assertRaisesRegex(RuntimeError, "must be separate"):
-                    settings_from_env()
-
-    def test_rejects_a_symlinked_private_home(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            real_home = root / "real-home"
-            real_home.mkdir()
-            environment = self._environment(temp_dir)
-            environment["NEWSCRAFT_HERMES_HOME"] = str(root / "home-alias")
-            (root / "home-alias").symlink_to(real_home, target_is_directory=True)
-            with patch.dict(os.environ, environment, clear=True):
-                with self.assertRaisesRegex(RuntimeError, "must not be a symlink"):
-                    settings_from_env()
-
-    def test_contract_uses_the_standard_hermes_toolset(self) -> None:
-        self.assertEqual(HERMES_TOOLSET, "hermes-acp")
-        self.assertEqual(CRON_TOOLSET, "cronjob_tools")
-
-    def test_browser_capability_requires_the_real_local_runtime(self) -> None:
-        browser_tool = ModuleType("tools.browser_tool")
-        browser_tool.check_browser_requirements = lambda: False
-        with patch.dict(sys.modules, {"tools.browser_tool": browser_tool}):
-            self.assertFalse(
-                _browser_capability_ready({"browser_navigate", "browser_snapshot"})
-            )
-
-        browser_tool.check_browser_requirements = lambda: True
-        with patch.dict(sys.modules, {"tools.browser_tool": browser_tool}):
-            self.assertTrue(
-                _browser_capability_ready({"browser_navigate", "browser_snapshot"})
-            )
-
-    def test_retries_terminal_and_file_tools_after_a_transient_probe_failure(self) -> None:
-        initial = [{"function": {"name": "memory"}}]
-        complete = [
-            {"function": {"name": "memory"}},
-            {"function": {"name": "terminal"}},
-            {"function": {"name": "read_file"}},
-            {"function": {"name": "write_file"}},
-            {"function": {"name": "patch"}},
-        ]
-        get_definitions = Mock(side_effect=[initial, complete])
-        config = SimpleNamespace(enabled_toolsets=[HERMES_TOOLSET, CRON_TOOLSET])
-
-        with patch("tools.terminal_tool.check_terminal_requirements", return_value=True), \
-             patch("tools.registry.invalidate_check_fn_cache") as invalidate, \
-             patch("model_tools._clear_tool_defs_cache") as clear:
-            names = _startup_tool_names(get_definitions, config)
-
-        self.assertEqual(
-            names,
-            ["memory", "patch", "read_file", "terminal", "write_file"],
-        )
-        self.assertEqual(get_definitions.call_count, 2)
-        invalidate.assert_called_once_with()
-        clear.assert_called_once_with()
-
-    def test_agui_enables_cron_without_gateway_environment_flags(self) -> None:
-        entry = SimpleNamespace(check_fn=lambda: False)
-        registry = SimpleNamespace(
-            get_entry=lambda name: entry if name == "cronjob" else None,
-            _lock=threading.RLock(),
-            _generation=4,
-        )
-        registry_module = ModuleType("tools.registry")
-        registry_module.registry = registry
-        with patch.dict(sys.modules, {"tools.registry": registry_module}):
-            _enable_tenant_cron_tool()
-
-        self.assertIsNone(entry.check_fn)
-        self.assertEqual(registry._generation, 5)
-
-    def test_artifact_registry_handler_forwards_context_and_infrastructure_bindings(self) -> None:
-        """The registered handler must preserve trusted run metadata across the bridge."""
-        captured: dict[str, object] = {}
-
-        class Registry:
-            def register(self, **kwargs: object) -> None:
-                captured.update(kwargs)
-
-        registry_module = ModuleType("tools.registry")
-        registry_module.registry = Registry()
-        worker = SimpleNamespace(
-            publish_artifact_from_tool=AsyncMock(return_value={"artifact": {"id": "artifact-1"}})
-        )
-
-        with tempfile.TemporaryDirectory() as root, patch.dict(
-            sys.modules, {"tools.registry": registry_module}
-        ):
-            isolation = TenantIsolation(Path(root) / "home", Path(root) / "workspace")
-            runtime = isolation.resolve("tenant_a")
-            _register_artifact_tool(worker)
-            handler = captured["handler"]
-            self.assertTrue(callable(handler))
-
-            async def invoke() -> str:
-                with patch(
-                    "hermes_chat.service.current_tenant_run",
-                    return_value=TenantRun(
-                        runtime=runtime,
-                        thread_id="thread-context",
-                        run_id="run-context",
-                    ),
-                ):
-                    return await handler(  # type: ignore[operator]
-                        {"spec": {"kind": "chart"}},
-                        task_id="newscraft-tenant_a",
-                        session_id="session-infrastructure",
-                    )
-
-            result = asyncio.run(invoke())
-
-        self.assertEqual(result, '{"artifact":{"id":"artifact-1"}}')
-        worker.publish_artifact_from_tool.assert_awaited_once_with(
-            {"spec": {"kind": "chart"}},
-            "run-context",
-            "tenant_a",
-            task_id="newscraft-tenant_a",
-            session_id="session-infrastructure",
-            thread_id="thread-context",
-        )
-
-    def test_artifact_registry_schema_describes_each_supported_spec_shape(self) -> None:
-        captured: dict[str, object] = {}
-
-        class Registry:
-            def register(self, **kwargs: object) -> None:
-                captured.update(kwargs)
-
-        registry_module = ModuleType("tools.registry")
-        registry_module.registry = Registry()
-        worker = SimpleNamespace(publish_artifact_from_tool=AsyncMock())
-
-        with patch.dict(sys.modules, {"tools.registry": registry_module}):
-            _register_artifact_tool(worker)
-
-        schema = captured["schema"]
-        self.assertIsInstance(schema, dict)
-        parameters = schema["parameters"]  # type: ignore[index]
-        spec = parameters["properties"]["spec"]  # type: ignore[index]
-        variants = {
-            variant["properties"]["kind"]["enum"][0]
-            for variant in spec["oneOf"]
-        }
-        self.assertEqual(variants, {"chart", "table", "image", "markdown", "map"})
-        self.assertEqual(
-            next(variant for variant in spec["oneOf"] if variant["title"] == "Chart artifact")["required"],
-            ["kind", "title", "chartType", "series"],
-        )
-        self.assertIn("series[].points[]", spec["description"])
-        self.assertIn("do not use Vega-Lite", schema["description"])
-        self.assertIn("Required for image specs", parameters["properties"]["path"]["description"])
-        self.assertEqual(len(spec["examples"]), 5)
-
-    def test_artifact_registry_handler_without_context_uses_only_registry_kwargs(self) -> None:
-        captured: dict[str, object] = {}
-
-        class Registry:
-            def register(self, **kwargs: object) -> None:
-                captured.update(kwargs)
-
-        registry_module = ModuleType("tools.registry")
-        registry_module.registry = Registry()
-        worker = SimpleNamespace(
-            publish_artifact_from_tool=AsyncMock(return_value={"revision_id": "revision-1"})
-        )
-
-        with patch.dict(sys.modules, {"tools.registry": registry_module}):
-            _register_artifact_tool(worker)
-            handler = captured["handler"]
-
-            async def invoke() -> str:
-                return await handler(  # type: ignore[operator]
-                    {"spec": {"kind": "markdown"}, "account_id": "model-selected"},
-                    task_id="thread-infrastructure",
-                    session_id="session-infrastructure",
-                )
-
-            result = asyncio.run(invoke())
-
-        self.assertEqual(result, '{"revision_id":"revision-1"}')
-        worker.publish_artifact_from_tool.assert_awaited_once_with(
-            {"spec": {"kind": "markdown"}, "account_id": "model-selected"},
-            None,
-            None,
-            task_id="thread-infrastructure",
-            session_id="session-infrastructure",
-            thread_id=None,
-        )
-
-    def test_runtime_config_keeps_all_model_work_on_one_endpoint(self) -> None:
-        config = _runtime_config(
-            {
-                "browser": {"headed": False},
-                "memory": {
-                    "enabled": True,
-                    "provider": "shared-external-provider",
-                    "max_tokens": 2048,
-                },
-                "skills": {"disabled": ["operator-only"], "external_dirs": ["/Users/jigar/skills"]},
-                "plugins": {"enabled": ["operator-plugin"]},
-                "terminal": {
-                    "credential_files": ["provider.json"],
-                    "sandbox_dir": "/Users/jigar/shared-host-sandboxes",
-                },
-                "fallback_model": {"provider": "openrouter", "model": "another-model"},
-                "auxiliary": {
-                    "vision": {"timeout": 90},
-                    "plugin_task": {"provider": "openrouter", "model": "another-model"},
-                },
-            },
-            {"vision", "web_extract"},
-            "chat_completions",
-        )
-
-        self.assertEqual(config["browser"], {"headed": False, "cloud_provider": "local"})
-        self.assertEqual(config["memory"], {"enabled": True, "max_tokens": 2048})
-        self.assertEqual(config["skills"], {"disabled": ["operator-only"], "external_dirs": []})
-        self.assertEqual(config["plugins"], {"enabled": ["newscraft-web"]})
-        self.assertEqual(
-            config["web"],
-            {
-                "backend": "ddgs",
-                "search_backend": "ddgs",
-                "extract_backend": "newscraft-local",
-            },
-        )
-        self.assertEqual(config["fallback_providers"], [])
-        self.assertNotIn("fallback_model", config)
-        self.assertEqual(config["agui"]["toolsets"], ["hermes-acp", "cronjob_tools"])
-        for task_name in ("vision", "web_extract", "plugin_task"):
-            task = config["auxiliary"][task_name]
-            self.assertEqual(task["provider"], "custom")
-            self.assertEqual(task["model"], "${env:NEWSCRAFT_HERMES_MODEL}")
-            self.assertEqual(task["base_url"], "${env:NEWSCRAFT_HERMES_MODEL_BASE_URL}")
-            self.assertEqual(task["api_key"], "${env:NEWSCRAFT_HERMES_MODEL_API_KEY}")
-            self.assertEqual(task["fallback_chain"], [])
-
-    def test_runtime_config_uses_one_persistent_docker_workspace_without_host_mounts(self) -> None:
-        config = _runtime_config({}, {"vision"}, "chat_completions")
-
-        self.assertEqual(config["terminal"]["backend"], "docker")
-        self.assertEqual(config["terminal"]["cwd"], "/workspace")
-        self.assertTrue(config["terminal"]["container_persistent"])
-        self.assertTrue(config["terminal"]["docker_persist_across_processes"])
-        self.assertFalse(config["terminal"]["docker_mount_cwd_to_workspace"])
-        self.assertTrue(config["terminal"]["docker_network"])
-        self.assertEqual(config["terminal"]["docker_volumes"], [])
-        self.assertEqual(config["terminal"]["docker_forward_env"], [])
-        self.assertEqual(config["terminal"]["docker_env"], {})
-        self.assertEqual(config["terminal"]["credential_files"], [])
-        self.assertEqual(config["terminal"]["docker_extra_args"], [])
-        self.assertTrue(config["terminal"]["docker_run_as_host_user"])
-        self.assertNotIn("sandbox_dir", config["terminal"])
-        self.assertEqual(config["browser"]["cloud_provider"], "local")
-        self.assertNotIn("cdp_url", config["browser"])
-
-    def test_runtime_config_selects_native_exa_and_raw_browser_use_plugins(self) -> None:
-        config = _runtime_config(
-            {
-                "plugins": {"enabled": ["operator-plugin"]},
-                "web": {"backend": "tavily"},
-                "browser": {"cloud_provider": "browserbase", "cdp_url": "ws://shared"},
-            },
-            set(),
-            None,
-            web_provider="exa",
-            browser_provider="browser-use",
-        )
-
-        self.assertEqual(
-            config["web"],
-            {
-                "backend": "exa",
-                "search_backend": "exa",
-                "extract_backend": "exa",
-            },
-        )
-        self.assertEqual(
-            config["plugins"]["enabled"],
-            ["newscraft-web", "web-exa", "browser-browser-use"],
-        )
-        self.assertEqual(config["browser"]["cloud_provider"], "browser-use")
-        self.assertNotIn("cdp_url", config["browser"])
-
-    def test_provider_readiness_fails_closed_on_an_unexpected_backend(self) -> None:
-        web_tools = ModuleType("tools.web_tools")
-        web_tools._get_search_backend = lambda: "ddgs"
-        web_tools._get_extract_backend = lambda: "exa"
-        browser_tool = ModuleType("tools.browser_tool")
-        browser_tool._get_cloud_provider = lambda: SimpleNamespace(name="browser-use")
-        tools_package = ModuleType("tools")
-        tools_package.__path__ = []
-        settings = SimpleNamespace(web_provider="exa", browser_provider="browser-use")
-
-        with patch.dict(
-            sys.modules,
-            {
-                "tools": tools_package,
-                "tools.web_tools": web_tools,
-                "tools.browser_tool": browser_tool,
-            },
-        ):
-            readiness = _tool_provider_readiness(settings)
-
-        self.assertFalse(readiness["webSearch"]["configured"])
-        self.assertTrue(readiness["webExtract"]["configured"])
-        self.assertTrue(readiness["browser"]["configured"])
-
-    def test_provider_readiness_accepts_explicit_local_search_and_extract_backends(self) -> None:
-        web_tools = ModuleType("tools.web_tools")
-        web_tools._get_search_backend = lambda: "ddgs"
-        web_tools._get_extract_backend = lambda: "newscraft-local"
-        browser_tool = ModuleType("tools.browser_tool")
-        browser_tool._get_cloud_provider = lambda: None
-        tools_package = ModuleType("tools")
-        tools_package.__path__ = []
-        settings = SimpleNamespace(
-            web_provider="newscraft-local",
-            browser_provider="local",
-        )
-
-        with patch.dict(
-            sys.modules,
-            {
-                "tools": tools_package,
-                "tools.web_tools": web_tools,
-                "tools.browser_tool": browser_tool,
-            },
-        ):
-            readiness = _tool_provider_readiness(settings)
-
-        self.assertEqual(readiness["webSearch"]["requested"], "ddgs")
-        self.assertTrue(readiness["webSearch"]["configured"])
-        self.assertEqual(readiness["webExtract"]["requested"], "newscraft-local")
-        self.assertTrue(readiness["webExtract"]["configured"])
-        self.assertTrue(readiness["browser"]["configured"])
-
-    def test_prepare_runtime_clears_inherited_docker_escape_hatches(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            environment = self._environment(temp_dir)
-            settings = None
-            with patch.dict(os.environ, environment, clear=True):
-                settings = settings_from_env()
-                old_cwd = Path.cwd()
-                try:
-                    os.environ.update(
-                        {
-                            "TERMINAL_CWD": "/Users/jigar/shared-host-workspace",
-                            "TERMINAL_SANDBOX_DIR": "/Users/jigar/shared-host-sandboxes",
-                            "TERMINAL_DOCKER_FORWARD_ENV": "[\"SECRET\"]",
-                            "TERMINAL_DOCKER_VOLUMES": "[\"/host:/container\"]",
-                            "TERMINAL_DOCKER_ENV": "{\"SECRET\":\"value\"}",
-                            "TERMINAL_DOCKER_EXTRA_ARGS": "[\"--privileged\"]",
-                            "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE": "true",
-                            "TERMINAL_DOCKER_RUN_AS_HOST_USER": "true",
-                        }
-                    )
-                    prepare_runtime(settings)
-                    self.assertEqual(os.environ["TERMINAL_ENV"], "docker")
-                    self.assertEqual(os.environ["TERMINAL_CWD"], "/workspace")
-                    self.assertNotIn("TERMINAL_SANDBOX_DIR", os.environ)
-                    self.assertEqual(os.environ["TERMINAL_DOCKER_FORWARD_ENV"], "[]")
-                    self.assertEqual(os.environ["TERMINAL_DOCKER_VOLUMES"], "[]")
-                    self.assertEqual(os.environ["TERMINAL_DOCKER_ENV"], "{}")
-                    self.assertEqual(os.environ["TERMINAL_DOCKER_EXTRA_ARGS"], "[]")
-                    self.assertEqual(os.environ["TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE"], "false")
-                    self.assertEqual(os.environ["TERMINAL_DOCKER_RUN_AS_HOST_USER"], "true")
-                finally:
-                    os.chdir(old_cwd)
+        with self.assertLogs("hermes_chat.service", level="WARNING") as logs:
+            with self.assertRaises(asyncio.CancelledError):
+                await _durable_recovery_loop(worker, sleep=advance)
+        self.assertEqual(worker.recover.await_count, 2)
+        self.assertEqual(intervals, [15, 15])
+        self.assertNotIn("fixture-secret-request-detail", "\n".join(logs.output))
+        self.assertIn("retrying on the next interval", "\n".join(logs.output))
 
 
 class DurableHermesWorkerTests(unittest.IsolatedAsyncioTestCase):
     def _worker(self, root: str) -> DurableRunWorker:
+        root = str(Path(root).resolve())
         settings = SimpleNamespace(
             run_api_url="http://newscraft.test/api/internal/hermes/runs",
             run_api_token="run-token",

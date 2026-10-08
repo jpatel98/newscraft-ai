@@ -1,6 +1,6 @@
 /** The saved transport names remain compatible; there is one NewsCraft runtime. */
 export const NEWSCRAFT_AGENT_SERVICE = 'newscraft-agent';
-export const HERMES_TOOLSET = 'hermes-acp';
+export const HERMES_TOOLSET = NEWSCRAFT_AGENT_SERVICE;
 
 export type PublicPlanStepStatus = 'pending' | 'running' | 'ok' | 'failed' | 'skipped';
 

@@ -9,7 +9,7 @@ const delayMs = intValue(args.delayMs || process.env.HEALTH_DELAY_MS, 1000);
 const timeoutMs = intValue(args.timeoutMs || process.env.HEALTH_TIMEOUT_MS, 3000);
 
 if (!url) {
-	console.error('Usage: node scripts/check-health.mjs --url <url> [--expect ui|hermes|generic]');
+	console.error('Usage: node scripts/check-health.mjs --url <url> [--expect ui|agent|generic]');
 	process.exit(2);
 }
 
@@ -83,45 +83,28 @@ async function probe(target, options) {
 function expectedShapeOk(body, kind) {
 	if (!body || body.ok !== true) return false;
 	if (kind !== 'generic' && !['ready', 'degraded'].includes(body.state)) return false;
-	if (kind === 'hermes') {
+	if (kind === 'agent' || kind === 'hermes') {
 		const tools = Array.isArray(body.tools) ? body.tools : [];
 		const capabilities = body.capabilities || {};
-		const requiredTools = [
-			'terminal',
-			'process',
-			'read_file',
-			'write_file',
-			'patch',
-			'execute_code',
-			'delegate_task',
-			'skills_list',
-			'skill_view',
-			'skill_manage',
-			'memory',
-			'cronjob'
-		];
 		return (
-			body.service === 'newscraft-hermes-chat' &&
+			body.service === 'newscraft-agent' &&
 			typeof body.processInstanceId === 'string' &&
 			/^[a-f0-9]{32}$/.test(body.processInstanceId) &&
-			body.toolset === 'hermes-acp' &&
+			body.toolset === 'newscraft-agent' &&
+			body.runtime?.orchestration === 'newscraft' &&
 			body.runtime?.endpointMode === 'explicit' &&
-			requiredTools.every((tool) => tools.includes(tool)) &&
+			['publish_markdown', 'publish_csv'].every((tool) => tools.includes(tool)) &&
 			capabilities.standard === true &&
-			capabilities.terminal === true &&
 			capabilities.files === true &&
-			capabilities.codeExecution === true &&
-			capabilities.delegation === true &&
-			capabilities.skills === true &&
-			capabilities.memory === true &&
-			capabilities.scheduledJobs === true &&
+			capabilities.boundedLoop?.configured === true &&
+			capabilities.boundedLoop?.cancellation === true &&
+			capabilities.boundedLoop?.stepBudget === true &&
+			capabilities.boundedLoop?.timeBudget === true &&
+			capabilities.accountIsolation?.ownedRunState === true &&
 			capabilities.durableRuns?.configured === true &&
 			capabilities.durableRuns?.callback === true &&
 			capabilities.accountIsolation?.tenantHeader === 'x-newscraft-tenant-key' &&
-			capabilities.accountIsolation?.contextLocalHome === true &&
-			capabilities.accountIsolation?.stableTaskKey === true &&
-			capabilities.accountIsolation?.persistentDockerWorkspace === true &&
-			capabilities.accountIsolation?.isolatedBrowserProfiles === true
+			capabilities.accountIsolation?.conversationWorkspace === true
 		);
 	}
 	if (kind === 'ui') {
@@ -132,19 +115,19 @@ function expectedShapeOk(body, kind) {
 			(body.app?.ok === true &&
 				body.gateway?.ok === true &&
 				body.components?.database?.ok === true &&
-				body.components?.hermes?.ok === true)
+				(body.components?.agent || body.components?.hermes)?.ok === true)
 		);
 	}
 	return true;
 }
 
 function healthHeaders(kind) {
-	if (kind !== 'hermes') return {};
+	if (!['agent', 'hermes'].includes(kind)) return {};
 	const token = (
-		process.env.NEWSCRAFT_HERMES_API_TOKEN || process.env.HERMES_AGUI_SESSION_TOKEN || ''
+		process.env.NEWSCRAFT_AGENT_API_TOKEN || process.env.NEWSCRAFT_HERMES_API_TOKEN || process.env.NEWSCRAFT_AGENT_SESSION_TOKEN || ''
 	).trim();
 	if (!token) return {};
-	return { authorization: `Bearer ${token}`, 'x-hermes-session-token': token };
+	return { authorization: `Bearer ${token}` };
 }
 
 function explainFailure(body, kind) {

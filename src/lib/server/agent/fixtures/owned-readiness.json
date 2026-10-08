@@ -1,0 +1,87 @@
+{
+  "ok": true,
+  "state": "ready",
+  "service": "newscraft-agent",
+  "processInstanceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "toolset": "newscraft-agent",
+  "tools": [
+    "plan",
+    "decision",
+    "publish_markdown",
+    "publish_csv",
+    "web_search",
+    "verify_this_lead",
+    "web_extract",
+    "record_newscraft_source"
+  ],
+  "runtime": {
+    "provider": "openai",
+    "model": "fixture-model",
+    "endpointMode": "explicit",
+    "apiMode": "responses",
+    "orchestration": "newscraft",
+    "accessVerified": false,
+    "maxObservedActions": 12,
+    "maxSeconds": 180
+  },
+  "toolProviders": {
+    "webSearch": {
+      "requested": "public",
+      "active": "public",
+      "configured": true,
+      "verified": false
+    },
+    "webExtract": {
+      "configured": true
+    },
+    "leadVerification": {
+      "configured": true
+    },
+    "browser": {
+      "configured": false,
+      "verified": false
+    }
+  },
+  "capabilities": {
+    "standard": true,
+    "terminal": false,
+    "workspaceFiles": false,
+    "files": true,
+    "browser": false,
+    "webResearch": true,
+    "webExtraction": {
+      "configured": true,
+      "tool": true,
+      "leadVerificationTool": true
+    },
+    "webLeadVerification": {
+      "configured": true,
+      "tool": true,
+      "bounded": true
+    },
+    "boundedLoop": {
+      "configured": true,
+      "cancellation": true,
+      "stepBudget": true,
+      "timeBudget": true,
+      "costBudget": true,
+      "providerHardLimit": false
+    },
+    "durableRuns": {
+      "configured": true,
+      "callback": true,
+      "concurrency": {
+        "active_runs": 0,
+        "queued_runs": 0,
+        "limits": {}
+      }
+    },
+    "accountIsolation": {
+      "tenantHeader": "x-newscraft-tenant-key",
+      "stableTaskKey": true,
+      "ownedRunState": true,
+      "conversationWorkspace": true,
+      "sandbox": "unconfigured"
+    }
+  }
+}

@@ -8,7 +8,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from hermes_chat.artifact_publish import (
     ArtifactPublishError,
@@ -115,25 +114,14 @@ class ArtifactPublishTests(unittest.TestCase):
             self.assertEqual(checksum, hashlib.sha256(payload).hexdigest())
             staged.unlink(missing_ok=True)
 
-    def test_publish_uses_backend_bytes_when_no_host_mount_is_exposed(self) -> None:
-        payload = b"backend upload"
+    def test_publish_reads_only_the_authenticated_conversation_workspace(self) -> None:
+        payload = b"conversation-owned upload"
         checksum = hashlib.sha256(payload).hexdigest()
-
-        class BackendFileOps:
-            def read_file_bytes(self, _path, *, max_bytes):
-                return SimpleNamespace(
-                    file_size=len(payload),
-                    base64_content=base64.b64encode(payload).decode("ascii"),
-                    error=None,
-                    max_bytes=max_bytes,
-                )
 
         class Response:
             status_code = 200
-
-            @staticmethod
-            def json():
-                return {"object_version": "version-backend-1234"}
+            def json(self):
+                return {"object_version": "version-owned-1234"}
 
         class Client:
             async def put(self, _url, *, headers, content):
@@ -142,27 +130,26 @@ class ArtifactPublishTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as raw:
             runtime = self.make_runtime(Path(raw))
+            (runtime.workspace / "data.csv").write_bytes(payload)
             client = Client()
-            grant = {
-                "upload_url": "http://newscraft.test/upload",
-                "max_bytes": len(payload),
-            }
-            with patch(
-                "hermes_chat.artifact_publish._active_backend_for_task",
-                return_value=(SimpleNamespace(_workspace_dir=None), BackendFileOps()),
-            ):
-                result = asyncio.run(publish_workspace_file(
-                    client=client,
-                    runtime=runtime,
-                    path="/workspace/data.json",
-                    grant=grant,
-                    mime_type="application/json",
-                    size=len(payload),
-                    checksum_sha256=checksum,
-                    task_id="tenant-task",
-                ))
-            self.assertEqual(result["object_version"], "version-backend-1234")
+            result = asyncio.run(publish_workspace_file(
+                client=client, runtime=runtime, path="/workspace/data.csv",
+                grant={"upload_url": "http://newscraft.test/upload", "max_bytes": len(payload)},
+                mime_type="text/csv", size=len(payload), checksum_sha256=checksum,
+                task_id="model-cannot-select-a-different-tenant",
+            ))
+            self.assertEqual(result["object_version"], "version-owned-1234")
             self.assertEqual(client.request[1], payload)
+            other = Path(raw) / "other-tenant"
+            other.mkdir()
+            (other / "data.csv").write_bytes(payload)
+            with self.assertRaises(ArtifactPublishError):
+                asyncio.run(publish_workspace_file(
+                    client=client, runtime=runtime, path=str(other / "data.csv"),
+                    grant={"upload_url": "http://newscraft.test/upload", "max_bytes": len(payload)},
+                    mime_type="text/csv", size=len(payload), checksum_sha256=checksum,
+                    task_id="other-tenant",
+                ))
 
     def test_async_upload_sends_bytes_not_a_sync_file_handle(self) -> None:
         class Response:

@@ -3,6 +3,7 @@ import {
 	StreamEventState,
 	type PersistedSource,
 	type StreamPlanUpdate,
+	type StreamDecisionUpdate,
 	type StreamToolUpdate
 } from '$lib/utils/stream-events';
 import type { ChatCommand, MessageContent } from '$lib/types';
@@ -80,6 +81,8 @@ export interface DurableRunSnapshot {
 	sources: PersistedSource[];
 	citations: CitationRecord[];
 	tools: StreamToolUpdate[];
+	plan?: StreamPlanUpdate | null;
+	decisions?: StreamDecisionUpdate[];
 	errorMessage: string | null;
 }
 
@@ -107,6 +110,7 @@ export interface StreamCallbacks {
 	onCitations?: (citations: CitationRecord[]) => void;
 	onArtifactReady?: (artifact: ArtifactSummary) => void;
 	onPlan?: (plan: StreamPlanUpdate) => void;
+	onDecision?: (decision: StreamDecisionUpdate) => void;
 	onTitle?: (title: string) => void;
 	onPartial?: () => void;
 	signal?: AbortSignal;
@@ -139,9 +143,19 @@ async function consumeDurableResponse(response: Response, cb: StreamCallbacks): 
 				const terminalState = snapshot.status || snapshot.state;
 				if (['cancelled', 'failed', 'complete'].includes(terminalState)) completed = true;
 				if (terminalState === 'failed') {
-					failureMessage = snapshot.errorMessage || 'durable Hermes run failed';
+					failureMessage = snapshot.errorMessage || 'durable agent run failed';
 				}
 				cb.onRunSnapshot?.(snapshot);
+				// Activity is also included in snapshots so a nonzero-cursor reconnect
+				// restores the plan and brief explanations emitted before disconnect.
+				if (snapshot.plan) {
+					for (const update of streamState.apply('agent.plan', JSON.stringify(snapshot.plan)))
+						if (update.plan) cb.onPlan?.(update.plan);
+				}
+				for (const decision of snapshot.decisions ?? []) {
+					for (const update of streamState.apply('agent.decision', JSON.stringify(decision)))
+						if (update.decision) cb.onDecision?.(update.decision);
+				}
 				cb.onRunState?.(terminalState, snapshot.errorMessage);
 			} catch {
 				/* ignore malformed snapshots */
@@ -181,6 +195,7 @@ async function consumeDurableResponse(response: Response, cb: StreamCallbacks): 
 			if (update.citations) cb.onCitations?.(update.citations);
 			if (update.artifact) cb.onArtifactReady?.(update.artifact);
 			if (update.plan) cb.onPlan?.(update.plan);
+			if (update.decision) cb.onDecision?.(update.decision);
 			if (update.tool) {
 				if (update.tool.done) cb.onToolDone?.(update.tool.id, update.tool);
 				else cb.onToolProgress?.(update.tool);

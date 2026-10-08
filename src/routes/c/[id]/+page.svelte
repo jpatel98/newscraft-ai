@@ -8,6 +8,7 @@
 	import type {
 		PersistedSource,
 		StreamPlanUpdate,
+		StreamDecisionUpdate,
 		StreamToolCall,
 		StreamToolUpdate
 	} from '$lib/utils/stream-events';
@@ -831,7 +832,10 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 								updatedAt: Date.now()
 							});
 						}
-						for (const tool of snapshot.tools) chat.pushTool(tool);
+						for (const tool of snapshot.tools) {
+							if (tool.done || (tool.status && tool.status !== 'running')) chat.clearTool(tool.id, tool);
+							else chat.pushTool(tool);
+						}
 					},
 					onRunState: (state: string) => {
 						noteStreamEstablished();
@@ -897,6 +901,10 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 						noteStreamEstablished();
 						chat.setPlan(plan);
 					},
+				onDecision: (decision: StreamDecisionUpdate) => {
+					noteStreamEstablished();
+					chat.pushDecision(decision);
+				},
 				onPartial: () => {
 					noteStreamEstablished();
 					partialAnswer = true;

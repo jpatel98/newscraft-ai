@@ -7,23 +7,19 @@
 	"scripts": {
 		"dev": "vite dev --host 127.0.0.1 --port 3001 --strictPort",
 		"dev:all": "node scripts/dev-all.mjs",
-		"dev:hermes": "node scripts/dev-all.mjs --hermes-only",
+		"dev:agent": "node scripts/dev-all.mjs --agent-only",
 		"dev:stop": "node scripts/dev-all.mjs --stop",
 		"build": "pnpm --filter @newscraft/shared build && vite build",
 		"health:agent": "node scripts/check-health.mjs --url http://127.0.0.1:3001/api/health --expect ui",
-		"health:hermes": "node scripts/check-health.mjs --url http://127.0.0.1:8000/ready --expect hermes",
+		"health:runtime": "node scripts/check-health.mjs --url http://127.0.0.1:8000/ready --expect agent",
 		"dashboard:jig186": "node --experimental-strip-types scripts/jig-186-dashboard.mjs",
 		"ui:matrix:jig181": "node scripts/jig-181-ui-matrix.mjs",
-		"canary:jig184": "node scripts/jig-184-recovery-matrix.mjs",
-		"canary:jig185": "uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_185_load.py",
-		"canary:jig197": "uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_197_load.py",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "pnpm --filter @newscraft/shared build && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest run && pnpm --filter @newscraft/shared test && pnpm --filter @newscraft/newsroom-harness test",
 		"eval:fixture": "NEWSROOM_EVAL_MODE=fixture node services/newsroom-harness/eval/run-eval.mjs",
-		"canary:jig183": "uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_183_canary.py",
 		"test:e2e": "playwright test",
 		"producer:acceptance": "node scripts/producer-acceptance.mjs",
 		"smoke:producer:fixture": "PRODUCER_ACCEPTANCE_SOURCE_MODE=fixture PRODUCER_ACCEPTANCE_REQUIRE_OPENAI=0 node scripts/producer-acceptance.mjs",
@@ -71,9 +67,18 @@
 			"esbuild": "0.27.7"
 		},
 		"supportedArchitectures": {
-			"os": ["current", "linux"],
-			"cpu": ["current", "x64"],
-			"libc": ["current", "glibc"]
+			"os": [
+				"current",
+				"linux"
+			],
+			"cpu": [
+				"current",
+				"x64"
+			],
+			"libc": [
+				"current",
+				"glibc"
+			]
 		},
 		"onlyBuiltDependencies": [
 			"better-sqlite3",

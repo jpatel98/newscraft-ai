@@ -10,14 +10,12 @@ NEWSCRAFT_RUN_RENEW_PATH: Final = "/renew"
 NEWSCRAFT_RUN_RECOVER_PATH: Final = "/recover"
 NEWSCRAFT_RUN_RELEASE_PATH: Final = "/release"
 NEWSCRAFT_RUN_CALLBACK_PATH: Final = "/callback"
-# ``NEWSCRAFT_HERMES_RUN_API_URL`` already names the shared
-# ``/api/internal/hermes/runs`` prefix. Keep artifact paths relative to that
-# base, just like claim/callback/renew/recover/release below.
+# The durable run API URL names a shared prefix. Keep artifact paths
+# relative to that base, just like claim/callback/renew/recover/release.
+# Existing Hermes-named HTTP paths are persisted protocol compatibility,
+# not a dependency on the retired agent runtime.
 NEWSCRAFT_ARTIFACT_GRANT_PATH: Final = "/{run_id}/artifact-grants"
 NEWSCRAFT_ARTIFACT_REVISION_PATH: Final = "/{run_id}/artifacts/revisions"
 NEWSCRAFT_ARTIFACT_FINALIZE_PATH: Final = "/{run_id}/artifacts/finalize"
 RUN_TOKEN_HEADER: Final = "x-newscraft-hermes-token"
-RUN_LEASE_RENEW_INTERVAL_SECONDS: Final = 60.0
-
-HERMES_TOOLSET: Final = "hermes-acp"
-CRON_TOOLSET: Final = "cronjob_tools"
+RUN_LEASE_RENEW_INTERVAL_SECONDS: Final = 30.0

@@ -418,12 +418,9 @@ class Jig185ConfigurationTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             validate_expected_revision(valid, expected_source_sha="a" * 40, expected_candidate_sha="b" * 40)
 
-    def test_public_command_uses_locked_hermes_project_environment(self) -> None:
+    def test_retired_runtime_probe_is_not_an_advertised_command(self) -> None:
         package = json.loads((Path(__file__).parents[3] / "package.json").read_text())
-        self.assertEqual(
-            package["scripts"]["canary:jig185"],
-            "uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_185_load.py",
-        )
+        self.assertNotIn("canary:jig185", package["scripts"])
 
     def test_public_runner_passes_revisions_and_blocks_release_for_unrun_gates(self) -> None:
         identity = {

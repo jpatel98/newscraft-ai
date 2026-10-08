@@ -190,6 +190,10 @@ def _failure_class(error: BaseException) -> str:
             return "upstream"
     if isinstance(error, httpx.TimeoutException):
         return "timeout"
+    if isinstance(error, TimeoutError):
+        return "timeout"
+    if type(error).__name__ == "AgentLimitError":
+        return "budget"
     if isinstance(error, httpx.RequestError):
         return "network"
     return "unknown"
@@ -237,6 +241,37 @@ def normalized_events(
 ) -> list[dict[str, Any]]:
     """Convert one Hermes AG-UI frame into bounded NewsCraft events."""
     kind = _event_type(payload, event)
+    if kind == "CUSTOM":
+        value = payload.get("value")
+        if not isinstance(value, dict):
+            return []
+        if payload.get("name") == "newscraft.answer" and isinstance(value.get("content"), str):
+            text_parts[:] = [value["content"][:64000]]
+            return [_event_payload("agent.answer.replace", {"content": "".join(text_parts)})]
+        if payload.get("name") == "newscraft.managed_sources":
+            # Managed citations do not include independently verified excerpts.
+            return [_event_payload("agent.source.found", {"source": source})
+                    for source in value.get("sources", [])[:64] if isinstance(source, dict)]
+        if payload.get("name") == "newscraft.plan":
+            steps = value.get("steps")
+            if not isinstance(steps, list) or not 1 <= len(steps) <= 8:
+                return []
+            clean = []
+            for step in steps:
+                if not isinstance(step, dict) or step.get("status") not in {"pending", "running", "ok", "failed", "skipped"}:
+                    return []
+                if not all(isinstance(step.get(k), str) and step[k] for k in ("id", "label")):
+                    return []
+                clean.append({"id": step["id"][:80], "label": step["label"][:160], "status": step["status"]})
+            return [_event_payload("agent.plan", {"source": "model", "steps": clean})]
+        if payload.get("name") == "newscraft.decision":
+            if not all(isinstance(value.get(k), str) and value[k] for k in ("id", "summary")):
+                return []
+            clean = {"id": value["id"][:80], "summary": value["summary"][:400]}
+            if isinstance(value.get("stepId"), str):
+                clean["stepId"] = value["stepId"][:80]
+            return [_event_payload("agent.decision", clean)]
+        return []
     if kind == "RUN_STARTED":
         return [_event_payload("run.started", {"status": "researching"})]
     if kind == "TEXT_MESSAGE_CONTENT":
@@ -253,7 +288,7 @@ def normalized_events(
             nested.get("message")
             if isinstance(nested, dict)
             else nested
-        ) or payload.get("message") or "Hermes returned an agent error."
+        ) or payload.get("message") or "NewsCraft returned an agent error."
         return [_event_payload("response.failed", {
             "failure_class": "upstream",
             "error": {"message": str(message)},
@@ -264,10 +299,10 @@ def normalized_events(
         if not answer.strip():
             return [_event_payload("response.failed", {
                 "failure_class": "protocol",
-                "error": {"message": "Hermes ended before a completed response."},
+                "error": {"message": "NewsCraft ended before a completed response."},
             })]
         events.append(_event_payload("agent.answer.replace", {"content": answer}))
-        events.append(_event_payload("response.completed", {"model": "hermes-chat"}))
+        events.append(_event_payload("response.completed", {"model": "newscraft-agent"}))
         return events
 
     if kind in {"TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_RESULT", "TOOL_CALL_END"}:
@@ -275,7 +310,7 @@ def normalized_events(
         if not call_id:
             return []
         call_id = str(call_id)
-        name = str(_value(payload, "toolCallName", "tool_call_name", "name") or tool_names.get(call_id) or "Hermes tool")
+        name = str(_value(payload, "toolCallName", "tool_call_name", "name") or tool_names.get(call_id) or "NewsCraft tool")
         tool_names[call_id] = name
         reset_events: list[dict[str, Any]] = []
         if kind == "TOOL_CALL_START" and text_parts:
@@ -290,8 +325,10 @@ def normalized_events(
             return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "arguments": tool_arguments[call_id], "status": "running"})]
         if kind == "TOOL_CALL_RESULT":
             result = _value(payload, "result", "output", "content")
-            return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "result": _compact(result), "status": "ok"})]
-        return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "status": "ok" if kind == "TOOL_CALL_END" else "running", "done": kind == "TOOL_CALL_END"})]
+            failed = payload.get("status") == "failed" or (isinstance(result, dict) and (bool(result.get("error")) or result.get("exit_code", 0) != 0))
+            return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "result": _compact(result), "status": "failed" if failed else "ok"})]
+        status = "running" if kind == "TOOL_CALL_START" else ("failed" if payload.get("status") == "failed" else "ok")
+        return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "status": status, "done": kind == "TOOL_CALL_END"})]
 
     if kind == "STATE_SNAPSHOT":
         snapshot = payload.get("snapshot")
@@ -305,7 +342,8 @@ def normalized_events(
         for source in sources[:100]:
             if not isinstance(source, dict):
                 continue
-            events.append(_event_payload("agent.source.read", {"source": _compact(source, 8_000)}))
+            receipt = {**source, "id": source.get("url"), "status": "read", "verified": True}
+            events.append(_event_payload("agent.source.read", {"source": _compact(receipt, 8_000)}))
             citation_number = source.get("citationNumber") or source.get("citation_number")
             if citation_number and source.get("url"):
                 citations.append({
@@ -316,6 +354,8 @@ def normalized_events(
                     "publicationDate": source.get("publicationDate"),
                     "sourceType": source.get("sourceType") or "unknown",
                     "supportingExcerpt": source.get("supportingExcerpt") or "",
+                    **({"retrieval": source["retrieval"]} if isinstance(source.get("retrieval"), dict) else {}),
+                    **({"documentPage": source["documentPage"]} if isinstance(source.get("documentPage"), int) else {}),
                 })
         if citations:
             events.append(_event_payload("agent.citations", {"citations": citations}))
@@ -362,6 +402,7 @@ class DurableJob:
     seeded_citations: list[dict[str, Any]]
     lease_owner: str
     lease_token: str
+    resume_snapshot: dict[str, Any] | None = None
     # AG-UI's thread/session identity is carried as infrastructure metadata
     # when a registry tool is bridged through a worker thread.  Keep it on the
     # durable job so the publisher can still resolve the active run when the
@@ -389,6 +430,7 @@ class DurableJob:
     claim_error: BaseException | None = field(default=None, repr=False)
     cancel_publish_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     cancel_published: bool = field(default=False, repr=False)
+    recovery_pending: bool = field(default=False, repr=False)
     control_client: httpx.AsyncClient | None = field(default=None, repr=False)
     # Hermes can invoke a registry tool from a short-lived worker loop.  All
     # durable job state belongs to the loop that admitted the run; retain that
@@ -407,9 +449,10 @@ class DurableRunWorker:
     immediately or released back to the recovery pool.
     """
 
-    def __init__(self, settings: Any, isolation: TenantIsolation):
+    def __init__(self, settings: Any, isolation: TenantIsolation, runner: Any = None):
         self.settings = settings
         self.isolation = isolation
+        self.runner = runner
         self.instance_id = f"{socket.gethostname()}-{secrets.token_hex(6)}"
         self.limits = DurableConcurrencyLimits.from_settings(settings)
         self.jobs: dict[str, DurableJob] = {}
@@ -466,6 +509,33 @@ class DurableRunWorker:
             raise DurableRunError("NewsCraft durable run API is not configured")
         return f"{self.settings.run_api_url.rstrip('/')}{path}"
 
+    async def managed_checkpoint(self, run_id: str, update: dict[str, Any] | None = None) -> dict[str, Any]:
+        job = self.jobs.get(run_id)
+        if job is None or not job.lease_acquired or job.stale_lease:
+            raise DurableRunError("Managed state requires an active run lease", code="stale_lease")
+        return await self._newscraft("POST", f"/{quote(run_id, safe='')}/managed-state", {
+            "account_id": job.account_id, "tenant_key": job.tenant_key,
+            "lease_owner": job.lease_owner, "lease_token": job.lease_token,
+            **(update or {}),
+        })
+
+    async def runtime_checkpoint(self, run_id: str, update: dict[str, Any] | None = None) -> dict[str, Any]:
+        job = self.jobs.get(run_id)
+        if job is None or not job.lease_acquired or job.stale_lease:
+            raise DurableRunError("Runtime state requires an active run lease", code="stale_lease")
+        if update and update.get("dispatch") and job.stop_reason:
+            raise asyncio.CancelledError
+        try:
+            return await self._newscraft("POST", f"/{quote(run_id, safe='')}/runtime-state", {
+                "account_id": job.account_id, "tenant_key": job.tenant_key,
+                "lease_owner": job.lease_owner, "lease_token": job.lease_token, **(update or {}),
+            })
+        except DurableRunError as exc:
+            if exc.code == "cancel_requested":
+                job.stop_reason = "cancelled"
+                raise asyncio.CancelledError from None
+            raise
+
     async def publish_artifact_file(
         self,
         job: DurableJob,
@@ -484,7 +554,7 @@ class DurableRunWorker:
         never returns a host path or object URL to the model and the final
         NewsCraft verifier decides whether the asset becomes ready.
         """
-        runtime = self.isolation.ensure(self.isolation.resolve(job.tenant_key))
+        runtime = self.isolation.ensure(self.isolation.resolve(job.tenant_key, job.thread_id or None), computer_state=False)
         if role not in {"source", "preview", "data"}:
             raise ArtifactPublishError("artifact role is invalid")
         if not isinstance(size, int) or isinstance(size, bool) or size < 1 or size > 20 * 1024 * 1024:
@@ -557,6 +627,7 @@ class DurableRunWorker:
         mime_type: str | None = None,
         size: int | None = None,
         checksum_sha256: str | None = None,
+        publication_key: str | None = None,
     ) -> dict[str, Any]:
         """Publish one inline artifact or a file-backed image.
 
@@ -573,8 +644,8 @@ class DurableRunWorker:
             if (
                 not isinstance(path, str)
                 or not path.strip()
-                or kind != "image"
-                or mime_type not in {"image/png", "image/jpeg"}
+                or kind not in {"image", "markdown", "table"}
+                or mime_type not in {"image/png", "image/jpeg", "text/markdown", "text/csv"}
                 or not isinstance(size, int)
                 or isinstance(size, bool)
                 or size < 1
@@ -585,6 +656,10 @@ class DurableRunWorker:
                 raise ArtifactPublishError("file-backed artifacts require an image spec and exact file fingerprint")
         elif kind == "image":
             raise ArtifactPublishError("image artifacts require a workspace file path")
+        # Artifact validation reads the authoritative saved source ledger. A
+        # recent source receipt may still be in our callback batch; commit it
+        # before requesting a revision so fast tool loops cannot race evidence.
+        await self._flush_text(job)
         revision_result = await self._newscraft(
             "POST",
             NEWSCRAFT_ARTIFACT_REVISION_PATH.format(run_id=quote(job.run_id, safe="")),
@@ -594,6 +669,8 @@ class DurableRunWorker:
                 "lease_owner": job.lease_owner,
                 "lease_token": job.lease_token,
                 "spec": dict(spec),
+                "file_backed": path is not None,
+                **({"publication_key": publication_key} if publication_key else {}),
                 **({"title": title} if isinstance(title, str) and title.strip() else {}),
                 **({"trace_id": job.trace_id} if job.trace_id else {}),
             },
@@ -602,6 +679,9 @@ class DurableRunWorker:
         artifact = revision_result.get("artifact")
         if not isinstance(revision_id, str) or not revision_id:
             raise ArtifactPublishError("artifact revision response is invalid")
+        if publication_key and isinstance(artifact, dict) and artifact.get("status") == "ready":
+            await self._callback(job, "artifact.ready", {"artifact_revision_id": revision_id, "artifact": artifact})
+            return {"artifact": artifact, "revision_id": revision_id}
         if path is not None:
             # The image revision is still draft when this call starts; the
             # finalize path emits artifact.ready after verifier success.
@@ -666,7 +746,7 @@ class DurableRunWorker:
                     and (
                         not normalized_task
                         or candidate.thread_id == normalized_task
-                        or f"newscraft-{candidate.tenant_key}" == normalized_task
+                        or self.isolation.resolve(candidate.tenant_key, candidate.thread_id or None).task_key == normalized_task
                     )
                     and (
                         not normalized_session
@@ -693,7 +773,7 @@ class DurableRunWorker:
                 raise ArtifactPublishError("artifact run binding does not match")
             if normalized_task and normalized_task not in {
                 job.thread_id,
-                f"newscraft-{job.tenant_key}",
+                self.isolation.resolve(job.tenant_key, job.thread_id or None).task_key,
             }:
                 raise ArtifactPublishError("artifact task binding does not match")
             if normalized_session and job.thread_id != normalized_session:
@@ -717,6 +797,7 @@ class DurableRunWorker:
             mime_type=args.get("mime_type") if isinstance(args.get("mime_type"), str) else None,
             size=raw_size if isinstance(raw_size, int) and not isinstance(raw_size, bool) else None,
             checksum_sha256=args.get("checksum_sha256") if isinstance(args.get("checksum_sha256"), str) else None,
+            publication_key=args.get("publication_key") if isinstance(args.get("publication_key"), str) else None,
         )
 
     async def _publish_artifact_from_tool_on_owner_loop(
@@ -957,6 +1038,10 @@ class DurableRunWorker:
                     self._active_by_tenant[job.tenant_key] = count
                 else:
                     self._active_by_tenant.pop(job.tenant_key, None)
+        if job.recovery_pending:
+            async with self._lock:
+                if self.jobs.get(job.run_id) is job:
+                    self.jobs.pop(job.run_id, None)
         if not self._closed:
             await self._dispatch()
             self._schedule_recovery()
@@ -1112,7 +1197,7 @@ class DurableRunWorker:
                         try:
                             await self._publish_cancelled(job)
                         except BaseException:
-                            logger.exception("NewsCraft cancellation callback failed")
+                            logger.error("NewsCraft cancellation callback failed")
                     raise
         except asyncio.CancelledError:
             raise
@@ -1212,7 +1297,7 @@ class DurableRunWorker:
                         try:
                             await self._publish_cancelled(job)
                         except BaseException:
-                            logger.exception("NewsCraft cancellation callback failed")
+                            logger.error("NewsCraft cancellation callback failed")
                     raise
         finally:
             await self._release_slot(job)
@@ -1275,28 +1360,13 @@ class DurableRunWorker:
                     trace_id=trace_id,
                     lease_acquired=True,
                     owner_loop=owner_loop,
+                    stop_reason="cancelled" if payload.get("state") == "cancel_requested" else None,
                 )
                 resume_snapshot = payload.get("resume_snapshot")
                 if isinstance(resume_snapshot, dict):
-                    state = job.input.get("state")
-                    if not isinstance(state, dict):
-                        state = {}
-                    sources = resume_snapshot.get("sources")
-                    if isinstance(sources, list):
-                        state["newscraftSources"] = sources[:100]
-                    job.input["state"] = state
-                    context = job.input.get("context")
-                    if not isinstance(context, list):
-                        context = []
-                    context.append({
-                        "description": "Previously gathered NewsCraft evidence from this durable run",
-                        "value": json.dumps({
-                            "answer_text": str(resume_snapshot.get("answer_text") or "")[:64 * 1024],
-                            "sources": sources[:100] if isinstance(sources, list) else [],
-                            "citations": resume_snapshot.get("citations") if isinstance(resume_snapshot.get("citations"), list) else [],
-                        }),
-                    })
-                    job.input["context"] = context[-32:]
+                    # The original immutable input binds private recovery state.
+                    # A separately trusted snapshot must never change that identity.
+                    job.resume_snapshot = dict(resume_snapshot)
                 self._reserve_slot_locked(job)
                 job.task = asyncio.create_task(
                     self._run_recovered(job),
@@ -1437,7 +1507,7 @@ class DurableRunWorker:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("NewsCraft durable run recovery failed")
+            logger.error("NewsCraft durable run recovery failed")
         finally:
             if self._recovery_task is current:
                 self._recovery_task = None
@@ -1478,7 +1548,7 @@ class DurableRunWorker:
                 except asyncio.CancelledError:
                     logger.info("NewsCraft text flush was cancelled during shutdown")
                 except Exception:
-                    logger.exception("NewsCraft text flush failed during shutdown")
+                    logger.error("NewsCraft text flush failed during shutdown")
         for task in tasks:
             task.cancel()
         if tasks:
@@ -1683,8 +1753,14 @@ class DurableRunWorker:
             await self._stop_text_flush(job)
             self._discard_text_buffer(job)
             job.text_flush_error = None
+            cancel_run = getattr(self.runner, "cancel_run", None)
+            if cancel_run:
+                job.recovery_pending = True
+                async with asyncio.timeout(12):
+                    await cancel_run(job.run_id)
             await self._callback(job, "run.cancelled", {"failure_class": "cancelled", "status": "cancelled"})
             job.cancel_published = True
+            job.recovery_pending = False
 
     async def _renew(self, job: DurableJob) -> None:
         while True:
@@ -1699,7 +1775,12 @@ class DurableRunWorker:
                 }
                 if job.trace_id:
                     body["trace_id"] = job.trace_id
-                await self._newscraft("POST", NEWSCRAFT_RUN_RENEW_PATH, body)
+                renewed = await self._newscraft("POST", NEWSCRAFT_RUN_RENEW_PATH, body)
+                if renewed.get("state") == "cancel_requested":
+                    job.stop_reason = "cancelled"
+                    if job.task and not job.task.done():
+                        job.task.cancel()
+                    return
             except Exception:
                 job.stale_lease = True
                 job.stop_reason = "stale_lease"
@@ -1722,32 +1803,22 @@ class DurableRunWorker:
             await self._callback(job, "run.started", {"status": "researching"})
             if job.seeded_citations:
                 await self._callback(job, "agent.citations", {"citations": job.seeded_citations})
-            headers = {
-                "authorization": f"Bearer {self.settings.session_token}",
-                "x-hermes-session-token": self.settings.session_token,
-                "x-newscraft-tenant-key": job.tenant_key,
-                "content-type": "application/json",
-                "accept": "text/event-stream",
-            }
-            if job.trace_id:
-                headers.update({"x-request-id": job.trace_id, "x-trace-id": job.trace_id})
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream("POST", self.settings.internal_agui_url, headers=headers, json=job.input) as response:
-                    if response.status_code >= 400:
-                        raise DurableRunError(
-                            f"Hermes AG-UI request failed ({response.status_code})",
-                            response.status_code,
-                            "upstream",
-                        )
-                    async for event, payload in iter_sse(response.aiter_lines()):
-                        if job.stop_reason:
-                            raise asyncio.CancelledError
-                        for normalized in normalized_events(event, payload, tool_arguments, tool_names, text_parts):
-                            await self._callback(job, normalized["event_type"], normalized["data"])
-                        if _event_type(payload, event) == "RUN_FINISHED":
-                            finished = True
+            if self.runner is None:
+                raise DurableRunError("NewsCraft agent runner is not configured", code="protocol")
+            runtime = self.isolation.ensure(self.isolation.resolve(job.tenant_key, job.thread_id), computer_state=False)
+            events = (self.runner.run(job.input, runtime, job.run_id, job.seeded_citations,
+                                     resume_snapshot=job.resume_snapshot) if job.resume_snapshot else
+                      self.runner.run(job.input, runtime, job.run_id, job.seeded_citations))
+            async with contextlib.aclosing(events):
+                async for payload in events:
+                    if job.stop_reason:
+                        raise asyncio.CancelledError
+                    for normalized in normalized_events("message", payload, tool_arguments, tool_names, text_parts):
+                        await self._callback(job, normalized["event_type"], normalized["data"])
+                    if _event_type(payload, "message") == "RUN_FINISHED":
+                        finished = True
             if not finished:
-                raise DurableRunError("Hermes ended before a completed response", code="protocol")
+                raise DurableRunError("NewsCraft ended before a completed response", code="protocol")
             if not text_parts:
                 return
         except asyncio.CancelledError:
@@ -1755,8 +1826,11 @@ class DurableRunWorker:
                 try:
                     await self._publish_cancelled(job)
                 except BaseException:
-                    logger.exception("NewsCraft cancellation callback failed")
+                    logger.error("NewsCraft cancellation callback failed")
             elif job.stop_reason == "callback_failed":
+                if getattr(self.runner, "checkpoint", None):
+                    job.recovery_pending = True
+                    return  # Provider work continues; resume receipts after lease expiry.
                 error = job.text_flush_error
                 job.text_flush_error = None
                 self._discard_text_buffer(job)
@@ -1766,23 +1840,33 @@ class DurableRunWorker:
                         "error": {"message": str(error or "NewsCraft callback failed")[:2_000]}
                     })
                 except Exception:
-                    logger.exception("NewsCraft callback failure event failed")
+                    logger.error("NewsCraft callback failure event failed")
             elif job.stop_reason == "stale_lease":
+                if getattr(self.runner, "checkpoint", None):
+                    job.recovery_pending = True
+                    return  # A later valid lease in this process may resume it.
                 try:
                     await self._flush_text(job)
                 except Exception:
-                    logger.exception("NewsCraft text flush failed after lease loss")
+                    logger.error("NewsCraft text flush failed after lease loss")
             elif job.stop_reason not in {"stale_lease", "shutdown"}:
-                logger.exception("Durable Hermes task was cancelled")
+                logger.error("Durable Hermes task was cancelled")
         except Exception as exc:
+            if getattr(exc, "recovery_pending", False) or (
+                getattr(self.runner, "checkpoint", None) and not (getattr(exc, "managed_failure", False) or getattr(exc, "runtime_failure", False))
+            ):
+                job.recovery_pending = True
+                with contextlib.suppress(Exception):
+                    await self._flush_text(job)
+                return  # Let the lease expire; the periodic worker resumes it.
             if not job.stale_lease:
                 try:
                     await self._callback(job, "run.failed", {
                         "failure_class": _failure_class(exc),
-                        "error": {"message": str(exc)[:2_000]},
+                        "error": {"message": "The research time budget was reached." if isinstance(exc, TimeoutError) else str(exc)[:2_000]},
                     })
                 except Exception:
-                    logger.exception("NewsCraft failure callback failed")
+                    logger.error("NewsCraft failure callback failed")
         finally:
             await self._stop_text_flush(job)
             self._discard_text_buffer(job)

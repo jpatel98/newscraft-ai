@@ -1,25 +1,18 @@
 from __future__ import annotations
 
-import contextlib
 import json
 import re
-import sys
-import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
-from unittest.mock import patch
 
-from hermes_chat.isolation import TenantIsolation, tenant_run_scope
 from hermes_chat.product_prompt import (
     NEWSCRAFT_IDENTITY_MARKER,
     NEWSCRAFT_PRODUCT_IDENTITY,
-    NEWSCRAFT_RUNTIME_IDENTITY_POINTER,
+    build_product_prompt,
     append_product_identity,
     tenant_preferences_only,
 )
-from hermes_chat.service import _install_product_identity_scope, _install_tenant_builder
 
 
 UPSTREAM_IDENTITY = (
@@ -526,140 +519,38 @@ def evaluate_jig_189_fixture(fixture: dict[str, object]) -> dict[str, object]:
 
 
 class ProductPromptTests(unittest.TestCase):
-    def test_product_identity_is_one_authoritative_final_layer(self) -> None:
-        tenant_soul = f"{UPSTREAM_IDENTITY}\n\nUse concise bullets for routine work."
-        tenant_preferences = tenant_preferences_only(tenant_soul, UPSTREAM_IDENTITY)
-        standard_cached_prompt = "\n\n".join(
-            [
-                "Standard Hermes tool guidance: use the available runtime tools.",
-                "Standard Hermes memory guidance: use tenant-local MEMORY.md and USER.md.",
-                "Standard Hermes skills guidance: use the available skills index.",
-                tenant_preferences or "",
-                "Thread override: return a short table when the task allows it.",
-            ]
-        )
+    def test_identity_is_one_authoritative_final_layer(self):
+        preferences = tenant_preferences_only(f"{UPSTREAM_IDENTITY}\n\nUse concise bullets.", UPSTREAM_IDENTITY)
+        prompt = build_product_prompt(preferences, "Return a short table.")
+        self.assertEqual(prompt.count(NEWSCRAFT_IDENTITY_MARKER), 1)
+        self.assertNotIn(UPSTREAM_IDENTITY, prompt)
+        self.assertIn("Use concise bullets", prompt)
+        self.assertIn("Return a short table", prompt)
+        self.assertLess(prompt.index("Return a short table"), prompt.index(NEWSCRAFT_IDENTITY_MARKER))
+        self.assertEqual(append_product_identity(prompt), prompt)
+        self.assertNotIn("Hermes", NEWSCRAFT_PRODUCT_IDENTITY)
 
-        effective_prompt = append_product_identity(standard_cached_prompt)
-
-        self.assertEqual(effective_prompt.count(NEWSCRAFT_IDENTITY_MARKER), 1)
-        self.assertNotIn(UPSTREAM_IDENTITY, effective_prompt)
-        self.assertIn("Standard Hermes tool guidance", effective_prompt)
-        self.assertIn("tenant-local MEMORY.md", effective_prompt)
-        self.assertIn("Standard Hermes skills guidance", effective_prompt)
-        self.assertIn("Thread override: return a short table", effective_prompt)
-        self.assertLess(
-            effective_prompt.index("Thread override: return a short table"),
-            effective_prompt.index(NEWSCRAFT_IDENTITY_MARKER),
-        )
-        self.assertEqual(append_product_identity(effective_prompt), effective_prompt)
-
-    def test_identity_contains_editorial_freshness_and_citation_contract(self) -> None:
-        prompt = NEWSCRAFT_PRODUCT_IDENTITY
-        required_phrases = (
-            "genuinely new developments",
-            "still developing",
-            "older context",
-            "few genuinely new items",
-            "do not infer a fixed item count",
-            "publication or update time",
-            "Access time alone does not prove freshness",
-            "archive copy",
-            "verified fact, allegation, analysis, and inference",
-            "latest-turn authority",
-            "claim-level provenance",
-            "clear claim group or paragraph",
-            "source map complete and resolvable",
-            "greetings, simple transformations",
-            "credentials",
-            "Do not narrate plans",
-            "one clean answer",
-            "headings only when they match real content sections",
-        )
-        for phrase in required_phrases:
+    def test_identity_preserves_editorial_freshness_citation_and_visible_action_rules(self):
+        for phrase in ("genuinely new developments", "still developing", "older context",
+                       "do not infer a fixed item count", "publication or update time",
+                       "Access time alone does not prove freshness", "archive copy",
+                       "verified fact, allegation, analysis, and inference", "latest-turn authority",
+                       "claim-level provenance", "source map complete and resolvable",
+                       "greetings, simple transformations", "credentials", "short actionable plan",
+                       "concise public decision", "Do not reveal private model reasoning",
+                       "untrusted data", "clickable links to the actual source pages", "one clean answer",
+                       "publish_markdown and publish_csv", "Code execution and interactive browsing are unavailable"):
             with self.subTest(phrase=phrase):
-                self.assertIn(phrase, prompt)
-        self.assertNotRegex(prompt, re.compile(r"\b(?:exactly|at least|top)\s+\d+\s+(?:stories|items)\b", re.I))
-        self.assertNotIn("next to every factual claim", prompt.lower())
+                self.assertIn(phrase, NEWSCRAFT_PRODUCT_IDENTITY)
+        self.assertNotRegex(NEWSCRAFT_PRODUCT_IDENTITY, re.compile(r"\b(?:exactly|at least|top)\s+\d+\s+(?:stories|items)\b", re.I))
+        self.assertIn("An explicitly listed browser tool may also read a source", NEWSCRAFT_PRODUCT_IDENTITY)
+        self.assertNotIn("Interactive browsing is not available in this release", NEWSCRAFT_PRODUCT_IDENTITY)
 
-    def test_tenant_memory_prompt_inputs_remain_separate(self) -> None:
-        tenant_a = append_product_identity("Tenant A memory: harbour assignment.")
-        tenant_b = append_product_identity("Tenant B memory: court assignment.")
-
-        self.assertIn("Tenant A memory", tenant_a)
-        self.assertNotIn("Tenant B memory", tenant_a)
-        self.assertIn("Tenant B memory", tenant_b)
-        self.assertNotIn("Tenant A memory", tenant_b)
-
-    def test_prompt_scope_neutralizes_conflicting_generic_identity(self) -> None:
-        agent_module = ModuleType("agent")
-        agent_module.__path__ = []  # type: ignore[attr-defined]
-        run_agent = ModuleType("run_agent")
-        run_agent.DEFAULT_AGENT_IDENTITY = UPSTREAM_IDENTITY
-        run_agent.load_soul_md = lambda *_args, **_kwargs: (
-            f"{UPSTREAM_IDENTITY}\n\nTenant preference: use concise bullets."
-        )
-        prompt_builder = ModuleType("agent.prompt_builder")
-        prompt_builder.DEFAULT_AGENT_IDENTITY = UPSTREAM_IDENTITY
-        system_prompt = ModuleType("agent.system_prompt")
-        system_prompt.DEFAULT_AGENT_IDENTITY = UPSTREAM_IDENTITY
-
-        with patch.dict(
-            sys.modules,
-            {
-                "agent": agent_module,
-                "agent.prompt_builder": prompt_builder,
-                "agent.system_prompt": system_prompt,
-                "run_agent": run_agent,
-            },
-        ):
-            _install_product_identity_scope()
-            _install_product_identity_scope()
-            self.assertEqual(run_agent.load_soul_md(), f"{UPSTREAM_IDENTITY}\n\nTenant preference: use concise bullets.")
-            with tempfile.TemporaryDirectory() as temp_dir:
-                root = Path(temp_dir)
-                runtime = TenantIsolation(root / "home", root / "workspace").resolve("tenant-prompt")
-                with tenant_run_scope(
-                    runtime,
-                    thread_id="thread",
-                    run_id="run",
-                    home_override=contextlib.nullcontext(),
-                    session_scope=contextlib.nullcontext(),
-                ):
-                    scoped_soul = run_agent.load_soul_md()
-
-        self.assertIsNotNone(scoped_soul)
-        self.assertNotIn(UPSTREAM_IDENTITY, scoped_soul or "")
-        self.assertIn("Tenant preference: use concise bullets.", scoped_soul or "")
-        self.assertEqual(prompt_builder.DEFAULT_AGENT_IDENTITY, NEWSCRAFT_RUNTIME_IDENTITY_POINTER)
-        self.assertEqual(system_prompt.DEFAULT_AGENT_IDENTITY, NEWSCRAFT_RUNTIME_IDENTITY_POINTER)
-
-    def test_tenant_builder_preserves_standard_agent_and_adds_identity_once(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            runtime = TenantIsolation(root / "home", root / "workspace").resolve(
-                "tenant-product-prompt"
-            )
-            agent = SimpleNamespace(
-                ephemeral_system_prompt="Thread override remains available.",
-                session_id="hermes-generated-session",
-            )
-            agui_server = SimpleNamespace(build_run_agent=lambda **_kwargs: agent)
-
-            _install_tenant_builder(agui_server)
-            with tenant_run_scope(
-                runtime,
-                thread_id="thread",
-                run_id="run",
-                home_override=lambda _path: contextlib.nullcontext(),
-                session_scope=lambda _run: contextlib.nullcontext(),
-            ):
-                built = agui_server.build_run_agent(cwd="/host/workspace")
-
-        self.assertIs(built, agent)
-        self.assertTrue(agent.load_soul_identity)
-        self.assertEqual(agent.session_id, "thread")
-        self.assertEqual(agent.ephemeral_system_prompt.count(NEWSCRAFT_IDENTITY_MARKER), 1)
-        self.assertIn("Thread override remains available", agent.ephemeral_system_prompt)
+    def test_tenant_preferences_remain_separate(self):
+        first = build_product_prompt("Tenant A: harbour assignment.")
+        second = build_product_prompt("Tenant B: court assignment.")
+        self.assertNotIn("Tenant A", second)
+        self.assertNotIn("Tenant B", first)
 
 
 class NewsroomFixtureTests(unittest.TestCase):

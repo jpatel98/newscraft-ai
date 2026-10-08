@@ -13,19 +13,19 @@ loadEnv({ path: resolve(root, '.env.local'), override: false, quiet: true });
 loadEnv({ path: resolve(serviceRoot, '.env'), override: false, quiet: true });
 
 const args = new Set(process.argv.slice(2));
-const hermesOnly = args.has('--hermes-only');
+const agentOnly = args.has('--agent-only') || args.has('--hermes-only');
 const uiUrl = 'http://127.0.0.1:3001';
-const configuredHermesUrl = (process.env.NEWSCRAFT_HERMES_URL || 'http://127.0.0.1:8000').replace(
+const configuredAgentUrl = (process.env.NEWSCRAFT_AGENT_URL || process.env.NEWSCRAFT_HERMES_URL || 'http://127.0.0.1:8000').replace(
 	/\/$/,
 	''
 );
-const hermesEndpoint = parseLocalHermesUrl(configuredHermesUrl);
-const hermesUrl = hermesEndpoint.origin;
+const agentEndpoint = parseLocalAgentUrl(configuredAgentUrl);
+const agentUrl = agentEndpoint.origin;
 const allPorts = [
 	{ name: 'UI', port: 3001, healthUrl: `${uiUrl}/api/health`, kind: 'ui' },
-	{ name: 'Hermes', port: hermesEndpoint.port, healthUrl: `${hermesUrl}/ready`, kind: 'hermes' }
+	{ name: 'Agent', port: agentEndpoint.port, healthUrl: `${agentUrl}/ready`, kind: 'agent' }
 ];
-const activePorts = hermesOnly ? allPorts.slice(1) : allPorts;
+const activePorts = agentOnly ? allPorts.slice(1) : allPorts;
 
 if (args.has('--stop')) {
 	stopRepoListeners(allPorts);
@@ -40,8 +40,8 @@ if (occupied.length > 0) {
 	const repoOwned = occupied.every((processInfo) => processInfo.command.includes(root));
 	if (repoOwned && healthy.every(Boolean)) {
 		console.log('NewsCraft dev is already running.');
-		if (!hermesOnly) console.log(`UI:     ${uiUrl}`);
-		console.log(`Hermes: ${hermesUrl}`);
+		if (!agentOnly) console.log(`UI:     ${uiUrl}`);
+		console.log(`Agent:  ${agentUrl}`);
 		console.log('Use Ctrl-C in the terminal that started it, or run `corepack pnpm dev:stop`.');
 		process.exit(0);
 	}
@@ -56,77 +56,82 @@ if (occupied.length > 0) {
 }
 
 try {
-	configureHermesEnvironment();
+	configureAgentEnvironment();
 	await startDevServers();
 } catch (error) {
 	console.error(error instanceof Error ? error.message : String(error));
 	process.exit(1);
 }
 
-function parseLocalHermesUrl(value) {
+function parseLocalAgentUrl(value) {
 	let parsed;
 	try {
 		parsed = new URL(value);
 	} catch {
-		throw new Error('NEWSCRAFT_HERMES_URL must be a valid local HTTP URL.');
+		throw new Error('NEWSCRAFT_AGENT_URL must be a valid local HTTP URL.');
 	}
 	if (parsed.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname)) {
-		throw new Error('dev:all starts only a loopback Hermes service. Use HTTPS for a remote VPS service.');
+		throw new Error('dev:all starts only a loopback agent service. Use HTTPS for a remote VPS service.');
 	}
 	if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
-		throw new Error('NEWSCRAFT_HERMES_URL must not include a path, query, or fragment.');
+		throw new Error('NEWSCRAFT_AGENT_URL must not include a path, query, or fragment.');
 	}
 	return { origin: parsed.origin, port: Number(parsed.port || 80) };
 }
 
-function configureHermesEnvironment() {
-	const appToken = (process.env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
-	const serviceToken = (process.env.HERMES_AGUI_SESSION_TOKEN || '').trim();
+function configureAgentEnvironment() {
+	const appToken = (process.env.NEWSCRAFT_AGENT_API_TOKEN || process.env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
+	const serviceToken = (process.env.NEWSCRAFT_AGENT_SESSION_TOKEN || process.env.HERMES_AGUI_SESSION_TOKEN || '').trim();
 	const token = appToken || serviceToken;
-	if (!token) {
-		throw new Error(
-			'Set NEWSCRAFT_HERMES_API_TOKEN in .env.local and HERMES_AGUI_SESSION_TOKEN in services/hermes-chat/.env.'
-		);
+	if (!token || token.length < 24) {
+		throw new Error('Set matching NEWSCRAFT_AGENT_API_TOKEN and NEWSCRAFT_AGENT_SESSION_TOKEN with at least 24 characters.');
 	}
 	if (appToken && serviceToken && appToken !== serviceToken) {
-		throw new Error('The NewsCraft and Hermes session tokens do not match.');
+		throw new Error('The NewsCraft and agent session tokens do not match.');
 	}
-	process.env.NEWSCRAFT_HERMES_URL = hermesUrl;
+	process.env.NEWSCRAFT_AGENT_URL = agentUrl;
+	process.env.NEWSCRAFT_HERMES_URL = agentUrl;
+	process.env.NEWSCRAFT_AGENT_API_TOKEN = token;
 	process.env.NEWSCRAFT_HERMES_API_TOKEN = token;
-	process.env.HERMES_AGUI_SESSION_TOKEN = token;
-	process.env.HERMES_AGUI_HOST ||= '127.0.0.1';
-	process.env.HERMES_AGUI_PORT ||= String(hermesEndpoint.port);
-	if (Number(process.env.HERMES_AGUI_PORT) !== hermesEndpoint.port) {
-		throw new Error('HERMES_AGUI_PORT must match NEWSCRAFT_HERMES_URL.');
+	process.env.NEWSCRAFT_AGENT_SESSION_TOKEN = token;
+	process.env.NEWSCRAFT_AGENT_HOST ||= process.env.HERMES_AGUI_HOST || '127.0.0.1';
+	process.env.NEWSCRAFT_AGENT_PORT ||= process.env.HERMES_AGUI_PORT || String(agentEndpoint.port);
+	if (Number(process.env.NEWSCRAFT_AGENT_PORT) !== agentEndpoint.port) {
+		throw new Error('NEWSCRAFT_AGENT_PORT must match NEWSCRAFT_AGENT_URL.');
 	}
-
-	const required = [
-		'NEWSCRAFT_HERMES_TENANT_SECRET',
-		'NEWSCRAFT_HERMES_HOME',
-		'NEWSCRAFT_HERMES_WORKSPACE',
-		'NEWSCRAFT_HERMES_MODEL_PROVIDER',
-		'NEWSCRAFT_HERMES_MODEL',
-		'NEWSCRAFT_HERMES_MODEL_BASE_URL',
-		'NEWSCRAFT_HERMES_MODEL_API_KEY'
-	].filter((name) => !(process.env[name] || '').trim());
-	if (required.length) throw new Error(`Hermes local configuration is missing: ${required.join(', ')}`);
+	process.env.NEWSCRAFT_AGENT_TENANT_SECRET ||= process.env.NEWSCRAFT_HERMES_TENANT_SECRET || '';
+	process.env.NEWSCRAFT_HERMES_TENANT_SECRET ||= process.env.NEWSCRAFT_AGENT_TENANT_SECRET;
+	process.env.NEWSCRAFT_AGENT_STATE_HOME ||= process.env.NEWSCRAFT_HERMES_HOME || '';
+	process.env.NEWSCRAFT_AGENT_WORKSPACE ||= process.env.NEWSCRAFT_HERMES_WORKSPACE || '';
+	// Read the approved existing OpenAI key in the service only. No secret file is copied
+	// and unrelated harness credentials are never sourced into the UI process.
+	const provider = process.env.NEWSCRAFT_AGENT_MODEL_PROVIDER || 'openai';
+	const needsOpenAI = provider === 'openai' || process.env.NEWSCRAFT_AGENT_WEB_PROVIDER === 'openai';
+	if (needsOpenAI) process.env.NEWSCRAFT_AGENT_CREDENTIAL_FILE ||= resolve(root, 'services/newsroom-harness/.env.local');
+	const required = ['NEWSCRAFT_AGENT_TENANT_SECRET', 'NEWSCRAFT_AGENT_STATE_HOME', 'NEWSCRAFT_AGENT_WORKSPACE']
+		.filter((name) => !(process.env[name] || '').trim());
+	if (required.length) throw new Error(`Agent local configuration is missing: ${required.join(', ')}`);
+	if (needsOpenAI && !process.env.OPENAI_API_KEY && !existsSync(process.env.NEWSCRAFT_AGENT_CREDENTIAL_FILE)) {
+		throw new Error('The approved OpenAI credential file is unavailable. Set NEWSCRAFT_AGENT_CREDENTIAL_FILE to its existing location.');
+	}
+	if (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY) throw new Error('The Anthropic model adapter requires ANTHROPIC_API_KEY.');
 }
 
 async function startDevServers() {
 	let shuttingDown = false;
-	if (!hermesOnly) await buildSharedPackage();
+	if (!agentOnly) await buildSharedPackage();
 
 	const rawBinary =
-		process.env.NEWSCRAFT_HERMES_BIN || resolve(serviceRoot, '.venv/bin/newscraft-hermes-chat');
-	const hermesBinary = isAbsolute(rawBinary) ? rawBinary : resolve(root, rawBinary);
-	if (!existsSync(hermesBinary)) {
+		process.env.NEWSCRAFT_AGENT_BIN || resolve(serviceRoot, '.venv-owned/bin/python');
+	const agentBinary = isAbsolute(rawBinary) ? rawBinary : resolve(root, rawBinary);
+	if (!existsSync(agentBinary)) {
 		throw new Error(
-			`Hermes runtime was not found at ${hermesBinary}. Run services/hermes-chat/scripts/install-runtime.sh first.`
+			`Agent Python runtime was not found at ${agentBinary}. Use services/hermes-chat/scripts/install-runtime.sh with the intended owned environment path.`
 		);
 	}
 
-	const children = [startProcess('hermes', hermesBinary, [], root)];
-	if (!hermesOnly) {
+	const children = [startProcess('agent', agentBinary, ['-m', 'hermes_chat.service'], root)];
+	if (!agentOnly) {
 		children.unshift(
 			startProcess(
 				'ui',
@@ -283,12 +288,12 @@ function run(command, commandArgs) {
 async function isHealthy(service) {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 1_500);
-	const token = (process.env.NEWSCRAFT_HERMES_API_TOKEN || process.env.HERMES_AGUI_SESSION_TOKEN || '').trim();
+	const token = (process.env.NEWSCRAFT_AGENT_API_TOKEN || process.env.NEWSCRAFT_HERMES_API_TOKEN || process.env.NEWSCRAFT_AGENT_SESSION_TOKEN || '').trim();
 	try {
 		const response = await fetch(service.healthUrl, {
 			headers:
-				service.kind === 'hermes' && token
-					? { authorization: `Bearer ${token}`, 'x-hermes-session-token': token }
+				service.kind === 'agent' && token
+					? { authorization: `Bearer ${token}` }
 					: {},
 			signal: controller.signal
 		});

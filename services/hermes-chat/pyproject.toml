@@ -3,10 +3,10 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "newscraft-hermes-chat"
+name = "newscraft-agent"
 version = "0.1.0"
-description = "Standard Hermes AG-UI runtime for NewsCraft chat"
-requires-python = ">=3.11"
+description = "Owned cloud research agent for NewsCraft chat"
+requires-python = ">=3.11,<3.12"
 dependencies = [
   "ddgs>=9,<10",
   "fastapi>=0.115,<1",
@@ -15,10 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-newscraft-hermes-chat = "hermes_chat.service:main"
-
-[project.entry-points."hermes_agent.plugins"]
-newscraft-web = "hermes_chat.retrieval"
+newscraft-agent = "hermes_chat.service:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

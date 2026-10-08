@@ -81,12 +81,9 @@ class JIG183CanaryTests(unittest.TestCase):
         output = "\x1b[2m Tests \x1b[22m \x1b[1m\x1b[32m75 passed\x1b[39m\x1b[22m | \x1b[33m13 skipped\x1b[39m"
         self.assertEqual(_test_counts(output, ("pnpm", "exec", "vitest")), (75, 0, 13))
 
-    def test_public_command_uses_locked_hermes_project_environment(self) -> None:
-        package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
-        self.assertEqual(
-            package["scripts"]["canary:jig183"],
-            "uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_183_canary.py",
-        )
+    def test_retired_runtime_probe_is_not_an_advertised_command(self) -> None:
+        package = json.loads((REPO_ROOT / "package.json").read_text())
+        self.assertNotIn("canary:jig183", package["scripts"])
 
     def test_local_exit_code_fails_closed_for_missing_duplicate_unknown_and_nonpass_gates(self) -> None:
         self.assertEqual(local_exit_code([]), 1)

@@ -1,5 +1,6 @@
 import type { ConversationContext } from '@newscraft/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import ownedReadiness from './fixtures/owned-readiness.json';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 
@@ -7,7 +8,6 @@ import {
 	agentFetch,
 	buildHermesRunInput,
 	cancelDurableHermesRun,
-	completion,
 	describeGatewayError,
 	deriveHermesTenantKey,
 	deriveSessionId,
@@ -15,7 +15,6 @@ import {
 	HermesDurableOverloadError,
 	normalizeHermesSse,
 	startDurableHermesRun,
-	streamChatCompletion,
 	type AgentMessage
 } from './transport';
 
@@ -33,8 +32,8 @@ function isolationReadyResponse(
 	return new Response(
 		JSON.stringify({
 			ok: true,
-			service: 'newscraft-hermes-chat',
-			toolset: 'hermes-acp',
+			service: 'newscraft-agent',
+			toolset: 'newscraft-agent',
 			processInstanceId: 'a'.repeat(32),
 			tools: [
 				'browser_navigate',
@@ -55,7 +54,7 @@ function isolationReadyResponse(
 				'memory',
 				'cronjob'
 			],
-			runtime: { provider: 'openai', model: 'gpt-5-mini', endpointMode: 'explicit' },
+			runtime: { provider: 'openai', model: 'gpt-5-mini', endpointMode: 'explicit', apiMode: 'responses', orchestration: 'newscraft' },
 			toolProviders: {
 				webSearch: { configured: true },
 				webExtract: { configured: true },
@@ -65,11 +64,13 @@ function isolationReadyResponse(
 			},
 			capabilities: {
 				standard: true,
+				boundedLoop: { configured: true, cancellation: true, stepBudget: true, timeBudget: true, costBudget: false },
 				accountIsolation: {
 					tenantHeader: 'x-newscraft-tenant-key',
 					contextLocalHome: true,
 					stableTaskKey: true,
-					persistentDockerWorkspace: true,
+					ownedRunState: true,
+					conversationWorkspace: true,
 					isolatedBrowserProfiles: true
 				},
 				browser: true,
@@ -118,6 +119,9 @@ describe('Hermes chat transport', () => {
 	const originalTenantSecret = process.env.NEWSCRAFT_HERMES_TENANT_SECRET;
 
 	beforeEach(() => {
+		vi.stubEnv('NEWSCRAFT_AGENT_URL', '');
+		vi.stubEnv('NEWSCRAFT_AGENT_API_TOKEN', '');
+		vi.stubEnv('NEWSCRAFT_AGENT_TENANT_SECRET', '');
 		process.env.NEWSCRAFT_HERMES_URL = 'https://hermes.test/';
 		process.env.NEWSCRAFT_HERMES_API_TOKEN = 'test-hermes-token';
 		process.env.NEWSCRAFT_HERMES_TENANT_SECRET = 'test-tenant-secret-0123456789012345';
@@ -125,6 +129,7 @@ describe('Hermes chat transport', () => {
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
 		if (originalUrl === undefined) delete process.env.NEWSCRAFT_HERMES_URL;
 		else process.env.NEWSCRAFT_HERMES_URL = originalUrl;
 		if (originalToken === undefined) delete process.env.NEWSCRAFT_HERMES_API_TOKEN;
@@ -133,7 +138,7 @@ describe('Hermes chat transport', () => {
 		else process.env.NEWSCRAFT_HERMES_TENANT_SECRET = originalTenantSecret;
 	});
 
-	it('derives a stable private session id from the first turn and server scope', () => {
+	it('keeps the private conversation workspace across prompt edits and output transforms', () => {
 		const messages: AgentMessage[] = [
 			{ role: 'system', content: 'Use newsroom rules.' },
 			{ role: 'user', content: 'Research this.' },
@@ -145,6 +150,16 @@ describe('Hermes chat transport', () => {
 			deriveSessionId([...messages], 'account:conversation')
 		);
 		expect(deriveSessionId(messages, 'account:conversation')).not.toBe(deriveSessionId(messages));
+		expect(deriveSessionId([
+			{ role: 'system', content: 'Updated newsroom rules.' },
+			...messages.slice(1)
+		], 'account:conversation')).toBe(deriveSessionId(messages, 'account:conversation'));
+		expect(deriveSessionId([
+			{ role: 'assistant', content: 'Older answer.' },
+			{ role: 'user', content: 'Make this a producer brief.' }
+		], 'account:conversation')).toBe(deriveSessionId(messages, 'account:conversation'));
+		expect(deriveSessionId(messages, 'other-account:conversation')).not.toBe(deriveSessionId(messages, 'account:conversation'));
+		expect(deriveSessionId(messages, 'account:other-conversation')).not.toBe(deriveSessionId(messages, 'account:conversation'));
 	});
 
 	it('keeps prior citations resolvable and numbers attached documents after them', () => {
@@ -229,127 +244,6 @@ describe('Hermes chat transport', () => {
 		await expect(cancelDurableHermesRun('account-a', 'run-1')).resolves.toEqual({
 			state: 'not_running'
 		});
-	});
-
-	it('derives an opaque server tenant key and never sends the raw account id', async () => {
-		const fetchMock = vi.fn().mockImplementation((input: unknown) =>
-			String(input).endsWith('/ready') ? isolationReadyResponse() : aguiStream({ type: 'RUN_FINISHED' })
-		);
-		vi.stubGlobal('fetch', fetchMock);
-
-		await streamChatCompletion(
-			{ messages: [{ role: 'user', content: 'Keep this account-local.' }] },
-			{ accountId: 'account-a', sessionId: 'thread-a' }
-		);
-
-		const init = fetchMock.mock.calls[1]?.[1] as RequestInit & { headers: Record<string, string> };
-		const tenantKey = init.headers['x-newscraft-tenant-key'];
-		expect(tenantKey).toBe(deriveHermesTenantKey('account-a'));
-		expect(tenantKey).toMatch(/^[A-Za-z0-9_-]{32,}$/);
-		expect(tenantKey).not.toContain('account-a');
-		expect(JSON.stringify(init)).not.toContain('account-a');
-		expect(tenantKey).not.toBe(deriveHermesTenantKey('account-b'));
-	});
-
-	it('derives an account-scoped session id when a caller does not provide one', async () => {
-		const fetchMock = vi.fn().mockImplementation((input: unknown) =>
-			String(input).endsWith('/ready') ? isolationReadyResponse() : aguiStream({ type: 'RUN_FINISHED' })
-		);
-		vi.stubGlobal('fetch', fetchMock);
-		const body = { messages: [{ role: 'user' as const, content: 'Keep this session local.' }] };
-
-		await streamChatCompletion(body, { accountId: 'account-a' });
-		await streamChatCompletion(body, { accountId: 'account-b' });
-
-		const firstHeaders = fetchMock.mock.calls[1]?.[1] as RequestInit & { headers: Record<string, string> };
-		const secondHeaders = fetchMock.mock.calls[3]?.[1] as RequestInit & { headers: Record<string, string> };
-		expect(firstHeaders.headers['x-hermes-session-id']).not.toBe(secondHeaders.headers['x-hermes-session-id']);
-	});
-
-	it('fails closed when a chat run has no authenticated account scope', async () => {
-		const fetchMock = vi.fn();
-		vi.stubGlobal('fetch', fetchMock);
-
-		await expect(streamChatCompletion({ messages: [{ role: 'user', content: 'No tenant.' }] })).rejects.toThrow(
-			'authenticated account scope'
-		);
-		expect(fetchMock).not.toHaveBeenCalled();
-	});
-
-	it('sends one authenticated AG-UI request with no browser-provided tools', async () => {
-		const fetchMock = vi.fn().mockImplementation((input: unknown) =>
-			String(input).endsWith('/ready')
-				? isolationReadyResponse()
-				: aguiStream(
-					{ type: 'RUN_STARTED', threadId: 'thread', runId: 'run' },
-					{ type: 'TEXT_MESSAGE_START', messageId: 'answer-1', role: 'assistant' },
-					{ type: 'TEXT_MESSAGE_CONTENT', delta: 'Hermes reply.' },
-					{ type: 'TEXT_MESSAGE_END', messageId: 'answer-1' },
-					{ type: 'RUN_FINISHED' }
-				)
-		);
-		vi.stubGlobal('fetch', fetchMock);
-
-		const response = await streamChatCompletion(
-			{
-				messages: [
-					{ role: 'system', content: 'Newsroom system' },
-					{ role: 'user', content: 'Research this.' }
-				],
-				stream: true,
-				newsroom_context: { timezone: 'America/Toronto' }
-			},
-			{ accountId: 'account-a', sessionId: 'thread', traceId: 'trace_12345678' }
-		);
-
-		expect(fetchMock).toHaveBeenCalledTimes(2);
-		expect(fetchMock.mock.calls[1]?.[0]).toBe('https://hermes.test/');
-		const init = fetchMock.mock.calls[1]?.[1] as RequestInit & { headers: Record<string, string> };
-		expect(init.headers).toMatchObject({
-			authorization: 'Bearer test-hermes-token',
-			'x-hermes-session-token': 'test-hermes-token',
-			'x-hermes-session-id': 'thread',
-			'x-trace-id': 'trace_12345678'
-		});
-		const body = JSON.parse(init.body as string) as {
-			state: { newscraftSources: unknown[] };
-			forwardedProps: {
-				source: string;
-				operation: string;
-				webExtractConfigured: boolean;
-				retrievalVerificationTool: string;
-				stateWriterTools: Array<Record<string, unknown>>;
-			};
-			[key: string]: unknown;
-		};
-		expect(body).toMatchObject({
-			threadId: 'thread',
-			state: { newscraftSources: [] },
-			tools: [],
-			forwardedProps: {
-				source: 'newscraft',
-				operation: 'chat',
-				webExtractConfigured: false,
-				retrievalVerificationTool: 'verify_this_lead',
-				retrievalBackend: 'newscraft-local',
-				retrievalMaxUrls: 5,
-				archiveFallback: 'wayback'
-			}
-		});
-		expect(body.runId).toMatch(/^[0-9a-f-]{36}$/);
-		expect(body.runId).not.toBe(body.trace_id);
-		expect(body.trace_id).toBe('trace_12345678');
-		expect(body.forwardedProps.stateWriterTools).toEqual([
-			expect.objectContaining({
-				name: 'record_newscraft_source',
-				stateKey: 'newscraftSources',
-				arg: 'source',
-				mode: 'append'
-			})
-		]);
-		const text = await response.text();
-		expect(text).toContain('event: agent.answer.replace');
-		expect(text).toContain('Hermes reply.');
 	});
 
 	it('carries one server trace through the durable start request and input', async () => {
@@ -463,194 +357,6 @@ describe('Hermes chat transport', () => {
 				traceId: built.input.trace_id
 			})
 		).rejects.toMatchObject({ code: 'overloaded' });
-	});
-
-	it('checks retrieval readiness before a research run and makes no fallback request', async () => {
-		const fetchMock = vi.fn().mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					ok: true,
-					service: 'newscraft-hermes-chat',
-					toolset: 'hermes-acp',
-					tools: ['web_search', 'web_extract', 'browser_navigate', 'browser_snapshot'],
-					runtime: { provider: 'custom', model: 'old-model', endpointMode: 'explicit' },
-					capabilities: {
-						standard: true,
-						browser: true,
-						webResearch: true,
-						terminal: true,
-						files: true,
-						codeExecution: true,
-						delegation: true,
-					skills: true,
-					memory: true,
-					durableRuns: { configured: true, callback: true }
-					}
-				}),
-				{ status: 200 }
-			)
-		);
-		vi.stubGlobal('fetch', fetchMock);
-
-		await expect(
-			streamChatCompletion(
-				{ messages: [{ role: 'user', content: 'Research the latest update.' }] },
-				{ accountId: 'account-a', requireWebExtraction: true }
-			)
-		).rejects.toThrow('web extraction is not configured');
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://hermes.test/ready');
-	});
-
-	it('sends a research run only after retrieval readiness passes', async () => {
-		const ready = {
-			ok: true,
-			service: 'newscraft-hermes-chat',
-			toolset: 'hermes-acp',
-			processInstanceId: 'a'.repeat(32),
-			tools: [
-				'web_search',
-				'web_extract',
-				'verify_this_lead',
-				'browser_navigate',
-				'browser_snapshot',
-				'terminal',
-				'process',
-				'read_file',
-				'write_file',
-				'patch',
-				'execute_code',
-				'delegate_task',
-				'skills_list',
-				'skill_view',
-				'skill_manage',
-				'memory',
-				'cronjob'
-			],
-			runtime: { provider: 'custom', model: 'new-model', endpointMode: 'explicit' },
-			toolProviders: {
-				webSearch: { configured: true },
-				webExtract: { configured: true },
-				leadVerification: { configured: true },
-				browser: { configured: true }
-			},
-			capabilities: {
-				standard: true,
-				accountIsolation: {
-					tenantHeader: 'x-newscraft-tenant-key',
-					contextLocalHome: true,
-					stableTaskKey: true,
-					persistentDockerWorkspace: true,
-					isolatedBrowserProfiles: true
-				},
-				browser: true,
-				webResearch: true,
-				webExtraction: {
-					configured: true,
-					backend: 'newscraft-local',
-					archiveProvider: 'wayback',
-					tool: true,
-					leadVerificationTool: true
-				},
-				webLeadVerification: { configured: true, tool: true, bounded: true },
-				terminal: true,
-				files: true,
-				codeExecution: true,
-				delegation: true,
-				skills: true,
-				memory: true,
-				durableRuns: { configured: true, callback: true }
-			}
-		};
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValueOnce(new Response(JSON.stringify(ready), { status: 200 }))
-			.mockResolvedValueOnce(aguiStream({ type: 'RUN_FINISHED' }));
-		vi.stubGlobal('fetch', fetchMock);
-
-		await streamChatCompletion(
-			{ messages: [{ role: 'user', content: 'Research the latest update.' }] },
-			{ accountId: 'account-a', requireWebExtraction: true }
-		);
-		expect(fetchMock).toHaveBeenCalledTimes(2);
-		const requestBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as {
-			forwardedProps: { webExtractConfigured: boolean };
-		};
-		expect(requestBody.forwardedProps.webExtractConfigured).toBe(true);
-	});
-
-	it('enables optional gap research when retrieval is ready', async () => {
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValueOnce(isolationReadyResponse())
-			.mockResolvedValueOnce(aguiStream({ type: 'RUN_FINISHED' }));
-		vi.stubGlobal('fetch', fetchMock);
-
-		await streamChatCompletion(
-			{ messages: [{ role: 'user', content: 'Write a standalone producer brief.' }] },
-			{ accountId: 'account-a', enableWebExtraction: true }
-		);
-		const requestBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as {
-			forwardedProps: { webExtractConfigured: boolean };
-		};
-		expect(requestBody.forwardedProps.webExtractConfigured).toBe(true);
-	});
-
-	it('keeps optional transformations available when retrieval is not ready', async () => {
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValueOnce(
-				isolationReadyResponse(
-					{ webExtraction: { configured: false } },
-					{ webExtract: { configured: false } }
-				)
-			)
-			.mockResolvedValueOnce(aguiStream({ type: 'RUN_FINISHED' }));
-		vi.stubGlobal('fetch', fetchMock);
-
-		await expect(
-			streamChatCompletion(
-				{ messages: [{ role: 'user', content: 'Write a standalone producer brief.' }] },
-				{ accountId: 'account-a', enableWebExtraction: true }
-			)
-		).resolves.toBeInstanceOf(Response);
-		const requestBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as {
-			forwardedProps: { webExtractConfigured: boolean };
-		};
-		expect(requestBody.forwardedProps.webExtractConfigured).toBe(false);
-	});
-
-	it('seeds attached document pages as inspectable citations', async () => {
-		const fetchMock = vi.fn().mockImplementation((input: unknown) =>
-			String(input).endsWith('/ready') ? isolationReadyResponse() : aguiStream({ type: 'RUN_FINISHED' })
-		);
-		vi.stubGlobal('fetch', fetchMock);
-
-		const response = await streamChatCompletion(
-			{
-				messages: [{ role: 'user', content: 'Use the attached PDF.' }],
-				documents: [
-					{
-						id: 'doc-1',
-						filename: 'brief.pdf',
-						downloadUrl: '/api/documents/doc-1/download',
-						pageCount: 2,
-						pages: [{ pageNumber: 2, text: 'Council approved the motion.' }]
-					}
-				]
-			},
-		{ accountId: 'account-a' }
-		);
-
-			const requestBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as {
-			context: Array<{ description: string; value: string }>;
-		};
-		const documentContext = requestBody.context.find((entry) => entry.description.includes('document'));
-		expect(documentContext?.value).toContain('"citationNumber":1');
-		const text = await response.text();
-		expect(text).toContain('event: agent.citations');
-		expect(text).toContain('"sourceType":"user_document"');
-		expect(text).toContain('"documentPage":2');
 	});
 
 	it('treats extracted pages as read sources but not as numbered citation authority', async () => {
@@ -926,7 +632,7 @@ describe('Hermes chat transport', () => {
 
 		const text = await new Response(normalizeHermesSse(source)).text();
 		expect(text).toContain('event: agent.source.read');
-		expect(text).toContain('Hermes read this page with its browser.');
+		expect(text).toContain('NewsCraft read this page with its browser.');
 		expect(text).not.toContain('event: agent.citations');
 	});
 
@@ -1030,57 +736,8 @@ describe('Hermes chat transport', () => {
 		expect(text).not.toContain('event: agent.citations');
 	});
 
-	it('does not make a second request when Hermes rejects the run', async () => {
-		const fetchMock = vi.fn().mockImplementation((input: unknown) =>
-			String(input).endsWith('/ready') ? isolationReadyResponse() : new Response('rejected', { status: 404 })
-		);
-		vi.stubGlobal('fetch', fetchMock);
-
-		const response = await streamChatCompletion(
-			{ messages: [{ role: 'user', content: 'hello' }] },
-			{ accountId: 'account-a' }
-		);
-
-		expect(response.status).toBe(404);
-		expect(fetchMock).toHaveBeenCalledTimes(2);
-	});
-
 	it('does not expose the legacy agent HTTP proxy', async () => {
 		await expect(agentFetch('/api/jobs')).rejects.toThrow('Legacy agent-job transport is disabled');
-	});
-
-	it('uses the same Hermes run path for short completions', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn().mockImplementation((input: unknown) =>
-				String(input).endsWith('/ready')
-					? isolationReadyResponse()
-					: aguiStream(
-						{ type: 'TEXT_MESSAGE_START', messageId: 'answer-1', role: 'assistant' },
-						{ type: 'TEXT_MESSAGE_CONTENT', delta: 'A' },
-					{ type: 'TEXT_MESSAGE_CONTENT', delta: ' ' },
-					{ type: 'TEXT_MESSAGE_CONTENT', delta: 'concise' },
-					{ type: 'TEXT_MESSAGE_CONTENT', delta: ' ' },
-						{ type: 'TEXT_MESSAGE_CONTENT', delta: 'title' },
-						{ type: 'TEXT_MESSAGE_END', messageId: 'answer-1' },
-						{ type: 'RUN_FINISHED' }
-					)
-			)
-		);
-
-		await expect(
-			completion(
-				{ messages: [{ role: 'user', content: 'Title this.' }] },
-				{ accountId: 'account-a' }
-			)
-		).resolves.toMatchObject({
-			choices: [{ message: { content: 'A concise title' } }]
-		});
-		const fetchMock = vi.mocked(fetch);
-		const body = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as {
-			forwardedProps: { stateWriterTools: unknown[] };
-		};
-		expect(body.forwardedProps.stateWriterTools).toEqual([]);
 	});
 
 	it('keeps inter-tool narration out of the final answer', async () => {
@@ -1124,26 +781,35 @@ describe('Hermes chat transport', () => {
 		expect(text).toContain('Hermes job failed.');
 	});
 
+	it('accepts the actual owned-service research-only readiness contract', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(ownedReadiness), { status: 200 })));
+		await expect(gatewayHealth()).resolves.toMatchObject({ ok: true, requiredReady: true, webExtractionReady: true });
+		expect(ownedReadiness.capabilities.terminal).toBe(false);
+		expect(ownedReadiness.capabilities.browser).toBe(false);
+	});
+
 	it('reports ready for the standard Hermes capability set', async () => {
 		const fetchMock = vi.fn().mockResolvedValue(
 			new Response(
 				JSON.stringify({
 					ok: true,
-					service: 'newscraft-hermes-chat',
-					toolset: 'hermes-acp',
+					service: 'newscraft-agent',
+					toolset: 'newscraft-agent',
 						tools: ['web_search', 'verify_this_lead', 'browser_navigate', 'browser_snapshot', 'terminal'],
 					runtime: {
 						provider: 'openai',
 						model: 'gpt-5-mini',
-						endpointMode: 'explicit'
+						endpointMode: 'explicit', apiMode: 'responses', orchestration: 'newscraft'
 					},
 						capabilities: {
 							standard: true,
+				boundedLoop: { configured: true, cancellation: true, stepBudget: true, timeBudget: true, costBudget: false },
 							accountIsolation: {
 								tenantHeader: 'x-newscraft-tenant-key',
 								contextLocalHome: true,
 								stableTaskKey: true,
-								persistentDockerWorkspace: true,
+								ownedRunState: true,
+					conversationWorkspace: true,
 								isolatedBrowserProfiles: true
 							},
 							browser: true,
@@ -1173,7 +839,7 @@ describe('Hermes chat transport', () => {
 		await expect(gatewayHealth()).resolves.toMatchObject({
 			ok: true,
 			status: 200,
-			service: 'newscraft-hermes-chat',
+			service: 'newscraft-agent',
 			url: 'https://hermes.test'
 		});
 		expect(fetchMock).toHaveBeenCalledWith(
@@ -1240,12 +906,13 @@ describe('Hermes chat transport', () => {
 				new Response(
 					JSON.stringify({
 						ok: true,
-						service: 'newscraft-hermes-chat',
-						toolset: 'hermes-acp',
+						service: 'newscraft-agent',
+						toolset: 'newscraft-agent',
 						tools: ['browser_navigate', 'browser_snapshot'],
-						runtime: { provider: 'openai', model: 'gpt-5-mini', endpointMode: 'explicit' },
+						runtime: { provider: 'openai', model: 'gpt-5-mini', endpointMode: 'explicit', apiMode: 'responses', orchestration: 'newscraft' },
 						capabilities: {
 							standard: true,
+				boundedLoop: { configured: true, cancellation: true, stepBudget: true, timeBudget: true, costBudget: false },
 							browser: true,
 							webResearch: true,
 							terminal: true,
@@ -1272,50 +939,6 @@ describe('Hermes chat transport', () => {
 		 await expect(gatewayHealth()).resolves.toMatchObject({ ok: false, status: 200 });
 	 });
 
-	it('does not send a chat run to a Hermes service without isolation', async () => {
-		const fetchMock = vi.fn().mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					ok: true,
-					service: 'newscraft-hermes-chat',
-					toolset: 'hermes-acp',
-					tools: ['browser_navigate', 'browser_snapshot'],
-					runtime: { provider: 'openai', model: 'gpt-5-mini', endpointMode: 'explicit' },
-					capabilities: {
-						standard: true,
-						browser: true,
-						webResearch: true,
-						terminal: true,
-						files: true,
-						codeExecution: true,
-						delegation: true,
-						skills: true,
-						memory: true,
-						webExtraction: {
-							configured: true,
-							backend: 'newscraft-local',
-							archiveProvider: 'wayback',
-							tool: true,
-							leadVerificationTool: true
-						},
-						webLeadVerification: { configured: true, bounded: true }
-					}
-				}),
-				{ status: 200 }
-			)
-		);
-		vi.stubGlobal('fetch', fetchMock);
-
-		await expect(
-			streamChatCompletion(
-				{ messages: [{ role: 'user', content: 'Do not send this to an old service.' }] },
-				{ accountId: 'account-a' }
-			)
-		).rejects.toThrow('account isolation');
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-		expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/ready');
-	});
-
 	it('accepts extra Hermes tools without a NewsCraft allowlist', async () => {
 		vi.stubGlobal(
 			'fetch',
@@ -1323,8 +946,8 @@ describe('Hermes chat transport', () => {
 				new Response(
 					JSON.stringify({
 						ok: true,
-						service: 'newscraft-hermes-chat',
-						toolset: 'hermes-acp',
+						service: 'newscraft-agent',
+						toolset: 'newscraft-agent',
 						tools: [
 							'web_search',
 							'browser_navigate',
@@ -1336,15 +959,17 @@ describe('Hermes chat transport', () => {
 						runtime: {
 							provider: 'openai',
 							model: 'gpt-5-mini',
-							endpointMode: 'explicit'
+							endpointMode: 'explicit', apiMode: 'responses', orchestration: 'newscraft'
 						},
 						capabilities: {
 							standard: true,
+				boundedLoop: { configured: true, cancellation: true, stepBudget: true, timeBudget: true, costBudget: false },
 							accountIsolation: {
 								tenantHeader: 'x-newscraft-tenant-key',
 								contextLocalHome: true,
 								stableTaskKey: true,
-								persistentDockerWorkspace: true,
+								ownedRunState: true,
+					conversationWorkspace: true,
 								isolatedBrowserProfiles: true
 							},
 							browser: true,
@@ -1394,7 +1019,60 @@ describe('Hermes chat transport', () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it('uses the canonical agent configuration with stable migrated tenant identity', async () => {
+		const stableTenant = deriveHermesTenantKey('account-a');
+		vi.stubEnv('NEWSCRAFT_AGENT_URL', 'https://agent.test/');
+		vi.stubEnv('NEWSCRAFT_AGENT_API_TOKEN', 'test-agent-token');
+		vi.stubEnv('NEWSCRAFT_AGENT_TENANT_SECRET', 'test-tenant-secret-0123456789012345');
+		const fetchMock = vi.fn().mockResolvedValue(isolationReadyResponse());
+		vi.stubGlobal('fetch', fetchMock);
+		await expect(gatewayHealth()).resolves.toMatchObject({ ok: true, service: 'newscraft-agent' });
+		expect(fetchMock).toHaveBeenCalledWith('https://agent.test/ready', expect.objectContaining({
+			headers: expect.objectContaining({ authorization: 'Bearer test-agent-token' })
+		}));
+		expect(deriveHermesTenantKey('account-a')).toBe(stableTenant);
+	});
+
+	it('rejects the retired runtime identity and incomplete bounded-loop guarantees', async () => {
+		const old = await isolationReadyResponse().json();
+		old.service = 'newscraft-hermes-chat';
+		old.toolset = 'hermes-acp';
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(new Response(JSON.stringify(old)))
+			.mockResolvedValueOnce(isolationReadyResponse({ boundedLoop: { configured: true, cancellation: true } }));
+		vi.stubGlobal('fetch', fetchMock);
+		await expect(gatewayHealth()).resolves.toMatchObject({ ok: false, requiredReady: false });
+		await expect(gatewayHealth()).resolves.toMatchObject({ ok: false, requiredReady: false });
+	});
+
+	it('propagates only explicit public custom activity and omits reasoning events', async () => {
+		const response = aguiStream(
+			{ type: 'CUSTOM', name: 'newscraft.plan', value: { source: 'model', steps: [{ id: 'read', label: 'Read the release', status: 'running' }], reasoning: 'private deliberation' } },
+			{ type: 'CUSTOM', name: 'newscraft.decision', value: { id: 'official', summary: 'The release provides the baseline.', thinking: 'private deliberation' } },
+			{ type: 'CUSTOM', name: 'model.reasoning', value: { text: 'private deliberation' } },
+			{ type: 'REASONING_MESSAGE_CONTENT', delta: 'private deliberation' },
+			{ type: 'RUN_FINISHED' }
+		);
+		const output = await new Response(normalizeHermesSse(response.body!)).text();
+		expect(output).toContain('event: agent.plan');
+		expect(output).toContain('event: agent.decision');
+		expect(output).toContain('The release provides the baseline.');
+		expect(output).not.toContain('private deliberation');
+		expect(output).not.toContain('thinking');
+	});
+
+	it('preserves tool rejection status through the tool end event', async () => {
+		const response = aguiStream(
+			{ type: 'TOOL_CALL_START', toolCallId: 't1', toolCallName: 'terminal' },
+			{ type: 'TOOL_CALL_RESULT', toolCallId: 't1', result: { error: 'Command is unavailable.' } },
+			{ type: 'TOOL_CALL_END', toolCallId: 't1' }
+		);
+		const output = await new Response(normalizeHermesSse(response.body!)).text();
+		expect(output).toContain('"status":"failed","done":true');
+		expect(output).not.toContain('"status":"ok"');
+	});
+
 	it('describes network failures as Hermes failures', () => {
-		expect(describeGatewayError(new Error('fetch failed'))).toContain('Hermes is not reachable');
+		expect(describeGatewayError(new Error('fetch failed'))).toContain('NewsCraft agent is not reachable');
 	});
 });

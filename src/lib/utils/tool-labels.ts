@@ -23,18 +23,22 @@ interface ToolIntent {
 }
 
 const TABLE: Array<{ test: RegExp; label: ToolLabel }> = [
+	{ test: /^publish_(?:markdown|csv|table|chart|image|artifact)$/i, label: { live: 'Saving file', done: 'File saved' } },
+	{ test: /^read_file$/i, label: { live: 'Reading file', done: 'File read' } },
+	{ test: /^write_file$/i, label: { live: 'Writing file', done: 'File written' } },
+	{ test: /^(?:list_files|list_directory)$/i, label: { live: 'Listing files', done: 'Files listed' } },
 	{ test: /assignment[_-]?desk/i, label: { live: 'Planning request', done: 'Request routed' } },
-	{ test: /skill[_-]?view|view[_-]?skill/i, label: { live: 'Loading skill', done: 'Skill loaded' } },
+	{ test: /skill[_-]?view|view[_-]?skill/i, label: { live: 'Preparing research', done: 'Research prepared' } },
 	{
 		test: /delegate[_-]?task|task[_-]?delegate/i,
-		label: { live: 'Starting helper task', done: 'Helper task finished' }
+		label: { live: 'Checking research', done: 'Research checked' }
 	},
 	{ test: /search|google|bing|duckduckgo|web/i, label: { live: 'Scanning coverage', done: 'Coverage scanned' } },
 	{ test: /fetch|read|browse|open|http|url|page/i, label: { live: 'Reading source', done: 'Source read' } },
 	{ test: /verify|check|validate|fact/i, label: { live: 'Checking facts', done: 'Facts checked' } },
 	{ test: /summari[sz]e|brief|outline/i, label: { live: 'Summarizing', done: 'Summary ready' } },
 	{ test: /draft|write|compose/i, label: { live: 'Drafting', done: 'Draft ready' } },
-	{ test: /terminal|shell|bash|exec|command/i, label: { live: 'Running internal check', done: 'Internal check finished' } },
+	{ test: /terminal|shell|bash|exec|command/i, label: { live: 'Working with data', done: 'Data processed' } },
 	{ test: /file|fs|path|document/i, label: { live: 'Checking files', done: 'Files checked' } },
 	{ test: /db|sql|query|select/i, label: { live: 'Querying data', done: 'Data fetched' } }
 ];
@@ -108,6 +112,18 @@ export function formatElapsed(ms: number): string {
 	return `${Math.floor(s / 60)}m${(s % 60).toString().padStart(2, '0')}s`;
 }
 
+/** Last display boundary for both current activity and historical replay. */
+export function publicActivityText(value: unknown): string {
+	if (typeof value !== 'string') return '';
+	if (/(?:^|[\s"'`(])(?:\/[\w.]|~[/\\]|[A-Za-z]:\\|\.{1,2}\/)|\b[A-Za-z_.-][\w.-]*\/[\w./-]+|\b[0-9a-f]{8}-[0-9a-f-]{27,}\b|\b[0-9a-f]{32,}\b|\b(?:run|job|call|tool|receipt|ref)[_:-][\w:-]+|\b(?:run|job|tool|receipt|navigation|page)\s+(?:id|ref(?:erence)?)\b|\be\d+\b|\b\w+_\w+\b/i.test(value)) return '';
+	if (/\b(?:provider|adapter|gateway|harness|checkpoint|idempotency|stdout|stderr|traceback|exception|json|sql|nonce|endpoint|seccomp|skill|credential|bearer)\b|^(?:terminal|browser|shell|bash|python)\b|exit code|api[_ -]?key|\bsk-[\w-]+|HTTP\s*\d{3}|\b(?:pnpm|npm|python\d*|curl|docker|bash|uv)\s|\$\(|```/i.test(value)) return '';
+	return cleanDetail(value);
+}
+
+export function publicPlanStepLabel(value: string | undefined): string {
+	return publicActivityText(value) || 'Researching';
+}
+
 export function publicPlanStepDetail(value: string | undefined): string {
 	const detail = cleanDetail(value);
 	if (!detail) return '';
@@ -127,29 +143,48 @@ export function publicPlanStepDetail(value: string | undefined): string {
 	) {
 		return 'This research step is not available.';
 	}
-	return detail;
+	return publicActivityText(detail);
 }
 
 export function toolStepDetail(tool: ToolStep): string {
-	const explicit = cleanDetail(tool.detail);
-	if (explicit && explicit.toLowerCase() !== tool.name.toLowerCase()) return explicit;
-
 	const intent = toolIntent(tool);
-	if (intent?.detail) return intent.detail;
-
-	const title = cleanDetail(tool.title);
-	if (title) return title;
-
-	const url = cleanDetail(tool.url);
-	if (url) return prettyUrl(url);
+	if (intent?.detail) return publicActivityText(intent.detail);
+	// Saved/reconnected calls can contain the original provider payload. Only
+	// research queries and source descriptions are public activity details.
+	if (isInternalTool(tool.name) || /^(?:browser|read_file|write_file|list_files|list_directory|publish_)/i.test(tool.name)) {
+		return '';
+	}
+	if (!/search|google|bing|duckduckgo|fetch|read|browse|open|http|url|page|verify|check|validate|fact/i.test(tool.name)) return '';
 
 	const argDetail = detailFromArguments(tool.arguments);
 	if (argDetail) return argDetail;
+	const title = publicActivityText(tool.title);
+	if (title) return title;
+	const url = tool.url;
+	if (url) return prettyUrl(url);
+	const explicit = publicActivityText(tool.detail);
+	if (explicit && explicit.toLowerCase() !== tool.name.toLowerCase()) return explicit;
+	return detailFromResult(tool.result);
+}
 
-	const resultDetail = detailFromResult(tool.result);
-	if (resultDetail) return resultDetail;
-
-	return '';
+/** Public outcomes, never command output, file contents or diagnostic payloads. */
+export function toolStepResult(tool: ToolStep): string {
+	const result = normalizeValue(tool.result);
+	if (result && typeof result === 'object' && !Array.isArray(result)) {
+		const record = result as Record<string, unknown>;
+		const exitCode = numberValue(record.exit_code);
+		if (record.error || record.failed === true || (exitCode !== undefined && exitCode !== 0)) return 'This action could not be completed.';
+		if (exitCode === 0) return 'Completed.';
+		if (/^(?:publish_|write_file)/i.test(tool.name) && (record.workspace_path || numberValue(record.bytes) !== undefined)) return 'File saved.';
+		if (/^read_file$/i.test(tool.name)) return 'File read.';
+		if (/^browser(?:_|$)/i.test(tool.name)) {
+			if (record.reset === true) return 'Browsing session cleared.';
+			if (record.screenshot_path || record.screenshot_sha256) return 'Page image saved.';
+			if (record.evidence_available === false) return 'Page read; citation evidence is unavailable.';
+			return record.url || record.title || record.text ? 'Page read.' : '';
+		}
+	}
+	return detailFromResult(result);
 }
 
 export function toolStepSummary(tool: ToolStep, done = false): string {
@@ -164,44 +199,25 @@ export function toolStepLabel(tool: ToolStep, done = false): string {
 	return done ? doneLabel(tool.name) : liveLabel(tool.name);
 }
 
-export function showToolRawName(tool: ToolStep): boolean {
-	return !isInternalTool(tool.name) && !/[_:-]/.test(tool.name);
+export function showToolRawName(_tool: ToolStep): boolean {
+	return false;
 }
 
 function detailFromArguments(value: unknown): string {
 	const normalized = normalizeValue(value);
 	if (codeFromArguments(normalized)) return '';
 
-	const command = findString(normalized, ['command', 'cmd', 'shell', 'script']);
-	if (command) return cleanDetail(command);
-
 	const query = findString(normalized, ['query', 'q', 'search_query', 'search', 'keywords']);
-	if (query) return cleanDetail(query);
+	if (query) return publicActivityText(query);
 
 	const url = findString(normalized, ['url', 'href', 'link', 'uri']);
 	if (url) return prettyUrl(url);
 
-	const sql = findString(normalized, ['sql', 'statement']);
-	if (sql) return `SQL: ${sql}`;
-
-	const path = findString(normalized, ['path', 'file', 'filename', 'filepath']);
-	if (path) return `File: ${path}`;
-
-	const task = findString(normalized, ['task', 'instruction', 'prompt']);
-	if (task) return `Task: ${task}`;
-
-	if (typeof normalized === 'string') return cleanDetail(normalized);
 	return '';
 }
 
 function detailFromResult(value: unknown): string {
 	const normalized = normalizeValue(value);
-	const output = resultOutput(normalized);
-	if (output) {
-		const summary = summarizeOutput(output);
-		if (summary) return summary;
-	}
-
 	if (Array.isArray(normalized)) {
 		if (normalized.length === 0) return 'No results';
 		return `${normalized.length} ${normalized.length === 1 ? 'result' : 'results'}`;
@@ -210,7 +226,7 @@ function detailFromResult(value: unknown): string {
 	if (normalized && typeof normalized === 'object') {
 		const record = normalized as Record<string, unknown>;
 		const count = numberValue(record.count ?? record.total ?? record.total_count ?? record.num_results);
-		if (count !== undefined) return `${count} ${count === 1 ? 'result' : 'results'}`;
+		if (count !== undefined && Number.isSafeInteger(count) && count >= 0 && count <= 10_000) return `${count} ${count === 1 ? 'result' : 'results'}`;
 
 		const results = record.results ?? record.items ?? record.data;
 		if (Array.isArray(results)) {
@@ -218,11 +234,7 @@ function detailFromResult(value: unknown): string {
 			return `${results.length} ${results.length === 1 ? 'result' : 'results'}`;
 		}
 
-		const text = findString(value, ['summary', 'message', 'title', 'detail']);
-		if (text) return text;
 	}
-
-	if (typeof normalized === 'string') return cleanDetail(normalized);
 	return '';
 }
 
@@ -231,20 +243,28 @@ function toolIntent(tool: ToolStep): ToolIntent | null {
 	const args = normalizeValue(tool.arguments);
 	const code = codeFromArguments(args);
 	const url = findString(args, ['url', 'href', 'link', 'uri']) || tool.url || '';
+	if (name === 'browser') {
+		const action = findString(args, ['action']);
+		if (action === 'click') return { live: 'Clicking page', done: 'Page clicked', detail: browserTargetDetail(args) };
+		if (action === 'navigate') return { live: 'Opening page', done: 'Page opened', detail: url ? prettyUrl(url) : undefined };
+		if (['fill', 'type', 'key'].includes(action)) return { live: 'Interacting with page', done: 'Page interaction complete' };
+		if (action === 'scroll') return { live: 'Reviewing page', done: 'Page reviewed' };
+		if (action === 'screenshot') return { live: 'Saving page image', done: 'Page image saved' };
+		if (action === 'reset') return { live: 'Clearing browsing session', done: 'Browsing session cleared' };
+		return { live: 'Reading page', done: 'Page read', detail: url ? prettyUrl(url) : undefined };
+	}
 
 	if (/skill[_-]?view|view[_-]?skill/.test(name)) {
 		return {
-			live: 'Loading skill',
-			done: 'Skill loaded',
-			detail: skillDetail(args)
+			live: 'Preparing research',
+			done: 'Research prepared'
 		};
 	}
 
 	if (/delegate[_-]?task|task[_-]?delegate/.test(name)) {
 		return {
-			live: 'Starting helper task',
-			done: 'Helper task finished',
-			detail: delegateDetail(args)
+			live: 'Checking research',
+			done: 'Research checked'
 		};
 	}
 
@@ -279,158 +299,38 @@ function toolIntent(tool: ToolStep): ToolIntent | null {
 
 	if (!isInternalTool(name) || !code) return null;
 
-	return intentFromCode(code, tool.result);
+	return intentFromCode(code);
 }
 
-function intentFromCode(code: string, result: unknown): ToolIntent {
+function intentFromCode(code: string): ToolIntent {
 	const lower = code.toLowerCase();
-	const output = resultOutput(normalizeValue(result));
-	const hasTimeout = output ? /timed out|timeout/i.test(output) : false;
-	const hasParserError = output ? /modulenotfounderror|traceback/i.test(output) : false;
-
 	if (lower.includes('duckduckgo') || lower.includes('queries = [')) {
-		return {
-			live: 'Scanning coverage',
-			done: 'Coverage scanned',
-			detail: listDetail('Queries', extractListStrings(code, 'queries'), 2)
-		};
+		return { live: 'Scanning coverage', done: 'Coverage scanned',
+			detail: listDetail('Queries', extractListStrings(code, 'queries'), 2) };
 	}
-
 	if (lower.includes('search-experts.php')) {
-		return {
-			live: 'Searching expert database',
-			done: 'Expert database searched',
-			detail: listDetail('Terms', extractListStrings(code, 'term'), 4)
-		};
+		return { live: 'Searching expert database', done: 'Expert database searched',
+			detail: listDetail('Terms', extractListStrings(code, 'term'), 4) };
 	}
-
-	if (lower.includes('experts-api.js') && lower.includes('$.ajax')) {
-		return {
-			live: 'Finding expert search endpoint',
-			done: 'Expert search endpoint found',
-			detail: 'Informed Perspectives AJAX endpoint'
-		};
-	}
-
-	if (lower.includes('experts-api.js') && lower.includes('loadexperts')) {
-		return {
-			live: 'Inspecting search flow',
-			done: 'Search flow inspected',
-			detail: 'Informed Perspectives loadExperts flow'
-		};
-	}
-
-	if (lower.includes('experts-api.js')) {
-		return {
-			live: 'Reading search script',
-			done: 'Search script read',
-			detail: 'Informed Perspectives expert-search JavaScript'
-		};
-	}
-
 	if (lower.includes('canada.ca') || lower.includes('department-finance')) {
-		return {
-			live: 'Checking official pages',
-			done: 'Official pages checked',
-			detail: hasTimeout ? 'Finance Canada pages timed out' : 'Finance Canada pages'
-		};
+		return { live: 'Checking official pages', done: 'Official pages checked', detail: 'Finance Canada pages' };
 	}
-
-	if (lower.includes('experts_api_data')) {
-		return {
-			live: 'Reading API config',
-			done: 'API config read',
-			detail: 'Expert database nonce and endpoint'
-		};
-	}
-
-	if (lower.includes('database-of-experts')) {
-		return {
-			live: hasParserError ? 'Trying page parser' : 'Reading expert database',
-			done: hasParserError ? 'Page parser tried' : 'Expert database read',
-			detail: hasParserError
-				? 'Parser unavailable; continued with another method'
-				: 'Informed Perspectives expert database'
-		};
-	}
-
-	if (lower.includes('candidates={')) {
-		return {
-			live: 'Checking candidate profiles',
-			done: 'Candidate profiles checked',
-			detail: listDetail('Candidates', extractObjectKeys(code), 4)
-		};
-	}
-
-	if (lower.includes('emails') && lower.includes('urls={')) {
-		return {
-			live: 'Checking contact details',
-			done: 'Contact details checked',
-			detail: listDetail('Profiles', extractObjectKeys(code), 4)
-		};
-	}
-
-	if (lower.includes('emails') || lower.includes('profile')) {
-		return {
-			live: 'Checking profiles',
-			done: 'Profiles checked',
-			detail: output ? summarizeOutput(output) || undefined : undefined
-		};
-	}
-
 	if (/informed(opinions|perspectives)\.org/i.test(code)) {
-		return {
-			live: 'Checking expert site',
-			done: 'Expert site checked',
-			detail: output ? summarizeOutput(output) || 'Informed Perspectives pages' : 'Informed Perspectives pages'
-		};
+		return { live: 'Checking expert sources', done: 'Expert sources checked', detail: 'Informed Perspectives' };
 	}
-
-	return {
-		live: 'Running internal check',
-		done: 'Internal check finished',
-		detail: output ? summarizeOutput(output) || undefined : undefined
-	};
-}
-
-function skillDetail(value: unknown): string | undefined {
-	const skill = findString(value, [
-		'skill',
-		'skill_name',
-		'skillname',
-		'skill_id',
-		'skillid',
-		'name',
-		'id',
-		'path'
-	]);
-	if (skill) return `Skill: ${skill}`;
-	const primitive = primitiveString(value);
-	return primitive ? `Skill: ${primitive}` : undefined;
-}
-
-function delegateDetail(value: unknown): string | undefined {
-	const task = findString(value, ['task', 'instruction', 'prompt', 'description']);
-	if (task) return `Task: ${task}`;
-	const primitive = primitiveString(value);
-	return primitive ? `Task: ${primitive}` : undefined;
+	return { live: 'Working with data', done: 'Data processed' };
 }
 
 function browserTargetDetail(value: unknown): string | undefined {
-	const target = findString(value, ['url', 'href', 'link', 'selector', 'ref', 'element', 'text']);
-	return target ? cleanDetail(target) : undefined;
-}
-
-function primitiveString(value: unknown): string {
-	const normalized = normalizeValue(value);
-	return typeof normalized === 'string' ? cleanDetail(normalized) : '';
+	const url = findString(value, ['url', 'href', 'link']);
+	return url ? prettyUrl(url) || undefined : undefined;
 }
 
 function findString(value: unknown, keys: string[], depth = 0, allowPrimitive = false): string {
 	if (depth > 3 || value == null) return '';
 
 	if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-		return allowPrimitive ? cleanDetail(value) : '';
+		return allowPrimitive ? String(value).trim() : '';
 	}
 
 	if (Array.isArray(value)) {
@@ -477,54 +377,6 @@ function codeFromArguments(value: unknown): string {
 	return typeof code === 'string' ? code : '';
 }
 
-function resultOutput(value: unknown): string {
-	const normalized = normalizeValue(value);
-	if (Array.isArray(normalized)) {
-		for (const item of normalized) {
-			const found = resultOutput(item);
-			if (found) return found;
-		}
-		return '';
-	}
-	if (!normalized || typeof normalized !== 'object') return typeof normalized === 'string' ? normalized : '';
-	const record = normalized as Record<string, unknown>;
-	const text = record.text ?? record.output ?? record.message ?? record.error;
-	if (typeof text === 'string') {
-		const parsed = normalizeValue(text);
-		if (parsed !== text) return resultOutput(parsed);
-		return text;
-	}
-	return '';
-}
-
-function summarizeOutput(output: string): string {
-	const unfolded = output.replace(/\\n/g, '\n');
-	const text = unfolded.replace(/\s+/g, ' ').trim();
-	if (!text) return '';
-	if (/modulenotfounderror|traceback/i.test(text)) return 'Fallback parser failed; continued';
-	if (/timed out|timeout/i.test(text)) return 'Request timed out';
-
-	const names = [...unfolded.matchAll(/^###\s+(.+?)\s*$/gm)]
-		.map((match) => cleanDetail(match[1]))
-		.filter(Boolean);
-	if (names.length) return listDetail('Profiles', names, 4);
-
-	const terms = [...unfolded.matchAll(/TERM\s+(.+?)\s+status/gi)]
-		.map((match) => cleanDetail(match[1]))
-		.filter(Boolean);
-	if (terms.length) return listDetail('Terms', terms, 4);
-
-	const urls = [...unfolded.matchAll(/URL\s+(?:\d+\s+)?(https?:\/\/\S+)/gi)]
-		.map((match) => prettyUrl(match[1]))
-		.filter(Boolean);
-	if (urls.length) return listDetail('Pages', urls, 3);
-
-	if (/emails?\s*\[/i.test(unfolded)) return 'Contact emails found';
-	if (/"success"\s*:\s*true/i.test(unfolded) && /experts?/i.test(unfolded)) return 'Expert records returned';
-	if (/<html|<!doctype/i.test(unfolded)) return '';
-	return cleanDetail(text);
-}
-
 function isInternalTool(name: string): boolean {
 	return /execute_code|browser[_-]?(navigate|click|snapshot)|terminal|shell|bash|exec|command|python|skill[_-]?view|view[_-]?skill|delegate[_-]?task|task[_-]?delegate/i.test(
 		name
@@ -542,12 +394,6 @@ function extractListStrings(code: string, marker: string): string[] {
 	return extractQuotedStrings(code.slice(bracketStart, bracketEnd + 1));
 }
 
-function extractObjectKeys(code: string): string[] {
-	const match = code.match(/\b(?:candidates|urls)\s*=\s*\{([\s\S]*?)\n\}/);
-	if (!match) return [];
-	return [...match[1].matchAll(/['"]([^'"]+)['"]\s*:/g)].map((entry) => cleanDetail(entry[1]));
-}
-
 function extractQuotedStrings(value: string): string[] {
 	return [...value.matchAll(/['"]([^'"]{2,})['"]/g)]
 		.map((match) => cleanDetail(match[1]))
@@ -555,16 +401,19 @@ function extractQuotedStrings(value: string): string[] {
 }
 
 function listDetail(label: string, items: string[], limit: number): string {
-	const clean = [...new Set(items.map((item) => cleanDetail(item)).filter(Boolean))];
+	const clean = [...new Set(items.map((item) => publicActivityText(item)).filter(Boolean))];
 	if (!clean.length) return '';
 	const shown = clean.slice(0, limit).join(', ');
 	const extra = clean.length > limit ? ` +${clean.length - limit}` : '';
-	return `${label}: ${shown}${extra}`;
+	return cleanDetail(`${label}: ${shown}${extra}`);
 }
 
 function cleanDetail(value: unknown): string {
 	if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return '';
-	const text = String(value).replace(/\s+/g, ' ').trim();
+	const text = String(value)
+		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+		.replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[redacted-api-key]')
+		.replace(/\s+/g, ' ').trim();
 	if (!text || DETAIL_NOISE.has(text.toLowerCase())) return '';
 	if (text.length <= DETAIL_LIMIT) return text;
 	return `${text.slice(0, DETAIL_LIMIT - 3).trimEnd()}...`;
@@ -573,10 +422,12 @@ function cleanDetail(value: unknown): string {
 function prettyUrl(url: string): string {
 	try {
 		const parsed = new URL(url);
-		const path = parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : '';
-		return cleanDetail(`${parsed.hostname.replace(/^www\./, '')}${path}`);
+		if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return '';
+		// Source domains remain useful without exposing signed queries, internal
+		// document paths, fragments or record identifiers from a saved payload.
+		return publicActivityText(parsed.hostname.replace(/^www\./, ''));
 	} catch {
-		return cleanDetail(url);
+		return '';
 	}
 }
 

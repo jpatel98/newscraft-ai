@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { chat } from '$lib/stores/chat.svelte';
-	import { dominantLiveLabel, formatElapsed } from '$lib/utils/tool-labels';
+	import type { StreamToolCall } from '$lib/utils/stream-events';
+	import { dominantLiveLabel, formatElapsed, toolStepLabel, toolStepDetail, toolStepResult } from '$lib/utils/tool-labels';
 
 	interface Props {
 		// True when this card is attached to the current assistant turn.
 		activeTurn: boolean;
 		runState?: string | null;
+		completedTools?: StreamToolCall[];
 	}
-	let { activeTurn, runState = null }: Props = $props();
+	let { activeTurn, runState = null, completedTools = [] }: Props = $props();
 
 	const ELAPSED_VISIBLE_MS = 5_000;
 	const RECOVERY_AFTER_MS = 45_000;
@@ -17,7 +19,7 @@
 	let recoveryDismissed = $state(false);
 
 	$effect(() => {
-		const live = chat.tools.length > 0 || (activeTurn && chat.streaming);
+		const live = activeTurn && (chat.tools.length > 0 || chat.streaming);
 		if (!live) return;
 		const i = setInterval(() => (now = Date.now()), 500);
 		return () => clearInterval(i);
@@ -30,14 +32,16 @@
 		}
 	});
 
-	const hasRunning = $derived(chat.tools.length > 0);
-	const liveNames = $derived(chat.tools.map((t) => t.name));
+	const runningTools = $derived(activeTurn ? chat.tools.filter(tool => !['plan', 'decision'].includes(tool.name)) : []);
+	const completed = $derived(completedTools.filter(tool => tool.status !== 'running' && !['plan', 'decision'].includes(tool.name)).slice(-12));
+	const hasRunning = $derived(runningTools.length > 0);
+	const liveNames = $derived(runningTools.map((t) => t.name));
 
 	const oldestStart = $derived.by(() => {
-		if (chat.tools.length === 0) return chat.streamStartedAt ?? Date.now();
-		return chat.tools.reduce(
+		if (runningTools.length === 0) return chat.streamStartedAt ?? Date.now();
+		return runningTools.reduce(
 			(min, t) => (t.startedAt < min ? t.startedAt : min),
-			chat.tools[0].startedAt
+			runningTools[0].startedAt
 		);
 	});
 	const elapsedMs = $derived(Math.max(0, now - oldestStart));
@@ -54,7 +58,7 @@
 	);
 
 	const liveText = $derived(dominantLiveLabel(liveNames));
-	const visible = $derived(hasRunning || (activeTurn && chat.streaming));
+	const visible = $derived(hasRunning || completed.length > 0 || (activeTurn && chat.streaming));
 
 	const headLabel = $derived.by(() => {
 		if (runState === 'cancel_requested') return 'Stopping';
@@ -78,18 +82,41 @@
 
 {#if visible}
 	<div class="tool-activity" class:tool-activity--idle={!hasRunning} role="status" aria-live="polite">
+		{#if hasRunning || (activeTurn && chat.streaming)}
 		<div class="tool-activity__head">
 			<span class="pulse__dots tool-activity__dots" aria-hidden="true"
 				><span></span><span></span><span></span></span
 			>
 			<span class="tool-activity__label">{headLabel}</span>
-			{#if chat.tools.length > 1}
-				<span class="tool-activity__count">· searching multiple sources</span>
+			{#if runningTools.length > 1}
+				<span class="tool-activity__count">· {runningTools.length} actions</span>
 			{/if}
 			{#if showElapsed}
 				<span class="tool-activity__elapsed">{formatElapsed(elapsedMs)}</span>
 			{/if}
 		</div>
+		{/if}
+		{#if runningTools.length}
+			<ul class="tool-activity__actions" aria-label="Current actions">
+				{#each runningTools.slice(0, 5) as tool (tool.id)}
+					<li><span>{toolStepLabel(tool)}</span>{#if toolStepDetail(tool)}<span class="tool-activity__detail">{toolStepDetail(tool)}</span>{/if}</li>
+				{/each}
+			</ul>
+		{/if}
+		{#if completed.length}
+			<details class="tool-activity__results">
+				<summary>{completed.length} action{completed.length === 1 ? '' : 's'} completed</summary>
+				<ul class="tool-activity__actions" aria-label="Action results">
+					{#each completed as tool (tool.id)}
+						<li>
+							<span>{tool.status === 'failed' ? 'This action could not be completed.' : toolStepLabel(tool, true)}</span>
+							{#if toolStepDetail(tool)}<span class="tool-activity__detail">{toolStepDetail(tool)}</span>{/if}
+							{#if toolStepResult(tool) && toolStepResult(tool) !== toolStepDetail(tool)}<span class="tool-activity__result">{toolStepResult(tool)}</span>{/if}
+						</li>
+					{/each}
+				</ul>
+			</details>
+		{/if}
 
 		{#if showRecovery}
 			<div class="tool-activity__recovery" role="status">
@@ -124,6 +151,13 @@
 		min-width: 0;
 		overflow: hidden;
 	}
+
+	.tool-activity__results { margin-top: 4px; color: var(--fg-3); }
+	.tool-activity__results summary { cursor: pointer; }
+	.tool-activity__actions { list-style: none; margin: 4px 0; padding: 0; }
+	.tool-activity__actions li { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 3px 0; }
+	.tool-activity__detail { color: var(--fg-3); overflow-wrap: anywhere; }
+	.tool-activity__result { flex-basis: 100%; color: var(--fg-2); overflow-wrap: anywhere; }
 
 	.tool-activity__head {
 		display: flex;
