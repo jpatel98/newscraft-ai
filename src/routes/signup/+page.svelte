@@ -1,7 +1,7 @@
 <script lang="ts">
 	let { data, form } = $props<{
 		data: Record<string, never>;
-		form?: { error?: string; name?: string; email?: string };
+		form?: { error?: string; message?: string; name?: string; email?: string };
 	}>();
 	let pwInput: HTMLInputElement | undefined;
 	$effect(() => {
@@ -85,5 +85,6 @@
 		{#if form?.error}
 			<div class="field__error" role="alert" aria-live="assertive">{form.error}</div>
 		{/if}
+		{#if form?.message}<p role="status">{form.message}</p>{/if}
 	</form>
 </div>

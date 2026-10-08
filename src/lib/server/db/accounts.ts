@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { count, desc, eq, isNull } from 'drizzle-orm';
+import { count, desc, eq, isNull, sql } from 'drizzle-orm';
 import { hashPassword, verifyHash } from '$lib/server/auth/password';
 import { newId } from '$lib/utils/id';
 import { db, ensureDefaultOrganizationForAccount } from './index';
@@ -54,6 +54,26 @@ export async function getAccount(id: string): Promise<AccountRow | undefined> {
 	return row;
 }
 
+/** Only called with a user verified by Supabase Auth. No email-based linking,
+ * first-user promotion, password hashes, or user-editable authorization claims. */
+export async function ensureSupabaseAccount(user: { issuer: string; id: string; email: string; name: string }): Promise<AccountRow> {
+	const now = Date.now();
+	const accountId = await db.transaction(async (tx: any) => {
+		await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${JSON.stringify(['supabase', user.issuer, user.id])}))`);
+		const [identity] = await tx.execute(sql`SELECT account_id FROM auth_identities WHERE provider = 'supabase' AND issuer = ${user.issuer} AND subject = ${user.id}`);
+		if (identity) return identity.account_id as string;
+		const id = newId();
+		// An existing email is a conflict, never authority to link identities.
+		await tx.insert(accounts).values({ id, email: user.email, name: user.name, role: 'member', createdAt: now, updatedAt: now });
+		await tx.execute(sql`INSERT INTO auth_identities (provider, issuer, subject, account_id) VALUES ('supabase', ${user.issuer}, ${user.id}, ${id})`);
+		return id;
+	});
+	await ensureDefaultOrganizationForAccount(accountId);
+	const account = await getAccount(accountId);
+	if (!account) throw new Error('Verified account could not be loaded');
+	return account;
+}
+
 export async function getAccountByEmail(email: string): Promise<AccountRow | undefined> {
 	const [row] = (await db.select().from(accounts).where(eq(accounts.email, email)).limit(1)) as AccountRow[];
 	return row;
@@ -65,6 +85,18 @@ export async function createAccount(input: {
 	password: string;
 }): Promise<AccountRow> {
 	return insertAccount(input);
+}
+
+/** Local signup never promotes the first user or claims legacy orphan data. */
+export async function createLocalAccount(input: { email: string; name: string; password: string }): Promise<AccountRow> {
+	const now = Date.now();
+	const row: AccountRow = { id: newId(), email: input.email, name: input.name, role: 'member',
+		passwordHash: await hashPassword(input.password), setupTokenHash: null, setupTokenExpiresAt: null,
+		createdAt: now, updatedAt: now, lastLoginAt: now };
+	await db.insert(accounts).values(row);
+	cachedAccountCount = null;
+	await ensureDefaultOrganizationForAccount(row.id);
+	return row;
 }
 
 async function insertAccount(

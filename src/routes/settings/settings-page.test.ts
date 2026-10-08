@@ -36,16 +36,11 @@ describe('settings page source', () => {
 		);
 	});
 
-	it('gates account management behind the server-provided admin flag', () => {
-		const gatePosition = pageSource.indexOf('{#if data.canManageAccounts}');
-		const panelPosition = pageSource.indexOf('class="accounts-panel"');
-
-		expect(gatePosition).toBeGreaterThan(-1);
-		expect(panelPosition).toBeGreaterThan(gatePosition);
-		expect(pageSource).toContain('Create setup link');
-		expect(pageSource).toContain('Last login:');
-		expect(pageSource).toContain("'Remove'");
-	});
+	it('does not offer retired password-only invite or destructive local-account actions', () => {
+        expect(pageSource).not.toContain('Create setup link');
+        expect(pageSource).not.toContain('accounts-panel');
+        expect(pageSource).toContain('settings-security');
+    });
 
 	it('keeps the wipe action gated by the typed phrase and confirmation dialog', () => {
 		expect(pageSource).toContain("const PHRASE = 'WIPE-EVERYTHING'");

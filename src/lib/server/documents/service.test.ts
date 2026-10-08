@@ -143,8 +143,8 @@ describe('conversation document service', () => {
 		).rejects.toThrow('second token failed');
 
 		expect(deps.storage.remove).toHaveBeenCalledWith([
-			'org-1/conversation-1/document-1/one.pdf',
-			'org-1/conversation-1/document-2/two.pdf'
+			'account-1/conversation-1/document-1/one.pdf',
+			'account-1/conversation-1/document-2/two.pdf'
 		]);
 		expect(deps.repository.deleteDocumentRecord).toHaveBeenCalledTimes(2);
 	});
