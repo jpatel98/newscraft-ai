@@ -1,37 +1,65 @@
 # Status as of 2026-10-07
 
-**Working locally:** the owned portable runtime passes the verification matrix
-below. This session reviewed the replacement against base `cb3dec9`, fixed the
-listed defects and committed the replacement locally in reviewed slices. Nothing was pushed or deployed.
+**Working locally:** Jigar saved the new project's database configuration. The
+passive checker exits **0**. Node **24.21.0** startup initially reproduced UI
+HTTP **503**, `ok: false`, `state: unavailable`, while the worker was ready.
+The database connection failed with `SELF_SIGNED_CERT_IN_CHAIN` during TLS,
+before SQL. Adding Supabase's verified public CA through `NODE_EXTRA_CA_CERTS`
+resolved it with `sslmode=verify-full` and hostname verification intact.
 
-**Blocked on Jigar:** privately enter the new project's `DATABASE_URL`; separately
-approve the single $4.23 paid acceptance run; select an authorized Linux executor
-host and its reviewed images/seccomp policy. These are independent gates. The
-passive checker still reports only absent database configuration. No app/worker
-startup or live health result is claimed while that check fails.
+Measured follow-up results on 2026-10-07:
+
+| Check | Result |
+| --- | --- |
+| `GET http://127.0.0.1:3001/api/health` | HTTP **200**, `ok: true`, `state: ready`. |
+| `GET http://127.0.0.1:8000/ready` | HTTP **200**, `ok: true`, `state: ready`. Provider access remains unverified. |
+| Signup and sign-in | Isolated headless Chrome submitted the loopback signup form, cleared browser cookies, then signed in through the login form successfully. |
+| Empty conversation | Authenticated `POST /api/conversations` returned HTTP **200**; the new conversation appeared in the UI list after reload and reopened successfully. History returned HTTP **200** with **0 messages**; **0 chat requests**. |
+| Shutdown | Launcher exited **0** after SIGINT; both children exited. Exclusive loopback bind/close confirmed ports **3001** and **8000** free. |
+| Follow-up checks | `pnpm check`: **0 errors / 0 warnings**; setup helper: **18 passed**; passive setup check: exit **0**. |
+
+Retained disposable account: `local-smoke-20261007-c71e047a@example.invalid`
+(display name `Local validation 2026-10-07`). Retained conversation:
+`0muyvlw9fd744bdccd5e9a6d3`. Signup and sign-in created their normal database
+records; no database cleanup or deletion was performed. The generated test
+password and session cookies were not recorded. Optional storage capability
+probes and chat endpoints were blocked in this isolated browser check, keeping
+storage and paid providers outside the validation scope.
+
+**Changed:** committed the public CA with provenance and fingerprints, documented
+the verified launch configuration, and included both reviewed `.env.example`
+templates under Jigar's explicit follow-up authorization. The earlier six local
+replacement commits and their full verification matrix remain below. No private
+environment file was changed or committed. Nothing was pushed or deployed.
+
+**Still blocked on Jigar:** separately approve the single **$4.23 paid acceptance
+run**, and select an authorized **Linux executor host** with reviewed images and
+seccomp policy. The database-entry and local startup gates are resolved. No paid
+model call, storage acceptance, migration or production change was performed.
 
 Next commands on the Mac mini:
 
 ```sh
 cd /Users/macserver/Development/newscraft-ai
 export PATH="/Users/macserver/.local/share/fnm/node-versions/v24.21.0/installation/bin:$PATH"
-open -e /Users/macserver/Development/newscraft-ai/.env.agent-local
-# Privately fill the existing DATABASE_URL entry, then save and close the editor.
+export NODE_EXTRA_CA_CERTS="$PWD/config/certs/supabase-prod-ca-2021.crt"
 node scripts/agent-local.mjs check
 # After every configuration check passes, local startup is already authorized:
 node scripts/agent-local.mjs start
 ```
 
-Stop the foreground launcher with Ctrl-C. A passing checker permits a loopback
-startup/health check; it does not approve paid research. The assistant can resume
-that already authorized startup without requesting permission again. Do not send
-or paste the connection string into chat or terminal commands.
+In another terminal, `curl --fail http://127.0.0.1:3001/api/health` and
+`curl --fail http://127.0.0.1:8000/ready` repeat the health checks. Stop the
+foreground launcher with Ctrl-C. Startup is already authorized; paid research
+still needs separate approval. Do not send or paste the connection string into
+chat or terminal commands. See [public CA details](../config/certs/README.md).
 
-## Measured verification in this session
+## Earlier replacement-review verification (2026-10-07)
 
 Run with Node **24.21.0**, pnpm **9.15.9**, and the locked **CPython 3.11**
 `services/hermes-chat/.venv-owned`. Final counts below are updated after review
-fixes; no result depends on a previous session's `/tmp` claims.
+fixes. This is the earlier complete matrix, not a claim that the narrow startup
+follow-up reran every suite; its fresh results are recorded above.
 
 | Check | Result |
 | --- | --- |
@@ -43,7 +71,7 @@ fixes; no result depends on a previous session's `/tmp` claims.
 | `pnpm build` | Passed. Nonfatal chunk/plugin timing and optional native/OpenTelemetry tracing warnings. |
 | `pnpm eval:fixture` | 25/25 prompts, 17/17 trust traps. Historical harness fixture evaluation, not owned live-model acceptance. |
 | `uv lock --check --offline --no-cache --no-python-downloads` | Passed; 30 packages resolved, no installation/upgrade. |
-| `node scripts/agent-local.mjs check` | Expected exit 1: missing new-project `DATABASE_URL` causes both target/project diagnostics. Other checks pass. |
+| `node scripts/agent-local.mjs check` | Earlier: exit 1 for absent `DATABASE_URL`. Resolved in the follow-up above: exit **0**. |
 | `pnpm test:e2e` | Skipped: Playwright requires a running database for auth/seed/conversation tests and explicit `E2E_DATABASE_URL`; it cannot run database-free. No cloud database substituted. |
 
 The sandbox initially denied Postgres shared memory and loopback sockets. Scoped
@@ -76,8 +104,8 @@ results belong in commits and memory.
 - Disposable Postgres fixes its locale to C, avoiding a reproduced macOS startup
   failure when caller locale was absent/invalid.
 - ROADMAP and SOURCE_OF_TRUTH now describe the owned runtime; historical records
-  remain marked historical. The two `.env.example` templates are updated locally
-  but excluded from commits to honor the instruction never to commit `.env*`.
+  remain marked historical. The two `.env.example` templates were initially
+  excluded from commits; Jigar explicitly authorized their follow-up commit.
 
 The [dated review ledger](agent-review-2026-10-07.md) records findings, regression
 evidence and isolated commit verification.
@@ -89,7 +117,8 @@ The user/previous handoff reports **newscraft-agent**, project
 public tables RLS-enabled and no table grants to `PUBLIC`, `anon` or
 `authenticated`. No browser row policies are intended; authenticated app routes
 own authorization. The narrow platform auto-RLS function execution revoke was
-also previously applied and verified. This session did not reverify cloud state.
+also previously applied and verified. The follow-up verified connectivity and
+account/conversation operations, but did not repeat the migration/RLS/grant audit.
 
 The preserved [initial schema artifact](../services/hermes-chat/deploy/newscraft-new-project-schema.sql)
 has SHA256 `ee09d4123aa040bcdae115694220852e20a892a4666aa3c05f5410945358e1be`.
@@ -101,8 +130,9 @@ privately (port 5432, project-scoped username); never guess its hostname. The
 guarded profile also accepts that project's direct connection when reachable.
 It permits only `sslmode=verify-full` as a URL query option, rejects transaction
 pooler port 6543 and other projects, and never falls back to the root environment's
-old database. Extra public CA trust, if required, uses `NODE_EXTRA_CA_CERTS` before
-Node starts. No Auth/Storage key or credential copying is needed for the default
+old database. This Mac requires the checked-in public CA through
+`NODE_EXTRA_CA_CERTS` before Node starts, as shown above. No Auth/Storage key or
+credential copying is needed for the default
 Postgres auth/VPS storage configuration.
 
 ## Local and paid acceptance boundaries
@@ -110,8 +140,8 @@ Postgres auth/VPS storage configuration.
 The passive helper reports only names/statuses. It does not connect to the
 database, storage or model service. Startup performs normal database recovery;
 this initialized new target is the only authorized target. `/api/health` and
-`/ready` may then be checked on loopback before clean shutdown. `/ready` reports
-configuration with `accessVerified: false`; it is not a model/storage proof.
+`/ready` may then be checked on loopback before clean shutdown. The measured
+public readiness response reports service state; it is not a model/storage proof.
 
 The proposed separate paid test is one public/synthetic source-to-cited-answer
 and Markdown/CSV run: OpenAI `gpt-6-astra`, default tier, public search, 180 seconds,
