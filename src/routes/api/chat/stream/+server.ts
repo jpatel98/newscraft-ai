@@ -1,6 +1,5 @@
-import { error, type RequestHandler } from '@sveltejs/kit';
+import { error, isHttpError, type RequestHandler } from '@sveltejs/kit';
 import {
-	streamChatCompletion,
 	deriveSessionId,
 	deriveHermesTenantKey,
 	buildHermesRunInput,
@@ -28,25 +27,11 @@ import {
 	prepareDurableUserTurn,
 	takeOverPreparedDurableTurn
 } from '$lib/server/db/conversations';
-import { generateConversationTitle } from '$lib/server/conversation-title';
 import { contentText, type ChatCommand, type ContentPart, type AgentCommand, type MessageContent } from '$lib/types';
-import { readSSE } from '$lib/utils/sse-client';
 import { parseSlashCommand, type SlashParseResult } from '$lib/utils/slash';
+import type { PersistedSource, StreamToolCall } from '$lib/utils/stream-events';
 import {
-	sanitizeCitationEventData,
-	sanitizeUnresolvedCitationMarkers,
-	StreamingCitationSanitizer,
-	StreamEventState,
-	sseFrame,
-	type PersistedSource,
-	type StreamToolCall
-} from '$lib/utils/stream-events';
-import {
-	mergeToolMetadata,
-	citationNumbersInText,
-	citationRecordsUsedInAnswer,
 	parseToolMetadata,
-	resolvedCitationNumbersForAnswer,
 	serializeAnswerProvenance,
 	serializeToolMetadata
 } from '$lib/utils/tool-metadata';
@@ -82,16 +67,10 @@ import {
 	isLatestUnfinishedAssistant,
 	resumeContinuationInstruction
 } from '$lib/server/reply-operations';
-import { resolveResearchFinishStatus } from '$lib/server/research-outcome';
 import {
 	CHAT_PERSISTENCE_TIMEOUT_MS,
 	CHAT_RESEARCH_CONTEXT_TIMEOUT_MS,
-	CHAT_STREAM_IDLE_MS,
-	CHAT_STREAM_MAX_MS,
-	CHAT_TITLE_TIMEOUT_MS,
 	ChatPhaseTimeoutError,
-	createChatIdleWatchdog,
-	linkChatAbort,
 	withChatTimeout
 } from '$lib/server/chat-timeouts';
 import {
@@ -105,6 +84,7 @@ import {
 	ensureHermesAssistantMessage,
 	failQueuedHermesRun,
 	getHermesRun,
+	getHermesRunForAssistant,
 	HermesRunRepositoryError
 } from '$lib/server/db/hermes-runs';
 import { hermesSubscriptionResponse } from '$lib/server/hermes-subscription';
@@ -130,6 +110,33 @@ interface Body {
 // Agent caps the request body around 1 MB; keep some headroom for the
 // surrounding JSON envelope, system prompt, and prior turns.
 const MAX_REQUEST_BYTES = 950 * 1024;
+
+async function readChatBody(request: Request): Promise<Body> {
+	const reader = request.body?.getReader();
+	if (!reader) throw error(400, 'invalid json');
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	try {
+		while (true) {
+			const chunk = await reader.read();
+			if (chunk.done) break;
+			size += chunk.value.byteLength;
+			if (size > MAX_REQUEST_BYTES) {
+				await reader.cancel().catch(() => {});
+				throw error(413, 'request too large — try fewer or smaller attachments');
+			}
+			chunks.push(chunk.value);
+		}
+		const body: unknown = JSON.parse(Buffer.concat(chunks, size).toString('utf8'));
+		if (!body || typeof body !== 'object' || Array.isArray(body)) throw error(400, 'JSON object required');
+		return body as Body;
+	} catch (cause) {
+		if (isHttpError(cause)) throw cause;
+		throw error(400, 'invalid json');
+	} finally {
+		reader.releaseLock();
+	}
+}
 const OUTPUT_ACTION_PROMPTS: Record<NonNullable<Body['output_action']>, string> = {
 	producer_brief:
 		`${NEWSCRAFT_STANDALONE_OUTPUT_GUIDE}\n\nWrite a concise producer brief. Put the central news and essential background first. Then give the verified details, impact, response, confirmed next step, and unresolved editorial checks.`,
@@ -171,10 +178,10 @@ function parseUserDocumentIds(value: string | null | undefined): string[] {
 function sanitizeContent(c: MessageContent | undefined): MessageContent | null {
 	if (c == null) return null;
 	if (typeof c === 'string') return c;
-	if (!Array.isArray(c)) return null;
+	if (!Array.isArray(c)) throw error(400, 'Unsupported message content. Send text or an attached image.');
 	const parts: ContentPart[] = [];
 	for (const p of c) {
-		if (!p || typeof p !== 'object') continue;
+		if (!p || typeof p !== 'object') throw error(400, 'Invalid message attachment.');
 		if (p.type === 'text' && typeof p.text === 'string') {
 			parts.push({ type: 'text', text: p.text });
 		} else if (
@@ -182,9 +189,13 @@ function sanitizeContent(c: MessageContent | undefined): MessageContent | null {
 			p.image_url &&
 			typeof p.image_url.url === 'string'
 		) {
+			if (!/^data:image\/(?:jpeg|png|webp|gif);base64,/i.test(p.image_url.url)) {
+				throw error(400, 'Images must be attached as supported image data; remote image links are unavailable.');
+			}
 			parts.push({ type: 'image_url', image_url: { url: p.image_url.url } });
+		} else {
+			throw error(400, 'Unsupported message attachment. Attach an image or upload a PDF through the document picker.');
 		}
-		// anything else (notably `type:'file'`) is dropped — Agent rejects it.
 	}
 	if (parts.length === 0) return null;
 	const onlyText = parts.every((p) => p.type === 'text');
@@ -224,39 +235,6 @@ function withTraceDetails(details: Record<string, unknown>, traceId: string): Re
 	return {
 		...details,
 		trace_id: traceId
-	};
-}
-
-function researchDiagnosticsFromTools(tools: StreamToolCall[]): Record<string, unknown> | null {
-	const search = [...tools].reverse().find((tool) => tool.name === 'openai_web_search');
-	if (!search?.result || typeof search.result !== 'object' || Array.isArray(search.result)) return null;
-	const research = (search.result as Record<string, unknown>).research;
-	if (!research || typeof research !== 'object' || Array.isArray(research)) return null;
-	const value = research as Record<string, unknown>;
-	const attempts = Array.isArray(value.attempts)
-		? value.attempts.slice(0, 4).flatMap((attempt) => {
-				if (!attempt || typeof attempt !== 'object' || Array.isArray(attempt)) return [];
-				const item = attempt as Record<string, unknown>;
-				return [
-					{
-						role: typeof item.role === 'string' ? item.role : 'unknown',
-						provider: typeof item.provider === 'string' ? item.provider : 'unknown',
-						status: typeof item.status === 'string' ? item.status : 'failed',
-						latencyMs: typeof item.latencyMs === 'number' ? item.latencyMs : 0,
-						sourceCount: typeof item.sourceCount === 'number' ? item.sourceCount : 0,
-						...(typeof item.upstreamStatus === 'number'
-							? { upstreamStatus: item.upstreamStatus }
-							: {}),
-						...(typeof item.failureCategory === 'string'
-							? { failureCategory: item.failureCategory }
-							: {})
-					}
-				];
-			})
-		: [];
-	return {
-		attempts,
-		finalOutcome: typeof value.finalOutcome === 'string' ? value.finalOutcome : 'unknown'
 	};
 }
 
@@ -501,13 +479,13 @@ async function waitForPreparedHermesRun(
 function gatewayUnavailableMessage(detail: string): string {
 	if (/web extraction is not configured/i.test(detail)) {
 		return [
-			'The Hermes service is reachable, but web retrieval is not configured yet.',
-			'Your message was saved. Research will work after the retrieval-enabled Hermes service is ready.'
+			'The research service is reachable, but web retrieval is not configured yet.',
+			'Your message was saved. Research will work after the retrieval-enabled research service is ready.'
 		].join('\n\n');
 	}
 	if (/web extraction is not ready|readiness check failed/i.test(detail)) {
 		return [
-			'The Hermes service is reachable, but its web retrieval backend is not ready.',
+			'The research service is reachable, but its web retrieval backend is not ready.',
 			'Your message was saved. Try research again after the service reports ready.'
 		].join('\n\n');
 	}
@@ -597,7 +575,8 @@ async function localGatewayFailureResponse(
 					claimToken: resumeClaimToken,
 					mode: 'append',
 					appendContent: `\n\n${text}`,
-					toolCalls: serializeToolMetadata(metadata.tools, metadata.sources, metadata.citations),
+					toolCalls: serializeToolMetadata(metadata.tools, metadata.sources, metadata.citations,
+						{ plan: metadata.plan, decisions: metadata.decisions }),
 					provenanceJson,
 					partial: 0,
 					now: endedAt
@@ -628,18 +607,6 @@ async function localGatewayFailureResponse(
 
 function findCommand(commands: AgentCommand[], parsed: SlashParseResult): AgentCommand | undefined {
 	return commands.find((cmd) => cmd.slash.toLowerCase() === parsed.slash);
-}
-
-function modelFromSseData(data: string): string | undefined {
-	if (!data || data === '[DONE]') return undefined;
-	try {
-		const parsed = JSON.parse(data) as unknown;
-		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
-		const value = (parsed as Record<string, unknown>).model;
-		return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 function commandsHelp(commands: AgentCommand[]): string {
@@ -682,12 +649,12 @@ async function builtinResponse(
 	if (command.slash === '/status') {
 		const health = await gatewayHealth();
 		return health.ok
-			? `Hermes is reachable. Status ${health.status}.`
-			: `Hermes is not reachable right now. ${health.body}`;
+			? `NewsCraft is reachable. Status ${health.status}.`
+			: `NewsCraft is not reachable right now. ${health.body}`;
 	}
 	if (command.slash === '/profile') {
 		const skillCount = commands.filter((cmd) => cmd.kind === 'skill' && cmd.enabled).length;
-		return `Profile: hermes-chat\nInstalled skills: ${skillCount}`;
+		return `Profile: newscraft-agent\nInstalled skills: ${skillCount}`;
 	}
 	if (command.slash === '/feedback') {
 		return 'Use `/feedback` in the chat composer to open the feedback capture form for this thread.';
@@ -710,12 +677,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		throw error(413, 'request too large — try fewer or smaller attachments');
 	}
 
-	let body: Body;
-	try {
-		body = (await request.json()) as Body;
-	} catch {
-		throw error(400, 'invalid json');
-	}
+	let body = await readChatBody(request);
 	// The request hook owns trace creation. Ignore browser JSON and headers.
 	const traceId = locals.traceId || newId();
 
@@ -734,9 +696,11 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		convo = await createConversation(accountId);
 	}
 	const convoId = convo.id;
-	const durableRequested = request.headers.get('x-newscraft-durable-run') === '1';
+	if (body.idempotency_key !== undefined && typeof body.idempotency_key !== 'string') {
+		throw error(400, 'idempotency key must be a string');
+	}
 	const suppliedDurableKey = body.idempotency_key?.trim();
-	if (durableRequested && suppliedDurableKey) {
+	if (suppliedDurableKey) {
 		if (suppliedDurableKey.length > 256) throw error(400, 'idempotency key is too long');
 		const existing = await getHermesRun(accountId, suppliedDurableKey, 'idempotency');
 		if (existing) {
@@ -779,6 +743,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 
 	let resumeMessageId: string | null = null;
 	let resumeClaimToken: number | null = null;
+	let resumeDraftText: string | undefined;
 	let visibleUserMessageId: string | null = null;
 	let preparedAssistantMessageId: string | null = null;
 	let preparedClaimToken: number | null = null;
@@ -818,9 +783,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (!isLatestUnfinishedAssistant(existingMessages, target.id)) {
 			throw error(409, 'only the latest unfinished answer can be resumed');
 		}
+		const activeRun = await getHermesRunForAssistant(accountId, convoId, messageId);
+		if (activeRun) {
+			return hermesSubscriptionResponse({ request, accountId, runId: activeRun.id, afterCursor: 0 });
+		}
 		resumeClaimToken = await claimPartialAssistantMessage(messageId, convoId);
 		if (!resumeClaimToken) throw error(409, 'already resuming');
 		resumeMessageId = messageId;
+		resumeDraftText = contentText(parseContent(target.content));
 	} else if (isRegenerate || isRetry) {
 		const existingMessages = await getMessages(convoId);
 		const existingUser = [...existingMessages].reverse().find((message) => message.role === 'user');
@@ -848,7 +818,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (typeof cleaned === 'string' && !cleaned.trim()) throw error(400, 'content required');
 		let upstreamContent: MessageContent = outputActionUpstreamContent ?? cleaned;
 		const parsedVisibleCommand = typeof cleaned === 'string' ? parseSlashCommand(cleaned) : null;
-	const preparedTurn = durableRequested && !parsedVisibleCommand
+		const preparedTurn = !parsedVisibleCommand
 			? await prepareDurableUserTurn({
 					accountId,
 					conversationId: convoId,
@@ -1074,7 +1044,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		);
 	}
 	if (body.output_action) appendSystemInstruction(history, OUTPUT_ACTION_PROMPTS[body.output_action]);
-	// Hermes consumes conversation_context through AG-UI context. Do not repeat
+	// The research agent consumes conversation_context through AG-UI context. Do not repeat
 	// the prior answer, corrections and sources in a compatibility system message.
 
 	let researchContext: Awaited<ReturnType<typeof requestResearchContext>>;
@@ -1138,668 +1108,118 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		conversationContext.currentTurn?.researchRequired === true ||
 		conversationContext.currentTurn?.researchAllowed === true;
 
-	if (durableRequested) {
-		const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);
-		const idempotencyKey =
-			(preparedAssistantMessageId
-				? `hermes:${convoId}:${preparedAssistantMessageId}:send`
-				: suppliedDurableKey) ||
-			`hermes:${convoId}:${resumeMessageId || visibleUserMessageId || latestUserMessage?.id || 'turn'}:${body.output_action || (isResume ? 'resume' : isRetry ? 'retry' : isRegenerate ? 'regenerate' : 'send')}`;
-		if (idempotencyKey.length > 256) throw error(400, 'idempotency key is too long');
-		let assistantMessageId = resumeMessageId || preparedAssistantMessageId;
-		if (!assistantMessageId) {
-			assistantMessageId = await ensureHermesAssistantMessage(accountId, convoId, idempotencyKey);
-		}
-		const candidateRunId = newId();
-		const built = buildHermesRunInput(
-			{
-				messages: history,
-				stream: true,
-				reasoning_effort: reasoningEffort,
-				newsroom_context: researchContext.newsroomContext,
-				conversation_context: conversationContext,
-				documents: researchContext.documents
-			},
-			sessionId,
-			candidateRunId,
-			{
-				recordSources: true,
-				webExtractConfigured: researchToolsEnabled,
-				seededCitations: inheritedMetadata?.citations ?? [],
-				traceId
-			}
-		);
-		let durableRun: Awaited<ReturnType<typeof createOrGetHermesRun>>['run'];
-		let created = false;
-		try {
-			({ run: durableRun, created } = await createOrGetHermesRun({
-				id: candidateRunId,
-				accountId,
-				orgId: convo.orgId,
-				conversationId: convoId,
-				userMessageId: visibleUserMessageId ?? latestUserMessage?.id ?? null,
-				assistantMessageId,
-				preparedClaimToken: preparedAssistantMessageId ? preparedClaimToken ?? undefined : undefined,
-				idempotencyKey,
-				tenantKey: deriveHermesTenantKey(accountId),
-				sessionId,
-				inputJson: JSON.stringify(built.input),
-				seededCitationsJson: JSON.stringify(built.seededCitations)
-			}));
-			durableRunCreated = true;
-			if (created) {
-				recordChatDiagnostic(convoId, 'chat.durable.accepted', {
-					trace_id: traceId,
-					request_acceptance_ms: Math.max(0, durableRun.createdAt - requestAcceptedAt),
-					initial_state: durableRun.state
-				});
-			}
-		} catch (cause) {
-			if (cause instanceof HermesRunRepositoryError && cause.code === 'cross_account') {
-				throw error(404, 'conversation not found');
-			}
-			throw cause;
-		}
-		if (created || durableRun.state === 'queued') {
-			const durableTraceId = traceIdFromHermesInput(durableRun.inputJson) || undefined;
-			try {
-				let durableInput = built.input;
-				let durableSeededCitations = built.seededCitations;
-				if (!created) {
-					// A concurrent idempotent request has the same saved run but a
-					// different candidate input/run ID. Restart the saved job with
-					// its persisted input so the worker binding remains exact.
-					const savedInput = JSON.parse(durableRun.inputJson) as typeof built.input;
-					if (!savedInput || typeof savedInput !== 'object') throw new Error('saved durable input is invalid');
-					durableInput = savedInput;
-					const savedCitations = JSON.parse(durableRun.seededCitationsJson) as unknown;
-					if (Array.isArray(savedCitations)) durableSeededCitations = savedCitations as typeof built.seededCitations;
-				}
-				await startDurableHermesRun({
-					runId: durableRun.id,
-					accountId,
-					tenantKey: durableRun.tenantKey,
-					input: durableInput,
-					seededCitations: durableSeededCitations,
-					traceId: durableTraceId
-				});
-			} catch (cause) {
-				const overloaded = cause instanceof HermesDurableOverloadError;
-				durableRun = await failQueuedHermesRun(
-					accountId,
-					durableRun.id,
-					overloaded ? 'Research service is temporarily at capacity. Try again shortly.' : undefined,
-					overloaded ? 'overload' : 'start'
-				);
-				recordChatDiagnostic(
-					convoId,
-					'chat.durable.terminal',
-						summarizeDurableRunTelemetry(durableRun, [], {
-							requestAcceptanceMs: Math.max(0, durableRun.createdAt - requestAcceptedAt),
-							failureClass: overloaded ? 'overload' : 'start'
-						}),
-						{ id: `durable-terminal:${durableRun.id}` }
-					);
-			}
-		}
-		return hermesSubscriptionResponse({
-			request,
-			accountId,
-			runId: durableRun.id,
-			afterCursor: 0
-		});
-	}
-
-	const phaseAbort = linkChatAbort(request.signal, CHAT_STREAM_MAX_MS);
-	const upstreamAbort = phaseAbort.controller;
-	const idleWatchdog = createChatIdleWatchdog(upstreamAbort, CHAT_STREAM_IDLE_MS);
-
 	const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);
-	let upstream: Response;
-	let transport = 'hermes_agui';
+	const idempotencyKey =
+		suppliedDurableKey ||
+		(preparedAssistantMessageId
+			? `hermes:${convoId}:${preparedAssistantMessageId}:send`
+			: undefined) ||
+		`hermes:${convoId}:${resumeMessageId || visibleUserMessageId || latestUserMessage?.id || 'turn'}:${body.output_action || (isResume ? `resume-${resumeClaimToken}` : isRetry ? 'retry' : isRegenerate ? 'regenerate' : 'send')}`;
+	if (idempotencyKey.length > 256) throw error(400, 'idempotency key is too long');
+	let assistantMessageId = resumeMessageId || preparedAssistantMessageId;
+	if (!assistantMessageId) {
+		assistantMessageId = await ensureHermesAssistantMessage(accountId, convoId, idempotencyKey);
+	}
+	const candidateRunId = newId();
+	const built = buildHermesRunInput(
+		{
+			messages: history,
+			stream: true,
+			reasoning_effort: reasoningEffort,
+			newsroom_context: researchContext.newsroomContext,
+			conversation_context: conversationContext,
+			documents: researchContext.documents
+		},
+		sessionId,
+		candidateRunId,
+		{
+			recordSources: true,
+			webExtractConfigured: researchToolsEnabled,
+			seededCitations: inheritedMetadata?.citations ?? [],
+			traceId
+		}
+	);
+	let durableRun: Awaited<ReturnType<typeof createOrGetHermesRun>>['run'];
+	let created = false;
 	try {
-		// One AG-UI request goes to Hermes. A failed Hermes run reaches the
-		// explicit failure path. NewsCraft does not switch agent endpoints.
-		upstream = await withChatTimeout(
-			streamChatCompletion(
-				{
-					messages: history,
-					stream: true,
-					reasoning_effort: reasoningEffort,
-					newsroom_context: researchContext.newsroomContext,
-					conversation_context: conversationContext,
-					documents: researchContext.documents
-				},
-				{
-					signal: upstreamAbort.signal,
-					accountId,
-					sessionId,
-					traceId,
-					requireWebExtraction: conversationContext.currentTurn?.researchRequired === true,
-					enableWebExtraction: conversationContext.currentTurn?.researchAllowed === true
-				}
-			),
-			CHAT_STREAM_MAX_MS,
-			'Hermes stream startup'
-		);
-		transport = 'hermes_agui';
-		recordChatDiagnostic(convoId, 'chat.upstream_response', {
-			trace_id: traceId,
-			transport: 'hermes_agui',
-			status: upstream.status,
-			ok: upstream.ok
-		});
-	} catch (err) {
-		phaseAbort.cleanup();
-		return await localGatewayFailureResponse(
+		({ run: durableRun, created } = await createOrGetHermesRun({
+			id: candidateRunId,
 			accountId,
-			convoId,
-			err instanceof Error ? err.message : String(err),
-			resumeMessageId,
-			resumeClaimToken,
-			traceId
-		);
-	}
-
-	if (!upstream.ok || !upstream.body) {
-		const text = await upstream.text().catch(() => '');
-		phaseAbort.cleanup();
-		return await localGatewayFailureResponse(
-			accountId,
-			convoId,
-			`Agent ${upstream.status || 502}: ${text || upstream.statusText}`,
-			resumeMessageId,
-			resumeClaimToken,
-			traceId
-		);
-	}
-	const upstreamBody = upstream.body;
-
-	let assistantBuf = '';
-	let assistantReplacement: string | null = null;
-	let done = false;
-	let persistencePromise: Promise<Awaited<ReturnType<typeof getMessageById>>> | null = null;
-	let sentDone = false;
-	let activeController: ReadableStreamDefaultController<Uint8Array> | null = null;
-	let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-	const streamState = new StreamEventState();
-	const inheritedCitations = inheritedMetadata?.citations ?? [];
-	const activeCitationRecords = () =>
-		mergeToolMetadata(null, [], [], [...inheritedCitations, ...streamState.citationList()]).citations;
-	const citationSanitizer = new StreamingCitationSanitizer(inheritedCitations);
-	const streamStats: Record<string, number> = {};
-	let upstreamModel: string | undefined;
-	let preserveSanitizedAssistant: string | null = null;
-
-	function canonicalAssistantText(): string {
-		return sanitizeUnresolvedCitationMarkers(assistantBuf, activeCitationRecords());
-	}
-
-	function enqueueCitationDelta(controller: ReadableStreamDefaultController<Uint8Array>, delta: string): void {
-		if (!delta) return;
-		safeEnqueue(controller, sseFrame('response.output_text.delta', JSON.stringify({ delta })));
-	}
-
-	function enqueueCitationReplacement(
-		controller: ReadableStreamDefaultController<Uint8Array>,
-		content: string
-	): void {
-		safeEnqueue(controller, sseFrame('agent.answer.replace', JSON.stringify({ content })));
-	}
-
-	function tryEnqueueCitationBoundary(
-		controller: ReadableStreamDefaultController<Uint8Array>,
-		flush: () => string
-	): void {
-		const tail = flush();
-		try {
-			enqueueCitationDelta(controller, tail);
-			const canonical = canonicalAssistantText();
-			if (citationSanitizer.emitted && citationSanitizer.emitted !== canonical) {
-				enqueueCitationReplacement(controller, canonical);
-			}
-			preserveSanitizedAssistant = canonical;
-		} catch {
-			// A consumer cancellation may close the controller before the route's
-			// cancellation hook runs. Persistence still uses the same canonical value.
-			preserveSanitizedAssistant = canonicalAssistantText();
-		}
-	}
-
-	async function persistAssistant(finishStatus?: 'completed' | 'partial' | 'failed' | 'cancelled') {
-		if (persistencePromise) return persistencePromise;
-		persistencePromise = (async () => {
-			// The stream boundary is defensive as well as the harness boundary:
-			// provider-local or malformed markers cannot become durable authority
-			// merely because an upstream event bypassed structured synthesis.
-			assistantBuf = preserveSanitizedAssistant ?? canonicalAssistantText();
-			const capturedToolCalls = streamState.toolCalls();
-			const captured = mergeToolMetadata(
-				inheritedMetadata
-					? serializeToolMetadata([], inheritedMetadata.sources, inheritedMetadata.citations)
-					: null,
-				capturedToolCalls,
-				streamState.sourceList(),
-				streamState.citationList()
-			);
-			const capturedSources = captured.sources;
-			// Keep source leads in the source list, but attach only inspectable
-			// records that the final answer actually cites.
-			const capturedCitations = citationRecordsUsedInAnswer(assistantBuf, captured.citations);
-			const resolvedFinishStatus = resolveResearchFinishStatus({
-				requested: finishStatus,
-				researchRequired: conversationContext.currentTurn?.researchRequired === true,
-				sourceCount: capturedSources.length,
-				citationCount: capturedCitations.length
-			});
-			if (resumeMessageId) {
-				if (!resumeClaimToken) return await getMessageById(resumeMessageId);
-				const existingRow = await getMessageById(resumeMessageId);
-				const merged = mergeToolMetadata(
-					existingRow?.toolCalls ?? null,
-					capturedToolCalls,
-					capturedSources,
-					capturedCitations
-				);
-				const provenanceTools = merged.tools;
-				const provenanceSources = merged.sources;
-				const provenanceCitations = merged.citations;
-				// A replacement resets the visible draft, but later deltas still belong
-				// to that authoritative answer. Persist the complete post-replacement
-				// buffer so the CAS commit cannot lose or duplicate the tail.
-				const answerText = assistantBuf;
-				const endedAt = Date.now();
-				const provenanceJson = serializeAnswerProvenance({
-					messageId: resumeMessageId,
-					conversationId: convoId,
-					tools: provenanceTools,
-					sources: provenanceSources,
-					citations: provenanceCitations,
-					answerText,
-					startedAt: requestStartedAt,
-					endedAt,
-					assistantChars: answerText.length,
-					done,
-					finishStatus: resolvedFinishStatus,
-					events: streamStats,
-					transport,
-					reasoningEffort,
-					model: upstreamModel
-				});
-				const committed = await finalizeResumedAssistantMessage({
-					id: resumeMessageId,
-					conversationId: convoId,
-					claimToken: resumeClaimToken,
-					mode: 'replace',
-					content: assistantBuf,
-					toolCalls: serializeToolMetadata(provenanceTools, provenanceSources, provenanceCitations),
-					provenanceJson,
-					partial: done ? 0 : 1,
-					now: endedAt
-				});
-				// A retry that lost the claim observes the already-authoritative row;
-				// it never appends its own draft or writes a second provenance record.
-				return committed ?? (await getMessageById(resumeMessageId));
-			}
-			if (!assistantBuf && capturedToolCalls.length === 0 && capturedCitations.length === 0) return undefined;
-			const row = await addMessage({
-				conversationId: convoId,
-				role: 'assistant',
-				content: assistantBuf,
-				partial: !done,
-				toolCalls: serializeToolMetadata(capturedToolCalls, capturedSources, capturedCitations)
-			});
-			await persistAnswerProvenance({
-				conversationId: convoId,
-				messageId: row.id,
-				tools: capturedToolCalls,
-				sources: capturedSources,
-				citations: capturedCitations,
-				startedAt: requestStartedAt,
-				assistantChars: assistantBuf.length,
-				answerText: assistantBuf,
-				done,
-				finishStatus: resolvedFinishStatus,
-				events: streamStats,
-				transport,
-				reasoningEffort,
-				model: upstreamModel,
-				traceId
-			});
-			return row;
-		})();
-		return persistencePromise;
-	}
-
-	async function persistAssistantBounded(
-		finishStatus: 'completed' | 'partial' | 'failed' | 'cancelled'
-	): Promise<Awaited<ReturnType<typeof getMessageById>>> {
-		return withChatTimeout(
-			persistAssistant(finishStatus),
-			CHAT_PERSISTENCE_TIMEOUT_MS,
-			'assistant finalization'
-		);
-	}
-
-	function safeEnqueue(controller: ReadableStreamDefaultController<Uint8Array>, frame: string): void {
-		try {
-			controller.enqueue(enc.encode(frame));
-		} catch {
-			// The browser may have disconnected while the server was finalizing.
-		}
-	}
-
-	function cleanupStreamWatchdogs(): void {
-		idleWatchdog.cleanup();
-		if (heartbeatTimer) clearInterval(heartbeatTimer);
-		heartbeatTimer = undefined;
-	}
-
-	async function emitSafePartialTerminal(
-		controller: ReadableStreamDefaultController<Uint8Array>,
-		reason: unknown
-	): Promise<void> {
-		done = false;
-		tryEnqueueCitationBoundary(controller, () => citationSanitizer.abort());
-		const note = assistantBuf.trim()
-			? '\n\nThe research run stopped before it finished; this answer may be incomplete. Retry to continue.'
-			: conversationContext.currentTurn?.researchRequired
-				? "I couldn't complete the research with verified current sources before the safety limit. Please retry."
-				: "I couldn't complete that reply before the safety limit. Please retry.";
-		if (!assistantBuf.includes(note.trim())) {
-			assistantBuf = `${assistantBuf}${note}`;
-			preserveSanitizedAssistant = assistantBuf;
-			safeEnqueue(
-				controller,
-				sseFrame('response.output_text.delta', JSON.stringify({ delta: note }))
-			);
-		}
-		safeEnqueue(controller, sseFrame('agent.answer.partial', JSON.stringify({ reason: 'bounded_interactive_phase' })));
-		try {
-			await persistAssistantBounded('partial');
-		} catch (error) {
-			recordChatDiagnostic(convoId, 'chat.finalization_error', {
+			orgId: convo.orgId,
+			conversationId: convoId,
+			userMessageId: visibleUserMessageId ?? latestUserMessage?.id ?? null,
+			assistantMessageId,
+			preparedClaimToken: preparedClaimToken ?? resumeClaimToken ?? undefined,
+			idempotencyKey,
+			tenantKey: deriveHermesTenantKey(accountId),
+			sessionId,
+			inputJson: JSON.stringify(built.input),
+			seededCitationsJson: JSON.stringify(built.seededCitations),
+			seededAnswerText: resumeDraftText
+		}));
+		durableRunCreated = true;
+		if (created) {
+			recordChatDiagnostic(convoId, 'chat.durable.accepted', {
 				trace_id: traceId,
-				errorName: error instanceof Error ? error.name : 'Error',
-				phase: 'partial',
-				cause: reason instanceof Error ? reason.name : String(reason)
+				request_acceptance_ms: Math.max(0, durableRun.createdAt - requestAcceptedAt),
+				initial_state: durableRun.state
 			});
-			safeEnqueue(
-				controller,
-				sseFrame(
-					'agent.persistence_error',
-					JSON.stringify({ message: 'The partial answer could not be saved. Retry to save it.' })
-				)
-			);
 		}
-		sentDone = true;
-		safeEnqueue(controller, 'data: [DONE]\n\n');
+	} catch (cause) {
+		if (cause instanceof HermesRunRepositoryError && cause.code === 'cross_account') {
+			throw error(404, 'conversation not found');
+		}
+		throw cause;
+	}
+	if (created || durableRun.state === 'queued') {
+		const durableTraceId = traceIdFromHermesInput(durableRun.inputJson) || undefined;
 		try {
-			controller.close();
-		} catch {
-			/* already closed */
+			let durableInput = built.input;
+			let durableSeededCitations = built.seededCitations;
+			if (!created) {
+				// A concurrent idempotent request has the same saved run but a
+				// different candidate input/run ID. Restart the saved job with
+				// its persisted input so the worker binding remains exact.
+				const savedInput = JSON.parse(durableRun.inputJson) as typeof built.input;
+				if (!savedInput || typeof savedInput !== 'object') throw new Error('saved durable input is invalid');
+				durableInput = savedInput;
+				const savedCitations = JSON.parse(durableRun.seededCitationsJson) as unknown;
+				if (Array.isArray(savedCitations)) durableSeededCitations = savedCitations as typeof built.seededCitations;
+			}
+			await startDurableHermesRun({
+				runId: durableRun.id,
+				accountId,
+				tenantKey: durableRun.tenantKey,
+				input: durableInput,
+				seededCitations: durableSeededCitations,
+				traceId: durableTraceId
+			});
+		} catch (cause) {
+			const overloaded = cause instanceof HermesDurableOverloadError;
+			durableRun = await failQueuedHermesRun(
+				accountId,
+				durableRun.id,
+				overloaded ? 'Research service is temporarily at capacity. Try again shortly.' : undefined,
+				overloaded ? 'overload' : 'start'
+			);
+			recordChatDiagnostic(
+				convoId,
+				'chat.durable.terminal',
+					summarizeDurableRunTelemetry(durableRun, [], {
+						requestAcceptanceMs: Math.max(0, durableRun.createdAt - requestAcceptedAt),
+						failureClass: overloaded ? 'overload' : 'start'
+					}),
+					{ id: `durable-terminal:${durableRun.id}` }
+				);
 		}
 	}
-
-	const stream = new ReadableStream<Uint8Array>({
-		async start(controller) {
-			activeController = controller;
-			safeEnqueue(
-				controller,
-				`event: agent.meta\ndata: ${JSON.stringify({
-					conversation_id: convoId,
-					trace_id: traceId
-				})}\n\n`
-			);
-			heartbeatTimer = setInterval(() => {
-				if (!idleWatchdog.hasActiveTools()) return;
-				safeEnqueue(
-					controller,
-					sseFrame('agent.heartbeat', JSON.stringify({ activeToolCall: true }))
-				);
-			}, 15_000);
-
-			idleWatchdog.activity();
-			try {
-				for await (const ev of readSSE(upstreamBody)) {
-					idleWatchdog.activity();
-					streamStats[ev.event || 'message'] = (streamStats[ev.event || 'message'] ?? 0) + 1;
-					upstreamModel ??= modelFromSseData(ev.data);
-					let streamFailure: string | undefined;
-					for (const update of streamState.apply(ev.event, ev.data)) {
-						if (update.tool) {
-							if (update.tool.done || update.tool.status === 'ok' || update.tool.status === 'failed') {
-								idleWatchdog.toolFinished(update.tool.id);
-							} else {
-								idleWatchdog.toolStarted(update.tool.id);
-							}
-						}
-						if (update.replace !== undefined) {
-							assistantBuf = update.replace;
-							assistantReplacement = update.replace;
-							done = true;
-						}
-						if (update.delta) assistantBuf += update.delta;
-						if (update.failed) streamFailure = update.failed;
-						if (update.done) done = true;
-					}
-					if (ev.data === '[DONE]') {
-						sentDone = true;
-						continue;
-					}
-					const citationsForStream = activeCitationRecords();
-					const releasedAfterCitation =
-						ev.event === 'agent.citations'
-							? citationSanitizer.setCitations(citationsForStream)
-							: '';
-					const safeEventData = sanitizeCitationEventData(
-						ev.event,
-						ev.data,
-						citationsForStream,
-						citationSanitizer
-					);
-					safeEnqueue(controller, sseFrame(ev.event, safeEventData));
-					if (releasedAfterCitation) {
-						safeEnqueue(
-							controller,
-							sseFrame(
-								'response.output_text.delta',
-								JSON.stringify({ delta: releasedAfterCitation })
-							)
-						);
-					}
-					if (streamFailure) throw new Error(streamFailure);
-				}
-			} catch (e) {
-				recordChatDiagnostic(convoId, 'chat.stream_error', {
-					trace_id: traceId,
-					errorName: e instanceof Error ? e.name : 'Error',
-					elapsedMs: Date.now() - requestStartedAt,
-					assistantChars: assistantBuf.length,
-					events: streamStats
-				});
-				cleanupStreamWatchdogs();
-				const clientAborted = request.signal.aborted && !phaseAbort.timedOut() && !idleWatchdog.timedOut();
-				if (clientAborted) {
-					try {
-						await persistAssistantBounded('cancelled');
-					} catch (persistError) {
-						recordChatDiagnostic(convoId, 'chat.stream_cancel_persist_error', {
-							trace_id: traceId,
-							errorName: persistError instanceof Error ? persistError.name : 'Error'
-						});
-					}
-					phaseAbort.cleanup();
-					try {
-						controller.error(e);
-					} catch {
-						/* already closed */
-					}
-					return;
-				}
-				await emitSafePartialTerminal(controller, e);
-				phaseAbort.cleanup();
-				return;
-			}
-			cleanupStreamWatchdogs();
-			if (!done) {
-				await emitSafePartialTerminal(controller, new Error('upstream ended before completion'));
-				phaseAbort.cleanup();
-				return;
-			}
-
-			// Do not let an unfinished marker disappear from the live stream while
-			// persistence reconciles the raw accumulated buffer. The same sanitizer
-			// is used here and in persistAssistant, so this tail is emitted exactly
-			// once and has the same result as the durable answer.
-			const citationTail = citationSanitizer.flush();
-			enqueueCitationDelta(controller, citationTail);
-
-			if (done && !assistantBuf.trim()) {
-				const fallback = conversationContext.currentTurn?.researchRequired
-					? "I couldn't complete the research with readable current sources right now. Please retry."
-					: "I couldn't complete that reply right now. Please retry.";
-				assistantBuf = fallback;
-				safeEnqueue(
-					controller,
-					sseFrame('response.output_text.delta', JSON.stringify({ delta: fallback }))
-				);
-			}
-			let assistantRow: Awaited<ReturnType<typeof getMessageById>>;
-			try {
-				assistantRow = await persistAssistantBounded('completed');
-			} catch (persistError) {
-				recordChatDiagnostic(convoId, 'chat.finalization_error', {
-					trace_id: traceId,
-					errorName: persistError instanceof Error ? persistError.name : 'Error',
-					phase: 'completed'
-				});
-				safeEnqueue(
-					controller,
-					sseFrame(
-						'agent.persistence_error',
-						JSON.stringify({ message: 'The answer was generated but could not be saved. Retry to save it.' })
-					)
-				);
-				sentDone = true;
-				safeEnqueue(controller, 'data: [DONE]\n\n');
-				phaseAbort.cleanup();
-				try {
-					controller.close();
-				} catch {
-					/* already closed */
-				}
-				return;
-			}
-			if (
-				(assistantReplacement !== null || citationSanitizer.emitted) &&
-				citationSanitizer.emitted !== assistantBuf
-			) {
-				enqueueCitationReplacement(controller, assistantBuf);
-			}
-			const citationMarkers = citationNumbersInText(assistantBuf);
-			const citationRecords = assistantRow
-				? parseToolMetadata(assistantRow.toolCalls).citations
-				: streamState.citationList();
-			const resolvedCitationCount = resolvedCitationNumbersForAnswer(
-				assistantBuf,
-				citationRecords
-			).length;
-
-			// Title auto-summarization: first turn only, fire-and-await briefly so
-			// the client gets the title before the stream closes (and before its
-			// invalidateAll() picks up the conversation list).
-			try {
-				if (assistantRow) {
-					const result = await withChatTimeout(
-						generateConversationTitle(accountId, convoId, {
-							force: isNew,
-							idempotencyKey: `title-${convoId}-${assistantRow.id}`
-						}),
-						CHAT_TITLE_TIMEOUT_MS,
-						'conversation title generation'
-					);
-					if (result?.generated && result.title) {
-						safeEnqueue(
-							controller,
-							`event: agent.title\ndata: ${JSON.stringify({ title: result.title })}\n\n`
-						);
-					}
-				}
-			} catch (err) {
-				recordChatDiagnostic(convoId, 'chat.title_error', {
-					trace_id: traceId,
-					errorName: err instanceof Error ? err.name : 'Error'
-				});
-				console.warn('NewsCraft title generation failed', err);
-			}
-
-			recordChatDiagnostic(convoId, 'chat.stream_complete', {
-				trace_id: traceId,
-				elapsedMs: Date.now() - requestStartedAt,
-				assistantChars: assistantBuf.length,
-				done,
-				persisted: Boolean(assistantRow),
-				toolCount: streamState.toolCalls().length,
-				sourceCount: streamState.sourceList().length,
-				citationCount: citationRecords.length,
-				citationMarkerCount: citationMarkers.length,
-				resolvedCitationCount,
-				danglingCitationCount: Math.max(0, citationMarkers.length - resolvedCitationCount),
-				primarySourceCount: citationRecords.filter((citation) =>
-					['official', 'primary', 'user_document'].includes(citation.sourceType)
-				).length,
-				unknownDateCount: citationRecords.filter((citation) => !citation.publicationDate).length,
-				researchOutcome: conversationContext.currentTurn?.researchRequired
-					? resolvedCitationCount > 0
-						? 'sourced'
-						: 'failed'
-					: 'not_required',
-				research: researchDiagnosticsFromTools(streamState.toolCalls()),
-				events: streamStats
-			});
-			cleanupStreamWatchdogs();
-			phaseAbort.cleanup();
-			if (sentDone || done) safeEnqueue(controller, 'data: [DONE]\n\n');
-			try {
-				controller.close();
-			} catch {
-				/* already closed */
-			}
-		},
-		async cancel() {
-			recordChatDiagnostic(convoId, 'chat.stream_cancel', {
-				trace_id: traceId,
-				elapsedMs: Date.now() - requestStartedAt,
-				assistantChars: assistantBuf.length
-			});
-			upstreamAbort.abort();
-			cleanupStreamWatchdogs();
-			if (activeController) tryEnqueueCitationBoundary(activeController, () => citationSanitizer.abort());
-			try {
-				await persistAssistantBounded('cancelled');
-			} catch (error) {
-				recordChatDiagnostic(convoId, 'chat.stream_cancel_persist_error', {
-					trace_id: traceId,
-					errorName: error instanceof Error ? error.name : 'Error',
-					assistantChars: assistantBuf.length
-				});
-				phaseAbort.cleanup();
-				throw error;
-			}
-			phaseAbort.cleanup();
-		},
+	return hermesSubscriptionResponse({
+		request,
+		accountId,
+		runId: durableRun.id,
+		afterCursor: 0
 	});
 
-	return new Response(stream, {
-		status: 200,
-		headers: {
-			'content-type': 'text/event-stream; charset=utf-8',
-			'cache-control': 'no-cache, no-transform',
-			connection: 'keep-alive',
-			'x-accel-buffering': 'no'
-		}
-	});
 	} catch (cause) {
 		if (preparedAssistantMessageId && ownsPreparedTurn && !durableRunCreated) {
 			recordChatDiagnostic(convoId, 'chat.durable_preflight_failed', {

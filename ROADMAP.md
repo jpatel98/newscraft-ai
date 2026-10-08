@@ -1,6 +1,6 @@
 # NewsCraft AI — Current Product & Roadmap
 
-Last reviewed: 2026-09-05.
+Architecture reviewed: 2026-10-07. Product/usage review: 2026-09-05.
 
 ## Current product
 
@@ -49,26 +49,42 @@ explicitly rejected a speculative list of automation tools.
 
 ## Current architecture reference
 
-The active repository path is **SvelteKit app → isolated Hermes service**.
-NewsCraft owns authenticated conversation history and durable run records;
-Hermes performs agent execution. See [the Hermes service README](services/hermes-chat/README.md)
-for current tooling, tenant isolation, run lifecycle, configuration and deployment gates.
-See [legacy runtime disposition](docs/legacy-runtime-disposition.md) for the old
-newsroom harness and removal boundaries. The legacy harness is not the current
-product runtime; its presence in old tests and documentation is not release evidence.
+**Repository verified:** the active path is **SvelteKit app → NewsCraft-owned
+portable Python worker → direct model and tool adapters**. Ordinary Postgres
+owns authenticated conversations, durable runs/events, citations, artifacts and
+private versioned runtime checkpoints. `service.py` selects `PortableAgentRunner`
+directly. The `services/hermes-chat` directory and internal `/hermes/runs` routes
+remain compatibility names; the upstream Hermes agent is not a dependency.
 
-Hermes exposes web/browser tools, files, code, skills, tenant memory and delegation.
-Those runtime tools are not each independently validated customer features.
-Scheduled-job management does not establish automatic execution: the service
-README explicitly retains a separate gate for the cron ticker. Do not promise
-scheduled delivery or notifications. External model/tool services may process
-requests; account isolation is not local-only processing. Keep the personal Hydra
-service separate from NewsCraft.
+**Working in local fixtures:** OpenAI Responses, Anthropic Messages and dedicated
+DeepSeek Messages adapters (with explicit non-thinking mode and peak-rate floors),
+public search, bounded public-page retrieval, exact-excerpt citation recording,
+Markdown/CSV publication, cursor replay, cancellation, leases and conservative
+request reservations. Completed receipts replay; uncertain model/tool effects
+are not automatically repeated. Private provider continuation stays out of public
+history. Default auth uses Postgres password accounts and signed revocable
+sessions; Supabase Auth/Storage are explicitly selected optional adapters.
 
-This review inspected product pages and local code, not production infrastructure,
-provider configuration, latency, or complete release gates. The local landing
-checkout differs from the live homepage. Identify the actual deployment source
-before publishing revised copy.
+The optional rootless OCI adapter supplies terminal/files and interactive
+Chromium on an approved Linux worker. Private conversation files, browser storage
+and operation receipts live on its retained SQLite volume; this persistence is
+separate from Postgres. **Working locally:** new-project database connectivity,
+signup/sign-in and an empty saved conversation. **Blocked:** actual Linux/Chromium
+acceptance, the new DeepSeek key and separately approved paid-model acceptance.
+Readiness describes configuration, not provider or deployment success.
+
+See [the worker README](services/hermes-chat/README.md),
+[source of truth](SOURCE_OF_TRUTH.md), and [measured local handoff](docs/agent-local-handoff.md).
+**Historical:** upstream Hermes, managed Agents, and the legacy newsroom harness
+remain unselected source/fixtures. Their tests do not prove the owned worker is
+deployed. The [legacy removal gates](docs/legacy-runtime-disposition.md) still apply.
+There is no promise of scheduled delivery, notifications, delegation, or tenant
+memory as independently accepted product features. The tracker remains frozen.
+External model/tool services may process requests; account isolation does not
+mean local-only processing. Personal Hydra remains separate and untouched.
+
+**Unverified:** current production source, traffic, provider access and latency.
+This architecture review and its tests made no deployment or production change.
 
 ## Product rules
 
@@ -107,7 +123,7 @@ expansion remains outside the current product scope until explicitly decided.
 
 Start with branch/status and preserve unrelated work. Use repository-owned source
 for prompt/copy changes. Use `pnpm check` for Svelte/TypeScript changes and relevant
-focused tests; consult the Hermes README for service-specific setup and gates.
+focused tests; consult the owned worker README for service-specific setup and gates.
 Local checks do not replace live-model evaluation or production acceptance.
 No push, deploy, provider, database, credential or personal-Hydra change is implied.
 
@@ -116,7 +132,7 @@ No push, deploy, provider, database, credential or personal-Hydra change is impl
 The following material is retained for traceability. Its runtime descriptions,
 production statuses, milestones, paths, commands and roadmap phases are historical,
 not current instructions or claims of what ships. The current sections above and
-the linked Hermes README take precedence. Do not execute old deployment or cleanup
+the linked owned-worker README take precedence. Do not execute old deployment or cleanup
 steps from this archive without checking the current code and authorization.
 
 <details>

@@ -130,6 +130,16 @@ class KeepAliveServer:
 
 
 class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_recovery_failure_does_not_log_transport_exception_details(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            worker._recover_batch = AsyncMock(side_effect=RuntimeError("fixture-secret-request-detail"))
+            with self.assertLogs("hermes_chat.durable", level="ERROR") as logs:
+                await worker.recover()
+            self.assertNotIn("fixture-secret-request-detail", "\n".join(logs.output))
+            self.assertTrue(all(record.exc_info is None for record in logs.records))
+            await worker.close()
+
     def _worker(self, root: str) -> DurableRunWorker:
         settings = SimpleNamespace(
             run_api_url="http://newscraft.test/api/internal/hermes/runs",
@@ -171,6 +181,111 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(job.worker_cursor, 76)
             self.assertEqual(job.pending_events, [])
             await worker._stop_text_flush(job)
+
+    async def test_managed_pending_cancellation_stays_recoverable_until_confirmed(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("pending", "tenant_a", "trace_a12345678")
+            job.lease_acquired = True
+            worker.runner = SimpleNamespace(checkpoint=AsyncMock(), cancel_run=AsyncMock(side_effect=[RuntimeError("pending"), None]))
+            worker._callback = AsyncMock()
+            worker.jobs[job.run_id] = job
+            worker._reserve_slot_locked(job)
+            with self.assertRaisesRegex(RuntimeError, "pending"):
+                await worker._publish_cancelled(job)
+            worker._callback.assert_not_awaited()
+            self.assertTrue(job.recovery_pending)
+            await worker._release_slot(job)
+            self.assertNotIn(job.run_id, worker.jobs)
+            # The same persisted cancel_requested run is reclaimed, then the
+            # provider confirms terminal status before app cancellation is final.
+            recovered = self._job("pending", "tenant_a", "trace_a12345678")
+            recovered.lease_acquired = True
+            await worker._publish_cancelled(recovered)
+            self.assertTrue(recovered.cancel_published)
+            self.assertFalse(recovered.recovery_pending)
+            self.assertEqual(worker._callback.await_args.args[1], "run.cancelled")
+
+    async def test_checkpointed_callback_failures_leave_owned_work_recoverable(self) -> None:
+        for mode in ("synchronous", "timer"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as root:
+                worker = self._worker(root)
+                job = self._job("callback", "tenant_a", "trace_a12345678")
+                job.thread_id = "thread_one"
+                async def run(*args, **kwargs):
+                    if mode == "timer":
+                        job.stop_reason = "callback_failed"
+                    yield {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": "Saved cloud progress"}}
+                    await asyncio.Event().wait()
+                worker.runner = SimpleNamespace(checkpoint=AsyncMock(), run=run, cancel_run=AsyncMock())
+                worker._callback = AsyncMock(side_effect=[None, httpx.ConnectError("callback disconnected")])
+                await worker._run(job)
+                self.assertTrue(job.recovery_pending)
+                self.assertFalse(any(call.args[1] == "run.failed" for call in worker._callback.await_args_list))
+                worker.runner.cancel_run.assert_not_awaited()
+
+    async def test_checkpointed_renew_failure_can_reclaim_in_the_same_worker_process(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("renew", "tenant_a", "trace_a12345678")
+            job.thread_id = "thread_one"
+            job.lease_acquired = True
+            async def run(*args, **kwargs):
+                yield {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": "Progress"}}
+                await asyncio.Event().wait()
+            worker.runner = SimpleNamespace(checkpoint=AsyncMock(), run=run, cancel_run=AsyncMock())
+            worker._callback = AsyncMock()
+            worker._newscraft = AsyncMock(side_effect=httpx.ConnectError("renew interrupted"))
+            worker.jobs[job.run_id] = job
+            worker._reserve_slot_locked(job)
+            with patch.object(durable_module, "RUN_LEASE_RENEW_INTERVAL_SECONDS", 0.001):
+                job.task = asyncio.create_task(worker._run(job))
+                await asyncio.wait_for(job.task, 1)
+            self.assertTrue(job.stale_lease)
+            self.assertTrue(job.recovery_pending)
+            worker.runner.cancel_run.assert_not_awaited()
+            await worker._release_slot(job)
+            self.assertNotIn(job.run_id, worker.jobs)
+            worker._run_recovered = AsyncMock()
+            result = await worker.start_recovered({"run_id": job.run_id, "account_id": job.account_id,
+                "tenant_key": job.tenant_key, "lease_owner": "new-owner", "lease_token": "new-token",
+                "input": {"threadId": "thread_one"}})
+            self.assertFalse(result["duplicate"])
+            await worker.jobs[job.run_id].task
+
+    async def test_owned_terminal_errors_do_not_recover_forever(self) -> None:
+        from hermes_chat.portable import RunError
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("bounded", "tenant_a", "trace_a12345678")
+            job.thread_id = "thread_one"
+            async def run(*args, **kwargs):
+                raise RunError("The configured cost reservation budget was reached.")
+                yield  # Async generator protocol.
+            worker.runner = SimpleNamespace(checkpoint=AsyncMock(), run=run)
+            worker._callback = AsyncMock()
+            await worker._run(job)
+            self.assertFalse(job.recovery_pending)
+            self.assertEqual(worker._callback.await_args.args[1], "run.failed")
+
+    async def test_renewed_cancel_requested_state_stops_worker_without_marking_lease_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            worker = self._worker(root)
+            job = self._job("cancel-on-renew", "tenant_a", "trace_a12345678")
+            job.thread_id = "thread_one"
+            async def run(*args, **kwargs):
+                yield {"type": "STATE_SNAPSHOT", "snapshot": {}}
+                await asyncio.Event().wait()
+            worker.runner = SimpleNamespace(run=run, cancel_run=AsyncMock())
+            worker._callback = AsyncMock()
+            worker._newscraft = AsyncMock(return_value={"state": "cancel_requested"})
+            with patch.object(durable_module, "RUN_LEASE_RENEW_INTERVAL_SECONDS", 0.001):
+                job.task = asyncio.create_task(worker._run(job))
+                await asyncio.wait_for(job.task, 1)
+            self.assertEqual(job.stop_reason, "cancelled")
+            self.assertFalse(job.stale_lease)
+            worker.runner.cancel_run.assert_awaited_once_with(job.run_id)
+            self.assertEqual(worker._callback.await_args.args[1], "run.cancelled")
 
     async def test_batch_lost_ack_retries_identical_cursors(self) -> None:
         with tempfile.TemporaryDirectory() as root:

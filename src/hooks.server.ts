@@ -1,12 +1,10 @@
 import type { Handle } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
-import { verifySessionCookie, SESSION_COOKIE_NAME } from '$lib/server/auth/cookie';
-import { accountCount } from '$lib/server/db/accounts';
-import { getActiveSessionAccount } from '$lib/server/db/sessions';
+import { authenticateRequest } from '$lib/server/auth/backend';
 import { newId } from '$lib/utils/id';
 import { measureRequest, serverTimingHeader } from '$lib/server/request-timing';
 
-const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup']);
+const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup', '/auth/callback']);
 // /api/e2e is only active when E2E_SECRET is set (dev/test only); it self-
 // authenticates via the secret so it must be reachable without a session.
 const PUBLIC_PREFIXES = [
@@ -17,22 +15,7 @@ const PUBLIC_PREFIXES = [
 	'/account-setup',
 	'/api/e2e'
 ];
-let knownHasAccounts = false;
-let accountCountInFlight: Promise<number> | null = null;
 const MARKETING_HOSTS = new Set(['newscraftai.com', 'www.newscraftai.com']);
-
-async function hasAnyAccounts(): Promise<boolean> {
-	if (knownHasAccounts) return true;
-	// Several unauthenticated browser requests can arrive together on a fresh
-	// process (health, login, static data). Share the first count query instead
-	// of queueing one database read per request.
-	accountCountInFlight ??= accountCount().finally(() => {
-		accountCountInFlight = null;
-	});
-	const count = await accountCountInFlight;
-	if (count > 0) knownHasAccounts = true;
-	return count > 0;
-}
 
 function hostnameWithoutPort(host: string): string {
 	return host.toLowerCase().replace(/:\d+$/, '');
@@ -53,39 +36,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const traceId = newId();
 	event.locals.traceId = traceId;
 	event.locals.isMarketingHost = isMarketingHost(event.url.host);
-	const cookie = event.cookies.get(SESSION_COOKIE_NAME);
-	const session = verifySessionCookie(cookie);
-	const authenticated = session
-		? await measureRequest(event.locals, 'auth', () => getActiveSessionAccount(session.sessionId, session.accountId))
-		: null;
-	if (cookie && !authenticated) {
-		event.cookies.delete(SESSION_COOKIE_NAME, { path: '/' });
-	}
-	const account = authenticated?.account;
-	event.locals.user = account
-		? { id: account.id, email: account.email, name: account.name, role: account.role }
-		: null;
+	event.locals.user = await measureRequest(event.locals, 'auth', () => authenticateRequest(event.cookies));
 
 	const path = event.url.pathname;
 	const isMarketingHome = event.locals.isMarketingHost && path === '/';
 	const isPublic = isMarketingHome || PUBLIC_PATHS.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
-	// A valid session already proves that at least one account exists. This
-	// avoids an extra account-count query on the first authenticated request.
-	const hasAccounts = event.locals.user ? true : await hasAnyAccounts();
-	if (event.locals.user) knownHasAccounts = true;
-
-	if (
-		!hasAccounts &&
-		!isMarketingHome &&
-		path !== '/setup' &&
-		path !== '/signup' &&
-		!PUBLIC_PREFIXES.some((p) => path.startsWith(p))
-	) {
-		throw redirect(303, '/setup');
-	}
-	if (hasAccounts && path === '/setup') {
-		throw redirect(303, event.locals.user ? '/' : '/login');
-	}
 
 	if (!event.locals.user && !isPublic) {
 		const dest = path === '/' ? '/' : path + event.url.search;
@@ -96,6 +51,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 
 	const response = await measureRequest(event.locals, 'resolve', () => resolve(event));
+	if (event.locals.user || path.startsWith('/auth') || PUBLIC_PATHS.has(path)) {
+		response.headers.set('cache-control', 'private, no-store');
+	}
 	response.headers.set('x-trace-id', traceId);
 	if (event.locals.user && event.locals.requestTimings) {
 		event.locals.requestTimings.push({ name: 'total', duration: performance.now() - requestStart });

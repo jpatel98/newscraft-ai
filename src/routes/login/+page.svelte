@@ -29,6 +29,7 @@
 				id="email"
 				class="field__input"
 				type="email"
+				required
 				name="email"
 				autocomplete="username"
 				value={form?.email ?? ''}

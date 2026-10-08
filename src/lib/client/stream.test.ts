@@ -357,6 +357,26 @@ describe('streamChat error contract', () => {
 		expect(onSnapshot).toHaveBeenCalledWith(expect.objectContaining({ answerText: 'Final', status: 'complete' }));
 	});
 
+	it('restores public plan and explanations from a nonzero cursor snapshot without replaying draft text', async () => {
+		const plan = { source: 'model', steps: [{ id: 'read', label: 'Read the release', status: 'ok' }], reasoning: 'private' };
+		const decision = { id: 'official', summary: 'The release provides the baseline.', stepId: 'read', thinking: 'private' };
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(
+			'event: run.snapshot\n' +
+			`data: ${JSON.stringify({ run_id: 'run_1', conversation_id: 'convo_1', assistant_message_id: 'assistant_1', cursor: 5, status: 'complete', state: 'complete', answerText: 'Final', sources: [], citations: [], tools: [], errorMessage: null, plan, decisions: [decision] })}\n\n` +
+			'id: 4\nevent: agent.decision\n' + `data: ${JSON.stringify(decision)}\n\n` +
+			'id: 3\nevent: response.output_text.delta\ndata: {"delta":"duplicate draft"}\n\n'
+		)));
+		const onPlan = vi.fn();
+		const onDecision = vi.fn();
+		const onDelta = vi.fn();
+		const onRunCursor = vi.fn();
+		await subscribeDurableRun('run_1', 3, { onDelta, onPlan, onDecision, onRunCursor });
+		expect(onPlan).toHaveBeenCalledExactlyOnceWith({ source: 'model', steps: [{ id: 'read', label: 'Read the release', status: 'ok' }] });
+		expect(onDecision).toHaveBeenCalledExactlyOnceWith({ id: 'official', summary: 'The release provides the baseline.', stepId: 'read' });
+		expect(onDelta).not.toHaveBeenCalled();
+		expect(onRunCursor).not.toHaveBeenCalled();
+	});
+
 	it('does not treat a persisted failed run as a successful completion', async () => {
 		vi.stubGlobal(
 			'fetch',

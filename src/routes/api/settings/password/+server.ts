@@ -1,33 +1,14 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { verifyHash } from '$lib/server/auth/password';
-import { getAccount, updateAccountPassword } from '$lib/server/db/accounts';
-
-interface Body {
-	current?: string;
-	new?: string;
-}
-
-export const POST: RequestHandler = async ({ request, locals }) => {
-	if (!locals.user) throw error(401, 'unauthorized');
-
-	let body: Body;
-	try {
-		body = (await request.json()) as Body;
-	} catch {
-		throw error(400, 'invalid json');
-	}
-
-	const current = String(body.current ?? '');
-	const next = String(body.new ?? '');
-
-	if (next.length < 8) throw error(400, 'new password must be at least 8 characters');
-	if (next === current) throw error(400, 'new password must differ from current');
-
-	const account = await getAccount(locals.user.id);
-	if (!account?.passwordHash) throw error(401, 'current password is incorrect');
-	const ok = await verifyHash(account.passwordHash, current);
-	if (!ok) throw error(401, 'current password is incorrect');
-
-	await updateAccountPassword(account.id, next);
-	return json({ ok: true });
+import { authBackend } from '$lib/server/auth/backend';
+import { checkRateLimit } from '$lib/server/rate-limit';
+export const POST: RequestHandler = async ({ request, locals, cookies }) => {
+    if (!locals.user) throw error(401, 'unauthorized');
+    if (!checkRateLimit(`password:${locals.user.id}`, { limit: 5, windowMs: 600_000 }).allowed) throw error(429, 'Try again later.');
+    let body;
+    try { body = await request.json(); } catch { throw error(400, 'invalid json'); }
+    const current = String(body?.current ?? '');
+    const next = String(body?.new ?? '');
+    if (next.length < 8 || next === current) throw error(400, 'Choose a different password with at least 8 characters.');
+    await (await authBackend()).changePassword(locals.user, current, next, cookies);
+    return json({ ok: true });
 };

@@ -1,165 +1,74 @@
-# NewsCraft Hermes chat
+# NewsCraft owned research worker
 
-This service is NewsCraft's only agent runtime. It uses the Hermes AG-UI adapter at reviewed commit `5370d535ab926da41abe3ba4d9d975f1f94875d5`.
+NewsCraft owns orchestration, messages, runs, public events, citations and artifacts in ordinary Postgres. `service.py` directly selects `PortableAgentRunner` in `portable.py`; it does not call a managed agent harness. Existing `hermes_chat` and `/api/internal/hermes/runs` identifiers preserve app protocol compatibility.
 
-The browser calls NewsCraft. NewsCraft calls this service. NewsCraft does not register a custom toolset or filter Hermes tools. The service uses Hermes's standard `hermes-acp` toolset plus the tenant-safe `cronjob_tools` set. This includes web search, browser control, terminal and process tools, file read and write, patching, code execution, skills, memory, scheduled-job management, and delegation.
+The model boundary has three concrete provider adapters: OpenAI Responses, Anthropic Messages, and DeepSeek's Messages-compatible endpoint. They translate the same canonical messages/tool definitions. DeepSeek selects a dedicated key/base URL, disables thinking explicitly, omits unsupported OpenAI fields and Anthropic service-tier selection, and rejects retired/unknown model names before dispatch. OpenAI encrypted reasoning continuation stays in private run state, never public history or events. Anthropic thinking blocks are not requested or exposed. Providers/models can change at a clean new turn; an existing run must retain its original adapter and budget policy. There is no arbitrary in-flight provider interchange.
 
-## Account isolation
+## Research and files
 
-NewsCraft authentication is authoritative. The NewsCraft server derives one opaque HMAC tenant key from the authenticated account and sends it in `x-newscraft-tenant-key`. The browser cannot set the account scope. Hermes rejects a run without exactly one valid tenant key.
+The default public DDGS search adapter needs no model-provider account. An optional OpenAI Responses search adapter is a separate paid request. Both return leads. NewsCraft's bounded public fetcher, archive fallback and exact-excerpt ledger validate retrieved evidence before assigning `[n]` citations. These are fetch/provenance checks, not a claim of independent semantic fact-checking. Source and document text stays untrusted user/tool data.
 
-The service keeps one AG-UI process. Each run uses a context-local Hermes home and a stable task key. The service registers that key as Hermes's per-task container-isolation override, so Hermes's normal delegate-task collapse to one shared `default` container cannot merge accounts. Hermes state, skills, scheduled jobs, browser profile, and persistent Docker terminal belong to that tenant scope. External skill directories and unrelated Hermes plugins are disabled; only the NewsCraft retrieval plugin is enabled. The Docker terminal uses `/workspace`; its private tenant bind mounts run as the service UID so normal file tools can write them. NewsCraft supplies no caller-selected host volume, cwd mount, credential file, forwarded environment, or provider secret. The browser uses the tenant browser profile and stable session name. Hermes's hard-coded process-global prompt backend probe is disabled for tenant runs, so it cannot reuse a container from another Hermes process.
+Public plans, actions/results, short decisions and one clean final answer persist through the existing UI. `publish_markdown` and `publish_csv` render files from content without executing model code. Research files require recorded citations; CSV rows include source URLs. Publication uses the existing leased revision/grant/upload/finalize flow with byte, MIME and SHA-256 checks, then immutable application storage. Reconnect replays Postgres events and artifacts.
 
-The AG-UI contract uses Hermes `hermes-acp`. It isolates scheduled-job state, but this adapter does not start Hermes's separate gateway cron ticker. Automatic scheduled-job execution needs a separate Docker-backed staging gate before it is enabled.
+`oci_executor.py` implements the rootless Linux computer adapter: terminal/read/write/list use fresh bounded containers, and interactive Chromium uses a separate container retained during a run. Private tenant/conversation snapshots, browser storage and action receipts survive worker restarts on the retained state volume. Admission and receipts bind the run/request/daemon; cleanup is confirmed before cancellation. The controller, RPC, citation and artifact flow have deterministic coverage with all three model adapters. **Actual Chromium and kernel isolation still require Linux acceptance.** See [executor/browser setup, security approval and limits](deploy/executor.md). Basic cited research and Markdown/CSV publication work without computer configuration; no host execution fallback exists.
 
-Hermes's host crash checkpoint is disabled for this service because the pinned checkpoint path is process-global and Docker process IDs cannot be recovered safely after a service restart. The process tool still restricts every handle to its tenant task key. A restart drops in-flight process handles but does not expose one account's process metadata to another account.
+## Durable ownership and bounded work
 
-Hermes's process-global async-delegation recovery queue is also disabled at service startup because no authenticated tenant exists at that point. A delegation started inside a tenant run uses that tenant's state scope. An in-flight delegation is not recovered after a service restart.
+The worker persists run-scoped canonical state, adapter-private continuation, budget reservations, pending intent and completed receipts in `agent_runtime_checkpoints`. Reads and compare-and-swap writes require account, conversation, tenant and an active lease. Public streams never expose this table. Completed tool outputs are saved before callbacks; receipts/answers replay without repeating their effects. Stale workers cannot begin a new request or publish through current grants. Dispatch checkpoints also lock the durable run row and reject committed cancellation, including before a citation-repair model request. Cleanup reads/writes remain available to the current lease owner, and renew replies reporting cancellation stop the observer. Worker/callback interruption remains recoverable.
 
-NewsCraft remains the source of truth for account-scoped conversation history. The adapter passes only the authenticated account's history to Hermes. Hermes `session_search` cannot select a profile or home from model arguments. Hydra, Jigar's personal Hermes service, has a separate process, user, home, and state and is not migrated.
+A request or non-idempotent tool interrupted after intent is saved has an uncertain outcome. Recovery fails it safely and asks for a new user turn; it does not resubmit inference or rerun an uncertain effect. Artifact retries alone reuse a saved immutable run/call publication identity. Each publication attempt gets at most 60 seconds. Its fixed 240-second recovery window includes a full first attempt, the renewed 90-second lease, recovery polling and a full retry. At most four attempts are admitted, with each admission saved before I/O so a worker death cannot erase it. The deadline and immutable identity never reset. Only that already admitted publication may finalize after the original run deadline; new publications, research and model requests remain blocked after the run budget expires. Completed answers replay after the deadline without new effects.
 
-Hermes uses only its built-in tenant-local memory files in this service. External memory providers are disabled until a provider with an explicit NewsCraft account boundary is available.
+Defaults: 12 model requests, 180 elapsed seconds, 120,000 cumulative conservatively estimated input tokens, 4,096 output tokens per request, and a $2 local reservation budget. Input accounting includes translated system/tool schemas, history, tool results, adapter-private replay and image allowance. Configure **reviewed positive input/output price ceilings per million tokens** for the selected provider/model; there are no invented price defaults. Optional paid search also requires a reviewed full per-call charge ceiling including search/tool/model costs. Every request reserves its maximum estimated charge before dispatch; reservations are never refunded, even when a response is lost. These are conservative application controls, **not provider-enforced billing guarantees**. Provider pricing and image assumptions must be reviewed before live use. Cancelling an HTTP request does not prove the provider stopped billing that request.
 
-A failed Hermes run stays failed. NewsCraft does not switch to the old agent or another model endpoint.
+Inputs are limited to 512 KiB, private checkpoint state to 8 MiB, and generated files to 32,000 UTF-8 bytes each, 16 files and 512,000 aggregate bytes per run. Search calls default to five. Global admission defaults to four active/sixteen queued runs, with two active/four queued per tenant. No sandbox/tool side effect is implied by a configuration contract.
 
-Each request uses Hermes's native iteration budget. The default is 25 model turns. Set `NEWSCRAFT_HERMES_MAX_ITERATIONS` from 4 through 90 when a different bound is required. Hermes keeps every standard tool. At the limit, the same Hermes run makes its built-in final-summary attempt. It does not switch engines.
+Blocking retrieval uses a shared cancellation/deadline signal before subsequent URLs, live/archive/CDX fetches, redirects and resolved-address attempts. Cancellation prevents the next dispatch and waits for the active thread to drain before releasing the worker slot. It cannot forcibly interrupt an already active socket or operating-system DNS call; timeout/cancel completion may therefore wait for that call to return. This limitation is reported rather than hiding active work behind a released capacity slot.
 
-## Web extraction
+## Setup and verification
 
-NewsCraft can select either its keyless local web path or Exa explicitly with
-`NEWSCRAFT_HERMES_WEB_PROVIDER`. When set to `exa`, Hermes's native `web-exa`
-plugin handles `web_search` and direct `web_extract` calls. Exa returns result
-URLs, publication metadata, and page contents. The service refuses to start
-without `EXA_API_KEY`; it does not silently select another paid provider.
+Use the root and worker `.env.example` files, then [the provider-neutral setup guide](../../docs/managed-agent-setup.md). Postgres auth and existing VPS object storage are defaults; Supabase Auth/Storage are explicit optional adapters. No Supabase variables are required by the core schema or default auth path. Model credentials remain server-side; existing OpenAI credential reuse is approved, with no key copy or new key creation required.
 
-The `newscraft-local` backend remains enabled for `verify_this_lead`. It uses
-one bounded direct HTTP request for each candidate page and extracts article
-text and page timestamps without a paid API key.
+For this checkout, [the local setup handoff](../../docs/agent-local-handoff.md) uses a separate locked `.venv-owned` and a guarded `.env.agent-local` profile. It preserves the old environment and refuses to inherit the old database target. Preparation/checking never starts a process or contacts a provider. Select DeepSeek with `node scripts/agent-local.mjs check --provider deepseek` (or `start --provider deepseek` after configuration passes). This applies the reviewed Flash model, Messages endpoint, peak prices and $0.06 reservation cap in memory without rewriting the private profile. Only `DEEPSEEK_API_KEY` in the approved credential file can enable that profile; no other provider key is substituted.
 
-When a live page is blocked or unreadable, the backend makes one Wayback CDX lookup and one Wayback replay request. It records the original URL, archive URL, capture time, page time, retrieval time, and fallback reason. It does not bypass challenges, CAPTCHAs, or paywalls. It does not use archive.today.
+`GET /ready` reports local configuration only: `orchestration: newscraft`, `apiMode: responses|messages`, `accessVerified: false`, configured terminal/workspace/browser capabilities, and local reservation bounds. Missing reviewed price ceilings or a failed configured executor/browser policy fail readiness. Readiness does not call a paid API or prove live execution/provider/storage access.
 
-Search results remain leads. Hermes must use `verify_this_lead` to verify one candidate before it treats the page as evidence. The tool passes the candidate timestamp, title, and snippet into the local extractor when available. A page without usable text, an acceptable page class, or a publication/update timestamp returns an explicit rejection reason. The normal `web_extract` tool remains available for other direct page reads.
+The worker requires an existing **CPython 3.11** interpreter. Browser readiness and dispatch also require the stdlib asyncio selector loop; the service entrypoint selects it explicitly. These constraints preserve the audited HTTPS memory bound. Container guest images use Python 3.12 separately. The installer uses locked dependencies without downloading an interpreter or provisioning a sandbox:
 
-The service selects the backend through Hermes config:
-
-```yaml
-web:
-  extract_backend: newscraft-local
+```sh
+services/hermes-chat/scripts/install-runtime.sh /absolute/private/path/to/venv
 ```
 
-The service enables its pip plugin in the generated Hermes config. `/ready` reports the backend and fails when the plugin is missing.
+For the authorized local setup use `node scripts/agent-local.mjs start --provider deepseek` after its key check passes; the guarded profile refuses the old database. Preserve the documented `NODE_EXTRA_CA_CERTS` setting. Generic `pnpm dev:all` and `pnpm dev:agent` remain available with an independently verified environment. Service templates need private app callbacks, provider/public-web HTTPS access and private local staging. The optional executor additionally needs its existing rootless daemon/image, with no privileged Docker group, XFS or custom root broker. Earlier loopback startup/auth validation is recorded in the handoff; the DeepSeek update did not start services or call providers.
 
-## Isolation
+Offline checks (from the repository root):
 
-Use a separate Linux account, Hermes home, workspace, token, model key, and process. Do not point either directory at a personal Hermes home, a user home, or the NewsCraft checkout. Hermes has normal access inside this separate workspace.
-
-The model endpoint is explicit. Remote endpoints must use HTTPS. The model provider and model are also explicit. The service writes a standard Hermes `config.yaml` into its dedicated Hermes home. Main calls and Hermes auxiliary calls use the same endpoint. No second model endpoint is configured.
-
-DDGS remains the explicit keyless search provider when
-`NEWSCRAFT_HERMES_WEB_PROVIDER=newscraft-local`.
-
-Browser automation is also explicit. `NEWSCRAFT_HERMES_BROWSER_PROVIDER=local`
-uses the standard local headless Chromium profile. Setting it to `browser-use`
-enables Hermes's native `browser-browser-use` plugin and requires
-`BROWSER_USE_API_KEY`. Browser Use supplies only a raw cloud browser session;
-Hermes remains the only agent and model. NewsCraft's server-derived task key
-continues to own the browser session. Browser Use sessions are ephemeral and
-do not provide an authenticated social-media profile by themselves.
-If Browser Use is unavailable, the NewsCraft tenant run fails clearly. It does
-not fall back to local Chromium or a caller-selected CDP endpoint.
-
-## Local install
-
-Use the clean reviewed Hermes checkout. The installer rejects another commit or a dirty checkout.
-
-```bash
-services/hermes-chat/scripts/install-runtime.sh \
-  /absolute/path/to/hermes-agent \
-  /absolute/path/to/newscraft-hermes-venv \
-  /absolute/path/to/newscraft-hermes-home
+```sh
+TMPDIR=/private/tmp PYTHONPATH=services/hermes-chat/src services/hermes-chat/.venv-owned/bin/python \
+  -m unittest discover -s services/hermes-chat/tests -p 'test_*.py'
+pnpm test
+node scripts/agent-local.test.mjs
+node scripts/test-agent-postgres-fixture.mjs
+pnpm eval:fixture
+pnpm check
+pnpm build
 ```
 
-The installer also installs the native `agent-browser@0.26.0` command and its Chrome build. Both stay under the dedicated Hermes home. Run it as the separate `newscraft-hermes` operating-system user.
+Run the lock check from `services/hermes-chat`: `uv lock --check --offline --no-cache --no-python-downloads`. Use `/tmp` on Linux. Restricted environments may deny the one real Python localhost transport test and the harness HTTP-server suite. `node scripts/test-agent-postgres-fixture.mjs` runs the real database integration suites on a new loopback-only Postgres instance, without reading an existing DB URL or environment secrets. It requires Node 24 and local PostgreSQL binaries (`NEWSCRAFT_FIXTURE_PG_BIN` may select their directory), and removes only its own fixture afterward. It passed 54 tests, including real local signup/session revocation, callback/recovery/cancellation and artifact ownership. Model/OCI fixtures still use mocked transports and do not prove live cloud services.
 
-Copy `.env.example` to a private environment file. For a local OpenAI-compatible test server, use its loopback base URL. Then export the values and start:
+Historical `managed.py`, old `runtime.py`, the `ComputerSandbox` browser/admission implementation and their fixtures remain unselected; no runtime toggle enables a managed harness. The active runner reuses public tool schemas/local validation from `runtime.py`; the new OCI adapter reuses fixed no-follow file/terminal payloads from `sandbox.py`. The old paid validator CLI exits before execution. See [future live acceptance](../../docs/agent-live-validation-approval.md) for checks still requiring authorization and infrastructure.
 
-```bash
-/absolute/path/to/newscraft-hermes-venv/bin/newscraft-hermes-chat
-```
+## Verification dated 2026-10-07
 
-For Exa plus raw Browser Use cloud sessions, set these values only in the
-private service environment:
+The [local handoff](../../docs/agent-local-handoff.md#status-as-of-2026-10-07) distinguishes the new DeepSeek fixture checks, the successful local startup/auth follow-up, and the earlier complete replacement matrix. DeepSeek waits on its dedicated key and paid approval; provider/object-storage and actual Linux/Chromium acceptance remain unverified. No live deployment claim follows from fixture results.
 
-```text
-NEWSCRAFT_HERMES_WEB_PROVIDER=exa
-EXA_API_KEY=<server-only Exa key>
-NEWSCRAFT_HERMES_BROWSER_PROVIDER=browser-use
-BROWSER_USE_API_KEY=<server-only Browser Use key>
-```
+Historical replacement matrix measured on 2026-10-07, before the DeepSeek update:
 
-Do not put these values in the browser, Vercel public variables, generated
-tenant configuration, or a personal Hermes home.
-
-For the repository start command, install the runtime at `services/hermes-chat/.venv`, save the service values in `services/hermes-chat/.env`, and save the two NewsCraft server values in the root `.env.local`. Then run:
-
-```bash
-corepack pnpm dev:all
-```
-
-This command starts the chat UI and the isolated Hermes service. It rejects a missing runtime, a remote local-development URL, or mismatched service tokens. It never starts the old newsroom harness.
-
-Set these NewsCraft server values to the matching service URL and token:
-
-```text
-NEWSCRAFT_HERMES_URL=http://127.0.0.1:8000
-NEWSCRAFT_HERMES_API_TOKEN=<same value as HERMES_AGUI_SESSION_TOKEN>
-NEWSCRAFT_HERMES_TENANT_SECRET=<server-only HMAC secret>
-```
-
-## Contabo deployment
-
-Use the existing VPS, but create an isolated `newscraft-hermes` user. Install the pinned runtime under `/opt/newscraft-hermes`. Keep runtime data under `/var/lib/newscraft-hermes`. Keep secrets in `/etc/newscraft-hermes-chat.env` with mode `0600`.
-
-The supplied systemd unit binds Hermes to loopback. If NewsCraft stays on Vercel, put Caddy, Nginx, or Tailscale Funnel in front of Hermes and expose one HTTPS host. Set `NEWSCRAFT_HERMES_PUBLIC_HOST` to that exact hostname. Configure the HTTPS URL and matching token in NewsCraft server secrets. The browser still never receives either value.
-
-Before a cutover, verify all of these gates:
-
-1. `/ready` reports the pinned commit, `hermes-acp`, the configured model endpoint, the iteration budget, exact tool providers, and the standard capability groups.
-2. A normal chat reply streams and saves.
-3. A live article query uses the standard Hermes browser, reads selected pages, and saves resolvable citations.
-4. A provider failure produces a clear Hermes failure and no second agent request.
-5. Restart the service and repeat the chat and citation checks.
-
-Do not promote the branch or change the VPS until these gates pass with the real model configuration.
-
-## Durable NewsCraft runs
-
-The service also owns long-running NewsCraft jobs. NewsCraft creates the run
-record and stores the input. It calls `POST /v1/runs/start`. The service first
-admits the run through a single-host round-robin scheduler, then claims the
-lease through the server-only NewsCraft run API. A waiting run holds no lease.
-The defaults are four active runs globally, two active runs per tenant, sixteen
-waiting runs globally, and four waiting runs per tenant. A full boundary
-returns the stable `overloaded` result and NewsCraft persists a safe failed
-state; it never silently turns overload into success. Closing the start request
-does not cancel an admitted task.
-
-The task sends ordered normalized events to the NewsCraft callback route. Each
-callback includes the run ID, account ID, tenant key, lease owner, lease token,
-and worker cursor. NewsCraft rejects a wrong token, tenant, lease, or cursor.
-The service renews the lease while Hermes runs. The cancel route cancels the
-same task. On service startup, the service claims queued or expired runs from
-the recovery route in tenant-fair bounded batches and starts them with their
-saved input and evidence. A recovered lease is started only when a slot is
-available; otherwise it is returned through the authenticated release route,
-which persists `queued`, and the next eligible tenant in the batch is still
-considered. A serialized continuation refills released capacity until the
-recoverable backlog is drained, so no locally waiting recovery job holds a
-lease that can expire.
-
-Set these private service values together:
-
-```text
-NEWSCRAFT_HERMES_RUN_API_URL=https://newscraft.example/api/internal/hermes/runs
-NEWSCRAFT_HERMES_RUN_API_TOKEN=<server-only shared callback token>
-```
+| Check | Result |
+| --- | --- |
+| App / shared / historical harness tests | 684 / 7 / 343 passed; 51 DB-gated and 2 opt-in live skips |
+| Owned Python service | 544 passed, including real loopback HTTP |
+| Disposable Postgres / local helper | 54 / 18 passed; fixture stopped and removed |
+| Svelte check / build / offline lock | Passed; 0 check errors or warnings |
+| Historical fixture eval | 25/25 prompts, 17/17 trust traps |
+| Local startup / live acceptance | Database-entry gate subsequently resolved by the recorded follow-up; paid acceptance not run |
+| Playwright | Skipped: explicit database-backed setup required |

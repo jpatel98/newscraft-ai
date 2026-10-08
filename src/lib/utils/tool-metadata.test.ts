@@ -15,6 +15,15 @@ import {
 } from './tool-metadata';
 
 describe('tool metadata', () => {
+	it('persists public activity for page reload even when a reply did not use other tools', () => {
+		const plan = { source: 'model' as const, steps: [{ id: 'read', label: 'Check the release', status: 'ok' as const }] };
+		const decisions = [{ id: 'official', summary: 'The release provides the baseline.', stepId: 'read' }];
+		const raw = serializeToolMetadata([], [], [], { plan, decisions });
+		expect(parseToolMetadata(raw)).toEqual({ tools: [], sources: [], citations: [], plan, decisions });
+		expect(mergeToolMetadata(raw, [{ id: 'later', name: 'write_file', status: 'ok' }], []).plan).toEqual(plan);
+		expect(mergeToolMetadata(raw, [], []).decisions).toEqual(decisions);
+	});
+
 	it('parses legacy tool-call arrays', () => {
 		const metadata = parseToolMetadata('[{"id":"t1","name":"web_search","status":"ok"}]');
 		expect(metadata.tools).toMatchObject([{ id: 't1', name: 'web_search', status: 'ok' }]);

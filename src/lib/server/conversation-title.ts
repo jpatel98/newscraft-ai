@@ -1,4 +1,3 @@
-import { completion, type AgentMessage } from '$lib/server/agent/transport';
 import {
 	getConversation,
 	getMessagesBatch,
@@ -8,21 +7,14 @@ import {
 	type ConversationRow
 } from '$lib/server/db/conversations';
 
-interface OpenAINonStream {
-	choices?: Array<{ message?: { content?: string } }>;
-}
-
 interface ConversationTitleResult {
 	row: ConversationRow;
 	title: string;
 	generated: boolean;
 }
 
-const TITLE_SYSTEM =
-	'Write a specific 4-to-8-word, sentence-case title that summarizes the user\'s main task or topic. ' +
-	'Keep useful names, places, formats, and outcomes. Omit filler such as requests for help, greetings, and "this conversation." ' +
-	'Reply with ONLY the title text — no label, quotes, markdown, or trailing punctuation.';
 const TITLE_MESSAGE_BATCH_SIZE = 16;
+const TITLE_MAX_MESSAGE_BATCHES = 8;
 
 function isAutomaticTitlePlaceholder(value: string | null | undefined): boolean {
 	const normalized = (value ?? '').trim().toLowerCase();
@@ -51,6 +43,9 @@ export function sanitizeConversationTitle(value: string): string {
 export function fallbackConversationTitle(content: string): string {
 	const cleaned = content
 		.replace(/^Production polish audit\s+[^.]+\.\s*/i, '')
+		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+		.replace(/https?:\/\/\S+/g, '')
+		.replace(/\[\d+\]/g, '')
 		.replace(/[`*_#>[\]{}]/g, ' ')
 		.replace(/\s+/g, ' ')
 		.trim();
@@ -61,8 +56,10 @@ export function fallbackConversationTitle(content: string): string {
 		.replace(/^please\s+/i, '')
 		.replace(/^i\s+(?:would\s+like|want|need)\s+(?:us|you)\s+to\s+/i, '')
 		.replace(/^(?:help\s+me\s+(?:to\s+)?|work\s+on\s+)/i, '')
+		.replace(/^(?:what\s+(?:is|are)|tell\s+me\s+about)\s+(?:the\s+)?/i, '')
+		.replace(/(?:\s+|[.!?]\s*)(?:use|include|cite)\s+(?:verified\s+)?sources[.!?]?$/i, '')
 		.trim();
-	const words = (focused || cleaned).split(' ').slice(0, 8);
+	const words = (focused || cleaned).split(/[.!?](?:\s|$)/)[0].split(' ').slice(0, 8);
 	const title = words.join(' ').replace(/[.,;:!?]+$/, '');
 	const bounded = title.slice(0, 80).trim();
 	return bounded ? `${bounded.charAt(0).toUpperCase()}${bounded.slice(1)}` : 'New conversation';
@@ -75,19 +72,19 @@ export async function generateConversationTitle(
 ): Promise<ConversationTitleResult | null> {
 	const fresh = await getConversation(accountId, conversationId);
 	if (!fresh) return null;
-	if (!options.force && fresh.title) {
+	if (!options.force && !isAutomaticTitlePlaceholder(fresh.title)) {
 		return { row: fresh, title: fresh.title, generated: false };
 	}
 
-	const seedHistory: AgentMessage[] = [];
-	let lastSeedId = conversationId;
+	// A title is a local projection of the user's task. It does not create an
+	// unleased model request or an extra paid tool loop after completion.
+	let firstRequest = '';
 	let cursor: MessagePageCursor | null = null;
-	while (seedHistory.length < 4) {
+	for (let batch = 0; batch < TITLE_MAX_MESSAGE_BATCHES; batch += 1) {
 		const sourceMessages = await getMessagesBatch(conversationId, cursor, TITLE_MESSAGE_BATCH_SIZE);
 		if (sourceMessages.length === 0) break;
 		for (const m of sourceMessages) {
-			if (m.role !== 'user' && m.role !== 'assistant') continue;
-			if (m.role === 'assistant' && m.partial === 1) continue;
+			if (m.role !== 'user') continue;
 			const parsed = parseContent(m.content);
 			const text =
 				typeof parsed === 'string'
@@ -97,63 +94,26 @@ export async function generateConversationTitle(
 							.map((p) => (p as { text: string }).text)
 							.join('\n');
 			if (!text.trim()) continue;
-			seedHistory.push({ role: m.role, content: text.trim() });
-			lastSeedId = m.id;
-			if (seedHistory.length === 4) break;
+			firstRequest = text.trim();
+			break;
 		}
-		if (seedHistory.length === 4 || sourceMessages.length < TITLE_MESSAGE_BATCH_SIZE) break;
+		if (firstRequest || sourceMessages.length < TITLE_MESSAGE_BATCH_SIZE) break;
 		const last = sourceMessages[sourceMessages.length - 1];
 		cursor = { createdAt: last.createdAt, id: last.id };
 	}
-	if (seedHistory.length === 0) {
+	if (!firstRequest) {
 		return { row: fresh, title: fresh.title, generated: false };
 	}
-	let currentRow = fresh;
-	let fallbackGenerated = false;
-	if (isAutomaticTitlePlaceholder(fresh.title)) {
-		const firstUser = seedHistory.find((message) => message.role === 'user');
-		const fallback = fallbackConversationTitle(
-			typeof firstUser?.content === 'string' ? firstUser.content : ''
-		);
-		const fallbackRow = await setConversationTitleIfCurrent(
-			accountId,
-			conversationId,
-			fresh.title,
-			fallback
-		);
-		if (!fallbackRow) {
-			const latest = (await getConversation(accountId, conversationId)) ?? fresh;
-			return { row: latest, title: latest.title, generated: false };
-		}
-		currentRow = fallbackRow;
-		fallbackGenerated = Boolean(currentRow.title);
-	}
-
-	const titleMessages: AgentMessage[] = [
-		{ role: 'system', content: TITLE_SYSTEM },
-		...seedHistory,
-		{ role: 'user', content: 'Title for this conversation:' }
-	];
-	const result = (await completion(
-		{ messages: titleMessages, stream: false, max_tokens: 24 },
-		{
-			accountId,
-			sessionId: `title-${conversationId}`,
-			idempotencyKey: options.idempotencyKey ?? `title-${conversationId}-${lastSeedId}`
-		}
-	)) as OpenAINonStream;
-	const raw = result.choices?.[0]?.message?.content ?? '';
-	const title = sanitizeConversationTitle(raw);
-	if (!title) return { row: currentRow, title: currentRow.title, generated: fallbackGenerated };
-
+	const title = fallbackConversationTitle(firstRequest);
+	if (title === fresh.title) return { row: fresh, title, generated: false };
 	const row = await setConversationTitleIfCurrent(
 		accountId,
 		conversationId,
-		currentRow.title,
+		fresh.title,
 		title
 	);
 	if (!row) {
-		const latest = (await getConversation(accountId, conversationId)) ?? currentRow;
+		const latest = (await getConversation(accountId, conversationId)) ?? fresh;
 		return { row: latest, title: latest.title, generated: false };
 	}
 	return { row, title: row.title || title, generated: true };

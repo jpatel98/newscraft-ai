@@ -1,5 +1,152 @@
 # NewsCraft AI source of truth
 
+Verification date: 2026-10-07 (America/Toronto). Scope: the Mac mini checkout,
+offline fixtures, disposable loopback Postgres and the recorded local startup
+follow-up against the authorized new database. No production deployment, paid
+provider call or Linux executor acceptance was run.
+
+Use these evidence labels:
+
+- **Repository verified:** visible in the reviewed checkout.
+- **Working:** demonstrated by local tests; not a production claim.
+- **Blocked:** requires the named credential, approval or host gate.
+- **Historical:** dated prior evidence or an unselected design.
+- **Unverified:** deployment, access or behavior not exercised here.
+
+## Product and active architecture
+
+NewsCraft is a **chat-first newsroom research and production assistant**. Producers
+research developments, compare sources, develop angles and draft briefs, intros
+and scripts in a conversation. They review the evidence and make the editorial
+call. The tracker, scheduling and automatic publication remain frozen. Conditional
+PDF support requires its separate storage/parser capability checks.
+
+**Repository verified:** the browser calls only the SvelteKit app. The app owns
+accounts, organization scope, conversations, messages, documents, public events,
+citations and artifact grants. It calls the separate NewsCraft-owned Python worker.
+`services/hermes-chat/src/hermes_chat/service.py` directly selects
+`PortableAgentRunner`; the upstream Hermes agent distribution is not installed by
+the owned lock/installer. Existing `hermes_chat`, `hermes_runs` and
+`/api/internal/hermes/runs` names preserve the app protocol.
+
+```text
+Browser -> SvelteKit app -> Postgres conversations/runs/events/checkpoints
+                     |                     ^
+                     +-> owned Python worker -> lease-fenced app callbacks
+                                 |
+                                 +-> OpenAI Responses / Anthropic or DeepSeek Messages
+                                 +-> public search + bounded source retrieval
+                                 +-> app-authorized immutable Markdown/CSV artifacts
+                                 +-> optional rootless OCI terminal/browser
+                                      (private retained SQLite snapshots/receipts)
+```
+
+| Component | Repository evidence | Status and limit |
+| --- | --- | --- |
+| Selected orchestration | [portable.py](services/hermes-chat/src/hermes_chat/portable.py), [service.py](services/hermes-chat/src/hermes_chat/service.py) | **Repository verified / Working:** canonical owned loop, saved intent/receipts, recovery, budgets and cleanup fixtures. |
+| Model protocols | [model_adapters.py](services/hermes-chat/src/hermes_chat/model_adapters.py) | **Working:** mocked OpenAI Responses, Anthropic Messages and dedicated DeepSeek Messages flows. **Blocked:** DeepSeek key and paid approval. **Unverified:** provider access and answer quality. |
+| Durable state | [hermes-runs.ts](src/lib/server/db/hermes-runs.ts), [agent-runtime.ts](src/lib/server/db/agent-runtime.ts), [0018](drizzle/0018_portable_agent_core.sql) | **Working:** Postgres lease, cursor, idempotency, cancellation and checkpoint CAS tests. Private state is not public replay. |
+| Authentication | [auth/backend.ts](src/lib/server/auth/backend.ts), [auth/postgres.ts](src/lib/server/auth/postgres.ts), [auth/supabase.ts](src/lib/server/auth/supabase.ts) | **Working:** Postgres password accounts and signed revocable sessions by default; explicit optional Supabase adapter tested with doubles. Cloud auth is **Unverified**. |
+| Retrieval | [search_adapters.py](services/hermes-chat/src/hermes_chat/search_adapters.py), [retrieval.py](services/hermes-chat/src/hermes_chat/retrieval.py) | **Working:** independent public DDGS discovery, bounded public fetch/archive and exact excerpt checks in fixtures. Optional OpenAI search is a separately reserved paid request. |
+| Artifacts/storage | [artifact_publish.py](services/hermes-chat/src/hermes_chat/artifact_publish.py), [artifacts/storage.ts](src/lib/server/artifacts/storage.ts) | **Working:** scoped immutable revision/grant/upload/finalize, checksum and ownership tests. VPS default, Supabase explicit, local artifacts development-only. Remote access **Unverified**. |
+| Computer/browser | [oci_executor.py](services/hermes-chat/src/hermes_chat/oci_executor.py), [executor runbook](services/hermes-chat/deploy/executor.md) | **Working:** synthetic daemon/process/RPC/receipt tests. **Blocked:** actual rootless Linux/Chromium acceptance and approved host/image/seccomp selection. |
+| UI deployment | [svelte.config.js](svelte.config.js), [vercel.json](vercel.json) | **Repository verified:** Vercel adapter/build configuration. Production source, aliases and traffic **Unverified** in this session. |
+
+## Ownership and recovery rules
+
+1. An authenticated request selects an account-owned conversation. Stable worker
+   thread identity derives from account/conversation scope, not mutable prompts.
+   Signup creates a member in a private organization; roles remain database-owned.
+   Optional external identities bind verified issuer/subject, never email alone.
+2. The app creates/reuses a durable run and partial answer, then starts the worker
+   with an opaque account-derived HMAC tenant key. Browser disconnect closes only
+   the subscription; it does not cancel the run.
+3. A worker lease and versioned checkpoint bind account, tenant, conversation and
+   run. Dispatch admission locks the run row and rejects durable cancellation.
+   Reservations and model/tool intent precede effects; receipts precede callbacks.
+4. Uncertain model/tool requests are never automatically repeated. Saved answers
+   and receipts replay. Completion remains `finishing` until owned cleanup is
+   confirmed, then checkpoints `finished` before public terminal completion.
+5. Only an already admitted immutable artifact publication can retry beyond the
+   original run deadline: fixed 240-second recovery window, at most four saved
+   admissions, 60 seconds per attempt. New research/model/publication work cannot
+   use that extension. Lease replacement fences stale workers.
+6. Recovery retains its original provider/model/endpoints and budget policy.
+   Conservative input/output/cost reservations are never refunded for uncertain
+   requests. OpenAI uses the default service tier; Anthropic uses standard-only.
+   DeepSeek disables thinking explicitly and reserves at least its reviewed peak
+   cache-miss/output rates; unsupported model names are rejected before dispatch.
+   Configured ceilings must cover applicable cache-write/context multipliers.
+   These are application controls, not provider-enforced billing guarantees.
+7. Optional computer state survives on the same retained worker volume. It is not
+   replicated by Postgres. Public browser GET/HEAD traffic goes through the bounded
+   destination gateway; guest containers have no network. Typed input taints
+   citation evidence until reset. Unknown effects remain quarantined.
+
+Publication/update dates remain distinct from access/archive times; unknown dates
+stay unknown. Exact excerpt provenance does not establish independent semantic
+truth. Citation markers must resolve exactly once. Public work notes and activity
+must not expose tool IDs, file paths, commands, credentials or private reasoning.
+
+## Configuration and local evidence
+
+Use [the local handoff](docs/agent-local-handoff.md) for this checkout's measured
+verification table and exact next commands. Node 24.21.0 / pnpm 9.15.9 and locked
+CPython 3.11 in `.venv-owned` are the verified local tools. The full JavaScript
+matrix retains the historical harness as a compatibility check; its fixture eval
+is not acceptance of the owned runtime's live answer quality.
+
+**User-reported prior completion:** project `newscraft-agent`
+(`ygsiifvjzdazfxflmpjq`) already has all 19 migrations and 33 protected public
+tables. The local follow-up verified connectivity/auth/conversations, without
+reinitializing or repeating the migration/RLS/grant audit. **Working:** a
+separate disposable loopback Postgres fixture exercises the migration sequence,
+local auth, account separation, leases/checkpoints and artifact ownership, then
+stops and removes itself. That fixture does not prove the cloud target's state.
+
+**Working:** Jigar saved `DATABASE_URL`; public CA trust with full TLS verification
+enabled loopback health, signup/sign-in and an empty saved conversation. Both
+listeners were stopped. **Blocked:** the new DeepSeek profile requires Jigar's
+dedicated key and separate approval for one proposed **$0.06** application
+reservation; see [current pricing and limits](docs/managed-agent-setup.md#deepseek-setup-and-proposed-acceptance).
+The earlier $4.23 OpenAI proposal was not run. Actual computer/browser acceptance needs an approved
+Linux executor host. No Docker/Colima/Lima reinstall or new cloud resource is
+part of this work. See [deployment decision](docs/agent-deployment-decision.md).
+
+Active server-only name groups are `NEWSCRAFT_AGENT_*`, the selected model key/
+endpoint, `DATABASE_URL`, `APP_SESSION_SECRET`, `NEWSCRAFT_AUTH_PROVIDER` and
+`NEWSCRAFT_STORAGE_*`, plus optional `NEWSCRAFT_EXECUTOR_*` and
+`NEWSCRAFT_BROWSER_*` computer configuration. Optional `SUPABASE_*` settings do not select a provider on
+their own. Selected legacy `NEWSCRAFT_HERMES_*` aliases are compatibility inputs;
+they are not a second runtime. Secrets remain outside commits, browser config,
+documentation and memory.
+
+## Historical code and release boundaries
+
+**Historical:** `managed.py`, the old runner in `runtime.py`, the old
+`ComputerSandbox`, migration 0017, and the TypeScript newsroom harness are
+retained unselected. The active runner still reuses tool schemas/validators from
+`runtime.py`; active OCI uses fixed payload helpers from `sandbox.py`. Their
+presence is intentional, not authorization to enable or delete them. Legacy
+`/api/agent/*` compatibility and report/job tables remain subject to
+[removal gates](docs/legacy-runtime-disposition.md). Personal Hydra is separate.
+
+This work begins at `cb3dec98f442cc8d7de7be626edb5cf24bf50921` on `main` and is
+committed locally in reviewed slices. No push/deployment/DNS/production change was
+made. Local build/test success does not satisfy the full
+[release and rollback checklist](docs/release-and-rollback-checklist.md).
+
+## Historical source-of-truth audit — 2026-08-24
+
+The following original audit is retained for traceability. Its runtime selection,
+route inventories, environment names, commit identifiers and live-state claims
+are dated historical evidence, superseded by the current sections above.
+
+<details>
+<summary>Archived August 2026 Hermes audit (original text)</summary>
+
+# NewsCraft AI source of truth
+
 Verification date: 2026-08-24 (America/Toronto)
 
 This document records the current product and runtime boundary from this repository and read-only Linear evidence. It does not prove the state of any live deployment. It does not inspect secret values, hosted configuration values, traffic, database rows, provider accounts, or production infrastructure.
@@ -274,3 +421,5 @@ No test command was rerun for this document. No browser, check, build, database,
 Hermes and NewsCraft durable state are the only active product runtime boundary described by this document. The old harness, Story Tracker, agent-job routes, legacy tables, gateway names, and old deployment files remain repository surfaces until the separate disposition and live-use gates are complete.
 
 This document does not authorize deletion, migration, deployment, provider changes, credential changes, database changes, schema changes, data changes, Linear changes, or production changes. Historical migration files remain historical records. Any future removal must follow the ordered gates in [`docs/legacy-runtime-disposition.md`](docs/legacy-runtime-disposition.md#L268-L327).
+
+</details>

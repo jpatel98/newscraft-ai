@@ -12,7 +12,7 @@ describe('chat output action prompts', () => {
 		expect(routeSource.match(/NEWSCRAFT_STANDALONE_OUTPUT_GUIDE/g)).toHaveLength(4);
 		expect(routeSource).toContain('webExtractConfigured: researchToolsEnabled');
 		expect(routeSource).toContain(
-			'enableWebExtraction: conversationContext.currentTurn?.researchAllowed === true'
+			'conversationContext.currentTurn?.researchAllowed === true'
 		);
 		expect(NEWSCRAFT_STANDALONE_OUTPUT_GUIDE).toContain(
 			'viewer or reader who has not followed this story before'

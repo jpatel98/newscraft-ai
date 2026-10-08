@@ -19,6 +19,8 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
 	const convo = body.conversation_id ? await getConversation(locals.user.id, body.conversation_id) : undefined;
 	if (!convo) throw error(404, 'conversation not found');
 
+	// A new run is built from the canonical app history; no provider session
+	// retains deleted future turns. Existing active-run guards own serialization.
 	const removed = await deleteMessagesFrom(convo.id, messageId);
 	return json({ ok: true, removed });
 };

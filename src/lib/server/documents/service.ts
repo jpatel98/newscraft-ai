@@ -61,7 +61,7 @@ export class ConversationDocumentService {
 				const id = this.createId();
 				const timestamp = this.now();
 				const storagePath = [
-					conversation.orgId,
+					conversation.accountId,
 					conversation.id,
 					id,
 					safeStorageFilename(upload.filename)

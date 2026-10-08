@@ -306,6 +306,7 @@ export async function createArtifactRevisionForRun(input: {
 	title?: string;
 	spec: unknown;
 	readyInline?: boolean;
+	publicationKey?: string;
 	now?: number;
 }): Promise<{ family: ArtifactFamilyRecord; revision: ArtifactRevisionRecord }> {
 	const accountId = safeText(input.accountId, 'accountId', 256);
@@ -340,9 +341,19 @@ export async function createArtifactRevisionForRun(input: {
 			FOR UPDATE OF c, m
 		`);
 		if (!owner) throw new ArtifactRepositoryError('not_found', 'run assistant message not found');
-		const familyId = newId();
+		const publicationKey = input.publicationKey ? safeText(input.publicationKey, 'publicationKey', 256) : null;
+		const identity = publicationKey ? createHash('sha256').update(JSON.stringify([accountId, runId, publicationKey])).digest('hex') : null;
+		const familyId = identity ? `managed_${identity}` : newId();
 		const serialized = serializeArtifactSpec(spec);
-		const revisionId = newId();
+		const revisionId = identity ? `managed_revision_${identity}` : newId();
+		if (identity) {
+			const [existing] = await tx.select().from(artifactRevisions).where(eq(artifactRevisions.id, revisionId)).limit(1);
+			if (existing) {
+				if (existing.specSha256 !== serialized.sha256) throw new ArtifactRepositoryError('conflict', 'immutable publication changed');
+				const [family] = await tx.select().from(artifactFamilies).where(eq(artifactFamilies.id, familyId)).limit(1);
+				return { family, revision: existing };
+			}
+		}
 		const status = ready ? 'ready' : 'draft';
 		await tx.insert(artifactFamilies).values({
 			id: familyId,
@@ -443,8 +454,8 @@ export async function createArtifactUploadGrant(input: {
 	const token = randomBytes(32).toString('base64url');
 	const tokenHash = createHash('sha256').update(token).digest('hex');
 	const grantId = newId();
-	const stagingKey = `staging/${accountId}/${revisionId}/${grantId}`;
-	const finalKey = `artifacts/${accountId}/${revisionId}/${grantId}`;
+	const stagingKey = `${accountId}/staging/${revisionId}/${grantId}`;
+	const finalKey = `${accountId}/artifacts/${revisionId}/${grantId}`;
 	return db.transaction(async (tx: any) => {
 		let run: any = null;
 		if (input.runId) {

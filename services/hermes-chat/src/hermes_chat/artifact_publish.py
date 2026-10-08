@@ -1,4 +1,4 @@
-"""Bounded, tenant-scoped artifact acquisition for the durable Hermes worker.
+"""Bounded, tenant-scoped artifact acquisition for the durable NewsCraft worker.
 
 The model supplies only a workspace-relative path and a server-issued revision
 identity.  This helper resolves the path beneath the active runtime root with
@@ -123,7 +123,7 @@ def stage_workspace_file(
     workspace_root: Path | None = None,
 ) -> tuple[Path, int, str]:
     """Copy a stable file into a private staging path and return size/hash."""
-    if not isinstance(max_bytes, int) or max_bytes < 1 or max_bytes > MAX_ARTIFACT_BYTES:
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1 or max_bytes > MAX_ARTIFACT_BYTES:
         raise ArtifactPublishError("artifact byte bound is invalid")
     fd, before = _open_workspace_file(path, runtime, workspace_root=workspace_root)
     staged_fd: int | None = None
@@ -139,7 +139,7 @@ def stage_workspace_file(
         if before.st_size > max_bytes:
             raise ArtifactPublishError("artifact file is too large")
         # Staging must not be visible to the model's workspace. The tenant
-        # Hermes home is private to this account and is outside the mounted
+        # service home is private to this account and is outside the mounted
         # model workspace, so a model cannot read or replace a staged upload.
         staging_dir = runtime.hermes_home / "artifact-staging"
         if runtime.hermes_home.is_symlink() or (staging_dir.exists() and staging_dir.is_symlink()):
@@ -208,7 +208,7 @@ def stage_workspace_file(
 
 
 def _stage_backend_bytes(payload: bytes, runtime: TenantRuntime, max_bytes: int) -> tuple[Path, int, str]:
-    """Stage bytes read through a non-host Hermes backend.
+    """Stage bytes read through a non-host sandbox backend.
 
     Docker tmpfs, SSH, and other remote backends do not expose a trustworthy
     host path.  The backend's binary file API is therefore the source of
@@ -270,7 +270,7 @@ def stage_backend_file(
     runtime: TenantRuntime,
     max_bytes: int = MAX_ARTIFACT_BYTES,
 ) -> tuple[Path, int, str]:
-    """Read a virtual workspace file through Hermes and stage exact bytes."""
+    """Read a virtual workspace file through a sandbox byte reader and stage exact bytes."""
     if not hasattr(file_ops, "read_file_bytes"):
         raise ArtifactPublishError("artifact runtime backend cannot read binary files")
     try:
@@ -293,31 +293,6 @@ def stage_backend_file(
     if len(payload) != raw_size:
         raise ArtifactPublishError("artifact runtime file changed during publication")
     return _stage_backend_bytes(payload, runtime, max_bytes)
-
-
-def _active_backend_for_task(task_id: str) -> tuple[Any, Any | None]:
-    """Return the active Hermes environment and optional file operations."""
-    try:
-        from tools.terminal_tool import get_active_env
-        from tools.file_tools import _get_file_ops
-    except ImportError as exc:
-        raise ArtifactPublishError("artifact runtime backend is unavailable") from exc
-    try:
-        environment = get_active_env(task_id)
-        file_ops = None
-        if environment is None:
-            # A model can publish immediately after a non-terminal tool has
-            # selected the task.  Bring up the configured backend through the
-            # pinned file-tool path instead of falling back to host cwd.
-            file_ops = _get_file_ops(task_id)
-            environment = getattr(file_ops, "env", None) or get_active_env(task_id)
-        if environment is None:
-            raise ArtifactPublishError("artifact runtime backend is unavailable")
-        return environment, file_ops
-    except ArtifactPublishError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - backend-specific errors are opaque
-        raise ArtifactPublishError("artifact runtime backend is unavailable") from exc
 
 
 async def upload_staged_file(
@@ -419,48 +394,12 @@ async def publish_workspace_file(
         raise ArtifactPublishError("artifact checksum is invalid")
     if isinstance(grant_max, bool) or not isinstance(grant_max, int) or grant_max < 1 or grant_max > MAX_ARTIFACT_BYTES or size > grant_max:
         raise ArtifactPublishError("artifact exceeds its upload grant")
-    if task_id:
-        environment, file_ops = _active_backend_for_task(task_id)
-        host_workspace = getattr(environment, "_workspace_dir", None)
-        environment_name = type(environment).__name__.lower()
-        if isinstance(host_workspace, str) and host_workspace:
-            # Persistent Docker exposes its /workspace bind mount through this
-            # private host path. The virtual path is still validated by
-            # _components and every component is opened with O_NOFOLLOW.
-            root = Path(host_workspace)
-            staged_path, staged_size, staged_hash = await asyncio.to_thread(
-                stage_workspace_file,
-                path,
-                runtime,
-                grant_max,
-                workspace_root=root,
-            )
-        elif "local" in environment_name:
-            staged_path, staged_size, staged_hash = await asyncio.to_thread(
-                stage_workspace_file,
-                path,
-                runtime,
-                grant_max,
-            )
-        else:
-            if file_ops is None:
-                try:
-                    from tools.file_tools import _get_file_ops
-                    file_ops = _get_file_ops(task_id)
-                except Exception as exc:  # noqa: BLE001 - backend-specific errors are opaque
-                    raise ArtifactPublishError("artifact runtime backend cannot read binary files") from exc
-            staged_path, staged_size, staged_hash = await asyncio.to_thread(
-                stage_backend_file,
-                file_ops,
-                path,
-                runtime,
-                grant_max,
-            )
-    else:
-        # Direct unit callers may supply an already-resolved local runtime;
-        # production worker calls always provide task_id and therefore resolve
-        # the active Hermes backend above.
-        staged_path, staged_size, staged_hash = await asyncio.to_thread(stage_workspace_file, path, runtime, grant_max)
+    # The owned sandbox mounts this conversation's workspace. Its runtime is
+    # resolved by the leased job, never by a model-provided task or host path.
+    # ``task_id`` remains a wire-call compatibility parameter only.
+    staged_path, staged_size, staged_hash = await asyncio.to_thread(
+        stage_workspace_file, path, runtime, grant_max,
+    )
     if staged_size != size or staged_hash != checksum_sha256:
         staged_path.unlink(missing_ok=True)
         raise ArtifactPublishError("artifact fingerprint changed before upload")

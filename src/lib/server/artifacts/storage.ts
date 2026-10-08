@@ -3,7 +3,6 @@ import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { env } from '$env/dynamic/private';
 import { dev } from '$app/environment';
-import { createClient } from '@supabase/supabase-js';
 import {
 	ARTIFACT_MAX_ASSET_BYTES,
 	ARTIFACT_MAX_PREVIEW_BYTES,
@@ -70,7 +69,7 @@ function metadataPath(key: string, version: string): string {
 }
 
 export function localArtifactStorageEnabled(): boolean {
-	return dev || env.NEWSCRAFT_ARTIFACT_LOCAL_STORAGE === '1';
+	return dev && env.NEWSCRAFT_ARTIFACT_LOCAL_STORAGE === '1';
 }
 
 export function createLocalArtifactStorage(): ArtifactObjectStorage {
@@ -149,7 +148,7 @@ interface SupabaseModule {
 type SupabaseLoader = () => Promise<SupabaseModule>;
 
 async function loadSupabase(): Promise<SupabaseModule> {
-	return { createClient } as unknown as SupabaseModule;
+	return await import('@supabase/supabase-js') as unknown as SupabaseModule;
 }
 
 function unavailable(): Error {
@@ -198,7 +197,7 @@ export function createSupabaseArtifactStorage(options: {
 	allowLoopbackHttp?: boolean;
 } = {}): ArtifactObjectStorage {
 	const url = options.url ?? env.SUPABASE_URL ?? '';
-	const serviceRoleKey = options.serviceRoleKey ?? env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+	const serviceRoleKey = options.serviceRoleKey ?? (env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY) ?? '';
 	const bucketName = options.bucket ?? env.NEWSCRAFT_ARTIFACT_STORAGE_BUCKET ?? '';
 	const loader = options.loadModule ?? loadSupabase;
 	const allowLoopbackHttp = options.allowLoopbackHttp ?? dev;
@@ -378,13 +377,11 @@ export type ArtifactStorageMode = 'local' | 'supabase' | 'vps' | 'disabled';
 /** Select local storage only when explicitly enabled; never silently fall
  * back to a filesystem path when production credentials are absent. */
 export function artifactStorageMode(): ArtifactStorageMode {
-	if (env.NEWSCRAFT_STORAGE_MODE?.trim().toLowerCase() === 'vps') return 'vps';
-	if (localArtifactStorageEnabled()) return 'local';
-	if (
-		env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY &&
-		env.NEWSCRAFT_ARTIFACT_STORAGE_BUCKET === ARTIFACT_STORAGE_BUCKET
-	) return 'supabase';
-	return 'disabled';
+    const provider = env.NEWSCRAFT_STORAGE_PROVIDER || env.NEWSCRAFT_STORAGE_MODE || 'vps';
+    if (provider === 'local' && localArtifactStorageEnabled()) return 'local';
+    if (provider === 'vps' && env.NEWSCRAFT_STORAGE_BASE_URL && env.NEWSCRAFT_STORAGE_API_KEY) return 'vps';
+    if (provider === 'supabase' && env.SUPABASE_URL && (env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY)) return 'supabase';
+    return 'disabled';
 }
 
 export function createArtifactObjectStorage(): ArtifactObjectStorage {

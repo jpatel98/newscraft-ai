@@ -14,9 +14,7 @@ describe('chat regeneration context', () => {
 		expect(source).toContain('resumeContinuationInstruction(');
 		expect(source).not.toContain('conversationContextCompatibilityMessage');
 		expect(source).toContain('conversation_context: conversationContext');
-		expect(source).toContain("mode: 'replace'");
-		expect(source).toContain('assistantReplacement !== null');
-		expect(source).toContain('finalizeResumedAssistantMessage');
+		expect(source).toContain('preparedClaimToken: preparedClaimToken ?? resumeClaimToken ?? undefined');
 		expect(source).not.toContain('lastAssistantMessage(convoId)');
 		expect(source.indexOf('the saved user request changed before retry')).toBeLessThan(
 			source.indexOf('deleteMessagesFrom(convoId, existingAnswer.id)')

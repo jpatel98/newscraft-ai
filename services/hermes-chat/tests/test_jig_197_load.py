@@ -237,12 +237,9 @@ class Jig197RunnerTests(unittest.TestCase):
             self.assertEqual(target.parent.stat().st_mode & 0o777, 0o700)
             self.assertTrue(validate_record(json.loads(target.read_text())))
 
-    def test_public_package_command_is_locked_and_local(self) -> None:
+    def test_retired_runtime_probe_is_not_an_advertised_command(self) -> None:
         package = json.loads((Path(__file__).parents[3] / "package.json").read_text())
-        self.assertEqual(
-            package["scripts"]["canary:jig197"],
-            "uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_197_load.py",
-        )
+        self.assertNotIn("canary:jig197", package["scripts"])
 
     def test_main_writes_blocked_record_and_returns_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as root, patch.object(

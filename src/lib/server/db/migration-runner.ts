@@ -32,7 +32,21 @@ export function splitMigrationStatements(sql: string): string[] {
 
 async function migrationStatements(fileName: string): Promise<string[]> {
 	const contents = await readFile(`${MIGRATION_DIRECTORY}${fileName}`, 'utf8');
-	return splitMigrationStatements(contents);
+	return splitMigrationStatements(contents).map((statement) => {
+		// Preserve the historical migration bytes and all revocations on hosts
+		// that have Supabase roles. Ordinary Postgres has no such roles to revoke.
+		if (fileName !== '0016_conversation_artifacts.sql') return statement;
+		const revoke = /^REVOKE ALL PRIVILEGES ON TABLE (artifact_families|artifact_revisions|artifact_assets|artifact_upload_grants|artifact_verifications|hermes_run_artifact_refs) FROM anon, authenticated;$/.exec(statement);
+		if (!revoke) return statement;
+		return `DO $newscraft_roles$ BEGIN
+			IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+				REVOKE ALL PRIVILEGES ON TABLE ${revoke[1]} FROM anon;
+			END IF;
+			IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+				REVOKE ALL PRIVILEGES ON TABLE ${revoke[1]} FROM authenticated;
+			END IF;
+		END $newscraft_roles$;`;
+	});
 }
 
 function requiredTableList(): string {

@@ -1,21 +1,24 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { chat } from '$lib/stores/chat.svelte';
-	import { publicPlanStepDetail } from '$lib/utils/tool-labels';
+	import { chat, type ActivePlan } from '$lib/stores/chat.svelte';
+	import type { PublicAgentDecision } from '@newscraft/shared';
+	import { publicActivityText, publicPlanStepLabel, publicPlanStepDetail } from '$lib/utils/tool-labels';
 
 	interface Props {
 		/** True when attached to the current in-flight assistant turn. */
 		activeTurn: boolean;
+		plan?: ActivePlan | null;
+		decisions?: PublicAgentDecision[];
 	}
-	let { activeTurn }: Props = $props();
+	let { activeTurn, plan: savedPlan = null, decisions: savedDecisions = [] }: Props = $props();
 
 	// Once the answer starts streaming, collapse the timeline to a one-line
 	// summary. The user can expand it afterward.
-	let expanded = $state(true);
+	let expanded = $state(untrack(() => activeTurn));
 
 	// Re-expand whenever a brand-new plan arrives (new stream started).
 	$effect(() => {
-		if (chat.plan) {
+		if (activeTurn && chat.plan) {
 			expanded = true;
 		}
 	});
@@ -25,29 +28,32 @@
 	// this ensures the effect only fires when hasAssistantOutput changes (not on
 	// every expand/collapse toggle), so the user can manually re-expand afterward.
 	$effect(() => {
-		if (chat.hasAssistantOutput) {
+		if (activeTurn && chat.hasAssistantOutput) {
 			if (untrack(() => expanded)) expanded = false;
 		}
 	});
 
-	const plan = $derived(chat.plan);
-	const visible = $derived(!!plan && plan.steps.length > 0);
+	const plan = $derived(savedPlan ?? (activeTurn ? chat.plan : null));
+	const decisions = $derived((savedDecisions.length ? savedDecisions : activeTurn ? chat.decisions : [])
+		.map(decision => ({ ...decision, summary: publicActivityText(decision.summary) }))
+		.filter(decision => decision.summary));
+	const visible = $derived(!!plan?.steps.length || decisions.length > 0);
 
 	// For the collapsed one-line summary: pick the running step label, or the
 	// last completed/failed label if all are done.
 	const summaryLabel = $derived.by(() => {
-		if (!plan) return '';
+		if (!plan) return 'Work notes';
 		if (plan.requirementCoverage?.length && plan.assignmentStatus && plan.assignmentStatus !== 'executing') {
 			return plan.assignmentStatus === 'complete' ? 'Coverage complete' : 'Coverage incomplete';
 		}
 		const running = plan.steps.find((s) => s.status === 'running');
-		if (running) return running.label;
+		if (running) return publicPlanStepLabel(running.label);
 		const all = plan.steps;
 		const failed = all.filter((s) => s.status === 'failed');
 		if (failed.length) return `${failed.length} step${failed.length > 1 ? 's' : ''} failed`;
 		const done = all.filter((s) => s.status === 'ok' || s.status === 'skipped');
 		if (done.length === all.length) return `${all.length} step${all.length > 1 ? 's' : ''} complete`;
-		return all[0]?.label ?? 'Researching';
+		return publicPlanStepLabel(all[0]?.label);
 	});
 
 	const totalSteps = $derived(plan?.steps.length ?? 0);
@@ -62,7 +68,7 @@
 	}
 </script>
 
-{#if visible && plan}
+{#if visible}
 	<div
 		class="plan-timeline"
 		class:plan-timeline--collapsed={!expanded}
@@ -80,11 +86,11 @@
 			aria-expanded={expanded}
 			aria-label={expanded ? 'Collapse research progress' : 'Expand research progress'}
 		>
-			{#if !expanded || !activeTurn || chat.hasAssistantOutput}
+			{#if !expanded || !activeTurn || chat.hasAssistantOutput || !plan}
 				<!-- Collapsed summary -->
 				<span class="plan-timeline__chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
 				<span class="plan-timeline__summary-label">{summaryLabel}</span>
-				{#if !activeTurn || !chat.streaming}
+				{#if plan && (!activeTurn || !chat.streaming)}
 					<span class="plan-timeline__summary-count">{hasCoverage ? `${coverageDone}/${coverageTotal}` : `${doneCount}/${totalSteps}`}</span>
 				{/if}
 			{:else}
@@ -98,6 +104,7 @@
 		</button>
 
 		{#if expanded}
+			{#if plan}
 			<ol class="plan-timeline__steps" aria-label="Research steps">
 				{#each plan.steps as step (step.id)}
 					<li
@@ -122,8 +129,8 @@
 							{/if}
 						</span>
 						<span class="plan-timeline__step-body">
-							<span class="plan-timeline__step-label">{step.label}</span>
-							{#if publicPlanStepDetail(step.detail) && (step.status === 'failed' || step.status === 'skipped')}
+							<span class="plan-timeline__step-label">{publicPlanStepLabel(step.label)}</span>
+							{#if publicPlanStepDetail(step.detail)}
 								<span class="plan-timeline__step-detail">{publicPlanStepDetail(step.detail)}</span>
 							{/if}
 							{#if step.sources && step.sources.length > 0}
@@ -145,6 +152,14 @@
 					</li>
 				{/each}
 			</ol>
+			{/if}
+			{#if decisions.length}
+				<ul class="plan-timeline__decisions" aria-label="Work notes">
+					{#each decisions as decision (decision.id)}
+						<li class="plan-timeline__decision" data-testid="agent-decision">{decision.summary}</li>
+					{/each}
+				</ul>
+			{/if}
 		{/if}
 	</div>
 {/if}
@@ -234,6 +249,18 @@
 	.plan-timeline__chevron--right {
 		margin-left: auto;
 	}
+
+	.plan-timeline__decisions {
+		margin: 0;
+		padding: 8px 12px 8px 26px;
+		border-top: 1px solid var(--border-soft);
+		font-family: var(--font-body);
+		text-transform: none;
+		font-size: 12px;
+		line-height: 1.45;
+	}
+
+	.plan-timeline__decision + .plan-timeline__decision { margin-top: 5px; }
 
 	/* --- step list --- */
 	.plan-timeline__steps {

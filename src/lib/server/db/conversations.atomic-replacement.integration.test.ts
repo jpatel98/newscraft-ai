@@ -3,317 +3,137 @@ import { POST as chatStream } from '../../../routes/api/chat/stream/+server';
 import { GET as exportConversation } from '../../../routes/api/conversations/[id]/export/+server';
 import { POST as claimPartial } from '../../../routes/api/messages/[id]/claim-partial/+server';
 import { POST as clearPartial } from '../../../routes/api/messages/[id]/clear-partial/+server';
-import * as hermesTransport from '../agent/transport';
+import * as agentTransport from '../agent/transport';
 import { ensureMigrated, sql } from './index';
-import {
-	claimPartialAssistantMessage,
-	finalizeResumedAssistantMessage,
-	getMessages,
-	getMessageById,
-	parseContent
-} from './conversations';
-import * as conversationsDb from './conversations';
+import { claimPartialAssistantMessage, finalizeResumedAssistantMessage, getMessages, getMessageById, parseContent } from './conversations';
 import { getMessageProvenance } from './message-provenance';
+import { appendHermesRunEvents, claimHermesRunLease, getHermesRun, listHermesRunEvents, type HermesRunEventInput } from './hermes-runs';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
-
 const databaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
-type GatewayResponseFactory = (signal?: AbortSignal) => Response;
-let activeGatewayResponse: GatewayResponseFactory | null = null;
 
-describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
+describe.skipIf(!databaseUrl)('durable assistant replacement and SQL claim integration', () => {
 	const accountId = `atomic-test-account-${Date.now()}`;
-	const originalHermesUrl = process.env.NEWSCRAFT_HERMES_URL;
-	const originalHermesToken = process.env.NEWSCRAFT_HERMES_API_TOKEN;
-	const originalHermesTenantSecret = process.env.NEWSCRAFT_HERMES_TENANT_SECRET;
-	const streamChatCompletionSpy = vi.spyOn(hermesTransport, 'streamChatCompletion');
+	const originalConfig = {
+		url: process.env.NEWSCRAFT_AGENT_URL,
+		token: process.env.NEWSCRAFT_AGENT_API_TOKEN,
+		tenant: process.env.NEWSCRAFT_AGENT_TENANT_SECRET
+	};
+	const startDurableRunSpy = vi.spyOn(agentTransport, 'startDurableHermesRun');
+	let callbackEvents: Array<Omit<HermesRunEventInput, 'workerCursor'>> = [];
+	let lastRunId = '';
 
 	beforeAll(async () => {
-		process.env.NEWSCRAFT_HERMES_URL = 'http://hermes.test';
-		process.env.NEWSCRAFT_HERMES_API_TOKEN = 'test-hermes-token';
-		process.env.NEWSCRAFT_HERMES_TENANT_SECRET = 'test-tenant-secret-0123456789012345';
-		streamChatCompletionSpy.mockImplementation(async (_body, options = {}) => {
-			const health = await hermesTransport.gatewayHealth();
-			if (!health.ok) throw new Error(health.body || 'Hermes readiness failed.');
-			if (!activeGatewayResponse) throw new Error('atomic stream fixture is not configured');
-			return activeGatewayResponse(options.signal);
+		process.env.NEWSCRAFT_AGENT_URL = 'http://agent.test';
+		process.env.NEWSCRAFT_AGENT_API_TOKEN = 'test-agent-token';
+		process.env.NEWSCRAFT_AGENT_TENANT_SECRET = 'test-tenant-secret-0123456789012345';
+		startDurableRunSpy.mockImplementation(async request => {
+			lastRunId = request.runId;
+			const saved = await getHermesRun(request.accountId, request.runId);
+			if (!saved || saved.tenantKey !== request.tenantKey) throw new Error('fixture tenant binding mismatch');
+			const lease = await claimHermesRunLease(request.accountId, request.runId, 'fixture-worker');
+			if (!lease?.leaseToken || !lease.leaseOwner) throw new Error('fixture could not claim the run');
+			const events = [{ eventType: 'run.started', dataJson: '{}' }, ...callbackEvents]
+				.map((event, index) => ({ ...event, workerCursor: lease.workerCursor + index + 1 }));
+			await appendHermesRunEvents(request.accountId, request.runId, lease.leaseOwner, lease.leaseToken, events);
 		});
+		vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('durable database fixtures never call external APIs'); }));
 		await ensureMigrated();
 		const now = Date.now();
-		await sql`
-			INSERT INTO accounts (id, email, name, role, created_at, updated_at)
-			VALUES (${accountId}, ${`${accountId}@example.test`}, 'Atomic test', 'member', ${now}, ${now})
-		`;
+		await sql`INSERT INTO accounts (id, email, name, role, created_at, updated_at)
+			VALUES (${accountId}, ${`${accountId}@example.test`}, 'Atomic test', 'member', ${now}, ${now})`;
 	});
 
 	afterAll(async () => {
 		await sql`DELETE FROM accounts WHERE id = ${accountId}`;
 		await sql.end({ timeout: 1 });
-		if (originalHermesUrl === undefined) delete process.env.NEWSCRAFT_HERMES_URL;
-		else process.env.NEWSCRAFT_HERMES_URL = originalHermesUrl;
-		if (originalHermesToken === undefined) delete process.env.NEWSCRAFT_HERMES_API_TOKEN;
-		else process.env.NEWSCRAFT_HERMES_API_TOKEN = originalHermesToken;
-		if (originalHermesTenantSecret === undefined) delete process.env.NEWSCRAFT_HERMES_TENANT_SECRET;
-		else process.env.NEWSCRAFT_HERMES_TENANT_SECRET = originalHermesTenantSecret;
-		activeGatewayResponse = null;
+		for (const [key, value] of [
+			['NEWSCRAFT_AGENT_URL', originalConfig.url], ['NEWSCRAFT_AGENT_API_TOKEN', originalConfig.token],
+			['NEWSCRAFT_AGENT_TENANT_SECRET', originalConfig.tenant]
+		] as const) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
 		vi.unstubAllGlobals();
-		streamChatCompletionSpy.mockRestore();
+		startDurableRunSpy.mockRestore();
 	});
 
-	it('commits replacement content, provenance, reload, export, and rejects a stale route retry', async () => {
+	function workerEvents(frames: Array<[string, Record<string, unknown>]>, terminal = 'response.completed') {
+		callbackEvents = frames.map(([eventType, data]) => ({ eventType, dataJson: JSON.stringify(data) }));
+		callbackEvents.push({ eventType: terminal, dataJson: '{}' });
+	}
+	const citations = { citations: [{ citationNumber: 1, title: 'Authoritative fixture source',
+		url: 'https://fixture.example/source', domain: 'fixture.example', publicationDate: '2026-09-01',
+		sourceType: 'official', supportingExcerpt: 'Authoritative fixture claim.' }] };
+
+	it('resumes through durable callbacks without a mode header and persists one cited answer for reload and export', async () => {
 		const scenario = await seedPartial('replacement');
 		const authoritative = 'Authoritative replacement with complete citation [1].';
-		stubGateway(() => sseResponse([
-			citationFrame(),
-			['agent.answer.replace', JSON.stringify({ content: authoritative })],
-			['message', '[DONE]']
-		]));
-		const response = await invokeResume(scenario);
-		await response.text();
-		await assertAuthoritative(scenario.conversationId, scenario.messageId, authoritative);
-		await expectExport(scenario.conversationId, authoritative);
-
-		await expect(invokeResume(scenario)).rejects.toMatchObject({ status: 400 });
-		await assertAuthoritative(scenario.conversationId, scenario.messageId, authoritative);
-	});
-
-	it('does not persist a provider-labelled producer draft after authoritative replacement', async () => {
-		const scenario = await seedPartial('provider-labelled-producer-draft');
-		const rawDraft = '(pacific.example). Direct answer — story ideas (lead first). Budget Notes - HS 2026 Budget.';
-		const authoritative =
-			'## Latest producer roundup\n\n- Flooding closed several roads after heavy rain, and crews are assessing drainage capacity [1].';
-		stubGateway(() => sseResponse([
-			['response.output_text.delta', JSON.stringify({ delta: rawDraft })],
-			citationFrame(),
-			['agent.answer.replace', JSON.stringify({ content: authoritative })],
-			['message', '[DONE]']
-		]));
-
-		const response = await invokeResume(scenario);
-		await response.text();
-
-		await assertAuthoritative(scenario.conversationId, scenario.messageId, authoritative);
-		await expectExport(scenario.conversationId, authoritative);
-		const provenance = await getMessageProvenance(scenario.messageId);
-		const parsed = JSON.parse(provenance?.provenanceJson || '{}') as { stream?: { assistantChars?: number } };
-		expect(parsed.stream?.assistantChars).toBe(authoritative.length);
-		expect(parsed.stream?.assistantChars).not.toBe(rawDraft.length + authoritative.length);
-	});
-
-	it('persists a large safe replacement without applying the pending-construct bound to the answer', async () => {
-		const scenario = await seedPartial('large-safe-replacement');
-		const authoritative = 's'.repeat(262_144);
-		stubGateway(() => sseResponse([
-			['agent.answer.replace', JSON.stringify({ content: authoritative })],
-			['message', '[DONE]']
-		]));
-
+		workerEvents([['agent.citations', citations], ['agent.answer.replace', { content: authoritative }]]);
 		const response = await invokeResume(scenario);
 		const streamed = await response.text();
+		expect(streamed).toContain('event: run.snapshot');
 		expect(streamed).toContain(authoritative);
 		await assertAuthoritative(scenario.conversationId, scenario.messageId, authoritative);
 		await expectExport(scenario.conversationId, authoritative);
+		await expect(invokeResume(scenario)).rejects.toMatchObject({ status: 400 });
 	});
 
-	it('rejects raw provider citation markers before stream, reload, and export persistence', async () => {
+	it('persists a bounded large complete replacement', async () => {
+		const scenario = await seedPartial('large-safe-replacement');
+		const authoritative = 's'.repeat(96_000);
+		workerEvents([['agent.answer.replace', { content: authoritative }]]);
+		await (await invokeResume(scenario)).text();
+		await assertAuthoritative(scenario.conversationId, scenario.messageId, authoritative);
+		await expectExport(scenario.conversationId, authoritative);
+	});
+
+	it('removes unsupported citation markers from durable snapshots, reload and export', async () => {
 		const scenario = await seedPartial('provider-markers');
-		const raw = 'Producer brief: confirmed facts remain attributed [99] and malformed [1.';
-		const expected = 'Producer brief: confirmed facts remain attributed and malformed.';
-		stubGateway(() => sseResponse([
-			['agent.answer.replace', JSON.stringify({ content: raw })],
-			['message', '[DONE]']
-		]));
-
-		const response = await invokeResume(scenario);
-		const streamed = await response.text();
-		expect(streamed).not.toContain('[99]');
-		expect(streamed).not.toContain('[1.');
-		await assertAuthoritative(scenario.conversationId, scenario.messageId, expected);
-		await expectExport(scenario.conversationId, expected);
+		workerEvents([['agent.answer.replace', { content: 'Confirmed facts [99] and malformed [1.' }]]);
+		await (await invokeResume(scenario)).text();
+		await assertAuthoritative(scenario.conversationId, scenario.messageId, 'Confirmed facts and malformed.');
+		await expectExport(scenario.conversationId, 'Confirmed facts and malformed.');
 	});
 
-	it('keeps split citation markers out of live SSE and matches durable reconciliation', async () => {
-		const unknownScenario = await seedPartial('split-marker-unknown');
-		stubGateway(() => sseResponse([
-			['agent.answer.replace', JSON.stringify({ content: 'Claim [' })],
-			['response.output_text.delta', JSON.stringify({ delta: '1].' })],
-			['message', '[DONE]']
-		]));
-		const unknownResponse = await invokeResume(unknownScenario);
-		const unknownStream = await unknownResponse.text();
-		expect(unknownStream).not.toContain('Claim [1].');
-		expect(unknownStream).toContain('Claim');
-		expect(unknownStream).toContain('event: agent.answer.replace\ndata: {"content":"Claim."}');
-		await assertAuthoritative(unknownScenario.conversationId, unknownScenario.messageId, 'Claim.');
-
-		const knownScenario = await seedPartial('split-marker-known');
-		stubGateway(() => sseResponse([
-			[
-				'agent.citations',
-				JSON.stringify({
-					citations: [{
-						citationNumber: 1,
-						title: 'Provided notes',
-						url: 'newsroom://provided-notes/1',
-						domain: 'provided notes',
-						sourceType: 'user_document',
-						supportingExcerpt: 'Claim.'
-					}]
-				})
-			],
-			['agent.answer.replace', JSON.stringify({ content: 'Claim [' })],
-			['response.output_text.delta', JSON.stringify({ delta: '1].' })],
-			['message', '[DONE]']
-		]));
-		const knownResponse = await invokeResume(knownScenario);
-		const knownStream = await knownResponse.text();
-		expect(knownStream).toContain('event: agent.answer.replace\ndata: {"content":"Claim "}');
-		expect(knownStream).toContain('event: response.output_text.delta\ndata: {"delta":"[1]."}');
-		await assertAuthoritative(knownScenario.conversationId, knownScenario.messageId, 'Claim [1].');
-		await expectExport(knownScenario.conversationId, 'Claim [1].');
-	});
-
-	it('uses the route CAS contract for normal resumed replacement without duplication', async () => {
-		const scenario = await seedPartial('delta');
-		const expected = 'Partial draft for delta. resumed once.';
-		stubGateway(() => sseResponse([
-			['agent.answer.replace', JSON.stringify({ content: expected })],
-			['message', '[DONE]']
-		]));
-		const response = await invokeResume(scenario);
-		await response.text();
-
-		await assertAuthoritative(scenario.conversationId, scenario.messageId, expected);
-		await expectExport(scenario.conversationId, expected);
-	});
-
-	it('persists the complete replacement followed by every later delta exactly once', async () => {
+	it('records an authoritative replacement and every later delta exactly once despite a replayed callback', async () => {
 		const scenario = await seedPartial('replacement-tail');
 		const authoritative = 'Authoritative answer [1].';
-		stubGateway(() => sseResponse([
-			citationFrame(),
-			['agent.answer.replace', JSON.stringify({ content: authoritative })],
-			['response.output_text.delta', JSON.stringify({ delta: ' Tail one.' })],
-			['response.output_text.delta', JSON.stringify({ delta: ' Tail two.' })],
-			['message', '[DONE]']
-		]));
+		workerEvents([['agent.citations', citations], ['agent.answer.replace', { content: authoritative }],
+			['response.output_text.delta', { delta: ' Tail one.' }], ['response.output_text.delta', { delta: ' Tail two.' }]]);
+		await (await invokeResume(scenario)).text();
+		const saved = (await getHermesRun(accountId, lastRunId))!;
+		const events = [{ eventType: 'run.started', dataJson: '{}' }, ...callbackEvents]
+			.map((event, index) => ({ ...event, workerCursor: index + 1 }));
+		await appendHermesRunEvents(accountId, saved.id, saved.leaseOwner!, saved.leaseToken!, events);
+		expect(await listHermesRunEvents(accountId, saved.id)).toHaveLength(events.length);
+		await assertAuthoritative(scenario.conversationId, scenario.messageId, `${authoritative} Tail one. Tail two.`);
+		await expectExport(scenario.conversationId, `${authoritative} Tail one. Tail two.`);
+	});
+
+	it('keeps a cancelled answer partial and permits a fresh durable resume', async () => {
+		const scenario = await seedPartial('cancelled');
+		workerEvents([['agent.answer.replace', { content: 'Recorded partial answer.' }]], 'run.cancelled');
+		await (await invokeResume(scenario)).text();
+		const cancelledRunId = lastRunId;
+		expect(await getMessageById(scenario.messageId)).toMatchObject({ partial: 1, resumeClaimedAt: null, content: 'Recorded partial answer.' });
+		workerEvents([['agent.answer.replace', { content: 'Recovered complete answer.' }]]);
+		await (await invokeResume(scenario)).text();
+		expect(lastRunId).not.toBe(cancelledRunId);
+		await assertAuthoritative(scenario.conversationId, scenario.messageId, 'Recovered complete answer.');
+	});
+
+	it('preserves a saved partial answer through worker startup failure and resumes it again', async () => {
+		const scenario = await seedPartial('startup-failure');
+		startDurableRunSpy.mockRejectedValueOnce(new Error('fixture worker unavailable'));
 		const response = await invokeResume(scenario);
-		await response.text();
-
-		const expected = `${authoritative} Tail one. Tail two.`;
-		await assertAuthoritative(scenario.conversationId, scenario.messageId, expected);
-		await expectExport(scenario.conversationId, expected);
-		const provenance = await getMessageProvenance(scenario.messageId);
-		const parsed = JSON.parse(provenance?.provenanceJson || '{}') as { stream?: { assistantChars?: number } };
-		expect(parsed.stream?.assistantChars).toBe(expected.length);
-	});
-
-	it('reconciles a cancelled replacement stream once and rejects a retry after abort', async () => {
-		const scenario = await seedPartial('replacement-abort');
-		const authoritative = 'Authoritative answer [1].';
-		stubGateway((signal) => hangingSseResponse([
-			citationFrame(),
-			['agent.answer.replace', JSON.stringify({ content: authoritative })],
-			['response.output_text.delta', JSON.stringify({ delta: ' Tail after abort.' })]
-		], signal));
-		const response = await invokeResume(scenario);
-		const reader = response.body?.getReader();
-		expect(reader).toBeDefined();
-		const decoder = new TextDecoder();
-		let streamed = '';
-		for (let index = 0; index < 10 && !streamed.includes('Tail after abort.'); index += 1) {
-			const next = await reader!.read();
-			if (next.done) break;
-			streamed += decoder.decode(next.value, { stream: true });
-		}
-		expect(streamed).toContain('Tail after abort.');
-		await reader!.cancel();
-		const expected = `${authoritative} Tail after abort.`;
-		await waitForAuthoritative(scenario.messageId, expected);
-		await assertAuthoritative(scenario.conversationId, scenario.messageId, expected);
-		await expectExport(scenario.conversationId, expected);
-		await expect(invokeResume(scenario)).rejects.toMatchObject({ status: 400 });
-	});
-
-	it('surfaces cancellation persistence failure and leaves the claimed row resumable', async () => {
-		const scenario = await seedPartial('cancel-failure');
-		stubGateway((signal) => hangingSseResponse([
-			citationFrame(),
-			['agent.answer.replace', JSON.stringify({ content: 'Authoritative answer before failure [1].' })],
-			['response.output_text.delta', JSON.stringify({ delta: ' Tail before failure.' })]
-		], signal));
-		const finalizer = vi
-			.spyOn(conversationsDb, 'finalizeResumedAssistantMessage')
-			.mockRejectedValueOnce(new Error('temporary persistence failure'));
-		try {
-			const response = await invokeResume(scenario);
-			const reader = response.body?.getReader();
-			expect(reader).toBeDefined();
-			const decoder = new TextDecoder();
-			let streamed = '';
-			for (let index = 0; index < 10 && !streamed.includes('Tail before failure.'); index += 1) {
-				const next = await reader!.read();
-				if (next.done) break;
-				streamed += decoder.decode(next.value, { stream: true });
-			}
-			expect(streamed).toContain('Tail before failure.');
-			await expect(reader!.cancel()).rejects.toThrow('temporary persistence failure');
-			const row = await getMessageById(scenario.messageId);
-			expect(row?.partial).toBe(1);
-			expect(row?.resumeClaimedAt).toEqual(expect.any(Number));
-			expect(parseContent(row?.content || '')).toBe('Partial draft for cancel-failure.');
-			const provenance = await getMessageProvenance(scenario.messageId);
-			expect(provenance).toBeUndefined();
-		} finally {
-			finalizer.mockRestore();
-		}
-	});
-
-	it('uses the route CAS contract for gateway-failure fallback and persists it once', async () => {
-		const scenario = await seedPartial('gateway-failure');
-		stubGateway(() => new Response('temporarily unavailable', { status: 503, statusText: 'Unavailable' }));
-		const response = await invokeResume(scenario);
-		const streamed = await response.text();
-
-		expect(streamed).toContain('couldn\'t reach the research service');
-		const row = await getMessageById(scenario.messageId);
-		expect(row?.partial).toBe(0);
-		expect(parseContent(row?.content || '')).toContain('Partial draft for gateway-failure.');
-		expect(parseContent(row?.content || '')).toContain('couldn\'t reach the research service');
-		await assertProvenance(scenario.messageId);
-		await expectExport(scenario.conversationId, String(parseContent(row?.content || '')));
-	});
-
-	it('keeps a crashed stream resumable, emits a safe partial terminal, and resumes once', async () => {
-		const scenario = await seedPartial('crash');
-		stubGateway(() => sseResponse([
-			['response.output_text.delta', JSON.stringify({ delta: ' crashed fragment.' })],
-			['response.failed', JSON.stringify({ error: { message: 'gateway stopped' } })]
-		]));
-		const crashed = await invokeResume(scenario);
-		const crashedStream = await crashed.text();
-		expect(crashedStream).toContain('crashed fragment.');
-		expect(crashedStream).toContain('The research run stopped before it finished');
-		const partial = await getMessageById(scenario.messageId);
-		expect(partial?.partial).toBe(1);
-		expect(partial?.resumeClaimedAt).toBeNull();
-		expect(parseContent(partial?.content || '')).toContain('crashed fragment.');
-		expect(parseContent(partial?.content || '')).toContain('The research run stopped before it finished');
-		await assertProvenance(scenario.messageId);
-
-		const recoveredAnswer = 'Recovered answer after crash.';
-		stubGateway(() => sseResponse([
-			['agent.answer.replace', JSON.stringify({ content: recoveredAnswer })],
-			['message', '[DONE]']
-		]));
-		const recovered = await invokeResume(scenario);
-		await recovered.text();
-		const expected = recoveredAnswer;
-		await assertAuthoritative(scenario.conversationId, scenario.messageId, expected);
-		await expectExport(scenario.conversationId, expected);
-
-		await expect(invokeResume(scenario)).rejects.toMatchObject({ status: 400 });
-		await assertAuthoritative(scenario.conversationId, scenario.messageId, expected);
+		expect(await response.text()).toContain('"status":"failed"');
+		expect(await getMessageById(scenario.messageId)).toMatchObject({
+			partial: 1, resumeClaimedAt: null, content: 'Partial draft for startup-failure.'
+		});
+		workerEvents([['agent.answer.replace', { content: 'Recovered complete answer.' }]]);
+		await (await invokeResume(scenario)).text();
+		await assertAuthoritative(scenario.conversationId, scenario.messageId, 'Recovered complete answer.');
 	});
 
 	it('rejects a stale CAS owner without changing content or provenance', async () => {
@@ -402,94 +222,6 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 		return { conversationId, messageId };
 	}
 
-	function stubGateway(
-		response: GatewayResponseFactory,
-		options: { readiness?: () => Response } = {}
-	): void {
-		activeGatewayResponse = response;
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async (input: unknown, init?: RequestInit) => {
-				if (String(input).endsWith('/ready')) return options.readiness?.() ?? hermesReadyResponse();
-				return new Response('unexpected atomic fixture fetch', { status: 500 });
-			})
-		);
-	}
-
-	function hermesReadyResponse(): Response {
-		return new Response(
-			JSON.stringify({
-				ok: true,
-				service: 'newscraft-hermes-chat',
-				toolset: 'hermes-acp',
-				tools: ['browser_navigate', 'browser_snapshot', 'web_search', 'web_extract', 'verify_this_lead'],
-				runtime: { provider: 'fixture', model: 'hermes-fixture', endpointMode: 'explicit' },
-				capabilities: {
-					standard: true,
-					browser: true,
-					webResearch: true,
-					webExtraction: { configured: true, tool: true, leadVerificationTool: true },
-					webLeadVerification: { configured: true, tool: true, bounded: true },
-					terminal: true,
-					files: true,
-					codeExecution: true,
-					delegation: true,
-					skills: true,
-					memory: true,
-					durableRuns: { configured: true, callback: true },
-					accountIsolation: {
-						tenantHeader: 'x-newscraft-tenant-key',
-						contextLocalHome: true,
-						stableTaskKey: true,
-						persistentDockerWorkspace: true,
-						isolatedBrowserProfiles: true
-					}
-				}
-			}),
-			{ status: 200, headers: { 'content-type': 'application/json' } }
-		);
-	}
-
-	function citationFrame(excerpt = 'Authoritative fixture claim.'): [string, string] {
-		return [
-			'agent.citations',
-			JSON.stringify({
-				citations: [{
-					citationNumber: 1,
-					title: 'Authoritative fixture source',
-					url: 'https://fixture.example/source',
-					domain: 'fixture.example',
-					publicationDate: '2026-09-01',
-					sourceType: 'official',
-					supportingExcerpt: excerpt
-				}]
-			})
-		];
-	}
-
-	function sseResponse(frames: Array<[string, string]>): Response {
-		// The transport spy above performs the current JSON readiness probe. These
-		// frames are the post-normalization NewsCraft stream contract consumed by
-		// the route, which keeps this test focused on atomic replacement behavior.
-		const body = frames
-			.map(([event, data]) => `event: ${event}\ndata: ${data}\n\n`)
-			.join('');
-		return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
-	}
-
-	function hangingSseResponse(frames: Array<[string, string]>, signal?: AbortSignal): Response {
-		const body = new ReadableStream<Uint8Array>({
-			start(controller) {
-				const encoder = new TextEncoder();
-				for (const [event, data] of frames) {
-					controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`));
-				}
-				signal?.addEventListener('abort', () => controller.close(), { once: true });
-			}
-		});
-		return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
-	}
-
 	async function invokeResume(scenario: { conversationId: string; messageId: string }): Promise<Response> {
 		return chatStream({
 			request: new Request('http://localhost/api/chat/stream', {
@@ -554,15 +286,6 @@ describe.skipIf(!databaseUrl)('atomic assistant resume integration', () => {
 			stream?: { assistantChars?: number; done?: boolean };
 		};
 		expect(parsed.stream?.assistantChars).toBeGreaterThan(0);
-	}
-
-	async function waitForAuthoritative(messageId: string, expected: string): Promise<void> {
-		for (let attempt = 0; attempt < 50; attempt += 1) {
-			const row = await getMessageById(messageId);
-			if (row?.partial === 0 && parseContent(row.content) === expected) return;
-			await new Promise((resolve) => setTimeout(resolve, 10));
-		}
-		throw new Error(`timed out waiting for authoritative message ${messageId}`);
 	}
 
 	async function expectExport(conversationId: string, expected: string): Promise<void> {

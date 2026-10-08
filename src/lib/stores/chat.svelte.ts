@@ -4,7 +4,7 @@
 // Also holds the ephemeral tool-progress strip + the prompt-reuse handoff used
 // by the ↑ keyboard shortcut to recall the previous user message.
 
-import type { CitationRecord } from '@newscraft/shared';
+import { normalizePublicAgentDecision, type CitationRecord, type PublicAgentDecision } from '@newscraft/shared';
 
 export type PlanStepStatus = 'pending' | 'running' | 'ok' | 'failed' | 'skipped';
 
@@ -117,6 +117,7 @@ export class ChatSession {
 	lastUserContent = $state<string | null>(null); // set by the active conversation page; read by ↑ handler
 	/** Current agent plan. Set when the first agent.plan frame arrives; updated on each step-status change. */
 	plan = $state<ActivePlan | null>(null);
+	decisions = $state<PublicAgentDecision[]>([]);
 
 	startStream(conversationId?: string): AbortController {
 		// If a stream is already in flight, abort it so the next one can take
@@ -134,6 +135,7 @@ export class ChatSession {
 		this.citations = [];
 		this.toolHistory = [];
 		this.plan = null;
+		this.decisions = [];
 		this.streamStartedAt = Date.now();
 		this.toolUpdatedAt = null;
 		this.hasAssistantOutput = false;
@@ -187,6 +189,14 @@ export class ChatSession {
 		} else {
 			this.plan = plan;
 		}
+	}
+
+	pushDecision(value: PublicAgentDecision) {
+		const decision = normalizePublicAgentDecision(value);
+		if (!decision) return;
+		const index = this.decisions.findIndex(row => row.id === decision.id);
+		if (index >= 0) this.decisions = this.decisions.map(row => row.id === decision.id ? decision : row);
+		else this.decisions = [...this.decisions, decision].slice(-50);
 	}
 
 	setCitations(citations: CitationRecord[]) {

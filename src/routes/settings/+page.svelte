@@ -5,103 +5,6 @@
 
 	let { data } = $props();
 
-	// --- Accounts ---
-	let accountBusy = $state(false);
-	let accountMsg = $state<{ kind: 'ok' | 'err'; text: string } | null>(null);
-	let setupUrl = $state('');
-	let setupLinkBusyId = $state<string | null>(null);
-	let deleteBusyId = $state<string | null>(null);
-
-	async function submitAccount(e: Event) {
-		e.preventDefault();
-		accountMsg = null;
-		setupUrl = '';
-		accountBusy = true;
-		try {
-			const r = await fetch('/api/settings/accounts', {
-				method: 'POST'
-			});
-			if (!r.ok) {
-				accountMsg = { kind: 'err', text: 'Could not create the setup link.' };
-				return;
-			}
-			const j = (await r.json()) as { setupUrl: string };
-			setupUrl = j.setupUrl;
-			accountMsg = { kind: 'ok', text: 'Setup link created.' };
-			await invalidateAll();
-		} catch {
-			accountMsg = { kind: 'err', text: 'Could not create the setup link.' };
-		} finally {
-			accountBusy = false;
-		}
-	}
-
-	async function createSetupLink(accountId: string) {
-		accountMsg = null;
-		setupUrl = '';
-		setupLinkBusyId = accountId;
-		try {
-			const r = await fetch(`/api/settings/accounts/${encodeURIComponent(accountId)}/setup-link`, {
-				method: 'POST'
-			});
-			if (!r.ok) {
-				accountMsg = { kind: 'err', text: 'Could not create the setup link.' };
-				return;
-			}
-			const j = (await r.json()) as { setupUrl: string };
-			setupUrl = j.setupUrl;
-			accountMsg = { kind: 'ok', text: 'Setup link created.' };
-		} catch {
-			accountMsg = { kind: 'err', text: 'Could not create the setup link.' };
-		} finally {
-			setupLinkBusyId = null;
-		}
-	}
-
-	async function copySetupUrl() {
-		if (!setupUrl) return;
-		try {
-			await navigator.clipboard.writeText(setupUrl);
-			accountMsg = { kind: 'ok', text: 'Setup link copied.' };
-		} catch {
-			accountMsg = { kind: 'err', text: 'Could not copy the setup link.' };
-		}
-	}
-
-	async function removeAccount(accountId: string, label: string) {
-		if (!confirm(`Remove ${label}?`)) return;
-		accountMsg = null;
-		deleteBusyId = accountId;
-		try {
-			const r = await fetch(`/api/settings/accounts/${encodeURIComponent(accountId)}`, {
-				method: 'DELETE'
-			});
-			if (!r.ok) {
-				accountMsg = { kind: 'err', text: 'Could not remove the account.' };
-				return;
-			}
-			setupUrl = '';
-			accountMsg = { kind: 'ok', text: 'Account removed.' };
-			await invalidateAll();
-		} catch {
-			accountMsg = { kind: 'err', text: 'Could not remove the account.' };
-		} finally {
-			deleteBusyId = null;
-		}
-	}
-
-	function formatDate(ms: number | null) {
-		if (!ms) return 'Never';
-		return new Intl.DateTimeFormat(undefined, {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(ms));
-	}
-
-	function accountLabel(account: { isCurrent?: boolean; name: string }, index: number) {
-		return account.name || (account.isCurrent ? 'Current account' : `Account ${index + 1}`);
-	}
-
 	// --- Newsroom context ---
 	let newsroomTimezone = $state('');
 	let newsroomHomeMarket = $state('');
@@ -309,90 +212,7 @@
 						</div>
 					</div>
 				</div>
-				{#if data.canManageAccounts}
-					<div class="accounts-panel">
-					<form class="settings__form accounts-create" onsubmit={submitAccount} autocomplete="off">
-						<div class="settings__section-title">New account link</div>
-						<p class="settings__section-copy">
-							Create a one-time setup link. The person who opens it only needs to choose a
-							password.
-						</p>
-						<div class="settings__form-actions">
-							<button type="submit" class="btn btn--primary" disabled={accountBusy}>
-								{accountBusy ? 'Creating…' : 'Create setup link'}
-							</button>
-						</div>
-					</form>
 
-					{#if setupUrl}
-						<div class="setup-link">
-							<label class="field__label" for="setup-url">Setup link</label>
-							<div class="setup-link__row">
-								<input
-									id="setup-url"
-									class="field__input"
-									type="text"
-									readonly
-									value={setupUrl}
-									onfocus={(e) => e.currentTarget.select()}
-								/>
-								<button type="button" class="btn btn--ghost" onclick={copySetupUrl}>Copy</button>
-							</div>
-							<div class="settings__hint">Share this link with the account owner.</div>
-						</div>
-					{/if}
-
-					{#if accountMsg}
-						<div class={accountMsg.kind === 'ok' ? 'settings__ok' : 'field__error'}>
-							{accountMsg.text}
-						</div>
-					{/if}
-
-					<div class="accounts-list" aria-label="Accounts">
-						{#each data.accounts as account, i (account.id)}
-							<div class="account-row">
-								<div class="account-row__main">
-									<div class="account-row__name">
-										{accountLabel(account, i)}
-										{#if account.isCurrent}
-											<span>Current</span>
-										{/if}
-									</div>
-									<div class="account-row__meta">
-										<span>{account.email}</span>
-										<span>{account.status === 'active' ? 'Active' : 'Pending setup'}</span>
-										<span>Last login: {formatDate(account.lastLoginAt)}</span>
-									</div>
-								</div>
-								<div class="account-row__actions">
-									<button
-										type="button"
-										class="btn btn--ghost"
-										disabled={setupLinkBusyId === account.id}
-										onclick={() => createSetupLink(account.id)}
-									>
-										{#if setupLinkBusyId === account.id}
-											Creating…
-										{:else if account.status === 'active'}
-											Reset link
-										{:else}
-											Setup link
-										{/if}
-									</button>
-									<button
-										type="button"
-										class="btn btn--ghost"
-										disabled={account.isCurrent || deleteBusyId === account.id}
-										onclick={() => removeAccount(account.id, accountLabel(account, i))}
-									>
-										{deleteBusyId === account.id ? 'Removing…' : 'Remove'}
-									</button>
-								</div>
-							</div>
-						{/each}
-					</div>
-					</div>
-				{/if}
 			</div>
 			</section>
 
@@ -649,14 +469,6 @@
 {/if}
 
 <style>
-	.settings__hint {
-		margin-top: 8px;
-		font-family: var(--font-mono);
-		font-size: 10.5px;
-		color: var(--fg-3);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
 	.settings__ok {
 		font-family: var(--font-mono);
 		font-size: 11px;
@@ -668,14 +480,6 @@
 	.settings__stat__value {
 		overflow-wrap: anywhere;
 	}
-	.accounts-panel {
-		display: grid;
-		gap: 16px;
-	}
-	.accounts-create {
-		display: grid;
-		gap: 10px;
-	}
 	.newsroom-form {
 		max-width: 680px;
 	}
@@ -684,67 +488,6 @@
 		resize: vertical;
 		font-family: var(--font-mono);
 		font-size: 12px;
-	}
-	.setup-link {
-		display: grid;
-		gap: 6px;
-		max-width: 680px;
-	}
-	.setup-link__row {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		gap: 8px;
-		align-items: center;
-	}
-	.accounts-list {
-		border-top: 1px solid var(--border-soft);
-	}
-	.account-row {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		gap: 12px;
-		align-items: center;
-		padding: 12px 0;
-		border-bottom: 1px solid var(--border-soft);
-	}
-	.account-row__main {
-		min-width: 0;
-		display: grid;
-		gap: 3px;
-	}
-	.account-row__name {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 6px;
-		font-weight: 700;
-		color: var(--fg-1);
-		overflow-wrap: anywhere;
-	}
-	.account-row__name span,
-	.account-row__meta {
-		font-family: var(--font-mono);
-		font-size: 10.5px;
-		color: var(--fg-3);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
-	.account-row__name span {
-		border: 1px solid var(--border-soft);
-		border-radius: var(--radius-1);
-		padding: 1px 5px;
-		background: var(--bg-raised);
-	}
-	.account-row__meta {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
-	}
-	.account-row__actions {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-		gap: 8px;
 	}
 	.settings__danger {
 		border: 1px solid var(--flag-700);
@@ -814,13 +557,6 @@
 		outline: none;
 	}
 	@media (max-width: 520px) {
-		.account-row,
-		.setup-link__row {
-			grid-template-columns: 1fr;
-		}
-		.account-row__actions {
-			justify-content: flex-start;
-		}
 		.settings__confirm-actions {
 			flex-direction: column-reverse;
 		}

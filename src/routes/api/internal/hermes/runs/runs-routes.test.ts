@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const dbMocks = vi.hoisted(() => ({
 	getHermesRun: vi.fn(),
 	getHermesRunSubscriptionState: vi.fn(),
+	reconcileExpiredHermesRun: vi.fn(),
 	appendHermesRunEvents: vi.fn(),
 	claimHermesRunLease: vi.fn(),
 	renewHermesRunLease: vi.fn(),
@@ -22,6 +23,7 @@ const diagnosticMocks = vi.hoisted(() => ({ recordChatDiagnostic: vi.fn() }));
 vi.mock('$lib/server/db/hermes-runs', () => ({
 	...dbMocks,
 	HERMES_TERMINAL_STATES: ['cancelled', 'failed', 'complete'],
+	HERMES_RECOVERY_GRACE_MS: 45_000,
 	HermesRunRepositoryError: class HermesRunRepositoryError extends Error {
 		code: string;
 		constructor(code: string, message: string) {
@@ -426,7 +428,9 @@ describe('Hermes browser run routes', () => {
 		expect(response.status).toBe(200);
 		expect(dbMocks.getHermesRun).toHaveBeenCalledTimes(1);
 		expect(dbMocks.getHermesRunSubscriptionState).not.toHaveBeenCalled();
+		expect(dbMocks.reconcileExpiredHermesRun).not.toHaveBeenCalled();
 		expect(dbMocks.listKnownHermesRunEvents).toHaveBeenCalledWith(user.id, run.id, 1, 500);
+		expect(body).toContain('event: run.snapshot');
 		expect(body).toContain('id: 2');
 		expect(body).toContain('event: response.completed');
 		expect(body).toContain('"trace_id":"trace_12345678"');

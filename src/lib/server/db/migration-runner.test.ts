@@ -103,6 +103,20 @@ describe('explicit Postgres migration runner', () => {
 		expect(client.queries.filter((query) => query.includes(`CREATE TABLE IF NOT EXISTS ${MIGRATION_TABLE}`))).toHaveLength(2);
 		expect(results.every((result) => result.latest === MIGRATION_VERSIONS.at(-1))).toBe(true);
 });
+
+	it('retains artifact browser-role revocations without requiring Supabase roles on ordinary Postgres', async () => {
+		const client = new ConcurrentMigrationFakeClient();
+		await runMigrations(client);
+		const guarded = client.queries.filter(query => query.startsWith('DO $newscraft_roles$'));
+		expect(guarded).toHaveLength(6);
+		for (const query of guarded) {
+			expect(query).toContain("WHERE rolname = 'anon'");
+			expect(query).toContain("WHERE rolname = 'authenticated'");
+			expect(query).toMatch(/REVOKE ALL PRIVILEGES ON TABLE \w+ FROM anon;/);
+			expect(query).toMatch(/REVOKE ALL PRIVILEGES ON TABLE \w+ FROM authenticated;/);
+		}
+		expect(client.queries.some(query => query.includes('artifact_families ENABLE ROW LEVEL SECURITY'))).toBe(true);
+	});
 });
 
 const isolatedDatabaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';

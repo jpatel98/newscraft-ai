@@ -1,82 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const accountMocks = vi.hoisted(() => ({
-	findAccountByEmailAndPassword: vi.fn(),
-	findAccountByPassword: vi.fn(),
-	touchAccountLogin: vi.fn()
-}));
-const sessionMocks = vi.hoisted(() => ({ createSession: vi.fn() }));
-const cookieMocks = vi.hoisted(() => ({ mintSessionCookie: vi.fn() }));
-const rateLimitMocks = vi.hoisted(() => ({
-	checkRateLimit: vi.fn(() => ({ allowed: true, retryAfterMs: 0, remaining: 19 }))
-}));
-const passwordMocks = vi.hoisted(() => ({
-	lockedOut: vi.fn(() => 0),
-	recordFailure: vi.fn(),
-	recordSuccess: vi.fn()
-}));
-
-vi.mock('$lib/server/db/accounts', () => accountMocks);
-vi.mock('$lib/server/db/sessions', () => sessionMocks);
-vi.mock('$lib/server/auth/cookie', () => cookieMocks);
-vi.mock('$lib/server/rate-limit', () => rateLimitMocks);
-vi.mock('$lib/server/auth/password', () => passwordMocks);
-
+import { error } from '@sveltejs/kit';
+const auth = vi.hoisted(() => ({ signIn: vi.fn() }));
+vi.mock('$lib/server/auth/backend', () => ({ authBackend: async () => auth }));
+vi.mock('$lib/server/rate-limit', () => ({ checkRateLimit: () => ({ allowed: true }) }));
 import { actions } from './+page.server';
-
-const account = { id: 'acct_1' };
-
-function request(fields: Record<string, string>) {
-	return new Request('http://localhost/login', {
-		method: 'POST',
-		body: new URLSearchParams(fields)
-	});
-}
-
-describe('login credentials', () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-		sessionMocks.createSession.mockResolvedValue({ id: 'session_1' });
-		cookieMocks.mintSessionCookie.mockReturnValue({
-			name: 'agent_sess',
-			value: 'signed-cookie',
-			opts: { httpOnly: true }
-		});
-	});
-
-	it('authenticates new accounts by email and password', async () => {
-		accountMocks.findAccountByEmailAndPassword.mockResolvedValue(account);
-		const cookies = { set: vi.fn() };
-
-		await expect(
-			actions.default({
-				request: request({ email: 'Reporter@Example.com', password: 'password' }),
-				cookies,
-				getClientAddress: () => '127.0.0.1',
-				url: new URL('http://localhost/login')
-			} as any)
-		).rejects.toMatchObject({ status: 303, location: '/' });
-
-		expect(accountMocks.findAccountByEmailAndPassword).toHaveBeenCalledWith(
-			'reporter@example.com',
-			'password'
-		);
-		expect(accountMocks.findAccountByPassword).not.toHaveBeenCalled();
-		expect(cookies.set).toHaveBeenCalled();
-	});
-
-	it('keeps password-only sign-in working for legacy accounts', async () => {
-		accountMocks.findAccountByPassword.mockResolvedValue(account);
-
-		await expect(
-			actions.default({
-				request: request({ password: 'password' }),
-				cookies: { set: vi.fn() },
-				getClientAddress: () => '127.0.0.1',
-				url: new URL('http://localhost/login')
-			} as any)
-		).rejects.toMatchObject({ status: 303, location: '/' });
-
-		expect(accountMocks.findAccountByPassword).toHaveBeenCalledWith('password');
-	});
+function event(fields: Record<string, string>) { return { request: new Request('http://localhost/login', { method: 'POST', body: new URLSearchParams(fields) }), cookies: {}, getClientAddress: () => '127.0.0.1', url: new URL('http://localhost/login') } as any; }
+describe('provider-independent sign-in', () => {
+    beforeEach(() => { vi.clearAllMocks(); auth.signIn.mockResolvedValue(undefined); });
+    it('passes normalized credentials through the configured auth contract', async () => {
+        await expect(actions.default(event({ email: 'Reporter@Example.com', password: 'password' }))).rejects.toMatchObject({ status: 303, location: '/' });
+        expect(auth.signIn).toHaveBeenCalledWith('reporter@example.com', 'password', {});
+    });
+    it('requires email and rejects the retired password-only bypass', async () => {
+        expect(await actions.default(event({ password: 'password' }))).toMatchObject({ status: 400 });
+        expect(auth.signIn).not.toHaveBeenCalled();
+    });
+    it.each(['//evil.example', '/\\evil.example', '/\t/evil.example', 'https://evil.example', '/\n/evil.example'])('rejects an unsafe redirect %j', async next => {
+        await expect(actions.default(event({ email: 'reporter@example.com', password: 'password', next }))).rejects.toMatchObject({ location: '/' });
+    });
+    it('does not redirect when the identity provider rejects sign-in', async () => {
+        auth.signIn.mockImplementation(async () => { throw error(401, 'unverified'); });
+        expect(await actions.default(event({ email: 'reporter@example.com', password: 'password' }))).toMatchObject({ status: 401 });
+    });
 });

@@ -3,6 +3,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { ChatSession } from './chat.svelte';
 
 describe('ChatSession cancellation', () => {
+	it('keeps public explanations after completion, upserts duplicates and resets the next turn', () => {
+		const session = new ChatSession();
+		session.startStream('conversation-1');
+		session.pushDecision({ id: 'official', summary: 'Read the official release first.' });
+		session.pushDecision({ id: 'official', summary: 'The release provides the baseline.' });
+		session.endStream();
+		expect(session.decisions).toEqual([{ id: 'official', summary: 'The release provides the baseline.' }]);
+		session.startStream('conversation-2');
+		expect(session.decisions).toEqual([]);
+	});
+
 	it('keeps a durable subscription open while the server accepts the stop', () => {
 		const session = new ChatSession();
 		const cancelServerRun = vi.fn(() => false);

@@ -83,8 +83,13 @@ export async function ensureDefaultOrganizationForAccount(
 	role: 'owner' | 'admin' | 'member' = 'member'
 ): Promise<string> {
 	if (!accountId) return ensureDefaultOrganization();
-	const orgId = await ensureDefaultOrganization();
+	const orgId = `org_${accountId}`;
 	const now = Date.now();
+	await sql`
+		INSERT INTO organizations (id, name, created_at, updated_at)
+		VALUES (${orgId}, ${'My newsroom'}, ${now}, ${now})
+		ON CONFLICT (id) DO NOTHING
+	`;
 	await sql`
 		INSERT INTO organization_members (id, org_id, account_id, role, created_at, updated_at)
 		VALUES (${`${orgId}:${accountId}`}, ${orgId}, ${accountId}, ${role}, ${now}, ${now})

@@ -9,7 +9,13 @@ import {
 	citationRecordsUsedInAnswer
 } from '$lib/utils/tool-metadata';
 import { sanitizeUnresolvedCitationMarkers, truncateReadableAnswer } from '$lib/utils/stream-events';
-import type { CitationRecord } from '@newscraft/shared';
+import {
+	normalizePublicAgentDecision,
+	normalizePublicAgentPlan,
+	type CitationRecord,
+	type PublicAgentDecision,
+	type PublicAgentPlan
+} from '@newscraft/shared';
 import type { PersistedSource, StreamToolCall } from '$lib/utils/stream-events';
 
 export type HermesRunState =
@@ -31,10 +37,15 @@ export const HERMES_ACTIVE_STATES: HermesRunState[] = [
 ];
 
 export const HERMES_TERMINAL_STATES: HermesRunState[] = ['cancelled', 'failed', 'complete'];
-export const HERMES_LEASE_MS = 10 * 60 * 1000;
+export const HERMES_LEASE_MS = 90_000;
+export const HERMES_RECOVERY_GRACE_MS = 45_000;
 export const HERMES_MAX_EVENT_BYTES = 128 * 1024;
+// Input may include image data and conversation history. Match the portable
+// worker's 512 KiB input bound without increasing any public event limit.
+export const HERMES_MAX_INPUT_BYTES = 512 * 1024;
 export const HERMES_MAX_ANSWER_CHARS = 512 * 1024;
 export const HERMES_MAX_SNAPSHOT_ITEMS = 100;
+export const HERMES_MAX_ACTIVITY_DECISIONS = 50;
 
 export interface HermesRunEventInput {
 	eventType: string;
@@ -57,6 +68,8 @@ export interface HermesRunCreateInput {
 	sessionId: string;
 	inputJson: string;
 	seededCitationsJson?: string;
+	/** Existing partial answer from an account-bound resume target. */
+	seededAnswerText?: string;
 }
 
 export type HermesRunRecord = typeof hermesRuns.$inferSelect;
@@ -82,6 +95,7 @@ export class HermesRunRepositoryError extends Error {
 		| 'cross_account'
 		| 'stale_lease'
 		| 'stale_callback'
+		| 'cancel_requested'
 		| 'terminal';
 
 	constructor(
@@ -108,8 +122,8 @@ function parseJson<T>(value: string, fallback: T): T {
 	}
 }
 
-function boundedJson(value: string, label: string): string {
-	if (Buffer.byteLength(value, 'utf8') > HERMES_MAX_EVENT_BYTES) {
+function boundedJson(value: string, label: string, maxBytes = HERMES_MAX_EVENT_BYTES): string {
+	if (Buffer.byteLength(value, 'utf8') > maxBytes) {
 		throw new HermesRunRepositoryError('invalid_input', `${label} is too large`);
 	}
 	return value;
@@ -147,7 +161,8 @@ function nextState(
 	}
 	if (eventType === 'run.reconnecting') return 'reconnecting';
 	if (eventType === 'response.output_text.delta' || eventType === 'agent.answer.replace') return 'writing';
-	if (eventType === 'agent.tool.progress' || eventType.startsWith('agent.source') || eventType === 'agent.citations') {
+	if (eventType === 'agent.tool.progress' || eventType.startsWith('agent.source') ||
+		eventType === 'agent.citations' || eventType === 'agent.plan' || eventType === 'agent.decision') {
 		return current === 'writing' ? current : 'researching';
 	}
 	if (eventType === 'run.started' || eventType === 'agent.meta') return 'researching';
@@ -177,18 +192,57 @@ export interface HermesRunSnapshot {
 	sources: PersistedSource[];
 	citations: CitationRecord[];
 	tools: StreamToolCall[];
+	plan?: PublicAgentPlan;
+	decisions?: PublicAgentDecision[];
 	errorMessage: string | null;
 }
 
 export function snapshotFromRun(run: HermesRunRecord): HermesRunSnapshot {
+	// Existing rows contain a plain tool array. Public activity uses an
+	// envelope in the same column so old runs need no data migration.
+	const toolData = parseJson<unknown>(run.toolsJson, []);
+	const activity = objectValue(toolData);
+	const plan = normalizePublicAgentPlan(activity?.plan);
+	const decisions = Array.isArray(activity?.decisions)
+		? activity.decisions
+				.map(normalizePublicAgentDecision)
+				.filter((decision): decision is PublicAgentDecision => decision !== null)
+				.slice(-HERMES_MAX_ACTIVITY_DECISIONS)
+		: [];
 	return {
 		state: normalizeState(run.state),
 		answerText: run.answerText,
 		sources: parseJson<PersistedSource[]>(run.sourcesJson, []),
 		citations: parseJson<CitationRecord[]>(run.citationsJson, []),
-		tools: parseJson<StreamToolCall[]>(run.toolsJson, []),
+		tools: Array.isArray(toolData)
+			? toolData as StreamToolCall[]
+			: Array.isArray(activity?.tools) ? activity.tools as StreamToolCall[] : [],
+		...(plan ? { plan } : {}),
+		...(decisions.length ? { decisions } : {}),
 		errorMessage: run.errorMessage
 	};
+}
+
+function serializeRunActivity(snapshot: HermesRunSnapshot): string {
+	return snapshot.plan || snapshot.decisions?.length
+		? JSON.stringify({ version: 1, tools: snapshot.tools,
+			...(snapshot.plan ? { plan: snapshot.plan } : {}),
+			...(snapshot.decisions?.length ? { decisions: snapshot.decisions } : {}) })
+		: JSON.stringify(snapshot.tools);
+}
+
+/** Keep the durable event log on the same public schema as its projection. */
+function publicActivityData(eventType: string, dataJson: string): string {
+	if (/(?:^|[._-])(?:reasoning|thinking|chain_of_thought)(?:[._-]|$)/iu.test(eventType)) {
+		throw new HermesRunRepositoryError('invalid_input', 'private reasoning events are not accepted');
+	}
+	if (eventType !== 'agent.plan' && eventType !== 'agent.decision') return dataJson;
+	const data = parseJson<unknown>(dataJson, null);
+	const activity = eventType === 'agent.plan'
+		? normalizePublicAgentPlan(data)
+		: normalizePublicAgentDecision(data);
+	if (!activity) throw new HermesRunRepositoryError('invalid_input', 'public activity payload is invalid');
+	return JSON.stringify(activity);
 }
 
 function applyHermesRunEventData(
@@ -197,6 +251,18 @@ function applyHermesRunEventData(
 	data: Record<string, unknown>
 ): HermesRunSnapshot {
 	const snapshot = snapshotFromRun(run);
+	const plan = eventType === 'agent.plan'
+		? normalizePublicAgentPlan(data) || snapshot.plan
+		: snapshot.plan;
+	const decisions = [...(snapshot.decisions || [])];
+	if (eventType === 'agent.decision') {
+		const decision = normalizePublicAgentDecision(data);
+		if (decision) {
+			const index = decisions.findIndex((item) => item.id === decision.id);
+			if (index >= 0) decisions[index] = decision;
+			else decisions.push(decision);
+		}
+	}
 	let answerText = snapshot.answerText;
 	if (eventType === 'response.output_text.delta') {
 		const delta = stringValue(data.delta);
@@ -250,6 +316,8 @@ function applyHermesRunEventData(
 		sources: sources.slice(-HERMES_MAX_SNAPSHOT_ITEMS),
 		citations: citations.slice(-HERMES_MAX_SNAPSHOT_ITEMS),
 		tools: tools.slice(-HERMES_MAX_SNAPSHOT_ITEMS),
+		...(plan ? { plan } : {}),
+		...(decisions.length ? { decisions: decisions.slice(-HERMES_MAX_ACTIVITY_DECISIONS) } : {}),
 		errorMessage:
 			eventType === 'response.failed' || eventType === 'run.failed'
 				? stringValue(objectValue(data.error)?.message) || stringValue(data.message) || 'Hermes run failed.'
@@ -274,8 +342,9 @@ export async function createOrGetHermesRun(
 	const idempotencyKey = requireValue(input.idempotencyKey, 'idempotencyKey');
 	const tenantKey = requireValue(input.tenantKey, 'tenantKey');
 	const sessionId = requireValue(input.sessionId, 'sessionId');
-	const inputJson = boundedJson(input.inputJson, 'inputJson');
+	const inputJson = boundedJson(input.inputJson, 'inputJson', HERMES_MAX_INPUT_BYTES);
 	const seededCitationsJson = boundedJson(input.seededCitationsJson || '[]', 'seededCitationsJson');
+	const seededAnswerText = (input.seededAnswerText ?? '').slice(0, HERMES_MAX_ANSWER_CHARS);
 	const now = Date.now();
 	const id = input.id?.trim() || newId();
 	return db.transaction(async (tx: any) => {
@@ -348,7 +417,7 @@ export async function createOrGetHermesRun(
 				inputJson,
 				seededCitationsJson,
 				state: 'queued',
-				answerText: '',
+				answerText: seededAnswerText,
 				sourcesJson: '[]',
 				citationsJson: seededCitationsJson,
 				toolsJson: '[]',
@@ -386,6 +455,11 @@ export async function createOrGetHermesRun(
 			.where(and(eq(hermesRuns.accountId, accountId), eq(hermesRuns.idempotencyKey, idempotencyKey)))
 			.limit(1)) as HermesRunRecord[];
 		if (!existing) throw new HermesRunRepositoryError('not_found', 'run disappeared after idempotent insert');
+		// Route preflight is only an optimization: another conversation can win
+		// this account-scoped key while the current request is preparing its turn.
+		if (existing.conversationId !== conversationId) {
+			throw new HermesRunRepositoryError('invalid_input', 'idempotency key belongs to another conversation');
+		}
 		return { run: existing, created: false };
 	});
 }
@@ -649,7 +723,9 @@ export async function appendHermesRunEvents(
 			(index > 0 && input.workerCursor !== inputs[index - 1].workerCursor + 1)) {
 			throw new HermesRunRepositoryError('invalid_input', 'batch worker cursors must be consecutive positive integers');
 		}
-		return { ...input, eventType: requireValue(input.eventType, 'eventType'), dataJson: boundedJson(input.dataJson, 'event data') };
+		const eventType = requireValue(input.eventType, 'eventType');
+		const dataJson = publicActivityData(eventType, boundedJson(input.dataJson, 'event data'));
+		return { ...input, eventType, dataJson };
 	});
 	if (validated.reduce((size, input) => size + Buffer.byteLength(input.dataJson), 0) > 512 * 1024) {
 		throw new HermesRunRepositoryError('invalid_input', 'callback batch exceeds 512 KiB');
@@ -687,7 +763,7 @@ export async function appendHermesRunEvents(
 		}
 		let working = current;
 		let snapshot = snapshotFromRun(current);
-		let sourceEvent = false, citationEvent = false, toolEvent = false, answerEvent = false;
+		let sourceEvent = false, citationEvent = false, toolEvent = false, activityEvent = false, answerEvent = false;
 		const eventRows: typeof hermesRunEvents.$inferInsert[] = [];
 		const artifactRefs: Array<{ revisionId: string; cursor: number }> = [];
 		for (const input of validated) {
@@ -785,11 +861,12 @@ export async function appendHermesRunEvents(
 			sourceEvent ||= Boolean(objectValue(eventData.source)) || eventType.startsWith('agent.source');
 			citationEvent ||= Array.isArray(eventData.citations) || snapshot.state === 'complete';
 			toolEvent ||= eventType === 'agent.tool.progress';
+			activityEvent ||= eventType === 'agent.plan' || eventType === 'agent.decision';
 			answerEvent ||= eventType === 'agent.answer.replace';
 			working = { ...working, cursor, workerCursor: input.workerCursor, state: snapshot.state,
 				answerText: snapshot.answerText, errorMessage: snapshot.errorMessage,
 				sourcesJson: JSON.stringify(snapshot.sources), citationsJson: JSON.stringify(snapshot.citations),
-				toolsJson: JSON.stringify(snapshot.tools) };
+				toolsJson: serializeRunActivity(snapshot) };
 		}
 		const inserted = await tx.insert(hermesRunEvents).values(eventRows).returning() as HermesRunEventRecord[];
 		const event = inserted.find((row) => row.cursor === working.cursor);
@@ -805,7 +882,7 @@ export async function appendHermesRunEvents(
 		// delta; those projections still update on the first event, metadata
 		// changes, answer replacement, and every terminal event.
 		const persistMessageSnapshot =
-			current.cursor === 0 || sourceEvent || citationEvent || toolEvent || answerEvent || terminal;
+			current.cursor === 0 || sourceEvent || citationEvent || toolEvent || activityEvent || answerEvent || terminal;
 		const runUpdate: Partial<typeof hermesRuns.$inferInsert> = {
 			cursor: working.cursor,
 			workerCursor: working.workerCursor,
@@ -829,8 +906,8 @@ export async function appendHermesRunEvents(
 			const citationsJson = JSON.stringify(snapshot.citations);
 			if (citationsJson !== current.citationsJson) runUpdate.citationsJson = citationsJson;
 		}
-		if (toolEvent) {
-			const toolsJson = JSON.stringify(snapshot.tools);
+		if (toolEvent || activityEvent) {
+			const toolsJson = serializeRunActivity(snapshot);
 			if (toolsJson !== current.toolsJson) runUpdate.toolsJson = toolsJson;
 		}
 		const [run] = (await tx
@@ -847,8 +924,9 @@ export async function appendHermesRunEvents(
 			};
 			// The first callback establishes metadata for the placeholder. Later
 			// text-only callbacks cannot change sources, citations, or tools.
-			if (current.cursor === 0 || sourceEvent || citationEvent || toolEvent || terminal) {
-				messageUpdate.toolCalls = serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations);
+			if (current.cursor === 0 || sourceEvent || citationEvent || toolEvent || activityEvent || terminal) {
+				messageUpdate.toolCalls = serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations,
+					{ plan: snapshot.plan, decisions: snapshot.decisions });
 			}
 			await tx
 				.update(messages)
@@ -979,14 +1057,19 @@ export async function failQueuedHermesRun(
 		const snapshot = snapshotFromRun(run);
 		await tx
 			.update(messages)
-			.set({ content: snapshot.answerText, partial: 1, toolCalls: null })
+			.set({
+				content: snapshot.answerText,
+				partial: 1,
+				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations,
+					{ plan: snapshot.plan, decisions: snapshot.decisions })
+			})
 			.where(and(eq(messages.id, current.assistantMessageId), eq(messages.conversationId, current.conversationId)));
 		const provenance = buildAnswerProvenanceBundle({
 			messageId: current.assistantMessageId,
 			conversationId: current.conversationId,
-			tools: [],
-			sources: [],
-			citations: [],
+			tools: snapshot.tools,
+			sources: snapshot.sources,
+			citations: snapshot.citations,
 			answerText: snapshot.answerText,
 			startedAt: current.startedAt ?? current.createdAt,
 			endedAt: now,
@@ -1064,7 +1147,8 @@ export async function finalizeHermesRunCancellation(
 			.set({
 				content: snapshot.answerText,
 				partial: 1,
-				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations)
+				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations,
+					{ plan: snapshot.plan, decisions: snapshot.decisions })
 			})
 			.where(and(eq(messages.id, current.assistantMessageId), eq(messages.conversationId, current.conversationId)));
 		const provenance = buildAnswerProvenanceBundle({
@@ -1100,8 +1184,10 @@ export async function finalizeHermesRunCancellation(
 }
 
 /**
- * Close an active run whose worker lease has expired before a browser
- * subscription starts polling it. The row lock plus owner/account predicates
+ * Close an active run whose expired worker lease has passed the recovery grace
+ * before a browser subscription starts polling it. Workers can reclaim the run
+ * immediately after expiry; this grace gives the periodic recovery loop time to
+ * do so. The row lock plus owner/account predicates
  * make this a no-op for a lease that was renewed or replaced concurrently;
  * queued, unleased work remains available to the normal Hermes recovery loop.
  */
@@ -1113,6 +1199,7 @@ export async function reconcileExpiredHermesRun(
 	const owner = requireValue(accountId, 'accountId');
 	const id = requireValue(runId, 'runId');
 	const staleFailureMessage = 'Research stopped before it finished. Please try again.';
+	const recoveryCutoff = now - HERMES_RECOVERY_GRACE_MS;
 	return db.transaction(async (tx: any) => {
 		const [current] = (await tx
 			.select()
@@ -1128,10 +1215,16 @@ export async function reconcileExpiredHermesRun(
 			current.leaseOwner == null ||
 			current.leaseToken == null ||
 			current.leaseExpiresAt == null ||
-			current.leaseExpiresAt > now
+			current.leaseExpiresAt > recoveryCutoff
 		) {
 			return current;
 		}
+
+        // Owned checkpoints retain uncertain request intents and completed
+        // receipts. A recovering worker decides their outcome under a new lease.
+        const [checkpoint] = await tx.execute(sql`SELECT run_id FROM agent_runtime_checkpoints
+            WHERE run_id = ${id} AND account_id = ${owner}`);
+        if (checkpoint) return current;
 
 		const cancelled = currentState === 'cancel_requested' || current.cancelRequestedAt != null;
 		const eventType = cancelled ? 'run.cancelled' : 'run.failed';
@@ -1157,7 +1250,7 @@ export async function reconcileExpiredHermesRun(
 					eq(hermesRuns.accountId, owner),
 					eq(hermesRuns.leaseOwner, current.leaseOwner),
 					eq(hermesRuns.leaseToken, current.leaseToken),
-					lte(hermesRuns.leaseExpiresAt, now)
+					lte(hermesRuns.leaseExpiresAt, recoveryCutoff)
 				)
 			)
 			.returning()) as HermesRunRecord[];
@@ -1181,7 +1274,8 @@ export async function reconcileExpiredHermesRun(
 			.set({
 				content: snapshot.answerText,
 				partial: 1,
-				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations)
+				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations,
+					{ plan: snapshot.plan, decisions: snapshot.decisions })
 			})
 			.where(and(eq(messages.id, updated.assistantMessageId), eq(messages.conversationId, updated.conversationId)));
 		const provenance = buildAnswerProvenanceBundle({
@@ -1233,7 +1327,7 @@ export async function claimHermesRunLease(
 			leaseOwner: worker,
 			leaseToken,
 			leaseExpiresAt: now + HERMES_LEASE_MS,
-			state: 'researching',
+			state: sql`CASE WHEN ${hermesRuns.cancelRequestedAt} IS NOT NULL THEN 'cancel_requested' ELSE 'researching' END`,
 			startedAt: sql`COALESCE(${hermesRuns.startedAt}, ${now})`,
 			updatedAt: now
 		})
@@ -1241,7 +1335,6 @@ export async function claimHermesRunLease(
 			and(
 				eq(hermesRuns.id, id),
 				eq(hermesRuns.accountId, owner),
-				isNull(hermesRuns.cancelRequestedAt),
 				inArray(hermesRuns.state, HERMES_ACTIVE_STATES),
 				or(isNull(hermesRuns.leaseExpiresAt), lt(hermesRuns.leaseExpiresAt, now))
 			)
@@ -1283,15 +1376,14 @@ export async function releaseHermesRunLease(
 ): Promise<HermesRunRecord> {
 	const [run] = (await db
 		.update(hermesRuns)
-		.set({ state: 'queued', leaseOwner: null, leaseToken: null, leaseExpiresAt: null, updatedAt: Date.now() })
+		.set({ state: sql`CASE WHEN ${hermesRuns.cancelRequestedAt} IS NOT NULL THEN 'cancel_requested' ELSE 'queued' END`, leaseOwner: null, leaseToken: null, leaseExpiresAt: null, updatedAt: Date.now() })
 		.where(
 			and(
 				eq(hermesRuns.id, requireValue(runId, 'runId')),
 				eq(hermesRuns.accountId, requireValue(accountId, 'accountId')),
 				eq(hermesRuns.leaseOwner, requireValue(leaseOwner, 'leaseOwner')),
 				eq(hermesRuns.leaseToken, requireValue(leaseToken, 'leaseToken')),
-				inArray(hermesRuns.state, HERMES_ACTIVE_STATES),
-				isNull(hermesRuns.cancelRequestedAt)
+				inArray(hermesRuns.state, HERMES_ACTIVE_STATES)
 			)
 		)
 		.returning()) as HermesRunRecord[];
@@ -1321,8 +1413,7 @@ export async function reclaimQueuedOrExpiredHermesRuns(
 						ORDER BY created_at ASC, id ASC
 					) AS tenant_rank
 				FROM hermes_runs
-				WHERE cancel_requested_at IS NULL
-					AND state IN (${activeStates})
+				WHERE state IN (${activeStates})
 					AND (lease_expires_at IS NULL OR lease_expires_at < ${now})
 			) eligible
 			ORDER BY tenant_rank ASC, created_at ASC, id ASC

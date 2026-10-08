@@ -378,6 +378,8 @@
 					m.id === renderedLastAssistantId &&
 					chat.activityConversationId === conversationId &&
 					!['complete', 'cancelled', 'failed'].includes(m.durableState || '')}
+				{@const activityAssistant = m.role === 'assistant' && m.id === renderedLastAssistantId && chat.activityConversationId === conversationId}
+				{@const activity = parseToolMetadata(m.toolCalls)}
 				{@const citationRecords =
 					m.role === 'assistant' ? citationsOf(m, activeAssistant) : []}
 				{@const citationState =
@@ -492,9 +494,14 @@
 							</div>
 						{/if}
 
-						{#if activeAssistant}
-							<PlanTimeline activeTurn={true} />
-							<ToolActivity activeTurn={true} runState={m.durableState} />
+						{#if m.role === 'assistant'}
+							<PlanTimeline
+								activeTurn={activeAssistant}
+								plan={activityAssistant ? chat.plan ?? activity.plan : activity.plan}
+								decisions={activityAssistant && chat.decisions.length ? chat.decisions : activity.decisions ?? []}
+							/>
+							<ToolActivity activeTurn={activeAssistant} runState={m.durableState}
+								completedTools={activityAssistant && chat.toolHistory.length ? chat.toolHistory : activity.tools} />
 						{/if}
 
 						{#if m.role === 'assistant' && m.partial && !m.streaming && runPresentation && !runPresentation.terminal}

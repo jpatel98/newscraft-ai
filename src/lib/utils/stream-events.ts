@@ -1,5 +1,12 @@
 import {
 	isCitationUrl,
+	normalizePublicAgentPlan,
+	normalizePublicAgentDecision,
+	type PublicAgentPlan,
+	type PublicAgentDecision,
+	type PublicPlanStep,
+	type PublicPlanStepStatus,
+	type PublicPlanRequirementCoverage,
 	type CitationRecord,
 	type CitationSourceType,
 	type RetrievalProvenance
@@ -53,36 +60,11 @@ export interface PersistedSource extends StreamSourceUpdate {
 	used: boolean;
 }
 
-export type PlanStepStatus = 'pending' | 'running' | 'ok' | 'failed' | 'skipped';
-
-export interface PlanStep {
-	id: string;
-	label: string;
-	status: PlanStepStatus;
-	detail?: string;
-	requirementId?: string;
-	phase?: 'discovery' | 'official' | 'corroboration';
-}
-
-export interface PlanRequirementCoverage {
-	requirement_id: string;
-	label: string;
-	requested_count: number;
-	accepted_count: number;
-	state: string;
-	gaps: string[];
-	likely_to_improve: boolean;
-	executed_actions: number;
-	skipped_actions: number;
-	budget_exhausted: boolean;
-}
-
-export interface StreamPlanUpdate {
-	source: 'model' | 'router';
-	steps: PlanStep[];
-	requirementCoverage?: PlanRequirementCoverage[];
-	assignmentStatus?: string;
-}
+export type PlanStepStatus = PublicPlanStepStatus;
+export type PlanStep = PublicPlanStep;
+export type PlanRequirementCoverage = PublicPlanRequirementCoverage;
+export type StreamPlanUpdate = PublicAgentPlan;
+export type StreamDecisionUpdate = PublicAgentDecision;
 
 export interface StreamEventUpdate {
 	delta?: string;
@@ -94,6 +76,7 @@ export interface StreamEventUpdate {
 	tool?: StreamToolUpdate;
 	source?: PersistedSource;
 	plan?: StreamPlanUpdate;
+	decision?: StreamDecisionUpdate;
 	citations?: CitationRecord[];
 	artifact?: ArtifactSummary;
 }
@@ -1060,6 +1043,8 @@ export function sseFrame(event: string, data: string): string {
 }
 
 export class StreamEventState {
+	private plan: StreamPlanUpdate | null = null;
+	private decisions = new Map<string, StreamDecisionUpdate>();
 	private calls = new Map<string, StreamToolCall>();
 	private sources = new Map<string, PersistedSource>();
 	private citations = new Map<string, CitationRecord>();
@@ -1144,7 +1129,21 @@ export class StreamEventState {
 			return updates;
 		}
 
-		if (event === 'agent.plan') return this.applyAgentPlan(payload);
+		if (event === 'agent.plan') {
+			const plan = normalizePublicAgentPlan(payload);
+			if (!plan) return [];
+			this.plan = plan;
+			return [{ plan }];
+		}
+		if (event === 'agent.decision') {
+			const decision = normalizePublicAgentDecision(payload);
+			if (!decision) return [];
+			const existing = this.decisions.get(decision.id);
+			if (existing?.summary === decision.summary && existing?.stepId === decision.stepId) return [];
+			this.decisions.set(decision.id, decision);
+			if (this.decisions.size > 50) this.decisions.delete(this.decisions.keys().next().value!);
+			return [{ decision }];
+		}
 
 		if (event === 'agent.citations') {
 			const raw = Array.isArray(payload.citations) ? payload.citations : [];
@@ -1192,47 +1191,12 @@ export class StreamEventState {
 			.sort((a, b) => a.citationNumber - b.citationNumber);
 	}
 
-	private applyAgentPlan(payload: JsonObject): StreamEventUpdate[] {
-		const source = (stringValue(payload.source) as StreamPlanUpdate['source']) || 'router';
-		const rawSteps = arrayValue(payload.steps);
-		const steps: PlanStep[] = rawSteps.flatMap((raw) => {
-			const obj = objectValue(raw);
-			if (!obj) return [];
-			const id = stringValue(obj.id) || `step_${Math.random().toString(36).slice(2)}`;
-			const label = stringValue(obj.label) || 'Researching';
-			const rawStatus = stringValue(obj.status) || 'pending';
-			const status: PlanStepStatus = ['pending', 'running', 'ok', 'failed', 'skipped'].includes(rawStatus)
-				? (rawStatus as PlanStepStatus)
-				: 'pending';
-			const detail = stringValue(obj.detail) ?? undefined;
-			const requirementId = stringValue(obj.requirementId ?? obj.requirement_id) ?? undefined;
-			const phaseValue = stringValue(obj.phase);
-			const phase = phaseValue === 'discovery' || phaseValue === 'official' || phaseValue === 'corroboration' ? phaseValue : undefined;
-			return [{ id, label, status, ...(detail ? { detail } : {}), ...(requirementId ? { requirementId } : {}), ...(phase ? { phase } : {}) }];
-		});
-		if (!steps.length) return [];
-		const rawCoverage = arrayValue(payload.requirementCoverage ?? payload.requirement_coverage);
-		const requirementCoverage = rawCoverage.flatMap((raw) => {
-			const obj = objectValue(raw);
-			if (!obj) return [];
-			const id = stringValue(obj.requirement_id ?? obj.requirementId);
-			const label = stringValue(obj.label);
-			if (!id || !label) return [];
-			return [{
-				requirement_id: id,
-				label,
-				requested_count: numberValue(obj.requested_count ?? obj.requestedCount) || 0,
-				accepted_count: numberValue(obj.accepted_count ?? obj.acceptedCount) || 0,
-				state: stringValue(obj.state) || 'pending',
-				gaps: arrayValue(obj.gaps).map((gap) => stringValue(gap)).filter((gap): gap is string => Boolean(gap)),
-				likely_to_improve: obj.likely_to_improve === true || obj.likelyToImprove === true,
-				executed_actions: numberValue(obj.executed_actions ?? obj.executedActions) || 0,
-				skipped_actions: numberValue(obj.skipped_actions ?? obj.skippedActions) || 0,
-				budget_exhausted: obj.budget_exhausted === true || obj.budgetExhausted === true
-			}];
-		});
-		const assignmentStatus = stringValue(payload.assignmentStatus ?? payload.assignment_status) ?? undefined;
-		return [{ plan: { source, steps, ...(requirementCoverage.length ? { requirementCoverage } : {}), ...(assignmentStatus ? { assignmentStatus } : {}) } }];
+	planSnapshot(): StreamPlanUpdate | null {
+		return this.plan ? normalizePublicAgentPlan(this.plan) : null;
+	}
+
+	decisionList(): StreamDecisionUpdate[] {
+		return [...this.decisions.values()].map(decision => ({ ...decision }));
 	}
 
 	private applyAgentTool(payload: JsonObject, now: number): StreamEventUpdate[] {

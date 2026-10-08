@@ -1,0 +1,20 @@
+[Unit]
+Description=NewsCraft owned research worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/services/newscraft-agent/service
+EnvironmentFile=%h/.config/newscraft-agent/newscraft-agent.env
+Environment=NEWSCRAFT_AGENT_MAX_STEPS=12
+# Research needs private staging and HTTPS egress. Optional computer access uses
+# that same user's pre-provisioned private rootless Docker socket; see executor.md.
+ExecStart=%h/services/newscraft-agent/venv/bin/newscraft-agent
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

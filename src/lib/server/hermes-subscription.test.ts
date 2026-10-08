@@ -17,6 +17,7 @@ const dbMocks = vi.hoisted(() => ({
 
 vi.mock('$lib/server/db/hermes-runs', () => ({
 	...dbMocks,
+	HERMES_RECOVERY_GRACE_MS: 45_000,
 	HERMES_TERMINAL_STATES: ['cancelled', 'failed', 'complete']
 }));
 vi.mock('$lib/server/chat-diagnostics', () => ({ recordChatDiagnostic: vi.fn() }));
@@ -56,6 +57,24 @@ describe('Hermes subscription polling', () => {
 		expect(nextHermesSubscriptionPollMs(pollMs, true)).toBe(HERMES_SUBSCRIPTION_ACTIVE_POLL_MS);
 	});
 
+	it('stops polling when the response reader disconnects without aborting the request', async () => {
+		vi.useFakeTimers();
+		dbMocks.getHermesRun.mockResolvedValue(initialRun);
+		dbMocks.getHermesRunSubscriptionState.mockResolvedValue(initialRun);
+		dbMocks.listKnownHermesRunEvents.mockResolvedValue([]);
+		const request = new Request('http://localhost/api/chat/runs/run-1');
+		const response = await hermesSubscriptionResponse({ request, accountId: 'account-1', runId: 'run-1', afterCursor: 0 });
+		const reader = response.body!.getReader();
+		await reader.read();
+		await vi.advanceTimersByTimeAsync(0);
+		await reader.cancel();
+		expect(request.signal.aborted).toBe(false);
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(dbMocks.listKnownHermesRunEvents).toHaveBeenCalledTimes(1);
+		expect(dbMocks.getHermesRunSubscriptionState).not.toHaveBeenCalled();
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
 	it('uses four tenant-bound reads for two poll cycles instead of seven', async () => {
 		vi.useFakeTimers();
 		dbMocks.getHermesRun.mockResolvedValue(initialRun);
@@ -90,16 +109,39 @@ describe('Hermes subscription polling', () => {
 		expect(body).toContain('event: response.completed');
 	});
 
-	it('reconciles an expired leased run before streaming its terminal event', async () => {
+	it.each([0, 44_999])('leaves an expired worker lease reclaimable at %i ms after expiry', async elapsedMs => {
 		vi.useFakeTimers();
-		vi.setSystemTime(new Date(5_000));
+		vi.setSystemTime(new Date(5_000 + elapsedMs));
+		dbMocks.getHermesRun.mockResolvedValue({ ...initialRun, leaseExpiresAt: 5_000 });
+		dbMocks.getHermesRunSubscriptionState.mockResolvedValue({ state: 'complete', cursor: 1 });
+		dbMocks.listKnownHermesRunEvents
+			.mockResolvedValueOnce([])
+			.mockResolvedValueOnce([{ cursor: 1, eventType: 'response.completed', dataJson: '{}' }]);
+
+		const response = await hermesSubscriptionResponse({
+			request: new Request('http://localhost/api/chat/runs/run-1'),
+			accountId: 'account-1', runId: 'run-1', afterCursor: 0
+		});
+		const bodyPromise = response.text();
+		await vi.advanceTimersByTimeAsync(HERMES_SUBSCRIPTION_ACTIVE_POLL_MS);
+		const body = await bodyPromise;
+
+		expect(dbMocks.reconcileExpiredHermesRun).not.toHaveBeenCalled();
+		expect(body).toContain('status":"researching"');
+		expect(body).toContain('event: response.completed');
+		expect(body).not.toContain('event: run.failed');
+	});
+
+	it('reconciles a leased run exactly when its recovery grace ends before streaming its terminal event', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date(50_000));
 		const staleRun = {
 			...initialRun,
 			state: 'researching',
 			cursor: 0,
 			leaseOwner: 'worker-a',
 			leaseToken: 'lease-a',
-			leaseExpiresAt: 4_999
+			leaseExpiresAt: 5_000
 		};
 		const reconciledRun = {
 			...staleRun,
@@ -129,5 +171,30 @@ describe('Hermes subscription polling', () => {
 		expect(body).toContain('status":"failed"');
 		expect(body).toContain('Research stopped before it finished. Please try again.');
 		expect(body).toContain('event: run.failed');
+	});
+
+	it('streams a worker replacement returned by reconciliation without a stale terminal event', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date(50_000));
+		dbMocks.getHermesRun.mockResolvedValue({ ...initialRun, leaseExpiresAt: 5_000 });
+		dbMocks.reconcileExpiredHermesRun.mockResolvedValue({
+			...initialRun, leaseOwner: 'worker-new', leaseToken: 'lease-new', leaseExpiresAt: 140_000
+		});
+		dbMocks.getHermesRunSubscriptionState.mockResolvedValue({ state: 'complete', cursor: 1 });
+		dbMocks.listKnownHermesRunEvents
+			.mockResolvedValueOnce([])
+			.mockResolvedValueOnce([{ cursor: 1, eventType: 'response.completed', dataJson: '{}' }]);
+		const response = await hermesSubscriptionResponse({
+			request: new Request('http://localhost/api/chat/runs/run-1'),
+			accountId: 'account-1', runId: 'run-1', afterCursor: 0
+		});
+		const bodyPromise = response.text();
+		await vi.advanceTimersByTimeAsync(HERMES_SUBSCRIPTION_ACTIVE_POLL_MS);
+		const body = await bodyPromise;
+
+		expect(dbMocks.reconcileExpiredHermesRun).toHaveBeenCalledOnce();
+		expect(body).toContain('status":"researching"');
+		expect(body).toContain('event: response.completed');
+		expect(body).not.toContain('event: run.failed');
 	});
 });

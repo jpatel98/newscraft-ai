@@ -4,7 +4,6 @@ import { DOCUMENT_BUCKET, MAX_PDF_BYTES, PDF_MIME_TYPE } from './constants';
 import { DocumentError } from './errors';
 import type { DocumentStorage } from './types';
 import { isAllowedSignedStorageUrl } from './signed-url';
-import { createClient } from '@supabase/supabase-js';
 import { VpsStorageClient, VpsStorageError } from '$lib/server/storage/vps-client';
 
 interface SupabaseResult<T> {
@@ -47,7 +46,7 @@ interface SupabaseModule {
 type SupabaseLoader = () => Promise<SupabaseModule>;
 
 async function loadSupabase(): Promise<SupabaseModule> {
-	return { createClient } as unknown as SupabaseModule;
+	return await import('@supabase/supabase-js') as unknown as SupabaseModule;
 }
 
 export function createSupabaseDocumentStorage(options: {
@@ -58,7 +57,7 @@ export function createSupabaseDocumentStorage(options: {
 	allowLoopbackHttp?: boolean;
 } = {}): DocumentStorage {
 	const url = options.url ?? env.SUPABASE_URL ?? '';
-	const serviceRoleKey = options.serviceRoleKey ?? env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+	const serviceRoleKey = options.serviceRoleKey ?? (env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY) ?? '';
 	const bucketName = options.bucket ?? DOCUMENT_BUCKET;
 	const loader = options.loadModule ?? loadSupabase;
 	const allowLoopbackHttp = options.allowLoopbackHttp ?? dev;
@@ -205,11 +204,12 @@ export function createVpsDocumentStorage(options: {
 	};
 }
 
-/** Select the new VPS backend only when explicitly configured. The Supabase
- * adapter remains available for a controlled rollback window. */
+/** Provider configuration is server-owned; no implicit cloud fallback. */
 export function createDocumentStorage(): DocumentStorage {
-	if (env.NEWSCRAFT_STORAGE_MODE?.trim().toLowerCase() === 'vps') return createVpsDocumentStorage();
-	return createSupabaseDocumentStorage();
+    const provider = env.NEWSCRAFT_STORAGE_PROVIDER || env.NEWSCRAFT_STORAGE_MODE || 'vps';
+    if (provider === 'vps') return createVpsDocumentStorage();
+    if (provider === 'supabase') return createSupabaseDocumentStorage();
+    throw unavailable();
 }
 
 function unavailable(): DocumentError {

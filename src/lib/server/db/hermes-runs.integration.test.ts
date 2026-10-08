@@ -10,6 +10,7 @@ import {
 import { ensureMigrated, sql } from './index';
 import {
 	HERMES_LEASE_MS,
+	HERMES_RECOVERY_GRACE_MS,
 	appendHermesRunEvent,
 	appendHermesRunEvents,
 	claimHermesRunLease,
@@ -27,8 +28,10 @@ import {
 	renewHermesRunLease,
 	releaseHermesRunLease,
 	requestHermesRunCancellation,
+	snapshotFromRun,
 } from './hermes-runs';
 import { getMessageProvenance } from './message-provenance';
+import { parseToolMetadata } from '$lib/utils/tool-metadata';
 
 const databaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
 
@@ -114,6 +117,37 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		expect(cancelled.run.state).toBe('cancelled');
 	});
 
+	it('replays public plans and decisions from the run and saved message without private fields', async () => {
+		const { run, conversation, assistant } = await createRun('public-activity-replay');
+		const lease = (await claimHermesRunLease(accountA, run.id, 'activity-worker'))!;
+		const plan = { source: 'model', steps: [
+			{ id: 'read', label: 'Read primary sources', status: 'running' },
+			{ id: 'write', label: 'Write a cited answer', status: 'pending' }
+		] };
+		const completedPlan = { ...plan, steps: plan.steps.map(step => ({ ...step, status: 'ok' })) };
+		const decision = { id: 'official-first', summary: 'I checked the official announcement first.', stepId: 'read' };
+		const events = [
+			{ workerCursor: 1, eventType: 'run.started', dataJson: '{}' },
+			{ workerCursor: 2, eventType: 'agent.plan', dataJson: JSON.stringify({ ...plan, reasoning: 'private trace' }) },
+			{ workerCursor: 3, eventType: 'agent.decision', dataJson: JSON.stringify({ ...decision, analysis: 'private trace' }) },
+			{ workerCursor: 4, eventType: 'agent.plan', dataJson: JSON.stringify(completedPlan) },
+			{ workerCursor: 5, eventType: 'agent.answer.replace', dataJson: JSON.stringify({ content: 'Recorded answer.' }) },
+			{ workerCursor: 6, eventType: 'response.completed', dataJson: '{}' }
+		];
+		const result = await appendHermesRunEvents(accountA, run.id, lease.leaseOwner!, lease.leaseToken!, events);
+		expect(snapshotFromRun(result.run)).toMatchObject({ state: 'complete', plan: completedPlan, decisions: [decision] });
+		const savedMessage = (await getMessages(conversation.id)).find(message => message.id === assistant.id)!;
+		expect(parseToolMetadata(savedMessage.toolCalls)).toMatchObject({ plan: completedPlan, decisions: [decision] });
+		const recordedEvents = await listHermesRunEvents(accountA, run.id);
+		expect(JSON.parse(recordedEvents[1].dataJson)).toEqual(plan);
+		expect(JSON.parse(recordedEvents[2].dataJson)).toEqual(decision);
+		expect(JSON.stringify(recordedEvents)).not.toContain('private trace');
+		expect((await listKnownHermesRunEvents(accountA, run.id, 4)).map(event => event.cursor)).toEqual([5, 6]);
+		const replay = await appendHermesRunEvents(accountA, run.id, lease.leaseOwner!, lease.leaseToken!, events);
+		expect(replay.event.cursor).toBe(6);
+		expect(await listHermesRunEvents(accountA, run.id)).toHaveLength(6);
+	});
+
 	it('rolls back a batch with an event after completion and rejects invalid cursors and owners', async () => {
 		const { run } = await createRun('batch-rollback');
 		const lease = (await claimHermesRunLease(accountA, run.id, 'batch-worker'))!;
@@ -181,6 +215,22 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		await expect(
 			prepareDurableUserTurn({ ...input, accountId: accountB })
 		).rejects.toThrow('conversation not found');
+	});
+
+	it('rejects a concurrent account key collision across different conversations', async () => {
+		const left = await seed('key-binding-left');
+		const right = await seed('key-binding-right');
+		const idempotencyKey = `shared-${left.conversation.id}`;
+		const results = await Promise.allSettled([left, right].map(seeded => createOrGetHermesRun({
+			accountId: accountA, orgId: seeded.conversation.orgId,
+			conversationId: seeded.conversation.id, userMessageId: seeded.user.id,
+			assistantMessageId: seeded.assistant.id, idempotencyKey,
+			tenantKey: `tenant-${accountA}`, sessionId: `session-${seeded.conversation.id}`, inputJson: '{}'
+		})));
+		expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+		expect(results.find(result => result.status === 'rejected')).toMatchObject({ reason: { code: 'invalid_input' } });
+		const rows = await sql`SELECT conversation_id FROM hermes_runs WHERE account_id = ${accountA} AND idempotency_key = ${idempotencyKey}`;
+		expect(rows).toHaveLength(1);
 	});
 
 	it('does not merge different output actions on the same answer', async () => {
@@ -688,15 +738,16 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		).rejects.toMatchObject({ code: 'stale_callback' });
 	});
 
-	it('records cancellation and does not allow a cancelled run to be claimed', async () => {
+	it('permits a cleanup lease after cancellation is requested and rejects claims after finalization', async () => {
 		const { run } = await createRun('cancellation');
 		const cancelled = await requestHermesRunCancellation(accountA, run.id, 'operator_stop');
 		expect(cancelled.state).toBe('cancel_requested');
 		expect(cancelled.cancelRequestedAt).toEqual(expect.any(Number));
 		expect((await listHermesRunEvents(accountA, run.id)).at(-1)?.eventType).toBe('run.cancel_requested');
-		expect(await claimHermesRunLease(accountA, run.id, 'worker-a')).toBeNull();
+		expect(await claimHermesRunLease(accountA, run.id, 'worker-a')).toMatchObject({ state: 'cancel_requested' });
 		const terminal = await finalizeHermesRunCancellation(accountA, run.id);
 		expect(terminal).toMatchObject({ state: 'cancelled', completedAt: expect.any(Number) });
+		expect(await claimHermesRunLease(accountA, run.id, 'worker-b')).toBeNull();
 		expect((await listHermesRunEvents(accountA, run.id)).at(-1)?.eventType).toBe('run.cancelled');
 		await expect(finalizeHermesRunCancellation(accountB, run.id)).rejects.toMatchObject({
 			code: 'not_found'
@@ -719,7 +770,7 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		});
 	});
 
-	it('reconciles an expired worker lease once and preserves tenant and lifecycle guards', async () => {
+	it('reconciles an expired worker lease after recovery grace once and preserves tenant and lifecycle guards', async () => {
 		const { run, conversation, assistant } = await createRun('expired-reconnect');
 		const claimed = await claimHermesRunLease(accountA, run.id, 'worker-a', 10_000);
 		expect(claimed).not.toBeNull();
@@ -729,7 +780,11 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 			WHERE id = ${run.id} AND account_id = ${accountA}
 		`;
 
-		const reconciled = await reconcileExpiredHermesRun(accountA, run.id, 10_000);
+		const reconciledAt = 9_999 + HERMES_RECOVERY_GRACE_MS;
+		expect(await reconcileExpiredHermesRun(accountA, run.id, 10_000)).toMatchObject({ state: 'researching', cursor: 0 });
+		expect(await reconcileExpiredHermesRun(accountA, run.id, reconciledAt - 1)).toMatchObject({ state: 'researching', cursor: 0 });
+		expect(await listHermesRunEvents(accountA, run.id)).toEqual([]);
+		const reconciled = await reconcileExpiredHermesRun(accountA, run.id, reconciledAt);
 		expect(reconciled).toMatchObject({
 			state: 'failed',
 			errorMessage: 'Research stopped before it finished. Please try again.',
@@ -737,7 +792,7 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 			leaseOwner: null,
 			leaseToken: null,
 			leaseExpiresAt: null,
-			completedAt: 10_000
+			completedAt: reconciledAt
 		});
 		expect((await listHermesRunEvents(accountA, run.id)).at(-1)).toMatchObject({
 			cursor: 1,
@@ -752,8 +807,8 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 			partial: 1,
 			content: ''
 		});
-		expect(await reconcileExpiredHermesRun(accountA, run.id, 10_001)).toMatchObject({ state: 'failed', cursor: 1 });
-		expect(await reconcileExpiredHermesRun(accountB, run.id, 10_001)).toBeNull();
+		expect(await reconcileExpiredHermesRun(accountA, run.id, reconciledAt + 1)).toMatchObject({ state: 'failed', cursor: 1 });
+		expect(await reconcileExpiredHermesRun(accountB, run.id, reconciledAt + 1)).toBeNull();
 
 		const queued = await createRun('expired-reconnect-queued');
 		expect(await reconcileExpiredHermesRun(accountA, queued.run.id, 10_000)).toMatchObject({
@@ -771,7 +826,7 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 
 		const renewed = await createRun('expired-reconnect-renewed');
 		const renewedClaim = await claimHermesRunLease(accountA, renewed.run.id, 'worker-renewed', 40_000);
-		const renewedAt = 40_001;
+		const renewedAt = renewedClaim!.leaseExpiresAt! - 1;
 		const renewedRun = await renewHermesRunLease(
 			accountA,
 			renewed.run.id,
@@ -779,7 +834,7 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 			renewedClaim!.leaseToken!,
 			renewedAt
 		);
-		expect(await reconcileExpiredHermesRun(accountA, renewed.run.id, renewedAt + 1)).toMatchObject({
+		expect(await reconcileExpiredHermesRun(accountA, renewed.run.id, renewedClaim!.leaseExpiresAt! + HERMES_RECOVERY_GRACE_MS)).toMatchObject({
 			state: 'researching',
 			leaseOwner: 'worker-renewed',
 			leaseToken: renewedClaim!.leaseToken,
@@ -796,7 +851,7 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 		`;
 		const replacement = await claimHermesRunLease(accountA, replaced.run.id, 'worker-new', 30_000);
 		expect(replacement?.leaseOwner).toBe('worker-new');
-		expect(await reconcileExpiredHermesRun(accountA, replaced.run.id, 30_001)).toMatchObject({
+		expect(await reconcileExpiredHermesRun(accountA, replaced.run.id, 29_999 + HERMES_RECOVERY_GRACE_MS)).toMatchObject({
 			state: 'researching',
 			leaseOwner: 'worker-new',
 			leaseToken: replacement!.leaseToken,
@@ -812,13 +867,17 @@ describe.skipIf(!databaseUrl)('durable Hermes run repository', () => {
 			SET lease_expires_at = 49_999
 			WHERE id = ${cancellation.run.id} AND account_id = ${accountA}
 		`;
-		expect(await reconcileExpiredHermesRun(accountA, cancellation.run.id, 50_000)).toMatchObject({
+		const cancellationSettledAt = 49_999 + HERMES_RECOVERY_GRACE_MS;
+		expect(await reconcileExpiredHermesRun(accountA, cancellation.run.id, cancellationSettledAt - 1)).toMatchObject({
+			state: 'cancel_requested', cursor: 1
+		});
+		expect(await reconcileExpiredHermesRun(accountA, cancellation.run.id, cancellationSettledAt)).toMatchObject({
 			state: 'cancelled',
 			cursor: 2,
 			leaseOwner: null,
 			leaseToken: null,
 			leaseExpiresAt: null,
-			completedAt: 50_000
+			completedAt: cancellationSettledAt
 		});
 		expect((await listHermesRunEvents(accountA, cancellation.run.id)).at(-1)).toMatchObject({
 			cursor: 2,

@@ -328,6 +328,18 @@ def main() -> int:
         "PYTHONPATH": os.pathsep.join([str(args.source), str(args.hermes_agent)]),
         "NEWSCRAFT_ISOLATION_MODEL_PORT": str(args.model_port),
     }
+    # The spawned service repoints HOME at its sandbox home, which hides the
+    # docker context on hosts that keep the daemon socket outside /var/run
+    # (macOS/colima). Pass the operator's docker routing through, and fall
+    # back to the default colima socket when the operator has none set.
+    for passthrough in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY"):
+        value = os.environ.get(passthrough)
+        if value:
+            environment[passthrough] = value
+    if "DOCKER_HOST" not in environment and "DOCKER_CONTEXT" not in environment:
+        colima_socket = Path.home() / ".colima" / "default" / "docker.sock"
+        if colima_socket.exists():
+            environment["DOCKER_HOST"] = f"unix://{colima_socket}"
     model_log = (root / "logs" / "model.log").open("w", encoding="utf-8")
     model_process = subprocess.Popen(
         [str(args.service_python), str(args.source.parent / "tests" / "fixtures" / "isolation_tool_model.py")],
@@ -352,6 +364,18 @@ def main() -> int:
                 "NEWSCRAFT_HERMES_MODEL_API_KEY": model_token,
                 "TERMINAL_DOCKER_IMAGE": args.docker_image,
                 "AGENT_BROWSER_HEADED": "false",
+                # /ready is 200 only when the durable control plane is configured
+                # (the worker checks that url+token are present; this matrix does
+                # not exercise durable runs). Default to a loopback placeholder;
+                # operators can override with real NewsCraft run API values.
+                "NEWSCRAFT_HERMES_RUN_API_URL": os.environ.get(
+                    "NEWSCRAFT_HERMES_RUN_API_URL",
+                    f"http://127.0.0.1:{args.port}/api/internal/hermes/runs",
+                ),
+                "NEWSCRAFT_HERMES_RUN_API_TOKEN": os.environ.get(
+                    "NEWSCRAFT_HERMES_RUN_API_TOKEN",
+                    "staging-isolation-run-api-token",
+                ),
             }
         )
         if args.agent_browser is not None:

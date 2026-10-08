@@ -1,11 +1,11 @@
-# Durable Hermes streaming
+# Durable NewsCraft streaming (compatible Hermes route names)
 
-## Reproduction
+## Historical reproduction before durable runs
 
-The current browser request owns `POST /api/chat/stream`. The route links
+The former browser request owned `POST /api/chat/stream`. The route links
 `request.signal` to the upstream Hermes abort controller and calls that
 controller from the stream `cancel()` hook. A refresh therefore aborts Hermes.
-The route saves only a partial assistant message. The current resume path claims
+The route saves only a partial assistant message. The former resume path claimed
 that row and sends a new Hermes request, so completed research can repeat.
 
 Existing focused evidence before this change:
@@ -19,8 +19,8 @@ Existing focused evidence before this change:
 
 - NewsCraft Postgres owns authenticated conversations, durable Hermes runs,
   append-only run events, snapshots, leases, and cancellation state.
-- The existing restricted `newscraft-hermes-chat.service` owns the Hermes AG-UI
-  connection and one worker task per run. It does not use the browser request
+- The owned `newscraft-agent.service` selects `PortableAgentRunner` and owns
+  one durable worker task per run. It does not use the browser request
   signal.
 - The browser calls only NewsCraft. It creates a run, reads a NewsCraft SSE
   subscription, and sends cancellation to NewsCraft.
@@ -99,3 +99,7 @@ Focused tests come first. Then run concurrency, replay, refresh, duplicate,
 cancellation, service-restart, tenant-isolation, typecheck, build, packaging,
 and real local and production UI checks. Do not claim release until every
 required gate has evidence. Do not change Hydra.
+
+## Owned portable runtime update — 2026-10-07
+
+The active runner additionally saves lease-fenced private canonical checkpoints, request reservations, intent and receipts in Postgres. Uncertain model/tool effects are not automatically repeated. `finishing` remains recoverable until cleanup is confirmed; only then is `finished` saved and emitted. Immutable publication alone can retry within its fixed 240-second window. See the [worker README](../services/hermes-chat/README.md) and [current measured handoff](agent-local-handoff.md). The original transport coalescing contract above does not claim token streaming from the current non-streaming HTTP model adapters; public activity and the completed answer still stream as durable events.
