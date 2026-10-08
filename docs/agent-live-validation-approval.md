@@ -1,8 +1,18 @@
 # Owned runtime live acceptance — not run
 
+## DeepSeek update — 2026-10-07
+
+The newly requested provider route is the fixture-verified DeepSeek Messages
+adapter. Its real key and separate paid approval are still missing. Use the
+[current DeepSeek setup and $0.06 approval text](managed-agent-setup.md#deepseek-setup-and-proposed-acceptance)
+and [local handoff Status](agent-local-handoff.md#status-as-of-2026-10-07).
+Earlier OpenAI pricing/approval proposals below are historical alternatives,
+not approval to spend. All infrastructure, storage, deployment and host boundaries
+remain in force; no paid provider call was made during implementation.
+
 The active architecture uses direct interchangeable model adapters and NewsCraft-owned orchestration. Managed Agents and the previous Docker broker validation are superseded. The old `scripts/live-validate-agent.py` CLI is retired and exits before credentials or execution.
 
-Existing OpenAI credential reuse is approved. The parent has initialized and verified the authorized new database `ygsiifvjzdazfxflmpjq`; do not rerun initialization. Local startup is authorized after the redacted checker passes; the checker still reports absent runtime `DATABASE_URL`. Public deployment and paid calls are prohibited in the current review session. Credential entry and the paid-model allowance remain pending. Use [the setup guide](managed-agent-setup.md), this disposable project, two disposable users and public/synthetic content. Review actual selected model prices, the configured reservation ceilings, optional search charges and the live run's spending allowance before authorizing it. App reservations are not provider billing guarantees.
+Existing OpenAI credential reuse is approved. The authorized new database `ygsiifvjzdazfxflmpjq` was initialized previously; do not rerun initialization. The 2026-10-07 follow-up verified local health, signup/sign-in and an empty conversation with full TLS verification, then stopped both listeners. The DeepSeek checker now reports only the missing dedicated key. Public deployment and paid calls remain prohibited without their separate authorization. Use [the setup guide](managed-agent-setup.md), this disposable project and public/synthetic content. Review current model prices, reservation ceilings, optional search charges and the run's allowance before approving it. App reservations are not provider billing guarantees.
 
 Acceptance after separate authorization:
 
@@ -18,13 +28,4 @@ Record redacted provider request IDs, local budget reservations, public saved ev
 
 The rootless OCI terminal/filesystem and interactive browser adapters have deterministic coverage, including a browser → cited answer → Markdown/CSV flow and lost-acknowledgement recovery. Separate synthetic Linux acceptance commands are ready; see [executor/browser acceptance](../services/hermes-chat/deploy/executor.md). They need an authorized suitable Linux host, reviewed immutable images and approval of an existing hash-pinned deny-by-default Chromium seccomp profile with user-namespace allowances. No Docker/Colima/cloud sandbox service was started, image built, policy installed or host provisioned here. Browser resources are bounded at 1 CPU/1 GiB/128 PIDs per active run, in addition to the terminal's 1 CPU/256 MiB. Host cost is not established; no spend was approved. Separately, 53 application database checks passed on a disposable local Postgres fixture, which was stopped and removed; these do not establish Supabase connectivity.
 
-The current offline evidence is [the 2026-10-07 measured matrix](agent-local-handoff.md#measured-verification-in-this-session). Earlier counts in this acceptance proposal are historical; none substitutes for the unrun live steps above.
-# DeepSeek update — 2026-10-07
-
-The newly requested provider route is the fixture-verified DeepSeek Messages
-adapter. Its real key and separate paid approval are still missing. Use the
-[current DeepSeek setup and $0.06 approval text](managed-agent-setup.md#deepseek-setup-and-proposed-acceptance)
-and [local handoff Status](agent-local-handoff.md#status-as-of-2026-10-07).
-Earlier OpenAI pricing/approval proposals below are historical alternatives,
-not approval to spend. All infrastructure, storage, deployment and host boundaries
-remain in force; no paid provider call was made during implementation.
+The current offline evidence is [the 2026-10-07 handoff Status](agent-local-handoff.md#status-as-of-2026-10-07). Earlier counts in this acceptance proposal are historical; none substitutes for the remaining live steps above.

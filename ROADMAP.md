@@ -56,7 +56,8 @@ private versioned runtime checkpoints. `service.py` selects `PortableAgentRunner
 directly. The `services/hermes-chat` directory and internal `/hermes/runs` routes
 remain compatibility names; the upstream Hermes agent is not a dependency.
 
-**Working in local fixtures:** OpenAI Responses and Anthropic Messages adapters,
+**Working in local fixtures:** OpenAI Responses, Anthropic Messages and dedicated
+DeepSeek Messages adapters (with explicit non-thinking mode and peak-rate floors),
 public search, bounded public-page retrieval, exact-excerpt citation recording,
 Markdown/CSV publication, cursor replay, cancellation, leases and conservative
 request reservations. Completed receipts replay; uncertain model/tool effects
@@ -67,8 +68,9 @@ sessions; Supabase Auth/Storage are explicitly selected optional adapters.
 The optional rootless OCI adapter supplies terminal/files and interactive
 Chromium on an approved Linux worker. Private conversation files, browser storage
 and operation receipts live on its retained SQLite volume; this persistence is
-separate from Postgres. **Blocked:** actual Linux/Chromium acceptance, new-project
-runtime database connectivity and the separately approved paid-model acceptance.
+separate from Postgres. **Working locally:** new-project database connectivity,
+signup/sign-in and an empty saved conversation. **Blocked:** actual Linux/Chromium
+acceptance, the new DeepSeek key and separately approved paid-model acceptance.
 Readiness describes configuration, not provider or deployment success.
 
 See [the worker README](services/hermes-chat/README.md),

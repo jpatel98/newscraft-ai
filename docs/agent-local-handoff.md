@@ -36,6 +36,31 @@ Contabo/Hydra, old Supabase, paid calls without approval, deployment and pushes
 remain in effect. The test evidence below distinguishes the new provider fixtures
 from the earlier successful local startup.
 
+Measured for this DeepSeek update with Node **24.21.0**, pnpm **9.15.9** and
+the locked **CPython 3.11** environment:
+
+| Check | Result |
+| --- | --- |
+| Full owned Python suite | **570 passed**, including the real localhost HTTP test; 12 dedicated DeepSeek adapter cases and durable research/citation/artifact/replay fixtures. |
+| Local setup / launcher fixtures | **28 / 7 passed** (**35 total**). |
+| `pnpm test` | App **684 passed / 51 DB-gated skips**, shared **7 passed**, historical harness **343 passed / 2 opt-in live skips**. |
+| `pnpm check` | **0 errors / 0 warnings**. |
+| `pnpm build` | Passed; nonfatal chunk/tracing warnings. |
+| Offline locked dependency check | Passed; **30 packages** resolved, no install or upgrade. |
+| `node scripts/agent-local.mjs check --provider deepseek` | Expected exit **1**, **only the missing dedicated credential is blocked**; database, TLS target, budgets and other configuration checks pass. No network request or service start. |
+
+Review caught and fixed Pro image dispatch (Pro has no vision), mismatched model
+and budget selection, malformed selected-key declarations, and an Anthropic
+credential-file fallback regression. Flash images retain the conservative image
+allowance. All provider requests in these tests used synthetic transports;
+actual DeepSeek availability, answer quality and billing remain unverified.
+
+During implementation, another process moved the shared checkout from `main`
+to `deepseek-provider-support` and committed the main provider slice as
+`cc869a3`. This session preserved it and made the remaining review/documentation
+commit locally on that branch. No push or branch-change command was run by this
+session; do not infer remote state from the local checks.
+
 ## Earlier local startup validation (2026-10-07)
 
 **Working locally:** Jigar saved the new project's database configuration. The

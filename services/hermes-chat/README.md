@@ -10,7 +10,7 @@ The default public DDGS search adapter needs no model-provider account. An optio
 
 Public plans, actions/results, short decisions and one clean final answer persist through the existing UI. `publish_markdown` and `publish_csv` render files from content without executing model code. Research files require recorded citations; CSV rows include source URLs. Publication uses the existing leased revision/grant/upload/finalize flow with byte, MIME and SHA-256 checks, then immutable application storage. Reconnect replays Postgres events and artifacts.
 
-`oci_executor.py` implements the rootless Linux computer adapter: terminal/read/write/list use fresh bounded containers, and interactive Chromium uses a separate container retained during a run. Private tenant/conversation snapshots, browser storage and action receipts survive worker restarts on the retained state volume. Admission and receipts bind the run/request/daemon; cleanup is confirmed before cancellation. The controller, RPC, citation and artifact flow have deterministic coverage with both model adapters. **Actual Chromium and kernel isolation still require Linux acceptance.** See [executor/browser setup, security approval and limits](deploy/executor.md). Basic cited research and Markdown/CSV publication work without computer configuration; no host execution fallback exists.
+`oci_executor.py` implements the rootless Linux computer adapter: terminal/read/write/list use fresh bounded containers, and interactive Chromium uses a separate container retained during a run. Private tenant/conversation snapshots, browser storage and action receipts survive worker restarts on the retained state volume. Admission and receipts bind the run/request/daemon; cleanup is confirmed before cancellation. The controller, RPC, citation and artifact flow have deterministic coverage with all three model adapters. **Actual Chromium and kernel isolation still require Linux acceptance.** See [executor/browser setup, security approval and limits](deploy/executor.md). Basic cited research and Markdown/CSV publication work without computer configuration; no host execution fallback exists.
 
 ## Durable ownership and bounded work
 
@@ -38,7 +38,7 @@ The worker requires an existing **CPython 3.11** interpreter. Browser readiness 
 services/hermes-chat/scripts/install-runtime.sh /absolute/private/path/to/venv
 ```
 
-For the authorized local setup use `node scripts/agent-local.mjs start`; its profile refuses the old database. Generic `pnpm dev:all` and `pnpm dev:agent` remain available with an independently verified environment. Service templates need private app callbacks, provider/public-web HTTPS access and private local staging. The optional executor additionally needs its existing rootless daemon/image, with no privileged Docker group, XFS or custom root broker. No app/worker/Docker service was started or deployed here; only disposable Postgres test instances were started and removed.
+For the authorized local setup use `node scripts/agent-local.mjs start --provider deepseek` after its key check passes; the guarded profile refuses the old database. Preserve the documented `NODE_EXTRA_CA_CERTS` setting. Generic `pnpm dev:all` and `pnpm dev:agent` remain available with an independently verified environment. Service templates need private app callbacks, provider/public-web HTTPS access and private local staging. The optional executor additionally needs its existing rootless daemon/image, with no privileged Docker group, XFS or custom root broker. Earlier loopback startup/auth validation is recorded in the handoff; the DeepSeek update did not start services or call providers.
 
 Offline checks (from the repository root):
 
@@ -59,9 +59,9 @@ Historical `managed.py`, old `runtime.py`, the `ComputerSandbox` browser/admissi
 
 ## Verification dated 2026-10-07
 
-The [local handoff](../../docs/agent-local-handoff.md#measured-verification-in-this-session) records the freshly measured complete matrix and review fixes. App, shared, historical harness, Python (including localhost HTTP), disposable Postgres, helper, check, build, fixture eval and offline lock gates ran in this session. Playwright needs an explicit database and was skipped under the database-free condition. Configuration still waits on private new-project `DATABASE_URL` entry; paid/provider/object-storage and actual Linux/Chromium acceptance remain blocked. No live deployment claim follows from these results.
+The [local handoff](../../docs/agent-local-handoff.md#status-as-of-2026-10-07) distinguishes the new DeepSeek fixture checks, the successful local startup/auth follow-up, and the earlier complete replacement matrix. DeepSeek waits on its dedicated key and paid approval; provider/object-storage and actual Linux/Chromium acceptance remain unverified. No live deployment claim follows from fixture results.
 
-Measured on 2026-10-07 after review fixes:
+Historical replacement matrix measured on 2026-10-07, before the DeepSeek update:
 
 | Check | Result |
 | --- | --- |
@@ -70,5 +70,5 @@ Measured on 2026-10-07 after review fixes:
 | Disposable Postgres / local helper | 54 / 18 passed; fixture stopped and removed |
 | Svelte check / build / offline lock | Passed; 0 check errors or warnings |
 | Historical fixture eval | 25/25 prompts, 17/17 trust traps |
-| Local startup / live acceptance | Blocked on private database entry / separate paid approval |
+| Local startup / live acceptance | Database-entry gate subsequently resolved by the recorded follow-up; paid acceptance not run |
 | Playwright | Skipped: explicit database-backed setup required |

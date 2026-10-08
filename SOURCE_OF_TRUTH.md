@@ -1,8 +1,9 @@
 # NewsCraft AI source of truth
 
 Verification date: 2026-10-07 (America/Toronto). Scope: the Mac mini checkout,
-offline fixtures and disposable loopback Postgres. No production deployment,
-provider call, cloud database connection or Linux executor acceptance was run.
+offline fixtures, disposable loopback Postgres and the recorded local startup
+follow-up against the authorized new database. No production deployment, paid
+provider call or Linux executor acceptance was run.
 
 Use these evidence labels:
 
@@ -33,7 +34,7 @@ Browser -> SvelteKit app -> Postgres conversations/runs/events/checkpoints
                      |                     ^
                      +-> owned Python worker -> lease-fenced app callbacks
                                  |
-                                 +-> OpenAI Responses / Anthropic Messages
+                                 +-> OpenAI Responses / Anthropic or DeepSeek Messages
                                  +-> public search + bounded source retrieval
                                  +-> app-authorized immutable Markdown/CSV artifacts
                                  +-> optional rootless OCI terminal/browser
@@ -43,7 +44,7 @@ Browser -> SvelteKit app -> Postgres conversations/runs/events/checkpoints
 | Component | Repository evidence | Status and limit |
 | --- | --- | --- |
 | Selected orchestration | [portable.py](services/hermes-chat/src/hermes_chat/portable.py), [service.py](services/hermes-chat/src/hermes_chat/service.py) | **Repository verified / Working:** canonical owned loop, saved intent/receipts, recovery, budgets and cleanup fixtures. |
-| Model protocols | [model_adapters.py](services/hermes-chat/src/hermes_chat/model_adapters.py) | **Working:** mocked HTTP Responses and Messages flows. **Unverified:** paid-provider access and answer quality. |
+| Model protocols | [model_adapters.py](services/hermes-chat/src/hermes_chat/model_adapters.py) | **Working:** mocked OpenAI Responses, Anthropic Messages and dedicated DeepSeek Messages flows. **Blocked:** DeepSeek key and paid approval. **Unverified:** provider access and answer quality. |
 | Durable state | [hermes-runs.ts](src/lib/server/db/hermes-runs.ts), [agent-runtime.ts](src/lib/server/db/agent-runtime.ts), [0018](drizzle/0018_portable_agent_core.sql) | **Working:** Postgres lease, cursor, idempotency, cancellation and checkpoint CAS tests. Private state is not public replay. |
 | Authentication | [auth/backend.ts](src/lib/server/auth/backend.ts), [auth/postgres.ts](src/lib/server/auth/postgres.ts), [auth/supabase.ts](src/lib/server/auth/supabase.ts) | **Working:** Postgres password accounts and signed revocable sessions by default; explicit optional Supabase adapter tested with doubles. Cloud auth is **Unverified**. |
 | Retrieval | [search_adapters.py](services/hermes-chat/src/hermes_chat/search_adapters.py), [retrieval.py](services/hermes-chat/src/hermes_chat/retrieval.py) | **Working:** independent public DDGS discovery, bounded public fetch/archive and exact excerpt checks in fixtures. Optional OpenAI search is a separately reserved paid request. |
@@ -73,6 +74,8 @@ Browser -> SvelteKit app -> Postgres conversations/runs/events/checkpoints
 6. Recovery retains its original provider/model/endpoints and budget policy.
    Conservative input/output/cost reservations are never refunded for uncertain
    requests. OpenAI uses the default service tier; Anthropic uses standard-only.
+   DeepSeek disables thinking explicitly and reserves at least its reviewed peak
+   cache-miss/output rates; unsupported model names are rejected before dispatch.
    Configured ceilings must cover applicable cache-write/context multipliers.
    These are application controls, not provider-enforced billing guarantees.
 7. Optional computer state survives on the same retained worker volume. It is not
@@ -95,16 +98,18 @@ is not acceptance of the owned runtime's live answer quality.
 
 **User-reported prior completion:** project `newscraft-agent`
 (`ygsiifvjzdazfxflmpjq`) already has all 19 migrations and 33 protected public
-tables. This session did not reconnect to it or reinitialize it. **Working:** a
+tables. The local follow-up verified connectivity/auth/conversations, without
+reinitializing or repeating the migration/RLS/grant audit. **Working:** a
 separate disposable loopback Postgres fixture exercises the migration sequence,
 local auth, account separation, leases/checkpoints and artifact ownership, then
 stops and removes itself. That fixture does not prove the cloud target's state.
 
-**Blocked:** Jigar must privately fill `DATABASE_URL` in the ignored
-`.env.agent-local`; the passive checker reports this as the remaining local
-configuration blocker. Local startup is already authorized once it passes.
-Paid model acceptance requires separate approval for the single proposed $4.23
-application reservation. Actual computer/browser acceptance needs an approved
+**Working:** Jigar saved `DATABASE_URL`; public CA trust with full TLS verification
+enabled loopback health, signup/sign-in and an empty saved conversation. Both
+listeners were stopped. **Blocked:** the new DeepSeek profile requires Jigar's
+dedicated key and separate approval for one proposed **$0.06** application
+reservation; see [current pricing and limits](docs/managed-agent-setup.md#deepseek-setup-and-proposed-acceptance).
+The earlier $4.23 OpenAI proposal was not run. Actual computer/browser acceptance needs an approved
 Linux executor host. No Docker/Colima/Lima reinstall or new cloud resource is
 part of this work. See [deployment decision](docs/agent-deployment-decision.md).
 

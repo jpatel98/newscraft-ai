@@ -4,6 +4,7 @@ import copy
 import json
 import unittest
 from decimal import Decimal
+from math import ceil
 from types import SimpleNamespace
 
 import httpx
@@ -107,7 +108,7 @@ class DeepSeekAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["messages"][0]["content"][1], {
             "type": "image", "source": {"type": "base64", "media_type": "image/png", "data": encoded}})
         self.assertNotIn("PRIVATE_OTHER_PROVIDER_STATE", self.requests[0].content.decode())
-        expected_micros = (Decimal(bound) * Decimal("0.30") + Decimal(2048) * Decimal("1.20")).__ceil__()
+        expected_micros = ceil(Decimal(bound) * Decimal("0.30") + Decimal(2048) * Decimal("1.20"))
         self.assertEqual(state["budget"]["cost_microusd"], expected_micros)
 
     async def test_pro_images_fail_before_reservation_or_dispatch(self):
