@@ -5,6 +5,7 @@ make a crashed request free. Operators supply reviewed price/image ceilings.
 """
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 import json
+import re
 
 from .provider_policy import DEEPSEEK_PRICE_FLOORS
 
@@ -36,12 +37,30 @@ def configured(settings):
         return False
 
 
+CHARS_PER_TOKEN = 4  # English prose; non-ASCII characters are counted at one token each (see input_bound).
+SAFETY_MARGIN = Decimal("1.15")
+FRAMING_TOKENS = 32  # Fixed request framing.
+MESSAGE_FRAMING_TOKENS = 16  # Role/delimiter overhead per message.
+
+
+_DENSE_RUN = re.compile(r"[A-Za-z0-9+/=_-]{200,}")  # Base64-like ciphertext tokenizes at ~2 characters per token.
+
+
 def input_bound(adapter, *, messages, private, instructions, tools, image_tokens):
-    # Count the actual translated input, including strict schemas and encrypted
-    # continuation. One token per UTF-8 byte plus framing is deliberately high.
+    # Count the actual translated input once, including strict schemas and encrypted
+    # continuation: ~4 characters per token for text, 2 for long opaque runs, one per
+    # non-ASCII character, plus a 15% margin. Image bytes are priced by ``image_tokens``.
     wire = adapter.budget_input(messages=messages, private=private, instructions=instructions, tools=tools)
-    images = sum(block["type"] == "image" for message in messages for block in message["content"])
-    return len(json.dumps(wire, ensure_ascii=False).encode()) + 1024 + 64 * len(messages) + images * image_tokens
+    text = json.dumps(wire, ensure_ascii=False)
+    images = [block for message in messages for block in message["content"] if block["type"] == "image"]
+    for block in images:
+        text = text.replace(block.get("data") or "\0", "", 1)
+    dense = sum(len(run) for run in _DENSE_RUN.findall(text))
+    ascii_chars = sum(c < "\x80" for c in text)
+    plain, other_chars = ascii_chars - dense, len(text) - ascii_chars
+    tokens = (Decimal(plain) / CHARS_PER_TOKEN + Decimal(dense) / 2 + other_chars) * SAFETY_MARGIN
+    return (int(tokens.to_integral_value(rounding=ROUND_CEILING)) + FRAMING_TOKENS + MESSAGE_FRAMING_TOKENS * len(messages)
+            + len(images) * image_tokens)
 
 
 def reserve(state, settings, *, input_tokens=0, output_tokens=0, search=False):

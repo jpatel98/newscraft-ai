@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import httpx
 
-from hermes_chat import deepseek_acceptance as acceptance
+from hermes_chat import budgets, deepseek_acceptance as acceptance
 
 
 def tool(name, args, identity=None):
@@ -185,7 +185,11 @@ class DeepSeekAcceptanceTests(unittest.IsolatedAsyncioTestCase):
         # Four steps per plan keep the history growing fast enough to reach the boundary with the compact identity.
         replies = [reply(tool("plan", {"steps": [{"id": f"step-{index}-{n}", "label": "Synthetic planning", "status": "running"} for n in range(4)]}, f"plan-{index}"))
                    for index in range(8)]
-        report = await acceptance.execute(self.root, "0.06", transport=self.transport(replies))
+        real = budgets.input_bound
+        # The calibrated estimate is realistic, so this small fixture would never reach the 120000-token
+        # boundary; a 4x-pessimistic bound exercises the same stop.
+        with patch.object(budgets, "input_bound", lambda *a, **k: real(*a, **k) * 4):
+            report = await acceptance.execute(self.root, "0.06", transport=self.transport(replies))
         self.assertFalse(report["passed"])
         # This fixture's growing history reaches the cumulative input boundary
         # before its eighth request. Neither unused steps nor cheap cache usage

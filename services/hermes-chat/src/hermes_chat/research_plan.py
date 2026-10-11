@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
-from .source_tiers import normalize_domains
+from .source_tiers import key_terms, normalize_domains
 
 PLANNER_MAX_OUTPUT = 400
 PLANNER_SECONDS = 12
@@ -31,13 +31,36 @@ PLANNER_RULES = (
     "- Write queries a researcher would type (entity + event + place + time), not the user's sentence.\n"
     "- At most 4 queries. Cover different angles; do not repeat one query with synonyms.\n"
     "- Include at least one query with intent \"official\" when the story involves police, courts, government, regulators, agencies or companies.\n"
-    "- Include the home market in the query when the request is local.\n"
+    "- An \"official\" query must name the body, the place and the event (\"Toronto Police news release kidnapping 7th Toronto Regiment\", \"Ontario Newsroom Toronto\"), "
+    "never a generic topic query that returns background, unit, regulation or reporting pages.\n"
+    "- Always include one plain news query (intent \"news\", no domains) about the story subject: entity + event + place, with \"days\" for the recent window. "
+    "\"Primary sources only\" means prefer and label official sources; it never means leave news coverage out.\n"
+    "- Include the home market in the query when the request is local. Weather queries must name the city or region (\"Toronto weather warning\"), never \"GTA weather\" alone.\n"
     "- \"days\" limits results to the last N days; use it for current news, null otherwise.\n"
     "- Use mode \"thread\" (no queries) when the request is a rewrite or transformation, or the sources already recorded in this conversation answer it. "
     "An explicit instruction such as \"no new research\" or \"use what we have\" means mode \"thread\".\n"
-    "- Put a reading in \"assumption\" only when the request is ambiguous and you picked one; otherwise leave it empty.\n"
+    "- Put a reading in \"assumption\" only when the request is genuinely ambiguous (an unknown acronym, a show name, two plausible readings) and you picked one. "
+    "A request that names its story, people, units, places or events explicitly gets an empty assumption; never restate the request as one.\n"
     "- Reply with the JSON object only, no prose, no code fence."
 )
+
+
+RUNDOWN_REQUEST = re.compile(
+    r"\b(?:newscasts?|rundowns?|show(?!\s+(?:me|us|how|that|where|why|the\s+sources?))|what should i consider|anything new|what'?s new|whats new)\b", re.I)
+
+
+def is_rundown_request(request: str) -> bool:
+    """A show/newscast/rundown-style scan ('anything new for the show?') rather than one story."""
+    return bool(RUNDOWN_REQUEST.search(request or ""))
+
+
+def rundown_guidance(market: str) -> str:
+    place = market if market and market != "not set" else "the home market"
+    return (
+        f"This is a rundown-style scan of {place}, not one story. Spread at most 4 queries across beats, each naming the place: "
+        "(1) local news: city hall, transit, police, courts; (2) province and health; "
+        f"(3) weather or traffic, only if a warning or major disruption is plausible; (4) one \"what competitors led with\" query: \"{place} news top stories today\". "
+        "Skip a beat rather than exceed 4 queries.\n\n")
 
 
 def newsroom_now(timezone_name: str) -> datetime:
@@ -130,7 +153,38 @@ def parse_plan(text: Any) -> dict[str, Any] | None:
     return {"mode": mode, "assumption": assumption, "queries": queries, "source": "planner"}
 
 
-def apply_requirement(plan: dict[str, Any] | None, required: bool | None, subject: str, now: datetime) -> dict[str, Any]:
+NEWS_QUERY_DAYS = 14
+_WORD = re.compile(r"[a-z0-9]{4,}")
+
+
+def ensure_news_query(queries: list[dict[str, Any]], subject: str, market: str = "") -> list[dict[str, Any]]:
+    """At least one plain news query (no domain restriction) about the subject, first in line, whatever the planner did."""
+    if any(q["intent"] in {"news", "local"} and not q["domains"] for q in queries):
+        return queries
+    text = " ".join(subject.split())[:MAX_QUERY_CHARS]
+    if len(text) < 3:
+        return queries
+    if market and market != "not set" and market.lower() not in text.lower():
+        text = f"{text} {market}"[:MAX_QUERY_CHARS]
+    news = {"q": text, "intent": "news", "days": NEWS_QUERY_DAYS, "domains": []}
+    return ([news] + [q for q in queries if q["q"].lower() != text.lower()])[:MAX_QUERIES]
+
+
+def clean_assumption(assumption: str, request: str) -> str:
+    """Drop a 'Taking ...' reading that only restates the request.
+
+    That is: most of its words are already in the request, or half of them are and the request names its
+    story with several distinctive entities. A real ambiguity (an unknown acronym, a show name) survives.
+    """
+    words = set(_WORD.findall(assumption.lower()))
+    if not words:
+        return ""
+    overlap = len(words & set(_WORD.findall((request or "").lower()))) / len(words)
+    return "" if overlap >= 0.6 or (overlap >= 0.5 and len(key_terms(request)) >= 3) else assumption
+
+
+def apply_requirement(plan: dict[str, Any] | None, required: bool | None, subject: str, now: datetime,
+                      request: str = "", market: str = "") -> dict[str, Any]:
     """Combine the planner (or its failure) with the app's tri-state research flag."""
     if required is False:
         return {"mode": "thread", "assumption": "", "queries": [], "source": "app"}
@@ -138,7 +192,10 @@ def apply_requirement(plan: dict[str, Any] | None, required: bool | None, subjec
         return fallback_plan(subject, now)
     if required is True and plan["mode"] == "thread":
         queries = plan["queries"] or fallback_plan(subject, now)["queries"]
-        return {"mode": "research", "assumption": plan["assumption"], "queries": queries, "source": "forced"}
+        plan = {"mode": "research", "assumption": plan["assumption"], "queries": queries, "source": "forced"}
+    if plan["mode"] == "research":
+        plan = {**plan, "queries": ensure_news_query(plan["queries"], subject, market),
+                "assumption": clean_assumption(plan["assumption"], request) if request else plan["assumption"]}
     return plan
 
 
@@ -170,10 +227,11 @@ def planner_prompt(*, request: str, newsroom: Mapping[str, Any], now: datetime, 
     market = newsroom.get("homeMarket") or "not set"
     domains = ", ".join(newsroom.get("preferredDomains") or []) or "none"
     flag = {True: "New research is required for this turn: use mode \"research\".\n", None: "", False: ""}[required]
+    scan = rundown_guidance(market) if is_rundown_request(request) else ""
     return (
         "Plan the research for the producer's latest request. Do not answer it.\n\n"
         f"Today: {today} (timezone {zone}). Home market: {market}. Preferred domains: {domains}.\n\n"
         f"Recent conversation (oldest first):\n{dialogue}\n\n"
         f"Sources already recorded in this conversation (reusable with their numbers):\n{source_lines(sources)}\n\n"
         f"Latest request:\n{request[:1500]}\n\n"
-        f"{flag}Reply with JSON of this shape: {PLAN_SCHEMA}\n\n{PLANNER_RULES}")
+        f"{scan}{flag}Reply with JSON of this shape: {PLAN_SCHEMA}\n\n{PLANNER_RULES}")
