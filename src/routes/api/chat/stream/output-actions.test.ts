@@ -52,4 +52,45 @@ describe('chat output action prompts', () => {
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).not.toContain('**BANNER**');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).not.toContain('Use only the selected answer');
 	});
+
+	it('adds rundown line and tease actions that only transform the selected answer', () => {
+		const routeSource = readFileSync(new URL('./+server.ts', import.meta.url), 'utf8');
+		const clientSource = readFileSync(new URL('../../../../lib/client/stream.ts', import.meta.url), 'utf8');
+		const pageSource = readFileSync(new URL('../../../c/[id]/+page.svelte', import.meta.url), 'utf8');
+
+		expect(routeSource).toContain("| 'rundown_line'");
+		expect(routeSource).toContain("| 'tease'");
+		expect(routeSource).toContain('rundown_line: RUNDOWN_LINE_PROMPT');
+		expect(routeSource).toContain('tease: TEASE_PROMPT');
+		expect(routeSource).toContain("rundown_line: 'Write a rundown line from this answer.'");
+		expect(routeSource).toContain("tease: 'Write a tease from this answer.'");
+		expect(clientSource).toContain("| 'rundown_line'");
+		expect(clientSource).toContain("| 'tease'");
+		expect(pageSource).toContain("rundown_line: 'Write a rundown line from this answer.'");
+		expect(pageSource).toContain("tease: 'Write a tease from this answer.'");
+		// Neither prompt reuses the gap-research guide.
+		expect(routeSource.match(/NEWSCRAFT_STANDALONE_OUTPUT_GUIDE/g)).toHaveLength(4);
+
+		const rundown = routeSource.slice(
+			routeSource.indexOf('const RUNDOWN_LINE_PROMPT'),
+			routeSource.indexOf('const TEASE_PROMPT')
+		);
+		expect(rundown).toContain('SLUG · one-sentence summary (20 words or fewer) · FORMAT · :DURATION · STATUS');
+		expect(rundown).toContain('VO, VO-SOT, PKG, READER, or LIVE');
+		expect(rundown).toContain('confirmed, developing, or needs check');
+		expect(rundown).toContain('Sources: [n] [m]');
+		expect(rundown).toContain('Do not search');
+		expect(rundown).toContain('No markdown');
+		expect(rundown).toContain('no closing offer');
+
+		const tease = routeSource.slice(
+			routeSource.indexOf('const TEASE_PROMPT'),
+			routeSource.indexOf('const OUTPUT_ACTION_PROMPTS')
+		);
+		expect(tease).toContain('12 words or fewer');
+		expect(tease).toContain('without stating an unconfirmed fact as fact');
+		expect(tease).toContain('Alt:');
+		expect(tease).toContain('Sources: [n]');
+		expect(tease).toContain('Do not search');
+	});
 });

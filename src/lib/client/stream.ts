@@ -65,7 +65,13 @@ export interface StreamArgs {
 	message_id?: string;
 	command?: ChatCommand;
 	document_ids?: string[];
-	output_action?: 'producer_brief' | 'thirty_second_script' | 'interview_questions' | 'copy_with_citations';
+	output_action?:
+		| 'producer_brief'
+		| 'thirty_second_script'
+		| 'interview_questions'
+		| 'copy_with_citations'
+		| 'rundown_line'
+		| 'tease';
 	source_message_id?: string;
 	idempotency_key?: string;
 }

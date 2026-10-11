@@ -19,6 +19,7 @@ import {
 	getMessageById,
 	getMessages,
 	getPreparedDurableTurnStatus,
+	listRecentConversationSubjects,
 	parseContent,
 	prepareDurableUserTurn,
 	takeOverPreparedDurableTurn
@@ -52,6 +53,10 @@ import {
 	type NewsroomContext
 } from '@newscraft/shared';
 import { getNewsroomProfile } from '$lib/server/documents/profiles';
+import {
+	buildNewsroomContext,
+	RECENT_THREAD_WINDOW_MS
+} from '$lib/server/documents/newsroom-context';
 import { getConversationDocumentService } from '$lib/server/documents/runtime';
 import type { ConversationDocumentService } from '$lib/server/documents/service';
 import {
@@ -99,7 +104,13 @@ interface Body {
 	message_id?: string;
 	command?: ChatCommand;
 	document_ids?: string[];
-	output_action?: 'producer_brief' | 'thirty_second_script' | 'interview_questions' | 'copy_with_citations';
+	output_action?:
+		| 'producer_brief'
+		| 'thirty_second_script'
+		| 'interview_questions'
+		| 'copy_with_citations'
+		| 'rundown_line'
+		| 'tease';
 	source_message_id?: string;
 	idempotency_key?: string;
 }
@@ -134,6 +145,21 @@ async function readChatBody(request: Request): Promise<Body> {
 		reader.releaseLock();
 	}
 }
+// Rundown deliverables are built only from the selected answer: no research,
+// no markdown, and no closing offer.
+const RUNDOWN_LINE_PROMPT = [
+	'Write one rundown line from the selected answer, in exactly this shape on a single line:',
+	'SLUG · one-sentence summary (20 words or fewer) · FORMAT · :DURATION · STATUS',
+	'SLUG is a short uppercase slug. The summary is plain text. FORMAT is one of VO, VO-SOT, PKG, READER, or LIVE. DURATION is a running time such as :30 or 1:15. STATUS is one of confirmed, developing, or needs check; use needs check whenever the summary leans on an unconfirmed or single-source claim.',
+	'Then add a second line: Sources: [n] [m], listing only citation markers that appear in the selected answer.',
+	'Use only the selected answer. Do not search or add new facts. No markdown, no bullets, no preamble, and no closing offer.'
+].join('\n');
+const TEASE_PROMPT = [
+	'Write a tease from the selected answer: one sentence of 12 words or fewer that sells the story without stating an unconfirmed fact as fact. Use "police say", "alleged", or a question where the answer is not confirmed.',
+	'Then add one alternate tease on its own line, prefixed with "Alt:".',
+	'Then add a final line: Sources: [n], using only citation markers that appear in the selected answer.',
+	'Use only the selected answer. Do not search or add new facts. No markdown, no preamble, and no closing offer.'
+].join('\n');
 const OUTPUT_ACTION_PROMPTS: Record<NonNullable<Body['output_action']>, string> = {
 	producer_brief:
 		`${NEWSCRAFT_STANDALONE_OUTPUT_GUIDE}\n\nWrite a concise producer brief. Put the central news and essential background first. Then give the verified details, impact, response, confirmed next step, and unresolved editorial checks.`,
@@ -141,13 +167,17 @@ const OUTPUT_ACTION_PROMPTS: Record<NonNullable<Body['output_action']>, string> 
 	interview_questions:
 		`${NEWSCRAFT_STANDALONE_OUTPUT_GUIDE}\n\nDraft focused interview questions. Start with enough verified context to identify the subject and purpose of the interview. Probe the known facts, material gaps, disagreements, accountability, impact, and next steps.`,
 	copy_with_citations:
-		`${NEWSCRAFT_STANDALONE_OUTPUT_GUIDE}\n\nWrite clean publication-ready copy. Lead with the central news, establish the essential background, and keep each citation marker with the claim it supports.`
+		`${NEWSCRAFT_STANDALONE_OUTPUT_GUIDE}\n\nWrite clean publication-ready copy. Lead with the central news, establish the essential background, and keep each citation marker with the claim it supports.`,
+	rundown_line: RUNDOWN_LINE_PROMPT,
+	tease: TEASE_PROMPT
 };
 const OUTPUT_ACTION_VISIBLE_REQUESTS: Record<NonNullable<Body['output_action']>, string> = {
 	producer_brief: 'Create a producer brief from this answer.',
 	thirty_second_script: 'Write a 30-second OC/VO from this answer.',
 	interview_questions: 'Draft interview questions from this answer.',
-	copy_with_citations: 'Turn this answer into clean copy with citations.'
+	copy_with_citations: 'Turn this answer into clean copy with citations.',
+	rundown_line: 'Write a rundown line from this answer.',
+	tease: 'Write a tease from this answer.'
 };
 
 function serializeUserDocumentIds(documentIds: string[]): string | null {
@@ -257,14 +287,16 @@ async function requestResearchContext(input: {
 	let newsroomContext: NewsroomContext = { timezone: 'America/Toronto' };
 	if (input.orgId) {
 		try {
-			const profile = await getNewsroomProfile(input.orgId);
-			if (profile) {
-				newsroomContext = {
-					timezone: profile.timezone,
-					...(profile.homeMarket ? { homeMarket: profile.homeMarket } : {}),
-					...(profile.preferredDomains.length ? { preferredDomains: profile.preferredDomains } : {})
-				};
-			}
+			const [profile, recentThreads] = await Promise.all([
+				getNewsroomProfile(input.orgId),
+				// Thread subjects only enrich the context; never fail the request on them.
+				listRecentConversationSubjects(
+					input.orgId,
+					Date.now() - RECENT_THREAD_WINDOW_MS,
+					input.conversationId
+				).catch(() => [])
+			]);
+			newsroomContext = buildNewsroomContext(profile, recentThreads);
 		} catch (cause) {
 			recordChatDiagnostic(input.conversationId, 'chat.newsroom_context_error', {
 				trace_id: input.traceId,

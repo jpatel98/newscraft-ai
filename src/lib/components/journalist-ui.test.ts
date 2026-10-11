@@ -72,13 +72,16 @@ describe('journalist citation UI helpers', () => {
 		expect(publicationDateLabel('not-a-date')).toBe('not-a-date');
 	});
 
-	it('exposes the four newsroom output actions and the authenticated export URL', () => {
+	it('exposes the newsroom output actions and the authenticated export URL', () => {
 		expect(ANSWER_USE_ACTIONS.map((action) => action.action)).toEqual([
 			'producer_brief',
 			'thirty_second_script',
 			'interview_questions',
-			'copy_with_citations'
+			'copy_with_citations',
+			'rundown_line',
+			'tease'
 		]);
+		expect(ANSWER_USE_ACTIONS.slice(-2).map((action) => action.label)).toEqual(['Rundown line', 'Tease']);
 		expect(ANSWER_USE_ACTIONS.find((action) => action.action === 'thirty_second_script')?.label).toBe(
 			'Turn into OCVO'
 		);

@@ -9,7 +9,9 @@ export type AnswerUseAction =
 	| 'producer_brief'
 	| 'thirty_second_script'
 	| 'interview_questions'
-	| 'copy_with_citations';
+	| 'copy_with_citations'
+	| 'rundown_line'
+	| 'tease';
 
 export type ComposerDocumentState = 'uploading' | 'processing' | 'ready' | 'failed';
 
@@ -49,6 +51,14 @@ export const ANSWER_USE_ACTIONS: ReadonlyArray<{ action: AnswerUseAction; label:
 	{
 		action: 'copy_with_citations',
 		label: 'Copy with citations'
+	},
+	{
+		action: 'rundown_line',
+		label: 'Rundown line'
+	},
+	{
+		action: 'tease',
+		label: 'Tease'
 	}
 ];
 

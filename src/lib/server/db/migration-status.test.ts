@@ -23,8 +23,8 @@ describe('application migration status', () => {
 			ok: true,
 			table: MIGRATION_TABLE,
 			tableExists: true,
-			appliedCount: 20,
-			latest: '0018_portable_agent_core',
+			appliedCount: 21,
+			latest: '0019_newsroom_show_profile',
 			expectedCount: EXPECTED_MIGRATION_COUNT
 		});
 		expect(client.queries).toHaveLength(2);
@@ -34,21 +34,21 @@ describe('application migration status', () => {
 	it('reports the missing topic migration as incomplete', async () => {
 		const client = new StatusClient(MIGRATION_VERSIONS.filter(version => version !== '0017_topic_projects'));
 		expect(await getMigrationStatus(client)).toMatchObject({
-			ok: false, tableExists: true, appliedCount: 19, error: 'Schema migrations are incomplete'
+			ok: false, tableExists: true, appliedCount: 20, error: 'Schema migrations are incomplete'
 		});
 	});
 
 	it('does not let an unknown ledger row hide a missing required version', async () => {
 		const client = new StatusClient([
 			...MIGRATION_VERSIONS.filter(version => version !== '0017_topic_projects'),
-			'0019_unrecognized'
+			'0099_unrecognized'
 		]);
-		expect(await getMigrationStatus(client)).toMatchObject({ ok: false, tableExists: true, appliedCount: 20 });
+		expect(await getMigrationStatus(client)).toMatchObject({ ok: false, tableExists: true, appliedCount: 21 });
 	});
 
 	it('rejects unknown extra versions even when every required version is present', async () => {
-		const client = new StatusClient([...MIGRATION_VERSIONS, '0019_unrecognized']);
-		expect(await getMigrationStatus(client)).toMatchObject({ ok: false, tableExists: true, appliedCount: 21 });
+		const client = new StatusClient([...MIGRATION_VERSIONS, '0099_unrecognized']);
+		expect(await getMigrationStatus(client)).toMatchObject({ ok: false, tableExists: true, appliedCount: 22 });
 	});
 
 	it('does not let duplicate rows stand in for a missing migration', async () => {
@@ -56,7 +56,7 @@ describe('application migration status', () => {
 			...MIGRATION_VERSIONS.filter(version => version !== '0017_topic_projects'),
 			MIGRATION_VERSIONS[0]
 		]);
-		expect(await getMigrationStatus(client)).toMatchObject({ ok: false, appliedCount: 20 });
+		expect(await getMigrationStatus(client)).toMatchObject({ ok: false, appliedCount: 21 });
 	});
 
 	it('returns the existing missing-table shape without querying an absent ledger', async () => {

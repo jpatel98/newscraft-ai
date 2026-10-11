@@ -22,7 +22,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 		newsroomProfile: newsroomProfile ?? {
 			timezone: 'America/Toronto',
 			homeMarket: '',
-			preferredDomains: []
+			preferredDomains: [],
+			showName: '',
+			airTimeLocal: '',
+			audience: '',
+			beats: [] as string[],
+			styleNotes: '',
+			recentlyCovered: [] as Array<{ subject: string; coveredAt: number }>
 		}
 	};
 };

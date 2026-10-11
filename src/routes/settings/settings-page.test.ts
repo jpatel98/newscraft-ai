@@ -27,6 +27,17 @@ describe('settings page source', () => {
 		expect(pageSource).toContain('id="newsroom-timezone"');
 		expect(pageSource).toContain('id="newsroom-market"');
 		expect(pageSource).toContain('id="newsroom-domains"');
+		for (const id of [
+			'newsroom-show-name',
+			'newsroom-air-time',
+			'newsroom-audience',
+			'newsroom-beats',
+			'newsroom-style-notes',
+			'newsroom-recently-covered'
+		]) {
+			expect(pageSource).toContain(`id="${id}"`);
+		}
+		expect(pageSource).toContain('Threads from the last 7 days are added automatically');
 		expect(pageSource).not.toMatch(/Perplexity|Sonar|OpenAI/);
 	});
 

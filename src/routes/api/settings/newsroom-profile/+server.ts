@@ -6,14 +6,26 @@ import { DocumentError } from '$lib/server/documents/errors';
 const DEFAULT_PROFILE = {
 	timezone: 'America/Toronto',
 	homeMarket: '',
-	preferredDomains: [] as string[]
+	preferredDomains: [] as string[],
+	showName: '',
+	airTimeLocal: '',
+	audience: '',
+	beats: [] as string[],
+	styleNotes: '',
+	recentlyCovered: [] as Array<{ subject: string; coveredAt: number }>
 };
 
 function publicProfile(profile: typeof DEFAULT_PROFILE) {
 	return {
 		timezone: profile.timezone,
 		homeMarket: profile.homeMarket,
-		preferredDomains: profile.preferredDomains
+		preferredDomains: profile.preferredDomains,
+		showName: profile.showName,
+		airTimeLocal: profile.airTimeLocal,
+		audience: profile.audience,
+		beats: profile.beats,
+		styleNotes: profile.styleNotes,
+		recentlyCovered: profile.recentlyCovered
 	};
 }
 
@@ -47,7 +59,13 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 		const profile = await upsertNewsroomProfile(orgId, {
 			timezone: value.timezone,
 			homeMarket: value.homeMarket,
-			preferredDomains: value.preferredDomains
+			preferredDomains: value.preferredDomains,
+			showName: value.showName,
+			airTimeLocal: value.airTimeLocal,
+			audience: value.audience,
+			beats: value.beats,
+			styleNotes: value.styleNotes,
+			recentlyCovered: value.recentlyCovered
 		});
 		return json({ profile: publicProfile(profile) }, { headers: { 'Cache-Control': 'no-store' } });
 	} catch (cause) {

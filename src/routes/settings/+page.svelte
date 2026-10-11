@@ -9,15 +9,43 @@
 	let newsroomTimezone = $state('');
 	let newsroomHomeMarket = $state('');
 	let newsroomDomains = $state('');
+	let newsroomShowName = $state('');
+	let newsroomAirTime = $state('');
+	let newsroomAudience = $state('');
+	let newsroomBeats = $state('');
+	let newsroomStyleNotes = $state('');
+	let newsroomRecentlyCovered = $state('');
 	let newsroomHydrated = $state(false);
 	let newsroomBusy = $state(false);
 	let newsroomMsg = $state<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
+	type NewsroomProfileResponse = {
+		timezone: string;
+		homeMarket: string;
+		preferredDomains: string[];
+		showName?: string;
+		airTimeLocal?: string;
+		audience?: string;
+		beats?: string[];
+		styleNotes?: string;
+		recentlyCovered?: Array<{ subject: string; coveredAt: number }>;
+	};
+
+	function applyNewsroomProfile(profile: NewsroomProfileResponse) {
+		newsroomTimezone = profile.timezone;
+		newsroomHomeMarket = profile.homeMarket;
+		newsroomDomains = profile.preferredDomains.join(', ');
+		newsroomShowName = profile.showName ?? '';
+		newsroomAirTime = profile.airTimeLocal ?? '';
+		newsroomAudience = profile.audience ?? '';
+		newsroomBeats = (profile.beats ?? []).join(', ');
+		newsroomStyleNotes = profile.styleNotes ?? '';
+		newsroomRecentlyCovered = (profile.recentlyCovered ?? []).map((entry) => entry.subject).join('\n');
+	}
+
 	$effect(() => {
 		if (newsroomHydrated) return;
-		newsroomTimezone = data.newsroomProfile.timezone;
-		newsroomHomeMarket = data.newsroomProfile.homeMarket;
-		newsroomDomains = data.newsroomProfile.preferredDomains.join(', ');
+		applyNewsroomProfile(data.newsroomProfile);
 		newsroomHydrated = true;
 	});
 
@@ -36,13 +64,25 @@
 				body: JSON.stringify({
 					timezone: newsroomTimezone,
 					homeMarket: newsroomHomeMarket,
-					preferredDomains
+					preferredDomains,
+					showName: newsroomShowName,
+					airTimeLocal: newsroomAirTime.trim(),
+					audience: newsroomAudience,
+					beats: newsroomBeats
+						.split(',')
+						.map((beat) => beat.trim())
+						.filter(Boolean),
+					styleNotes: newsroomStyleNotes,
+					recentlyCovered: newsroomRecentlyCovered
+						.split('\n')
+						.map((subject) => subject.trim())
+						.filter(Boolean)
 				})
 			});
 			const result = (await response.json().catch(() => null)) as
 				| {
 						message?: string;
-						profile?: { timezone: string; homeMarket: string; preferredDomains: string[] };
+						profile?: NewsroomProfileResponse;
 				  }
 				| null;
 			if (!response.ok || !result?.profile) {
@@ -52,9 +92,7 @@
 				};
 				return;
 			}
-			newsroomTimezone = result.profile.timezone;
-			newsroomHomeMarket = result.profile.homeMarket;
-			newsroomDomains = result.profile.preferredDomains.join(', ');
+			applyNewsroomProfile(result.profile);
 			newsroomMsg = { kind: 'ok', text: 'Newsroom context saved.' };
 		} catch {
 			newsroomMsg = { kind: 'err', text: 'Could not save newsroom context.' };
@@ -272,6 +310,78 @@
 								spellcheck="false"
 							></textarea>
 						</div>
+						<div class="field">
+							<label class="field__label" for="newsroom-show-name">Show name</label>
+							<input
+								id="newsroom-show-name"
+								class="field__input"
+								type="text"
+								maxlength="120"
+								bind:value={newsroomShowName}
+								placeholder="CityNews at Six"
+							/>
+						</div>
+						<div class="field">
+							<label class="field__label" for="newsroom-air-time">Air time (HH:MM)</label>
+							<input
+								id="newsroom-air-time"
+								class="field__input"
+								type="text"
+								inputmode="numeric"
+								pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+								maxlength="5"
+								bind:value={newsroomAirTime}
+								placeholder="18:00"
+								autocomplete="off"
+								spellcheck="false"
+							/>
+							<p class="field__hint">24-hour time in the newsroom timezone. Leave blank if the show has no fixed air time.</p>
+						</div>
+						<div class="field">
+							<label class="field__label" for="newsroom-audience">Audience</label>
+							<input
+								id="newsroom-audience"
+								class="field__input"
+								type="text"
+								maxlength="160"
+								bind:value={newsroomAudience}
+								placeholder="GTA general audience"
+							/>
+						</div>
+						<div class="field">
+							<label class="field__label" for="newsroom-beats">Beats</label>
+							<input
+								id="newsroom-beats"
+								class="field__input"
+								type="text"
+								bind:value={newsroomBeats}
+								placeholder="local government, transit, police and courts, weather"
+								autocomplete="off"
+							/>
+							<p class="field__hint">Comma-separated, up to 12.</p>
+						</div>
+						<div class="field">
+							<label class="field__label" for="newsroom-style-notes">Style notes</label>
+							<textarea
+								id="newsroom-style-notes"
+								class="field__input newsroom-form__notes"
+								rows="4"
+								maxlength="1200"
+								bind:value={newsroomStyleNotes}
+								placeholder={'No "alleged" twice in one sentence. Numbers as words under ten.'}
+							></textarea>
+						</div>
+						<div class="field">
+							<label class="field__label" for="newsroom-recently-covered">Recently covered</label>
+							<textarea
+								id="newsroom-recently-covered"
+								class="field__input newsroom-form__notes"
+								rows="4"
+								bind:value={newsroomRecentlyCovered}
+								placeholder="One story per line"
+							></textarea>
+							<p class="field__hint">One per line, up to 30. Threads from the last 7 days are added automatically.</p>
+						</div>
 						<div class="settings__form-actions">
 							<button type="submit" class="btn btn--primary" disabled={newsroomBusy}>
 								{newsroomBusy ? 'Saving…' : 'Save newsroom context'}
@@ -482,6 +592,15 @@
 	}
 	.newsroom-form {
 		max-width: 680px;
+	}
+	.newsroom-form .field__hint {
+		margin: 0;
+		font-size: 12px;
+		color: var(--fg-3);
+	}
+	.newsroom-form__notes {
+		min-height: 84px;
+		resize: vertical;
 	}
 	.newsroom-form__domains {
 		min-height: 84px;

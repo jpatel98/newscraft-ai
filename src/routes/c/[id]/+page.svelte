@@ -92,7 +92,9 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		producer_brief: 'Create a producer brief from this answer.',
 		thirty_second_script: 'Write a 30-second OC/VO from this answer.',
 		interview_questions: 'Draft interview questions from this answer.',
-		copy_with_citations: 'Turn this answer into clean copy with citations.'
+		copy_with_citations: 'Turn this answer into clean copy with citations.',
+		rundown_line: 'Write a rundown line from this answer.',
+		tease: 'Write a tease from this answer.'
 	};
 
 	let { data } = $props();

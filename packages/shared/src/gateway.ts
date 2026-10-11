@@ -207,6 +207,17 @@ export interface NewsroomContext {
 	timezone: string;
 	homeMarket?: string;
 	preferredDomains?: string[];
+	/** Show memory: the producer's standing description of the show. */
+	showName?: string;
+	/** Local air time as HH:MM (24-hour) in the newsroom timezone. */
+	airTimeLocal?: string;
+	audience?: string;
+	/** Beats the show covers, e.g. "local government", "police and courts". */
+	beats?: string[];
+	/** House style notes, passed to the writer as standing instructions. */
+	styleNotes?: string;
+	/** Subjects already covered recently (manual entries plus recent threads), newest first. */
+	recentlyCovered?: string[];
 	/** Current date and time in the newsroom timezone, e.g. "Saturday, October 10, 2026, 11:05 p.m. ET". */
 	today?: string;
 	sourceProfile?: ResearchSourceProfile;

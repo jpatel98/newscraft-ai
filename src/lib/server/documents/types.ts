@@ -1,10 +1,22 @@
 export type DocumentProcessingState = 'uploading' | 'processing' | 'ready' | 'failed';
 
+export interface RecentlyCoveredEntry {
+	subject: string;
+	/** Epoch milliseconds when the producer recorded the subject as covered. */
+	coveredAt: number;
+}
+
 export interface NewsroomProfileRow {
 	orgId: string;
 	timezone: string;
 	homeMarket: string;
 	preferredDomains: string[];
+	showName: string;
+	airTimeLocal: string;
+	audience: string;
+	beats: string[];
+	styleNotes: string;
+	recentlyCovered: RecentlyCoveredEntry[];
 	createdAt: number;
 	updatedAt: number;
 }

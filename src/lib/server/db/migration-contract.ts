@@ -25,7 +25,8 @@ export const MIGRATION_VERSIONS = [
 	'0016_conversation_artifacts',
 	'0017_topic_projects',
 	'0017_managed_agent_sessions',
-	'0018_portable_agent_core'
+	'0018_portable_agent_core',
+	'0019_newsroom_show_profile'
 ] as const;
 
 /** Versions represented by the legacy runtime-created schema. */

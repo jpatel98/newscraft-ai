@@ -56,6 +56,29 @@ export async function listConversations(accountId: string, limit = 100): Promise
 		.limit(limit))) as ConversationRow[];
 }
 
+/**
+ * Titles of an organization's threads touched since `since`, newest first.
+ * Uses conversations_org_updated_idx; bounded, and reads no message bodies.
+ */
+export async function listRecentConversationSubjects(
+	orgId: string,
+	since: number,
+	excludeConversationId?: string,
+	limit = 30
+): Promise<Array<{ title: string; updatedAt: number }>> {
+	const rows = (await retryRead(() => db
+		.select({ title: conversations.title, updatedAt: conversations.updatedAt })
+		.from(conversations)
+		.where(and(
+			eq(conversations.orgId, orgId),
+			gte(conversations.updatedAt, since),
+			excludeConversationId ? sql`${conversations.id} <> ${excludeConversationId}` : undefined
+		))
+		.orderBy(desc(conversations.updatedAt))
+		.limit(limit))) as Array<{ title: string; updatedAt: number }>;
+	return rows;
+}
+
 export async function getConversation(accountId: string, id: string): Promise<ConversationRow | undefined> {
 	const [row] = (await db
 		.select()

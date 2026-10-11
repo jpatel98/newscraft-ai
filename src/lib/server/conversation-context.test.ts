@@ -214,7 +214,9 @@ describe('conversation context builder', () => {
 			['Create a producer brief from this answer.'],
 			['Write a 30-second OC/VO from this answer.'],
 			['Draft interview questions from this answer.'],
-			['Turn this answer into clean copy with citations.']
+			['Turn this answer into clean copy with citations.'],
+			['Write a rundown line from this answer.'],
+			['Write a tease from this answer.']
 		])('never scans keywords for the output action: %s', (request) => {
 			const context = buildConversationContext({
 				messages: [],

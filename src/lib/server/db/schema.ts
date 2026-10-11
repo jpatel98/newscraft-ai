@@ -76,6 +76,15 @@ export const newsroomProfiles = pgTable('newsroom_profiles', {
 	timezone: text('timezone').notNull().default('UTC'),
 	homeMarket: text('home_market').notNull().default(''),
 	preferredDomains: jsonb('preferred_domains').$type<string[]>().notNull().default([]),
+	showName: text('show_name').notNull().default(''),
+	airTimeLocal: text('air_time_local').notNull().default(''),
+	audience: text('audience').notNull().default(''),
+	beats: jsonb('beats').$type<string[]>().notNull().default([]),
+	styleNotes: text('style_notes').notNull().default(''),
+	recentlyCovered: jsonb('recently_covered')
+		.$type<Array<{ subject: string; coveredAt: number }>>()
+		.notNull()
+		.default([]),
 	createdAt: timestampMs('created_at').notNull(),
 	updatedAt: timestampMs('updated_at').notNull()
 });
