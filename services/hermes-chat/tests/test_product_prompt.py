@@ -546,6 +546,22 @@ class ProductPromptTests(unittest.TestCase):
         self.assertIn("web_extract or verify_this_lead reads them", NEWSCRAFT_PRODUCT_IDENTITY)
         self.assertNotIn("Interactive browsing is not available in this release", NEWSCRAFT_PRODUCT_IDENTITY)
 
+    def test_identity_answers_with_results_not_instructions_to_the_user(self):
+        for sentence in (
+            "- No instructions to the user. Do not tell them to call, chase, confirm, check, verify, book, be careful, or how to read a line on air. "
+            "Report what is established, what is not, and who said what; the producer decides what to do with it. "
+            "A gap is a fact (\"Court date: not published\"), never a task or a to-do list. Never moralize about a story or its subjects.",
+            "- Stop when the content stops. No closers, no offers, no sign-offs, no \"Next:\" lines, no summaries of what you did.",
+            "- Plain over clever. No sections titled Caution, Recommendation, Must confirm, Open checks or similar unless the user asked for exactly that; "
+            "fold a gap into the relevant item as a short fact.",
+            "- Briefs: the news first, then background, then confirmed versus alleged, then what is not established (as facts), then possible voices and pictures.",
+        ):
+            with self.subTest(sentence=sentence[:40]):
+                self.assertIn(sentence, NEWSCRAFT_PRODUCT_IDENTITY)
+        for old in ("No lectures.", "Never remind the user to verify", "Want me to", "At most one line starting", "then open checks"):
+            with self.subTest(old=old):
+                self.assertNotIn(old, NEWSCRAFT_PRODUCT_IDENTITY)
+
     def test_tenant_preferences_remain_separate(self):
         first = build_product_prompt("Tenant A: harbour assignment.")
         second = build_product_prompt("Tenant B: court assignment.")

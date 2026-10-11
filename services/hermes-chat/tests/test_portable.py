@@ -754,6 +754,7 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         wrap_request = self.requests[-1][1]
         self.assertEqual(wrap_request["tools"], [])
         self.assertIn("Research budget reached", json.dumps(wrap_request))
+        self.assertIn("State what was not found as a short fact; do not tell the user what to do about it.", json.dumps(wrap_request))
         self.assertNotIn("function_call", json.dumps(wrap_request))
         plans = [e["value"]["steps"] for e in events if e.get("name") == "newscraft.plan"]
         self.assertEqual(len(plans), 2)  # The model's own update, then the server-side close.
@@ -1507,6 +1508,7 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         writer = self.model_prompts()[1]
         self.assertIn("found nothing on the request's subject", writer)
         self.assertIn("state the research gap in one line", writer)
+        self.assertIn("State what was not found as a short fact; do not tell the user what to do about it.", writer)
         self.assertEqual(events[-1]["type"], "RUN_FINISHED")
 
     async def test_on_topic_research_does_not_claim_a_gap(self):
