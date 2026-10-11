@@ -292,6 +292,45 @@ def on_topic(hits: int, terms: Sequence[str]) -> bool:
     return bool(terms) and hits >= min(3, len(terms))
 
 
+# ---- Aggregator recovery ------------------------------------------------------------------------------------------
+_TITLE_SPLIT = re.compile(r"\s+[|\-\u2013\u2014\u2022]\s+")
+RECOVERY_HEAD_CHARS = 300
+
+
+def headline_query(title: str, url: str) -> str:
+    """A page title without its site name ('Story | The1News' -> 'Story'); '' when nothing usable is left."""
+    host_name = _second_level(host_of(url))
+    parts = [part.strip() for part in _TITLE_SPLIT.split(title or "") if part.strip()]
+    kept = [part for part in parts if not title_is_site_name(part, url) and (not host_name or host_name not in _squash(part) or len(part) > 40)]
+    return " ".join((max(kept, key=len) if kept else "").split())[:200]
+
+
+def headline_terms(headline: str) -> list[str]:
+    return list(dict.fromkeys(word for word in re.findall(r"[a-z0-9]{4,}", headline.lower()) if word not in _TERM_STOP))
+
+
+def shares_headline(page: dict[str, Any], terms: Sequence[str]) -> bool:
+    """The page's title or opening names about half (at most three) of the headline's distinctive words."""
+    if not terms:
+        return False
+    head = f"{page.get('title') or ''}\n{str(page.get('text') or '')[:RECOVERY_HEAD_CHARS * 2]}".lower()
+    hits = sum(bool(re.search(rf"(?<![a-z0-9]){re.escape(term)}", head)) for term in terms)
+    return hits >= max(1, min(3, (len(terms) + 1) // 2))
+
+
+def aggregator_lead(dropped: Sequence[dict[str, Any]], terms: Sequence[str]) -> dict[str, Any] | None:
+    """The dropped aggregator page that most plainly belongs to the request (title/opening name its key terms)."""
+    best, score = None, 0
+    for page in dropped:
+        if tier_for_url(page["url"]) != "aggregator" or is_non_content_page(page):
+            continue
+        head = f"{page.get('title') or ''}\n{str(page.get('text') or '')[:RECOVERY_HEAD_CHARS]}"
+        hits = topic_hits({"title": head}, terms)
+        if hits > score and headline_query(page.get("title") or "", page["url"]):
+            best, score = page, hits
+    return best
+
+
 # ---- Place relevance ---------------------------------------------------------------------------------------------
 GTA_PLACES = (
     "Toronto", "Mississauga", "Brampton", "Markham", "Vaughan", "Oakville", "Burlington", "Pickering", "Ajax", "Oshawa", "Whitby",

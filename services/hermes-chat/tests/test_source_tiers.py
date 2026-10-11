@@ -7,7 +7,7 @@ import httpx
 
 from hermes_chat import research_plan
 from hermes_chat.search_adapters import exa_body, exa_pages
-from hermes_chat.source_tiers import (is_non_content_page, is_non_content_url, key_terms, looks_like_listing, normalize_domains,
+from hermes_chat.source_tiers import (AGGREGATOR_DOMAINS, aggregator_lead, headline_query, headline_terms, shares_headline, is_non_content_page, is_non_content_url, key_terms, looks_like_listing, normalize_domains,
                                       official_domains_for_query, on_topic, outlet_for_query, place_tokens, rank_pages,
                                       source_type_for_tier, tier_for_url, topic_hits, url_key)
 
@@ -202,6 +202,34 @@ class RelevanceTermTests(unittest.TestCase):
         self.assertEqual(outlet_for_query("Toronto soldiers charged CBC")[1], ["cbc.ca"])
         self.assertIsNone(outlet_for_query("Toronto Police news release"))
         self.assertIsNone(outlet_for_query("global warming report"))
+
+
+class AggregatorRecoveryTests(unittest.TestCase):
+    def test_headline_query_strips_the_site_name(self):
+        url = "https://www.the1news.com/article/x"
+        self.assertEqual(headline_query("Third Toronto soldier charged in kidnapping | The1News", url), "Third Toronto soldier charged in kidnapping")
+        self.assertEqual(headline_query("The1News - Third soldier charged in kidnapping case", url), "Third soldier charged in kidnapping case")
+        self.assertEqual(headline_query("the1news.com", url), "")
+
+    def test_lead_needs_key_terms_and_a_title_to_search_for(self):
+        text = "Reservists of the 7th Toronto Regiment are charged. " * 3
+        repost = {"url": "https://www.the1news.com/a", "title": "Third soldier charged | The1News", "text": text}
+        offtopic = {"url": "https://www.newsbreak.com/b", "title": "Budget vote | NewsBreak", "text": "Council voted on the budget. " * 10}
+        cbc = {"url": "https://www.cbc.ca/a", "title": "CBC", "text": text}
+        terms = ["7th", "regiment", "reservists"]
+        self.assertIs(aggregator_lead([offtopic, cbc, repost], terms), repost)
+        self.assertIsNone(aggregator_lead([offtopic, cbc], terms))
+        self.assertIsNone(aggregator_lead([repost], []))
+
+    def test_original_must_share_the_headline_words(self):
+        words = headline_terms("Third Toronto soldier charged in kidnapping")
+        self.assertTrue(shares_headline({"title": "Third soldier charged in Toronto kidnapping case", "text": ""}, words))
+        self.assertFalse(shares_headline({"title": "Council budget vote", "text": "Nothing here. " * 30}, words))
+        self.assertIn("the1news.com", AGGREGATOR_DOMAINS)
+
+    def test_exclude_domains_are_sent_only_without_include_domains(self):
+        self.assertEqual(exa_body("q", exclude_domains=["the1news.com"])["excludeDomains"], ["the1news.com"])
+        self.assertNotIn("excludeDomains", exa_body("q", include_domains=["tps.ca"], exclude_domains=["the1news.com"]))
 
 
 class ExaRequestTests(unittest.IsolatedAsyncioTestCase):

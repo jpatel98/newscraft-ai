@@ -55,7 +55,7 @@ class OpenAISearch:
 
 
 def exa_body(query: str, *, results: int = 6, since: str | None = None, max_characters: int = 4000,
-             include_domains: list[str] | None = None) -> dict[str, Any]:
+             include_domains: list[str] | None = None, exclude_domains: list[str] | None = None) -> dict[str, Any]:
     """The Exa /search request body (pure, so the filters can be tested without a network)."""
     body: dict[str, Any] = {"query": query[:500], "numResults": results, "type": "auto",
                             "contents": {"text": {"maxCharacters": max_characters}}}
@@ -63,14 +63,18 @@ def exa_body(query: str, *, results: int = 6, since: str | None = None, max_char
         body["startPublishedDate"] = since
     if include_domains:
         body["includeDomains"] = list(include_domains)[:10]
+    elif exclude_domains:  # Exa takes one or the other.
+        body["excludeDomains"] = list(exclude_domains)[:20]
     return body
 
 
 async def exa_pages(api_key: str, query: str, *, results: int = 6, since: str | None = None,
                     max_characters: int = 4000, timeout_seconds: float = 8,
-                    include_domains: list[str] | None = None, transport: httpx.AsyncBaseTransport | None = None) -> list[dict[str, Any]]:
+                    include_domains: list[str] | None = None, exclude_domains: list[str] | None = None,
+                    transport: httpx.AsyncBaseTransport | None = None) -> list[dict[str, Any]]:
     """One Exa request returning ranked pages with their text (fast-path research)."""
-    body = exa_body(query, results=results, since=since, max_characters=max_characters, include_domains=include_domains)
+    body = exa_body(query, results=results, since=since, max_characters=max_characters, include_domains=include_domains,
+                    exclude_domains=exclude_domains)
     async with httpx.AsyncClient(timeout=timeout_seconds, trust_env=False, transport=transport) as client:
         response = await client.post("https://api.exa.ai/search", json=body,
                                      headers={"x-api-key": api_key, "content-type": "application/json"})
