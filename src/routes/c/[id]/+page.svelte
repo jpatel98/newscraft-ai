@@ -4,6 +4,7 @@
 	import ArtifactCanvasLoader from '$lib/components/ArtifactCanvasLoader.svelte';
 	import NewsroomArtifactPaneLoader from '$lib/components/NewsroomArtifactPaneLoader.svelte';
 	import Thread from '$lib/components/Thread.svelte';
+	import { artifactPaneMode } from '$lib/components/artifact-layout';
 	import type { CitationRecord } from '@newscraft/shared';
 	import type {
 		PersistedSource,
@@ -119,6 +120,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	// invalidateAll the partial flag flips and the row reappears finalized.
 	let hiddenIds = $state<Set<string>>(new Set());
 	let artifactOpen = $state(false);
+	let viewportWidth = $state(0);
+	const artifactMode = $derived(artifactPaneMode(viewportWidth));
 	let activeArtifact = $state<ArtifactDraft | null>(null);
 	let activeCanvasArtifact = $state<ArtifactDetail | null>(null);
 	let activeArtifactSummary = $state<ArtifactSummary | null>(null);
@@ -1434,6 +1437,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	{#if data.project}<a class="conversation-project-link" href={`/projects/${data.project.id}`}>{data.project.name}</a>{/if}
 </header>
 
+<svelte:window bind:innerWidth={viewportWidth} />
+
 <div class="conversation-workspace">
 	{#key data.conversation.id}
 		<Thread
@@ -1471,12 +1476,24 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		/>
 	{/if}
 	{#if artifactOpen && activeArtifact}
-		<NewsroomArtifactPaneLoader
-			draft={activeArtifact}
-			disabled={chat.streaming}
-			onSelect={handleUseAnswer}
-			onClose={() => (artifactOpen = false)}
-		/>
+		{#if artifactMode === 'overlay'}
+			<button
+				type="button"
+				class="artifact-scrim"
+				data-testid="artifact-scrim"
+				aria-label="Close artifact pane"
+				tabindex="-1"
+				onclick={() => (artifactOpen = false)}
+			></button>
+		{/if}
+		<div class="artifact-slot artifact-slot--{artifactMode}" data-artifact-mode={artifactMode}>
+			<NewsroomArtifactPaneLoader
+				draft={activeArtifact}
+				disabled={chat.streaming}
+				onSelect={handleUseAnswer}
+				onClose={() => (artifactOpen = false)}
+			/>
+		</div>
 	{/if}
 </div>
 
@@ -1582,6 +1599,36 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		min-height: 0;
 		min-width: 0;
 		display: flex;
+	}
+	/* Side mode (viewport >= 1100px): the pane takes the space the thread does
+	 * not need, capped at 520px. The thread keeps its own min-width. */
+	.artifact-slot {
+		display: flex;
+		min-height: 0;
+		min-width: 0;
+	}
+	.artifact-slot--side {
+		flex: 0 1 520px;
+		min-width: 300px;
+	}
+	/* Overlay drawer (viewport < 1100px): out of the row, over the right edge. */
+	.artifact-slot--overlay {
+		position: fixed;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 61;
+		width: min(520px, 100vw);
+		box-shadow: var(--shadow-3);
+	}
+	.artifact-scrim {
+		position: fixed;
+		inset: 0;
+		z-index: 60;
+		border: 0;
+		padding: 0;
+		background: color-mix(in srgb, var(--ink-900) 32%, transparent);
+		cursor: default;
 	}
 	.feedback-backdrop {
 		position: fixed;

@@ -706,8 +706,9 @@
 		position: relative;
 		flex: 1;
 		min-height: 0;
-		/* Never let a sibling pane squeeze the thread to a sliver. */
-		min-width: min(100%, 320px);
+		/* Never let a sibling pane squeeze the thread: 380px of message content
+		 * plus the 48px inner padding and 44px avatar column + gap. */
+		min-width: min(100%, 472px);
 		display: grid;
 		grid-template-rows: minmax(0, 1fr) auto;
 	}

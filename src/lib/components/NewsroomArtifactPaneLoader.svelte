@@ -29,9 +29,8 @@
 {/if}
 
 <style>
-	.loader-pane { width:min(430px,40vw); min-width:340px; overflow:auto; box-sizing:border-box; padding:18px; border-left:1px solid var(--border-default); background:var(--bg-surface); color:var(--fg-1); }
+	.loader-pane { flex:1 1 auto; width:100%; min-width:0; overflow:auto; overflow-wrap:anywhere; box-sizing:border-box; padding:18px; border-left:1px solid var(--border-default); background:var(--bg-surface); color:var(--fg-1); }
 	button { flex:0 0 36px; height:36px; border:1px solid var(--border-default); border-radius:6px; font-size:24px; }
 	button:focus-visible, a:focus-visible { outline:2px solid var(--accent-fg); outline-offset:2px; }
 	header { display:flex; justify-content:space-between; gap:12px; } pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; line-height:1.55; } a { color:var(--accent-fg); }
-	@media (max-width:860px) { .loader-pane { position:fixed; inset:48px 0 0; z-index:60; width:100%; min-width:0; border:0; border-top:1px solid var(--border-default); } }
 </style>

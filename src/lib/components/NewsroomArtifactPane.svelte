@@ -142,9 +142,13 @@
 
 <style>
 	.artifact-pane {
-		width: min(430px, 40vw);
-		min-width: 340px;
+		/* Width is owned by the hosting slot (side column or overlay drawer). */
+		flex: 1 1 auto;
+		width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
 		min-height: 0;
+		overflow-wrap: anywhere;
 		display: grid;
 		grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 		border-left: 1px solid var(--border-default);
@@ -280,17 +284,5 @@
 	.artifact-pane__button:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
 	@keyframes artifact-pulse { 50% { opacity: 0.35; } }
 	@media (prefers-reduced-motion: reduce) { .artifact-pane__pulse { animation: none; } }
-	@media (max-width: 860px) {
-		.artifact-pane {
-			position: fixed;
-			inset: 48px 0 0;
-			z-index: 60;
-			width: 100%;
-			min-width: 0;
-			border-left: 0;
-			border-top: 1px solid var(--border-default);
-			box-shadow: var(--shadow-3);
-		}
-		.artifact-pane__footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
-	}
+	.artifact-pane__footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 </style>

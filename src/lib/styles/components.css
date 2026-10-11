@@ -1784,6 +1784,7 @@ body,
 	flex-wrap: wrap;
 	max-width: 100%;
 	min-width: 0;
+	overflow-wrap: anywhere;
 }
 .msg__resume__label {
 	font-weight: 600;
