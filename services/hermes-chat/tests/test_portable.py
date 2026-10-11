@@ -2018,6 +2018,95 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("https://news.ontario.ca/search/en", urls)
         self.assertNotIn("https://api.news.ontario.ca/api/v1/releases", urls)
 
+    # ---- Show memory and the story ledger --------------------------------------------------------------------
+
+    LEDGER = ('```newscraft-ledger\n{"claims":[{"claim":"Three soldiers were charged","status":"confirmed","attributed_to":"Toronto Police",'
+              '"citations":[1],"date":"2026-10-09","needs_check":false},{"claim":"A court date is set","status":"unverified","attributed_to":"",'
+              '"citations":[9],"date":"","needs_check":true}]}\n```')
+    SHOW = {"timezone": "America/Toronto", "homeMarket": "Toronto", "showName": "CityNews at Six", "airTimeLocal": "18:00", "audience": "GTA general",
+            "styleNotes": "Numbers as words under ten.", "recentlyCovered": ["TTC fare increase", "Soldiers charged"]}
+
+    async def test_quick_answer_keeps_a_valid_ledger_block_last_and_drops_unrecorded_citations(self):
+        plan = {"mode": "research", "assumption": "", "queries": [{"q": "soldiers charged", "intent": "news", "days": 7, "domains": []}]}
+        exa, _ = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC report", self.SOLDIER_TEXT)])
+        runner = self.runner([answer(json.dumps(plan)), answer(f"Three soldiers were charged. [1]\n\nNext: I can pull the court record.\n\n{self.LEDGER}")])
+        events = await self.collect_fast(runner, self.fast_payload("what happened with the soldiers", newsroom=self.SHOW), exa)
+        final = self.final_answer(events)
+        body, _, block = final.partition("\n\n```newscraft-ledger\n")
+        self.assertEqual(body, "Three soldiers were charged. [1]")  # The closer is gone, the body is intact.
+        self.assertTrue(final.endswith("\n```"))
+        ledger = json.loads(block[:-4])
+        self.assertEqual([c["status"] for c in ledger["claims"]], ["confirmed", "unverified"])
+        self.assertEqual(ledger["claims"][0]["citations"], [1])
+        self.assertEqual(ledger["claims"][1]["citations"], [])  # [9] is not a recorded source.
+        writer = self.model_prompts()[1]
+        self.assertIn("newscraft-ledger", writer)
+        self.assertIn("House style (follow exactly", writer)
+        self.assertIn("Numbers as words under ten.", writer)
+        self.assertIn("for the 6pm", writer)
+
+    async def test_quick_answer_with_a_broken_or_cut_ledger_ends_without_one(self):
+        plan = {"mode": "research", "assumption": "", "queries": [{"q": "soldiers charged", "intent": "news", "days": 7, "domains": []}]}
+        exa, _ = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC report", self.SOLDIER_TEXT)])
+        for tail in ("```newscraft-ledger\n{not json}\n```", "```newscraft-ledger\n{\"claims\":[{\"claim\":\"Cut"):
+            with self.subTest(tail=tail):
+                self.requests.clear()
+                runner = self.runner([answer(json.dumps(plan)), answer("Three soldiers were charged. [1]\n\n" + tail)])
+                events = await self.collect_fast(runner, self.fast_payload("what happened with the soldiers"), exa)
+                self.assertEqual(self.final_answer(events), "Three soldiers were charged. [1]")
+
+    async def test_thread_ledger_is_listed_ahead_of_the_sources_and_the_writer_keeps_qualifiers(self):
+        plan = {"mode": "thread", "assumption": "", "queries": []}
+        ledger = {"claims": [{"id": "c1", "claim": "A third soldier was taken", "status": "confirmed", "attributed_to": "DND", "citations": [3],
+                              "date": "2026-10-08", "needs_check": False, "updated_at": "2026-10-08T12:00:00Z"},
+                             {"claim": "The group acted on orders", "status": "alleged", "attributed_to": "Toronto Police", "citations": [3], "needs_check": True}]}
+        payload = self.fast_payload("write a 30-second intro", prior=[{"role": "user", "content": "Brief me"}, {"role": "assistant", "content": "Three soldiers face charges. [3]"}])
+        payload["context"].append({"description": "Story ledger", "value": json.dumps(ledger)})
+        exa, calls = self.fake_exa()
+        runner = self.runner([answer(json.dumps(plan)), answer("Three soldiers, one confirmed by DND. [3]\n\n" + self.LEDGER.replace("[9]", "[3]"))])
+        events = await self.collect_fast(runner, payload, exa, seeded=self.seeded_cp24())
+        self.assertEqual(calls, [])
+        prompt = self.model_prompts()[1]
+        self.assertLess(prompt.index("Established in this story so far"), prompt.index("[3] Earlier CP24 report"))
+        self.assertIn("[CONFIRMED] A third soldier was taken - DND [3] (2026-10-08)", prompt)
+        self.assertIn("[ALLEGED] The group acted on orders - Toronto Police [3] NEEDS CHECK", prompt)
+        self.assertIn("keep their status and qualifier", prompt)
+        self.assertIn("supersedes", prompt)
+        self.assertIn("```newscraft-ledger", self.final_answer(events))
+
+    async def test_published_document_has_the_ledger_stripped_and_the_answer_keeps_it(self):
+        reply = f"{self.CHATTER}\n\n```markdown\n{self.BRIEF}\n\n{self.LEDGER}\n```\n\n{self.LEDGER}"
+        runner = self.runner([answer(json.dumps(self.BRIEF_PLAN)), answer(reply)])
+        events = await self.collect_fast(runner, self.fast_payload("Build me a producer brief as a markdown file on the soldier story"), self.brief_exa())
+        self.assertEqual(len(self.published), 1)
+        self.assertNotIn(b"newscraft-ledger", self.published[0][1])
+        self.assertNotIn(b"Three soldiers were charged\",", self.published[0][1])
+        visible = self.final_answer(events)
+        self.assertTrue(visible.startswith("Your markdown file is ready: **Producer brief**."))
+        self.assertEqual(visible.count("```newscraft-ledger"), 1)
+        self.assertTrue(visible.endswith("\n```"))
+        self.assertIn("newscraft-ledger", self.model_prompts()[1])  # The deliverable brief asks for the block...
+        self.assertIn("never inside the published file", self.model_prompts()[1])  # ...in the reply, not in the file.
+
+    def test_markdown_artifact_strips_the_ledger_before_citation_checks(self):
+        spec, data, *_ = PortableAgentRunner.artifact("publish_markdown", {"title": "Brief", "markdown": f"A claim. [1]\n\n{self.LEDGER}"},
+                                                       {1: {"url": SOURCE_URL, "title": "T"}}, True)
+        self.assertNotIn(b"newscraft-ledger", data)
+        self.assertNotIn("newscraft-ledger", spec["markdown"])
+
+    async def test_rundown_prompt_labels_items_and_omits_recently_covered_subjects(self):
+        plan = {"mode": "research", "assumption": "", "queries": [{"q": "Toronto transit news", "intent": "news", "days": 3, "domains": []}]}
+        exa, _ = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC report", self.SOLDIER_TEXT)])
+        runner = self.runner([answer(json.dumps(plan)), answer("One item. [1]")])
+        await self.collect_fast(runner, self.fast_payload("anything new for tonight's show?", newsroom=self.SHOW), exa)
+        planner, writer = self.model_prompts()[0], self.model_prompts()[1]
+        self.assertIn("Show: CityNews at Six, airs 18:00 local, audience: GTA general", planner)
+        self.assertIn("TTC fare increase; Soldiers charged", planner)
+        for label in ("new since the last show", "developing", "older"):
+            self.assertIn(label, writer)
+        self.assertIn("already covered: <subject>", writer)
+        self.assertIn("TTC fare increase; Soldiers charged", writer)
+
 
 class SearchTests(unittest.TestCase):
     def test_public_search_does_not_require_model_credentials(self):
