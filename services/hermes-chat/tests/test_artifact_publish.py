@@ -9,8 +9,11 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
+
 from hermes_chat.artifact_publish import (
     ArtifactPublishError,
+    complete_staged_upload,
     publish_workspace_file,
     stage_backend_file,
     stage_workspace_file,
@@ -250,6 +253,66 @@ class ArtifactPublishTests(unittest.TestCase):
                     checksum_sha256=hashlib.sha256(b"bytes").hexdigest(),
                 ))
             self.assertTrue(staged.exists())
+
+    def upload_failure(self, handler, *, complete=False):
+        async def attempt():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                if complete:
+                    return await complete_staged_upload(client, "http://127.0.0.1:9100/complete")
+                with tempfile.TemporaryDirectory() as raw:
+                    staged = Path(raw) / "staged.bin"
+                    staged.write_bytes(b"bytes")
+                    try:
+                        return await upload_staged_file(client, staged, "http://127.0.0.1:9100/upload", mime_type="text/markdown",
+                                                        size=5, checksum_sha256=hashlib.sha256(b"bytes").hexdigest())
+                    finally:
+                        self.assertFalse(staged.exists())
+        with self.assertRaises(ArtifactPublishError) as caught:
+            asyncio.run(attempt())
+        return caught.exception
+
+    def test_connection_failures_and_4xx_are_final_but_timeouts_and_5xx_are_retryable(self) -> None:
+        def refuse(request):
+            raise httpx.ConnectError("[Errno 61] Connection refused", request=request)
+
+        def timeout(request):
+            raise httpx.ReadTimeout("slow", request=request)
+
+        for complete in (False, True):
+            with self.subTest(complete=complete):
+                self.assertFalse(self.upload_failure(refuse, complete=complete).retryable)
+                self.assertFalse(self.upload_failure(lambda request: httpx.Response(404), complete=complete).retryable)
+                self.assertFalse(self.upload_failure(lambda request: httpx.Response(403), complete=complete).retryable)
+                self.assertTrue(self.upload_failure(lambda request: httpx.Response(503), complete=complete).retryable)
+                self.assertTrue(self.upload_failure(timeout, complete=complete).retryable)
+        error = self.upload_failure(refuse)
+        self.assertNotIn("Connection refused", str(error))  # Transport detail is not carried into user-visible text.
+        self.assertNotIn("127.0.0.1", str(error))
+
+    def test_durable_grant_and_completion_steps_classify_failures_the_same_way(self) -> None:
+        from hermes_chat.durable import DurableRunError, DurableRunWorker
+        from hermes_chat.isolation import TenantIsolation
+
+        async def step(failure):
+            with tempfile.TemporaryDirectory() as raw:
+                base = Path(raw).resolve()
+                worker = DurableRunWorker(SimpleNamespace(run_api_url="https://app.example.test/api", run_api_token="t"),
+                                          TenantIsolation(base / "state", base / "files"))
+                async def fail(*_args, **_kwargs):
+                    raise failure
+                worker._newscraft = fail
+                try:
+                    await worker._artifact_step("POST", "/grant", {})
+                except ArtifactPublishError as exc:
+                    return exc
+                self.fail("the step must raise ArtifactPublishError")
+
+        request = httpx.Request("POST", "http://127.0.0.1:9100/grant")
+        self.assertFalse(asyncio.run(step(httpx.ConnectError("refused", request=request))).retryable)
+        self.assertFalse(asyncio.run(step(DurableRunError("rejected", 403, "forbidden"))).retryable)
+        self.assertFalse(asyncio.run(step(DurableRunError("rejected", 409, "stale_lease"))).retryable)
+        self.assertTrue(asyncio.run(step(DurableRunError("down", 503, "network"))).retryable)
+        self.assertTrue(asyncio.run(step(httpx.ReadTimeout("slow", request=request))).retryable)
 
 
 if __name__ == "__main__":

@@ -29,7 +29,27 @@ _SAFE_COMPONENT = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXY
 
 
 class ArtifactPublishError(RuntimeError):
-    """A publication attempt was rejected before it could become ready."""
+    """A publication attempt was rejected before it could become ready.
+
+    ``retryable`` is true only when a repeat of the same immutable publication
+    can succeed: a timeout or a 5xx from storage. Connection failures (refused,
+    unreachable, DNS), 4xx rejections and local validation failures are final.
+    """
+
+    def __init__(self, message: str = "", *, retryable: bool = False):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+def transport_error(exc: BaseException, label: str = "artifact storage") -> ArtifactPublishError:
+    """Map an HTTP client failure to a publish error; only timeouts may be retried."""
+    if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
+        return ArtifactPublishError(f"{label} timed out", retryable=True)
+    return ArtifactPublishError(f"{label} is unreachable", retryable=False)
+
+
+def status_error(label: str, status: int) -> ArtifactPublishError:
+    return ArtifactPublishError(f"{label} ({status})", retryable=status >= 500)
 
 
 def _write_all(fd: int, chunk: bytes) -> None:
@@ -323,19 +343,22 @@ async def upload_staged_file(
             raise ArtifactPublishError("staged artifact length changed before upload")
         if hashlib.sha256(payload).hexdigest().lower() != checksum_sha256.lower():
             raise ArtifactPublishError("staged artifact checksum changed before upload")
-        response = await client.put(
-            upload_url,
-            headers={
-                "content-type": mime_type,
-                "content-length": str(size),
-                "x-content-sha256": checksum_sha256,
-            },
-            content=payload,
-        )
+        try:
+            response = await client.put(
+                upload_url,
+                headers={
+                    "content-type": mime_type,
+                    "content-length": str(size),
+                    "x-content-sha256": checksum_sha256,
+                },
+                content=payload,
+            )
+        except (httpx.TransportError, OSError) as exc:
+            raise transport_error(exc, "artifact upload") from exc
     finally:
         staged_path.unlink(missing_ok=True)
     if response.status_code >= 400:
-        raise ArtifactPublishError(f"artifact upload rejected ({response.status_code})")
+        raise status_error("artifact upload rejected", response.status_code)
     if not require_object_version:
         # Supabase signed-upload responses are storage-provider responses and
         # intentionally do not become the durable object identity. The
@@ -357,9 +380,12 @@ async def complete_staged_upload(
     """Ask NewsCraft to verify and bind a direct storage upload generation."""
     if not isinstance(completion_url, str) or not completion_url.startswith(("http://", "https://")):
         raise ArtifactPublishError("artifact upload completion grant is invalid")
-    response = await client.post(completion_url, headers={"content-type": "application/json"}, content=b"{}")
+    try:
+        response = await client.post(completion_url, headers={"content-type": "application/json"}, content=b"{}")
+    except (httpx.TransportError, OSError) as exc:
+        raise transport_error(exc, "artifact upload completion") from exc
     if response.status_code >= 400:
-        raise ArtifactPublishError(f"artifact upload completion rejected ({response.status_code})")
+        raise status_error("artifact upload completion rejected", response.status_code)
     try:
         value = response.json()
     except ValueError as exc:

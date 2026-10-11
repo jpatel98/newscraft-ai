@@ -508,11 +508,11 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
             await self.collect(runner)
         self.assertEqual(self.requests, [])
 
-    async def test_publication_failure_resumes_saved_call_without_repeating_model(self):
+    async def test_publication_interrupted_by_worker_death_resumes_saved_call_without_repeating_model(self):
         runner = self.runner([call("publish_markdown", {"title": "Draft", "markdown": "User material"}), answer()])
         publisher = runner.publisher
-        runner.publisher = AsyncMock(side_effect=RuntimeError("storage unavailable"))
-        with self.assertRaises(RecoveryPending):
+        runner.publisher = AsyncMock(side_effect=asyncio.CancelledError())  # The worker dies mid-upload.
+        with self.assertRaises(asyncio.CancelledError):
             await self.collect(runner)
         self.assertEqual(len(self.requests), 1)
         runner.publisher = publisher
@@ -540,18 +540,20 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([e["status"] for e in events if e["type"] == "TOOL_CALL_END"], ["failed", "ok"])
         self.assertEqual(self.store.data["state"].get("publication_retries", 0), 0)
 
-    async def test_publication_timeout_is_recoverable_and_bounded(self):
+    async def test_publication_timeout_is_retried_inside_the_wait_cap_then_delivered_inline(self):
         runner = self.runner([call("publish_markdown", {"title": "Draft", "markdown": "Text"})])
+        started = []
         async def blocked(*args, **kwargs):
+            started.append(1)
             await asyncio.Event().wait()
         runner.publisher = blocked
-        with patch("hermes_chat.portable.PUBLICATION_SECONDS", 0.01), self.assertRaises(RecoveryPending):
-            await self.collect(runner)
-        self.assertEqual(self.store.data["state"]["intent"]["kind"], "publication")
-        deadline = self.store.data["state"]["publication_deadlines"]["publish_markdown"]
-        with patch("hermes_chat.portable.time.time", return_value=deadline + 1), self.assertRaisesRegex(RunError, "deadline"):
-            await self.collect(runner)
-        self.assertEqual(self.store.data["state"]["publication_deadlines"]["publish_markdown"], deadline)
+        with patch("hermes_chat.portable.PUBLICATION_SECONDS", 0.01), patch("hermes_chat.portable.PUBLICATION_BACKOFF_SECONDS", (0.0,)):
+            events = await self.collect(runner)
+        self.assertEqual(len(started), 4)  # Every saved admission was used; none is repeated.
+        self.assertEqual(self.store.data["state"]["publication_attempts"]["publish_markdown"], 4)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertTrue(self.final_answer(events).startswith("The file could not be saved; here is the brief:"))
+        self.assertEqual(self.store.data["state"]["phase"], "finished")
 
     async def test_real_worker_reclaims_publication_after_full_attempt_and_renewed_lease(self):
         for run_seconds in (180, 90):
@@ -581,7 +583,7 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
                     attempts.append((request["publication_key"], request["checksum_sha256"]))
                     if len(attempts) == 1:
                         clock += 60  # Entire first attempt; last lease renewal can occur here.
-                        raise TimeoutError("upload acknowledgement lost")
+                        raise RecoveryPending("lease lost mid-upload")  # The upload acknowledgement is lost with the lease.
                     return await publish(request, **scope)
                 runner.publisher = interrupted
                 def claim():
@@ -611,13 +613,14 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_persisted_publication_attempts_cannot_be_evaded_by_worker_death(self):
         runner = self.runner([call("publish_markdown", {"title": "Draft", "markdown": "Text"})])
-        runner.publisher = AsyncMock(side_effect=RuntimeError("storage disconnected"))
-        with self.assertRaises(RecoveryPending):
+        runner.publisher = AsyncMock(side_effect=asyncio.CancelledError())
+        with self.assertRaises(asyncio.CancelledError):
             await self.collect(runner)
         self.store.data["state"]["publication_attempts"]["publish_markdown"] = 4
-        with self.assertRaisesRegex(RunError, "attempt limit"):
-            await self.collect(runner)
+        events = await self.collect(runner)  # The limit is spent: no fifth upload, the brief is delivered inline.
         self.assertEqual(runner.publisher.await_count, 1)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertTrue(self.final_answer(events).startswith("The file could not be saved; here is the brief:"))
 
     async def test_committed_cancellation_fences_first_and_citation_repair_model_dispatch(self):
         for repair in (False, True):
@@ -659,9 +662,10 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
             pass
         await stream.aclose()
         self.store.data["state"]["started"] -= 60
-        with self.assertRaisesRegex(RunError, "time budget"):
-            await self.collect(runner)
+        events = await self.collect(runner)  # No time to start an upload: the brief is delivered inline.
         self.assertEqual(self.published, [])
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertTrue(self.final_answer(events).startswith("The file could not be saved; here is the brief:"))
 
     async def test_unknown_or_authority_expanding_arguments_fail_before_effects(self):
         runner = self.runner([call("publish_markdown", {"title": "Draft", "markdown": "Text", "tenant_key": "someone-else"}),
@@ -1008,10 +1012,8 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
             cancel.assert_awaited_once()
             close.assert_awaited_once()
 
-    async def test_recovery_cannot_expand_saved_limits_or_switch_transport_endpoints(self):
-        for name, changed in (("max_seconds", 1800), ("max_iterations", 90), ("max_search_calls", 20),
-                              ("model_base_url", "https://other-model.example.test/v1"),
-                              ("web_provider", "openai")):
+    async def test_recovery_refuses_a_different_endpoint_or_search_provider(self):
+        for name, changed in (("model_base_url", "https://other-model.example.test/v1"), ("web_provider", "openai")):
             with self.subTest(setting=name):
                 self.store = Store()
                 runner = self.runner([])
@@ -1026,6 +1028,106 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(self.requests, [])
                 finally:
                     setattr(self.settings, name, previous)
+
+    async def test_recovery_with_the_same_identity_passes_even_when_limits_were_retuned(self):
+        for name, changed in (("max_seconds", 1800), ("max_iterations", 90), ("max_search_calls", 20), ("max_output_tokens", 8192),
+                              ("max_input_tokens", 3_000_000), ("max_cost_usd", 0.5)):
+            with self.subTest(setting=name):
+                self.store, self.requests = Store(), []
+                runner = self.runner([])
+                stream = runner.run(self.payload, self.runtime, "run-one")
+                await anext(stream)
+                await stream.aclose()
+                previous = getattr(self.settings, name)
+                setattr(self.settings, name, changed)
+                try:
+                    events = await self.collect(self.runner([answer("Recovered.")]))
+                    self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+                    self.assertEqual(self.store.data["state"]["limits"][name], min(previous, changed))
+                finally:
+                    setattr(self.settings, name, previous)
+
+    async def pause_after_first_model_call(self, replies):
+        runner = self.runner(replies)
+        stream = runner.run(self.payload, self.runtime, "run-one")
+        while (await anext(stream))["type"] != "TOOL_CALL_ARGS":
+            pass
+        await stream.aclose()
+        return self.store.data["state"]["budget"]["cost_microusd"]
+
+    PLAN_STEP = {"steps": [{"id": "a", "label": "Check", "status": "running"}]}
+
+    async def test_resumed_run_stops_at_the_lower_cost_limit_in_either_direction(self):
+        self.settings.max_cost_usd = 10
+        charged = await self.pause_after_first_model_call([call("plan", self.PLAN_STEP), answer()])
+        self.assertGreater(charged, 0)
+        cap = charged * 1.5 / 1_000_000  # Room for the first model call, not for a second.
+        for started, resumed in ((cap, 10), (10, cap)):
+            with self.subTest(started=started, resumed=resumed):
+                self.store, self.requests = Store(), []
+                self.settings.max_cost_usd = started
+                await self.pause_after_first_model_call([call("plan", self.PLAN_STEP), answer("Second call.")])
+                self.assertEqual(len(self.requests), 1)
+                self.settings.max_cost_usd = resumed
+                events = await self.collect(self.runner([answer("Second call.")]))
+                self.assertEqual(self.store.data["state"]["limits"]["max_cost_usd"], cap)
+                self.assertEqual(len(self.requests), 1)  # The second model call did not fit under the lower limit.
+                self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+                # A later worker configured generously still runs under the saved, lower limit.
+                self.settings.max_cost_usd = 100
+                await self.collect(self.runner([answer("Second call.")]))
+                self.assertEqual(self.store.data["state"]["limits"]["max_cost_usd"], cap)
+                self.assertEqual(len(self.requests), 1)
+        self.settings.max_cost_usd = 10
+
+    async def test_resume_clamps_every_limit_to_the_lower_value_and_a_second_resume_uses_the_saved_values(self):
+        original = {key: getattr(self.settings, key) for key in ("max_cost_usd", "max_input_tokens", "max_output_tokens", "max_iterations", "max_search_calls", "max_seconds")}
+        await self.pause_after_first_model_call([call("plan", self.PLAN_STEP), answer()])
+        saved = {"max_cost_usd": 3, "max_input_tokens": 1_500_000, "max_output_tokens": 128, "max_iterations": 7, "max_search_calls": 2, "max_seconds": 25}
+        self.store.data["state"]["limits"] = dict(saved)
+        for key, value in {"max_cost_usd": 5, "max_input_tokens": 1_000_000, "max_output_tokens": 512, "max_iterations": 3, "max_search_calls": 9, "max_seconds": 20}.items():
+            setattr(self.settings, key, value)
+        try:
+            with self.assertLogs("hermes_chat.portable", "INFO") as logs:
+                await self.collect(self.runner([answer("Done.")]))
+            self.assertEqual(self.store.data["state"]["limits"], {"max_cost_usd": 3, "max_input_tokens": 1_000_000, "max_output_tokens": 128,
+                                                                  "max_iterations": 3, "max_search_calls": 2, "max_seconds": 20})
+            line = next(entry for entry in logs.output if "run resumed" in entry)
+            self.assertIn("run_id=run-one", line)
+            self.assertIn("worker=", line)
+            self.assertRegex(line, r"limits_clamped=\S*max_cost_usd")
+            self.assertNotIn("fixture-key", line)
+            # The next resume clamps against the saved effective limits, not against the original configuration.
+            self.store.data["state"]["phase"] = "running"
+            self.store.data["state"].pop("answer", None)
+            for key, value in original.items():
+                setattr(self.settings, key, value)
+            with self.assertLogs("hermes_chat.portable", "INFO") as logs:
+                await self.collect(self.runner([answer("Done.")]))
+            self.assertEqual(self.store.data["state"]["limits"]["max_seconds"], 20)
+            self.assertEqual(self.store.data["state"]["limits"]["max_output_tokens"], 128)
+            self.assertIn("limits_clamped=max_cost_usd", next(entry for entry in logs.output if "run resumed" in entry))
+        finally:
+            for key, value in original.items():
+                setattr(self.settings, key, value)
+
+    async def test_resume_without_a_clamp_logs_none_and_old_checkpoints_clamp_from_their_adapter_policy(self):
+        await self.pause_after_first_model_call([call("plan", self.PLAN_STEP), answer()])
+        with self.assertLogs("hermes_chat.portable", "INFO") as logs:
+            await self.collect(self.runner([answer("Done.")]))
+        self.assertIn("limits_clamped=none", next(entry for entry in logs.output if "run resumed" in entry))
+        # A checkpoint from before limits were saved carries its limits only in the adapter policy.
+        self.store = Store()
+        await self.pause_after_first_model_call([call("plan", self.PLAN_STEP), answer()])
+        state = self.store.data["state"]
+        state.pop("limits")
+        self.assertEqual(state["adapter"]["budget_policy"]["seconds_limit"], 30)
+        self.settings.max_seconds = 600
+        try:
+            await self.collect(self.runner([answer("Done.")]))
+        finally:
+            self.settings.max_seconds = 30
+        self.assertEqual(self.store.data["state"]["limits"]["max_seconds"], 30)
 
     async def test_retrieval_disabled_and_sandbox_unconfigured_are_truthful(self):
         self.settings.retrieval = RetrievalConfig(enabled=False)
@@ -1509,6 +1611,184 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[index - 1]["type"], "STATE_SNAPSHOT")
         self.assertEqual([s["citationNumber"] for s in events[index - 1]["snapshot"]["newscraftSources"]], [1, 2])
         self.assertEqual(events[index + 1]["type"], "RUN_FINISHED")
+
+    FILE_DOCUMENT = "# Producer brief\n\n## Summary\nThree soldiers were charged. [1]\nCBC matches. [2]\n\n## Gaps\nNo court date yet."
+
+    async def deliverable_with_failing_storage(self, failure, *, document=None, patches=()):
+        """A researched deliverable whose publisher fails with ``failure`` on every attempt; returns (events, publisher mock)."""
+        document = document or self.FILE_DOCUMENT
+        runner = self.runner([answer(json.dumps(self.BRIEF_PLAN)), call("publish_markdown", {"title": "Producer brief", "markdown": document})])
+        runner.publisher = AsyncMock(side_effect=failure)
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            for target, value in patches:
+                stack.enter_context(patch(target, value))
+            events = await self.collect_fast(runner, self.fast_payload("Build me a producer brief as a markdown file on the soldier story"), self.brief_exa())
+        return events, runner.publisher
+
+    def assert_brief_delivered_inline(self, events):
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertNotIn("RUN_ERROR", [e["type"] for e in events])
+        answer_index = next(i for i, e in enumerate(events) if e.get("name") == "newscraft.answer")
+        self.assertEqual(events[answer_index - 1]["type"], "STATE_SNAPSHOT")
+        self.assertEqual([s["citationNumber"] for s in events[answer_index - 1]["snapshot"]["newscraftSources"]], [1, 2])
+        text = self.final_answer(events)
+        self.assertTrue(text.startswith("The file could not be saved; here is the brief:\n\n"))
+        self.assertIn("## Summary\nThree soldiers were charged. [1]", text)  # The document itself, as Markdown.
+        self.assertNotIn("\\n", text)
+        self.assertNotIn('"markdown"', text)
+        self.assertEqual(text.count("The file could not be saved"), 1)
+        decisions = [e["value"] for e in events if e.get("name") == "newscraft.decision"]
+        self.assertEqual([d["summary"] for d in decisions], ["File storage was unavailable; delivering the brief inline."])
+        public = json.dumps(events)
+        for internal in ("model adapter", "computer policy", "Connection refused", "127.0.0.1"):
+            self.assertNotIn(internal, public)
+        self.assertEqual(self.store.data["state"]["phase"], "finished")
+
+    async def test_refused_storage_connection_fails_fast_and_the_brief_is_delivered_inline(self):
+        from hermes_chat.artifact_publish import ArtifactPublishError
+        sleep = AsyncMock()
+        for document in (self.FILE_DOCUMENT, self.FILE_DOCUMENT.replace("\n", "\\n")):  # Plain, then JSON-escaped line breaks.
+            with self.subTest(escaped="\\n" in document):
+                self.store, self.requests = Store(), []
+                events, publisher = await self.deliverable_with_failing_storage(
+                    ArtifactPublishError("artifact upload is unreachable"), document=document, patches=[("hermes_chat.portable.asyncio.sleep", sleep)])
+                self.assertEqual(publisher.await_count, 1)  # No retry loop.
+                sleep.assert_not_awaited()
+                self.assertEqual(self.store.data["state"]["publication_attempts"]["publish_markdown"], 1)
+                self.assert_brief_delivered_inline(events)
+                failed = [e for e in events if e["type"] == "TOOL_CALL_END" and e["toolCallName"] == "publish_markdown"]
+                self.assertEqual([e["status"] for e in failed], ["failed"])
+                result = next(e for e in events if e["type"] == "TOOL_CALL_RESULT" and e["toolCallName"] == "publish_markdown")["result"]
+                self.assertEqual(result, {"error": "The file could not be saved."})
+                plans = [e["value"]["steps"] for e in events if e.get("name") == "newscraft.plan"]
+                self.assertFalse([step for step in plans[-1] if step["status"] in {"pending", "running"}])  # Nothing is left spinning.
+                self.assertEqual([step["status"] for step in plans[-1] if step["id"] == "publish"], ["failed"])
+
+    async def test_unreachable_or_rejecting_storage_never_enters_the_retry_window(self):
+        import httpx as client_errors
+        from hermes_chat.artifact_publish import ArtifactPublishError
+        request = client_errors.Request("PUT", "http://127.0.0.1:9100/upload")
+        for failure in (client_errors.ConnectError("refused", request=request), ArtifactPublishError("artifact upload rejected (403)"),
+                        DurableRunError("rejected", 404, "not_found"), RuntimeError("unexpected")):
+            with self.subTest(failure=type(failure).__name__):
+                self.store, self.requests = Store(), []
+                events, publisher = await self.deliverable_with_failing_storage(failure)
+                self.assertEqual(publisher.await_count, 1)
+                self.assert_brief_delivered_inline(events)
+
+    async def test_storage_5xx_is_retried_inside_the_cap_then_the_brief_is_delivered_inline(self):
+        from hermes_chat.artifact_publish import ArtifactPublishError
+        events, publisher = await self.deliverable_with_failing_storage(
+            ArtifactPublishError("artifact upload rejected (503)", retryable=True), patches=[("hermes_chat.portable.PUBLICATION_BACKOFF_SECONDS", (0.0,))])
+        self.assertEqual(publisher.await_count, 4)  # The four saved admissions, then the fallback.
+        self.assertEqual(self.store.data["state"]["publication_attempts"]["publish_markdown"], 4)
+        self.assert_brief_delivered_inline(events)
+        # A 5xx surfaced by the NewsCraft grant request is just as retryable.
+        self.store, self.requests = Store(), []
+        events, publisher = await self.deliverable_with_failing_storage(
+            DurableRunError("down", 503, "network"), patches=[("hermes_chat.portable.PUBLICATION_BACKOFF_SECONDS", (0.0,))])
+        self.assertEqual(publisher.await_count, 4)
+        self.assert_brief_delivered_inline(events)
+
+    async def test_saving_never_waits_longer_than_the_cap(self):
+        from hermes_chat.artifact_publish import ArtifactPublishError
+        patches = [("hermes_chat.portable.PUBLICATION_WAIT_SECONDS", 0.05), ("hermes_chat.portable.PUBLICATION_BACKOFF_SECONDS", (0.03,))]
+        events, publisher = await self.deliverable_with_failing_storage(ArtifactPublishError("artifact upload rejected (502)", retryable=True), patches=patches)
+        self.assertLess(publisher.await_count, 4)  # The wait cap, not the attempt count, ended it.
+        self.assert_brief_delivered_inline(events)
+        self.store, self.requests = Store(), []
+        started = []
+        runner = self.runner([answer(json.dumps(self.BRIEF_PLAN)), call("publish_markdown", {"title": "Producer brief", "markdown": self.FILE_DOCUMENT})])
+        async def hangs(*args, **kwargs):
+            started.append(1)
+            await asyncio.Event().wait()
+        runner.publisher = hangs
+        with patch("hermes_chat.portable.PUBLICATION_SECONDS", 30), patch("hermes_chat.portable.PUBLICATION_WAIT_SECONDS", 0.05):
+            events = await self.collect_fast(runner, self.fast_payload("Build me a producer brief as a markdown file on the soldier story"), self.brief_exa())
+        self.assertEqual(len(started), 1)  # One hung upload is cut at the cap, not at the per-attempt limit.
+        self.assert_brief_delivered_inline(events)
+
+    async def test_a_transient_5xx_then_success_still_publishes_the_file(self):
+        from hermes_chat.artifact_publish import ArtifactPublishError
+        runner = self.runner([answer(json.dumps(self.BRIEF_PLAN)), call("publish_markdown", {"title": "Producer brief", "markdown": self.FILE_DOCUMENT}),
+                              answer("The brief is ready. [1] [2]")])
+        publish = runner.publisher
+        outcomes = [ArtifactPublishError("artifact upload rejected (500)", retryable=True)]
+        async def flaky(request, **scope):
+            if outcomes:
+                raise outcomes.pop()
+            return await publish(request, **scope)
+        runner.publisher = flaky
+        with patch("hermes_chat.portable.PUBLICATION_BACKOFF_SECONDS", (0.0,)):
+            events = await self.collect_fast(runner, self.fast_payload("Build me a producer brief as a markdown file on the soldier story"), self.brief_exa())
+        self.assertEqual(len(self.published), 1)
+        self.assertEqual(self.store.data["state"]["publication_attempts"]["publish_markdown"], 2)
+        self.assertNotIn("The file could not be saved", self.final_answer(events))
+        self.assertEqual([], [e for e in events if e.get("name") == "newscraft.decision"])
+
+    async def test_same_process_recovery_of_a_publication_passes_the_policy_check_but_a_new_provider_is_refused(self):
+        document = self.FILE_DOCUMENT
+        runner = self.runner([answer(json.dumps(self.BRIEF_PLAN)), call("publish_markdown", {"title": "Producer brief", "markdown": document}), answer("Done. [1] [2]")])
+        publish = runner.publisher
+        async def interrupted(request, **scope):
+            raise RecoveryPending("lease lost mid-upload")
+        runner.publisher = interrupted
+        payload = self.fast_payload("Build me a producer brief as a markdown file on the soldier story")
+        with self.assertRaises(RecoveryPending):
+            await self.collect_fast(runner, payload, self.brief_exa())
+        saved = copy.deepcopy(self.store.data)
+        # A different paid provider/model/endpoint is refused before any model, search or upload work.
+        self.configure_deepseek()
+        refused = self.runner([])
+        refused.publisher = publish
+        with self.assertRaisesRegex(RunError, "original model adapter"):
+            await self.collect_fast(refused, payload, self.brief_exa())
+        self.assertEqual(self.published, [])
+        # The same provider, model and endpoint resume it even though a fresh runner/settings carry retuned limits.
+        self.store.data = saved
+        self.settings.model_provider, self.settings.model, self.settings.model_base_url = "openai", "fixture", "https://model.example.test/v1"
+        self.settings.input_cost_per_million = self.settings.output_cost_per_million = 1
+        self.settings.max_output_tokens, self.settings.max_seconds, self.settings.max_cost_usd = 8192, 300, 0.5
+        recovered = self.runner([answer("Done. [1] [2]")])
+        recovered.publisher = publish
+        events = await self.collect_fast(recovered, payload, self.brief_exa())
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual(len(self.published), 1)
+
+    def test_internal_policy_wording_never_reaches_the_user(self):
+        from hermes_chat.durable import public_failure_message
+        for text in ("The saved run requires its original model adapter and computer policy. Change providers at a new user turn.",
+                     "Restore the original computer policy before recovering or cancelling this run.",
+                     "The original computer endpoint is required to confirm cleanup."):
+            message = public_failure_message(RunError(text))
+            self.assertEqual(message, "The file could not be saved.")
+            self.assertNotRegex(message, r"(?i)model adapter|computer policy")
+        self.assertEqual(public_failure_message(RunError("The model ended without an answer.")), "The model ended without an answer.")
+        self.assertEqual(public_failure_message(TimeoutError()), "The research time budget was reached.")
+
+    async def test_failed_run_callback_carries_no_adapter_or_policy_wording(self):
+        await self.collect(self.runner([answer()]))  # A finished run saved under openai.
+        self.configure_deepseek()
+        self.settings.run_api_url, self.settings.run_api_token = "https://app.example.test/api/internal/hermes/runs", "fixture"
+        runner = self.runner([])
+        worker = DurableRunWorker(self.settings, self.isolation, runner)
+        runner.checkpoint = worker.runtime_checkpoint
+        failures = []
+        async def control(method, path, body):
+            if path.endswith("/runtime-state"):
+                return await self.store("run-one", body if "state" in body else None)
+            if path == "/callback" and body["event_type"] == "run.failed":
+                failures.append(body["data"])
+            return {}
+        worker._newscraft = control
+        await worker.start_recovered({"run_id": "run-one", "account_id": "account-one", "tenant_key": self.runtime.key,
+                                      "lease_owner": "worker-fixture", "lease_token": "lease", "input": self.payload})
+        await worker.jobs["run-one"].task
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["error"]["message"], "The file could not be saved.")
+        self.assertNotRegex(json.dumps(failures), r"(?i)model adapter|computer policy")
+        await worker.close()
 
     async def test_fast_path_answer_loses_sentences_about_tools_and_publishing(self):
         plan = {"mode": "research", "assumption": "", "queries": [{"q": "soldiers charged", "intent": "news", "days": 7, "domains": []}]}

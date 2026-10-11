@@ -69,9 +69,14 @@ Browser -> SvelteKit app -> Postgres conversations/runs/events/checkpoints
    confirmed, then checkpoints `finished` before public terminal completion.
 5. Only an already admitted immutable artifact publication can retry beyond the
    original run deadline: fixed 240-second recovery window, at most four saved
-   admissions, 60 seconds per attempt. New research/model/publication work cannot
+   admissions, 20 seconds per attempt and at most 45 seconds of publication
+   waiting per worker pass. Only timeouts and 5xx responses retry; connection
+   errors and 4xx fail at once, and a deliverable run then delivers the document
+   inline with a public decision note. New research/model/publication work cannot
    use that extension. Lease replacement fences stale workers.
-6. Recovery retains its original provider/model/endpoints and budget policy.
+6. Recovery retains its original provider/model/endpoints and prices; a worker
+   with different limits may resume, but every limit is clamped to the lower of
+   the saved and current values and the clamped limits are checkpointed.
    Conservative input/output/cost reservations are never refunded for uncertain
    requests. OpenAI uses the default service tier; Anthropic uses standard-only.
    DeepSeek disables thinking explicitly and reserves at least its reviewed peak

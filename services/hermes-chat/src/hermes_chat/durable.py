@@ -31,7 +31,7 @@ from .contracts import (
     RUN_TOKEN_HEADER,
 )
 from .isolation import TenantIsolation
-from .artifact_publish import ArtifactPublishError, publish_workspace_file
+from .artifact_publish import ArtifactPublishError, publish_workspace_file, status_error, transport_error
 
 ARTIFACT_PRODUCER_KEY = "hermes-publish-artifact"
 
@@ -116,6 +116,18 @@ def _bounded_artifact_validation_detail(value: Any) -> str | None:
     if "://" in detail:
         return None
     return detail if _ARTIFACT_DETAIL_RE.fullmatch(detail) else None
+
+
+_INTERNAL_POLICY_WORDING = re.compile(r"model adapter|computer policy|computer endpoint|saved run requires", re.I)
+FILE_NOT_SAVED_MESSAGE = "The file could not be saved."
+
+
+def public_failure_message(exc: BaseException) -> str:
+    """What the user may read about a failed run: never internal policy or adapter wording."""
+    if isinstance(exc, TimeoutError):
+        return "The research time budget was reached."
+    text = str(exc)[:2_000]
+    return FILE_NOT_SAVED_MESSAGE if _INTERNAL_POLICY_WORDING.search(text) else text
 
 
 def _string(value: Any, label: str) -> str:
@@ -454,6 +466,8 @@ class DurableRunWorker:
         self.isolation = isolation
         self.runner = runner
         self.instance_id = f"{socket.gethostname()}-{secrets.token_hex(6)}"
+        if runner is not None and hasattr(runner, "worker_id"):
+            runner.worker_id = self.instance_id  # Resume logs name the worker that took the run over.
         self.limits = DurableConcurrencyLimits.from_settings(settings)
         self.jobs: dict[str, DurableJob] = {}
         self._lock = asyncio.Lock()
@@ -536,6 +550,20 @@ class DurableRunWorker:
                 raise asyncio.CancelledError from None
             raise
 
+    async def _artifact_step(self, method: str, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        """A grant or completion request whose failures are classified for the publication retry policy.
+
+        Connection failures and 4xx answers are final; only timeouts and 5xx answers may be retried.
+        """
+        try:
+            return await self._newscraft(method, path, body)
+        except httpx.TransportError as exc:
+            raise transport_error(exc, "artifact service") from exc
+        except DurableRunError as exc:
+            if isinstance(exc.status_code, int) and exc.status_code >= 400:
+                raise status_error("artifact service rejected the request", exc.status_code) from exc
+            raise
+
     async def publish_artifact_file(
         self,
         job: DurableJob,
@@ -561,7 +589,7 @@ class DurableRunWorker:
             raise ArtifactPublishError("artifact size is invalid")
         if not isinstance(checksum_sha256, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", checksum_sha256):
             raise ArtifactPublishError("artifact checksum is invalid")
-        grant = await self._newscraft(
+        grant = await self._artifact_step(
             "POST",
             NEWSCRAFT_ARTIFACT_GRANT_PATH.format(run_id=quote(job.run_id, safe="")),
             {
@@ -593,7 +621,7 @@ class DurableRunWorker:
                 checksum_sha256=checksum_sha256,
                 task_id=runtime.task_key,
             )
-            result = await self._newscraft(
+            result = await self._artifact_step(
                 "POST",
                 NEWSCRAFT_ARTIFACT_FINALIZE_PATH.format(run_id=quote(job.run_id, safe="")),
                 {
@@ -1863,7 +1891,7 @@ class DurableRunWorker:
                 try:
                     await self._callback(job, "run.failed", {
                         "failure_class": _failure_class(exc),
-                        "error": {"message": "The research time budget was reached." if isinstance(exc, TimeoutError) else str(exc)[:2_000]},
+                        "error": {"message": public_failure_message(exc)},
                     })
                 except Exception:
                     logger.error("NewsCraft failure callback failed")

@@ -9,9 +9,13 @@ import json
 import os
 import re
 import logging
+import socket
 import time
 from typing import Any
 
+import httpx
+
+from .artifact_publish import ArtifactPublishError
 from .input_messages import convert_message_content
 from . import budgets
 from .model_adapters import ModelError, create_model
@@ -33,12 +37,30 @@ MAX_STATE_BYTES = 8 * 1024 * 1024
 MAX_FILE_BYTES = 32_000
 MAX_FILES = 16
 MAX_TOTAL_FILE_BYTES = 512_000
-PUBLICATION_SECONDS = 60
-# Total immutable-publication recovery window includes a 60s first attempt,
-# renewed 90s lease, 15s recovery poll and a full 60s retry (plus 15s margin).
-# It is set once. Only this saved publication can outlive the model/run deadline.
+PUBLICATION_SECONDS = 20  # One upload attempt.
+# The user watches "Saving file" for at most this long per worker pass: timeouts and 5xx answers are retried inside it,
+# then the run gives up on the file and delivers the brief inline. Connection errors and 4xx answers are never retried.
+PUBLICATION_WAIT_SECONDS = 45
+PUBLICATION_BACKOFF_SECONDS = (1.0, 3.0)
+# Saved crash-recovery window for an already admitted immutable publication (a worker that dies mid-upload resumes the
+# same publication key); it is set once and is the only thing that can outlive the model/run deadline.
 PUBLICATION_RECOVERY_SECONDS = 240
 MAX_PUBLICATION_ATTEMPTS = 4
+FILE_NOT_SAVED = "The file could not be saved."
+FALLBACK_LEAD = "The file could not be saved; here is the brief:"
+FALLBACK_DECISION = "File storage was unavailable; delivering the brief inline."
+# The saved policy identity: who is paid, which model and endpoints, which computer. Budget ceilings (token, step, time,
+# cost and search limits) are operator settings that may be retuned between a run and its recovery; prices stay because
+# the reservations already saved were computed from them.
+POLICY_KEYS = ("provider", "model", "model_endpoint", "search", "computer")
+POLICY_PRICE_KEYS = ("input_price", "output_price", "search_price")
+
+
+def policy_identity(adapter):
+    """The part of a saved adapter record that must match for a run to resume; limits never refuse a recovery."""
+    adapter = adapter if isinstance(adapter, dict) else {}
+    budget = adapter.get("budget_policy") if isinstance(adapter.get("budget_policy"), dict) else {}
+    return {**{key: adapter.get(key) for key in POLICY_KEYS}, "prices": {key: budget.get(key) for key in POLICY_PRICE_KEYS}}
 
 
 class RunError(RuntimeError):
@@ -485,6 +507,82 @@ def _best_excerpt(text, claims):
     return best or text.strip()[:400]
 
 
+LIMIT_KEYS = ("max_cost_usd", "max_input_tokens", "max_output_tokens", "max_iterations", "max_search_calls", "max_seconds")
+_LEGACY_LIMITS = {"max_cost_usd": "usd_limit", "max_input_tokens": "input_limit", "max_output_tokens": "output_per_call",
+                  "max_iterations": "steps_limit", "max_search_calls": "search_limit", "max_seconds": "seconds_limit"}
+
+
+def saved_limits(state):
+    """The effective limits a run was last admitted under; states from before limits were saved fall back to their adapter policy."""
+    limits = state.get("limits")
+    if isinstance(limits, dict):
+        return {key: limits[key] for key in LIMIT_KEYS if isinstance(limits.get(key), (int, float)) and not isinstance(limits.get(key), bool)}
+    policy = (state.get("adapter") or {}).get("budget_policy")
+    found = {}
+    for key, name in _LEGACY_LIMITS.items():
+        try:
+            found[key] = float(policy[name]) if key == "max_cost_usd" else int(policy[name])
+        except (KeyError, TypeError, ValueError):
+            pass
+    return found
+
+
+def effective_limits(saved, settings):
+    """(limits, clamped): a resumed run never gets more than it was admitted with, so each limit is the lower of saved and current."""
+    limits, clamped = {}, []
+    for key in LIMIT_KEYS:
+        current = getattr(settings, key, 5 if key == "max_search_calls" else None)
+        if current is None:
+            continue
+        old = (saved or {}).get(key)
+        limits[key] = current if old is None else min(old, current)
+        if limits[key] != current:
+            clamped.append(key)
+    return limits, clamped
+
+
+class EffectiveSettings:
+    """The settings a single run uses: the worker's settings with the run's clamped limits laid over them."""
+
+    def __init__(self, base, limits):
+        self._base, self._limits = base, limits
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self._limits[name] if name in self._limits else getattr(self._base, name)
+
+
+def publication_retryable(exc):
+    """Only a timeout or a 5xx may be tried again; a refused connection, a 4xx or any other failure is final."""
+    if isinstance(exc, ArtifactPublishError):
+        return exc.retryable
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+        return True
+    status = getattr(exc, "status_code", None)
+    return isinstance(status, int) and not isinstance(status, bool) and status >= 500
+
+
+def _brief_markdown(name, arguments):
+    """The deliverable as readable Markdown for the inline fallback: the document itself, or a CSV as a table."""
+    if name == "publish_markdown":
+        return str(arguments.get("markdown") or "")
+    columns = [str(c) for c in arguments.get("columns") or []]
+    if not columns:
+        return ""
+    def cell(value):
+        return ("" if value is None else str(value)).replace("|", "\\|").replace("\n", " ")
+    rows = [list(row) for row in arguments.get("rows") or []]
+    citations = arguments.get("row_citations")
+    if isinstance(citations, list) and len(citations) == len(rows):
+        columns.append("Sources")
+        rows = [row + [" ".join(f"[{n}]" for n in ns)] for row, ns in zip(rows, citations)]
+    lines = ["| " + " | ".join(cell(c) for c in columns) + " |", "| " + " | ".join("---" for _ in columns) + " |"]
+    lines += ["| " + " | ".join(cell(v) for v in (row + [""] * len(columns))[:len(columns)]) + " |" for row in rows]
+    title = str(arguments.get("title") or "").strip()
+    return ("## " + title + "\n\n" if title else "") + "\n".join(lines)
+
+
 class PortableAgentRunner:
     def __init__(self, settings, isolation, *, model=None, research_factory=None, sandbox_factory=None):
         self.settings, self.isolation = settings, isolation
@@ -493,6 +591,7 @@ class PortableAgentRunner:
         self.sandbox_factory = sandbox_factory or configured_sandbox_factory(settings)
         self.checkpoint = None
         self.publisher = None
+        self.worker_id = f"{socket.gethostname()}-{os.getpid()}"  # The durable worker replaces this with its instance id.
 
     async def readiness(self):
         computer = {"configured": True, "tools": [], "terminal": False, "workspaceFiles": False,
@@ -513,21 +612,22 @@ class PortableAgentRunner:
                                   base_url=self.settings.search_base_url)
         return ResearchTools(self.settings.retrieval, searcher=search)
 
-    async def _plan_research(self, state, *, instructions, request, newsroom, now, required, sources):
+    async def _plan_research(self, state, *, instructions, request, newsroom, now, required, sources, settings=None):
         """One bounded, tool-free planner call; None on any failure (the caller falls back to a plain search)."""
+        settings = settings or self.settings
         prompt = research_plan.planner_prompt(request=request, newsroom=newsroom, now=now, sources=sources, required=required,
                                               dialogue=research_plan.recent_dialogue(state["messages"]))
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
         try:
             estimate = budgets.input_bound(self.model, messages=messages, private={}, instructions=instructions, tools=[],
-                                           image_tokens=budgets.policy(self.settings)["image_tokens"])
-            budgets.reserve(state, self.settings, input_tokens=estimate, output_tokens=PLANNER_MAX_OUTPUT)
+                                           image_tokens=budgets.policy(settings)["image_tokens"])
+            budgets.reserve(state, settings, input_tokens=estimate, output_tokens=PLANNER_MAX_OUTPUT)
         except ValueError:
             return None  # No budget for a planning call; the plain search still runs.
         state["steps"] += 1
         try:
             async with asyncio.timeout(PLANNER_SECONDS):
-                reply = await self.model.complete(model=self.settings.model, instructions=instructions, messages=messages,
+                reply = await self.model.complete(model=settings.model, instructions=instructions, messages=messages,
                                                   tools=[], max_output=PLANNER_MAX_OUTPUT, private={})
         except Exception:  # Planning is best-effort: an uncertain call is never replayed, the fallback plan is used.
             logger.warning("fast path: planner call failed")
@@ -572,7 +672,7 @@ class PortableAgentRunner:
                               "endpoint": getattr(self.settings, "search_base_url", None) if self.settings.web_provider == "openai" else None},
                    "budget_policy": budgets.policy(self.settings),
                    "computer": getattr(self.sandbox_factory, "policy", {"kind": "injected"})}
-        if state and (state.get("binding") != binding or state.get("adapter") != adapter):
+        if state and (state.get("binding") != binding or policy_identity(state.get("adapter")) != policy_identity(adapter)):
             if (state.get("adapter") or {}).get("computer") != adapter["computer"]:
                 raise RecoveryPending("Restore the original computer policy before recovering or cancelling this run.")
             # A policy mismatch must not strand an already admitted computer.
@@ -588,11 +688,20 @@ class PortableAgentRunner:
                 finally:
                     await cleanup.close()
             raise RunError("The saved run requires its original model adapter and computer policy. Change providers at a new user turn.")
+        resumed = bool(state)
+        previous_limits = saved_limits(state) if resumed else None
         if not state:
             state = {"binding": binding, "adapter": adapter, "scope": {"tenant": runtime.key, "thread": thread},
                      "messages": messages, "private": {}, "receipts": {}, "steps": 0, "actions": 0,
                      "intent": None, "pending": [], "phase": "running", "started": time.time(),
                      "sources": seeded_citations or [], "evidence": None, "files": {}, "research_used": False, "search_reserved": 0}
+        limits, clamped = effective_limits(previous_limits, self.settings)
+        settings = EffectiveSettings(self.settings, limits)  # A resumed run never exceeds what it was admitted with.
+        state["limits"] = limits
+        adapter["budget_policy"] = budgets.policy(settings)
+        state["adapter"] = adapter
+        if resumed:
+            logger.info("run resumed run_id=%s worker=%s limits_clamped=%s", run_id, self.worker_id, ",".join(clamped) or "none")
         research = self._research()
         research.bind_run(runtime.key, thread, run_id)
         research.seed_sources(state["sources"])
@@ -684,7 +793,7 @@ class PortableAgentRunner:
 
         def step_cap():
             """Model steps allowed in total: a deliverable run gets a short loop after its pre-research."""
-            cap = self.settings.max_iterations
+            cap = settings.max_iterations
             if state.get("deliverable"):
                 cap = min(cap, state["deliverable"]["base_steps"] + DELIVERABLE_LOOP_STEPS)
             return cap
@@ -715,8 +824,8 @@ class PortableAgentRunner:
                 plain.append({"role": "user", "content": [note]})
             try:
                 estimate = budgets.input_bound(self.model, messages=plain, private={}, instructions=instructions, tools=offered,
-                                               image_tokens=budgets.policy(self.settings)["image_tokens"])
-                budgets.reserve(state, self.settings, input_tokens=estimate, output_tokens=self.settings.max_output_tokens)
+                                               image_tokens=budgets.policy(settings)["image_tokens"])
+                budgets.reserve(state, settings, input_tokens=estimate, output_tokens=settings.max_output_tokens)
             except ValueError:
                 return False  # No budget left for the call; the wrap-up answers inline.
             if reason != "final":
@@ -724,13 +833,13 @@ class PortableAgentRunner:
             state["intent"] = {"kind": "model", "step": state["steps"], "wrap_up": True}  # Uncertain on recovery: never replayed.
             state["steps"] += 1
             await save(dispatch=True)
-            remaining = state["started"] + self.settings.max_seconds - time.time()
+            remaining = state["started"] + settings.max_seconds - time.time()
             reply = None
             if remaining > 0:
                 try:
                     async with asyncio.timeout(remaining):
-                        reply = await self.model.complete(model=self.settings.model, instructions=instructions, messages=plain,
-                                                          tools=offered, max_output=self.settings.max_output_tokens, private={})
+                        reply = await self.model.complete(model=settings.model, instructions=instructions, messages=plain,
+                                                          tools=offered, max_output=settings.max_output_tokens, private={})
                 except (ModelError, TimeoutError):
                     reply = None
             state["intent"] = None
@@ -761,20 +870,20 @@ class PortableAgentRunner:
             messages = [*base, {"role": "assistant", "content": [{"type": "text", "text": content}]}, {"role": "user", "content": [note]}]
             try:
                 estimate = budgets.input_bound(self.model, messages=messages, private={}, instructions=instructions, tools=[],
-                                               image_tokens=budgets.policy(self.settings)["image_tokens"])
-                budgets.reserve(state, self.settings, input_tokens=estimate, output_tokens=self.settings.max_output_tokens)
+                                               image_tokens=budgets.policy(settings)["image_tokens"])
+                budgets.reserve(state, settings, input_tokens=estimate, output_tokens=settings.max_output_tokens)
             except ValueError:
                 return None, False
             state["intent"] = {"kind": "model", "step": state["steps"], "wrap_up": True}  # Uncertain on recovery: never replayed.
             state["steps"] += 1
             await save(dispatch=True)
-            remaining = state["started"] + self.settings.max_seconds - time.time()
+            remaining = state["started"] + settings.max_seconds - time.time()
             reply = None
             if remaining > 0:
                 try:
                     async with asyncio.timeout(remaining):
-                        reply = await self.model.complete(model=self.settings.model, instructions=instructions, messages=messages,
-                                                          tools=[], max_output=self.settings.max_output_tokens, private={})
+                        reply = await self.model.complete(model=settings.model, instructions=instructions, messages=messages,
+                                                          tools=[], max_output=settings.max_output_tokens, private={})
                 except (ModelError, TimeoutError):
                     reply = None
             state["intent"] = None
@@ -859,7 +968,7 @@ class PortableAgentRunner:
                 yield event
             yield {"type": "STATE_SNAPSHOT", "snapshot": {"newscraftSources": state["sources"]}}
             yield {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": text}}
-            yield {"type": "RUN_FINISHED", "model": self.settings.model}
+            yield {"type": "RUN_FINISHED", "model": settings.model}
 
         def inline_answer(text, cut):
             """The model's own final text for the user: no tool talk, only recorded [n] markers."""
@@ -885,19 +994,19 @@ class PortableAgentRunner:
                         continue
                     try:
                         estimate = budgets.input_bound(self.model, messages=wrap_messages, private={}, instructions=instructions,
-                                                       tools=[], image_tokens=budgets.policy(self.settings)["image_tokens"])
-                        budgets.reserve(state, self.settings, input_tokens=estimate, output_tokens=self.settings.max_output_tokens)
+                                                       tools=[], image_tokens=budgets.policy(settings)["image_tokens"])
+                        budgets.reserve(state, settings, input_tokens=estimate, output_tokens=settings.max_output_tokens)
                     except ValueError:
                         continue  # Too large for what is left; try the compact source-only context.
                     state["intent"] = {"kind": "model", "step": state["steps"], "wrap_up": True}
                     state["steps"] += 1
                     await save(dispatch=True)
-                    remaining = state["started"] + self.settings.max_seconds - time.time()
+                    remaining = state["started"] + settings.max_seconds - time.time()
                     if remaining > 0:
                         try:
                             async with asyncio.timeout(remaining):
-                                reply = await self.model.complete(model=self.settings.model, instructions=instructions, messages=wrap_messages,
-                                                                  tools=[], max_output=self.settings.max_output_tokens, private={})
+                                reply = await self.model.complete(model=settings.model, instructions=instructions, messages=wrap_messages,
+                                                                  tools=[], max_output=settings.max_output_tokens, private={})
                             text = "".join(b["text"] for b in reply.message["content"] if b["type"] == "text")[:64000].strip()
                             truncated = bool(getattr(reply, "truncated", False))
                             state["usage"] = reply.usage
@@ -919,7 +1028,7 @@ class PortableAgentRunner:
             await finish()
             yield {"type": "STATE_SNAPSHOT", "snapshot": {"newscraftSources": state["sources"]}}
             yield {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": text}}
-            yield {"type": "RUN_FINISHED", "model": self.settings.model}
+            yield {"type": "RUN_FINISHED", "model": settings.model}
 
         try:
             if hasattr(sandbox, "recover"):
@@ -934,7 +1043,7 @@ class PortableAgentRunner:
             if state.get("answer"):
                 await finish()
                 yield {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": state["answer"]}}
-                yield {"type": "RUN_FINISHED", "model": self.settings.model}
+                yield {"type": "RUN_FINISHED", "model": settings.model}
                 return
             recovered_results = {}
             if state.get("intent") and state["intent"]["kind"] != "publication" and not state["intent"].get("wrap_up"):
@@ -990,12 +1099,12 @@ class PortableAgentRunner:
 
                 plan = None
                 if required is not False:
-                    plan = await self._plan_research(state, instructions=fast_instructions, request=request, newsroom=newsroom, now=now,
+                    plan = await self._plan_research(state, settings=settings, instructions=fast_instructions, request=request, newsroom=newsroom, now=now,
                                                      required=required, sources=thread_sources)
                     logger.info("fast path: plan %s at %.1fs", (plan or {}).get("source", "unavailable"), time.monotonic() - fast_t0)
                 plan = research_plan.apply_requirement(plan, required, subject, now, request=request, market=newsroom.get("homeMarket") or "")
                 research_mode = plan["mode"] == "research"
-                search_limit = max(0, getattr(self.settings, "max_search_calls", 5) - reserve)  # `reserve` keeps searches for the loop.
+                search_limit = max(0, getattr(settings, "max_search_calls", 5) - reserve)  # `reserve` keeps searches for the loop.
                 allowance = max(0, search_limit - state["search_reserved"])
                 specs = [dict(spec) for spec in plan["queries"][:allowance]] if research_mode else []
                 for spec in specs:
@@ -1201,16 +1310,16 @@ class PortableAgentRunner:
                         fast_messages = [*state["messages"], {"role": "user", "content": [{"type": "text", "text": prompt}]}]
                     try:
                         estimate = budgets.input_bound(self.model, messages=fast_messages, private={}, instructions=fast_instructions,
-                                                       tools=[], image_tokens=budgets.policy(self.settings)["image_tokens"])
-                        budgets.reserve(state, self.settings, input_tokens=estimate, output_tokens=self.settings.max_output_tokens)
+                                                       tools=[], image_tokens=budgets.policy(settings)["image_tokens"])
+                        budgets.reserve(state, settings, input_tokens=estimate, output_tokens=settings.max_output_tokens)
                     except ValueError as exc:
                         raise RunError(str(exc)) from None
                     state["steps"] += 1
                     logger.info("fast path: model dispatch at %.1fs (%d input tokens est)", time.monotonic() - fast_t0, estimate)
                     try:
                         async with asyncio.timeout(60):
-                            reply = await self.model.complete(model=self.settings.model, instructions=fast_instructions, messages=fast_messages,
-                                                              tools=[], max_output=self.settings.max_output_tokens, private={})
+                            reply = await self.model.complete(model=settings.model, instructions=fast_instructions, messages=fast_messages,
+                                                              tools=[], max_output=settings.max_output_tokens, private={})
                     except (ModelError, TimeoutError):
                         raise RunError("The model request did not complete; its uncertain input was not replayed.") from None
                     answer = _user_facing("".join(b["text"] for b in reply.message["content"] if b["type"] == "text")[:64000].strip())
@@ -1235,7 +1344,7 @@ class PortableAgentRunner:
                         yield {"type": "STATE_SNAPSHOT", "snapshot": {"newscraftSources": state["sources"]}}
                         logger.info("fast path: finished at %.1fs", time.monotonic() - fast_t0)
                         yield {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": answer}}
-                        yield {"type": "RUN_FINISHED", "model": self.settings.model}
+                        yield {"type": "RUN_FINISHED", "model": settings.model}
                         return
                 for event in plan_close_events():  # Nothing usable: the full loop takes over with an honest plan.
                     yield event
@@ -1247,7 +1356,7 @@ class PortableAgentRunner:
                 label = _deliverable_label(wanted)
                 final_id = "publish" if wanted else "answer"
                 pre = {}
-                search_cap = getattr(self.settings, "max_search_calls", 5)
+                search_cap = getattr(settings, "max_search_calls", 5)
                 async for event in planned_research(pre, final_id=final_id, final_label=label, thread_label=label, reserve=1 if search_cap > 2 else 0):
                     yield event
                 recorded = []
@@ -1269,6 +1378,14 @@ class PortableAgentRunner:
                 await save()
                 yield {"type": "STATE_SNAPSHOT", "snapshot": {"newscraftSources": state["sources"]}}
             while True:
+                if state.get("publication_fallback"):
+                    fallback = state["receipts"].get(state["publication_fallback"]["call_id"])
+                    arguments = optional_arguments((fallback or {}).get("call", {}).get("arguments"), schemas.get((fallback or {}).get("call", {}).get("name"), {}))
+                    document = inline_answer(_brief_markdown(fallback["call"]["name"], arguments), False) if fallback else ""
+                    state["pending"] = []
+                    async for event in conclude(FALLBACK_LEAD + ("\n\n" + document if document else "")):
+                        yield event
+                    return
                 if not state["pending"] and state.get("direct_publish"):
                     # The file was published straight from the model's final reply: answer briefly, no further model call.
                     direct = state["direct_publish"]
@@ -1283,7 +1400,7 @@ class PortableAgentRunner:
                         yield event
                     return
                 if not state["pending"]:
-                    remaining = self.settings.max_seconds - (time.time() - state["started"])
+                    remaining = settings.max_seconds - (time.time() - state["started"])
                     wrap, no_model = state.get("wrap_reason"), False
                     if (state.get("intent") or {}).get("wrap_up"):
                         # A wrap-up dispatch was interrupted: its outcome is uncertain and is never repeated.
@@ -1293,7 +1410,7 @@ class PortableAgentRunner:
                     elif wrap is None and state["steps"] >= step_cap():
                         wrap = "steps"
                     if wrap is None:
-                        image_tokens = budgets.policy(self.settings)["image_tokens"]
+                        image_tokens = budgets.policy(settings)["image_tokens"]
                         try:
                             estimate = budgets.input_bound(self.model, messages=state["messages"], private=state["private"],
                                 instructions=instructions, tools=tools, image_tokens=image_tokens)
@@ -1301,7 +1418,7 @@ class PortableAgentRunner:
                             raise RunError(str(exc)) from None
                         # Tell the model one step before the hard stop: steps, seconds, or room for just one more call.
                         if not state.get("wrap_up_sent") and (state["steps"] >= step_cap() - 2 or remaining < 60
-                                or budgets.calls_left(state, self.settings, input_tokens=estimate, output_tokens=self.settings.max_output_tokens) < 3):
+                                or budgets.calls_left(state, settings, input_tokens=estimate, output_tokens=settings.max_output_tokens) < 3):
                             state["wrap_up_sent"] = True
                             pending_files = unpublished_tools()
                             note = {"type": "text", "text": (
@@ -1315,7 +1432,7 @@ class PortableAgentRunner:
                             estimate = budgets.input_bound(self.model, messages=state["messages"], private=state["private"],
                                 instructions=instructions, tools=tools, image_tokens=image_tokens)
                         try:
-                            budgets.reserve(state, self.settings, input_tokens=estimate, output_tokens=self.settings.max_output_tokens)
+                            budgets.reserve(state, settings, input_tokens=estimate, output_tokens=settings.max_output_tokens)
                         except ValueError as exc:
                             if not state["steps"]:
                                 raise RunError(str(exc)) from None
@@ -1329,13 +1446,13 @@ class PortableAgentRunner:
                     state["intent"] = {"kind": "model", "step": state["steps"]}
                     state["steps"] += 1
                     await save(dispatch=True)  # Current lease AND durable cancellation before paid requests.
-                    remaining = state["started"] + self.settings.max_seconds - time.time()
+                    remaining = state["started"] + settings.max_seconds - time.time()
                     if remaining <= 0:
                         raise RunError("The research time budget was reached before model dispatch.")
                     try:
                         async with asyncio.timeout(remaining):
-                            reply = await self.model.complete(model=self.settings.model, instructions=instructions,
-                                messages=state["messages"], tools=tools, max_output=self.settings.max_output_tokens, private=state["private"])
+                            reply = await self.model.complete(model=settings.model, instructions=instructions,
+                                messages=state["messages"], tools=tools, max_output=settings.max_output_tokens, private=state["private"])
                     except (ModelError, TimeoutError):
                         raise RunError("The model request did not complete; its uncertain input was not replayed.") from None
                     calls = [b for b in reply.message["content"] if b["type"] == "tool_call"]
@@ -1422,7 +1539,7 @@ class PortableAgentRunner:
                         raise RunError("The interrupted tool outcome is uncertain; it was not repeated.")
                     if not state["intent"]:
                         state["actions"] += 1
-                    over_cap = state["actions"] > self.settings.max_iterations * 4
+                    over_cap = state["actions"] > settings.max_iterations * 4
                     valid = True
                     try:
                         if name not in schemas:
@@ -1455,13 +1572,9 @@ class PortableAgentRunner:
                         elif is_publish:
                             deadlines = state.setdefault("publication_deadlines", {})
                             if call_id not in deadlines:
-                                remaining = self.settings.max_seconds - (time.time() - state["started"])
-                                if remaining <= 0:
-                                    raise RunError("The research time budget was reached before publication.")
-                                deadlines[call_id] = time.time() + PUBLICATION_RECOVERY_SECONDS
-                            publication_remaining = deadlines[call_id] - time.time()
-                            if publication_remaining <= 0:
-                                raise RunError("The saved artifact publication deadline was reached.")
+                                remaining = settings.max_seconds - (time.time() - state["started"])
+                                # No time left to start a publication: an already expired window delivers the brief inline.
+                                deadlines[call_id] = time.time() + (PUBLICATION_RECOVERY_SECONDS if remaining > 0 else 0)
                             spec, data, mime, extension = self.artifact(name, args, research.recorded_sources, state["research_used"])
                             fingerprint = hashlib.sha256(data).hexdigest()
                             entry = state["files"].get(call_id)
@@ -1471,36 +1584,51 @@ class PortableAgentRunner:
                             if len(state["files"]) > MAX_FILES or sum(f["bytes"] for f in state["files"].values()) > MAX_TOTAL_FILE_BYTES:
                                 raise RunError("The generated-file count or total-byte limit was reached.")
                             attempts = state.setdefault("publication_attempts", {})
-                            if attempts.get(call_id, 0) >= MAX_PUBLICATION_ATTEMPTS:
-                                raise RunError("The immutable artifact publication attempt limit was reached.")
-                            attempts[call_id] = attempts.get(call_id, 0) + 1
-                            await save(dispatch=True)  # Attempts remain consumed across crashes/lost acknowledgements.
-                            publication_remaining = deadlines[call_id] - time.time()
-                            if publication_remaining <= 0:
-                                raise RunError("The saved artifact publication deadline was reached.")
-                            try:
-                                async with asyncio.timeout(min(PUBLICATION_SECONDS, publication_remaining)):
-                                    result = await self.publish(spec, data, mime, extension, runtime, thread, run_id, call_id,
-                                                                lambda: save(dispatch=True))
-                            except Exception as exc:
-                                if getattr(exc, "code", None) in {"invalid_spec", "spec_too_large"}:
-                                    raise ValueError("The artifact specification was rejected; correct it using a new publication call.") from None
-                                await save()
-                                if attempts[call_id] < MAX_PUBLICATION_ATTEMPTS and time.time() < deadlines[call_id]:
-                                    raise RecoveryPending("Artifact publication will resume from its saved immutable identity.") from None
-                                raise RunError("Artifact publication could not be completed.") from None
-                        elif name == "web_search" and state["search_reserved"] >= getattr(self.settings, "max_search_calls", 5):
+                            gave_up = False
+                            wait_started = time.monotonic()
+                            while True:
+                                total_left = deadlines[call_id] - time.time()
+                                wait_left = PUBLICATION_WAIT_SECONDS - (time.monotonic() - wait_started)
+                                if attempts.get(call_id, 0) >= MAX_PUBLICATION_ATTEMPTS or total_left <= 0 or wait_left <= 0:
+                                    gave_up = True
+                                    break
+                                attempts[call_id] = attempts.get(call_id, 0) + 1
+                                await save(dispatch=True)  # Attempts remain consumed across crashes/lost acknowledgements.
+                                try:
+                                    async with asyncio.timeout(min(PUBLICATION_SECONDS, total_left, wait_left)):
+                                        result = await self.publish(spec, data, mime, extension, runtime, thread, run_id, call_id,
+                                                                    lambda: save(dispatch=True))
+                                    break
+                                except RecoveryPending:
+                                    raise  # The worker must hand the saved publication to a later lease.
+                                except Exception as exc:
+                                    if getattr(exc, "code", None) in {"invalid_spec", "spec_too_large"}:
+                                        raise ValueError("The artifact specification was rejected; correct it using a new publication call.") from None
+                                    await save()
+                                    logger.warning("publication attempt %d failed (%s, retryable=%s)", attempts[call_id], type(exc).__name__, publication_retryable(exc))
+                                    backoff = PUBLICATION_BACKOFF_SECONDS[min(attempts[call_id] - 1, len(PUBLICATION_BACKOFF_SECONDS) - 1)]
+                                    if not publication_retryable(exc) or time.monotonic() - wait_started + backoff >= PUBLICATION_WAIT_SECONDS:
+                                        gave_up = True
+                                        break
+                                    await asyncio.sleep(backoff)
+                            if gave_up:
+                                # The file is lost, the work is not: the run still ends with the document as its answer.
+                                state["publication_fallback"] = {"call_id": call_id}
+                                events.append({"type": "CUSTOM", "name": "newscraft.decision",
+                                               "value": {"id": "file-storage-unavailable", "summary": FALLBACK_DECISION}})
+                                result = {"error": FILE_NOT_SAVED}
+                        elif name == "web_search" and state["search_reserved"] >= getattr(settings, "max_search_calls", 5):
                             state["research_used"] = True
                             result = {"error": "Search limit reached. Do not search again; write the answer now from the sources already recorded."}
                         elif name in {t["name"] for t in research.tool_definitions}:
                             state["research_used"] = True
                             result = None
                             if name == "web_search":
-                                if state["search_reserved"] >= getattr(self.settings, "max_search_calls", 5):
+                                if state["search_reserved"] >= getattr(settings, "max_search_calls", 5):
                                     raise RunError("The search-call budget was reached.")
                                 state["search_reserved"] += 1
                                 try:
-                                    budgets.reserve(state, self.settings, search=self.settings.web_provider == "openai")
+                                    budgets.reserve(state, settings, search=settings.web_provider == "openai")
                                 except ValueError as exc:
                                     if not research.recorded_sources:
                                         raise RunError(str(exc)) from None
@@ -1509,7 +1637,7 @@ class PortableAgentRunner:
                                 else:
                                     await save(dispatch=True)  # Retain reservation; recheck cancellation before paid search.
                             if result is None:
-                                remaining = self.settings.max_seconds - (time.time() - state["started"])
+                                remaining = settings.max_seconds - (time.time() - state["started"])
                                 if remaining <= 0:
                                     raise RunError("The research time budget was reached.")
                                 async with asyncio.timeout(remaining):
@@ -1521,7 +1649,7 @@ class PortableAgentRunner:
                                 if isinstance(result, str):
                                     result = json.loads(result)
                         else:
-                            remaining = self.settings.max_seconds - (time.time() - state["started"])
+                            remaining = settings.max_seconds - (time.time() - state["started"])
                             if remaining <= 0:
                                 raise RunError("The research time budget was reached.")
                             async with asyncio.timeout(remaining):
@@ -1555,6 +1683,8 @@ class PortableAgentRunner:
                     for event in events[2:]:
                         yield event
                     yield {"type": "STATE_SNAPSHOT", "snapshot": {"newscraftSources": state["sources"]}}
+                    if state.get("publication_fallback"):
+                        break
         except RecoveryPending:
             raise
         except ExecutorUncertain:
