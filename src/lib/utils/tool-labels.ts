@@ -68,6 +68,25 @@ export function doneLabel(name: string): string {
 	return 'Tools used';
 }
 
+export interface LiveHeadLabelInput {
+	/** Plan step ids and statuses, or null when no plan has arrived. */
+	planSteps: ReadonlyArray<{ id: string; status: string }> | null;
+	hasToolHistory: boolean;
+	hasAssistantOutput: boolean;
+}
+
+// Honest label while a turn streams but no tool is running: planning before the
+// plan lands, researching while non-answer steps run, otherwise writing.
+export function liveHeadLabel({ planSteps, hasToolHistory, hasAssistantOutput }: LiveHeadLabelInput): string {
+	if (hasAssistantOutput) return 'Writing answer';
+	if (!planSteps || planSteps.length === 0) {
+		return hasToolHistory ? 'Writing answer' : 'Planning research';
+	}
+	if (planSteps.some((s) => s.id === 'answer' && s.status === 'running')) return 'Writing answer';
+	if (planSteps.some((s) => s.id !== 'answer' && s.status === 'running')) return 'Researching';
+	return 'Writing answer';
+}
+
 // Dominant label for a set of running tools — picks the most common kind
 // so the status copy stays calm even when many fire in parallel.
 export function dominantLiveLabel(names: string[]): string {

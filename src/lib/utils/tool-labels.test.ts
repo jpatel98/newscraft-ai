@@ -5,6 +5,7 @@ import {
 	dominantLiveLabel,
 	doneLabel,
 	formatElapsed,
+	liveHeadLabel,
 	liveLabel,
 	publicActivityText,
 	publicPlanStepLabel,
@@ -256,5 +257,33 @@ print('duckduckgo')`
 		}
 		expect(publicPlanStepLabel(saved.plan.steps[0].label)).toBe('Researching');
 		expect(publicActivityText(saved.decisions[0].summary)).toBe('');
+	});
+});
+
+describe('liveHeadLabel', () => {
+	const none = { planSteps: null, hasToolHistory: false, hasAssistantOutput: false };
+
+	it('says planning before any plan, tool or output exists', () => {
+		expect(liveHeadLabel(none)).toBe('Planning research');
+	});
+
+	it('says researching while a non-answer step runs', () => {
+		const planSteps = [
+			{ id: 'search', status: 'running' },
+			{ id: 'answer', status: 'pending' }
+		];
+		expect(liveHeadLabel({ ...none, planSteps })).toBe('Researching');
+	});
+
+	it('says writing once the answer step runs or output exists', () => {
+		const planSteps = [
+			{ id: 'search', status: 'ok' },
+			{ id: 'answer', status: 'running' }
+		];
+		expect(liveHeadLabel({ ...none, planSteps })).toBe('Writing answer');
+		expect(
+			liveHeadLabel({ planSteps: [{ id: 'search', status: 'running' }], hasToolHistory: true, hasAssistantOutput: true })
+		).toBe('Writing answer');
+		expect(liveHeadLabel({ ...none, hasToolHistory: true })).toBe('Writing answer');
 	});
 });

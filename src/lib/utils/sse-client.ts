@@ -24,6 +24,7 @@ export async function* readSSE(body: ReadableStream<Uint8Array>): AsyncGenerator
 				let id: string | undefined;
 				const dataLines: string[] = [];
 				for (const line of frame.split('\n')) {
+					if (line.startsWith(':')) continue; // comment / heartbeat
 					if (line.startsWith('event:')) event = line.slice(6).trim();
 					else if (line.startsWith('id:')) id = line.slice(3).trim();
 					else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());

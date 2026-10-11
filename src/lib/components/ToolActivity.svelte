@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { chat } from '$lib/stores/chat.svelte';
 	import type { StreamToolCall } from '$lib/utils/stream-events';
-	import { dominantLiveLabel, formatElapsed, toolStepLabel, toolStepDetail, toolStepResult } from '$lib/utils/tool-labels';
+	import { dominantLiveLabel, liveHeadLabel, formatElapsed, toolStepLabel, toolStepDetail, toolStepResult } from '$lib/utils/tool-labels';
 
 	interface Props {
 		// True when this card is attached to the current assistant turn.
@@ -64,7 +64,13 @@
 		if (runState === 'cancel_requested') return 'Stopping';
 		if (runState === 'reconnecting') return 'Reconnecting';
 		if (hasRunning) return liveText || 'Searching';
-		if (activeTurn && chat.streaming) return 'Writing answer';
+		if (activeTurn && chat.streaming) {
+			return liveHeadLabel({
+				planSteps: chat.plan?.steps ?? null,
+				hasToolHistory: chat.toolHistory.length > 0,
+				hasAssistantOutput: chat.hasAssistantOutput
+			});
+		}
 		return '';
 	});
 

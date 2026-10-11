@@ -1169,6 +1169,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			recordChatDiagnostic(convoId, 'chat.durable.accepted', {
 				trace_id: traceId,
 				request_acceptance_ms: Math.max(0, durableRun.createdAt - requestAcceptedAt),
+				prestream_ms: Math.max(0, Date.now() - requestAcceptedAt),
 				initial_state: durableRun.state
 			});
 		}
@@ -1220,6 +1221,11 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				);
 		}
 	}
+	recordChatDiagnostic(convoId, 'chat.durable.stream_ready', {
+		trace_id: traceId,
+		prestream_ms: Math.max(0, Date.now() - requestAcceptedAt),
+		state: durableRun.state
+	});
 	return hermesSubscriptionResponse({
 		request,
 		accountId,

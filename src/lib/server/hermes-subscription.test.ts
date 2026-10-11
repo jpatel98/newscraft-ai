@@ -25,6 +25,7 @@ vi.mock('$lib/server/durable-run-telemetry', () => ({ traceIdFromHermesInput: vi
 
 const {
 	HERMES_SUBSCRIPTION_ACTIVE_POLL_MS,
+	HERMES_SUBSCRIPTION_HEARTBEAT_MS,
 	HERMES_SUBSCRIPTION_MAX_POLL_MS,
 	hermesSubscriptionResponse,
 	nextHermesSubscriptionPollMs
@@ -47,14 +48,44 @@ describe('Hermes subscription polling', () => {
 
 	it('backs off when idle and resets when an event arrives', () => {
 		let pollMs = HERMES_SUBSCRIPTION_ACTIVE_POLL_MS;
-		pollMs = nextHermesSubscriptionPollMs(pollMs, false);
-		expect(pollMs).toBe(500);
-		pollMs = nextHermesSubscriptionPollMs(pollMs, false);
-		expect(pollMs).toBe(1_000);
+		expect(HERMES_SUBSCRIPTION_MAX_POLL_MS).toBe(500);
 		pollMs = nextHermesSubscriptionPollMs(pollMs, false);
 		expect(pollMs).toBe(HERMES_SUBSCRIPTION_MAX_POLL_MS);
 		expect(nextHermesSubscriptionPollMs(pollMs, false)).toBe(HERMES_SUBSCRIPTION_MAX_POLL_MS);
 		expect(nextHermesSubscriptionPollMs(pollMs, true)).toBe(HERMES_SUBSCRIPTION_ACTIVE_POLL_MS);
+	});
+
+	it('sends a comment heartbeat after the snapshot and again after 10 s of inactivity', async () => {
+		vi.useFakeTimers();
+		dbMocks.getHermesRun.mockResolvedValue(initialRun);
+		dbMocks.getHermesRunSubscriptionState.mockResolvedValue(initialRun);
+		dbMocks.listKnownHermesRunEvents.mockResolvedValue([]);
+		const request = new Request('http://localhost/api/chat/runs/run-1');
+		const response = await hermesSubscriptionResponse({ request, accountId: 'account-1', runId: 'run-1', afterCursor: 0 });
+		expect(response.headers.get('cache-control')).toBe('no-cache, no-transform');
+		const reader = response.body!.getReader();
+		const decoder = new TextDecoder();
+		let text = '';
+		let pending: Promise<void> | null = null;
+		const pump = () => {
+			pending = reader.read().then((r) => {
+				pending = null;
+				if (r.done) return;
+				text += decoder.decode(r.value);
+				pump();
+			});
+		};
+		const drain = async () => {
+			if (!pending) pump();
+			await vi.advanceTimersByTimeAsync(0);
+		};
+		await drain();
+		expect(text).toContain('event: run.snapshot');
+		expect(text.split(': ping\n\n')).toHaveLength(2);
+		await vi.advanceTimersByTimeAsync(HERMES_SUBSCRIPTION_HEARTBEAT_MS + HERMES_SUBSCRIPTION_MAX_POLL_MS);
+		await drain();
+		expect(text.split(': ping\n\n').length).toBeGreaterThanOrEqual(3);
+		await reader.cancel();
 	});
 
 	it('stops polling when the response reader disconnects without aborting the request', async () => {

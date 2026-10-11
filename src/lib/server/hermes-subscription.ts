@@ -13,7 +13,9 @@ import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import { traceIdFromHermesInput } from '$lib/server/durable-run-telemetry';
 
 export const HERMES_SUBSCRIPTION_ACTIVE_POLL_MS = 250;
-export const HERMES_SUBSCRIPTION_MAX_POLL_MS = 2_000;
+export const HERMES_SUBSCRIPTION_MAX_POLL_MS = 500;
+export const HERMES_SUBSCRIPTION_HEARTBEAT_MS = 10_000;
+export const HERMES_SUBSCRIPTION_HEARTBEAT_FRAME = ': ping\n\n';
 
 export interface HermesSubscriptionRequest {
 	request: Request;
@@ -129,6 +131,11 @@ export async function hermesSubscriptionResponse({
 					})
 				);
 
+				// Comment frames carry no event; they push buffered bytes through
+				// intermediaries and are ignored by the browser parser.
+				enqueue(HERMES_SUBSCRIPTION_HEARTBEAT_FRAME);
+				let lastWriteAt = Date.now();
+
 				let cursor = afterCursor;
 				let runState: HermesRunSubscriptionState | null = run;
 				let pollMs = HERMES_SUBSCRIPTION_ACTIVE_POLL_MS;
@@ -138,6 +145,7 @@ export async function hermesSubscriptionResponse({
 					for (const event of events) {
 						enqueue(sse(event.eventType, event.dataJson, event.cursor));
 						cursor = event.cursor;
+						lastWriteAt = Date.now();
 					}
 					if (
 						HERMES_TERMINAL_STATES.includes(
@@ -149,6 +157,10 @@ export async function hermesSubscriptionResponse({
 					}
 					await waitForNextPoll(pollMs);
 					if (signal.aborted) break;
+					if (Date.now() - lastWriteAt >= HERMES_SUBSCRIPTION_HEARTBEAT_MS) {
+						enqueue(HERMES_SUBSCRIPTION_HEARTBEAT_FRAME);
+						lastWriteAt = Date.now();
+					}
 					runState = await getHermesRunSubscriptionState(accountId, runId);
 					pollMs = nextHermesSubscriptionPollMs(pollMs, events.length > 0);
 				}

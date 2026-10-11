@@ -25,6 +25,16 @@ function isMarketingHost(host: string): boolean {
 	return MARKETING_HOSTS.has(hostnameWithoutPort(host));
 }
 
+/**
+ * Authenticated responses are never cached. Event streams additionally opt out
+ * of proxy transformation (buffering/compression) so frames flush immediately.
+ */
+export function cacheControlFor(contentType: string | null): string {
+	return contentType?.toLowerCase().startsWith('text/event-stream')
+		? 'private, no-store, no-transform'
+		: 'private, no-store';
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
 	const requestStart = performance.now();
 	// Instrument the chat page and its SvelteKit data request only. The header
@@ -52,7 +62,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	const response = await measureRequest(event.locals, 'resolve', () => resolve(event));
 	if (event.locals.user || path.startsWith('/auth') || PUBLIC_PATHS.has(path)) {
-		response.headers.set('cache-control', 'private, no-store');
+		response.headers.set('cache-control', cacheControlFor(response.headers.get('content-type')));
 	}
 	response.headers.set('x-trace-id', traceId);
 	if (event.locals.user && event.locals.requestTimings) {
