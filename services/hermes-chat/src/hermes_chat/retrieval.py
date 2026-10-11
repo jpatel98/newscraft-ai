@@ -1296,6 +1296,17 @@ class ResearchTools:
             raise ValueError("the run source evidence limit was reached")
         self._fetched[url] = evidence
 
+    def remember_search_page(self, url: str, title: str, text: str, published_at: object = None) -> str:
+        """Accept page text returned by the configured search provider as a direct read."""
+        url = validate_public_url(url)
+        text = text[:MAX_EXTRACT_CHARS]
+        metadata = {"originalUrl": url, "backend": PROVIDER_NAME, "evidenceStatus": "accepted",
+                    "contentHash": hashlib.sha256(text.encode()).hexdigest(),
+                    "publishedAt": published_at if isinstance(published_at, str) else None,
+                    "extractionMethod": "search_provider_text"}
+        self._retain_evidence(url, {"url": url, "title": title, "evidence_text": text, "metadata": metadata})
+        return url
+
     def remember_browser_receipt(self, receipt: BrowserReceipt) -> None:
         """Accept the host capability, never a model dictionary or receipt id."""
         if not _is_authentic_browser_receipt(receipt) or self._run_binding is None:

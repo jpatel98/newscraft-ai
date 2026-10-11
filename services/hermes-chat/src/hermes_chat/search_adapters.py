@@ -52,3 +52,28 @@ class OpenAISearch:
                         seen.add(url)
                         results.append({"url": url, "title": source.get("title", url), "snippet": ""})
         return results[:max_results]
+
+
+async def exa_pages(api_key: str, query: str, *, results: int = 6, since: str | None = None,
+                    max_characters: int = 4000, timeout_seconds: float = 8) -> list[dict[str, Any]]:
+    """One Exa request returning ranked pages with their text (fast-path research)."""
+    body: dict[str, Any] = {"query": query[:500], "numResults": results, "type": "auto",
+                            "contents": {"text": {"maxCharacters": max_characters}}}
+    if since:
+        body["startPublishedDate"] = since
+    async with httpx.AsyncClient(timeout=timeout_seconds, trust_env=False) as client:
+        response = await client.post("https://api.exa.ai/search", json=body,
+                                     headers={"x-api-key": api_key, "content-type": "application/json"})
+    response.raise_for_status()
+    pages = []
+    for item in response.json().get("results", []):
+        url, text = item.get("url"), item.get("text")
+        if not isinstance(url, str) or not isinstance(text, str) or len(text.strip()) < 200:
+            continue
+        try:
+            validate_public_url(url)
+        except ValueError:
+            continue
+        pages.append({"url": url, "title": str(item.get("title") or url)[:400], "text": text,
+                      "publishedAt": item.get("publishedDate")})
+    return pages
