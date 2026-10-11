@@ -1,6 +1,7 @@
 """Search finds leads; NewsCraft fetch/excerpt checks remain independent."""
 from __future__ import annotations
 import json
+import os
 from typing import Any, Protocol
 import httpx
 from .retrieval import _default_search, validate_public_url
@@ -91,3 +92,58 @@ async def exa_pages(api_key: str, query: str, *, results: int = 6, since: str | 
         pages.append({"url": url, "title": str(item.get("title") or url)[:400], "text": text,
                       "publishedAt": item.get("publishedDate")})
     return pages
+
+
+# ---------------------------------------------------------------------------
+# Provider registries. The runner never reads search credentials itself: it is
+# handed one PageSearch (pages with text) and one lead searcher (URLs only),
+# chosen here from configuration. Adding a provider means adding one entry.
+# ---------------------------------------------------------------------------
+
+
+class PageSearch(Protocol):
+    """Search that returns ranked pages with their readable text."""
+    name: str
+
+    async def pages(self, query: str, *, results: int = 6, since: str | None = None, max_characters: int = 4000,
+                    include_domains: list[str] | None = None,
+                    exclude_domains: list[str] | None = None) -> list[dict[str, Any]]: ...
+
+
+class ExaPageSearch:
+    name = "exa"
+
+    def __init__(self, api_key: str, *, fetch=None):
+        self.api_key, self.fetch = api_key, fetch
+
+    async def pages(self, query, **options):
+        return await (self.fetch or exa_pages)(self.api_key, query, **options)
+
+
+def _exa_from_env(env):
+    key = env.get("EXA_API_KEY", "").strip()
+    return ExaPageSearch(key) if key else None
+
+
+PAGE_SEARCH_PROVIDERS = {"exa": _exa_from_env, "none": lambda env: None}
+
+
+def page_search_from_env(env=None) -> PageSearch | None:
+    """The configured PageSearch (NEWSCRAFT_AGENT_PAGE_SEARCH, default exa), or None when it has no credentials."""
+    env = os.environ if env is None else env
+    name = env.get("NEWSCRAFT_AGENT_PAGE_SEARCH", "exa").strip().lower() or "exa"
+    if name not in PAGE_SEARCH_PROVIDERS:
+        raise RuntimeError(f"NEWSCRAFT_AGENT_PAGE_SEARCH must be one of {', '.join(sorted(PAGE_SEARCH_PROVIDERS))}")
+    return PAGE_SEARCH_PROVIDERS[name](env)
+
+
+LEAD_SEARCH_PROVIDERS = {
+    "public": lambda settings: PublicSearch(),
+    "openai": lambda settings: OpenAISearch(api_key=settings.search_api_key, model=settings.search_model,
+                                            base_url=settings.search_base_url),
+}
+
+
+def lead_search_from_settings(settings) -> SearchAdapter:
+    """The lead searcher named by settings.web_provider (public or openai)."""
+    return LEAD_SEARCH_PROVIDERS[settings.web_provider](settings)

@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 import httpx
 
+from . import public_events as events_
 from .contracts import (
     NEWSCRAFT_RUN_CALLBACK_PATH,
     NEWSCRAFT_RUN_CLAIM_PATH,
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 # while avoiding one NewsCraft transaction per Hermes token.
 TEXT_BATCH_MAX_CHARS = 4_096
 TEXT_BATCH_FLUSH_INTERVAL_SECONDS = 0.05
-TEXT_EVENT_TYPE = "response.output_text.delta"
+TEXT_EVENT_TYPE = events_.ANSWER_DELTA
 TRACE_ID_RE = r"^[A-Za-z0-9._-]{8,128}$"
 _ARTIFACT_VALIDATION_CODES = frozenset({"invalid_spec", "spec_too_large"})
 _ARTIFACT_DETAIL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .,:'_()/+\-]{0,239}")
@@ -259,10 +260,10 @@ def normalized_events(
             return []
         if payload.get("name") == "newscraft.answer" and isinstance(value.get("content"), str):
             text_parts[:] = [value["content"][:64000]]
-            return [_event_payload("agent.answer.replace", {"content": "".join(text_parts)})]
+            return [_event_payload(events_.ANSWER_REPLACE, {"content": "".join(text_parts)})]
         if payload.get("name") == "newscraft.managed_sources":
             # Managed citations do not include independently verified excerpts.
-            return [_event_payload("agent.source.found", {"source": source})
+            return [_event_payload(events_.SOURCE_FOUND, {"source": source})
                     for source in value.get("sources", [])[:64] if isinstance(source, dict)]
         if payload.get("name") == "newscraft.plan":
             steps = value.get("steps")
@@ -275,23 +276,23 @@ def normalized_events(
                 if not all(isinstance(step.get(k), str) and step[k] for k in ("id", "label")):
                     return []
                 clean.append({"id": step["id"][:80], "label": step["label"][:160], "status": step["status"]})
-            return [_event_payload("agent.plan", {"source": "model", "steps": clean})]
+            return [_event_payload(events_.PLAN, {"source": "model", "steps": clean})]
         if payload.get("name") == "newscraft.decision":
             if not all(isinstance(value.get(k), str) and value[k] for k in ("id", "summary")):
                 return []
             clean = {"id": value["id"][:80], "summary": value["summary"][:400]}
             if isinstance(value.get("stepId"), str):
                 clean["stepId"] = value["stepId"][:80]
-            return [_event_payload("agent.decision", clean)]
+            return [_event_payload(events_.DECISION, clean)]
         return []
     if kind == "RUN_STARTED":
-        return [_event_payload("run.started", {"status": "researching"})]
+        return [_event_payload(events_.RUN_STARTED, {"status": "researching"})]
     if kind == "TEXT_MESSAGE_CONTENT":
         delta = _value(payload, "delta", "content")
         if not isinstance(delta, str) or not delta:
             return []
         text_parts.append(delta)
-        return [_event_payload("response.output_text.delta", {"delta": delta})]
+        return [_event_payload(events_.ANSWER_DELTA, {"delta": delta})]
     if kind == "TEXT_MESSAGE_END":
         return []
     if kind == "RUN_ERROR":
@@ -301,7 +302,7 @@ def normalized_events(
             if isinstance(nested, dict)
             else nested
         ) or payload.get("message") or "NewsCraft returned an agent error."
-        return [_event_payload("response.failed", {
+        return [_event_payload(events_.FAILED, {
             "failure_class": "upstream",
             "error": {"message": str(message)},
         })]
@@ -309,12 +310,12 @@ def normalized_events(
         events: list[dict[str, Any]] = []
         answer = "".join(text_parts)
         if not answer.strip():
-            return [_event_payload("response.failed", {
+            return [_event_payload(events_.FAILED, {
                 "failure_class": "protocol",
                 "error": {"message": "NewsCraft ended before a completed response."},
             })]
-        events.append(_event_payload("agent.answer.replace", {"content": answer}))
-        events.append(_event_payload("response.completed", {"model": "newscraft-agent"}))
+        events.append(_event_payload(events_.ANSWER_REPLACE, {"content": answer}))
+        events.append(_event_payload(events_.COMPLETED, {"model": "newscraft-agent"}))
         return events
 
     if kind in {"TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_RESULT", "TOOL_CALL_END"}:
@@ -330,17 +331,17 @@ def normalized_events(
             # answer. Remove it from the durable answer surface before the
             # tool progress event is saved.
             text_parts.clear()
-            reset_events.append(_event_payload("agent.answer.replace", {"content": ""}))
+            reset_events.append(_event_payload(events_.ANSWER_REPLACE, {"content": ""}))
         if kind == "TOOL_CALL_ARGS":
             delta = _value(payload, "delta", "arguments") or ""
             tool_arguments[call_id] = f"{tool_arguments.get(call_id, '')}{delta}"[-24_000:]
-            return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "arguments": tool_arguments[call_id], "status": "running"})]
+            return reset_events + [_event_payload(events_.TOOL_PROGRESS, {"id": call_id, "name": name, "kind": events_.tool_kind(name), "arguments": tool_arguments[call_id], "status": "running"})]
         if kind == "TOOL_CALL_RESULT":
             result = _value(payload, "result", "output", "content")
             failed = payload.get("status") == "failed" or (isinstance(result, dict) and (bool(result.get("error")) or result.get("exit_code", 0) != 0))
-            return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "result": _compact(result), "status": "failed" if failed else "ok"})]
+            return reset_events + [_event_payload(events_.TOOL_PROGRESS, {"id": call_id, "name": name, "kind": events_.tool_kind(name), "result": _compact(result), "status": "failed" if failed else "ok"})]
         status = "running" if kind == "TOOL_CALL_START" else ("failed" if payload.get("status") == "failed" else "ok")
-        return reset_events + [_event_payload("agent.tool.progress", {"id": call_id, "name": name, "status": status, "done": kind == "TOOL_CALL_END"})]
+        return reset_events + [_event_payload(events_.TOOL_PROGRESS, {"id": call_id, "name": name, "kind": events_.tool_kind(name), "status": status, "done": kind == "TOOL_CALL_END"})]
 
     if kind == "STATE_SNAPSHOT":
         snapshot = payload.get("snapshot")
@@ -355,7 +356,7 @@ def normalized_events(
             if not isinstance(source, dict):
                 continue
             receipt = {**source, "id": source.get("url"), "status": "read", "verified": True}
-            events.append(_event_payload("agent.source.read", {"source": _compact(receipt, 8_000)}))
+            events.append(_event_payload(events_.SOURCE_READ, {"source": _compact(receipt, 8_000)}))
             citation_number = source.get("citationNumber") or source.get("citation_number")
             if citation_number and source.get("url"):
                 citations.append({
@@ -370,7 +371,7 @@ def normalized_events(
                     **({"documentPage": source["documentPage"]} if isinstance(source.get("documentPage"), int) else {}),
                 })
         if citations:
-            events.append(_event_payload("agent.citations", {"citations": citations}))
+            events.append(_event_payload(events_.CITATIONS, {"citations": citations}))
         return events
     return []
 
@@ -634,7 +635,7 @@ class DurableRunWorker:
                 },
             )
             artifact = result.get("artifact") if isinstance(result, dict) else None
-            await self._callback(job, "artifact.ready", {
+            await self._callback(job, events_.ARTIFACT_READY, {
                 "artifact_revision_id": revision_id,
                 "artifact": artifact if isinstance(artifact, dict) else result,
             })
@@ -708,7 +709,7 @@ class DurableRunWorker:
         if not isinstance(revision_id, str) or not revision_id:
             raise ArtifactPublishError("artifact revision response is invalid")
         if publication_key and isinstance(artifact, dict) and artifact.get("status") == "ready":
-            await self._callback(job, "artifact.ready", {"artifact_revision_id": revision_id, "artifact": artifact})
+            await self._callback(job, events_.ARTIFACT_READY, {"artifact_revision_id": revision_id, "artifact": artifact})
             return {"artifact": artifact, "revision_id": revision_id}
         if path is not None:
             # The image revision is still draft when this call starts; the
@@ -724,7 +725,7 @@ class DurableRunWorker:
             )
         if not isinstance(artifact, dict):
             raise ArtifactPublishError("inline artifact response is invalid")
-        await self._callback(job, "artifact.ready", {
+        await self._callback(job, events_.ARTIFACT_READY, {
             "artifact_revision_id": revision_id,
             "artifact": artifact,
         })
@@ -1786,7 +1787,7 @@ class DurableRunWorker:
                 job.recovery_pending = True
                 async with asyncio.timeout(12):
                     await cancel_run(job.run_id)
-            await self._callback(job, "run.cancelled", {"failure_class": "cancelled", "status": "cancelled"})
+            await self._callback(job, events_.RUN_CANCELLED, {"failure_class": "cancelled", "status": "cancelled"})
             job.cancel_published = True
             job.recovery_pending = False
 
@@ -1828,9 +1829,9 @@ class DurableRunWorker:
         text_parts: list[str] = []
         finished = False
         try:
-            await self._callback(job, "run.started", {"status": "researching"})
+            await self._callback(job, events_.RUN_STARTED, {"status": "researching"})
             if job.seeded_citations:
-                await self._callback(job, "agent.citations", {"citations": job.seeded_citations})
+                await self._callback(job, events_.CITATIONS, {"citations": job.seeded_citations})
             if self.runner is None:
                 raise DurableRunError("NewsCraft agent runner is not configured", code="protocol")
             runtime = self.isolation.ensure(self.isolation.resolve(job.tenant_key, job.thread_id), computer_state=False)
@@ -1863,7 +1864,7 @@ class DurableRunWorker:
                 job.text_flush_error = None
                 self._discard_text_buffer(job)
                 try:
-                    await self._callback(job, "run.failed", {
+                    await self._callback(job, events_.RUN_FAILED, {
                         "failure_class": "callback",
                         "error": {"message": str(error or "NewsCraft callback failed")[:2_000]}
                     })
@@ -1889,7 +1890,7 @@ class DurableRunWorker:
                 return  # Let the lease expire; the periodic worker resumes it.
             if not job.stale_lease:
                 try:
-                    await self._callback(job, "run.failed", {
+                    await self._callback(job, events_.RUN_FAILED, {
                         "failure_class": _failure_class(exc),
                         "error": {"message": public_failure_message(exc)},
                     })

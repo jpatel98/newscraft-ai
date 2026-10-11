@@ -17,6 +17,8 @@ import type { ArtifactSummary } from '$lib/types/artifacts';
 export interface StreamToolCall {
 	id: string;
 	name: string;
+	/** Public tool kind from the agent contract (search, read, verify, ...); labels key off this, not the name. */
+	kind?: string;
 	status?: 'running' | 'ok' | 'failed' | 'unknown' | string;
 	startedAt?: number;
 	endedAt?: number;
@@ -1352,6 +1354,7 @@ export class StreamEventState {
 			explicitId ?? this.anonymousToolId(name, semanticKey, status, terminal, now, completed);
 		const call = this.ensureTool(id, name, now);
 		call.name = name;
+		call.kind = firstString(payload.kind, nestedTool?.kind) ?? call.kind;
 		call.status = statusValue(status, call.status ?? 'running');
 		call.detail =
 			firstString(

@@ -1,6 +1,9 @@
-// Map raw tool names from the gateway into plain-English status copy. A tool
-// can fall through several heuristics (substring match), so the final label
-// is "Working on it" only when nothing else fits.
+// Plain-English status copy for tool activity. Backends that speak the agent
+// contract send a public `kind` (search, read, verify, ...) and the label comes
+// from AGENT_TOOL_KIND_LABELS. Older events without a kind fall back to the
+// raw-name heuristics below, so the final label is "Working on it" only when
+// nothing else fits.
+import { AGENT_TOOL_KIND_LABELS, HIDDEN_TOOL_KINDS, PUBLIC_DETAIL_TOOL_KINDS, isAgentToolKind, type AgentToolKind } from '@newscraft/shared';
 
 interface ToolLabel {
 	live: string;
@@ -9,6 +12,7 @@ interface ToolLabel {
 
 export interface ToolStep {
 	name: string;
+	kind?: string;
 	detail?: string;
 	url?: string;
 	title?: string;
@@ -58,12 +62,37 @@ const DETAIL_NOISE = new Set([
 	'in_progress'
 ]);
 
+const KIND_KEY = 'kind:';
+
+/** The label key for a step: its public kind when known, else its raw name. */
+export function toolLabelKey(tool: Pick<ToolStep, 'name' | 'kind'>): string {
+	return knownKind(tool.kind) ? KIND_KEY + tool.kind : tool.name;
+}
+
+/** Bookkeeping steps (plan, decision) are not listed as activity. */
+export function isHiddenToolStep(tool: Pick<ToolStep, 'name' | 'kind'>): boolean {
+	const kind = knownKind(tool.kind);
+	return kind ? HIDDEN_TOOL_KINDS.has(kind) : ['plan', 'decision'].includes(tool.name);
+}
+
+function knownKind(kind: string | undefined): AgentToolKind | null {
+	return isAgentToolKind(kind) && kind !== 'tool' ? kind : null;
+}
+
+function kindFromKey(name: string): AgentToolKind | null {
+	return name.startsWith(KIND_KEY) ? knownKind(name.slice(KIND_KEY.length)) : null;
+}
+
 export function liveLabel(name: string): string {
+	const kind = kindFromKey(name);
+	if (kind) return AGENT_TOOL_KIND_LABELS[kind].live;
 	for (const row of TABLE) if (row.test.test(name)) return row.label.live;
 	return 'Working on it';
 }
 
 export function doneLabel(name: string): string {
+	const kind = kindFromKey(name);
+	if (kind) return AGENT_TOOL_KIND_LABELS[kind].done;
 	for (const row of TABLE) if (row.test.test(name)) return row.label.done;
 	return 'Tools used';
 }
@@ -170,10 +199,15 @@ export function toolStepDetail(tool: ToolStep): string {
 	if (intent?.detail) return publicActivityText(intent.detail);
 	// Saved/reconnected calls can contain the original provider payload. Only
 	// research queries and source descriptions are public activity details.
-	if (isInternalTool(tool.name) || /^(?:browser|read_file|write_file|list_files|list_directory|publish_)/i.test(tool.name)) {
-		return '';
+	const kind = knownKind(tool.kind);
+	if (kind) {
+		if (!PUBLIC_DETAIL_TOOL_KINDS.has(kind) || kind === 'browse') return '';
+	} else {
+		if (isInternalTool(tool.name) || /^(?:browser|read_file|write_file|list_files|list_directory|publish_)/i.test(tool.name)) {
+			return '';
+		}
+		if (!/search|google|bing|duckduckgo|fetch|read|browse|open|http|url|page|verify|check|validate|fact/i.test(tool.name)) return '';
 	}
-	if (!/search|google|bing|duckduckgo|fetch|read|browse|open|http|url|page|verify|check|validate|fact/i.test(tool.name)) return '';
 
 	const argDetail = detailFromArguments(tool.arguments);
 	if (argDetail) return argDetail;
@@ -215,7 +249,8 @@ export function toolStepSummary(tool: ToolStep, done = false): string {
 export function toolStepLabel(tool: ToolStep, done = false): string {
 	const intent = toolIntent(tool);
 	if (intent) return done ? intent.done : intent.live;
-	return done ? doneLabel(tool.name) : liveLabel(tool.name);
+	const key = toolLabelKey(tool);
+	return done ? doneLabel(key) : liveLabel(key);
 }
 
 export function showToolRawName(_tool: ToolStep): boolean {

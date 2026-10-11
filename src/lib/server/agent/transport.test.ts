@@ -1,6 +1,7 @@
 import type { ConversationContext } from '@newscraft/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ownedReadiness from './fixtures/owned-readiness.json';
+import { AGENT_CONTRACT_VERSION } from '@newscraft/shared';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 
@@ -792,6 +793,20 @@ describe('Hermes chat transport', () => {
 		await expect(gatewayHealth()).resolves.toMatchObject({ ok: true, requiredReady: true, webExtractionReady: true });
 		expect(ownedReadiness.capabilities.terminal).toBe(false);
 		expect(ownedReadiness.capabilities.browser).toBe(false);
+	});
+
+	it('trusts a backend that reports the current contract version without the legacy field set', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+			ok: true, service: 'some-other-backend', contract: { version: AGENT_CONTRACT_VERSION }
+		}), { status: 200 })));
+		await expect(gatewayHealth()).resolves.toMatchObject({ ok: true, requiredReady: true });
+	});
+
+	it('rejects a backend whose contract version this app does not speak and whose legacy shape is incomplete', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+			ok: true, service: 'newscraft-agent', contract: { version: AGENT_CONTRACT_VERSION + 1 }
+		}), { status: 200 })));
+		await expect(gatewayHealth()).resolves.toMatchObject({ ok: false, requiredReady: false });
 	});
 
 	it('reports ready for the standard Hermes capability set', async () => {

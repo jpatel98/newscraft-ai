@@ -4,6 +4,7 @@ import { Buffer } from 'node:buffer';
 import {
 	HERMES_TOOLSET,
 	NEWSCRAFT_AGENT_SERVICE,
+	isAgentContractCompatible,
 	NEWSCRAFT_PUBLIC_ACTIVITY,
 	normalizePublicAgentPlan,
 	normalizePublicAgentDecision,
@@ -1129,7 +1130,11 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 		const requiredCapabilities = ['files'];
 		const boundedLoop = objectValue(capabilities?.boundedLoop);
 		const durableRuns = objectValue(capabilities?.durableRuns);
-		const reportedOk =
+		// A backend that reports a compatible contract version is trusted to provide
+		// the capabilities that version promises. The field-by-field check below
+		// remains only for backends from before the contract block existed.
+		const contractCompatible = isAgentContractCompatible(value?.contract);
+		const legacyOk =
 			value?.ok === true &&
 			value.service === SERVICE_NAME &&
 			value.toolset === HERMES_TOOLSET &&
@@ -1148,6 +1153,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			runtime?.orchestration === 'newscraft' &&
 			accountIsolation?.ownedRunState === true &&
 			accountIsolation?.conversationWorkspace === true;
+		const reportedOk = value?.ok === true && (contractCompatible || legacyOk);
 		const providers = {
 			browser: combineCapabilitySignals([
 				providerCapability(toolProviders?.browser),

@@ -1,12 +1,12 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { getMaintenanceStatus } from '$lib/server/db/maintenance';
-import { gatewayHealth } from '$lib/server/agent/transport';
+import { agentBackend } from '$lib/server/agent/backend';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
 
 	try {
-		const [status, gateway] = await Promise.all([getMaintenanceStatus(), gatewayHealth()]);
+		const [status, gateway] = await Promise.all([getMaintenanceStatus(), agentBackend().health()]);
 		return json(
 			{
 				...status,

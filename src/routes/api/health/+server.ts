@@ -1,6 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { configuredDatabaseHostname, sql } from '$lib/server/db';
-import { gatewayHealth, type GatewayHealth } from '$lib/server/agent/transport';
+import type { GatewayHealth } from '$lib/server/agent/transport';
+import { agentBackend } from '$lib/server/agent/backend';
 import { getConversationDocumentService } from '$lib/server/documents/runtime';
 import { boundedNetworkError } from '$lib/server/network/diagnostics';
 
@@ -74,7 +75,7 @@ async function documentsReady(): Promise<boolean> {
 	}
 }
 
-function gatewayDetails(gateway: Awaited<ReturnType<typeof gatewayHealth>>): HealthComponent {
+function gatewayDetails(gateway: GatewayHealth): HealthComponent {
 	return {
 		required: true,
 		ok: gateway.ok,
@@ -97,7 +98,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 			{ status: 200, headers: { 'Cache-Control': 'no-store' } }
 		);
 	}
-	const [gateway, app] = await Promise.all([gatewayHealth(), appHealth()]);
+	const [gateway, app] = await Promise.all([agentBackend().health(), appHealth()]);
 	const requiredReady = app.ok && gateway.ok;
 	const documents = locals.user && app.ok ? await documentsReady() : false;
 	const providers = providerComponents(gateway.providers);

@@ -495,7 +495,7 @@ class OwnedAgentServiceTests(unittest.TestCase):
             with TestClient(app, base_url="http://127.0.0.1:8768") as client:
                 public = client.get("/ready").json()
                 private = client.get("/ready", headers=self._headers()).json()
-            self.assertEqual(set(public), {"ok", "state", "service"})
+            self.assertEqual(set(public), {"ok", "state", "service", "contract"})  # The contract block is public: a deploy gate reads it without a token.
             self.assertEqual(private["service"], "newscraft-agent")
             self.assertEqual(private["runtime"]["apiMode"], "responses")
             self.assertEqual(private["runtime"]["orchestration"], "newscraft")

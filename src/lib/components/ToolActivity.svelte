@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { chat } from '$lib/stores/chat.svelte';
 	import type { StreamToolCall } from '$lib/utils/stream-events';
-	import { dominantLiveLabel, liveHeadLabel, formatElapsed, toolStepLabel, toolStepDetail, toolStepResult } from '$lib/utils/tool-labels';
+	import { dominantLiveLabel, liveHeadLabel, formatElapsed, toolStepLabel, toolStepDetail, toolStepResult, toolLabelKey, isHiddenToolStep } from '$lib/utils/tool-labels';
 
 	interface Props {
 		// True when this card is attached to the current assistant turn.
@@ -32,10 +32,10 @@
 		}
 	});
 
-	const runningTools = $derived(activeTurn ? chat.tools.filter(tool => !['plan', 'decision'].includes(tool.name)) : []);
-	const completed = $derived(completedTools.filter(tool => tool.status !== 'running' && !['plan', 'decision'].includes(tool.name)).slice(-12));
+	const runningTools = $derived(activeTurn ? chat.tools.filter(tool => !isHiddenToolStep(tool)) : []);
+	const completed = $derived(completedTools.filter(tool => tool.status !== 'running' && !isHiddenToolStep(tool)).slice(-12));
 	const hasRunning = $derived(runningTools.length > 0);
-	const liveNames = $derived(runningTools.map((t) => t.name));
+	const liveNames = $derived(runningTools.map(toolLabelKey));
 
 	const oldestStart = $derived.by(() => {
 		if (runningTools.length === 0) return chat.streamStartedAt ?? Date.now();

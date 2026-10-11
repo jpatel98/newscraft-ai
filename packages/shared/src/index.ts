@@ -6,3 +6,4 @@ export * from './health.js';
 export * from './hermes.js';
 export * from './jobs.js';
 export * from './sse.js';
+export * from './agent-contract.js';

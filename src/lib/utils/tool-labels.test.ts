@@ -5,6 +5,7 @@ import {
 	dominantLiveLabel,
 	doneLabel,
 	formatElapsed,
+	isHiddenToolStep,
 	liveHeadLabel,
 	liveLabel,
 	publicActivityText,
@@ -14,7 +15,8 @@ import {
 	toolStepDetail,
 	toolStepLabel,
 	toolStepResult,
-	toolStepSummary
+	toolStepSummary,
+	toolLabelKey
 } from './tool-labels';
 
 describe('tool labels', () => {
@@ -285,5 +287,33 @@ describe('liveHeadLabel', () => {
 			liveHeadLabel({ planSteps: [{ id: 'search', status: 'running' }], hasToolHistory: true, hasAssistantOutput: true })
 		).toBe('Writing answer');
 		expect(liveHeadLabel({ ...none, hasToolHistory: true })).toBe('Writing answer');
+	});
+});
+
+describe('contract tool kinds', () => {
+	it('labels by public kind, not internal tool name', () => {
+		// web_extract matched the "web" search heuristic before kinds existed.
+		expect(toolStepLabel({ name: 'web_extract', kind: 'read' })).toBe('Reading source');
+		expect(toolStepLabel({ name: 'record_newscraft_source', kind: 'cite' }, true)).toBe('Sources recorded');
+		expect(toolStepLabel({ name: 'renamed_search_tool', kind: 'search' })).toBe('Scanning coverage');
+		expect(dominantLiveLabel([toolLabelKey({ name: 'a', kind: 'verify' }), toolLabelKey({ name: 'b', kind: 'verify' })])).toBe('Checking facts');
+	});
+
+	it('falls back to the name heuristics for events without a kind', () => {
+		expect(toolStepLabel({ name: 'verify_this_lead' })).toBe('Checking facts');
+		expect(toolStepLabel({ name: 'mystery', kind: 'tool' })).toBe('Working on it');
+	});
+
+	it('hides bookkeeping kinds and keeps query detail only for research kinds', () => {
+		expect(isHiddenToolStep({ name: 'plan_v2', kind: 'plan' })).toBe(true);
+		expect(isHiddenToolStep({ name: 'web_search', kind: 'search' })).toBe(false);
+		expect(toolStepDetail({ name: 'anything', kind: 'search', arguments: { query: 'TTC closures' } })).toContain('TTC closures');
+		expect(toolStepDetail({ name: 'publish_markdown', kind: 'publish', arguments: { title: 'Brief' } })).toBe('');
+	});
+
+	it('carries the kind from tool progress events into stream state', () => {
+		const state = new StreamEventState();
+		state.apply('agent.tool.progress', JSON.stringify({ id: 'c1', name: 'web_extract', kind: 'read', status: 'running' }), 1);
+		expect(state.toolCalls()[0].kind).toBe('read');
 	});
 });

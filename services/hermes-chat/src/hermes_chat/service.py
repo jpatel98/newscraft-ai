@@ -25,6 +25,7 @@ from .durable import (
     DurableRunError,
     DurableRunWorker,
 )
+from . import public_events
 from .isolation import TENANT_HEADER, TenantIsolation, TenantIsolationError
 from .provider_policy import DEEPSEEK_MODELS
 from .retrieval import RetrievalConfig, retrieval_readiness
@@ -442,7 +443,9 @@ def create_app(settings: Settings | None = None):
     async def ready(request: Request):
         runtime_ready = await runner.readiness()
         ready_ok = bool(durable_worker.configured and runtime_ready.get("configured"))
-        payload: dict[str, Any] = {"ok": ready_ok, "state": "ready" if ready_ok else "unavailable", "service": "newscraft-agent"}
+        payload: dict[str, Any] = {"ok": ready_ok, "state": "ready" if ready_ok else "unavailable", "service": "newscraft-agent",
+                                   "contract": {"version": public_events.AGENT_CONTRACT_VERSION, "events": list(public_events.PUBLIC_EVENTS),
+                                                "toolKinds": list(public_events.TOOL_KIND_NAMES)}}
         if _authorized(request, settings):
             payload.update({
                 "processInstanceId": _PROCESS_INSTANCE_ID, "toolset": "newscraft-agent", "tools": runtime_ready.get("tools", []),
@@ -451,7 +454,8 @@ def create_app(settings: Settings | None = None):
                             "maxObservedActions": settings.max_iterations, "maxSeconds": settings.max_seconds},
                 "toolProviders": {"webSearch": {"requested": settings.web_provider, "active": settings.web_provider, "configured": True, "verified": False},
                                   "webExtract": {"configured": settings.retrieval.enabled}, "leadVerification": {"configured": settings.retrieval.enabled},
-                                  "browser": {"configured": bool(runtime_ready.get("browser")), "verified": False}},
+                                  "browser": {"configured": bool(runtime_ready.get("browser")), "verified": False},
+                                  "pageSearch": {"active": getattr(getattr(runner, "page_search", None), "name", None)}},
                 "capabilities": {"standard": True, "terminal": bool(runtime_ready.get("terminal")), "files": True, "browser": bool(runtime_ready.get("browser")),
                     "workspaceFiles": bool(runtime_ready.get("workspaceFiles")),
                     "webResearch": settings.retrieval.enabled,

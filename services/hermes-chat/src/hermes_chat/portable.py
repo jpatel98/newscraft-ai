@@ -26,7 +26,7 @@ from .retrieval import ResearchTools
 from .runtime import PUBLIC_TOOLS, validate_arguments
 from .sandbox_adapter import sandbox_factory as configured_sandbox_factory
 from .executor_state import ExecutorError, ExecutorUncertain
-from .search_adapters import OpenAISearch, PublicSearch, exa_pages
+from .search_adapters import lead_search_from_settings, page_search_from_env
 from .source_tiers import (AGGREGATOR_DOMAINS, WEATHER_REQUEST, aggregator_lead, headline_query, headline_terms, key_terms,
                            official_domains_for_query, on_topic, outlet_for_query, place_tokens, rank_pages, shares_headline,
                            source_type_for_tier, tier_for_url, topic_hits, url_key)
@@ -583,9 +583,34 @@ def _brief_markdown(name, arguments):
     return ("## " + title + "\n\n" if title else "") + "\n".join(lines)
 
 
+# Strategies for one turn. The router picks one from the turn alone; each strategy
+# emits the same public events, and quick/deliverable fall back to the loop when
+# their research finds nothing usable.
+ROUTE_QUICK = "quick"  # Planned research, then one writing call.
+ROUTE_DELIVERABLE = "deliverable"  # Planned research, then the bounded loop writes and publishes the file.
+ROUTE_LOOP = "loop"  # The model-driven tool loop.
+
+
+def fresh_turn(state, *, has_computer):
+    """True for a new, unstarted text turn that a planned-research strategy may take."""
+    return (not state.get("fast") and not state["intent"] and not state["pending"] and state["steps"] == 0
+            and not has_computer and not any(b["type"] == "image" for m in state["messages"] for b in m["content"]))
+
+
+def choose_route(fresh, request, *, has_page_search):
+    """Which strategy answers this turn."""
+    if not fresh or not request:
+        return ROUTE_LOOP
+    if not FAST_DELIVERABLE.search(request):
+        return ROUTE_QUICK
+    return ROUTE_DELIVERABLE if has_page_search else ROUTE_LOOP
+
+
 class PortableAgentRunner:
-    def __init__(self, settings, isolation, *, model=None, research_factory=None, sandbox_factory=None):
+    def __init__(self, settings, isolation, *, model=None, research_factory=None, sandbox_factory=None, page_search=None):
         self.settings, self.isolation = settings, isolation
+        # Pages-with-text search (Exa today); None disables the fast path's planned research.
+        self.page_search = page_search if page_search is not None else page_search_from_env()
         self.model = model or create_model(settings)
         self.research_factory = research_factory
         self.sandbox_factory = sandbox_factory or configured_sandbox_factory(settings)
@@ -606,11 +631,7 @@ class PortableAgentRunner:
     def _research(self):
         if self.research_factory:
             return self.research_factory(self.settings.retrieval)
-        search = PublicSearch()
-        if self.settings.web_provider == "openai":
-            search = OpenAISearch(api_key=self.settings.search_api_key, model=self.settings.search_model,
-                                  base_url=self.settings.search_base_url)
-        return ResearchTools(self.settings.retrieval, searcher=search)
+        return ResearchTools(self.settings.retrieval, searcher=lead_search_from_settings(self.settings))
 
     async def _plan_research(self, state, *, instructions, request, newsroom, now, required, sources, settings=None):
         """One bounded, tool-free planner call; None on any failure (the caller falls back to a plain search)."""
@@ -758,14 +779,14 @@ class PortableAgentRunner:
 
             Returns None (caller falls back to DDGS leads) when Exa is not configured, fails, or finds no usable page.
             """
-            key, query = os.environ.get("EXA_API_KEY", "").strip(), args.get("query")
-            if not key or not isinstance(query, str) or not query.strip():
+            query = args.get("query")
+            if self.page_search is None or not isinstance(query, str) or not query.strip():
                 return None
             count = args.get("max_results")
             count = min(count, LOOP_SEARCH_RESULTS) if isinstance(count, int) and not isinstance(count, bool) and count >= 1 else LOOP_SEARCH_RESULTS
             query = query.strip()
             try:
-                found = await exa_pages(key, query[:500], results=LOOP_SEARCH_RESULTS, max_characters=FAST_PAGE_CHARS)
+                found = await self.page_search.pages(query[:500], results=LOOP_SEARCH_RESULTS, max_characters=FAST_PAGE_CHARS)
             except Exception:
                 logger.warning("loop search: exa failed; falling back to public search")
                 return None
@@ -1060,11 +1081,10 @@ class PortableAgentRunner:
                     if not await sandbox.cancel():
                         raise RecoveryPending("Interrupted computer execution still requires confirmed cleanup.")
                     raise RunError("An interrupted request has an uncertain outcome and was not repeated. Start a new turn to retry.")
-            fast_eligible = (not state.get("fast") and not state["intent"] and not state["pending"] and state["steps"] == 0
-                             and not sandbox.schemas()
-                             and not any(b["type"] == "image" for m in state["messages"] for b in m["content"]))
-            turn = _turn_context(state["messages"]) if fast_eligible else {}
+            fresh = fresh_turn(state, has_computer=bool(sandbox.schemas()))
+            turn = _turn_context(state["messages"]) if fresh else {}
             request = (turn.get("resolvedRequest") or _last_user_text(state["messages"])).strip()
+            route = choose_route(fresh, request, has_page_search=self.page_search is not None)
             fast_instructions = append_product_identity(FAST_INSTRUCTIONS)  # One prefix for planner and writer.
 
             def tool_events(call_id, name, args, result):
@@ -1128,21 +1148,21 @@ class PortableAgentRunner:
                 yield {"type": "CUSTOM", "name": "newscraft.plan", "value": {"source": "model", "steps": state["plan"]}}
 
                 candidates = []
-                exa_key = os.environ.get("EXA_API_KEY", "").strip()
-                if specs and exa_key:
+                page_search = self.page_search
+                if specs and page_search:
                     state["search_reserved"] += len(specs)
 
                     async def search(spec):
                         since = _since(spec["days"], turn.get("freshness") == "current" and spec["intent"] in {"news", "local"})
                         try:
-                            found = await exa_pages(exa_key, spec["q"], results=FAST_RESULTS_PER_QUERY, since=since,
+                            found = await page_search.pages(spec["q"], results=FAST_RESULTS_PER_QUERY, since=since,
                                                     max_characters=FAST_PAGE_CHARS, include_domains=spec["domains"] or None)
                             if (not found and spec["intent"] == "official" and spec["domains"] and not spec.get("preferred")
                                     and state["search_reserved"] < search_limit):
                                 # A publisher-restricted query that finds nothing is re-run once, unrestricted, and counted.
                                 state["search_reserved"] += 1
                                 logger.info("fast path: official query %r empty on %s; retrying unrestricted", spec["q"][:60], spec["domains"])
-                                found = await exa_pages(exa_key, spec["q"], results=FAST_RESULTS_PER_QUERY, since=since,
+                                found = await page_search.pages(spec["q"], results=FAST_RESULTS_PER_QUERY, since=since,
                                                         max_characters=FAST_PAGE_CHARS, include_domains=None)
                             return spec, found, False
                         except Exception:
@@ -1239,7 +1259,7 @@ class PortableAgentRunner:
                 ranked = rank(candidates)
                 # An aggregator repost that is dropped may be the only trace of a newer story: look for its original once.
                 kept_keys = {url_key(page["url"]) for page in ranked}
-                lead = aggregator_lead([page for page in candidates if url_key(page["url"]) not in kept_keys], terms) if exa_key and research_mode else None
+                lead = aggregator_lead([page for page in candidates if url_key(page["url"]) not in kept_keys], terms) if page_search and research_mode else None
                 if lead is not None and state["search_reserved"] < search_limit:
                     headline = headline_query(lead.get("title") or "", lead["url"])
                     recover_id, recover_args = f"{run_id}-fast-exa-recover", {"query": headline}
@@ -1249,7 +1269,7 @@ class PortableAgentRunner:
                     for event in tool_start_events(recover_id, "web_search", recover_args):
                         yield event
                     try:
-                        found = await exa_pages(exa_key, headline, results=FAST_RESULTS_PER_QUERY, since=_since(RECOVERY_DAYS, False),
+                        found = await page_search.pages(headline, results=FAST_RESULTS_PER_QUERY, since=_since(RECOVERY_DAYS, False),
                                                 max_characters=FAST_PAGE_CHARS, exclude_domains=list(AGGREGATOR_DOMAINS))
                         failed = False
                     except Exception:
@@ -1289,7 +1309,7 @@ class PortableAgentRunner:
                 out.update(plan=plan, specs=specs, pages=pages, thread_sources=thread_sources, preferred=preferred, newsroom=newsroom,
                            research_gap=research_gap, outlet_gaps=outlet_gaps, research_mode=research_mode, terms=terms, t0=fast_t0)
 
-            if fast_eligible and request and not FAST_DELIVERABLE.search(request):
+            if route == ROUTE_QUICK:
                 # Speed over replay: the fast path saves once, at the end. A crash
                 # before then simply reruns it (plan, search and one writing call).
                 state["fast"] = "started"
@@ -1348,7 +1368,7 @@ class PortableAgentRunner:
                         return
                 for event in plan_close_events():  # Nothing usable: the full loop takes over with an honest plan.
                     yield event
-            elif fast_eligible and request and os.environ.get("EXA_API_KEY", "").strip():
+            elif route == ROUTE_DELIVERABLE:
                 # A deliverable (file, chart, ...): plan and read the sources first, exactly as the fast path does, then let the
                 # bounded loop write and publish from them instead of discovering them one tool call at a time.
                 state["fast"] = "deliverable"

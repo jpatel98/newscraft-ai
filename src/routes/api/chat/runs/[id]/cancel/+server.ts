@@ -6,7 +6,7 @@ import {
 	snapshotFromRun,
 	listHermesRunEvents
 } from '$lib/server/db/hermes-runs';
-import { cancelDurableHermesRun } from '$lib/server/hermes-durable';
+import { agentBackend } from '$lib/server/agent/backend';
 import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import {
 	collectDurableRunEvents,
@@ -30,7 +30,7 @@ export const POST: RequestHandler = async ({ locals, params }) => {
 	}
 	if (run.state === 'cancel_requested') {
 		try {
-			const result = await cancelDurableHermesRun(locals.user.id, runId, traceId || undefined);
+			const result = await agentBackend().cancelRun(locals.user.id, runId, traceId || undefined);
 			if (result.state === 'not_running') {
 				run = await finalizeHermesRunCancellation(locals.user.id, runId);
 			}

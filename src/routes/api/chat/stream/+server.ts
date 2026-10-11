@@ -1,15 +1,11 @@
 import { error, isHttpError, type RequestHandler } from '@sveltejs/kit';
 import {
-	deriveSessionId,
-	deriveHermesTenantKey,
-	buildHermesRunInput,
-	startDurableHermesRun,
 	HermesDurableOverloadError,
-	gatewayHealth,
 	type AgentMessage,
 	type AgentContent,
 	type AgentContentPart
 } from '$lib/server/agent/transport';
+import { agentBackend } from '$lib/server/agent/backend';
 import { selectCitationInheritanceToolCalls } from '$lib/server/agent/citation-inheritance';
 import { expandAgentSkill, listAgentCommands } from '$lib/server/agent/bridge';
 import {
@@ -652,7 +648,7 @@ async function builtinResponse(
 		return `Reasoning set to ${reasoningEffortLabel(next)} for this thread.`;
 	}
 	if (command.slash === '/status') {
-		const health = await gatewayHealth();
+		const health = await agentBackend().health();
 		return health.ok
 			? `NewsCraft is reachable. Status ${health.status}.`
 			: `NewsCraft is not reachable right now. ${health.body}`;
@@ -1115,7 +1111,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		conversationContext.currentTurn?.researchRequired !== false ||
 		conversationContext.currentTurn?.researchAllowed === true;
 
-	const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);
+	const sessionId = agentBackend().sessionId(history, `${accountId}:${convoId}`);
 	const idempotencyKey =
 		suppliedDurableKey ||
 		(preparedAssistantMessageId
@@ -1128,7 +1124,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		assistantMessageId = await ensureHermesAssistantMessage(accountId, convoId, idempotencyKey);
 	}
 	const candidateRunId = newId();
-	const built = buildHermesRunInput(
+	const built = agentBackend().buildRunInput(
 		{
 			messages: history,
 			stream: true,
@@ -1158,7 +1154,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			assistantMessageId,
 			preparedClaimToken: preparedClaimToken ?? resumeClaimToken ?? undefined,
 			idempotencyKey,
-			tenantKey: deriveHermesTenantKey(accountId),
+			tenantKey: agentBackend().tenantKey(accountId),
 			sessionId,
 			inputJson: JSON.stringify(built.input),
 			seededCitationsJson: JSON.stringify(built.seededCitations),
@@ -1194,7 +1190,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				const savedCitations = JSON.parse(durableRun.seededCitationsJson) as unknown;
 				if (Array.isArray(savedCitations)) durableSeededCitations = savedCitations as typeof built.seededCitations;
 			}
-			await startDurableHermesRun({
+			await agentBackend().startRun({
 				runId: durableRun.id,
 				accountId,
 				tenantKey: durableRun.tenantKey,
