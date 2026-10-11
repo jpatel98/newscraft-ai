@@ -277,9 +277,83 @@ def _deliverable_brief(*, tools, thread_listing, pages, research_mode):
     else:
         gap = "No new research is needed: the material is in this conversation. "
     finish = (f"Publish the deliverable with {' and '.join(tools)} within at most {DELIVERABLE_TOOL_CALLS} further tool calls unless a gap is material, "
-              "then reply with a two-line summary that cites [n]." if tools else
-              f"Answer within at most {DELIVERABLE_TOOL_CALLS} further tool calls unless a gap is material, citing [n].")
+              "then reply with a two-line summary that cites [n]. Say in the file what could not be checked, as a short fact; do not tell the user what to do about it. "
+              "Never mention tools or publishing mechanics to the user; call the tool." if tools else
+              f"Answer within at most {DELIVERABLE_TOOL_CALLS} further tool calls unless a gap is material, citing [n]. "
+              "Never mention tools or publishing mechanics to the user.")
     return "\n\n".join([*parts, gap + finish])
+
+
+# Internal tool names and publishing chatter never belong in text the user reads.
+_TOOL_TALK = re.compile(
+    r"\b(?:publish_markdown|publish_csv|web_search|web_extract|verify_this_lead|record_newscraft_source)\b"
+    r"|`(?:plan|decision)`|\b(?:plan|decision) (?:tool|function)\b|\b(?:the )?publish(?:ing)? tool\b"
+    r"|\bwhen ready\b|\bI[\u2019']ve kept (?:it|this|that) to the recorded (?:evidence|sources)\b", re.I)
+_LINE_LEAD = re.compile(r"^\s*(?:(?:[-*+>]|\d+[.)]|#{1,6})\s+)*")
+_SENTENCES = re.compile(r"\S.*?(?:[.!?]+(?:\s*\[\d+\])*(?=\s|$)|$)")  # A trailing [n] stays with its sentence.
+
+
+def _user_facing(text):
+    """Drop the sentences that talk about internal tools or publishing mechanics; everything else is untouched."""
+    if not _TOOL_TALK.search(text):
+        return text
+    lines = []
+    for line in text.split("\n"):
+        if not _TOOL_TALK.search(line):
+            lines.append(line)
+            continue
+        lead = _LINE_LEAD.match(line).group(0)
+        kept = [s for s in _SENTENCES.findall(line[len(lead):]) if not _TOOL_TALK.search(s)]
+        if kept:
+            lines.append(lead + " ".join(kept))
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*([A-Za-z]*)[ \t]*\n(.*?)\n[ \t]*\1[ \t]*$", re.M | re.S)
+_TITLE_HEADING = re.compile(r"^#[ \t]+(\S.*)$", re.M)
+_SECTION_HEADING = re.compile(r"^#{2,6}[ \t]+\S", re.M)
+
+
+def _document_in(text):
+    """(title, body) of a Markdown document the model wrote into its reply instead of publishing it, else None."""
+    fenced = []
+    for match in _FENCE.finditer(text):
+        language, body = match.group(2).lower(), match.group(3).strip()
+        if (language in {"markdown", "md"} and len(body) >= 40) or (not language and _TITLE_HEADING.search(body) and _SECTION_HEADING.search(body)):
+            fenced.append(body)
+    if fenced:
+        body = max(fenced, key=len)
+    else:
+        head = _TITLE_HEADING.search(text)
+        if not head or not _SECTION_HEADING.search(text, head.end()):
+            return None
+        body = text[head.start():].strip()
+    body = "\n".join(line for line in body.split("\n") if not _TOOL_TALK.search(line)).strip()
+    heading = _TITLE_HEADING.search(body)
+    first = next((line for line in body.split("\n") if line.strip()), "")
+    title = re.sub(r"[*_`#\[\]]", "", heading.group(1) if heading else first).strip()[:200]
+    return (title or "Brief"), body
+
+
+def _shorten(line, limit=220):
+    if len(line) <= limit:
+        return line
+    lost = re.findall(r"\[\d+\]", line[limit:])
+    cut = re.sub(r"\[\d*$", "", line[:limit]).rsplit(" ", 1)[0].rstrip(",;:") + "\u2026"
+    return cut + "".join(" " + marker for marker in dict.fromkeys(lost))
+
+
+def _published_answer(kind, title, text):
+    """The short visible answer after a file is published: one line naming it plus up to three cited summary lines."""
+    lines = []
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line or line.startswith(("#", "|", "```", "~~~", "---")) or re.match(r"\[\d+\]:", line):
+            continue
+        lines.append(re.sub(r"^(?:[-*+]|\d+[.)])\s+", "", line))
+    picks = ([line for line in lines if re.search(r"\[\d+\]", line)] or lines)[:3]
+    head = f"Your {kind} is ready: **{title}**."
+    return _user_facing(head + ("\n\n" + "\n".join("- " + _shorten(line) for line in picks) if picks else ""))
 
 
 def _last_user_text(messages):
@@ -516,15 +590,17 @@ class PortableAgentRunner:
                        for r in state["receipts"].values())
             return [] if done else list(wanted)
 
-        async def final_publication(reason):
-            """Out of steps with the file still unpublished: one last call offering only the publish tools, written from what is known."""
+        async def final_publication(reason, final_text="", cut=False):
+            """The file is still unpublished (out of steps, or the model answered without it): one last call offering only the publish tools."""
             wanted = unpublished_tools()
-            if reason not in {"steps", "budget"} or not wanted or state.get("publish_attempted"):
+            if reason not in {"steps", "budget", "final"} or not wanted or state.get("publish_attempted"):
                 return False
             state["publish_attempted"] = True
             offered = [t for t in tools if t["name"] in wanted]
-            note = {"type": "text", "text": (f"Step budget reached. Call {' and '.join(wanted)} exactly once now, publishing the deliverable the user asked for from "
-                                             "what has been found and written so far. Use only the recorded sources [n]; say in the file what could not be checked. "
+            lead = "Step budget reached." if reason != "final" else "The deliverable is not published yet."
+            note = {"type": "text", "text": (f"{lead} Call {' and '.join(wanted)} exactly once now, publishing the deliverable the user asked for from "
+                                             "what has been found and written so far. Use only the recorded sources [n]; say in the file what could not be checked "
+                                             "as a short fact; do not tell the user what to do about it. Never mention tools or publishing mechanics to the user. "
                                              "Call no other tool.")}
             plain = _plain_messages(state["messages"])
             if plain and plain[-1]["role"] == "user":
@@ -537,7 +613,8 @@ class PortableAgentRunner:
                 budgets.reserve(state, self.settings, input_tokens=estimate, output_tokens=self.settings.max_output_tokens)
             except ValueError:
                 return False  # No budget left for the call; the wrap-up answers inline.
-            state["wrap_reason"] = reason
+            if reason != "final":
+                state["wrap_reason"] = reason
             state["intent"] = {"kind": "model", "step": state["steps"], "wrap_up": True}  # Uncertain on recovery: never replayed.
             state["steps"] += 1
             await save(dispatch=True)
@@ -562,8 +639,43 @@ class PortableAgentRunner:
                 return False
             state["messages"].append({**reply.message, "content": [*(b for b in reply.message["content"] if b["type"] == "text"), chosen]})
             state["pending"] = [chosen]
+            if reason == "final":
+                state["direct_publish"] = direct_record(chosen, final_text, cut)
             await save()
             return True
+
+        def direct_record(call, final_text, cut):
+            """What to say once a file is published straight from the model's final reply (no further model call)."""
+            args = call["arguments"]
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    args = {}
+            args = args if isinstance(args, dict) else {}
+            markdown = args.get("markdown") if call["name"] == "publish_markdown" else None
+            return {"call_id": call["id"], "kind": "markdown file" if call["name"] == "publish_markdown" else "CSV",
+                    "title": str(args.get("title") or "Brief")[:200], "body": markdown if isinstance(markdown, str) else "",
+                    "answer": final_text, "cut": cut}
+
+        async def conclude(text):
+            """Every loop/deliverable answer ends here: close the plan, save, then sources, answer and finish, in that order."""
+            closing = plan_close_events() if state.get("deliverable") else []
+            state["answer"], state["phase"] = text, "finishing"
+            state.pop("direct_publish", None)
+            await save()
+            await finish()
+            for event in closing:
+                yield event
+            yield {"type": "STATE_SNAPSHOT", "snapshot": {"newscraftSources": state["sources"]}}
+            yield {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": text}}
+            yield {"type": "RUN_FINISHED", "model": self.settings.model}
+
+        def inline_answer(text, cut):
+            """The model's own final text for the user: no tool talk, only recorded [n] markers."""
+            valid = set(research.recorded_sources)
+            text = re.sub(r"\[(\d+)\]", lambda m: m.group(0) if int(m.group(1)) in valid else "", _user_facing(text)).strip()
+            return text + ("\n\n" + CUT_SHORT_NOTE if cut and text else "")
 
         async def wrap_up(reason, no_model):
             """Budget gone: one tool-free model call over recorded sources, else a deterministic listing."""
@@ -603,6 +715,7 @@ class PortableAgentRunner:
                             text = ""  # Uncertain input is not replayed; fall back to the listing below.
                     state["intent"] = None
                     break
+            text = _user_facing(text)
             if text:
                 text = re.sub(r"\[(\d+)\]", lambda m: m.group(0) if int(m.group(1)) in sources else "", text)
                 if truncated:
@@ -910,7 +1023,7 @@ class PortableAgentRunner:
                                                               tools=[], max_output=self.settings.max_output_tokens, private={})
                     except (ModelError, TimeoutError):
                         raise RunError("The model request did not complete; its uncertain input was not replayed.") from None
-                    answer = "".join(b["text"] for b in reply.message["content"] if b["type"] == "text")[:64000].strip()
+                    answer = _user_facing("".join(b["text"] for b in reply.message["content"] if b["type"] == "text")[:64000].strip())
                     logger.info("fast path: model done at %.1fs (%s)", time.monotonic() - fast_t0, reply.usage)
                     if answer:
                         by_number = {p["number"]: p for p in pages}
@@ -966,6 +1079,19 @@ class PortableAgentRunner:
                 await save()
                 yield {"type": "STATE_SNAPSHOT", "snapshot": {"newscraftSources": state["sources"]}}
             while True:
+                if not state["pending"] and state.get("direct_publish"):
+                    # The file was published straight from the model's final reply: answer briefly, no further model call.
+                    direct = state["direct_publish"]
+                    receipt = state["receipts"].get(direct["call_id"])
+                    if receipt and any(e.get("type") == "TOOL_CALL_END" and e.get("status") == "ok" for e in receipt["events"]):
+                        text = _published_answer(direct["kind"], direct["title"], direct["body"] or inline_answer(direct["answer"], False))
+                    else:
+                        text = inline_answer(direct["answer"], direct["cut"])  # Publication was rejected: fall back to the inline answer.
+                    if not text:
+                        raise RunError("The model ended without an answer.")
+                    async for event in conclude(text):
+                        yield event
+                    return
                 if not state["pending"]:
                     remaining = self.settings.max_seconds - (time.time() - state["started"])
                     wrap, no_model = state.get("wrap_reason"), False
@@ -1040,6 +1166,31 @@ class PortableAgentRunner:
                                 await save()
                                 continue
                             raise RunError("The model ended without an answer.")
+                        if unpublished_tools():
+                            # A deliverable run ends with its file: publish a document the model wrote into its reply as it is,
+                            # otherwise make the one last publish attempt; only then does the inline answer stand.
+                            document = _document_in(answer) if "publish_markdown" in unpublished_tools() and not reply.truncated else None
+                            if document:
+                                args = {"title": document[0], "markdown": document[1]}
+                                try:
+                                    validate_arguments(args, schemas["publish_markdown"])
+                                    self.artifact("publish_markdown", args, research.recorded_sources, state["research_used"])
+                                except ValueError:
+                                    document = None  # Invalid or unsupported citations: not published as written.
+                            if document:
+                                chosen = {"type": "tool_call", "id": f"publish_markdown_{state['steps']}", "name": "publish_markdown", "arguments": args}
+                                state["messages"][-1] = {**reply.message, "content": [chosen]}
+                                state["pending"] = [chosen]
+                                state["direct_publish"] = direct_record(chosen, answer, False)
+                                await save()
+                                continue
+                            if await final_publication("final", answer, bool(reply.truncated)):
+                                continue
+                        answer = _user_facing(answer).strip()
+                        if not answer:  # Nothing but tool talk: answer from the recorded sources instead.
+                            state["wrap_reason"] = "empty"
+                            await save()
+                            continue
                         refs = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
                         if state["research_used"] and not research.recorded_sources:
                             answer = "I couldn’t verify usable sources for this request. I can try other sources or work from a document you provide."
@@ -1049,14 +1200,8 @@ class PortableAgentRunner:
                             continue
                         if reply.truncated:
                             answer = answer.rstrip() + "\n\n" + CUT_SHORT_NOTE
-                        closing = plan_close_events() if state.get("deliverable") else []
-                        state["answer"], state["phase"] = answer, "finishing"
-                        await save()
-                        await finish()
-                        for event in closing:
+                        async for event in conclude(answer):
                             yield event
-                        yield {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": answer}}
-                        yield {"type": "RUN_FINISHED", "model": self.settings.model}
                         return
                     await save()  # Model output and adapter continuation before dispatch.
                 for item in list(state["pending"]):

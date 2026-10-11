@@ -1293,7 +1293,8 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         # Exa failing leaves the DDGS leads the model had before.
         self.store, self.requests, self.published = Store(), [], []
         exa, _ = self.fake_exa(fail={"Toronto soldiers charged"})
-        runner = self.runner([answer(json.dumps(plan)), call("web_search", {"query": "Toronto soldiers charged"}, "search"), answer("No sources. ")])
+        runner = self.runner([answer(json.dumps(plan)), call("web_search", {"query": "Toronto soldiers charged"}, "search"), answer("No sources. "),
+                              answer("No sources. ")])  # The second reply is the final publish attempt, which calls no tool.
         events = await self.collect_fast(runner, self.fast_payload("Write a markdown brief on the soldier story"), exa)
         result = next(e for e in events if e["type"] == "TOOL_CALL_RESULT" and e["toolCallId"] == "search")["result"]
         self.assertEqual(result["results"][0]["evidenceStatus"], "unverified_lead")
@@ -1348,6 +1349,97 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.published, [])
         self.assertEqual(len(self.requests), 11)
         self.assertEqual(self.final_answer(events), "Inline brief. [1]")
+
+    BRIEF_PLAN = {"mode": "research", "assumption": "", "queries": [
+        {"q": "Toronto Police soldiers charged October 2026", "intent": "official", "days": 14, "domains": []},
+        {"q": "Toronto soldiers charged CBC", "intent": "news", "days": 14, "domains": []}]}
+
+    def brief_exa(self):
+        return self.fake_exa({"Toronto Police soldiers charged October 2026": [self.deliverable_pages()[0]],
+                              "Toronto soldiers charged CBC": [self.deliverable_pages()[1]]})[0]
+
+    CHATTER = "Producer brief is below. Publish with publish_markdown when ready \u2014 I\u2019ve kept it to the recorded evidence only."
+    BRIEF = ("# Producer brief\n\n## Summary\nThree soldiers were charged. [1]\nCBC reports the same charges. [2]\n\n"
+             "## Gaps\nThe court date was not checked.")
+
+    async def test_deliverable_answer_with_a_fenced_document_is_published_without_another_model_call(self):
+        reply = f"{self.CHATTER}\n\n```markdown\n{self.BRIEF}\n```"
+        runner = self.runner([answer(json.dumps(self.BRIEF_PLAN)), answer(reply)])
+        events = await self.collect_fast(runner, self.fast_payload("Build me a producer brief as a markdown file on the soldier story"), self.brief_exa())
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual(len(self.requests), 2)  # Planner and the one loop step; the file needed no further model call.
+        self.assertEqual(len(self.published), 1)
+        request, data = self.published[0]
+        self.assertEqual(request["spec"]["title"], "Producer brief")
+        self.assertIn(b"Three soldiers were charged. [1]", data)
+        self.assertNotIn(b"publish_markdown", data)
+        self.assertTrue(any(e["type"] == "TOOL_CALL_END" and e["toolCallName"] == "publish_markdown" and e["status"] == "ok" for e in events))
+        visible = self.final_answer(events)
+        self.assertNotIn("```", visible)
+        self.assertNotIn("## Summary", visible)
+        for leak in ("publish_markdown", "when ready", "recorded evidence"):
+            self.assertNotIn(leak, visible)
+        self.assertTrue(visible.startswith("Your markdown file is ready: **Producer brief**."))
+        self.assertIn("[1]", visible)
+        self.assertLessEqual(len(visible.splitlines()), 6)
+        plans = [e["value"]["steps"] for e in events if e.get("name") == "newscraft.plan"]
+        self.assertTrue(all(step["status"] == "ok" for step in plans[-1]))
+        self.assertEqual(self.store.data["state"]["phase"], "finished")
+
+    async def test_deliverable_answer_with_an_unfenced_document_is_published_titled_from_its_heading(self):
+        runner = self.runner([answer(json.dumps(self.BRIEF_PLAN)), answer(f"{self.CHATTER}\n\n{self.BRIEF}")])
+        events = await self.collect_fast(runner, self.fast_payload("Build me a producer brief as a markdown file on the soldier story"), self.brief_exa())
+        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(len(self.published), 1)
+        self.assertEqual(self.published[0][0]["spec"]["title"], "Producer brief")
+        self.assertNotIn(b"Producer brief is below", self.published[0][1])
+        self.assertNotIn("##", self.final_answer(events))
+
+    async def test_deliverable_document_with_unrecorded_citations_gets_the_publish_attempt_then_the_inline_answer(self):
+        bad = self.BRIEF.replace("[2]", "[9]")
+        runner = self.runner([answer(json.dumps(self.BRIEF_PLAN)), answer(f"{self.CHATTER}\n\n```markdown\n{bad}\n```"), answer("Nothing to publish."),
+                              answer("Three soldiers were charged. [1] Publish it with publish_markdown.")])
+        self.settings.max_seconds = 600
+        events = await self.collect_fast(runner, self.fast_payload("Build me a producer brief as a markdown file on the soldier story"), self.brief_exa())
+        self.assertEqual(self.published, [])
+        self.assertEqual(self.tool_names(self.requests[2][1]), ["publish_markdown"])  # The existing final attempt, offering only the publish tool.
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertNotIn("publish_markdown", self.final_answer(events))
+
+    async def test_loop_final_answer_carries_a_sources_snapshot_right_before_it(self):
+        runner = self.runner([answer(json.dumps(self.BRIEF_PLAN)),
+                              call("publish_markdown", {"title": "Producer brief", "markdown": "Three soldiers were charged. [1] CBC matches. [2]"}),
+                              answer("Brief is ready. [1] [2]")])
+        events = await self.collect_fast(runner, self.fast_payload("Build me a producer brief as a markdown file on the soldier story"), self.brief_exa())
+        index = next(i for i, e in enumerate(events) if e.get("name") == "newscraft.answer")
+        self.assertEqual(events[index - 1]["type"], "STATE_SNAPSHOT")
+        numbers = [s["citationNumber"] for s in events[index - 1]["snapshot"]["newscraftSources"]]
+        self.assertEqual(numbers, [1, 2])
+        self.assertEqual(self.final_answer(events), "Brief is ready. [1] [2]")  # Recorded markers survive.
+        # The loop without any file wanted does the same, and a direct publication is followed by its snapshot too.
+        self.store, self.requests, self.published = Store(), [], []
+        runner = self.runner([answer(json.dumps(self.BRIEF_PLAN)), answer(f"```markdown\n{self.BRIEF}\n```")])
+        events = await self.collect_fast(runner, self.fast_payload("Build me a producer brief as a markdown file on the soldier story"), self.brief_exa())
+        index = next(i for i, e in enumerate(events) if e.get("name") == "newscraft.answer")
+        self.assertEqual(events[index - 1]["type"], "STATE_SNAPSHOT")
+        self.assertEqual([s["citationNumber"] for s in events[index - 1]["snapshot"]["newscraftSources"]], [1, 2])
+        self.assertEqual(events[index + 1]["type"], "RUN_FINISHED")
+
+    async def test_fast_path_answer_loses_sentences_about_tools_and_publishing(self):
+        plan = {"mode": "research", "assumption": "", "queries": [{"q": "soldiers charged", "intent": "news", "days": 7, "domains": []}]}
+        exa, _ = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC report", self.SOLDIER_TEXT)])
+        runner = self.runner([answer(json.dumps(plan)), answer(
+            "Three soldiers were charged. [1] Publish with publish_markdown when ready. I\u2019ve kept it to the recorded evidence only.\n"
+            "- Charges were laid Oct. 9. [1] I used web_search to find that.\n\nCall the plan tool next.")])
+        events = await self.collect_fast(runner, self.fast_payload("what happened with the soldiers"), exa)
+        self.assertEqual(self.final_answer(events), "Three soldiers were charged. [1]\n- Charges were laid Oct. 9. [1]")
+
+    def test_user_facing_text_helpers(self):
+        from hermes_chat.portable import _document_in, _user_facing
+        self.assertEqual(_user_facing("A plain plan for the week. Nothing to strip."), "A plain plan for the week. Nothing to strip.")
+        self.assertEqual(_user_facing("Done. Use `publish_csv` when ready."), "Done.")
+        self.assertIsNone(_document_in("Just prose with no headings.\n\n```python\nprint(1)\n```"))
+        self.assertEqual(_document_in("```md\n# Title here\n\nSome body text that is long enough to count.\n```")[0], "Title here")
 
     async def test_exporting_the_brief_above_enters_the_loop_in_thread_mode_without_research(self):
         plan = {"mode": "thread", "assumption": "", "queries": []}
