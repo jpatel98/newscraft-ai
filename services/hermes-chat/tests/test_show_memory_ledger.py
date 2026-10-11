@@ -133,6 +133,24 @@ class LedgerPromptTests(unittest.TestCase):
         self.assertIn("keep their status and qualifier", prompt)
         self.assertEqual(_thread_listing({3: {"url": "https://www.cp24.com/a", "title": "CP24"}}), _thread_listing({3: {"url": "https://www.cp24.com/a", "title": "CP24"}}, ledger=()))
 
+    def test_ledger_folded_into_the_conversation_context_lists_the_same(self):
+        ledger = {"claims": [{"id": "c1", "claim": "Third soldier taken", "status": "confirmed", "attributed_to": "DND", "citations": [3],
+                              "date": "2026-10-08", "needs_check": False, "updated_at": "2026-10-08T12:00:00Z"}]}
+        sources = {3: {"url": "https://www.cp24.com/a", "title": "CP24", "supportingExcerpt": "x"}}
+        separate = _ledger_context(context_messages(("Story ledger", json.dumps(ledger))))
+        folded = _ledger_context(context_messages(("Conversation context", json.dumps({"currentTurn": {}, "storyLedger": ledger}))))
+        self.assertEqual(folded, separate)
+        listing = _thread_listing(sources, ledger=folded)
+        self.assertEqual(listing, _thread_listing(sources, ledger=separate))
+        self.assertIn("Established in this story so far", listing)
+        self.assertIn("c1 [CONFIRMED] Third soldier taken - DND [3] (2026-10-08)", listing)
+        # The dedicated entry wins when both are present.
+        other = {"claims": [{"id": "c9", "claim": "Other", "status": "alleged"}]}
+        both = context_messages(("Story ledger", json.dumps(other)), ("Conversation context", json.dumps({"storyLedger": ledger})))
+        self.assertEqual([c["id"] for c in _ledger_context(both)], ["c9"])
+        self.assertEqual(_ledger_context(context_messages(("Conversation context", "not json"))), [])
+        self.assertEqual(_ledger_context(context_messages(("Conversation context", json.dumps({"currentTurn": {}})))), [])
+
     def test_ledger_context_absent_or_garbled(self):
         self.assertEqual(_ledger_context([]), [])
         self.assertEqual(_ledger_context(context_messages(("Story ledger", "not json"))), [])

@@ -294,8 +294,14 @@ def _finalize_answer(text, valid, note="", strip=False):
 
 
 def _ledger_context(messages):
-    """Claims from the app's "Story ledger" context entry (id, claim, status, attributed_to, citations, date, needs_check); [] when absent."""
+    """Claims from the app's "Story ledger" context entry, else from `storyLedger` inside the "Conversation context" entry
+    (id, claim, status, attributed_to, citations, date, needs_check); [] when absent."""
     value = _context_entry(messages, "Story ledger")
+    if value is None:
+        try:
+            value = json.loads(_context_entry(messages, "Conversation context")).get("storyLedger")
+        except (ValueError, TypeError, AttributeError):
+            return []
     if isinstance(value, str):
         try:
             value = json.loads(value)
