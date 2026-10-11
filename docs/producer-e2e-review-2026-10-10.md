@@ -222,3 +222,24 @@ Built with coding subagents (Sonnet), verified in the same local stack and brows
 - Deliverable requests: planned research first, then a short publish loop (in progress).
 - Iteration 3 (show memory, story ledger, rundown line/tease actions) per the scratch design.
 - Live eval: add R1–R7 to the weekly prompt set; track pursued/used/corrected per answer.
+
+### Later rounds — 2026-10-11, 00:10–01:00
+
+| Commit | Change | Verified |
+|---|---|---|
+| `5befffd` + `c9977d2` | Relevance-first ranking, non-content/obituary filters, outlet-slot rule, official-query retry, always one news query, multi-beat scans; deliverables run planned research first, in-loop search returns read pages, aggregator repost → headline recovery query. | R1 rundown: TPS releases + CityNews/Global/CP24 sorted holds / could move / weak, ~15 s. R2: pushes back on a wrong framing with evidence. R3: realistic gets vs long shots, three must-confirms. R5: both outlets on the same CP byline, missing patient voice, Oct 13 peg. |
+| `3e8adf9` | Identity: results, not instructions ("no call X / chase Y / Next:" lines; gaps are facts). | Terse follow-up "what are the holes in this story and who else has it" → found the newer National Post piece, corrected its own earlier answer, continuous citation numbers 1–15 across turns, no homework. |
+| `1176d23`, `0524718` | Auto-publish an inline document, strip tool talk, sources snapshot on every answer; recover publish calls cut by the output limit (continue up to twice), brief length guidance, local output limit 8192. | 678 worker tests. |
+| `25b005b`, `5a4f08e` | SSE no-transform, 500 ms poll, heartbeat, "Planning research" label; artifact pane becomes an overlay below 1100 px, thread keeps 380 px of text. | Pane no longer crushes the thread (screenshot-verified). |
+| `7abf43d` | Publication fails fast on connection errors/4xx, retries only timeouts/5xx within 45 s, then delivers the document inline with a decision note; a same-identity worker may resume a run with limits clamped to the lower values; adapter/policy wording never reaches the user. | 692 worker tests. R6 ends with the full cited brief inline (9 citations) when storage is unreachable. |
+
+**Environment findings worth acting on**
+- The local profile points artifact storage at `127.0.0.1:9100`, which only exists inside the Contabo compose stack, so file publishing cannot succeed on the Mac. The production gateway answers `/health` 200 over the Funnel. Decision for Jigar: point the local profile at the production gateway (writes test artifacts to prod storage under the test account) or leave file publishing as prod-only verification.
+- The local worker and the Contabo `newscraft-agent` worker share the production database **and** its recovery loop, so either can claim the other's interrupted runs. That is how a locally started run died with a policy mismatch. Until there is worker affinity (claim filter by worker id or tenant), stop the Contabo worker during local testing or accept cross-claims; the clamp in `7abf43d` makes a cross-claim safe but not invisible.
+- Production worker env should set `NEWSCRAFT_AGENT_MAX_OUTPUT_TOKENS=8192` (documented in `docs/managed-agent-setup.md`); at 2048 a long brief truncates the publish call.
+
+**Still open**
+- Deliverable runs take 2–4 minutes end to end; the research is done in ~5 s, the rest is the model writing a long document plus publish round trips. Streaming the document into the pane while it is written would hide most of it.
+- When a publish tool call is rejected (invalid arguments), the model narrates the error ("repeated attempts returned an invalid-arguments error"); map tool errors to the fixed "The file could not be saved; here is the brief:" line.
+- Search recall: the newest piece on a story sometimes ranks outside the top eight (same-outlet newer article). Prefer the newest article from the same outlet when both match the key terms.
+- Iteration 3 (show memory, story ledger, rundown line/tease) remains designed, not built.
