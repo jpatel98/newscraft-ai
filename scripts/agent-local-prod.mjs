@@ -22,6 +22,7 @@ const child = spawn(process.execPath, [resolve(root, 'scripts/dev-all.mjs')], {
 		NEWSCRAFT_AGENT_MAX_STEPS: '20',
 		NEWSCRAFT_AGENT_MAX_SECONDS: '300',
 		NEWSCRAFT_AGENT_MAX_SEARCH_CALLS: '15',
+		NEWSCRAFT_AGENT_MAX_OUTPUT_TOKENS: '8192',
 		...overrides
 	},
 	stdio: 'inherit'

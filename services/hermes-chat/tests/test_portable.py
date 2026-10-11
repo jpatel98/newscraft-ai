@@ -87,7 +87,8 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
                     if block["type"] == "text":
                         output.append({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": block["text"]}]})
                     else:
-                        output.append({"type": "function_call", "call_id": block["id"], "name": block["name"], "arguments": json.dumps(block["arguments"])})
+                        output.append({"type": "function_call", "call_id": block["id"], "name": block["name"],
+                                       "arguments": block["raw"] if "raw" in block else json.dumps(block["arguments"])})
                 data = {"status": "completed", "output": output, "usage": {"input_tokens": 3, "output_tokens": 4}}
                 if cut:
                     data.update(status="incomplete", incomplete_details={"reason": "max_output_tokens"})
@@ -95,7 +96,7 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
                 content = [{"type": "thinking", "thinking": "PRIVATE_REASONING", "signature": "PRIVATE_CIPHER"}]
                 for block in blocks:
                     content.append({"type": "text", "text": block["text"]} if block["type"] == "text" else
-                        {"type": "tool_use", "id": block["id"], "name": block["name"], "input": block["arguments"]})
+                        {"type": "tool_use", "id": block["id"], "name": block["name"], "input": block["raw"] if "raw" in block else block["arguments"]})
                 data = {"stop_reason": "max_tokens" if cut else "tool_use" if any(b["type"] == "tool_call" for b in blocks) else "end_turn", "content": content}
             return httpx.Response(200, json=data)
         client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
@@ -861,6 +862,90 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]["type"], "RUN_FINISHED")
         self.assertEqual(next(e for e in events if e.get("name") == "newscraft.answer")["value"]["content"], "Short answer.")
         self.assertEqual(self.requests[1][1]["tools"], [])
+
+    RECORD_SOURCE = {"source": {"citationNumber": 1, "title": "Source", "url": SOURCE_URL, "publicationDate": "",
+                                "sourceType": "official", "supportingExcerpt": "The source reports a confirmed event"}}
+    CUT_BRIEF = ('{"title": "Producer brief", "markdown": "# Producer brief\\n\\n## The news\\n\\nA confirmed \\"event\\" at 12 p.m. ET [1]\\n\\n'
+                 '- First point\\n- Second poi')
+
+    def research_then(self, *replies, provider=None):
+        return self.runner([call("web_extract", {"urls": [SOURCE_URL]}), call("record_newscraft_source", self.RECORD_SOURCE), *replies], provider)
+
+    def cut_publish(self):
+        return {"truncated": True, "blocks": [{"type": "tool_call", "id": "cut", "name": "publish_markdown", "raw": self.CUT_BRIEF}]}
+
+    def final_answer(self, events):
+        return next(e for e in events if e.get("name") == "newscraft.answer")["value"]["content"]
+
+    async def test_truncated_publish_call_is_continued_and_published_as_one_document(self):
+        for provider in ("openai", "anthropic"):
+            with self.subTest(provider=provider):
+                self.store, self.requests, self.published = Store(), [], []
+                runner = self.research_then(self.cut_publish(), answer("nt\n- Third point [1]\n"), provider=provider)
+                events = await self.collect(runner)
+                self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+                self.assertEqual(len(self.published), 1)
+                request, data = self.published[0]
+                text = data.decode()
+                self.assertIn('# Producer brief\n\n## The news\n\nA confirmed "event" at 12 p.m. ET [1]\n\n- First point\n- Second point\n- Third point [1]\n', text)
+                self.assertNotIn("cut short", text)
+                follow = self.requests[-1][1]
+                self.assertEqual(len(self.requests), 4)
+                self.assertFalse(follow["tools"])
+                self.assertIn("Your document was cut off by the output limit. Continue it exactly from the last complete line below, "
+                              "with no preamble and no repetition:\n\n# Producer brief", json.dumps(follow["input" if provider == "openai" else "messages"]).replace("\\n", "\n").replace('\\"', '"'))
+                answer_text = self.final_answer(events)
+                self.assertIn("Your markdown file is ready: **Producer brief**.", answer_text)
+                self.assertNotIn("\\n", answer_text)
+                self.assertLess(len(answer_text), 600)
+
+    async def test_publish_call_still_cut_after_two_continuations_publishes_with_the_cut_short_line(self):
+        runner = self.research_then(self.cut_publish(), {"truncated": True, "blocks": [answer("nt\n- Third point [1]\n")]},
+                                    {"truncated": True, "blocks": [answer("- Fourth point\n- Fif")]})
+        events = await self.collect(runner)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual(len(self.requests), 5)
+        self.assertEqual(len(self.published), 1)
+        text = self.published[0][1].decode()
+        self.assertIn("- Fourth point\n- Fif", text)
+        self.assertTrue(text.rstrip().split("[1]: ")[0].rstrip().endswith("(Document cut short by the output limit.)"))
+        self.assertNotIn("\\n", self.final_answer(events))
+
+    async def test_failed_continuation_publishes_the_partial_document_with_the_cut_short_line(self):
+        runner = self.research_then(self.cut_publish(), httpx.ReadTimeout("slow"))
+        events = await self.collect(runner)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual(len(self.published), 1)
+        text = self.published[0][1].decode()
+        self.assertIn("- Second poi\n\n(Document cut short by the output limit.)", text)
+        self.assertIn("Your markdown file is ready", self.final_answer(events))
+
+    async def test_publish_call_that_arrives_as_cut_off_json_text_is_recovered(self):
+        runner = self.research_then({"truncated": True, "blocks": [answer(self.CUT_BRIEF)]}, answer("nt\n"))
+        events = await self.collect(runner)
+        self.assertEqual(len(self.published), 1)
+        self.assertIn("- Second point\n", self.published[0][1].decode())
+        self.assertNotIn("\\n", self.final_answer(events))
+
+    async def test_escaped_json_in_a_final_answer_is_never_shown_raw(self):
+        escaped = "# Brief\\n\\n## The news\\n\\nA \\\"confirmed\\\" event.\\n\\n- one\\n- two"
+        for text in (escaped, '{"title": "Brief", "markdown": "' + escaped.replace("\\\"", "\\\"") + '"}'):
+            with self.subTest(text=text[:20]):
+                self.store, self.requests = Store(), []
+                events = await self.collect(self.runner([answer(text)]))
+                final = self.final_answer(events)
+                self.assertNotIn("\\n", final)
+                self.assertTrue(final.startswith("# Brief\n\n## The news\n\nA \"confirmed\" event."))
+                self.assertNotIn('"markdown"', final)
+
+    async def test_helpers_unescape_cut_off_json_strings(self):
+        from hermes_chat.portable import _json_unescape, _partial_document, _join_continuation
+        self.assertEqual(_json_unescape('a\\nb\\t\\"c\\" \\\\ \\u00e9 \\ud83d\\ude00 end\\'), 'a\nb\t"c" \\ \u00e9 \U0001F600 end')
+        self.assertEqual(_json_unescape("cut \\u00"), "cut ")
+        self.assertEqual(_partial_document({"arguments_text": '{"title": "T", "markdown": "# T\\n\\nbody'}), ("T", "# T\n\nbody"))
+        self.assertEqual(_partial_document({"arguments_text": '{"title": "T"'}), ("", ""))
+        tail = "x" * 40
+        self.assertEqual(_join_continuation("start " + tail, tail + " more"), "start " + tail + " more")
 
     async def test_context_block_is_declared_invisible_without_breaking_parsing(self):
         from hermes_chat.portable import canonical_input, _turn_context

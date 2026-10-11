@@ -186,6 +186,28 @@ class DeepSeekAdapterTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ModelError):
             await self.complete(adapter)
 
+    async def test_truncated_publish_calls_expose_their_partial_arguments(self):
+        from hermes_chat.model_adapters import OpenAIResponses
+        raw = '{"title": "Brief", "markdown": "# Brief\\n\\nThe ne'
+        adapter = self.adapter([
+            {"stop_reason": "max_tokens", "content": [{"type": "tool_use", "id": "cut", "name": "publish_markdown", "input": {"title": "Brief", "markdown": "# Brief"}}]},
+            {"stop_reason": "max_tokens", "content": [{"type": "tool_use", "id": "cut", "name": "read", "input": {"url": "https://exam"}}]},
+        ])
+        first, second = [await self.complete(adapter) for _ in range(2)]
+        self.assertTrue(first.truncated)
+        self.assertEqual(first.message["content"], [])
+        self.assertEqual(first.partial_tool_call["name"], "publish_markdown")
+        self.assertEqual(first.partial_tool_call["arguments"], {"title": "Brief", "markdown": "# Brief"})
+        self.assertIsNone(second.partial_tool_call)
+        queue = [{"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": [
+            {"type": "function_call", "call_id": "cut", "name": "publish_markdown", "arguments": raw}]}]
+        client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=queue.pop(0))))
+        self.clients.append(client)
+        reply = await self.complete(OpenAIResponses(self.settings, client=client))
+        self.assertTrue(reply.truncated)
+        self.assertEqual(reply.message["content"], [])
+        self.assertEqual(reply.partial_tool_call, {"name": "publish_markdown", "arguments_text": raw, "arguments": None})
+
     async def test_provider_failures_never_retry_or_echo_private_details(self):
         for failure in (httpx.ReadTimeout("PRIVATE_PROVIDER_DETAIL"),
                         httpx.Response(429, text="PRIVATE_PROVIDER_DETAIL"),

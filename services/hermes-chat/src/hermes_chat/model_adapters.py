@@ -30,6 +30,23 @@ class ModelReply:
     # True when the provider stopped at the output-token limit. The text that
     # was generated is still returned; incomplete tool calls are dropped.
     truncated: bool = False
+    # A publish call cut off by the limit, kept so the loop can finish the document:
+    # {"name": ..., "arguments_text": <raw partial JSON text>, "arguments": <parsed dict or None>}.
+    partial_tool_call: dict[str, Any] | None = None
+
+
+PARTIAL_TOOLS = frozenset({"publish_markdown", "publish_csv"})
+
+
+def partial_call(name: Any, arguments: Any) -> dict[str, Any] | None:
+    """What survives of a publish call the output limit cut off (never dispatched)."""
+    if name not in PARTIAL_TOOLS:
+        return None
+    if isinstance(arguments, dict):
+        return {"name": name, "arguments_text": json.dumps(arguments, ensure_ascii=False), "arguments": arguments}
+    if isinstance(arguments, str) and arguments:
+        return {"name": name, "arguments_text": arguments, "arguments": None}
+    return None
 
 
 class ModelAdapter(Protocol):
@@ -127,7 +144,7 @@ class OpenAIResponses(HTTPModel):
                      and details.get("reason") == "max_output_tokens")
         if (response.get("status") != "completed" and not truncated) or not isinstance(response.get("output"), list):
             raise ModelError("The model did not return a complete response.")
-        blocks, replay = [], []
+        blocks, replay, partial = [], [], None
         for item in response["output"]:
             if not isinstance(item, dict):
                 continue
@@ -137,8 +154,9 @@ class OpenAIResponses(HTTPModel):
                 if isinstance(encrypted, str) and isinstance(item.get("id"), str):
                     replay.append({"type": "reasoning", "id": item["id"], "summary": [], "encrypted_content": encrypted})
             elif kind == "function_call":
-                if truncated:
-                    continue  # A call cut off by the output limit is never dispatched.
+                if truncated:  # A call cut off by the output limit is never dispatched; a publish call's text is kept.
+                    partial = partial_call(item.get("name"), item.get("arguments")) or partial
+                    continue
                 try:
                     args = json.loads(item.get("arguments", ""))
                 except (ValueError, TypeError):
@@ -154,7 +172,7 @@ class OpenAIResponses(HTTPModel):
                                **({"phase": item["phase"]} if item.get("phase") in {"commentary", "final_answer"} else {})})
         continuation = copy.deepcopy(private)
         continuation.setdefault("replay", {})[str(len(messages))] = replay
-        return ModelReply({"role": "assistant", "content": blocks}, continuation, usage(response.get("usage")), truncated)
+        return ModelReply({"role": "assistant", "content": blocks}, continuation, usage(response.get("usage")), truncated, partial)
 
 
 class AnthropicMessages(HTTPModel):
@@ -203,16 +221,18 @@ class AnthropicMessages(HTTPModel):
         if stop not in {"end_turn", "tool_use", "stop_sequence", "max_tokens"} or not isinstance(response.get("content"), list):
             raise ModelError("The model did not return a complete response.")
         truncated = stop == "max_tokens"
-        blocks = []
+        blocks, partial = [], None
         for item in response["content"]:
             if not isinstance(item, dict):
                 continue
             if item.get("type") == "text" and isinstance(item.get("text"), str):
                 blocks.append({"type": "text", "text": item["text"]})
-            elif item.get("type") == "tool_use" and not truncated:  # A cut-off call is never dispatched.
+            elif item.get("type") == "tool_use" and truncated:  # A cut-off call is never dispatched; a publish call's text is kept.
+                partial = partial_call(item.get("name"), item.get("input")) or partial
+            elif item.get("type") == "tool_use":
                 blocks.append(call(item, identifier=item.get("id"), arguments=item.get("input")))
             # Thinking, signatures, private/unknown blocks never enter the ledger.
-        return ModelReply({"role": "assistant", "content": blocks}, {}, usage(response.get("usage")), truncated)
+        return ModelReply({"role": "assistant", "content": blocks}, {}, usage(response.get("usage")), truncated, partial)
 
 
 class DeepSeekMessages(AnthropicMessages):
