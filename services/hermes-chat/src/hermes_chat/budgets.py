@@ -59,3 +59,15 @@ def reserve(state, settings, *, input_tokens=0, output_tokens=0, search=False):
     budget["input_tokens"] += input_tokens
     budget["output_tokens"] += output_tokens
     budget["cost_microusd"] += micros
+
+
+def calls_left(state, settings, *, input_tokens, output_tokens):
+    """How many more reservations of this size still fit the input-token and cost budgets."""
+    limits = policy(settings)
+    budget = state.get("budget") or {"input_tokens": 0, "cost_microusd": 0}
+    charge = (Decimal(input_tokens) * Decimal(limits["input_price"]) +
+              Decimal(output_tokens) * Decimal(limits["output_price"])) / 1_000_000
+    micros = max(1, int((charge * 1_000_000).to_integral_value(rounding=ROUND_CEILING)))
+    by_input = (limits["input_limit"] - budget["input_tokens"]) // max(1, input_tokens)
+    by_cost = int((Decimal(limits["usd_limit"]) * 1_000_000 - budget["cost_microusd"]) // micros)
+    return max(0, min(by_input, by_cost))

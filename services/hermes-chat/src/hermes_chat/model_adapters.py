@@ -27,6 +27,9 @@ class ModelReply:
     message: dict[str, Any]
     private: dict[str, Any]
     usage: dict[str, int]
+    # True when the provider stopped at the output-token limit. The text that
+    # was generated is still returned; incomplete tool calls are dropped.
+    truncated: bool = False
 
 
 class ModelAdapter(Protocol):
@@ -119,7 +122,10 @@ class OpenAIResponses(HTTPModel):
         payload = {"model": model, **self.budget_input(messages=messages, private=private, instructions=instructions, tools=tools),
                    "store": False, "service_tier": "default", "include": ["reasoning.encrypted_content"], "max_output_tokens": max_output}
         response = await self.post("/responses", {"authorization": f"Bearer {self.settings.model_api_key}"}, payload)
-        if response.get("status") != "completed" or not isinstance(response.get("output"), list):
+        details = response.get("incomplete_details")
+        truncated = (response.get("status") == "incomplete" and isinstance(details, dict)
+                     and details.get("reason") == "max_output_tokens")
+        if (response.get("status") != "completed" and not truncated) or not isinstance(response.get("output"), list):
             raise ModelError("The model did not return a complete response.")
         blocks, replay = [], []
         for item in response["output"]:
@@ -131,6 +137,8 @@ class OpenAIResponses(HTTPModel):
                 if isinstance(encrypted, str) and isinstance(item.get("id"), str):
                     replay.append({"type": "reasoning", "id": item["id"], "summary": [], "encrypted_content": encrypted})
             elif kind == "function_call":
+                if truncated:
+                    continue  # A call cut off by the output limit is never dispatched.
                 try:
                     args = json.loads(item.get("arguments", ""))
                 except (ValueError, TypeError):
@@ -146,7 +154,7 @@ class OpenAIResponses(HTTPModel):
                                **({"phase": item["phase"]} if item.get("phase") in {"commentary", "final_answer"} else {})})
         continuation = copy.deepcopy(private)
         continuation.setdefault("replay", {})[str(len(messages))] = replay
-        return ModelReply({"role": "assistant", "content": blocks}, continuation, usage(response.get("usage")))
+        return ModelReply({"role": "assistant", "content": blocks}, continuation, usage(response.get("usage")), truncated)
 
 
 class AnthropicMessages(HTTPModel):
@@ -191,18 +199,20 @@ class AnthropicMessages(HTTPModel):
         response = await self.post(self.path, self.request_headers(),
             {"model": model, "max_tokens": max_output, **self.request_options(model),
              **self.budget_input(messages=messages, private=private, instructions=instructions, tools=tools)})
-        if response.get("stop_reason") not in {"end_turn", "tool_use", "stop_sequence"} or not isinstance(response.get("content"), list):
+        stop = response.get("stop_reason")
+        if stop not in {"end_turn", "tool_use", "stop_sequence", "max_tokens"} or not isinstance(response.get("content"), list):
             raise ModelError("The model did not return a complete response.")
+        truncated = stop == "max_tokens"
         blocks = []
         for item in response["content"]:
             if not isinstance(item, dict):
                 continue
             if item.get("type") == "text" and isinstance(item.get("text"), str):
                 blocks.append({"type": "text", "text": item["text"]})
-            elif item.get("type") == "tool_use":
+            elif item.get("type") == "tool_use" and not truncated:  # A cut-off call is never dispatched.
                 blocks.append(call(item, identifier=item.get("id"), arguments=item.get("input")))
             # Thinking, signatures, private/unknown blocks never enter the ledger.
-        return ModelReply({"role": "assistant", "content": blocks}, {}, usage(response.get("usage")))
+        return ModelReply({"role": "assistant", "content": blocks}, {}, usage(response.get("usage")), truncated)
 
 
 class DeepSeekMessages(AnthropicMessages):

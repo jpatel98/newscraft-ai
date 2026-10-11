@@ -143,7 +143,7 @@ class DeepSeekAdapterTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_incomplete_responses_and_malformed_tool_calls_fail_closed(self):
         invalid = [
-            {"stop_reason": "max_tokens", "content": [{"type": "text", "text": "truncated"}]},
+            {"stop_reason": "refusal", "content": [{"type": "text", "text": "declined"}]},
             {"stop_reason": "end_turn", "content": {}},
             {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "read", "id": "id", "input": "{}"}]},
             {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "read", "id": "", "input": {}}]},
@@ -153,6 +153,38 @@ class DeepSeekAdapterTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(response=response), self.assertRaises(ModelError):
                 await self.complete(adapter)
         self.assertEqual(len(self.requests), len(invalid))
+
+    async def test_max_tokens_returns_generated_text_flagged_truncated_and_drops_cut_tool_calls(self):
+        adapter = self.adapter([
+            {"stop_reason": "max_tokens", "content": [{"type": "text", "text": "partial answer"}]},
+            {"stop_reason": "max_tokens", "content": [{"type": "text", "text": "so far"},
+                {"type": "tool_use", "id": "cut", "name": "read", "input": {"url": "https://exam"}}]},
+            {"stop_reason": "end_turn", "content": [{"type": "text", "text": "whole"}]},
+        ])
+        first, second, third = [await self.complete(adapter) for _ in range(3)]
+        self.assertTrue(first.truncated)
+        self.assertEqual(first.message["content"], [{"type": "text", "text": "partial answer"}])
+        self.assertTrue(second.truncated)
+        self.assertEqual(second.message["content"], [{"type": "text", "text": "so far"}])
+        self.assertFalse(third.truncated)
+
+    async def test_openai_incomplete_output_limit_is_truncated_but_other_incomplete_reasons_fail(self):
+        from hermes_chat.model_adapters import OpenAIResponses
+        replies = [
+            {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": [
+                {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "partial"}]},
+                {"type": "function_call", "call_id": "cut", "name": "read", "arguments": "{\"url\": \"https://exam"}]},
+            {"status": "incomplete", "incomplete_details": {"reason": "content_filter"}, "output": []},
+        ]
+        queue = list(replies)
+        client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=queue.pop(0))))
+        self.clients.append(client)
+        adapter = OpenAIResponses(self.settings, client=client)
+        reply = await self.complete(adapter)
+        self.assertTrue(reply.truncated)
+        self.assertEqual(reply.message["content"], [{"type": "text", "text": "partial"}])
+        with self.assertRaises(ModelError):
+            await self.complete(adapter)
 
     async def test_provider_failures_never_retry_or_echo_private_details(self):
         for failure in (httpx.ReadTimeout("PRIVATE_PROVIDER_DETAIL"),
