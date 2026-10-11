@@ -3,6 +3,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { db } from './index';
 import { conversations, hermesRunArtifactRefs, hermesRunEvents, hermesRuns, messages, messageProvenance } from './schema';
 import { newId } from '$lib/utils/id';
+import { splitLedgerBlock, stripLedgerForDisplay, type LedgerClaim } from '$lib/utils/story-ledger';
+import { upsertStoryClaims } from './story-claims';
+import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import {
 	serializeToolMetadata,
 	buildAnswerProvenanceBundle,
@@ -698,6 +701,38 @@ export async function listKnownHermesRunEvents(
 		.limit(Math.min(Math.max(limit, 1), 1000))) as HermesRunSubscriptionEvent[];
 }
 
+/**
+ * Remove the worker's story-ledger block from an `agent.answer.replace`
+ * payload. Returns null when the payload has no block, so ordinary events keep
+ * their exact bytes (replay detection compares stored bytes).
+ */
+function stripLedgerFromAnswerEvent(
+	dataJson: string
+): { dataJson: string; claims: LedgerClaim[] | null } | null {
+	const data = objectValue(parseJson<unknown>(dataJson, null));
+	if (!data || typeof data.content !== 'string') return null;
+	const split = splitLedgerBlock(data.content);
+	if (!split.found) return null;
+	return { dataJson: JSON.stringify({ ...data, content: split.visible }), claims: split.claims };
+}
+
+/** Persist ledger claims after the run transaction; a ledger failure never fails the run. */
+async function saveLedgerClaims(
+	conversationId: string,
+	messageId: string,
+	claims: LedgerClaim[] | null
+): Promise<void> {
+	if (!claims?.length) return;
+	try {
+		await upsertStoryClaims(conversationId, messageId, claims);
+	} catch (cause) {
+		recordChatDiagnostic(conversationId, 'chat.story_ledger_error', {
+			errorName: cause instanceof Error ? cause.name : 'Error',
+			claimCount: claims.length
+		});
+	}
+}
+
 export async function appendHermesRunEvent(
 	accountId: string, runId: string, leaseOwner: string, leaseToken: string, input: HermesRunEventInput
 ): Promise<{ run: HermesRunRecord; event: HermesRunEventRecord }> {
@@ -718,21 +753,35 @@ export async function appendHermesRunEvents(
 	if (!Array.isArray(inputs) || inputs.length < 1 || inputs.length > 32) {
 		throw new HermesRunRepositoryError('invalid_input', 'callback batch must contain 1 to 32 events');
 	}
+	let ledgerClaims: LedgerClaim[] | null = null;
 	const validated = inputs.map((input, index) => {
 		if (!Number.isSafeInteger(input.workerCursor) || input.workerCursor < 1 ||
 			(index > 0 && input.workerCursor !== inputs[index - 1].workerCursor + 1)) {
 			throw new HermesRunRepositoryError('invalid_input', 'batch worker cursors must be consecutive positive integers');
 		}
 		const eventType = requireValue(input.eventType, 'eventType');
-		const dataJson = publicActivityData(eventType, boundedJson(input.dataJson, 'event data'));
+		let dataJson = publicActivityData(eventType, boundedJson(input.dataJson, 'event data'));
+		if (eventType === 'agent.answer.replace') {
+			// The worker's story-ledger block is machine-only. Strip it before the
+			// event is stored or replayed so no consumer can show it.
+			const stripped = stripLedgerFromAnswerEvent(dataJson);
+			if (stripped) {
+				dataJson = stripped.dataJson;
+				if (stripped.claims) ledgerClaims = stripped.claims;
+			}
+		}
 		return { ...input, eventType, dataJson };
 	});
 	if (validated.reduce((size, input) => size + Buffer.byteLength(input.dataJson), 0) > 512 * 1024) {
 		throw new HermesRunRepositoryError('invalid_input', 'callback batch exceeds 512 KiB');
 	}
 	const now = Date.now();
+	let replayed = false;
+	let ledgerConversationId = '';
+	let ledgerMessageId = '';
+	let terminalLedgerClaims: LedgerClaim[] | null = null;
 
-	return db.transaction(async (tx: any) => {
+	const appended = await db.transaction(async (tx: any) => {
 		const [current] = (await tx
 			.select()
 			.from(hermesRuns)
@@ -743,6 +792,8 @@ export async function appendHermesRunEvents(
 		if (current.leaseOwner !== worker || current.leaseToken !== token) {
 			throw new HermesRunRepositoryError('stale_lease', 'run lease is stale');
 		}
+		ledgerConversationId = current.conversationId;
+		ledgerMessageId = current.assistantMessageId;
 		const lastInput = validated[validated.length - 1];
 		// Whole batches commit atomically. A lost acknowledgment can replay the
 		// exact last batch, including completion, without applying it twice.
@@ -754,6 +805,7 @@ export async function appendHermesRunEvents(
 			previous.reverse();
 			if (previous.length === validated.length && previous.every((event: HermesRunEventRecord, index: number) =>
 				event.eventType === validated[index].eventType && event.dataJson === validated[index].dataJson)) {
+				replayed = true;
 				return { run: current, event: previous[previous.length - 1] };
 			}
 			throw new HermesRunRepositoryError('stale_callback', 'callback replay differs from saved events');
@@ -868,6 +920,16 @@ export async function appendHermesRunEvents(
 				sourcesJson: JSON.stringify(snapshot.sources), citationsJson: JSON.stringify(snapshot.citations),
 				toolsJson: serializeRunActivity(snapshot) };
 		}
+		if (isTerminal(snapshot.state)) {
+			// Streamed-delta runs carry the block inside the accumulated text; the
+			// authoritative replace event was already stripped above.
+			const split = splitLedgerBlock(snapshot.answerText);
+			if (split.found) {
+				snapshot = { ...snapshot, answerText: split.visible };
+				working = { ...working, answerText: split.visible };
+				if (snapshot.state === 'complete' && split.claims) terminalLedgerClaims = split.claims;
+			}
+		}
 		const inserted = await tx.insert(hermesRunEvents).values(eventRows).returning() as HermesRunEventRecord[];
 		const event = inserted.find((row) => row.cursor === working.cursor);
 		if (!event) throw new Error('Hermes run event insert returned no row');
@@ -918,8 +980,10 @@ export async function appendHermesRunEvents(
 		if (!run) throw new HermesRunRepositoryError('not_found', 'run disappeared during event append');
 
 		if (persistMessageSnapshot) {
+			// A still-streaming ledger fence must not reach the stored message.
+			const displayText = terminal ? snapshot.answerText : stripLedgerForDisplay(snapshot.answerText);
 			const messageUpdate: Partial<typeof messages.$inferInsert> = {
-				content: snapshot.answerText,
+				content: displayText,
 				partial: terminal && snapshot.state === 'complete' ? 0 : 1
 			};
 			// The first callback establishes metadata for the placeholder. Later
@@ -938,10 +1002,10 @@ export async function appendHermesRunEvents(
 				tools: snapshot.tools,
 				sources: snapshot.sources,
 				citations: snapshot.citations,
-				answerText: snapshot.answerText,
+				answerText: displayText,
 				startedAt: run.startedAt ?? now,
 				endedAt: terminal ? now : undefined,
-				assistantChars: snapshot.answerText.length,
+				assistantChars: displayText.length,
 				done: snapshot.state === 'complete',
 				finishStatus: snapshot.state === 'complete' ? 'completed' : snapshot.state === 'cancelled' ? 'cancelled' : snapshot.state === 'failed' ? 'failed' : 'partial',
 				transport: 'hermes_durable'
@@ -964,6 +1028,10 @@ export async function appendHermesRunEvents(
 		}
 		return { run, event };
 	});
+	if (!replayed) {
+		await saveLedgerClaims(ledgerConversationId, ledgerMessageId, terminalLedgerClaims ?? ledgerClaims);
+	}
+	return appended;
 }
 
 export async function requestHermesRunCancellation(
@@ -1058,7 +1126,7 @@ export async function failQueuedHermesRun(
 		await tx
 			.update(messages)
 			.set({
-				content: snapshot.answerText,
+				content: stripLedgerForDisplay(snapshot.answerText),
 				partial: 1,
 				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations,
 					{ plan: snapshot.plan, decisions: snapshot.decisions })
@@ -1070,10 +1138,10 @@ export async function failQueuedHermesRun(
 			tools: snapshot.tools,
 			sources: snapshot.sources,
 			citations: snapshot.citations,
-			answerText: snapshot.answerText,
+			answerText: stripLedgerForDisplay(snapshot.answerText),
 			startedAt: current.startedAt ?? current.createdAt,
 			endedAt: now,
-			assistantChars: snapshot.answerText.length,
+			assistantChars: stripLedgerForDisplay(snapshot.answerText).length,
 			done: false,
 			finishStatus: 'failed',
 			transport: 'hermes_durable'
@@ -1145,7 +1213,7 @@ export async function finalizeHermesRunCancellation(
 		await tx
 			.update(messages)
 			.set({
-				content: snapshot.answerText,
+				content: stripLedgerForDisplay(snapshot.answerText),
 				partial: 1,
 				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations,
 					{ plan: snapshot.plan, decisions: snapshot.decisions })
@@ -1157,10 +1225,10 @@ export async function finalizeHermesRunCancellation(
 			tools: snapshot.tools,
 			sources: snapshot.sources,
 			citations: snapshot.citations,
-			answerText: snapshot.answerText,
+			answerText: stripLedgerForDisplay(snapshot.answerText),
 			startedAt: run.startedAt ?? current.createdAt,
 			endedAt: now,
-			assistantChars: snapshot.answerText.length,
+			assistantChars: stripLedgerForDisplay(snapshot.answerText).length,
 			done: false,
 			finishStatus: 'cancelled',
 			transport: 'hermes_durable'
@@ -1272,7 +1340,7 @@ export async function reconcileExpiredHermesRun(
 		await tx
 			.update(messages)
 			.set({
-				content: snapshot.answerText,
+				content: stripLedgerForDisplay(snapshot.answerText),
 				partial: 1,
 				toolCalls: serializeToolMetadata(snapshot.tools, snapshot.sources, snapshot.citations,
 					{ plan: snapshot.plan, decisions: snapshot.decisions })
@@ -1284,10 +1352,10 @@ export async function reconcileExpiredHermesRun(
 			tools: snapshot.tools,
 			sources: snapshot.sources,
 			citations: snapshot.citations,
-			answerText: snapshot.answerText,
+			answerText: stripLedgerForDisplay(snapshot.answerText),
 			startedAt: updated.startedAt ?? current.createdAt,
 			endedAt: now,
-			assistantChars: snapshot.answerText.length,
+			assistantChars: stripLedgerForDisplay(snapshot.answerText).length,
 			done: false,
 			finishStatus: cancelled ? 'cancelled' : 'failed',
 			transport: 'hermes_durable'

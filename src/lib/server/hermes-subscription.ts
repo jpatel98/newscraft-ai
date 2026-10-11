@@ -11,6 +11,7 @@ import {
 } from '$lib/server/db/hermes-runs';
 import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import { traceIdFromHermesInput } from '$lib/server/durable-run-telemetry';
+import { stripLedgerForDisplay } from '$lib/utils/story-ledger';
 
 export const HERMES_SUBSCRIPTION_ACTIVE_POLL_MS = 250;
 export const HERMES_SUBSCRIPTION_MAX_POLL_MS = 500;
@@ -127,7 +128,11 @@ export async function hermesSubscriptionResponse({
 						cursor: run.cursor,
 						status: run.state,
 						...(traceId ? { trace_id: traceId } : {}),
-						...snapshotFromRun(run)
+						...(() => {
+							const snapshot = snapshotFromRun(run);
+							// A streamed ledger fence is machine-only; never replay it to the browser.
+							return { ...snapshot, answerText: stripLedgerForDisplay(snapshot.answerText) };
+						})()
 					})
 				);
 

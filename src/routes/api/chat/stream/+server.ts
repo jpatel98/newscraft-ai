@@ -52,6 +52,7 @@ import {
 	type DocumentContext,
 	type NewsroomContext
 } from '@newscraft/shared';
+import { listStoryClaims } from '$lib/server/db/story-claims';
 import { getNewsroomProfile } from '$lib/server/documents/profiles';
 import {
 	buildNewsroomContext,
@@ -994,7 +995,16 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		: body.content
 			? contentText(body.content)
 			: persistedUserRequest;
+	// The ledger is optional context: a read failure must never block the turn.
+	const storyClaims = await listStoryClaims(convoId).catch((cause) => {
+		recordChatDiagnostic(convoId, 'chat.story_ledger_read_error', {
+			trace_id: traceId,
+			errorName: cause instanceof Error ? cause.name : 'Error'
+		});
+		return [];
+	});
 	const conversationContext: ConversationContext = buildConversationContext({
+		storyClaims,
 		messages,
 		provenance,
 		currentRequest,

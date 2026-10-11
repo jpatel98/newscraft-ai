@@ -31,6 +31,7 @@ vi.mock('$lib/server/reasoning', () => ({
 vi.mock('$lib/server/chat-diagnostics', () => ({ recordChatDiagnostic: mocks.diagnostics }));
 vi.mock('$lib/server/rate-limit', () => ({ checkRateLimit: () => ({ allowed: true }) }));
 vi.mock('$lib/server/db/message-provenance', () => ({ getConversationMessageProvenance: mocks.getProvenance, saveMessageProvenance: mocks.saveProvenance }));
+vi.mock('$lib/server/db/story-claims', () => ({ listStoryClaims: async () => [] }));
 vi.mock('$lib/server/documents/profiles', () => ({ getNewsroomProfile: vi.fn() }));
 vi.mock('$lib/server/documents/runtime', () => ({ getConversationDocumentService: () => ({ listDocuments: mocks.listDocuments, buildContext: mocks.buildDocumentContext }) }));
 vi.mock('$lib/server/conversation-context', () => ({ buildConversationContext: mocks.buildContext, conversationContextProvenanceMessageIds: () => [] }));

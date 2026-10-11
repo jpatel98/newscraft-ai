@@ -3,8 +3,12 @@
 	import type { ArtifactDraft } from '$lib/components/artifact-draft';
 	import ArtifactCanvasLoader from '$lib/components/ArtifactCanvasLoader.svelte';
 	import NewsroomArtifactPaneLoader from '$lib/components/NewsroomArtifactPaneLoader.svelte';
+	import StoryLedgerPane from '$lib/components/StoryLedgerPane.svelte';
 	import Thread from '$lib/components/Thread.svelte';
 	import { artifactPaneMode } from '$lib/components/artifact-layout';
+	import { stripLedgerForDisplay } from '$lib/utils/story-ledger';
+	import type { StoryLedgerClaimView } from '$lib/utils/story-ledger-view';
+	import { parseToolMetadata } from '$lib/utils/tool-metadata';
 	import type { CitationRecord } from '@newscraft/shared';
 	import type {
 		PersistedSource,
@@ -122,6 +126,12 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	// invalidateAll the partial flag flips and the row reappears finalized.
 	let hiddenIds = $state<Set<string>>(new Set());
 	let artifactOpen = $state(false);
+	// The Story ledger pane shares the artifact pane's side/overlay slot; only one is open.
+	let storyOpen = $state(false);
+	let storyClaims = $state<StoryLedgerClaimView[]>([]);
+	let storyLoading = $state(false);
+	let storyError = $state<string | null>(null);
+	let storyRequestSeq = 0;
 	let viewportWidth = $state(0);
 	const artifactMode = $derived(artifactPaneMode(viewportWidth));
 	let activeArtifact = $state<ArtifactDraft | null>(null);
@@ -174,6 +184,18 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 
 	const persisted = $derived(persistedThreadMessages(historyMessages, hiddenIds));
 	const messages = $derived([...persisted, ...overlay]);
+	// Ledger citation chips resolve against the thread's citation map; newer answers win.
+	const storyCitations = $derived.by(() => {
+		const byNumber = new Map<number, CitationRecord>();
+		for (const message of messages) {
+			if (message.role !== 'assistant' || !message.toolCalls) continue;
+			for (const citation of parseToolMetadata(message.toolCalls).citations) {
+				byNumber.set(citation.citationNumber, citation);
+			}
+		}
+		for (const citation of chat.citations) byNumber.set(citation.citationNumber, citation);
+		return [...byNumber.values()];
+	});
 	const historyGaps = $derived(deriveHistoryGaps(historySegments));
 	const sidebarConversationTitle = $derived(
 		data.conversations.find((conversation) => conversation.id === data.conversation.id)?.title
@@ -777,6 +799,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 				status: 'generating'
 			};
 			artifactOpen = true;
+			storyOpen = false;
 		}
 		const updateArtifact = (patch: Partial<ArtifactDraft>) => {
 			if (
@@ -827,7 +850,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 						});
 						if (snapshot.answerText !== asstText) {
 							asstText = snapshot.answerText;
-							updateAssistantOverlay({ content: asstText });
+							updateAssistantOverlay({ content: stripLedgerForDisplay(asstText) });
 						}
 						if (snapshot.citations.length) {
 							chat.setCitations(snapshot.citations);
@@ -867,15 +890,15 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 						noteStreamEstablished();
 						chat.noteAssistantOutput(s);
 						asstText += s;
-						updateAssistantOverlay({ content: asstText });
-						updateArtifact({ content: asstText });
+						updateAssistantOverlay({ content: stripLedgerForDisplay(asstText) });
+						updateArtifact({ content: stripLedgerForDisplay(asstText) });
 					},
 				onReplace: (content: string) => {
 						noteStreamEstablished();
 						chat.noteAssistantOutput(content);
 						asstText = content;
-						updateAssistantOverlay({ content: asstText });
-						updateArtifact({ content: asstText });
+						updateAssistantOverlay({ content: stripLedgerForDisplay(asstText) });
+						updateArtifact({ content: stripLedgerForDisplay(asstText) });
 					},
 				onToolProgress: (t: StreamToolUpdate) => {
 						noteStreamEstablished();
@@ -995,6 +1018,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 				} catch {
 					/* ignore */
 				}
+				// New claims land when the run completes; keep an open Story pane current.
+				if (storyOpen && conversationId === activeConversationId) void refreshStoryLedger();
 				// Drop only this run's items from the overlay (other runs may have
 				// added their own).
 				const ids = new Set([...(userMsg ? [userMsg.id] : [])]);
@@ -1049,6 +1074,35 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 			command,
 			...(documentIds.length ? { document_ids: documentIds } : {})
 		});
+	}
+
+	async function refreshStoryLedger() {
+		const conversationId = activeConversationId;
+		const sequence = ++storyRequestSeq;
+		storyLoading = true;
+		try {
+			const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/ledger`, {
+				headers: { accept: 'application/json' }
+			});
+			if (!response.ok) throw new Error(`ledger ${response.status}`);
+			const payload = (await response.json()) as { claims?: StoryLedgerClaimView[] };
+			if (sequence !== storyRequestSeq || conversationId !== activeConversationId) return;
+			storyClaims = Array.isArray(payload.claims) ? payload.claims : [];
+			storyError = null;
+		} catch {
+			if (sequence !== storyRequestSeq || conversationId !== activeConversationId) return;
+			storyError = 'The story ledger could not be loaded. Try refreshing.';
+		} finally {
+			if (sequence === storyRequestSeq) storyLoading = false;
+		}
+	}
+
+	function toggleStory() {
+		storyOpen = !storyOpen;
+		if (storyOpen) {
+			artifactOpen = false;
+			void refreshStoryLedger();
+		}
 	}
 
 	async function handleUseAnswer(action: AnswerUseAction, messageId: string) {
@@ -1396,6 +1450,11 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		activeArtifactSummary = null;
 		activeCanvasArtifact = null;
 		artifactOpen = false;
+		storyOpen = false;
+		storyClaims = [];
+		storyError = null;
+		storyRequestSeq += 1;
+		storyLoading = false;
 		for (const controller of historyAbortControllers) controller.abort();
 		historyAbortControllers.clear();
 		historyRequestGeneration += 1;
@@ -1436,6 +1495,13 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		<div class="pane__header__topic">{topic}</div>
 	</div>
 	<a class="conversation-project-link" href={`/c/${data.conversation.id}/project`}>Move to project</a>
+	<button
+		type="button"
+		class="conversation-project-link conversation-story-button"
+		data-testid="story-ledger-button"
+		aria-pressed={storyOpen}
+		onclick={toggleStory}
+	>Story</button>
 	{#if data.project}<a class="conversation-project-link" href={`/projects/${data.project.id}`}>{data.project.name}</a>{/if}
 </header>
 
@@ -1477,7 +1543,28 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 			onRetry={retryArtifact}
 		/>
 	{/if}
-	{#if artifactOpen && activeArtifact}
+	{#if storyOpen}
+		{#if artifactMode === 'overlay'}
+			<button
+				type="button"
+				class="artifact-scrim"
+				data-testid="story-scrim"
+				aria-label="Close story pane"
+				tabindex="-1"
+				onclick={() => (storyOpen = false)}
+			></button>
+		{/if}
+		<div class="artifact-slot artifact-slot--{artifactMode}" data-artifact-mode={artifactMode}>
+			<StoryLedgerPane
+				claims={storyClaims}
+				citations={storyCitations}
+				loading={storyLoading}
+				error={storyError}
+				onRefresh={() => void refreshStoryLedger()}
+				onClose={() => (storyOpen = false)}
+			/>
+		</div>
+	{:else if artifactOpen && activeArtifact}
 		{#if artifactMode === 'overlay'}
 			<button
 				type="button"
@@ -1596,6 +1683,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 
 <style>
 	.conversation-project-link { font-size: 13px; padding: 8px; overflow-wrap: anywhere; }
+	.conversation-story-button { border: 0; background: transparent; color: inherit; font-family: inherit; cursor: pointer; }
+	.conversation-story-button[aria-pressed='true'] { color: var(--accent-fg); font-weight: 650; }
 	.conversation-workspace {
 		flex: 1;
 		min-height: 0;

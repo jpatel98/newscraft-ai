@@ -889,3 +889,54 @@ describe('conversation context builder', () => {
 		});
 	});
 });
+
+describe('story ledger context entry', () => {
+	const row = (index: number, overrides: Record<string, unknown> = {}) => ({
+		id: `claim-${index}`,
+		conversationId: 'conversation-1',
+		claim: `Claim ${index}.`,
+		status: 'alleged' as const,
+		attributedTo: 'police',
+		citationNumbers: [index + 1],
+		publicationDate: '2026-07-02',
+		needsCheck: index % 2 === 0,
+		firstSeenMessageId: 'm1',
+		lastUpdatedMessageId: 'm2',
+		supersededBy: null,
+		createdAt: 1000 + index,
+		updatedAt: 2000 + index,
+		...overrides
+	});
+
+	it('omits the field when the conversation has no claims', () => {
+		const context = buildConversationContext({
+			messages: [message('u1', 'user', 'Write the intro.')],
+			currentRequest: 'Write the intro.',
+			storyClaims: []
+		});
+		expect(context).not.toHaveProperty('storyLedger');
+	});
+
+	it('sends at most 40 claims, newest first, in the worker wire shape', () => {
+		const context = buildConversationContext({
+			messages: [message('u1', 'user', 'Write the intro.')],
+			currentRequest: 'Write the intro.',
+			storyClaims: Array.from({ length: 55 }, (_, index) => row(index))
+		});
+		const claims = context.storyLedger?.claims ?? [];
+		expect(claims).toHaveLength(40);
+		expect(claims[0]).toEqual({
+			id: 'claim-54',
+			claim: 'Claim 54.',
+			status: 'alleged',
+			attributed_to: 'police',
+			citations: [55],
+			date: '2026-07-02',
+			needs_check: true,
+			updated_at: new Date(2054).toISOString()
+		});
+		expect(claims[39]?.id).toBe('claim-15');
+		expect(JSON.stringify(context).length).toBeLessThan(24 * 1024);
+		expect(conversationContextCompatibilityMessage(context)).toContain('[ALLEGED] Claim 54. (per police) [55] NEEDS CHECK');
+	});
+});

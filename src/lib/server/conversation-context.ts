@@ -7,6 +7,7 @@ import type {
 	ConversationRecentTurn,
 	ConversationIntent,
 	ConversationSourceAnswer,
+	ConversationStoryLedger,
 	ConversationTopic,
 	ResearchRequestContract
 } from '@newscraft/shared';
@@ -17,6 +18,8 @@ import {
 } from '@newscraft/shared';
 import type { MessageRow } from '$lib/server/db/conversations';
 import type { MessageProvenanceRow } from '$lib/server/db/message-provenance';
+import type { StoryClaimRow } from '$lib/server/db/story-claims';
+import { toStoryLedgerClaimView } from '$lib/server/story-ledger-view';
 import { contentText } from '$lib/types';
 import { parseContent } from '$lib/server/db/conversations';
 import {
@@ -26,6 +29,8 @@ import {
 } from '$lib/utils/tool-metadata';
 
 const MAX_CONTEXT_BYTES = 24 * 1024;
+const MAX_STORY_LEDGER_CLAIMS = 40;
+const MAX_STORY_LEDGER_BYTES = 12 * 1024;
 const MAX_CURRENT_REQUEST_CHARS = 8000;
 const MAX_TOPIC_CHARS = 480;
 const MAX_ANSWER_CHARS = 6200;
@@ -131,6 +136,8 @@ export interface BuildConversationContextInput {
 	sourceMessageId?: string;
 	homeMarket?: string;
 	timezone?: string;
+	/** Live ledger claims for this conversation, newest first. */
+	storyClaims?: StoryClaimRow[];
 }
 
 interface ProvenanceContext {
@@ -235,7 +242,36 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 		...(inheritsPriorState ? claimStateFields(input.messages) : {}),
 		...(inheritsPriorState ? unresolvedFields(input.messages) : {})
 	};
-	return fitContextToBudget(context);
+	const storyLedger = storyLedgerContext(input.storyClaims);
+	if (!storyLedger) return fitContextToBudget(context);
+	// The ledger is primary evidence, so it keeps its own budget and the rest of
+	// the packet is reduced around it.
+	return {
+		...fitContextToBudget(context, MAX_CONTEXT_BYTES - byteLength(storyLedger)),
+		storyLedger
+	};
+}
+
+function storyLedgerContext(rows: StoryClaimRow[] | undefined): ConversationStoryLedger | undefined {
+	if (!rows?.length) return undefined;
+	const claims = [...rows]
+		.sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))
+		.slice(0, MAX_STORY_LEDGER_CLAIMS)
+		.map((row) => {
+			const view = toStoryLedgerClaimView(row);
+			return {
+				id: view.id,
+				claim: view.claim,
+				status: view.status,
+				attributed_to: view.attributed_to,
+				citations: view.citations,
+				date: view.date,
+				needs_check: view.needs_check,
+				updated_at: view.updated_at
+			};
+		});
+	while (claims.length > 1 && byteLength({ claims }) > MAX_STORY_LEDGER_BYTES) claims.pop();
+	return { claims };
 }
 
 export function conversationContextCompatibilityMessage(context: ConversationContext): string {
@@ -297,6 +333,19 @@ export function conversationContextCompatibilityMessage(context: ConversationCon
 			: []),
 		...(context.unresolvedQuestions?.length
 			? ['Unresolved limitations:', ...context.unresolvedQuestions.map((item) => `- ${item}`)]
+			: []),
+		...(context.storyLedger?.claims.length
+			? [
+					'Story ledger (primary evidence; keep alleged/unverified qualifiers in any copy):',
+					...context.storyLedger.claims.map(
+						(claim) =>
+							`- [${claim.status.toUpperCase()}] ${claim.claim}${
+								claim.attributed_to ? ` (per ${claim.attributed_to})` : ''
+							}${claim.citations.length ? ` ${claim.citations.map((n) => `[${n}]`).join('')}` : ''}${
+								claim.needs_check ? ' NEEDS CHECK' : ''
+							}`
+					)
+				]
 			: []),
 		...(source
 			? [
@@ -907,8 +956,11 @@ function normalizedComparable(value: string): string {
 	return value.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-function fitContextToBudget(context: ConversationContext): ConversationContext {
-	if (byteLength(context) <= MAX_CONTEXT_BYTES) return context;
+function fitContextToBudget(
+	context: ConversationContext,
+	budget: number = MAX_CONTEXT_BYTES
+): ConversationContext {
+	if (byteLength(context) <= budget) return context;
 	const reduced: ConversationContext = {
 		...context,
 		recentTurns: context.recentTurns?.slice(-4),
@@ -925,22 +977,22 @@ function fitContextToBudget(context: ConversationContext): ConversationContext {
 				}
 			: undefined
 	};
-	while (byteLength(reduced) > MAX_CONTEXT_BYTES && (reduced.claimStates?.length ?? 0) > 1) {
+	while (byteLength(reduced) > budget && (reduced.claimStates?.length ?? 0) > 1) {
 		reduced.claimStates?.shift();
 	}
-	while (byteLength(reduced) > MAX_CONTEXT_BYTES && (reduced.recentTurns?.length ?? 0) > 1) {
+	while (byteLength(reduced) > budget && (reduced.recentTurns?.length ?? 0) > 1) {
 		reduced.recentTurns?.shift();
 	}
-	while (byteLength(reduced) > MAX_CONTEXT_BYTES && (reduced.unresolvedQuestions?.length ?? 0) > 1) {
+	while (byteLength(reduced) > budget && (reduced.unresolvedQuestions?.length ?? 0) > 1) {
 		reduced.unresolvedQuestions?.shift();
 	}
-	if (byteLength(reduced) > MAX_CONTEXT_BYTES && reduced.lastSourceBackedAnswer) {
+	if (byteLength(reduced) > budget && reduced.lastSourceBackedAnswer) {
 		reduced.lastSourceBackedAnswer.content = boundedText(
 			reduced.lastSourceBackedAnswer.content,
 			1600
 		);
 	}
-	if (byteLength(reduced) > MAX_CONTEXT_BYTES && reduced.lastSourceBackedAnswer) {
+	if (byteLength(reduced) > budget && reduced.lastSourceBackedAnswer) {
 		reduced.lastSourceBackedAnswer.citations = reduced.lastSourceBackedAnswer.citations.map(
 			(citation) => ({
 				...citation,
@@ -950,7 +1002,7 @@ function fitContextToBudget(context: ConversationContext): ConversationContext {
 		);
 	}
 	while (
-		byteLength(reduced) > MAX_CONTEXT_BYTES &&
+		byteLength(reduced) > budget &&
 		(reduced.lastSourceBackedAnswer?.citations.length ?? 0) > 1
 	) {
 		reduced.lastSourceBackedAnswer?.citations.pop();

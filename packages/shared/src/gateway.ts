@@ -270,6 +270,28 @@ export interface ConversationSourceAnswer {
 	publicationDates?: string[];
 }
 
+export type StoryLedgerStatus = 'confirmed' | 'alleged' | 'reported' | 'unverified' | 'retracted';
+
+/** One claim the thread has recorded, sent back to the worker as primary evidence. */
+export interface StoryLedgerClaim {
+	id: string;
+	claim: string;
+	status: StoryLedgerStatus;
+	attributed_to: string;
+	/** Citation numbers in the thread's citation map. */
+	citations: number[];
+	/** Source publication date (YYYY-MM-DD) or empty. */
+	date: string;
+	needs_check: boolean;
+	/** ISO timestamp of the last update. */
+	updated_at: string;
+}
+
+export interface ConversationStoryLedger {
+	/** Newest first, capped by the app. */
+	claims: StoryLedgerClaim[];
+}
+
 export type ConversationOperation = 'send' | 'retry' | 'resume' | 'regenerate' | 'transform';
 
 export interface ConversationCurrentTurn {
@@ -316,6 +338,8 @@ export interface ConversationContext {
 	lastSourceBackedAnswer?: ConversationSourceAnswer;
 	claimStates?: ConversationClaimState[];
 	unresolvedQuestions?: string[];
+	/** Per-conversation story ledger (claims with status/attribution), newest first. */
+	storyLedger?: ConversationStoryLedger;
 }
 
 export interface DocumentContextPage {

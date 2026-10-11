@@ -1,5 +1,5 @@
 import { sql as schemaSql } from 'drizzle-orm';
-import { bigint, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, uniqueIndex } from 'drizzle-orm/pg-core';
 
 const timestampMs = (name: string) => bigint(name, { mode: 'number' });
 
@@ -725,3 +725,41 @@ export const projectConversations = pgTable('project_conversations', {
  projectOwner: foreignKey({ columns: [t.projectId, t.accountId], foreignColumns: [projects.id, projects.accountId] }).onDelete('cascade'),
  projectIdx: index('project_conversations_project_idx').on(t.accountId, t.projectId)
 }));
+
+export const storyClaims = pgTable(
+	'story_claims',
+	{
+		id: text('id').primaryKey(),
+		conversationId: text('conversation_id')
+			.notNull()
+			.references(() => conversations.id, { onDelete: 'cascade' }),
+		claim: text('claim').notNull(),
+		status: text('status', {
+			enum: ['confirmed', 'alleged', 'reported', 'unverified', 'retracted']
+		}).notNull(),
+		attributedTo: text('attributed_to').notNull().default(''),
+		citationNumbers: jsonb('citation_numbers').$type<number[]>().notNull().default([]),
+		publicationDate: text('publication_date').notNull().default(''),
+		needsCheck: boolean('needs_check').notNull().default(false),
+		firstSeenMessageId: text('first_seen_message_id'),
+		lastUpdatedMessageId: text('last_updated_message_id'),
+		supersededBy: text('superseded_by'),
+		createdAt: timestampMs('created_at').notNull(),
+		updatedAt: timestampMs('updated_at').notNull()
+	},
+	(t) => ({
+		claimLength: check('story_claims_claim_length', schemaSql`char_length(${t.claim}) <= 240`),
+		statusCheck: check(
+			'story_claims_status_check',
+			schemaSql`${t.status} IN ('confirmed', 'alleged', 'reported', 'unverified', 'retracted')`
+		),
+		citationsArray: check(
+			'story_claims_citation_numbers_array',
+			schemaSql`jsonb_typeof(${t.citationNumbers}) = 'array'`
+		),
+		conversationUpdatedIdx: index('story_claims_conversation_updated_idx').on(
+			t.conversationId,
+			t.updatedAt
+		)
+	})
+);
