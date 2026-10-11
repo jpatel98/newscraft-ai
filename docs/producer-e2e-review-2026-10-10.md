@@ -189,3 +189,36 @@ later be built on. The pitch is not "it researches", it is "it never loses the s
   Exa call `search_adapters.py:57-79`; classifier `src/lib/server/conversation-context.ts:690-722`;
   draft bug `src/lib/components/Composer.svelte:473-498`; budget failure
   `services/hermes-chat/src/hermes_chat/budgets.py:47-61`, `model_adapters.py:194-195`.
+
+---
+
+## 6. Iteration log — 2026-10-11 (branch `producer-loop`)
+
+Built with coding subagents (Sonnet), verified in the same local stack and browser.
+
+| Commit | Change | Verified |
+|---|---|---|
+| `1a4ac8b` | Worker degrades into a partial answer on step/time/token/cost budget; `max_tokens` returns truncated text; open plan steps closed; hidden-context block framed as invisible. | 601 worker tests. R6 now ends with a cited partial brief instead of "Reply failed". |
+| `77a81d8` | Tri-state research routing (regex may force on, explicit "no research" forces off, otherwise planner decides); output actions never search; `aggregator` source tier with amber badge; OC/VO copy has no inline markers and a `SOURCES:` line; failed runs show a plain-language reason; home composer clears its draft; context entries marked invisible to the user. | `pnpm check` 0 errors, 724 app tests. R7 draft check passes. |
+| `e571822` | Research loop v2: planner call (≤400 tokens, 12 s cap) writes 1–4 researcher queries; parallel Exa with `includeDomains`; thread sources listed first with stable numbers; new sources recorded with official/aggregator tiers; plan + search events streamed live; identity v3 (producer-first, no lectures, no closers). | 629 worker tests. Planner 1.6 s, searches done 4.2 s, answer 12.8 s in the live log. |
+| `5befffd` | Rank by relevance (round-robin across queries) with tier as tie-break; drop index/search/API/obituary pages; outlet-named queries keep an empty slot when the outlet has nothing; retry empty official queries without domain limits; always one plain news query; off-market/off-topic demotion; suppress restated "Taking…" lines; answer from thread when research is off-topic; input-token estimate ~chars/4 (was ~5x too high); multi-beat rundown guidance. | 653 worker tests. |
+| `25b005b` | SSE keeps `no-transform` under the auth hook; poll ceiling 500 ms + heartbeat; live label "Planning research" / "Researching" / "Writing answer"; `prestream_ms` diagnostic. | 732 app tests. "Planning research" visible within ~3 s of send. |
+
+### Regression results after `25b005b`
+
+| Prompt | Before | After |
+|---|---|---|
+| R1 rundown scan | One raw-prompt search, five day-old police items, aggregator lead | 4 planned queries (TPS releases, Ontario Newsroom, weather, "Toronto news top stories"); 8 sources from TPS, CityNews, Global, CP24; sorted into holds / could move / weak; mayoral-campaign angle; no closer. ~15 s. |
+| R2 timeline | One search; still cited the aggregator | Finds CityNews, CTV, Global, National Post, CBC, CP24, canada.ca; separates DND-confirmed from police-alleged; pushes back on the "three accused / July" framing with evidence and a safe recommended framing. Gap: the newer National Post "third soldier" piece appeared only as an aggregator repost (dropped) or ranked 5th in a people-name query (outside the top 8). |
+| R3 reportability | Five marketing pages, "re-supply the sources" | Realistic gets vs long shots, visuals actually available, three must-confirms with the exact conflict between CP24 and Global charge lists, who else has it. |
+| R4 scripts, no research | Searched anyway, dropped the news hook, markers inside copy | No search (thread mode), ~5 s; intro ~38 words, VO ~105 words; no markers in spoken lines; `SOURCES:` line; one specific editorial note. |
+| R5 coverage comparison | Classified "no research", refused, leaked routing context | Researches CPSO + each outlet; finds both CBC and Global run the same CP byline; names the quoted spokesperson; identifies the missing patient voice and the Oct 13 board peg. |
+| R6 Markdown brief | Failed after 4 min, no answer | Finishes with a partial cited brief after ~4 min. Still too slow and thin: deliverable path now being changed to reuse the planned research before entering the tool loop. |
+| R7 composer draft | Old prompt prefilled, new prompt spliced in | Composer empty after send. |
+| Producer brief action | n/a | Carries all 8 thread citations, no new research, confirmed/alleged/not-established sections, booking read, must-confirm list. |
+
+### Open items carried forward
+- Aggregator-to-original recovery (re-query the dropped aggregator's headline) and "prefer the newest piece from the same outlet" so the newest development is not lost.
+- Deliverable requests: planned research first, then a short publish loop (in progress).
+- Iteration 3 (show memory, story ledger, rundown line/tease actions) per the scratch design.
+- Live eval: add R1–R7 to the weekly prompt set; track pursued/used/corrected per answer.
