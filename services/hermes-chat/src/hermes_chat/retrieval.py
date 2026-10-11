@@ -1213,7 +1213,7 @@ def retrieval_readiness(config: RetrievalConfig | None = None) -> dict[str, obje
     }
 
 
-SOURCE_TYPES = ("official", "primary", "news_report", "social_post", "user_document", "commercial", "unknown")
+SOURCE_TYPES = ("official", "primary", "news_report", "aggregator", "social_post", "user_document", "commercial", "unknown")
 _SOURCE_FIELDS = {"citationNumber", "title", "url", "publicationDate", "sourceType", "supportingExcerpt", "retrieval"}
 _SOURCE_MARKER = re.compile(r"<!-- newscraft-retrieval:v1:[A-Za-z0-9_-]+ -->")
 

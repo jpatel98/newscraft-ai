@@ -3,6 +3,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,7 @@ from hermes_chat.model_adapters import OpenAIResponses, AnthropicMessages, DeepS
 from hermes_chat.portable import PortableAgentRunner, RunError, RecoveryPending
 from hermes_chat.retrieval import ResearchTools, NewsCraftWebProvider, RetrievalConfig
 from hermes_chat.search_adapters import PublicSearch, OpenAISearch
+from hermes_chat import research_plan
 from test_retrieval import FakeFetcher, SOURCE_URL
 
 
@@ -983,6 +985,256 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         sources = {n: {"url": "https://example.test/" + "a" * 1500 + str(n)} for n in (1, 2)}
         with self.assertRaisesRegex(ValueError, "cell"):
             PortableAgentRunner.artifact("publish_csv", {"title": "Table", "columns": ["Claim"], "rows": [["Text"]], "row_citations": [[1, 2]]}, sources, True)
+
+    # ---- Planned research in the fast path ----------------------------------------------------------------------
+
+    def fast_payload(self, request, *, required=None, newsroom=None, prior=(), subject=None):
+        turn = {"resolvedRequest": request}
+        if required is not None:
+            turn["researchRequired"] = required
+        if subject:
+            turn["researchContract"] = {"subject": subject}
+        context = [{"description": "Conversation context", "value": json.dumps({"currentTurn": turn})}]
+        if newsroom is not None:
+            context.append({"description": "Newsroom context", "value": json.dumps(newsroom)})
+        return {"threadId": "conversation-one", "messages": [*prior, {"role": "user", "content": request}], "context": context}
+
+    @staticmethod
+    def fast_page(url, title, sentence, published="2026-10-09T12:00:00Z"):
+        return {"url": url, "title": title, "text": sentence + " " + "Background detail follows for context. " * 12, "publishedAt": published}
+
+    def fake_exa(self, by_query=None, default=(), fail=()):
+        calls = []
+        async def exa(api_key, query, **kwargs):
+            calls.append({"query": query, **kwargs})
+            if query in fail:
+                raise RuntimeError("exa down")
+            return [dict(page) for page in (by_query or {}).get(query, default)]
+        return exa, calls
+
+    async def collect_fast(self, runner, payload, exa, seeded=None):
+        with patch.dict(os.environ, {"EXA_API_KEY": "test-key"}), patch("hermes_chat.portable.exa_pages", new=exa):
+            return [event async for event in runner.run(payload, self.runtime, "run-one", seeded_citations=seeded)]
+
+    def model_prompts(self):
+        return [json.dumps(body["input"]) for _, body, _ in self.requests]
+
+    @staticmethod
+    def final_answer(events):
+        return next(e for e in events if e.get("name") == "newscraft.answer")["value"]["content"]
+
+    @staticmethod
+    def snapshot_sources(events):
+        return [e for e in events if e["type"] == "STATE_SNAPSHOT"][-1]["snapshot"]["newscraftSources"]
+
+    SOLDIER_TEXT = "The Toronto Police Service said three soldiers were charged on Oct. 9 after the August incident."
+
+    async def test_planner_queries_run_verbatim_in_parallel_and_stream_tool_activity_after_the_plan(self):
+        plan = {"mode": "research", "assumption": "", "queries": [
+            {"q": "Toronto Police soldiers charged October 2026", "intent": "official", "days": 14, "domains": []},
+            {"q": "Toronto soldiers charged CBC", "intent": "news", "days": 14, "domains": []}]}
+        exa, calls = self.fake_exa({
+            "Toronto Police soldiers charged October 2026": [self.fast_page("https://www.tps.ca/media/release-1", "TPS release", self.SOLDIER_TEXT)],
+            "Toronto soldiers charged CBC": [self.fast_page("https://www.cbc.ca/news/toronto/soldiers-1", "CBC report", "CBC reports that three soldiers face charges in Toronto.")]})
+        runner = self.runner([answer(json.dumps(plan)), answer("Three soldiers were charged. [1] CBC matches. [2]")])
+        user_sentence = "Go with the soldier story, full timeline, primary sources only"
+        events = await self.collect_fast(runner, self.fast_payload(user_sentence, newsroom={"timezone": "America/Toronto", "homeMarket": "Toronto"}), exa)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual({c["query"] for c in calls}, {"Toronto Police soldiers charged October 2026", "Toronto soldiers charged CBC"})
+        self.assertNotIn(user_sentence, [c["query"] for c in calls])
+        by_query = {c["query"]: c for c in calls}
+        self.assertEqual(by_query["Toronto Police soldiers charged October 2026"]["include_domains"], ["tps.ca"])  # Official intent aims at the publisher.
+        self.assertIsNone(by_query["Toronto soldiers charged CBC"]["include_domains"])
+        self.assertTrue(by_query["Toronto soldiers charged CBC"]["since"])  # days=14
+        # Plan first, then every search starts before the first one reports.
+        kinds = [(e["type"], e.get("name")) for e in events]
+        first_plan, first_result = kinds.index(("CUSTOM", "newscraft.plan")), next(i for i, k in enumerate(kinds) if k[0] == "TOOL_CALL_RESULT")
+        starts = [i for i, k in enumerate(kinds) if k[0] == "TOOL_CALL_START"]
+        self.assertLess(first_plan, starts[0])
+        self.assertEqual(len(starts), 2)
+        self.assertTrue(all(i < first_result for i in starts))
+        args = [json.loads(e["delta"])["query"] for e in events if e["type"] == "TOOL_CALL_ARGS"]
+        self.assertEqual(sorted(args), sorted(by_query))
+        plans = [e["value"]["steps"] for e in events if e.get("name") == "newscraft.plan"]
+        self.assertEqual([s["label"] for s in plans[0]], ["Search: Toronto Police soldiers charged October 2026", "Search: Toronto soldiers charged CBC", "Write answer"])
+        self.assertEqual([s["status"] for s in plans[0]], ["running", "running", "pending"])
+        self.assertTrue(all(step["status"] == "ok" for step in plans[-1]))
+        self.assertLess(max(i for i, k in enumerate(kinds) if k == ("CUSTOM", "newscraft.plan")), kinds.index(("CUSTOM", "newscraft.answer")))
+        # Official ranks first and is recorded as such; the news report is a news report.
+        sources = self.snapshot_sources(events)
+        self.assertEqual([(s["citationNumber"], s["sourceType"], s["url"]) for s in sources],
+                         [(1, "official", "https://www.tps.ca/media/release-1"), (2, "news_report", "https://www.cbc.ca/news/toronto/soldiers-1")])
+        # Planner call: tool-free, capped, and given the newsroom context; writer call: the numbered listing.
+        planner_body, writer_body = self.requests[0][1], self.requests[1][1]
+        self.assertEqual(planner_body["tools"], [])
+        self.assertEqual(planner_body["max_output_tokens"], 400)
+        self.assertIn("Home market: Toronto", self.model_prompts()[0])
+        self.assertIn(user_sentence, self.model_prompts()[0])
+        self.assertIn("[1] TPS release", self.model_prompts()[1])
+        self.assertEqual(writer_body["instructions"], planner_body["instructions"])
+
+    async def test_assumption_is_requested_as_the_first_answer_line(self):
+        plan = {"mode": "research", "assumption": "'the OTT show' as your Ottawa program", "queries": [{"q": "Ottawa news this week", "intent": "local", "days": 7, "domains": []}]}
+        exa, _ = self.fake_exa(default=[self.fast_page("https://ottawacitizen.com/a", "Citizen", "Ottawa city council voted on Oct. 8 to approve the budget.")])
+        runner = self.runner([answer(json.dumps(plan)), answer("Taking 'the OTT show' as your Ottawa program.\nCouncil approved the budget. [1]")])
+        events = await self.collect_fast(runner, self.fast_payload("anything new for the OTT show this week?"), exa)
+        self.assertIn("Taking 'the OTT show' as your Ottawa program.", self.model_prompts()[1])
+        self.assertTrue(self.final_answer(events).startswith("Taking 'the OTT show'"))
+
+    def seeded_cp24(self):
+        return [{"citationNumber": 3, "title": "Earlier CP24 report", "url": "https://www.cp24.com/news/earlier-1", "domain": "www.cp24.com",
+                 "publicationDate": "2026-10-08T10:00:00Z", "sourceType": "news_report",
+                 "supportingExcerpt": "Three soldiers were charged after the August incident, the report said."}]
+
+    async def test_thread_sources_keep_their_numbers_in_the_prompt_the_answer_and_the_snapshot(self):
+        plan = {"mode": "research", "assumption": "", "queries": [{"q": "soldiers charged Toronto court date", "intent": "news", "days": 7, "domains": []}]}
+        exa, calls = self.fake_exa(default=[
+            self.fast_page("https://www.cp24.com/news/earlier-1", "Earlier CP24 report", "The same article again with fresh page text, long enough to matter."),
+            self.fast_page("https://www.ctvnews.ca/toronto/court-1", "CTV court", "A court date was set for Nov. 3 for the three soldiers, CTV reported.")])
+        runner = self.runner([answer(json.dumps(plan)), answer("Three soldiers face charges. [3] Court date is Nov. 3. [4] Unknown marker. [9]")])
+        events = await self.collect_fast(runner, self.fast_payload("what is the court status", prior=[
+            {"role": "user", "content": "soldier story"}, {"role": "assistant", "content": "Three soldiers were charged. [3]"}]), exa, self.seeded_cp24())
+        writer = self.model_prompts()[1]
+        self.assertIn("[3] Earlier CP24 report", writer)
+        self.assertIn("Three soldiers were charged after the August incident", writer)
+        self.assertIn("[4] CTV court", writer)
+        self.assertNotIn("The same article again", writer)  # A page the thread already holds is not re-numbered.
+        answer_text = self.final_answer(events)
+        self.assertIn("[3]", answer_text)
+        self.assertIn("[4]", answer_text)
+        self.assertNotIn("[9]", answer_text)
+        sources = self.snapshot_sources(events)
+        self.assertEqual([s["citationNumber"] for s in sources], [3, 4])
+        self.assertEqual(sources[0]["url"], "https://www.cp24.com/news/earlier-1")
+        self.assertIn("Earlier CP24 report", self.model_prompts()[0])  # The planner sees what is already recorded.
+
+    async def test_research_not_required_skips_planner_and_search_but_still_answers_from_the_thread(self):
+        exa, calls = self.fake_exa()
+        runner = self.runner([answer("Anchor intro: three soldiers face charges. [3]")])
+        events = await self.collect_fast(runner, self.fast_payload("No new research. Write a 15 second anchor intro.", required=False), exa, self.seeded_cp24())
+        self.assertEqual(calls, [])
+        self.assertEqual(len(self.requests), 1)  # No planner call.
+        self.assertEqual(self.final_answer(events), "Anchor intro: three soldiers face charges. [3]")
+        self.assertNotIn("TOOL_CALL_START", {e["type"] for e in events})
+        self.assertIn("[3] Earlier CP24 report", self.model_prompts()[0])
+        plans = [e["value"]["steps"] for e in events if e.get("name") == "newscraft.plan"]
+        self.assertEqual([[s["label"] for s in p] for p in plans], [["Answer from this conversation"]] * 2)
+        self.assertEqual(plans[-1][0]["status"], "ok")
+        self.assertEqual([s["citationNumber"] for s in self.snapshot_sources(events)], [3])
+
+    async def test_planner_thread_mode_answers_from_the_thread_without_searching(self):
+        exa, calls = self.fake_exa()
+        runner = self.runner([answer('{"mode": "thread", "assumption": "", "queries": []}'), answer("Rewrite. [3]")])
+        events = await self.collect_fast(runner, self.fast_payload("make it shorter"), exa, self.seeded_cp24())
+        self.assertEqual(calls, [])
+        self.assertEqual(len(self.requests), 2)
+        self.assertIn("rather than refusing", self.model_prompts()[1])
+        self.assertEqual(self.final_answer(events), "Rewrite. [3]")
+
+    async def test_required_research_overrides_a_planner_that_says_thread(self):
+        exa, calls = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC", self.SOLDIER_TEXT)])
+        runner = self.runner([answer('{"mode": "thread", "assumption": "", "queries": []}'), answer("Charged. [1]")])
+        await self.collect_fast(runner, self.fast_payload("who is covering this", required=True, subject="Toronto soldiers case"), exa)
+        self.assertEqual([c["query"] for c in calls][0], "Toronto soldiers case")
+        self.assertEqual(len(calls), 2)
+
+    async def test_aggregator_page_is_dropped_when_three_better_pages_exist_and_kept_and_typed_when_alone(self):
+        plan = {"mode": "research", "assumption": "", "queries": [{"q": "ottawa budget vote", "intent": "news", "days": 3, "domains": []}]}
+        pages = [self.fast_page("https://www.the1news.com/a", "Aggregated", "Aggregator says council voted on the budget on Oct. 9."),
+                 self.fast_page("https://www.cbc.ca/a", "CBC", "CBC says council voted on the budget on Oct. 9 by seven to four."),
+                 self.fast_page("https://www.ctvnews.ca/a", "CTV", "CTV says council voted on the budget on Oct. 9 after a long debate."),
+                 self.fast_page("https://ottawa.ca/en/news/a", "City release", "The City of Ottawa said council approved the budget on Oct. 9.")]
+        exa, _ = self.fake_exa(default=pages)
+        runner = self.runner([answer(json.dumps(plan)), answer("Council approved it. [1]")])
+        events = await self.collect_fast(runner, self.fast_payload("ottawa budget"), exa)
+        self.assertNotIn("the1news.com", self.model_prompts()[1])
+        self.assertEqual(self.snapshot_sources(events)[0]["sourceType"], "official")
+        # Alone, the aggregator is still usable but typed and labelled so the UI can warn about it.
+        self.store, self.requests = Store(), []
+        exa, _ = self.fake_exa(default=[pages[0], self.fast_page("https://www.newsbreak.com/b", "Newsbreak", "Newsbreak says council voted on the budget on Oct. 9 as well.")])
+        runner = self.runner([answer(json.dumps(plan)), answer("Council voted. [1]")])
+        events = await self.collect_fast(runner, self.fast_payload("ottawa budget"), exa)
+        self.assertIn("aggregator", self.model_prompts()[1])
+        self.assertEqual(self.snapshot_sources(events)[0]["sourceType"], "aggregator")
+
+    async def test_planner_garbage_falls_back_to_subject_queries(self):
+        exa, calls = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC", self.SOLDIER_TEXT)])
+        runner = self.runner([answer("I would search for things, sorry"), answer("Charged. [1]")])
+        events = await self.collect_fast(runner, self.fast_payload("tell me about the case", subject="Toronto soldiers case"), exa)
+        month = research_plan.newsroom_now(research_plan.DEFAULT_TIMEZONE).strftime("%B %Y")
+        self.assertEqual(sorted(c["query"] for c in calls), sorted(["Toronto soldiers case", f"Toronto soldiers case {month}"]))
+        self.assertEqual(self.final_answer(events), "Charged. [1]")
+
+    async def test_planner_timeout_falls_back_and_the_writer_still_runs(self):
+        exa, calls = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC", self.SOLDIER_TEXT)])
+        runner = self.runner([answer("Charged. [1]")])
+        real = runner.model.complete
+        started = []
+        async def slow_first(**kwargs):
+            if not started:
+                started.append(True)
+                await asyncio.sleep(5)
+            return await real(**kwargs)
+        runner.model.complete = slow_first
+        with patch("hermes_chat.portable.PLANNER_SECONDS", 0.05):
+            events = await self.collect_fast(runner, self.fast_payload("the case"), exa)
+        self.assertEqual(sorted(c["query"] for c in calls)[0], "the case")
+        self.assertEqual(self.final_answer(events), "Charged. [1]")
+        self.assertEqual(len(self.requests), 1)  # Only the writer call reached the provider.
+
+    async def test_planner_call_failure_falls_back(self):
+        exa, calls = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC", self.SOLDIER_TEXT)])
+        runner = self.runner([httpx.ConnectError("down"), answer("Charged. [1]")])
+        events = await self.collect_fast(runner, self.fast_payload("the case"), exa)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.final_answer(events), "Charged. [1]")
+
+    async def test_search_allowance_truncates_the_plan_and_preferred_domains_add_one_restricted_query(self):
+        queries = [{"q": f"query {n}", "intent": "news", "days": None, "domains": []} for n in range(4)]
+        exa, calls = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC", self.SOLDIER_TEXT)])
+        self.settings.max_search_calls = 2
+        runner = self.runner([answer(json.dumps({"mode": "research", "queries": queries})), answer("Charged. [1]")])
+        await self.collect_fast(runner, self.fast_payload("the case"), exa)
+        self.assertEqual([c["query"] for c in calls], ["query 0", "query 1"])
+        self.assertEqual(self.store.data["state"]["search_reserved"], 2)
+        # With room to spare, one extra query repeats the first plan query inside the newsroom's preferred domains.
+        self.settings.max_search_calls, self.store, self.requests = 5, Store(), []
+        exa, calls = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC", self.SOLDIER_TEXT)])
+        runner = self.runner([answer(json.dumps({"mode": "research", "queries": queries[:2]})), answer("Charged. [1]")])
+        events = await self.collect_fast(runner, self.fast_payload("the case", newsroom={"timezone": "America/Toronto", "preferredDomains": ["cp24.com", "thestar.com"]}), exa)
+        self.assertEqual(len(calls), 3)
+        restricted = [c for c in calls if c["include_domains"]]
+        self.assertEqual([(c["query"], c["include_domains"]) for c in restricted], [("query 0", ["cp24.com", "thestar.com"])])
+        plan = next(e for e in events if e.get("name") == "newscraft.plan")["value"]["steps"]
+        self.assertEqual(plan[2]["label"], "Search preferred sources: query 0")
+
+    async def test_ddgs_fallback_runs_when_exa_finds_too_little_and_streams_its_searches(self):
+        plan = {"mode": "research", "assumption": "", "queries": [{"q": "confirmed event details", "intent": "news", "days": None, "domains": []}]}
+        exa, calls = self.fake_exa(default=[])
+        runner = self.runner([answer(json.dumps(plan)), answer("The source reports a confirmed event. [1]")])
+        events = await self.collect_fast(runner, self.fast_payload("what happened"), exa)
+        names = [e["toolCallName"] for e in events if e["type"] == "TOOL_CALL_START"]
+        self.assertEqual(names, ["web_search", "web_search", "verify_this_lead"])
+        self.assertEqual([s["url"] for s in self.snapshot_sources(events)], [SOURCE_URL])
+        self.assertEqual(len(calls), 1)
+
+    async def test_exa_failure_marks_the_plan_step_failed_and_does_not_fail_the_run(self):
+        plan = {"mode": "research", "assumption": "", "queries": [{"q": "first", "intent": "news", "days": None, "domains": []}, {"q": "second", "intent": "news", "days": None, "domains": []}]}
+        exa, _ = self.fake_exa({"second": [self.fast_page("https://www.cbc.ca/a", "CBC", self.SOLDIER_TEXT), self.fast_page("https://www.ctvnews.ca/a", "CTV", self.SOLDIER_TEXT + " Extra.")]}, fail={"first"})
+        runner = self.runner([answer(json.dumps(plan)), answer("Charged. [1]")])
+        events = await self.collect_fast(runner, self.fast_payload("the case"), exa)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        failed = [e for e in events if e["type"] == "TOOL_CALL_RESULT" and e["status"] == "failed"]
+        self.assertEqual(len(failed), 1)
+        self.assertTrue(any(any(s["status"] == "failed" for s in e["value"]["steps"]) for e in events if e.get("name") == "newscraft.plan"))
+
+    async def test_planner_reservation_is_charged_against_the_run_budget(self):
+        exa, _ = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC", self.SOLDIER_TEXT)])
+        runner = self.runner([answer('{"mode": "research", "queries": [{"q": "case"}]}'), answer("Charged. [1]")])
+        await self.collect_fast(runner, self.fast_payload("the case"), exa)
+        budget = self.store.data["state"]["budget"]
+        self.assertEqual(budget["output_tokens"], 400 + self.settings.max_output_tokens)
+        self.assertEqual(self.store.data["state"]["steps"], 2)
 
 
 class SearchTests(unittest.TestCase):
