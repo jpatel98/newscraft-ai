@@ -816,7 +816,10 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 						activeRunStatus = snapshot.status || snapshot.state;
 						if (activeRunStatus === 'failed') durableFailureSeen = true;
 						if (cancelRequested) void submitDurableCancel();
-						updateAssistantOverlay({ durableState: activeRunStatus });
+						updateAssistantOverlay({
+							durableState: activeRunStatus,
+							...(activeRunStatus === 'failed' ? { durableError: snapshot.errorMessage ?? null } : {})
+						});
 						if (snapshot.answerText !== asstText) {
 							asstText = snapshot.answerText;
 							updateAssistantOverlay({ content: asstText });
@@ -837,7 +840,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 							else chat.pushTool(tool);
 						}
 					},
-					onRunState: (state: string) => {
+					onRunState: (state: string, errorMessage?: string | null) => {
 						noteStreamEstablished();
 						activeRunStatus = state;
 						if (state === 'failed') durableFailureSeen = true;
@@ -849,6 +852,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 						}
 						updateAssistantOverlay({
 							durableState: state,
+							...(state === 'failed' && errorMessage !== undefined ? { durableError: errorMessage } : {}),
 							...(terminal
 								? { partial: state !== 'complete', streaming: false }
 								: {})

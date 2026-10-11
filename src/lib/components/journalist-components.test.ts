@@ -73,4 +73,11 @@ describe('journalist trust components', () => {
 		expect(composer).toContain('e.preventDefault();');
 		expect(composer).toContain('e.stopPropagation();');
 	});
+
+	it('explains a failed run next to the Retry button without raw technical text', () => {
+		const thread = source('./Thread.svelte');
+		expect(thread).toContain('durableFailureReason(m.durableError)');
+		expect(thread).toContain('data-testid="run-failure-reason"');
+		expect(thread).toContain('onRetryPersisted?.()');
+	});
 });

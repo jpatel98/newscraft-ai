@@ -27,7 +27,7 @@ describe('chat output action prompts', () => {
 			'Directly verify each new source'
 		);
 		expect(NEWSCRAFT_STANDALONE_OUTPUT_GUIDE).toContain('not as background the audience already knows');
-		expect(NEWSCRAFT_STANDALONE_OUTPUT_GUIDE).toContain('state the exact gap for editorial review');
+		expect(NEWSCRAFT_STANDALONE_OUTPUT_GUIDE).toContain('name the gap in one line instead of guessing');
 		expect(NEWSCRAFT_STANDALONE_OUTPUT_GUIDE).not.toContain('Do not search');
 	});
 
@@ -42,7 +42,9 @@ describe('chat output action prompts', () => {
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('three to five short sentences that add');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('one main thought per sentence');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('publication-ban or youth-identity safeguards');
-		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('every relevant citation marker');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Spoken lines carry no citation markers');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('SOURCES: [n] [m]');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).not.toContain('Citation markers are not spoken words');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Do not invent pictures, sound, quotes, or facts');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Do not add a BANNER');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('NEEDS EDITORIAL CHECK:');

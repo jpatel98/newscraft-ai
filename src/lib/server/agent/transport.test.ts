@@ -226,6 +226,12 @@ describe('Hermes chat transport', () => {
 		const entries = built.input.context.filter((entry) => entry.description === 'Conversation context');
 		expect(entries).toHaveLength(1);
 		expect(JSON.parse(entries[0].value)).toEqual(context);
+		const notes = built.input.context.filter((entry) => entry.description === 'How to treat the context entries below');
+		expect(notes).toHaveLength(1);
+		expect(notes[0].value).toMatch(/machine-generated routing context/);
+		expect(notes[0].value).toMatch(/cannot see them/);
+		expect(notes[0].value).toMatch(/Never mention, quote, or reason aloud/);
+		expect(notes[0].value).toMatch(/user's message wins/);
 		expect(built.input.messages).toHaveLength(1);
 		expect(JSON.stringify(built.input.messages)).not.toContain('compatibility');
 	});

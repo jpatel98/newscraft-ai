@@ -1781,9 +1781,22 @@ body,
 	color: var(--caution-700);
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
+	flex-wrap: wrap;
+	max-width: 100%;
+	min-width: 0;
 }
 .msg__resume__label {
 	font-weight: 600;
+}
+.msg__resume__reason {
+	min-width: 0;
+	flex: 1 1 14rem;
+	font-family: var(--font-body, inherit);
+	font-size: 12px;
+	text-transform: none;
+	letter-spacing: 0;
+	color: var(--fg-2);
+	overflow-wrap: anywhere;
 }
 .msg__resume__btn {
 	background: transparent;

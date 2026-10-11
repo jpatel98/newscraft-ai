@@ -122,6 +122,7 @@ const CITATION_SOURCE_TYPES = new Set<CitationSourceType>([
 	'social_post',
 	'user_document',
 	'commercial',
+	'aggregator',
 	'unknown'
 ]);
 

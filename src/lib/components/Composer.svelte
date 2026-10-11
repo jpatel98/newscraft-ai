@@ -454,6 +454,9 @@
 			attachments = [];
 			documentAttachments = [];
 			attachError = null;
+			// The draft is gone from storage as soon as the send starts; a failed
+			// send restores it through restoreFailedSend and the draft effect.
+			writeComposerDraft(draftStorage(), draftStorageKey, '');
 			try {
 				void Promise.resolve(onSend(content, command, sentDocumentIds)).catch(() => {
 					restoreFailedSend(sentValue, sentAttachments, sentDocuments);
@@ -494,8 +497,10 @@
 				value = '';
 				attachments = [];
 			}
-			// Navigation unmounts the project composer before its draft effect can run.
-			if (projectId) writeComposerDraft(draftStorage(), submittedDraftKey, '');
+			// Navigation unmounts this composer before its draft effect can run, so
+			// clear the submitted draft explicitly for every draft key (home "new"
+			// included), otherwise the next visit prefills the already-sent prompt.
+			writeComposerDraft(draftStorage(), submittedDraftKey, '');
 		} catch {
 			attachError = CREATE_FAILURE_MESSAGE;
 			queueMicrotask(() => {

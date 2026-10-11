@@ -7,6 +7,7 @@ export type CitationSourceType =
 	| 'social_post'
 	| 'user_document'
 	| 'commercial'
+	| 'aggregator'
 	| 'unknown';
 
 export type ResearchEvidenceStatus =
@@ -206,6 +207,8 @@ export interface NewsroomContext {
 	timezone: string;
 	homeMarket?: string;
 	preferredDomains?: string[];
+	/** Current date and time in the newsroom timezone, e.g. "Saturday, October 10, 2026, 11:05 p.m. ET". */
+	today?: string;
 	sourceProfile?: ResearchSourceProfile;
 }
 
@@ -266,8 +269,12 @@ export interface ConversationCurrentTurn {
 	/** Concrete task to execute now. Normally identical to the authoritative instruction. */
 	resolvedRequest: string;
 	operation: ConversationOperation;
-	/** Routes this turn directly through research before synthesis. */
-	researchRequired: boolean;
+	/**
+	 * Tri-state research routing. `true`: current-news/verification request, research first.
+	 * `false`: explicit user instruction (or output action) to use what the thread already has.
+	 * Omitted: the worker's research planner decides.
+	 */
+	researchRequired?: boolean;
 	/** Makes verified research available without requiring it for a complete source answer. */
 	researchAllowed?: boolean;
 	/** Current/latest results must be ordered newest-first and pass freshness checks. */

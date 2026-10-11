@@ -57,4 +57,16 @@ describe('composer draft storage', () => {
 		expect(readComposerDraft(storage, key)).toBe('');
 		expect(() => writeComposerDraft(storage, key, 'draft')).not.toThrow();
 	});
+
+	it('removes the home-page "new" draft once it is cleared after a successful send', () => {
+		const storage = memoryStorage();
+		const key = composerDraftStorageKey('new');
+		writeComposerDraft(storage, key, 'Find the latest on the council vote');
+		expect(readComposerDraft(storage, key)).toBe('Find the latest on the council vote');
+
+		writeComposerDraft(storage, key, '');
+
+		expect(readComposerDraft(storage, key)).toBe('');
+		expect(storage.getItem('newscraft:composer-draft:new')).toBeNull();
+	});
 });

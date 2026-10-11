@@ -88,6 +88,7 @@ import {
 	HermesRunRepositoryError
 } from '$lib/server/db/hermes-runs';
 import { hermesSubscriptionResponse } from '$lib/server/hermes-subscription';
+import { formatNewsroomToday } from '$lib/server/newsroom-today';
 import {
 	summarizeDurableRunTelemetry,
 	traceIdFromHermesInput
@@ -245,6 +246,10 @@ class NewsroomContextUnavailableError extends Error {
 	}
 }
 
+function withToday(context: NewsroomContext): NewsroomContext {
+	return { ...context, today: formatNewsroomToday(context.timezone) };
+}
+
 async function requestResearchContext(input: {
 	conversationId: string;
 	orgId: string | null;
@@ -272,7 +277,7 @@ async function requestResearchContext(input: {
 			throw new NewsroomContextUnavailableError();
 		}
 	}
-	if (!input.documentIds.length) return { newsroomContext, documents: [] };
+	if (!input.documentIds.length) return { newsroomContext: withToday(newsroomContext), documents: [] };
 
 	const service = getConversationDocumentService();
 	let available: Awaited<ReturnType<typeof service.listDocuments>>;
@@ -316,7 +321,7 @@ async function requestResearchContext(input: {
 		next.pages.push({ pageNumber: page.pageNumber, text: page.text });
 		grouped.set(page.documentId, next);
 	}
-	return { newsroomContext, documents: Array.from(grouped.values()) };
+	return { newsroomContext: withToday(newsroomContext), documents: Array.from(grouped.values()) };
 }
 
 async function validateRequestedDocuments(
@@ -997,7 +1002,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		conversationContextBytes: new TextEncoder().encode(JSON.stringify(conversationContext)).byteLength,
 		currentMessageId: conversationContext.currentTurn?.messageId ?? null,
 		operation: conversationContext.currentTurn?.operation ?? null,
-		researchRequired: conversationContext.currentTurn?.researchRequired ?? false,
+		researchRequired: conversationContext.currentTurn?.researchRequired ?? null,
 		freshness: conversationContext.currentTurn?.freshness ?? null,
 		recentTurnCount: conversationContext.recentTurns?.length ?? 0,
 		reasoningEffort
@@ -1104,8 +1109,10 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			}
 		);
 	}
+	// researchRequired is tri-state: undefined leaves the decision to the worker's
+	// research planner, so tools stay available unless the user explicitly said not to search.
 	const researchToolsEnabled =
-		conversationContext.currentTurn?.researchRequired === true ||
+		conversationContext.currentTurn?.researchRequired !== false ||
 		conversationContext.currentTurn?.researchAllowed === true;
 
 	const sessionId = deriveSessionId(history, `${accountId}:${convoId}`);

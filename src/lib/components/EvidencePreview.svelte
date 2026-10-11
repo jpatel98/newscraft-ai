@@ -106,7 +106,9 @@
 		<div class="evidence-preview__meta">
 			<span>{publicationDateLabel(citation.publicationDate)}</span>
 			<span aria-hidden="true">·</span>
-			<span>{citationSourceTypeLabel(citation.sourceType)}</span>
+			<span class="evidence-preview__badge evidence-preview__badge--{citation.sourceType}"
+				>{citationSourceTypeLabel(citation.sourceType)}</span
+			>
 			{#if citation.documentPage}
 				<span aria-hidden="true">·</span>
 				<span>Page {citation.documentPage}</span>
@@ -256,6 +258,26 @@
 		font-size: 10.5px;
 		color: var(--fg-3);
 		letter-spacing: 0;
+	}
+
+	.evidence-preview__badge {
+		padding: 1px 6px;
+		border: 1px solid var(--border-default);
+		border-radius: 999px;
+		color: var(--fg-2);
+		line-height: 1.5;
+	}
+
+	.evidence-preview__badge--aggregator {
+		border-color: var(--status-review);
+		background: var(--status-review-bg);
+		color: var(--status-review-fg);
+	}
+
+	.evidence-preview__badge--official {
+		border-color: var(--status-verified);
+		background: var(--status-verified-bg);
+		color: var(--status-verified-fg);
 	}
 
 	.evidence-preview__excerpt {

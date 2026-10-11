@@ -17,7 +17,7 @@
 	import { formatShortTime } from '$lib/utils/time';
 	import { tick } from 'svelte';
 	import type { HistoryGap } from '$lib/client/message-history';
-	import { durableRunPresentation } from '$lib/utils/durable-run-presentation';
+	import { durableFailureReason, durableRunPresentation } from '$lib/utils/durable-run-presentation';
 	import { parseToolMetadata, sourceReceiptsForAnswer } from '$lib/utils/tool-metadata';
 	import {
 		answerExportUrl,
@@ -398,6 +398,7 @@
 						: []}
 				{@const failure = m.failure}
 				{@const runPresentation = durableRunPresentation(m.durableState)}
+				{@const failureReason = m.durableState === 'failed' ? durableFailureReason(m.durableError) : null}
 				{#each history.gaps.filter((gap) => gap.before.id === m.id) as gap (gap.id)}
 					<div class="history-gap" data-testid="history-gap" role="separator">
 						<span>Some messages are not loaded.</span>
@@ -515,6 +516,9 @@
 						{:else if m.role === 'assistant' && m.partial && !m.streaming && runPresentation?.retryable}
 							<div class="msg__resume" role="status">
 								<span class="msg__resume__label">{runPresentation.label}</span>
+								{#if failureReason}
+									<span class="msg__resume__reason" data-testid="run-failure-reason">{failureReason}</span>
+								{/if}
 								{#if onRetryPersisted}
 									<button type="button" class="msg__resume__btn msg__resume__btn--primary" onclick={() => onRetryPersisted?.()}>Retry</button>
 								{/if}
@@ -546,6 +550,9 @@
 						{#if m.role === 'assistant' && failure?.retryable}
 							<div class="msg__resume" role="status">
 								<span class="msg__resume__label">Send failed</span>
+								{#if failureReason}
+									<span class="msg__resume__reason" data-testid="run-failure-reason">{failureReason}</span>
+								{/if}
 								{#if onRetryFailure}
 									<button
 										type="button"
@@ -699,7 +706,8 @@
 		position: relative;
 		flex: 1;
 		min-height: 0;
-		min-width: 0;
+		/* Never let a sibling pane squeeze the thread to a sliver. */
+		min-width: min(100%, 320px);
 		display: grid;
 		grid-template-rows: minmax(0, 1fr) auto;
 	}

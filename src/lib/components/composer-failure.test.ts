@@ -44,4 +44,21 @@ describe('Composer failure preservation', () => {
 		expect(firstValueClear).toBeGreaterThan(firstGoto);
 		expect(firstAttachmentClear).toBeGreaterThan(firstGoto);
 	});
+
+	it('clears the submitted draft key after a successful create-and-navigate send, for every draft key', () => {
+		const gotoStart = source.indexOf('await goto', source.indexOf("fetch('/api/conversations'"));
+		const clear = source.indexOf("writeComposerDraft(draftStorage(), submittedDraftKey, '');", gotoStart);
+		const lastGoto = source.lastIndexOf('await goto');
+		expect(clear).toBeGreaterThan(lastGoto);
+		const preceding = source.slice(source.lastIndexOf('\n', clear - 1) - 80, clear);
+		expect(preceding).not.toContain('if (projectId)');
+		expect(source).not.toContain("if (projectId) writeComposerDraft(draftStorage(), submittedDraftKey, '')");
+	});
+
+	it('clears the per-thread draft as soon as a delegated send starts', () => {
+		const sendStart = source.indexOf('if (onSend) {');
+		const clear = source.indexOf("writeComposerDraft(draftStorage(), draftStorageKey, '');", sendStart);
+		expect(clear).toBeGreaterThan(sendStart);
+		expect(clear).toBeLessThan(source.indexOf('onSend(content, command, sentDocumentIds)', sendStart));
+	});
 });

@@ -129,7 +129,7 @@ describe('conversation context builder', () => {
 		});
 
 		expect(context.currentTurn?.resolvedRequest).toBe('Okay.');
-		expect(context.currentTurn?.researchRequired).toBe(false);
+		expect(context.currentTurn?.researchRequired).toBeUndefined();
 	});
 
 	it('lets the newest correction override an earlier entity and location', () => {
@@ -187,6 +187,55 @@ describe('conversation context builder', () => {
 		expect(conversationContextCompatibilityMessage(context)).toContain(leadUrl);
 	});
 
+	describe('research classifier is tri-state', () => {
+		const classify = (currentRequest: string, outputAction = false) =>
+			buildConversationContext({ messages: [], currentRequest, outputAction }).currentTurn
+				?.researchRequired;
+
+		it('forces research for multi-outlet coverage comparisons', () => {
+			expect(classify('How are CBC, the Star and Global covering the port strike differently?')).toBe(true);
+		});
+
+		it('honours an explicit instruction to use what the thread already established', () => {
+			expect(
+				classify('No new research needed - use what we established above. Write me a 15-second intro')
+			).toBe(false);
+			expect(classify("Don't search, just tighten this.")).toBe(false);
+			expect(classify('Rewrite this from the timeline.')).toBe(false);
+			expect(classify('Shorten the last answer without new research.')).toBe(false);
+		});
+
+		it('leaves ordinary and conceptual requests to the planner', () => {
+			expect(classify('Write a sharper headline for this copy.')).toBeUndefined();
+			expect(classify('How do municipal budgets work?')).toBeUndefined();
+		});
+
+		it.each([
+			['Create a producer brief from this answer.'],
+			['Write a 30-second OC/VO from this answer.'],
+			['Draft interview questions from this answer.'],
+			['Turn this answer into clean copy with citations.']
+		])('never scans keywords for the output action: %s', (request) => {
+			const context = buildConversationContext({
+				messages: [],
+				currentRequest: request,
+				outputAction: true
+			});
+			expect(context.currentTurn?.researchRequired).toBe(false);
+			expect(context.currentTurn?.researchAllowed).toBe(true);
+		});
+
+		it('describes an undecided turn as planner-decided in the compatibility message', () => {
+			const context = buildConversationContext({
+				messages: [],
+				currentRequest: 'Write a sharper headline for this copy.'
+			});
+			expect(conversationContextCompatibilityMessage(context)).toContain(
+				'Research required: planner decides.'
+			);
+		});
+	});
+
 	it('does not force research for an ordinary writing request', () => {
 		const context = buildConversationContext({
 			messages: [],
@@ -195,9 +244,9 @@ describe('conversation context builder', () => {
 
 		expect(context.currentTurn).toMatchObject({
 			resolvedRequest: 'Write a sharper headline for this copy.',
-			researchRequired: false,
 			operation: 'send'
 		});
+		expect(context.currentTurn?.researchRequired).toBeUndefined();
 	});
 
 	it('does not mistake a conceptual explanation for live research', () => {
@@ -206,9 +255,7 @@ describe('conversation context builder', () => {
 			currentRequest: 'How do municipal budgets work?'
 		});
 
-		expect(context.currentTurn).toMatchObject({
-			researchRequired: false
-		});
+		expect(context.currentTurn?.researchRequired).toBeUndefined();
 		expect(context.currentTurn?.freshness).toBeUndefined();
 	});
 
@@ -359,7 +406,7 @@ describe('conversation context builder', () => {
 			currentRequest: 'Update this headline and find a stronger verb.'
 		});
 
-		expect(context.currentTurn?.researchRequired).toBe(false);
+		expect(context.currentTurn?.researchRequired).toBeUndefined();
 	});
 
 	it('does not mistake a reference to the last answer for a freshness request', () => {

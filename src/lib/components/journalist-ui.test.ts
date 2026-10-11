@@ -65,6 +65,9 @@ describe('journalist citation UI helpers', () => {
 
 	it('formats source metadata without replacing unknown dates', () => {
 		expect(citationSourceTypeLabel('user_document')).toBe('User document');
+		expect(citationSourceTypeLabel('aggregator')).toBe('Aggregator / repost');
+		expect(citationSourceTypeLabel('official')).toBe('Official source');
+		expect(citationSourceTypeLabel('news_report')).toBe('News report');
 		expect(publicationDateLabel(null)).toBe('Date unknown');
 		expect(publicationDateLabel('not-a-date')).toBe('not-a-date');
 	});

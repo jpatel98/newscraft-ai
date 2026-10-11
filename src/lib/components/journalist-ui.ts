@@ -104,6 +104,7 @@ export function citationSourceTypeLabel(sourceType: CitationSourceType): string 
 			social_post: 'Social post',
 			user_document: 'User document',
 			commercial: 'Commercial source',
+			aggregator: 'Aggregator / repost',
 			unknown: 'Source type unknown'
 		} satisfies Record<CitationSourceType, string>
 	)[sourceType];

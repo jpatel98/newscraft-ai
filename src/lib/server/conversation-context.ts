@@ -171,7 +171,7 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 	// The current user instruction is the task. Research starts on this turn;
 	// there is no intermediate proposal/approval state to resolve.
 	const resolvedRequest = currentRequest;
-	const researchRequired = requestNeedsResearch(resolvedRequest, diagnosticBound);
+	const researchRequired = requestNeedsResearch(resolvedRequest, diagnosticBound, Boolean(input.outputAction));
 	// A one-click transformation can use verified research to fill an essential
 	// gap, but a complete source answer must not trigger unnecessary research.
 	const researchAllowed = Boolean(input.outputAction);
@@ -213,10 +213,10 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 				content: currentRequest,
 				resolvedRequest,
 				operation,
-				researchRequired,
+				...(researchRequired !== undefined ? { researchRequired } : {}),
 				...(researchAllowed ? { researchAllowed: true } : {}),
 				...(isCurrentResearchRequest(resolvedRequest) ? { freshness: 'current' as const } : {}),
-				...(researchRequired || researchAllowed ? { researchContract } : {})
+				...(researchRequired !== false || researchAllowed ? { researchContract } : {})
 		},
 		...(recentTurns.length ? { recentTurns } : {}),
 		...(topicPrompt
@@ -251,7 +251,13 @@ export function conversationContextCompatibilityMessage(context: ConversationCon
 					...(context.currentTurn.resolvedRequest !== context.currentTurn.content
 						? [`Resolved task: ${context.currentTurn.resolvedRequest}`]
 						: []),
-					`Research required: ${context.currentTurn.researchRequired ? 'yes' : 'no'}.`,
+					`Research required: ${
+						context.currentTurn.researchRequired === undefined
+							? 'planner decides'
+							: context.currentTurn.researchRequired
+								? 'yes'
+								: 'no'
+					}.`,
 					...(context.currentTurn.researchAllowed
 						? ['Research allowed for essential gaps: yes.']
 						: [])
@@ -687,38 +693,43 @@ function recentConversationTurns(
 		.filter((turn) => Boolean(turn.content));
 }
 
-function requestNeedsResearch(value: string, diagnosticBound: boolean): boolean {
+const EXPLICIT_NO_RESEARCH_PATTERNS = [
+	/\bno\s+(?:(?:new|more|further|additional|fresh)\s+)?re-?search\b/i,
+	/\b(?:don'?t|do not|without)\s+(?:(?:any|new|fresh|more|additional)\s+)*(?:search(?:ing)?|re-?search(?:ing)?|brows(?:e|ing)|look(?:ing)?\s+(?:anything\s+)?up)\b/i,
+	/\bfrom what we(?:'ve)?\s+(?:have|had|established|know|found)\b/i,
+	/\buse what we(?:'ve)?\s+(?:have|had|established|found|know)\b/i,
+	/\bfrom the (?:timeline|answer|brief|notes|above|thread)\b/i,
+	/\bno need to (?:search|re-?search|look)\b/i
+];
+
+const CURRENT_OR_VERIFICATION_PATTERNS = [
+	/\b(?:latest|current|today|tonight|right now|breaking|newest|news)\b/i,
+	/\bwhat(?:'s| is)\s+new\b/i,
+	/\bwho else has\b/i,
+	/\bupdates?\s+(?:on|about|from|regarding)\b/i,
+	/\b(?:past|last)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|years?)\b/i,
+	/\b(?:search|research|browse|look up|gather|verify|confirm|fact[- ]?check|coverage|covering|covered|reporting|compare)\b/i,
+	/^(?:what|when|where|who|why|which|did|has|have|was|were)\b/i
+];
+
+/**
+ * Tri-state routing. A regex may force research (`true`) or honour an explicit
+ * user instruction not to research (`false`); everything else is `undefined`
+ * so the worker's research planner decides.
+ */
+function requestNeedsResearch(
+	value: string,
+	diagnosticBound: boolean,
+	outputAction = false
+): boolean | undefined {
+	if (outputAction) return false;
 	if (diagnosticBound && isConversationMetaDiagnosticRequest(value)) return false;
-	if (
-		/\b(?:do not|don't|without)\s+(?:(?:new|fresh|more|additional)\s+)?(?:re-?search|search|browse|look(?:ing)? up)\b/i.test(
-			value
-		)
-	) {
-		return false;
-	}
-	if (
-		/\b(?:rewrite|edit|polish|tighten|format|turn this into|draft (?:an?|the)|brainstorm|outline)\b/i.test(value) &&
-		!/\b(?:verify|research|search|sources?|citations?|current|latest|today)\b/i.test(value)
-	) {
-		return false;
-	}
-	if (
-		/^(?:explain|teach|define|how (?:do|does|are|were|can))\b/i.test(value.trim()) &&
-		!/\b(?:current|latest|today|now|recent|verify|research|search|sources?|citations?)\b/i.test(value)
-	) {
-		return false;
-	}
-	if (/^(?:correction:|actually\b|I mean\b)/i.test(value.trim())) return true;
-	return /\b(?:latest|current|today|tonight|right now|breaking|newest|news)\b/i.test(value) ||
-		/\bupdates?\s+(?:on|about|from|regarding)\b/i.test(value) ||
-		/\b(?:past|last)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|years?)\b/i.test(value) ||
-		/\b(?:search|research|browse|look up|gather|verify|confirm|fact[- ]?check|sources?|citations?|coverage|reporting)\b/i.test(
-			value
-		) ||
-		/\?$/.test(value.trim()) ||
-		/^(?:what|when|where|who|why|how|is|are|was|were|did|does|do|can|could|has|have|find|check|tell me|show me)\b/i.test(
-			value.trim()
-		);
+	if (EXPLICIT_NO_RESEARCH_PATTERNS.some((pattern) => pattern.test(value))) return false;
+	const trimmed = value.trim();
+	if (/^(?:correction:|actually\b|I mean\b)/i.test(trimmed)) return true;
+	if (CURRENT_OR_VERIFICATION_PATTERNS.some((pattern) => pattern.test(trimmed))) return true;
+	if (PUBLISHER_ALIASES.some(([, pattern]) => pattern.test(value))) return true;
+	return undefined;
 }
 
 function isCurrentResearchRequest(value: string): boolean {
