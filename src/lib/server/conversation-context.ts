@@ -83,7 +83,7 @@ const ENTITY_STOP_WORDS = new Set([
 
 const PUBLISHER_ALIASES: Array<[string, RegExp]> = [
 	['CBC', /\bCBC(?:\s+News)?\b/i],
-	['Global News', /\bGlobal(?:\s*News)?(?:\.ca)?\b/i],
+	['Global News', /\b(?:[Gg]lobal\s*[Nn]ews(?:\.ca)?|Global)\b/],
 	['CP24', /\bCP24(?:\.com)?\b/i],
 	['CTV News', /\bCTV(?:\s+News)?\b/i],
 	['CityNews', /\bCityNews\b/i],

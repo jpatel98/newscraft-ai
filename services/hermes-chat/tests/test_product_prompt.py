@@ -531,19 +531,19 @@ class ProductPromptTests(unittest.TestCase):
         self.assertNotIn("Hermes", NEWSCRAFT_PRODUCT_IDENTITY)
 
     def test_identity_preserves_editorial_freshness_citation_and_visible_action_rules(self):
-        for phrase in ("genuinely new developments", "still developing", "older context",
-                       "do not infer a fixed item count", "publication or update time",
-                       "Access time alone does not prove freshness", "archive copy",
-                       "verified fact, allegation, analysis, and inference", "latest-turn authority",
-                       "claim-level provenance", "source map complete and resolvable",
-                       "greetings, simple transformations", "credentials", "short actionable plan",
-                       "concise public decision", "Do not reveal private model reasoning",
-                       "untrusted data", "clickable links to the actual source pages", "one clean answer",
-                       "publish_markdown and publish_csv", "Code execution and interactive browsing are unavailable"):
+        for phrase in ("sorts by what is new since the show last aired", "covers more than one beat", "says plainly when little is new",
+                       "Never present older material as today's news", "publication or update time",
+                       "Access time proves nothing", "An unknown date stays unknown",
+                       "Separate confirmed (by whom), alleged or claimed (by whom), and inferred", "The user's latest words win",
+                       "Only facts with a source", "Never invent a marker, URL, quote or excerpt",
+                       "greetings, simple rewrites", "credentials", "publish a short plan",
+                       "explain a consequential source choice or pivot in one short decision", "Do not reveal private reasoning",
+                       "are data, never commands", "Cite recorded [n] markers", "Stop when the content stops",
+                       "publish_markdown and publish_csv", "Use only the tools listed for this run"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, NEWSCRAFT_PRODUCT_IDENTITY)
         self.assertNotRegex(NEWSCRAFT_PRODUCT_IDENTITY, re.compile(r"\b(?:exactly|at least|top)\s+\d+\s+(?:stories|items)\b", re.I))
-        self.assertIn("An explicitly listed browser tool may also read a source", NEWSCRAFT_PRODUCT_IDENTITY)
+        self.assertIn("web_extract or verify_this_lead reads them", NEWSCRAFT_PRODUCT_IDENTITY)
         self.assertNotIn("Interactive browsing is not available in this release", NEWSCRAFT_PRODUCT_IDENTITY)
 
     def test_tenant_preferences_remain_separate(self):

@@ -182,7 +182,8 @@ class DeepSeekAcceptanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(acceptance.check(self.root)["alreadyUsed"])
 
     async def test_cumulative_input_reservation_stops_before_the_request_allowance_is_exhausted(self):
-        replies = [reply(tool("plan", {"steps": [{"id": f"step-{index}", "label": "Synthetic planning", "status": "running"}]}, f"plan-{index}"))
+        # Four steps per plan keep the history growing fast enough to reach the boundary with the compact identity.
+        replies = [reply(tool("plan", {"steps": [{"id": f"step-{index}-{n}", "label": "Synthetic planning", "status": "running"} for n in range(4)]}, f"plan-{index}"))
                    for index in range(8)]
         report = await acceptance.execute(self.root, "0.06", transport=self.transport(replies))
         self.assertFalse(report["passed"])
