@@ -8,7 +8,7 @@ from __future__ import annotations
 import copy
 import json
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import httpx
 
@@ -52,8 +52,11 @@ def partial_call(name: Any, arguments: Any) -> dict[str, Any] | None:
 class ModelAdapter(Protocol):
     name: str
     def budget_input(self, *, messages, private, instructions, tools) -> dict[str, Any]: ...
+    # ``on_text`` (optional) receives answer text as it is generated; the returned
+    # reply is still the whole, authoritative result. Adapters may ignore it.
     async def complete(self, *, model: str, instructions: str, messages: list[dict[str, Any]],
-                       tools: list[dict[str, Any]], max_output: int, private: dict[str, Any]) -> ModelReply: ...
+                       tools: list[dict[str, Any]], max_output: int, private: dict[str, Any],
+                       on_text: Callable[[str], None] | None = None) -> ModelReply: ...
 
 
 def usage(value: Any) -> dict[str, int]:
@@ -76,7 +79,9 @@ class HTTPModel:
     def __init__(self, settings, *, client: httpx.AsyncClient | None = None):
         self.settings, self.client = settings, client
 
-    async def post(self, path, headers, payload):
+    async def post(self, path, headers, payload, on_event=None):
+        """The provider's JSON reply. With ``on_event`` the request streams: each server-sent
+        event is passed to it as (name, data) and the stream's own assembled reply is returned."""
         client = self.client or httpx.AsyncClient(timeout=min(60, self.settings.max_seconds), trust_env=False, follow_redirects=False)
         try:
             # No automatic retries: a disconnected paid request is uncertain.
@@ -84,6 +89,8 @@ class HTTPModel:
                                      headers=headers, json=payload) as response:
                 if response.status_code >= 400:
                     raise ModelError(f"The model request failed (HTTP {response.status_code}).")
+                if on_event is not None and response.headers.get("content-type", "").startswith("text/event-stream"):
+                    return await self.read_events(response, on_event)
                 data = bytearray()
                 async for part in response.aiter_bytes():
                     data.extend(part)
@@ -98,6 +105,27 @@ class HTTPModel:
         finally:
             if self.client is None:
                 await client.aclose()
+
+    @staticmethod
+    async def read_events(response, on_event):
+        size, name, data = 0, None, []
+        async for line in response.aiter_lines():
+            size += len(line) + 1
+            if size > MAX_RESPONSE_BYTES:
+                raise ModelError("The model response exceeded its size limit.")
+            if line.startswith("event:"):
+                name = line[6:].strip()
+            elif line.startswith("data:"):
+                data.append(line[5:].removeprefix(" "))
+            elif not line and data:
+                value = json.loads("\n".join(data))
+                if not isinstance(value, dict):
+                    raise ValueError()
+                result = on_event(name or value.get("type"), value)
+                if result is not None:
+                    return result
+                name, data = None, []
+        raise ValueError()  # The stream ended before its final event.
 
 
 class OpenAIResponses(HTTPModel):
@@ -135,7 +163,7 @@ class OpenAIResponses(HTTPModel):
                 result.append({"role": message["role"], "content": content})
         return result
 
-    async def complete(self, *, model, instructions, messages, tools, max_output, private):
+    async def complete(self, *, model, instructions, messages, tools, max_output, private, on_text=None):
         payload = {"model": model, **self.budget_input(messages=messages, private=private, instructions=instructions, tools=tools),
                    "store": False, "service_tier": "default", "include": ["reasoning.encrypted_content"], "max_output_tokens": max_output}
         response = await self.post("/responses", {"authorization": f"Bearer {self.settings.model_api_key}"}, payload)
@@ -173,6 +201,67 @@ class OpenAIResponses(HTTPModel):
         continuation = copy.deepcopy(private)
         continuation.setdefault("replay", {})[str(len(messages))] = replay
         return ModelReply({"role": "assistant", "content": blocks}, continuation, usage(response.get("usage")), truncated, partial)
+
+
+class MessageStream:
+    """Folds a streamed Messages response back into the non-streaming reply shape.
+
+    Text deltas go to ``on_text`` as they arrive. Tool input arrives as partial JSON
+    and is parsed once its block ends; an unparseable input stays raw text, which a
+    truncated reply keeps as a partial publish call and a complete one rejects."""
+
+    def __init__(self, on_text):
+        self.on_text, self.message, self.blocks, self.raw = on_text, None, {}, {}
+
+    def __call__(self, name, event):
+        if name == "error":
+            raise ModelError("The model stream reported an error.")
+        if name == "message_start" and isinstance(event.get("message"), dict):
+            self.message = {**event["message"], "content": []}
+        elif self.message is None:
+            if name in {"content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"}:
+                raise ValueError()
+        elif name == "content_block_start" and isinstance(event.get("content_block"), dict):
+            block = dict(event["content_block"])
+            if block.get("type") == "tool_use":
+                self.raw[event.get("index")] = ""
+            self.blocks[event.get("index")] = block
+        elif name == "content_block_delta" and isinstance(event.get("delta"), dict):
+            block, delta = self.blocks.get(event.get("index")), event["delta"]
+            if block is None:
+                raise ValueError()
+            if delta.get("type") == "text_delta" and isinstance(delta.get("text"), str) and block.get("type") == "text":
+                block["text"] = block.get("text", "") + delta["text"]
+                if delta["text"]:
+                    self.on_text(delta["text"])
+            elif delta.get("type") == "input_json_delta" and isinstance(delta.get("partial_json"), str) and event.get("index") in self.raw:
+                self.raw[event["index"]] += delta["partial_json"]
+            # Thinking and signature deltas are never kept.
+        elif name == "content_block_stop":
+            self.finish(event.get("index"))
+        elif name == "message_delta":
+            delta = event.get("delta") if isinstance(event.get("delta"), dict) else {}
+            if "stop_reason" in delta:
+                self.message["stop_reason"] = delta["stop_reason"]
+            if isinstance(event.get("usage"), dict):
+                self.message["usage"] = {**(self.message.get("usage") or {}), **event["usage"]}
+        elif name == "message_stop":
+            for index in list(self.blocks):
+                self.finish(index)
+            return self.message
+        return None
+
+    def finish(self, index):
+        block = self.blocks.pop(index, None)
+        if block is None:
+            return
+        if index in self.raw:
+            text = self.raw.pop(index)
+            try:
+                block["input"] = json.loads(text) if text.strip() else block.get("input", {})
+            except ValueError:
+                block["input"] = text
+        self.message["content"].append(block)
 
 
 class AnthropicMessages(HTTPModel):
@@ -213,10 +302,14 @@ class AnthropicMessages(HTTPModel):
                 result.append({"role": role, "content": blocks})
         return result
 
-    async def complete(self, *, model, instructions, messages, tools, max_output, private):
-        response = await self.post(self.path, self.request_headers(),
-            {"model": model, "max_tokens": max_output, **self.request_options(model),
-             **self.budget_input(messages=messages, private=private, instructions=instructions, tools=tools)})
+    async def complete(self, *, model, instructions, messages, tools, max_output, private, on_text=None):
+        payload = {"model": model, "max_tokens": max_output, **self.request_options(model),
+                   **self.budget_input(messages=messages, private=private, instructions=instructions, tools=tools)}
+        if on_text is None:
+            response = await self.post(self.path, self.request_headers(), payload)
+        else:
+            response = await self.post(self.path, self.request_headers(), {**payload, "stream": True},
+                                       on_event=MessageStream(on_text))
         stop = response.get("stop_reason")
         if stop not in {"end_turn", "tool_use", "stop_sequence", "max_tokens"} or not isinstance(response.get("content"), list):
             raise ModelError("The model did not return a complete response.")
@@ -264,12 +357,12 @@ class DeepSeekMessages(AnthropicMessages):
             raise ValueError(str(exc)) from None
         return super().budget_input(messages=messages, private=private, instructions=instructions, tools=tools)
 
-    async def complete(self, *, model, instructions, messages, tools, max_output, private):
+    async def complete(self, *, model, instructions, messages, tools, max_output, private, on_text=None):
         self.validate_input(model, messages)
         if model != self.settings.model:
             raise ModelError("The requested DeepSeek model does not match its configured budget policy.")
         return await super().complete(model=model, instructions=instructions, messages=messages,
-                                      tools=tools, max_output=max_output, private=private)
+                                      tools=tools, max_output=max_output, private=private, on_text=on_text)
 
     def request_options(self, model):
         if model not in DEEPSEEK_MODELS:

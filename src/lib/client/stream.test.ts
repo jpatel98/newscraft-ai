@@ -182,6 +182,32 @@ describe('streamChat error contract', () => {
 		expect(onReplace).toHaveBeenCalledWith('Authoritative claim [1].');
 	});
 
+	it('clears a withdrawn draft before the next draft streams in', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				sseResponse(
+					'event: response.output_text.delta\n' +
+						'data: {"delta":"Rejected draft."}\n\n' +
+						'event: agent.answer.replace\n' +
+						'data: {"content":""}\n\n' +
+						'event: response.output_text.delta\n' +
+						'data: {"delta":"Second draft."}\n\n' +
+						'event: agent.answer.replace\n' +
+						'data: {"content":"Second draft."}\n\n' +
+						'data: [DONE]\n\n'
+				)
+			)
+		);
+		const calls: string[] = [];
+		const onDelta = vi.fn((piece: string) => calls.push(`delta:${piece}`));
+		const onReplace = vi.fn((content: string) => calls.push(`replace:${content}`));
+
+		await streamChat({ conversation_id: 'convo_1', content: 'Research this.' }, { onDelta, onReplace });
+
+		expect(calls).toEqual(['delta:Rejected draft.', 'replace:', 'delta:Second draft.', 'replace:Second draft.']);
+	});
+
 	it('applies replacement events as reducer state instead of concatenating draft deltas', async () => {
 		vi.stubGlobal(
 			'fetch',

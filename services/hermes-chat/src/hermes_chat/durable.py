@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # Text is the only high-volume event class. Keep the unpersisted tail small
 # while avoiding one NewsCraft transaction per Hermes token.
 TEXT_BATCH_MAX_CHARS = 4_096
-TEXT_BATCH_FLUSH_INTERVAL_SECONDS = 0.05
+TEXT_BATCH_FLUSH_INTERVAL_SECONDS = 0.25  # Matches the app's 250 ms subscription poll; one callback per batch.
 TEXT_EVENT_TYPE = events_.ANSWER_DELTA
 TRACE_ID_RE = r"^[A-Za-z0-9._-]{8,128}$"
 _ARTIFACT_VALIDATION_CODES = frozenset({"invalid_spec", "spec_too_large"})

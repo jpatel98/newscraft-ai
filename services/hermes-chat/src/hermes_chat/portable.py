@@ -764,6 +764,11 @@ ROUTE_DELIVERABLE = "deliverable"  # Planned research, then the bounded loop wri
 ROUTE_LOOP = "loop"  # The model-driven tool loop.
 
 
+def clear_draft():
+    """Withdraws streamed text that turned out not to be the answer."""
+    return {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": ""}}
+
+
 def fresh_turn(state, *, has_computer):
     """True for a new, unstarted text turn that a planned-research strategy may take."""
     return (not state.get("fast") and not state["intent"] and not state["pending"] and state["steps"] == 0
@@ -827,6 +832,39 @@ class PortableAgentRunner:
             logger.warning("fast path: planner call failed")
             return None
         return research_plan.parse_plan("".join(b["text"] for b in reply.message["content"] if b["type"] == "text"))
+
+    async def streamed(self, out, timeout, **arguments):
+        """One model request whose answer text is yielded as TEXT_MESSAGE_CONTENT while it is written.
+
+        The reply lands in ``out["reply"]`` and stays the authority: the caller still finalizes it and
+        replaces the draft (unrecorded [n] markers never survive the replacement). ``out["streamed"]``
+        says whether any draft text was shown. A failed request clears its draft before it raises."""
+        deltas = asyncio.Queue()
+        task = asyncio.create_task(asyncio.wait_for(self.model.complete(**arguments, on_text=deltas.put_nowait), timeout))
+        try:
+            while not task.done() or not deltas.empty():
+                if deltas.empty():
+                    getter = asyncio.ensure_future(deltas.get())
+                    await asyncio.wait({task, getter}, return_when=asyncio.FIRST_COMPLETED)
+                    if not getter.done():
+                        getter.cancel()
+                        continue
+                    parts = [getter.result()]
+                else:
+                    parts = []
+                while not deltas.empty():
+                    parts.append(deltas.get_nowait())
+                out["streamed"] = True
+                yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "".join(parts)}
+            out["reply"] = task.result()
+        except (ModelError, TimeoutError):
+            if out.get("streamed"):
+                yield clear_draft()
+            raise
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
 
     async def cancel_run(self, run_id):
         saved = await self.checkpoint(run_id)
@@ -1197,9 +1235,11 @@ class PortableAgentRunner:
                     remaining = state["started"] + settings.max_seconds - time.time()
                     if remaining > 0:
                         try:
-                            async with asyncio.timeout(remaining):
-                                reply = await self.model.complete(model=settings.model, instructions=instructions, messages=wrap_messages,
-                                                                  tools=[], max_output=settings.max_output_tokens, private={})
+                            out = {}
+                            async for event in self.streamed(out, remaining, model=settings.model, instructions=instructions, messages=wrap_messages,
+                                                             tools=[], max_output=settings.max_output_tokens, private={}):
+                                yield event
+                            reply = out["reply"]
                             text = "".join(b["text"] for b in reply.message["content"] if b["type"] == "text")[:64000].strip()
                             truncated = bool(getattr(reply, "truncated", False))
                             state["usage"] = reply.usage
@@ -1509,9 +1549,11 @@ class PortableAgentRunner:
                     state["steps"] += 1
                     logger.info("fast path: model dispatch at %.1fs (%d input tokens est)", time.monotonic() - fast_t0, estimate)
                     try:
-                        async with asyncio.timeout(60):
-                            reply = await self.model.complete(model=settings.model, instructions=fast_instructions, messages=fast_messages,
-                                                              tools=[], max_output=settings.max_output_tokens, private={})
+                        out = {}
+                        async for event in self.streamed(out, 60, model=settings.model, instructions=fast_instructions, messages=fast_messages,
+                                                         tools=[], max_output=settings.max_output_tokens, private={}):
+                            yield event
+                        reply = out["reply"]
                     except (ModelError, TimeoutError):
                         raise RunError("The model request did not complete; its uncertain input was not replayed.") from None
                     answer = _user_facing("".join(b["text"] for b in reply.message["content"] if b["type"] == "text")[:64000].strip())
@@ -1536,6 +1578,8 @@ class PortableAgentRunner:
                         yield {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": answer}}
                         yield {"type": "RUN_FINISHED", "model": settings.model}
                         return
+                    if out.get("streamed"):
+                        yield clear_draft()
                 for event in plan_close_events():  # Nothing usable: the full loop takes over with an honest plan.
                     yield event
             elif route == ROUTE_DELIVERABLE:
@@ -1569,7 +1613,11 @@ class PortableAgentRunner:
                 yield plan_update(**{final_id: "running"})
                 await save()
                 yield {"type": "STATE_SNAPSHOT", "snapshot": {"newscraftSources": state["sources"]}}
+            draft = False  # Text streamed by the last step; anything but its own conclusion clears it.
             while True:
+                if draft:
+                    draft = False
+                    yield clear_draft()
                 if state.get("publication_fallback"):
                     fallback = state["receipts"].get(state["publication_fallback"]["call_id"])
                     arguments = optional_arguments((fallback or {}).get("call", {}).get("arguments"), schemas.get((fallback or {}).get("call", {}).get("name"), {}))
@@ -1644,9 +1692,11 @@ class PortableAgentRunner:
                     if remaining <= 0:
                         raise RunError("The research time budget was reached before model dispatch.")
                     try:
-                        async with asyncio.timeout(remaining):
-                            reply = await self.model.complete(model=settings.model, instructions=instructions,
-                                messages=state["messages"], tools=tools, max_output=settings.max_output_tokens, private=state["private"])
+                        out = {}
+                        async for event in self.streamed(out, remaining, model=settings.model, instructions=instructions,
+                                messages=state["messages"], tools=tools, max_output=settings.max_output_tokens, private=state["private"]):
+                            yield event
+                        reply, draft = out["reply"], out.get("streamed", False)
                     except (ModelError, TimeoutError):
                         raise RunError("The model request did not complete; its uncertain input was not replayed.") from None
                     calls = [b for b in reply.message["content"] if b["type"] == "tool_call"]

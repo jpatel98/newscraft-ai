@@ -173,14 +173,14 @@ class GuardedDeepSeek(DeepSeekMessages):
         self.completed_replies += 1
         return reply
 
-    async def post(self, path, headers, payload):
+    async def post(self, path, headers, payload, on_event=None):
         if (self.settings.model_base_url != ENDPOINT or path != "/v1/messages"
                 or payload.get("model") != "deepseek-flash" or payload.get("thinking") != {"type": "disabled"}
                 or payload.get("max_tokens") != 2048 or self.attempts >= 8):
             raise ModelError("The acceptance model request exceeded its fixed approved policy.")
         self.attempts += 1
         _write_json(self.output / f"request-{self.attempts}.json", {"attempt": self.attempts, "outcome": "admitted"})
-        return await super().post(path, headers, payload)
+        return await super().post(path, headers, payload, on_event)
 
 
 class LocalPublisher:

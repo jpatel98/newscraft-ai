@@ -220,6 +220,77 @@ class DeepSeekAdapterTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn("PRIVATE_PROVIDER_DETAIL", str(raised.exception))
                 self.assertEqual(len(self.requests), before + 1)
 
+    @staticmethod
+    def sse(*events):
+        body = "".join(f"event: {name}\ndata: {json.dumps({'type': name, **value})}\n\n" for name, value in events)
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=body)
+
+    START = ("message_start", {"message": {"id": "msg_1", "role": "assistant", "content": [], "usage": {"input_tokens": 8, "output_tokens": 1}}})
+
+    async def test_streamed_reply_reports_text_as_it_arrives_and_assembles_the_same_reply(self):
+        adapter = self.adapter([self.sse(
+            self.START,
+            ("content_block_start", {"index": 0, "content_block": {"type": "thinking", "thinking": ""}}),
+            ("content_block_delta", {"index": 0, "delta": {"type": "thinking_delta", "thinking": "PRIVATE_REASONING"}}),
+            ("content_block_stop", {"index": 0}),
+            ("content_block_start", {"index": 1, "content_block": {"type": "text", "text": ""}}),
+            ("content_block_delta", {"index": 1, "delta": {"type": "text_delta", "text": "Checking "}}),
+            ("content_block_delta", {"index": 1, "delta": {"type": "text_delta", "text": "the source. [1]"}}),
+            ("content_block_stop", {"index": 1}),
+            ("content_block_start", {"index": 2, "content_block": {"type": "tool_use", "id": "read-1", "name": "read", "input": {}}}),
+            ("content_block_delta", {"index": 2, "delta": {"type": "input_json_delta", "partial_json": '{"url": "https://exa'}}),
+            ("content_block_delta", {"index": 2, "delta": {"type": "input_json_delta", "partial_json": 'mple.test/source"}'}}),
+            ("content_block_stop", {"index": 2}),
+            ("message_delta", {"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 12}}),
+            ("message_stop", {}))])
+        seen = []
+        reply = await self.complete(adapter, on_text=seen.append)
+        self.assertEqual(seen, ["Checking ", "the source. [1]"])
+        self.assertEqual(reply.message["content"], [
+            {"type": "text", "text": "Checking the source. [1]"},
+            {"type": "tool_call", "id": "read-1", "name": "read", "arguments": {"url": "https://example.test/source"}}])
+        self.assertEqual(reply.usage, {"input_tokens": 8, "output_tokens": 12})
+        self.assertFalse(reply.truncated)
+        self.assertIs(json.loads(self.requests[0].content)["stream"], True)
+        self.assertNotIn("PRIVATE_REASONING", json.dumps(reply.message))
+
+    async def test_streamed_output_limit_keeps_text_and_the_partial_publish_call(self):
+        adapter = self.adapter([self.sse(
+            self.START,
+            ("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}}),
+            ("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": "Brief follows."}}),
+            ("content_block_stop", {"index": 0}),
+            ("content_block_start", {"index": 1, "content_block": {"type": "tool_use", "id": "pub-1", "name": "publish_markdown", "input": {}}}),
+            ("content_block_delta", {"index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"title": "Brief", "markdown": "# Bri'}}),
+            ("message_delta", {"delta": {"stop_reason": "max_tokens"}}),
+            ("message_stop", {}))])
+        reply = await self.complete(adapter, on_text=lambda text: None)
+        self.assertTrue(reply.truncated)
+        self.assertEqual(reply.message["content"], [{"type": "text", "text": "Brief follows."}])
+        self.assertEqual(reply.partial_tool_call, {"name": "publish_markdown", "arguments_text": '{"title": "Brief", "markdown": "# Bri', "arguments": None})
+
+    async def test_broken_streams_fail_closed_without_retry(self):
+        text = ("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}})
+        for case, response in {
+            "no final event": self.sse(self.START, text),
+            "provider error event": self.sse(self.START, ("error", {"error": {"type": "overloaded_error", "message": "PRIVATE_PROVIDER_DETAIL"}})),
+            "delta before start": self.sse(("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": "x"}})),
+            "malformed data": httpx.Response(200, headers={"content-type": "text/event-stream"}, text="event: message_start\ndata: {nope\n\n"),
+        }.items():
+            with self.subTest(case=case):
+                before = len(self.requests)
+                with self.assertRaises(ModelError) as raised:
+                    await self.complete(self.adapter([response]), on_text=lambda text: None)
+                self.assertNotIn("PRIVATE_PROVIDER_DETAIL", str(raised.exception))
+                self.assertEqual(len(self.requests), before + 1)
+
+    async def test_a_plain_json_reply_to_a_streaming_request_is_still_accepted(self):
+        adapter = self.adapter([{"stop_reason": "end_turn", "content": [{"type": "text", "text": "Whole answer."}]}])
+        seen = []
+        reply = await self.complete(adapter, on_text=seen.append)
+        self.assertEqual(reply.message["content"], [{"type": "text", "text": "Whole answer."}])
+        self.assertEqual(seen, [])  # The final replace still delivers it; nothing was streamed.
+
     def test_factory_selects_dedicated_adapter(self):
         self.assertIsInstance(create_model(self.settings), DeepSeekMessages)
         self.assertEqual(create_model(self.settings).name, "deepseek")
