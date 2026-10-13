@@ -1,5 +1,6 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import tls from 'node:tls';
 
 /**
  * Keep the socket hook bounded independently of postgres.js. postgres.js starts
@@ -25,6 +26,10 @@ const INITIAL_HOSTNAME_TIMEOUT_CAP_MS = 1_000;
 // fallback race itself caps in-flight sockets at MAX_ACTIVE_TCP_CANDIDATES.
 const INITIAL_CONNECTION_ATTEMPT_SLOTS = 3;
 const RETRYABLE_CONNECTION_ERROR_CODES = new Set([
+	// A direct-TLS handshake that the peer drops before completing (see
+	// connectWithDirectTls). Certificate and hostname errors use other codes
+	// and stay terminal.
+	'ECONNRESET',
 	'ETIMEDOUT',
 	'ECONNREFUSED',
 	'EHOSTUNREACH',
@@ -59,6 +64,15 @@ export interface ResolverLike {
 }
 
 export interface DatabaseSocketFactoryOptions {
+	/**
+	 * Complete the verified direct-TLS handshake inside the hook (SNI and
+	 * certificate check against the endpoint hostname, ALPN postgresql) and
+	 * return the secured socket. A handshake the peer drops then fails over to
+	 * the next address within the same connection attempt, instead of
+	 * surfacing to postgres.js after the address was already chosen. The
+	 * caller must give postgres.js `ssl: false` so it does not wrap it again.
+	 */
+	directTls?: boolean;
 	/** Optional cap for the complete socket hook, including DNS fallback. */
 	timeoutMs?: number;
 	/** Dependency seams keep DNS/socket behavior deterministic in tests. */
@@ -120,7 +134,12 @@ export function createDatabaseSocketFactory(
 	options: DatabaseSocketFactoryOptions = {}
 ): (postgresOptions?: PostgresSocketOptions) => Promise<DatabaseSocket> {
 	const connect =
-		options.connect ?? ((hostname, port, timeoutMs, signal) => connectWithTimeout(hostname, port, timeoutMs, undefined, signal));
+		options.connect ??
+		(options.directTls
+			? (hostname: string, port: number, timeoutMs: number, signal?: AbortSignal) =>
+					connectWithDirectTls(endpoint.hostname, hostname, port, timeoutMs, signal)
+			: (hostname: string, port: number, timeoutMs: number, signal?: AbortSignal) =>
+					connectWithTimeout(hostname, port, timeoutMs, undefined, signal));
 	const resolve4 = options.resolve4 ?? ((hostname) => dns.resolve4(hostname));
 	const createResolver =
 		options.createResolver ??
@@ -158,6 +177,16 @@ export function createDatabaseSocketFactory(
 		});
 		return socket;
 	};
+	const markFailedAddress = (error: unknown) => {
+		const address = (error as { address?: unknown } | null)?.address;
+		if (errorCode(error) !== 'ECONNRESET' || typeof address !== 'string' || net.isIP(address) !== 4) return;
+		unhealthyUntil.set(address, now() + UNHEALTHY_ADDRESS_TTL_MS);
+		if (preferredAddress?.address === address) preferredAddress = null;
+	};
+	const healthyFirst = (addresses: string[]): string[] => {
+		const healthy = addresses.filter((address) => !isUnhealthy(address));
+		return healthy.length > 0 ? healthy : addresses;
+	};
 	const rememberFreshSocket = (socket: net.Socket): DatabaseSocket => {
 		const marked = watchSocket(markSocket(socket, endpoint));
 		const remoteAddress = marked.remoteAddress;
@@ -191,10 +220,11 @@ export function createDatabaseSocketFactory(
 				// expiry is measured from discovery and never extended by a hit.
 				return watchSocket(markSocket(await connect(cached.address, endpoint.port, timeout), endpoint));
 			} catch (error) {
-				// Only a TCP-level failure may invalidate and fall through to the
-				// existing hostname/DNS failover. TLS, auth, and protocol failures
-				// remain terminal and do not trigger another address.
+				// Only a connection-level failure (TCP, or a dropped direct-TLS
+				// handshake) may invalidate and fall through to the hostname/DNS
+				// failover. Certificate, auth and protocol failures stay terminal.
 				if (!isRetryableConnectionError(error)) throw error;
+				markFailedAddress(error);
 				if (preferredAddress === cached) preferredAddress = null;
 			}
 		}
@@ -222,7 +252,8 @@ export function createDatabaseSocketFactory(
 					initialError: socketTimeoutError(endpoint.hostname, timeoutMs),
 					timeoutMs,
 					fallbackBudgetMs: remaining(deadline, now),
-					markFreshSocket: rememberFreshSocket
+					markFreshSocket: rememberFreshSocket,
+					onAttemptError: markFailedAddress
 				});
 			}
 		}
@@ -233,6 +264,7 @@ export function createDatabaseSocketFactory(
 			return rememberFreshSocket(await connect(endpoint.hostname, endpoint.port, timeout));
 		} catch (error) {
 			if (!isDnsLookupError(error) && !isRetryableConnectionError(error)) throw error;
+			markFailedAddress(error);
 
 			const addresses = await resolveIpv4WithFallback(endpoint.hostname, {
 				timeoutMs: remaining(deadline, now),
@@ -241,7 +273,7 @@ export function createDatabaseSocketFactory(
 				now
 			});
 			return connectToCandidates({
-				addresses,
+				addresses: healthyFirst(addresses),
 				endpoint,
 				deadline,
 				now,
@@ -249,7 +281,8 @@ export function createDatabaseSocketFactory(
 				initialError: error,
 				timeoutMs,
 				fallbackBudgetMs: Math.max(0, timeoutMs - initialAttemptTimeout),
-				markFreshSocket: rememberFreshSocket
+				markFreshSocket: rememberFreshSocket,
+				onAttemptError: markFailedAddress
 			});
 		}
 	};
@@ -270,6 +303,7 @@ interface CandidateConnectionInput {
 	timeoutMs: number;
 	fallbackBudgetMs: number;
 	markFreshSocket: (socket: net.Socket) => DatabaseSocket;
+	onAttemptError?: (error: unknown) => void;
 }
 
 interface CandidateAttempt {
@@ -287,7 +321,8 @@ async function connectToCandidates({
 	initialError,
 	timeoutMs,
 	fallbackBudgetMs,
-	markFreshSocket
+	markFreshSocket,
+	onAttemptError
 }: CandidateConnectionInput): Promise<DatabaseSocket> {
 	const candidates = uniqueIpv4(addresses);
 	if (candidates.length === 0) throw initialError;
@@ -349,6 +384,7 @@ async function connectToCandidates({
 			active -= 1;
 			if (settled) return;
 			lastError = error;
+			onAttemptError?.(error);
 			// Connection-only failover is deliberately narrow. A TLS, auth, or
 			// protocol error must escape without trying another address.
 			if (!isRetryableConnectionError(error)) {
@@ -518,6 +554,65 @@ export function connectWithTimeout(
 		socket.once('error', onError);
 		signal?.addEventListener('abort', onAbort, { once: true });
 		socket.setTimeout(timeout, () => fail(socketTimeoutError(hostname, timeout)));
+	});
+}
+
+/**
+ * Connect TCP, then complete a verified direct-TLS handshake (postgres.js
+ * `sslnegotiation=direct` semantics) before returning the secured socket.
+ * `servername` is the database hostname for SNI and certificate checks; `host`
+ * may be one of its A records. A peer that drops the handshake rejects with
+ * ECONNRESET carrying the remote address, so the caller can try a sibling.
+ */
+export async function connectWithDirectTls(
+	servername: string,
+	host: string,
+	port: number,
+	timeoutMs: number,
+	signal?: AbortSignal,
+	connectTcp: typeof connectWithTimeout = connectWithTimeout
+): Promise<net.Socket> {
+	const timeout = normalizeTimeout(timeoutMs, DEFAULT_DATABASE_SOCKET_TIMEOUT_MS);
+	const started = Date.now();
+	const raw = await connectTcp(host, port, timeout, undefined, signal);
+	const address = raw.remoteAddress;
+	return new Promise((resolve, reject) => {
+		const secured = tls.connect({
+			socket: raw,
+			servername,
+			ALPNProtocols: ['postgresql'],
+			rejectUnauthorized: true
+		});
+		let settled = false;
+		const fail = (error: Error & { code?: string; address?: string }) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			signal?.removeEventListener('abort', onAbort);
+			secured.removeListener('secureConnect', onSecure);
+			// Keep an error listener until close so a late error cannot go unhandled.
+			secured.on('error', () => {});
+			secured.destroy();
+			raw.destroy();
+			if (address && error.address === undefined) error.address = address;
+			reject(error);
+		};
+		const onSecure = () => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			signal?.removeEventListener('abort', onAbort);
+			secured.removeListener('error', fail);
+			resolve(secured);
+		};
+		const onAbort = () => fail(socketAbortError(servername));
+		const timer = setTimeout(
+			() => fail(socketTimeoutError(servername, timeout)),
+			Math.max(1, timeout - (Date.now() - started))
+		);
+		secured.once('secureConnect', onSecure);
+		secured.once('error', fail);
+		signal?.addEventListener('abort', onAbort, { once: true });
 	});
 }
 

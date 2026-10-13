@@ -40,11 +40,22 @@ const postgresOptions = {
 			// postgres.js accepts an async socket hook but does not expose it in
 			// its public TypeScript options. Keep the hook server-only and retain
 			// the URL hostname on the socket for certificate SNI.
-			socket: createDatabaseSocketFactory(databaseEndpoint),
-			...(databaseEndpoint.strictTls
-				? { ssl: { rejectUnauthorized: true, servername: databaseEndpoint.hostname } }
-				: {}),
-			...(databaseEndpoint.directTls ? { sslnegotiation: 'direct' as const } : {})
+			...(databaseEndpoint.strictTls && databaseEndpoint.directTls
+				? {
+					// The hook completes the verified direct-TLS handshake itself so a
+					// dropped handshake fails over to another address. postgres.js must
+					// not wrap the secured socket again; an explicit option overrides
+					// the URL's sslmode.
+					socket: createDatabaseSocketFactory(databaseEndpoint, { directTls: true }),
+					ssl: false
+				}
+				: {
+					socket: createDatabaseSocketFactory(databaseEndpoint),
+					...(databaseEndpoint.strictTls
+						? { ssl: { rejectUnauthorized: true, servername: databaseEndpoint.hostname } }
+						: {}),
+					...(databaseEndpoint.directTls ? { sslnegotiation: 'direct' as const } : {})
+				})
 		}
 		: {})
 };

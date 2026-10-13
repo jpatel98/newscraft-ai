@@ -1,5 +1,10 @@
+import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import net from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import tls from 'node:tls';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	FALLBACK_DNS_SERVERS,
@@ -8,6 +13,7 @@ import {
 	TCP_CANDIDATE_STAGGER_MS,
 	UNHEALTHY_ADDRESS_TTL_MS,
 	createDatabaseSocketFactory,
+	connectWithDirectTls,
 	connectWithTimeout,
 	parseDatabaseUrl
 } from './socket';
@@ -508,6 +514,31 @@ describe('database socket fallback', () => {
 		expect(connectCalls).toEqual(['db.example.test', 'db.example.test']);
 	});
 
+	it('fails over within one attempt when an address drops the TLS handshake', async () => {
+		const connectCalls: string[] = [];
+		const resolve4 = vi.fn(async () => ['185.40.234.55', '185.40.234.75', '185.40.234.198']);
+		const connect = vi.fn(async (host: string) => {
+			connectCalls.push(host);
+			if (host === 'contabo.example.ts.net' || host === '185.40.234.55') {
+				throw Object.assign(codedError('ECONNRESET'), { address: '185.40.234.55' });
+			}
+			return fakeSocketWithRemoteAddress(host);
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'contabo.example.ts.net', port: 10000 },
+			{ connect, resolve4, now: () => 0 }
+		);
+
+		const socket = await factory();
+		expect(socket.remoteAddress).toBe('185.40.234.75');
+		expect(socket.host).toBe('contabo.example.ts.net');
+		// The dropped node is skipped, not raced again.
+		expect(connectCalls).toEqual(['contabo.example.ts.net', '185.40.234.75']);
+
+		await factory();
+		expect(connectCalls.at(-1)).toBe('185.40.234.75');
+	});
+
 	it('marks verify-full and direct TLS database URLs as strict endpoints without exposing credentials', () => {
 		expect(parseDatabaseUrl('postgresql://user:secret@db.example.test:10000/news?sslmode=verify-full')).toEqual({
 			hostname: 'db.example.test',
@@ -526,5 +557,57 @@ describe('database socket fallback', () => {
 			directTls: true
 		});
 		expect(FALLBACK_DNS_TIMEOUT_MS).toBe(1_500);
+	});
+});
+
+describe('direct TLS handshake in the socket hook', () => {
+	async function listen(onSocket: (socket: net.Socket) => void): Promise<net.Server> {
+		const server = net.createServer(onSocket);
+		await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+		return server;
+	}
+
+	it('rejects a dropped handshake as a retryable reset carrying the address', async () => {
+		const server = await listen((socket) => socket.once('data', () => socket.end()));
+		const { port } = server.address() as net.AddressInfo;
+		try {
+			await expect(connectWithDirectTls('db.example.test', '127.0.0.1', port, 2_000)).rejects.toMatchObject({
+				code: 'ECONNRESET',
+				address: '127.0.0.1'
+			});
+		} finally {
+			server.close();
+		}
+	});
+
+	it('keeps certificate failures terminal', async (context) => {
+		let key: Buffer;
+		let cert: Buffer;
+		try {
+			const dir = mkdtempSync(path.join(tmpdir(), 'socket-tls-'));
+			execFileSync('openssl', [
+				'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes',
+				'-keyout', path.join(dir, 'key.pem'), '-out', path.join(dir, 'cert.pem'),
+				'-days', '1', '-subj', '/CN=db.example.test'
+			], { stdio: 'ignore' });
+			key = readFileSync(path.join(dir, 'key.pem'));
+			cert = readFileSync(path.join(dir, 'cert.pem'));
+		} catch {
+			context.skip();
+			return;
+		}
+		const server = tls.createServer({ key, cert, ALPNProtocols: ['postgresql'] }, (socket) => socket.end());
+		server.on('tlsClientError', () => {});
+		await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+		const { port } = server.address() as net.AddressInfo;
+		try {
+			const error = await connectWithDirectTls('db.example.test', '127.0.0.1', port, 2_000).then(
+				() => null,
+				(caught: Error & { code?: string }) => caught
+			);
+			expect(error?.code).toBe('DEPTH_ZERO_SELF_SIGNED_CERT');
+		} finally {
+			server.close();
+		}
 	});
 });
