@@ -37,3 +37,26 @@ jobs:
 
       - name: Golden-prompt eval (fixture mode)
         run: corepack pnpm eval:fixture
+
+  worker:
+    # The Python research worker (services/hermes-chat) ships to Contabo separately;
+    # its unit tests run here so worker regressions don't land on main green.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/hermes-chat
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install worker dependencies
+        run: uv sync --frozen
+
+      # Plain unittest discovery; tests import each other by module name, hence tests on the path.
+      - name: Worker unit tests
+        run: PYTHONPATH=src:tests .venv/bin/python -m unittest discover -s tests -p 'test_*.py'
