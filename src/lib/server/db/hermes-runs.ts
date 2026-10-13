@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { db } from './index';
+import { retryRead } from './read-retry';
 import { conversations, hermesRunArtifactRefs, hermesRunEvents, hermesRuns, messages, messageProvenance } from './schema';
 import { newId } from '$lib/utils/id';
 import { splitLedgerBlock, stripLedgerForDisplay, type LedgerClaim } from '$lib/utils/story-ledger';
@@ -1467,8 +1468,9 @@ export async function reclaimQueuedOrExpiredHermesRuns(
 	const worker = requireValue(leaseOwner, 'leaseOwner');
 	const boundedLimit = Math.min(Math.max(limit, 1), 50);
 	const activeStates = sql.join(HERMES_ACTIVE_STATES.map((state) => sql`${state}`), sql`, `);
+	// A read: the Vercel-to-Contabo TLS link sometimes resets mid-handshake, so retry once on a fresh connection.
 	const candidates = Array.from(
-		(await db.execute(sql`
+		(await retryRead(() => db.execute(sql`
 			SELECT account_id AS "accountId", id
 			FROM (
 				SELECT
@@ -1486,7 +1488,7 @@ export async function reclaimQueuedOrExpiredHermesRuns(
 			) eligible
 			ORDER BY tenant_rank ASC, created_at ASC, id ASC
 			LIMIT ${boundedLimit}
-		`)) as Iterable<{ accountId: string; id: string }>
+		`))) as Iterable<{ accountId: string; id: string }>
 	);
 	const claimed: HermesRunRecord[] = [];
 	for (const candidate of candidates) {

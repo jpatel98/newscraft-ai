@@ -172,6 +172,15 @@ describe('durable worker recovery grace', () => {
 		expect(query(dbMocks.execute.mock.calls[0][0]).params).toContain(reclaimAt);
 		expect(values[1].leaseExpiresAt).toBe(reclaimAt + HERMES_LEASE_MS);
 	});
+
+	it('retries the candidate read once when the database connection resets', async () => {
+		const reset = Object.assign(new Error('Failed query'), {
+			cause: { code: 'ECONNRESET', message: 'socket disconnected before secure TLS connection was established' }
+		});
+		dbMocks.execute.mockRejectedValueOnce(reset).mockResolvedValueOnce([]);
+		await expect(reclaimQueuedOrExpiredHermesRuns('worker-new', 10, now)).resolves.toEqual([]);
+		expect(dbMocks.execute).toHaveBeenCalledTimes(2);
+	});
 });
 
 describe('durable resumed draft initialization', () => {
