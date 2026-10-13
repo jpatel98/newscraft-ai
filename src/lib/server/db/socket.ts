@@ -10,6 +10,13 @@ export const FALLBACK_DNS_TIMEOUT_MS = 1_500;
 export const FALLBACK_DNS_TRIES = 1;
 export const FALLBACK_DNS_SERVERS = ['1.1.1.1', '8.8.8.8'] as const;
 export const PREFERRED_ADDRESS_TTL_MS = 30_000;
+/**
+ * How long an address is skipped after a connection to it ended before the
+ * peer sent a single byte. Tailscale Funnel ingress nodes accept TCP and then
+ * drop the TLS handshake for about a minute at a time while sibling nodes stay
+ * healthy, so a TCP-level failover alone keeps landing on the bad node.
+ */
+export const UNHEALTHY_ADDRESS_TTL_MS = 120_000;
 /** Delay between TCP candidate launches during the bounded fallback race. */
 export const TCP_CANDIDATE_STAGGER_MS = 150;
 const MAX_ACTIVE_TCP_CANDIDATES = 2;
@@ -121,8 +128,38 @@ export function createDatabaseSocketFactory(
 	const now = options.now ?? Date.now;
 	const configuredTimeoutMs = normalizeTimeout(options.timeoutMs, DEFAULT_DATABASE_SOCKET_TIMEOUT_MS);
 	let preferredAddress: PreferredAddress | null = null;
+	const unhealthyUntil = new Map<string, number>();
+	const isUnhealthy = (address: string): boolean => {
+		const until = unhealthyUntil.get(address);
+		if (until === undefined) return false;
+		if (until > now()) return true;
+		unhealthyUntil.delete(address);
+		return false;
+	};
+	const hasUnhealthy = (): boolean => [...unhealthyUntil.keys()].filter(isUnhealthy).length > 0;
+	// A peer that resets or closes before replying marks its address unhealthy,
+	// so the next connection (including retryRead's one retry) picks a sibling.
+	// Only the byte count is inspected; no data listener is attached, so
+	// postgres.js keeps sole ownership of the stream.
+	const watchSocket = (socket: DatabaseSocket): DatabaseSocket => {
+		const address = socket.remoteAddress;
+		if (typeof socket.on !== 'function' || typeof address !== 'string' || net.isIP(address) !== 4) return socket;
+		const markIfSilent = () => {
+			if (socket.bytesRead > 0 || unhealthyUntil.has(address)) return;
+			unhealthyUntil.set(address, now() + UNHEALTHY_ADDRESS_TTL_MS);
+			if (preferredAddress?.address === address) preferredAddress = null;
+		};
+		socket.on('error', markIfSilent);
+		socket.once('end', markIfSilent);
+		socket.once('close', () => {
+			markIfSilent();
+			socket.removeListener('error', markIfSilent);
+			socket.removeListener('end', markIfSilent);
+		});
+		return socket;
+	};
 	const rememberFreshSocket = (socket: net.Socket): DatabaseSocket => {
-		const marked = markSocket(socket, endpoint);
+		const marked = watchSocket(markSocket(socket, endpoint));
 		const remoteAddress = marked.remoteAddress;
 		if (typeof remoteAddress === 'string' && net.isIP(remoteAddress) === 4) {
 			preferredAddress = {
@@ -144,7 +181,7 @@ export function createDatabaseSocketFactory(
 		);
 		const cachedAttemptTimeout = connectionAttemptSlice(timeoutMs, INITIAL_CONNECTION_ATTEMPT_SLOTS);
 		const cached = preferredAddress;
-		if (cached && cached.expiresAt <= now()) {
+		if (cached && (cached.expiresAt <= now() || isUnhealthy(cached.address))) {
 			if (preferredAddress === cached) preferredAddress = null;
 		} else if (cached) {
 			const timeout = Math.min(remaining(deadline, now), cachedAttemptTimeout);
@@ -152,13 +189,41 @@ export function createDatabaseSocketFactory(
 			try {
 				// Cache reuse intentionally does not call rememberFreshSocket: the
 				// expiry is measured from discovery and never extended by a hit.
-				return markSocket(await connect(cached.address, endpoint.port, timeout), endpoint);
+				return watchSocket(markSocket(await connect(cached.address, endpoint.port, timeout), endpoint));
 			} catch (error) {
 				// Only a TCP-level failure may invalidate and fall through to the
 				// existing hostname/DNS failover. TLS, auth, and protocol failures
 				// remain terminal and do not trigger another address.
 				if (!isRetryableConnectionError(error)) throw error;
 				if (preferredAddress === cached) preferredAddress = null;
+			}
+		}
+
+		if (hasUnhealthy()) {
+			// The hostname may resolve straight back to the unhealthy node, so
+			// race only the healthy A records. If none is left (or DNS fails),
+			// fall through to the normal hostname path rather than give up.
+			const healthy = await resolveIpv4WithFallback(endpoint.hostname, {
+				timeoutMs: remaining(deadline, now),
+				resolve4,
+				createResolver,
+				now
+			}).then(
+				(addresses) => addresses.filter((address) => !isUnhealthy(address)),
+				() => []
+			);
+			if (healthy.length > 0) {
+				return connectToCandidates({
+					addresses: healthy,
+					endpoint,
+					deadline,
+					now,
+					connect,
+					initialError: socketTimeoutError(endpoint.hostname, timeoutMs),
+					timeoutMs,
+					fallbackBudgetMs: remaining(deadline, now),
+					markFreshSocket: rememberFreshSocket
+				});
 			}
 		}
 

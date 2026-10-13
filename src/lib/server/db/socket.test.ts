@@ -6,6 +6,7 @@ import {
 	FALLBACK_DNS_TIMEOUT_MS,
 	PREFERRED_ADDRESS_TTL_MS,
 	TCP_CANDIDATE_STAGGER_MS,
+	UNHEALTHY_ADDRESS_TTL_MS,
 	createDatabaseSocketFactory,
 	connectWithTimeout,
 	parseDatabaseUrl
@@ -21,6 +22,11 @@ function fakeSocket(): net.Socket {
 
 function fakeSocketWithRemoteAddress(remoteAddress: string): net.Socket {
 	return { remoteAddress } as net.Socket;
+}
+
+function liveSocket(remoteAddress: string): net.Socket & EventEmitter & { bytesRead: number } {
+	return Object.assign(new EventEmitter(), { remoteAddress, bytesRead: 0 }) as unknown as net.Socket &
+		EventEmitter & { bytesRead: number };
 }
 
 function destroyableSocket(): net.Socket & { destroy: ReturnType<typeof vi.fn> } {
@@ -396,6 +402,110 @@ describe('database socket fallback', () => {
 
 		await expect(promise).rejects.toMatchObject({ code: 'ABORT_ERR', name: 'AbortError' });
 		expect(socket.destroyedByTest).toBe(true);
+	});
+
+	it('skips an address whose peer reset the connection before replying', async () => {
+		let nowMs = 0;
+		const connectCalls: string[] = [];
+		const sockets: Array<ReturnType<typeof liveSocket>> = [];
+		const resolve4 = vi.fn(async () => ['185.40.234.55', '185.40.234.75', '185.40.234.198']);
+		const connect = vi.fn(async (host: string) => {
+			connectCalls.push(host);
+			const socket = liveSocket(host === 'contabo.example.ts.net' ? '185.40.234.55' : host);
+			sockets.push(socket);
+			return socket;
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'contabo.example.ts.net', port: 10000 },
+			{ connect, resolve4, now: () => nowMs }
+		);
+
+		await factory();
+		// The TLS handshake on top of the raw socket is reset by the ingress node.
+		sockets[0].emit('error', codedError('ECONNRESET'));
+		sockets[0].emit('close');
+		const retried = await factory();
+
+		expect(connectCalls).toEqual(['contabo.example.ts.net', '185.40.234.75']);
+		expect(retried.remoteAddress).toBe('185.40.234.75');
+		expect(retried.host).toBe('contabo.example.ts.net');
+
+		// The healthy sibling is now the cached preference.
+		await factory();
+		expect(connectCalls.at(-1)).toBe('185.40.234.75');
+
+		// After the unhealthy window the hostname path is used again.
+		nowMs = UNHEALTHY_ADDRESS_TTL_MS + 1;
+		await factory();
+		expect(connectCalls.at(-1)).toBe('contabo.example.ts.net');
+	});
+
+	it('also treats a clean close with no reply as unhealthy', async () => {
+		const connectCalls: string[] = [];
+		const sockets: Array<ReturnType<typeof liveSocket>> = [];
+		const connect = vi.fn(async (host: string) => {
+			connectCalls.push(host);
+			const socket = liveSocket(host === 'db.example.test' ? '203.0.113.55' : host);
+			sockets.push(socket);
+			return socket;
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, resolve4: vi.fn(async () => ['203.0.113.55', '203.0.113.75']), now: () => 0 }
+		);
+
+		await factory();
+		sockets[0].emit('end');
+		await factory();
+
+		expect(connectCalls).toEqual(['db.example.test', '203.0.113.75']);
+	});
+
+	it('keeps an address that served data before its connection closed', async () => {
+		const connectCalls: string[] = [];
+		const sockets: Array<ReturnType<typeof liveSocket>> = [];
+		const resolve4 = vi.fn();
+		const connect = vi.fn(async (host: string) => {
+			connectCalls.push(host);
+			const socket = liveSocket('203.0.113.55');
+			sockets.push(socket);
+			return socket;
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, resolve4, now: () => 0 }
+		);
+
+		await factory();
+		// An idle pooled connection that already carried queries is closed.
+		sockets[0].bytesRead = 4096;
+		sockets[0].emit('error', codedError('ECONNRESET'));
+		sockets[0].emit('close');
+		await factory();
+
+		expect(connectCalls).toEqual(['db.example.test', '203.0.113.55']);
+		expect(resolve4).not.toHaveBeenCalled();
+	});
+
+	it('falls back to the hostname when every resolved address is unhealthy', async () => {
+		const connectCalls: string[] = [];
+		const sockets: Array<ReturnType<typeof liveSocket>> = [];
+		const connect = vi.fn(async (host: string) => {
+			connectCalls.push(host);
+			const socket = liveSocket('203.0.113.55');
+			sockets.push(socket);
+			return socket;
+		});
+		const factory = createDatabaseSocketFactory(
+			{ hostname: 'db.example.test', port: 5432 },
+			{ connect, resolve4: vi.fn(async () => ['203.0.113.55']), now: () => 0 }
+		);
+
+		await factory();
+		sockets[0].emit('error', codedError('ECONNRESET'));
+		await factory();
+
+		expect(connectCalls).toEqual(['db.example.test', 'db.example.test']);
 	});
 
 	it('marks verify-full and direct TLS database URLs as strict endpoints without exposing credentials', () => {
