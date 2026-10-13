@@ -111,6 +111,8 @@ export class ChatSession {
 	streamStartedAt = $state<number | null>(null);
 	toolUpdatedAt = $state<number | null>(null);
 	hasAssistantOutput = $state(false);
+	/** The turn rewrites an earlier answer (an output action) and plans no research. */
+	rewriting = $state(false);
 	activityConversationId = $state<string | null>(null);
 	streaming = $state(false);
 	editRequest = $state<string | null>(null); // populated by ↑; consumed by Composer as prompt reuse
@@ -119,7 +121,7 @@ export class ChatSession {
 	plan = $state<ActivePlan | null>(null);
 	decisions = $state<PublicAgentDecision[]>([]);
 
-	startStream(conversationId?: string): AbortController {
+	startStream(conversationId?: string, options: { rewriting?: boolean } = {}): AbortController {
 		// If a stream is already in flight, abort it so the next one can take
 		// over cleanly. The previous runStream's finally clause will detect
 		// that the active controller has changed and skip the state reset.
@@ -139,6 +141,7 @@ export class ChatSession {
 		this.streamStartedAt = Date.now();
 		this.toolUpdatedAt = null;
 		this.hasAssistantOutput = false;
+		this.rewriting = options.rewriting ?? false;
 		this.activityConversationId = conversationId ?? null;
 		return c;
 	}

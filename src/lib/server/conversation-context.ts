@@ -133,6 +133,8 @@ export interface BuildConversationContextInput {
 	currentMessageId?: string;
 	operation?: ConversationOperation;
 	outputAction?: boolean;
+	/** Which output action runs (rundown_line, tease, ...); carried to the worker on the current turn. */
+	outputActionKind?: string;
 	sourceMessageId?: string;
 	homeMarket?: string;
 	timezone?: string;
@@ -223,7 +225,8 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 				...(researchRequired !== undefined ? { researchRequired } : {}),
 				...(researchAllowed ? { researchAllowed: true } : {}),
 				...(isCurrentResearchRequest(resolvedRequest) ? { freshness: 'current' as const } : {}),
-				...(researchRequired !== false || researchAllowed ? { researchContract } : {})
+				...(researchRequired !== false || researchAllowed ? { researchContract } : {}),
+				...(input.outputAction && input.outputActionKind ? { outputAction: input.outputActionKind } : {})
 		},
 		...(recentTurns.length ? { recentTurns } : {}),
 		...(topicPrompt

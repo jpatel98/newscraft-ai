@@ -682,7 +682,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		existingRun?: DurableRunData
 	) {
 		const conversationId = args.conversation_id;
-		const controller = chat.startStream(args.conversation_id);
+		const controller = chat.startStream(args.conversation_id, { rewriting: Boolean(args.output_action) });
 
 		const requestArgs: RunStreamArgs = existingRun
 			? args

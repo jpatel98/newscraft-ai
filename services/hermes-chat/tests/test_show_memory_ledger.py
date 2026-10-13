@@ -6,7 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from hermes_chat import research_plan
-from hermes_chat.portable import (_deliverable_brief, _fast_prompt, _finalize_answer, _ledger_context, _newsroom_context, _split_ledger,
+from hermes_chat.portable import (_deliverable_brief, _trim_output_action, _fast_prompt, _finalize_answer, _ledger_context, _newsroom_context, _split_ledger,
                                   _thread_listing, _user_facing)
 
 SHOW = {"showName": "CityNews at Six", "airTimeLocal": "18:00", "audience": "GTA general", "timezone": "America/Toronto", "homeMarket": "Toronto",
@@ -96,6 +96,41 @@ class WriterShowTests(unittest.TestCase):
         self.assertIn("House style (follow exactly", show)
         self.assertNotIn("new since the last show\"", show)
         self.assertEqual(research_plan.writer_context({"homeMarket": "Toronto"}, MORNING, rundown=False), "")
+
+    def test_writer_knows_the_clock_and_rolls_to_tomorrow_after_air(self):
+        morning = research_plan.writer_context(SHOW, MORNING)
+        self.assertIn("It is now Saturday, October 10, 2026 09:30 local", morning)
+        self.assertIn("the next one airs today, Saturday 18:00", morning)
+        evening = research_plan.writer_context(SHOW, EVENING)
+        self.assertIn("It is now Saturday, October 10, 2026 19:30 local", evening)
+        self.assertIn("The last show aired Saturday, October 10, 2026 18:00", evening)
+        self.assertIn("the next one airs tomorrow, Sunday 18:00", evening)
+
+    def test_doubled_taking_opener_is_collapsed(self):
+        self.assertTrue(_user_facing("Taking Taking the ask as the lunch pledge.\nBody [1]").startswith("Taking the ask as the lunch pledge."))
+        self.assertEqual(_user_facing("Taking stock: body"), "Taking stock: body")
+
+    def test_planner_reading_that_already_says_taking_is_not_doubled(self):
+        plan = research_plan.parse_plan('{"mode": "research", "assumption": "Taking the ask as the Chow lunch pledge.", "queries": [{"q": "Chow lunch pledge", "intent": "news"}]}')
+        self.assertEqual(plan["assumption"], "the ask as the Chow lunch pledge")
+        self.assertNotIn("Taking Taking", _fast_prompt(mode="research", thread_listing="", pages=[], assumption=plan["assumption"]))
+
+    def test_rundown_line_keeps_the_line_and_this_storys_sources_only(self):
+        source = ("Chow pledged lunch funding [1]. The province has not committed [2].\n"
+                  "Not this story: a TPS search for a sexual-assault suspect [3].")
+        reply = ("CHOW LUNCH · Chow pledges school lunch money · PKG · 2:00 · needs check\nSources: [1] [2] [3]\n\n"
+                 "The answer's own framing:\n- Chow pledged [1]\n- Province silent [2]\n\n" + LEDGER)
+        trimmed = _trim_output_action(reply, "rundown_line", source)
+        self.assertEqual(_split_ledger(trimmed)[0].strip(),
+                         "CHOW LUNCH · Chow pledges school lunch money · PKG · 2:00 · needs check\nSources: [1] [2]")
+        self.assertIn("newscraft-ledger", trimmed)
+
+    def test_tease_keeps_the_alt_and_other_actions_are_untouched(self):
+        reply = "Who pays for lunch?\nAlt: Chow's lunch promise, explained.\nWhy it matters: more text\nSources: [1]"
+        self.assertEqual(_trim_output_action(reply, "tease", "Chow pledged [1]."),
+                         "Who pays for lunch?\nAlt: Chow's lunch promise, explained.\nSources: [1]")
+        self.assertEqual(_trim_output_action(reply, "producer_brief", ""), reply)
+        self.assertEqual(_trim_output_action(reply, None, ""), reply)
 
     def test_style_notes_reach_a_prompt_with_no_sources(self):
         prompt = _fast_prompt(mode="thread", thread_listing="", pages=[], assumption="", show=research_plan.writer_context(SHOW, MORNING))

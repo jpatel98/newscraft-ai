@@ -6,7 +6,10 @@ import {
 	type AgentContentPart
 } from '$lib/server/agent/transport';
 import { agentBackend } from '$lib/server/agent/backend';
-import { selectCitationInheritanceToolCalls } from '$lib/server/agent/citation-inheritance';
+import {
+	selectCitationInheritanceToolCalls,
+	threadCitations
+} from '$lib/server/agent/citation-inheritance';
 import { expandAgentSkill, listAgentCommands } from '$lib/server/agent/bridge';
 import {
 	addMessage,
@@ -1019,6 +1022,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 						? 'regenerate'
 						: 'send',
 		outputAction: Boolean(body.output_action),
+		...(body.output_action ? { outputActionKind: body.output_action } : {}),
 		sourceMessageId: body.source_message_id
 	});
 	const inheritedToolCalls = selectCitationInheritanceToolCalls({
@@ -1029,10 +1033,19 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		resumeMessageId
 	});
 	const contextualCitations = conversationContext.lastSourceBackedAnswer?.citations ?? [];
+	// Send turns and output actions carry every source cited earlier in the thread, so a
+	// follow-up never renumbers a source the ledger or an earlier answer still shows.
+	const priorThreadCitations =
+		!isResume && !isRetry && !isRegenerate ? threadCitations(messages, contextualCitations) : [];
 	const inheritedMetadata = inheritedToolCalls
-		? parseToolMetadata(inheritedToolCalls)
-		: !body.output_action && !isResume && !isRetry && !isRegenerate && contextualCitations.length
-			? { ...parseToolMetadata(null), citations: contextualCitations }
+		? isResume
+			? parseToolMetadata(inheritedToolCalls)
+			: (() => {
+					const parsed = parseToolMetadata(inheritedToolCalls);
+					return { ...parsed, citations: threadCitations(messages, parsed.citations) };
+				})()
+		: priorThreadCitations.length
+			? { ...parseToolMetadata(null), citations: priorThreadCitations }
 			: null;
 	recordChatDiagnostic(convoId, 'chat.history_built', {
 		trace_id: traceId,

@@ -102,14 +102,21 @@ export interface LiveHeadLabelInput {
 	planSteps: ReadonlyArray<{ id: string; status: string }> | null;
 	hasToolHistory: boolean;
 	hasAssistantOutput: boolean;
+	/** An output action rewrites an earlier answer; it never plans research. */
+	rewriting?: boolean;
 }
 
 // Honest label while a turn streams but no tool is running: planning before the
 // plan lands, researching while non-answer steps run, otherwise writing.
-export function liveHeadLabel({ planSteps, hasToolHistory, hasAssistantOutput }: LiveHeadLabelInput): string {
+export function liveHeadLabel({
+	planSteps,
+	hasToolHistory,
+	hasAssistantOutput,
+	rewriting = false
+}: LiveHeadLabelInput): string {
 	if (hasAssistantOutput) return 'Writing answer';
 	if (!planSteps || planSteps.length === 0) {
-		return hasToolHistory ? 'Writing answer' : 'Planning research';
+		return hasToolHistory || rewriting ? 'Writing answer' : 'Planning research';
 	}
 	if (planSteps.some((s) => s.id === 'answer' && s.status === 'running')) return 'Writing answer';
 	if (planSteps.some((s) => s.id !== 'answer' && s.status === 'running')) return 'Researching';

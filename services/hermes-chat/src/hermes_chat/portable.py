@@ -490,7 +490,48 @@ def _user_facing(text):
 
     A trailing newscraft-ledger block is kept intact and stays the last thing in the text."""
     body, block = _split_ledger(text)
+    body = _DOUBLED_TAKING.sub(r"\1Taking ", body)
     return _join_ledger(_drop_closers(_strip_tool_talk(_unescape_escaped(body))), block)
+
+
+_DOUBLED_TAKING = re.compile(r"^(\s*)Taking\s+(?:taking\s+)+", re.IGNORECASE)
+
+
+_OUTPUT_LINE_ACTIONS = {"rundown_line", "tease"}
+_UNRELATED = re.compile(r"\b(?:not (?:this|the same|our) story|unrelated|different story|not related)\b", re.IGNORECASE)
+_MARKER = re.compile(r"\[(\d+)\]")
+
+
+def _trim_output_action(text, action, source="", valid=None):
+    """A rundown line or tease is the requested lines plus one Sources line, nothing else.
+
+    The model tends to append the answer's own framing under the line, and to list sources the source answer
+    itself set aside as another story. Sources keep only markers the source answer cites for this story."""
+    if action not in _OUTPUT_LINE_ACTIONS:
+        return text
+    body, block = _split_ledger(text)
+    lines = [line.strip().strip("`*").strip() for line in body.splitlines()]
+    lines = [line for line in lines if line]
+    sources_line = next((line for line in lines if line.lower().startswith("sources:")), None)
+    content = [line for line in lines if not line.lower().startswith("sources:")]
+    if not content:
+        return text
+    keep = [content[0]]
+    if action == "tease":
+        keep += [line for line in content[1:] if line.lower().startswith("alt:")][:1]
+    if sources_line:
+        source_lines = [line for line in source.splitlines() if line.strip()]
+        markers = []
+        for number in dict.fromkeys(_MARKER.findall(sources_line)):
+            uses = [line for line in source_lines if f"[{number}]" in line]
+            if valid is not None and int(number) not in valid:
+                continue
+            if source_lines and (not uses or all(_UNRELATED.search(line) for line in uses)):
+                continue
+            markers.append(f"[{number}]")
+        if markers:
+            keep.append("Sources: " + " ".join(markers))
+    return _join_ledger("\n".join(keep), block)
 
 
 def _strip_tool_talk(text):
@@ -1569,6 +1610,8 @@ class PortableAgentRunner:
                             source = {"citationNumber": number, "title": page["title"][:400], "url": page["url"], "publicationDate": page["date"],
                                       "sourceType": source_type_for_tier(page["tier"]), "supportingExcerpt": _best_excerpt(page["text"], claims)[:4000]}
                             await research.execute("record_newscraft_source", {"source": source})
+                        source_answer = _last_user_text(state["messages"]).partition("Answer to transform:")[2]
+                        answer = _trim_output_action(answer, turn.get("outputAction"), source_answer, set(research.recorded_sources))
                         answer = _finalize_answer(answer, set(research.recorded_sources), CUT_SHORT_NOTE if reply.truncated else "")
                         state["answer"] = answer
                         yield plan_update(answer="ok")

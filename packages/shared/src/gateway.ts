@@ -314,6 +314,8 @@ export interface ConversationCurrentTurn {
 	freshness?: 'current';
 	/** Structured control-plane contract for this authoritative latest turn. */
 	researchContract?: ResearchRequestContract;
+	/** The output action (rundown_line, tease, ...) this turn runs, so the worker can shape its result. */
+	outputAction?: string;
 }
 
 export interface ConversationRecentTurn {

@@ -68,7 +68,8 @@
 			return liveHeadLabel({
 				planSteps: chat.plan?.steps ?? null,
 				hasToolHistory: chat.toolHistory.length > 0,
-				hasAssistantOutput: chat.hasAssistantOutput
+				hasAssistantOutput: chat.hasAssistantOutput,
+				rewriting: chat.rewriting
 			});
 		}
 		return '';

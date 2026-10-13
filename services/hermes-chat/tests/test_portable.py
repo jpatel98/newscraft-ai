@@ -2078,6 +2078,19 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Taking", self.model_prompts()[1])
         self.assertNotIn("Taking", self.final_answer(events))
 
+    async def test_rundown_line_action_returns_only_the_line_and_its_sources(self):
+        upstream = ("Write one rundown line from the selected answer.\n\nAnswer to transform:\n\n"
+                    "Chow pledged lunch money. [1]\nNot this story: a TPS search. [2]")
+        payload = self.fast_payload(upstream, required=False)
+        turn = json.loads(payload["context"][0]["value"])["currentTurn"]
+        payload["context"][0]["value"] = json.dumps({"currentTurn": {**turn, "outputAction": "rundown_line"}})
+        exa, _ = self.fake_exa()
+        runner = self.runner([answer("CHOW LUNCH · Chow pledges lunch money · VO · :30 · needs check\nSources: [1] [2]\n\nFraming:\n- more [1]")])
+        seeded = [{"citationNumber": n, "title": f"Source {n}", "url": f"https://www.cbc.ca/news/source-{n}", "sourceType": "news_report",
+                   "supportingExcerpt": f"Excerpt {n}."} for n in (1, 2)]
+        events = await self.collect_fast(runner, payload, exa, seeded=seeded)
+        self.assertEqual(self.final_answer(events).strip(), "CHOW LUNCH · Chow pledges lunch money · VO · :30 · needs check\nSources: [1]")
+
     async def test_research_with_nothing_on_topic_answers_from_the_thread_and_states_the_gap(self):
         plan = {"mode": "research", "assumption": "", "queries": [{"q": "Regiment kidnapping DND statement", "intent": "news", "days": 7, "domains": []}]}
         exa, _ = self.fake_exa(default=[self.fast_page("https://www.ctvnews.ca/toronto/budget-1", "CTV budget", "Council approved the transit budget on Oct. 9 after debate.")])

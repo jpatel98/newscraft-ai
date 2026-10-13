@@ -269,6 +269,10 @@ describe('liveHeadLabel', () => {
 		expect(liveHeadLabel(none)).toBe('Planning research');
 	});
 
+	it('says writing from the start when an output action rewrites an answer', () => {
+		expect(liveHeadLabel({ ...none, rewriting: true })).toBe('Writing answer');
+	});
+
 	it('says researching while a non-answer step runs', () => {
 		const planSteps = [
 			{ id: 'search', status: 'running' },

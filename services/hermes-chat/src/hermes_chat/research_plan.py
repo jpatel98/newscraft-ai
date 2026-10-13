@@ -205,7 +205,12 @@ def writer_context(newsroom: Mapping[str, Any], now: datetime, *, rundown: bool 
     if show:
         text = f"{show}"
         if last:
-            text += f" The last show aired {last}."
+            local = now.astimezone(now.tzinfo or timezone.utc)
+            upcoming = last_show_at(newsroom, now) + timedelta(days=1)
+            day = "today" if upcoming.date() == local.date() else "tomorrow"
+            text += (f" It is now {local.strftime('%A, %B %d, %Y %H:%M')} local. The last show aired {last}; "
+                     f"the next one airs {day}, {upcoming.strftime('%A %H:%M')}. Write for that next show; "
+                     "a show that already aired is past, never \"tonight\".")
         if newsroom.get("showName"):
             text += " Scripts state the approximate read time and are written for this show"
             text += f" (\"for the {spoken_time(newsroom['airTimeLocal'])}\")." if newsroom.get("airTimeLocal") else "."
@@ -280,6 +285,8 @@ def parse_plan(text: Any) -> dict[str, Any] | None:
         mode = "research"
     assumption = raw.get("assumption")
     assumption = " ".join(assumption.split())[:MAX_ASSUMPTION_CHARS].strip(" .") if isinstance(assumption, str) else ""
+    # The writer prepends "Taking"; a planner that already wrote it would produce "Taking Taking ...".
+    assumption = re.sub(r"^(?:taking\b[\s:,]*)+", "", assumption, flags=re.IGNORECASE).strip(" .")
     if mode == "research" and not queries:
         return None
     return {"mode": mode, "assumption": assumption, "queries": queries, "source": "planner"}
