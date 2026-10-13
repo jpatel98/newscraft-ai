@@ -9,7 +9,18 @@ export const GET: RequestHandler = async ({ request, url }) => {
 	if (!leaseOwner || !Number.isSafeInteger(requestedLimit) || requestedLimit < 1) {
 		return json({ detail: 'lease_owner and a positive limit are required' }, { status: 400 });
 	}
-	const runs = await reclaimQueuedOrExpiredHermesRuns(leaseOwner, Math.min(requestedLimit, 100));
+	let runs: Awaited<ReturnType<typeof reclaimQueuedOrExpiredHermesRuns>>;
+	try {
+		runs = await reclaimQueuedOrExpiredHermesRuns(leaseOwner, Math.min(requestedLimit, 100));
+	} catch (cause) {
+		// Drizzle's "Failed query" hides the Postgres reason; log its code and message (never params).
+		const pg = (cause as { cause?: { code?: unknown; message?: unknown } })?.cause;
+		console.error('hermes run recovery query failed', {
+			code: typeof pg?.code === 'string' ? pg.code : null,
+			message: typeof pg?.message === 'string' ? pg.message.slice(0, 300) : null
+		});
+		return json({ detail: 'recovery unavailable' }, { status: 503 });
+	}
 	return json({
 		runs: runs.map((run) => {
 			const input = JSON.parse(run.inputJson) as Record<string, unknown>;
