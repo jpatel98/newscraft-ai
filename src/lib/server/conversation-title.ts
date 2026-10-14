@@ -51,7 +51,8 @@ export function fallbackConversationTitle(content: string): string {
 		.trim();
 	if (!cleaned) return 'New conversation';
 	const focused = cleaned
-		.replace(/^(?:um|uh|hey|hi)[,:\s-]*/i, '')
+		.replace(/^(?:um|uh|hey|hi|hello)[,:.!\s-]*/i, '')
+		.replace(/^(?:good\s+)?(?:morning|afternoon|evening)(?:[,\s]+(?:all|everyone|team))?\s*[,:.!-]+\s*/i, '')
 		.replace(/^(?:can|could|would|will)\s+you\s+(?:please\s+)?/i, '')
 		.replace(/^please\s+/i, '')
 		.replace(/^i\s+(?:would\s+like|want|need)\s+(?:us|you)\s+to\s+/i, '')

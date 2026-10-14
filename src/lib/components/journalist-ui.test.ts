@@ -5,6 +5,7 @@ import {
 	answerExportUrl,
 	citationResolution,
 	citationSourceTypeLabel,
+	footerCitationRecords,
 	pdfSelectionError,
 	publicationDateLabel,
 	resolvedCitationRecords,
@@ -22,6 +23,20 @@ const citation = {
 };
 
 describe('journalist citation UI helpers', () => {
+	it('counts the distinct sources an answer cites, not the carried-forward record list', () => {
+		const records = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({
+			...citation,
+			citationNumber: n,
+			url: `https://example.test/${n}`
+		}));
+		const brief = 'A [1]. B [2][3]. C [5]. D [6] and again [6]. E [8].';
+		expect(footerCitationRecords(brief, records.slice(0, 4).concat(records.slice(4))).map((r) => r.citationNumber))
+			.toEqual([1, 2, 3, 5, 6, 8]);
+		expect(footerCitationRecords('Same page twice [1][2].', [records[0], { ...records[1], url: records[0].url }]))
+			.toHaveLength(1);
+		expect(footerCitationRecords('No markers here.', records.slice(0, 2))).toHaveLength(2);
+	});
+
 	it('resolves only markers with exactly one matching record', () => {
 		const duplicate = [citation, { ...citation, url: 'https://fifa.com' }];
 		expect(citationResolution('Confirmed [1].', [citation]).allResolved).toBe(true);

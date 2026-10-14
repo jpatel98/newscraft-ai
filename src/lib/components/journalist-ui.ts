@@ -105,6 +105,24 @@ export function resolvedCitationRecords(
 	return resolved;
 }
 
+/**
+ * The citations an answer's footer counts: one per distinct source the answer
+ * actually cites. A thread carries earlier turns' records forward, so the raw
+ * record list can be larger or smaller than what this answer shows.
+ */
+export function footerCitationRecords(
+	markdown: string,
+	citations: ReadonlyArray<CitationRecord>
+): CitationRecord[] {
+	if (!visibleCitationNumbers(markdown).length) return mergeCitationRecords(citations);
+	const byUrl = new Map<string, CitationRecord>();
+	for (const record of resolvedCitationRecords(markdown, citations)) {
+		const key = `${record.url}\u0000${record.documentPage ?? ''}`;
+		if (!byUrl.has(key)) byUrl.set(key, record);
+	}
+	return Array.from(byUrl.values());
+}
+
 export function citationSourceTypeLabel(sourceType: CitationSourceType): string {
 	return (
 		{

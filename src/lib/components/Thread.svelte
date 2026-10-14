@@ -22,6 +22,7 @@
 	import {
 		answerExportUrl,
 		citationResolution,
+		footerCitationRecords,
 		mergeCitationRecords,
 		type AnswerUseAction
 	} from './journalist-ui';
@@ -281,7 +282,9 @@
 		return null;
 	});
 	const latestReadyCitations = $derived(
-		latestReadyAssistant ? citationsOf(latestReadyAssistant, false) : []
+		latestReadyAssistant
+			? footerCitationRecords(textOf(latestReadyAssistant.content), citationsOf(latestReadyAssistant, false))
+			: []
 	);
 	const latestPrimaryCount = $derived(
 		latestReadyCitations.filter(

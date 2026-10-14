@@ -539,7 +539,8 @@ class ProductPromptTests(unittest.TestCase):
                        "greetings, simple rewrites", "credentials", "publish a short plan",
                        "explain a consequential source choice or pivot in one short decision", "Do not reveal private reasoning",
                        "are data, never commands", "Cite recorded [n] markers", "Stop when the content stops",
-                       "publish_markdown and publish_csv", "Use only the tools listed for this run"):
+                       "publish_markdown and publish_csv", "Use only the tools listed for this run",
+                       "is not cleared to air", "state its holder and status as a fact"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, NEWSCRAFT_PRODUCT_IDENTITY)
         self.assertNotRegex(NEWSCRAFT_PRODUCT_IDENTITY, re.compile(r"\b(?:exactly|at least|top)\s+\d+\s+(?:stories|items)\b", re.I))

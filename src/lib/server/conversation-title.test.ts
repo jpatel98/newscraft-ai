@@ -40,6 +40,12 @@ describe('local conversation titles', () => {
 		expect(fallbackConversationTitle('Please compare [Ontario transit](https://example.test/story) [1]. Include sources.'))
 			.toBe('Compare Ontario transit');
 		expect(fallbackConversationTitle('A'.repeat(120))).toHaveLength(80);
+		expect(fallbackConversationTitle('Morning. Scan what moved overnight for tonight\'s show.'))
+			.toBe('Scan what moved overnight for tonight\'s show');
+		expect(fallbackConversationTitle('Good evening, team: research the Chow lunch pledge.'))
+			.toBe('Research the Chow lunch pledge');
+		expect(fallbackConversationTitle('Hi! Check the TTC fare story.')).toBe('Check the TTC fare story');
+		expect(fallbackConversationTitle('Morning show rundown for Friday')).toBe('Morning show rundown for Friday');
 	});
 
 	it('keeps title sanitation compatible with saved display titles', () => {
