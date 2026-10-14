@@ -3,7 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const conversationMocks = vi.hoisted(() => ({ listConversations: vi.fn() }));
 
+const projectMocks = vi.hoisted(() => ({
+	listProjects: vi.fn(async () => [{ id: 'folder-1', name: 'Budget', conversationCount: 1 }]),
+	listConversationProjectIds: vi.fn(async () => new Map([['conversation-1', 'folder-1']]))
+}));
+
 vi.mock('$lib/server/db/conversations', () => conversationMocks);
+vi.mock('$lib/server/db/projects', () => projectMocks);
 
 import { CONVERSATIONS_DEPENDENCY } from '$lib/utils/load-dependencies';
 import { load } from './+layout.server';
@@ -42,6 +48,17 @@ describe('sidebar conversation refresh', () => {
 
 		expect(depends).toHaveBeenCalledWith(CONVERSATIONS_DEPENDENCY);
 		expect(conversationMocks.listConversations).toHaveBeenCalledWith('account-1', 50);
+	});
+
+	it('returns folders and tags each chat with its folder', async () => {
+		const result = (await load({
+			locals: { user: { id: 'account-1' }, isMarketingHost: false },
+			depends: vi.fn()
+		} as any)) as any;
+
+		expect(projectMocks.listProjects).toHaveBeenCalledWith('account-1');
+		expect(result.folders).toEqual([{ id: 'folder-1', name: 'Budget', count: 1 }]);
+		expect(result.conversations[0].folderId).toBe('folder-1');
 	});
 
 	it('uses only the sidebar dependency for pin and rename mutations', () => {

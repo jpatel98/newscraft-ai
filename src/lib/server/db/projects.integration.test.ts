@@ -3,7 +3,7 @@ import { runMigrations, type MigrationClient } from './migration-runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql, ensureMigrated } from './index';
 import { createConversation, addMessage, getMessages } from './conversations';
-import { createProject, getProject, listProjects, listProjectConversations, moveConversation, renameProject } from './projects';
+import { createProject, deleteProject, getProject, listConversationProjectIds, listProjects, listProjectConversations, moveConversation, renameProject } from './projects';
 const url = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
 describe.skipIf(!url)('account-owned topic projects', () => {
  const a = `projects-a-${Date.now()}`, b = `projects-b-${Date.now()}`;
@@ -26,6 +26,15 @@ describe.skipIf(!url)('account-owned topic projects', () => {
   expect(await listProjectConversations(a,second.id)).toEqual([]);
   expect(await getMessages(c.id)).toEqual(before);
   expect(await sql`SELECT * FROM conversations WHERE id = ${c.id}`).toEqual(originalConversation);
+ });
+ it('deletes a folder without deleting its chats and only for its owner', async () => {
+  const p = await createProject(a,'Temporary'); const c = await createConversation(a,undefined,p.id);
+  expect((await listConversationProjectIds(a)).get(c.id)).toBe(p.id);
+  expect(await deleteProject(b,p.id)).toBe(false);
+  expect(await deleteProject(a,p.id)).toBe(true);
+  expect(await getProject(a,p.id)).toBeUndefined();
+  expect((await listConversationProjectIds(a)).has(c.id)).toBe(false);
+  expect(await sql`SELECT id FROM conversations WHERE id = ${c.id}`).toHaveLength(1);
  });
  it('creates membership atomically and rejects foreign ownership at repository and database levels', async () => {
   const p = await createProject(a,'Private'); const other = await createProject(b,'Other');

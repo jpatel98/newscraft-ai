@@ -31,9 +31,9 @@ describe('Story ledger pane', () => {
 		expect(pane).toContain('class="story-claim__chip story-claim__chip--plain"');
 	});
 
-	it('mounts from a Story header button next to Move to project using the artifact slot layout', () => {
+	it('mounts from a Story header button next to Move to folder using the artifact slot layout', () => {
 		const page = source('../../routes/c/[id]/+page.svelte');
-		const moveIndex = page.indexOf('Move to project</a>');
+		const moveIndex = page.indexOf('Move to folder</a>');
 		const storyIndex = page.indexOf('data-testid="story-ledger-button"');
 		expect(moveIndex).toBeGreaterThan(0);
 		expect(storyIndex).toBeGreaterThan(moveIndex);

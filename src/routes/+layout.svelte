@@ -13,6 +13,10 @@
 	import MoreHorizontal from 'lucide-svelte/icons/more-horizontal';
 	import Pin from 'lucide-svelte/icons/pin';
 	import Search from 'lucide-svelte/icons/search';
+	import Folder from 'lucide-svelte/icons/folder';
+	import FolderOpen from 'lucide-svelte/icons/folder-open';
+	import FolderPlus from 'lucide-svelte/icons/folder-plus';
+	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import SystemPromptEditor from '$lib/components/SystemPromptEditor.svelte';
@@ -27,6 +31,13 @@
 		updatedAt: number;
 		pinned: number;
 		systemPrompt: string | null;
+		folderId: string | null;
+	}
+
+	interface SidebarFolder {
+		id: string;
+		name: string;
+		count: number;
 	}
 
 	let { children, data } = $props();
@@ -50,7 +61,20 @@
 
 	// `now` snapshot for date-bucketing; refreshed on conversation list change so
 	// labels don't drift mid-session without forcing a tight re-eval each tick.
-	const groups = $derived(groupByDate(data.conversations as SidebarConvo[], Date.now()));
+	const folders = $derived((data.folders ?? []) as SidebarFolder[]);
+	const folderChats = $derived.by(() => {
+		const byFolder = new Map<string, SidebarConvo[]>(folders.map((f) => [f.id, []]));
+		for (const c of data.conversations as SidebarConvo[]) {
+			if (c.folderId) byFolder.get(c.folderId)?.push(c);
+		}
+		for (const chats of byFolder.values()) chats.sort((a, b) => b.updatedAt - a.updatedAt);
+		return byFolder;
+	});
+	// Filed chats live under their folder, so the dated list only shows unfiled ones.
+	const unfiled = $derived(
+		(data.conversations as SidebarConvo[]).filter((c) => !c.folderId || !folderChats.has(c.folderId))
+	);
+	const groups = $derived(groupByDate(unfiled, Date.now()));
 
 	function toggleDrawer() {
 		if (drawerOpen) {
@@ -206,6 +230,7 @@
 			confirmDeleteTimer = null;
 		}
 		confirmDeleteFor = null;
+		moveMenuFor = null;
 	}
 
 	function openMenu(id: string, e: MouseEvent) {
@@ -236,6 +261,7 @@
 
 		menuFor = id;
 		confirmDeleteFor = null;
+		moveMenuFor = null;
 	}
 
 	async function togglePin(c: SidebarConvo) {
@@ -342,6 +368,189 @@
 		}
 	}
 
+	// ---------- Folders ----------
+	const OPEN_FOLDERS_KEY = 'newscraft:open-folders';
+	let openFolders = $state<Record<string, boolean>>({});
+	let creatingFolder = $state(false);
+	let folderDraft = $state('');
+	let folderInput = $state<HTMLInputElement | null>(null);
+	let moveAfterCreate = $state<string | null>(null);
+	let folderRenamingFor = $state<string | null>(null);
+	let folderBusy = $state(false);
+	let moveMenuFor = $state<string | null>(null);
+	let dragChatId = $state<string | null>(null);
+	let dropTarget = $state<string | null>(null);
+
+	onMount(() => {
+		try {
+			const saved = JSON.parse(localStorage.getItem(OPEN_FOLDERS_KEY) ?? '{}');
+			if (saved && typeof saved === 'object') openFolders = saved;
+		} catch {
+			// Folder open state is a convenience; start collapsed without it.
+		}
+	});
+
+	function isFolderOpen(f: SidebarFolder, chats: SidebarConvo[]): boolean {
+		if (openFolders[f.id] !== undefined) return openFolders[f.id];
+		return chats.some((c) => c.id === page.params.id);
+	}
+
+	function setFolderOpen(id: string, open: boolean) {
+		openFolders = { ...openFolders, [id]: open };
+		try {
+			localStorage.setItem(OPEN_FOLDERS_KEY, JSON.stringify(openFolders));
+		} catch {
+			// Ignore storage failures (private mode, quota).
+		}
+	}
+
+	async function refreshFolders() {
+		await Promise.all([invalidate(CONVERSATIONS_DEPENDENCY), invalidate('app:projects')]);
+	}
+
+	async function startCreateFolder(moveChatId: string | null = null) {
+		closeMenu();
+		folderRenamingFor = null;
+		creatingFolder = true;
+		folderDraft = '';
+		moveAfterCreate = moveChatId;
+		await tick();
+		folderInput?.focus();
+	}
+
+	async function startRenameFolder(f: SidebarFolder) {
+		closeMenu();
+		creatingFolder = false;
+		folderRenamingFor = f.id;
+		folderDraft = f.name;
+		await tick();
+		folderInput?.focus();
+		folderInput?.select();
+	}
+
+	function cancelFolderEdit() {
+		creatingFolder = false;
+		folderRenamingFor = null;
+		folderDraft = '';
+		moveAfterCreate = null;
+	}
+
+	async function commitFolderEdit(e?: SubmitEvent) {
+		e?.preventDefault();
+		const name = folderDraft.trim();
+		if (folderBusy) return;
+		if (!name || name.length > 100) {
+			if (!name) cancelFolderEdit();
+			return;
+		}
+		folderBusy = true;
+		try {
+			if (folderRenamingFor) {
+				const id = folderRenamingFor;
+				const current = folders.find((f) => f.id === id);
+				if (current && current.name !== name) {
+					const res = await fetch(`/api/projects/${id}`, {
+						method: 'PATCH',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ name })
+					});
+					if (!res.ok) throw new Error(await res.text());
+				}
+			} else {
+				const res = await fetch('/api/projects', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ name })
+				});
+				if (!res.ok) throw new Error(await res.text());
+				const created = (await res.json()) as { id: string };
+				setFolderOpen(created.id, true);
+				if (moveAfterCreate) await moveChat(moveAfterCreate, created.id, false);
+			}
+			cancelFolderEdit();
+			await refreshFolders();
+		} catch (err) {
+			console.warn('NewsCraft folder save failed', err);
+			alert('Could not save the folder. Try again.');
+		} finally {
+			folderBusy = false;
+		}
+	}
+
+	async function deleteFolder(f: SidebarFolder) {
+		closeMenu();
+		const res = await fetch(`/api/projects/${f.id}`, { method: 'DELETE' });
+		if (!res.ok) {
+			alert('Could not delete the folder.');
+			return;
+		}
+		const { [f.id]: _removed, ...rest } = openFolders;
+		openFolders = rest;
+		if (page.url.pathname === `/projects/${f.id}`) {
+			await goto('/', { invalidateAll: true });
+		} else {
+			await refreshFolders();
+		}
+	}
+
+	function onFolderDeleteAction(f: SidebarFolder) {
+		const key = `folder:${f.id}`;
+		if (confirmDeleteFor === key) {
+			void deleteFolder(f);
+		} else {
+			armDelete(key);
+		}
+	}
+
+	async function moveChat(chatId: string, folderId: string | null, refresh = true) {
+		closeMenu();
+		const res = await fetch(`/api/conversations/${chatId}/project`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ projectId: folderId })
+		});
+		if (!res.ok) {
+			alert('Could not move the chat.');
+			return;
+		}
+		if (folderId) setFolderOpen(folderId, true);
+		if (refresh) await refreshFolders();
+	}
+
+	function onChatDragStart(c: SidebarConvo, e: DragEvent) {
+		dragChatId = c.id;
+		e.dataTransfer?.setData('text/plain', c.id);
+		if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+	}
+
+	function onChatDragEnd() {
+		dragChatId = null;
+		dropTarget = null;
+	}
+
+	function onDropTargetOver(target: string, e: DragEvent) {
+		if (!dragChatId) return;
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		dropTarget = target;
+	}
+
+	function onDropTargetLeave(target: string, e: DragEvent) {
+		const next = e.relatedTarget as Node | null;
+		if (next && (e.currentTarget as HTMLElement).contains(next)) return;
+		if (dropTarget === target) dropTarget = null;
+	}
+
+	function onDropOnTarget(folderId: string | null, e: DragEvent) {
+		if (!dragChatId) return;
+		e.preventDefault();
+		const chat = (data.conversations as SidebarConvo[]).find((c) => c.id === dragChatId);
+		dragChatId = null;
+		dropTarget = null;
+		if (!chat || (chat.folderId ?? null) === folderId) return;
+		void moveChat(chat.id, folderId);
+	}
+
 	let systemPromptFor = $state<string | null>(null);
 	const systemPromptConvo = $derived(
 		systemPromptFor ? data.conversations.find((c) => c.id === systemPromptFor) ?? null : null
@@ -353,8 +562,12 @@
 	}
 
 	function onDocClick(e: MouseEvent) {
-		const t = e.target as HTMLElement | null;
-		if (menuFor && t && !t.closest('[data-row-menu]')) closeMenu();
+		// composedPath is fixed at dispatch, so a menu item that re-rendered the
+		// menu (like "Move to folder" opening its folder list) still counts as inside.
+		const insideMenu = e
+			.composedPath()
+			.some((el) => el instanceof HTMLElement && el.hasAttribute('data-row-menu'));
+		if (menuFor && !insideMenu) closeMenu();
 	}
 
 	function onDocKeydown(e: KeyboardEvent) {
@@ -636,7 +849,6 @@
 			</div>
 
 			<div class="drawer__quick-actions">
-				<a class="sidebar__primary-action" href="/projects" aria-current={page.url.pathname.startsWith('/projects') ? 'page' : undefined} onclick={onSelectThread}><span>Projects</span></a>
 				<a
 					class="sidebar__primary-action sidebar__primary-action--chat"
 					href="/"
@@ -716,10 +928,128 @@
 				</div>
 				{:else}
 					<div class="sidebar__list">
+						<div class="sidebar__section sidebar__section--with-action">
+							<span>Folders</span>
+							<button
+								type="button"
+								class="sidebar__section-btn"
+								aria-label="New folder"
+								title="New folder"
+								onclick={() => startCreateFolder()}
+							>
+								<FolderPlus size="13" strokeWidth={1.8} />
+							</button>
+						</div>
+						{#if creatingFolder}
+							{@render folderEditor('Create')}
+						{:else if folders.length === 0}
+							<button type="button" class="sidebar__folder-hint" onclick={() => startCreateFolder()}>
+								Group related chats into folders
+							</button>
+						{/if}
+						{#each folders as f (f.id)}
+							{@const chats = folderChats.get(f.id) ?? []}
+							{@const open = isFolderOpen(f, chats)}
+							<div
+								class="sidebar__row-wrap sidebar__folder {dropTarget === f.id ? 'sidebar__folder--drop' : ''}"
+								data-row-menu
+								role="group"
+								aria-label={`Folder ${f.name}`}
+								ondragover={(e) => onDropTargetOver(f.id, e)}
+								ondragleave={(e) => onDropTargetLeave(f.id, e)}
+								ondrop={(e) => onDropOnTarget(f.id, e)}
+							>
+								{#if folderRenamingFor === f.id}
+									{@render folderEditor('Save')}
+								{:else}
+									<button
+										type="button"
+										class="sidebar__row sidebar__folder-row"
+										aria-expanded={open}
+										onclick={() => setFolderOpen(f.id, !open)}
+									>
+										<ChevronRight
+											class="sidebar__folder-chevron {open ? 'sidebar__folder-chevron--open' : ''}"
+											size="12"
+											strokeWidth={2}
+										/>
+										{#if open}
+											<FolderOpen class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+										{:else}
+											<Folder class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+										{/if}
+										<span class="sidebar__row__name">{f.name}</span>
+										<span class="sidebar__row__time">{f.count}</span>
+									</button>
+									<button
+										type="button"
+										class="sidebar__row-menu-btn"
+										aria-label="Folder actions"
+										aria-haspopup="menu"
+										aria-expanded={menuFor === `folder:${f.id}`}
+										onclick={(e) => openMenu(`folder:${f.id}`, e)}
+									>
+										<MoreHorizontal size="14" strokeWidth={1.8} />
+									</button>
+								{/if}
+								{#if menuFor === `folder:${f.id}`}
+									<div
+										class="sidebar__menu {menuDirection === 'up' ? 'sidebar__menu--up' : ''}"
+										role="menu"
+									>
+										<button
+											type="button"
+											role="menuitem"
+											onclick={() => {
+												closeMenu();
+												onSelectThread();
+												void goto(`/projects/${f.id}`);
+											}}
+										>
+											New chat in folder
+										</button>
+										<button type="button" role="menuitem" onclick={() => startRenameFolder(f)}>
+											Rename
+										</button>
+										<button
+											type="button"
+											role="menuitem"
+											class="sidebar__menu__danger"
+											onclick={() => onFolderDeleteAction(f)}
+										>
+											{confirmDeleteFor === `folder:${f.id}` ? 'Click again (chats stay)' : 'Delete folder'}
+										</button>
+									</div>
+								{/if}
+							</div>
+							{#if open}
+								<div class="sidebar__folder-chats">
+									{#each chats as c (c.id)}
+										{@render chatRow(c)}
+									{/each}
+									{#if f.count === 0}
+										<div class="sidebar__folder-empty">Empty. Drag a chat here or use its menu.</div>
+									{:else if f.count > chats.length}
+										<a class="sidebar__folder-more" href={`/projects/${f.id}`} onclick={onSelectThread}>
+											View all {f.count}
+										</a>
+									{/if}
+								</div>
+							{/if}
+						{/each}
+
+						<div
+							class="sidebar__chats-drop {dropTarget === 'unfiled' ? 'sidebar__chats-drop--active' : ''}"
+							role="group"
+							aria-label="Chats"
+							ondragover={(e) => onDropTargetOver('unfiled', e)}
+							ondragleave={(e) => onDropTargetLeave('unfiled', e)}
+							ondrop={(e) => onDropOnTarget(null, e)}
+						>
 						<div class="sidebar__section">Chats</div>
-					{#if data.conversations.length === 0}
+					{#if unfiled.length === 0}
 						<div class="sidebar__row" style="color:var(--ink-400);cursor:default">
-							<span class="sidebar__row__name">No chats yet</span>
+							<span class="sidebar__row__name">{data.conversations.length === 0 ? 'No chats yet' : 'All chats are in folders'}</span>
 						</div>
 					{/if}
 
@@ -727,117 +1057,11 @@
 						{#if items.length > 0}
 							<div class="sidebar__subsection">{label}</div>
 							{#each items as c (c.id)}
-								<div
-									class="sidebar__row-wrap {page.params.id === c.id
-										? 'sidebar__row-wrap--active'
-										: ''}"
-									data-row-menu
-								>
-									{#if renamingFor === c.id}
-										<div class="sidebar__row sidebar__row--editing">
-											<MessageSquare class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
-											<input
-												bind:this={renameInput}
-												bind:value={renameDraft}
-												class="sidebar__rename"
-												aria-label="Thread title"
-												maxlength="200"
-												onkeydown={(e) => {
-													if (e.key === 'Enter') {
-														e.preventDefault();
-														void commitRename(c);
-													} else if (e.key === 'Escape') {
-														e.preventDefault();
-														cancelRename();
-													}
-												}}
-											/>
-											<button
-												type="button"
-												class="sidebar__rename-btn"
-												onclick={() => commitRename(c)}
-											>
-												Save
-											</button>
-											<button type="button" class="sidebar__rename-btn" onclick={cancelRename}>
-												Cancel
-											</button>
-										</div>
-									{:else}
-										<a
-											class="sidebar__row {page.params.id === c.id ? 'sidebar__row--active' : ''}"
-											href={`/c/${c.id}`}
-											onclick={onSelectThread}
-										>
-											<MessageSquare class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
-											{#if c.pinned}
-												<Pin
-													class="sidebar__row__pin"
-													size="11"
-													strokeWidth={1.8}
-													fill="currentColor"
-												/>
-											{/if}
-											<span class="sidebar__row__name">{c.title || 'Untitled thread'}</span>
-											<span class="sidebar__row__time">{formatRelativeTime(c.updatedAt)}</span>
-										</a>
-										<button
-											type="button"
-											class="sidebar__row-menu-btn"
-											aria-label="Conversation actions"
-											aria-haspopup="menu"
-											aria-expanded={menuFor === c.id}
-											onclick={(e) => openMenu(c.id, e)}
-										>
-											<MoreHorizontal size="14" strokeWidth={1.8} />
-										</button>
-									{/if}
-
-									{#if menuFor === c.id}
-										<div
-											class="sidebar__menu {menuDirection === 'up' ? 'sidebar__menu--up' : ''}"
-											role="menu"
-										>
-											<button type="button" role="menuitem" onclick={() => togglePin(c)}>
-												{c.pinned ? 'Unpin' : 'Pin'}
-											</button>
-											{#if canRetryTitle(c)}
-												<button
-													type="button"
-													role="menuitem"
-													disabled={titleRetryBusyFor === c.id}
-													onclick={() => retryTitle(c)}
-												>
-													{titleRetryBusyFor === c.id ? 'Retrying title' : 'Retry title'}
-												</button>
-											{/if}
-											<button type="button" role="menuitem" onclick={() => { menuFor = null; onSelectThread(); void goto(`/c/${c.id}/project`); }}>Move to project</button>
-											<button type="button" role="menuitem" onclick={() => startRename(c)}>
-												Rename
-											</button>
-											<button type="button" role="menuitem" onclick={() => openSystemPrompt(c)}>
-												System prompt{c.systemPrompt ? ' •' : ''}
-											</button>
-											<button type="button" role="menuitem" onclick={() => exportConvo(c, 'md')}>
-												Export Markdown
-											</button>
-											<button type="button" role="menuitem" onclick={() => exportConvo(c, 'jsonl')}>
-												Export JSONL
-											</button>
-											<button
-												type="button"
-												role="menuitem"
-												class="sidebar__menu__danger"
-												onclick={() => onRowAction(c)}
-											>
-												{confirmDeleteFor === c.id ? 'Click again to confirm' : 'Delete'}
-											</button>
-										</div>
-									{/if}
-								</div>
+								{@render chatRow(c)}
 							{/each}
 						{/if}
 					{/each}
+						</div>
 				</div>
 			{/if}
 
@@ -858,7 +1082,7 @@
 		</aside>
 
 		<main class="pane {isThreadPage ? 'pane--thread' : 'pane--plain'}">
-			{#if navigating.to?.url.pathname.startsWith('/projects')}<p role="status" style="padding: 64px 24px 0">Loading project…</p>{/if}
+			{#if navigating.to?.url.pathname.startsWith('/projects')}<p role="status" style="padding: 64px 24px 0">Loading folder…</p>{/if}
 			{@render children()}
 		</main>
 	</div>
@@ -877,3 +1101,170 @@
 		/>
 	{/if}
 {/if}
+
+{#snippet chatRow(c: SidebarConvo)}
+	<div
+		class="sidebar__row-wrap {page.params.id === c.id
+			? 'sidebar__row-wrap--active'
+			: ''}"
+		data-row-menu
+	>
+		{#if renamingFor === c.id}
+			<div class="sidebar__row sidebar__row--editing">
+				<MessageSquare class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+				<input
+					bind:this={renameInput}
+					bind:value={renameDraft}
+					class="sidebar__rename"
+					aria-label="Thread title"
+					maxlength="200"
+					onkeydown={(e) => {
+						if (e.key === 'Enter') {
+							e.preventDefault();
+							void commitRename(c);
+						} else if (e.key === 'Escape') {
+							e.preventDefault();
+							cancelRename();
+						}
+					}}
+				/>
+				<button
+					type="button"
+					class="sidebar__rename-btn"
+					onclick={() => commitRename(c)}
+				>
+					Save
+				</button>
+				<button type="button" class="sidebar__rename-btn" onclick={cancelRename}>
+					Cancel
+				</button>
+			</div>
+		{:else}
+			<a
+				class="sidebar__row {page.params.id === c.id ? 'sidebar__row--active' : ''}"
+				href={`/c/${c.id}`}
+				onclick={onSelectThread}
+				draggable="true"
+				ondragstart={(e) => onChatDragStart(c, e)}
+				ondragend={onChatDragEnd}
+			>
+				<MessageSquare class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+				{#if c.pinned}
+					<Pin
+						class="sidebar__row__pin"
+						size="11"
+						strokeWidth={1.8}
+						fill="currentColor"
+					/>
+				{/if}
+				<span class="sidebar__row__name">{c.title || 'Untitled thread'}</span>
+				<span class="sidebar__row__time">{formatRelativeTime(c.updatedAt)}</span>
+			</a>
+			<button
+				type="button"
+				class="sidebar__row-menu-btn"
+				aria-label="Conversation actions"
+				aria-haspopup="menu"
+				aria-expanded={menuFor === c.id}
+				onclick={(e) => openMenu(c.id, e)}
+			>
+				<MoreHorizontal size="14" strokeWidth={1.8} />
+			</button>
+		{/if}
+
+		{#if menuFor === c.id && moveMenuFor === c.id}
+			<div
+				class="sidebar__menu {menuDirection === 'up' ? 'sidebar__menu--up' : ''}"
+				role="menu"
+				aria-label="Move to folder"
+			>
+				<button type="button" role="menuitem" class="sidebar__menu__back" onclick={() => (moveMenuFor = null)}>
+					‹ Move to folder
+				</button>
+				{#each folders as f (f.id)}
+					<button
+						type="button"
+						role="menuitem"
+						disabled={c.folderId === f.id}
+						onclick={() => moveChat(c.id, f.id)}
+					>
+						{f.name}{c.folderId === f.id ? ' ✓' : ''}
+					</button>
+				{/each}
+				<button type="button" role="menuitem" onclick={() => startCreateFolder(c.id)}>New folder…</button>
+				{#if c.folderId}
+					<button type="button" role="menuitem" onclick={() => moveChat(c.id, null)}>
+						Remove from folder
+					</button>
+				{/if}
+			</div>
+		{:else if menuFor === c.id}
+			<div
+				class="sidebar__menu {menuDirection === 'up' ? 'sidebar__menu--up' : ''}"
+				role="menu"
+			>
+				<button type="button" role="menuitem" onclick={() => togglePin(c)}>
+					{c.pinned ? 'Unpin' : 'Pin'}
+				</button>
+				{#if canRetryTitle(c)}
+					<button
+						type="button"
+						role="menuitem"
+						disabled={titleRetryBusyFor === c.id}
+						onclick={() => retryTitle(c)}
+					>
+						{titleRetryBusyFor === c.id ? 'Retrying title' : 'Retry title'}
+					</button>
+				{/if}
+				<button type="button" role="menuitem" onclick={() => (moveMenuFor = c.id)}>
+				{c.folderId ? 'Move to another folder' : 'Move to folder'}
+			</button>
+				<button type="button" role="menuitem" onclick={() => startRename(c)}>
+					Rename
+				</button>
+				<button type="button" role="menuitem" onclick={() => openSystemPrompt(c)}>
+					System prompt{c.systemPrompt ? ' •' : ''}
+				</button>
+				<button type="button" role="menuitem" onclick={() => exportConvo(c, 'md')}>
+					Export Markdown
+				</button>
+				<button type="button" role="menuitem" onclick={() => exportConvo(c, 'jsonl')}>
+					Export JSONL
+				</button>
+				<button
+					type="button"
+					role="menuitem"
+					class="sidebar__menu__danger"
+					onclick={() => onRowAction(c)}
+				>
+					{confirmDeleteFor === c.id ? 'Click again to confirm' : 'Delete'}
+				</button>
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet folderEditor(action: string)}
+	<form class="sidebar__row sidebar__row--editing" onsubmit={commitFolderEdit}>
+		<Folder class="sidebar__row__glyph" size="14" strokeWidth={1.5} />
+		<input
+			bind:this={folderInput}
+			bind:value={folderDraft}
+			class="sidebar__rename"
+			aria-label="Folder name"
+			placeholder="Folder name"
+			maxlength="100"
+			disabled={folderBusy}
+			onkeydown={(e) => {
+				if (e.key === 'Escape') {
+					e.preventDefault();
+					cancelFolderEdit();
+				}
+			}}
+		/>
+		<button type="submit" class="sidebar__rename-btn" disabled={folderBusy || !folderDraft.trim()}>
+			{action}
+		</button>
+		<button type="button" class="sidebar__rename-btn" onclick={cancelFolderEdit}>Cancel</button>
+	</form>
+{/snippet}

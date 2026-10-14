@@ -2763,3 +2763,104 @@ body,
 		border: 0;
 	}
 }
+
+/* ---------- Sidebar folders ---------- */
+.sidebar__section--with-action {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding-right: 8px;
+}
+.sidebar__section-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	background: transparent;
+	border: 0;
+	border-radius: var(--radius-2);
+	color: var(--fg-3);
+	cursor: pointer;
+}
+.sidebar__section-btn:hover {
+	background: var(--bg-raised);
+	color: var(--fg-1);
+}
+.sidebar__section-btn:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+.sidebar__folder-hint {
+	display: block;
+	width: 100%;
+	margin: 2px 0 4px;
+	padding: 6px 8px;
+	background: transparent;
+	border: 1px dashed var(--border-default);
+	border-radius: var(--radius-2);
+	color: var(--fg-3);
+	font-family: var(--font-body);
+	font-size: 12.5px;
+	text-align: left;
+	cursor: pointer;
+}
+.sidebar__folder-hint:hover {
+	color: var(--fg-1);
+	border-color: var(--accent);
+}
+.sidebar__folder-row {
+	width: 100%;
+	background: transparent;
+	font-family: var(--font-body);
+	text-align: left;
+}
+.sidebar__folder-row .sidebar__row__name {
+	color: var(--fg-1);
+	font-weight: 600;
+}
+.sidebar__folder-chevron {
+	flex-shrink: 0;
+	margin-right: -4px;
+	color: var(--fg-3);
+	transition: transform var(--dur-fast) var(--ease-std);
+}
+.sidebar__folder-chevron--open {
+	transform: rotate(90deg);
+}
+.sidebar__folder--drop > .sidebar__row,
+.sidebar__chats-drop--active {
+	background: var(--accent-soft);
+	box-shadow: 0 0 0 1px var(--accent) inset;
+	border-radius: var(--radius-2);
+}
+.sidebar__folder-chats {
+	margin-left: 14px;
+	padding-left: 4px;
+	border-left: 1px solid var(--border-soft);
+}
+.sidebar__folder-empty,
+.sidebar__folder-more {
+	display: block;
+	padding: 5px 8px;
+	color: var(--fg-3);
+	font-size: 12px;
+}
+.sidebar__folder-more {
+	text-decoration: none;
+	border-bottom: 0;
+}
+.sidebar__folder-more:hover {
+	color: var(--accent-fg);
+	text-decoration: underline;
+}
+.sidebar__menu button:disabled {
+	cursor: default;
+	color: var(--fg-3);
+	background: transparent;
+}
+.sidebar__menu__back {
+	color: var(--fg-3) !important;
+	font-size: 12px !important;
+}

@@ -15,25 +15,25 @@
    if (!active) return;
    if (!response.ok) throw new Error();
    await invalidateAll(); if (active) editing = false;
-  } catch { if (!active) return; failure = 'Could not rename project. Try again.'; } finally { if (active) busy = false; }
+  } catch { if (!active) return; failure = 'Could not rename folder. Try again.'; } finally { if (active) busy = false; }
  }
 </script>
 <svelte:head><title>{data.project.name} · NewsCraft</title></svelte:head>
 <main class="projects-page">
- <a href="/projects">All projects</a>
- <header class="project-heading"><h1>{data.project.name}</h1><button disabled={!ready} onclick={() => { name = data.project.name; editing = true; }}>Rename project</button></header>
+ <a href="/projects">All folders</a>
+ <header class="project-heading"><h1>{data.project.name}</h1><button disabled={!ready} onclick={() => { name = data.project.name; editing = true; }}>Rename folder</button></header>
  {#if editing}<form onsubmit={rename} class="project-form">
-  <label for="rename-project">Project name</label><div><input id="rename-project" bind:value={name} required maxlength="100" disabled={!ready || busy} /><button disabled={!ready || busy || !name.trim()}>{busy ? 'Saving…' : 'Save name'}</button><button type="button" disabled={!ready || busy} onclick={() => editing = false}>Cancel</button></div>
+  <label for="rename-project">Folder name</label><div><input id="rename-project" bind:value={name} required maxlength="100" disabled={!ready || busy} /><button disabled={!ready || busy || !name.trim()}>{busy ? 'Saving…' : 'Save name'}</button><button type="button" disabled={!ready || busy} onclick={() => editing = false}>Cancel</button></div>
  </form>{/if}
  {#if failure}<p role="alert">{failure}</p>{/if}
- <section aria-label="New conversation in project"><h2>New conversation</h2>
+ <section aria-label="New conversation in folder"><h2>New conversation</h2>
  {#key data.project.id}<Composer projectId={data.project.id} draftKey={`project:${data.project.id}`} placeholder={`Ask about ${data.project.name}…`} />{/key}
  </section>
  <h2>Conversations</h2>
- <p>Add existing chats using “Move to project” in a chat’s menu.</p>
+ <p>Add existing chats using “Move to folder” in a chat’s menu, or drag a chat onto the folder in the sidebar.</p>
  {#if data.projectConversations.length}
  <ul class="project-list">{#each data.projectConversations as conversation (conversation.id)}
  <li><a href={`/c/${conversation.id}`}><strong>{conversation.title}</strong><span>{formatRelativeTime(conversation.updatedAt)}</span></a><a class="project-manage" href={`/c/${conversation.id}/project`}>Move or remove<span class="sr-only"> {conversation.title}</span></a></li>
  {/each}</ul>
- {:else}<p class="project-empty">No conversations in this project yet. Start one above or move an existing chat here.</p>{/if}
+ {:else}<p class="project-empty">No conversations in this folder yet. Start one above or move an existing chat here.</p>{/if}
 </main>

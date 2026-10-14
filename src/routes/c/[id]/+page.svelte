@@ -1494,7 +1494,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		</div>
 		<div class="pane__header__topic">{topic}</div>
 	</div>
-	<a class="conversation-project-link" href={`/c/${data.conversation.id}/project`}>Move to project</a>
+	<a class="conversation-project-link" href={`/c/${data.conversation.id}/project`}>Move to folder</a>
 	<button
 		type="button"
 		class="conversation-project-link conversation-story-button"

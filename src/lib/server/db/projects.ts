@@ -48,3 +48,13 @@ export async function moveConversation(accountId: string, conversationId: string
   return true;
  });
 }
+// Deleting a folder removes only its memberships (ON DELETE CASCADE); the chats
+// themselves stay and fall back to the unfiled list.
+export async function deleteProject(accountId: string, id: string) {
+ const rows = await sql`DELETE FROM projects WHERE id = ${id} AND account_id = ${accountId} RETURNING id`;
+ return rows.length > 0;
+}
+export async function listConversationProjectIds(accountId: string): Promise<Map<string, string>> {
+ const rows = await sql`SELECT conversation_id, project_id FROM project_conversations WHERE account_id = ${accountId}`;
+ return new Map(rows.map(r => [String(r.conversation_id), String(r.project_id)]));
+}

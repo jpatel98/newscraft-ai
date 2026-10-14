@@ -20,13 +20,13 @@
 <svelte:head><title>Move conversation · NewsCraft</title></svelte:head>
 <main class="projects-page">
  <a href={`/c/${data.conversation.id}`}>Back to conversation</a>
- <h1>Move to project</h1><p>{data.conversation.title || '(untitled)'}</p>
- <p>Current project: {data.membership?.name ?? 'No project'}</p>
+ <h1>Move to folder</h1><p>{data.conversation.title || '(untitled)'}</p>
+ <p>Current folder: {data.membership?.name ?? 'None'}</p>
  <form onsubmit={save} class="project-form">
- <label for="destination">Project</label><div><select id="destination" value={selected} onchange={event => selection = event.currentTarget.value} disabled={!ready || busy}>
- <option value="">No project (ungrouped)</option>{#each data.projects as project (project.id)}<option value={project.id}>{project.name}</option>{/each}
- </select><button disabled={!ready || busy}>{busy ? 'Moving…' : 'Save project'}</button></div>
+ <label for="destination">Folder</label><div><select id="destination" value={selected} onchange={event => selection = event.currentTarget.value} disabled={!ready || busy}>
+ <option value="">No folder (unfiled)</option>{#each data.projects as project (project.id)}<option value={project.id}>{project.name}</option>{/each}
+ </select><button disabled={!ready || busy}>{busy ? 'Moving…' : 'Save folder'}</button></div>
  </form>
  {#if failure}<p role="alert">{failure}</p>{/if}
- {#if !data.projects.length}<p><a href="/projects">Create your first project</a> to group this conversation.</p>{/if}
+ {#if !data.projects.length}<p><a href="/projects">Create your first folder</a> to group this conversation.</p>{/if}
 </main>
