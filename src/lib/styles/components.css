@@ -772,9 +772,6 @@ body,
 	padding-left: var(--pane-title-inset);
 }
 @media (max-width: 760px) {
-	.pane--plain {
-		padding-top: calc(env(safe-area-inset-top, 0px) + 48px);
-	}
 	.pane__header {
 		padding: calc(env(safe-area-inset-top, 0px) + 64px) 20px 14px;
 		display: grid;
@@ -2492,8 +2489,16 @@ body,
 		left: calc(env(safe-area-inset-left, 0px) + 8px);
 		z-index: 50;
 	}
+	/* Plain pages (settings, folders, errors) scroll inside a pane that starts
+	 * below the command bar, so their content never slides under it. */
 	.pane--plain {
-		padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
+		min-height: 0;
+		margin-top: calc(env(safe-area-inset-top, 0px) + 68px);
+		padding-top: 0;
+		overflow-y: auto;
+	}
+	.settings {
+		padding-top: 12px;
 	}
 	.pane__header {
 		padding: calc(env(safe-area-inset-top, 0px) + 52px) 14px 10px;
