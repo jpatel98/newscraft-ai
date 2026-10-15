@@ -35,6 +35,25 @@ class LedgerJudgeTests(unittest.TestCase):
         self.assertEqual(ledger_judge.parse_verdicts("not json", {"a"}), {})
         self.assertEqual(asyncio.run(ledger_judge.judge_pairs(FakeModel("{}"), "m", [])), {})
 
+    def test_cut_off_reply_keeps_complete_items_and_retries_the_rest(self):
+        class Replies(FakeModel):
+            def __init__(self, texts):
+                super().__init__("")
+                self.texts = list(texts)
+
+            async def complete(self, **kwargs):
+                self.text = self.texts.pop(0)
+                return await super().complete(**kwargs)
+
+        model = Replies(['{"verdicts": [\n  {"id": "0:a", "verdict": "same"},\n  {"id": "1:b", "verd',
+                         '{"verdicts":[{"id":"1:b","verdict":"different"}]}'])
+        pairs = [{"id": "0:a", "a": "x", "b": "y"}, {"id": "1:b", "a": "x", "b": "z"}]
+        out = asyncio.run(ledger_judge.judge_pairs(model, "m", pairs))
+        self.assertEqual(out, {"0:a": "same", "1:b": "different"})
+        self.assertEqual(len(model.calls), 2)
+        self.assertIn("1:b", model.calls[1]["messages"][0]["content"][0]["text"])
+        self.assertNotIn("0:a", model.calls[1]["messages"][0]["content"][0]["text"])
+
     def test_caps_pairs(self):
         kept, _ = ledger_judge.build_prompt([{"id": str(i), "a": "a", "b": "b"} for i in range(100)])
         self.assertEqual(len(kept), ledger_judge.MAX_PAIRS)
