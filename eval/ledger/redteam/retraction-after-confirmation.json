@@ -1,0 +1,75 @@
+{
+ "about": "Police name a suspect, then withdraw the identification. The claim must end retracted, keep its history, and stay one claim.",
+ "thread": {
+  "id": "rt-retraction",
+  "title": "Suspect identification withdrawn",
+  "origin": "redteam",
+  "sources": [
+   {
+    "n": 1,
+    "url": "https://www.tps.ca/media-centre/news-releases/60001/",
+    "date": "2026-10-12"
+   },
+   {
+    "n": 2,
+    "url": "https://www.cbc.ca/news/canada/toronto/suspect-id-withdrawn-1.7000001",
+    "date": "2026-10-13"
+   }
+  ],
+  "turns": [
+   {
+    "at": 1000,
+    "claims": [
+     {
+      "claim": "Toronto police identified the suspect as Daniel Price, 34, of Scarborough",
+      "status": "confirmed",
+      "attributed_to": "Toronto police",
+      "citations": [
+       1
+      ],
+      "date": "2026-10-12",
+      "needs_check": false
+     }
+    ]
+   },
+   {
+    "at": 2000,
+    "claims": [
+     {
+      "claim": "Toronto police withdrew their identification of Daniel Price, 34, as the suspect",
+      "status": "retracted",
+      "attributed_to": "Toronto police",
+      "citations": [
+       2
+      ],
+      "date": "2026-10-13",
+      "needs_check": false
+     }
+    ]
+   }
+  ]
+ },
+ "judge": [
+  [
+   "Toronto police identified the suspect as Daniel Price, 34, of Scarborough",
+   "Toronto police withdrew their identification of Daniel Price, 34, as the suspect",
+   "same"
+  ]
+ ],
+ "expect": [
+  {
+   "phase": 1,
+   "live": 1
+  },
+  {
+   "phase": 1,
+   "claim": "Daniel Price",
+   "status": "retracted",
+   "events": [
+    "asserted",
+    "asserted",
+    "retracted"
+   ]
+  }
+ ]
+}

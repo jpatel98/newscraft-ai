@@ -4,6 +4,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 const mocks = vi.hoisted(() => ({ transaction: vi.fn(), upsertStoryClaims: vi.fn() }));
 vi.mock('./index', () => ({ db: mocks }));
 vi.mock('./story-claims', () => ({ upsertStoryClaims: mocks.upsertStoryClaims }));
+vi.mock('../ledger-judge', () => ({ workerClaimJudge: async () => null }));
 
 import { appendHermesRunEvents, type HermesRunRecord, type HermesRunEventRecord } from './hermes-runs';
 import { hermesRuns, hermesRunEvents, messages } from './schema';
@@ -84,7 +85,7 @@ describe('story-ledger block on durable runs', () => {
 		expect(mocks.upsertStoryClaims).toHaveBeenCalledOnce();
 		expect(mocks.upsertStoryClaims).toHaveBeenCalledWith('conversation-1', 'assistant-1', [
 			{ claim: 'Three soldiers were hurt.', status: 'confirmed', attributedTo: 'DND', citations: [3], date: '2026-07-02', needsCheck: false }
-		]);
+		], expect.any(Number), expect.any(Function));
 
 		// A lost acknowledgment replays the same batch: still idempotent, no second save.
 		const replay = await appendHermesRunEvents('account-1', 'run-1', 'worker-1', 'lease-1', inputs);

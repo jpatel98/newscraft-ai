@@ -1,0 +1,342 @@
+{
+ "id": "gen-04",
+ "title": "What do we know about the suspected hate-motivated",
+ "origin": "generated",
+ "sources": [
+  {
+   "n": 1,
+   "url": "https://www.tps.ca/media-centre/news-releases/67124/",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Man Arrested in Hate-Motivated Assault with a Weapon Investigation, Danforth Avenue and Logan Avenue area"
+  },
+  {
+   "n": 5,
+   "url": "https://toronto.citynews.ca/2026/10/14/man-arrested-in-alleged-hate-motivated-assault-on-the-danforth/",
+   "date": "2026-10-14T22:09:17.000Z",
+   "title": "Man arrested in alleged hate-motivated assault on the Danforth"
+  },
+  {
+   "n": 8,
+   "url": "https://www.tps.ca/media-centre/news-releases/man-arrested-in-hate-motivated-assault-with-a-weap/",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Man Arrested in Hate-Motivated Assault with a Weapon Investigation, \nDanforth Avenue and Logan Avenue area"
+  },
+  {
+   "n": 9,
+   "url": "https://www.ontariocourts.ca/ocj/notices/single-judge-case-management/",
+   "date": "2026-10-07T00:00:00.000Z",
+   "title": "Single Judge Case Management for Complex Cases Pilot Project Practice Direction - Ontario Court of Justice"
+  },
+  {
+   "n": 10,
+   "url": "https://www.ctvnews.ca/toronto/article/toronto-man-accused-of-making-anti-south-asian-remarks-assaulting-victim/",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Toronto man charged in hate-motivated assault"
+  },
+  {
+   "n": 11,
+   "url": "https://www.ontariocourts.ca/coa/files/2026ONCA719.htm",
+   "date": "2026-10-08T00:00:00.000Z",
+   "title": "https://www.ontariocourts.ca/coa/files/2026ONCA719.htm"
+  },
+  {
+   "n": 12,
+   "url": "https://urbanmag.ca/man-arrested-in-alleged-hate-motivated-assault-on-the-danforth/",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Man arrested in alleged hate-motivated assault on the Danforth | Urban Mag"
+  },
+  {
+   "n": 13,
+   "url": "https://www.ullaw.ca/news/toronto-man-accused-making-anti-south-2026-10-15",
+   "date": "2026-10-15T00:00:00.000Z",
+   "title": "Toronto man accused of making anti-South Asian remarks, assaulting victim"
+  }
+ ],
+ "turns": [
+  {
+   "at": 1792081273562,
+   "claims": [
+    {
+     "claim": "Toronto Police say Christopher Lawson, 43, of Toronto, was arrested in a suspected hate-motivated assault with a weapon at Danforth Avenue and Logan Avenue",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The alleged assault occurred Tuesday, October 13, 2026, while the victim was working in the Danforth and Logan area",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The suspect allegedly made anti-immigrant and anti-South Asian remarks at the victim before assaulting him",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The victim called 9-1-1 and officers arrived while the suspect was still on scene, taking him into custody",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Lawson is charged with Offence Motivated by Hatred related to an Assault with a Weapon, and Breach of Probation",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Lawson was scheduled to appear at the Toronto Regional Bail Centre, 2201 Finch Avenue West, on Wednesday, October 14, 2026, at 10 a.m., room 102",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The investigation is being treated as a suspected hate-motivated offence and is led by the Hate Crime Unit",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Outcome of the October 14 court appearance is not published in these sources",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "The victim's condition, whether a weapon was recovered, and the prior probation matter are not stated in the police release",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1
+     ],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081288047,
+   "claims": [
+    {
+     "claim": "Toronto Police confirm Lawson is charged with Offence Motivated by Hatred related to an Assault with a Weapon, and Breach of Probation",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The investigation is treated as a suspected hate-motivated offence and is led by the Hate Crime Unit",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Charges are allegations and not proven in court",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Lawson was scheduled to appear at the Toronto Regional Bail Centre, 2201 Finch Avenue West, Oct. 14, 2026, 10 a.m., room 102",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Outcome of the October 14 court appearance is not published in these sources",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "No future court date is published in the sources; nothing after Oct. 14 appears",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "The TPS release does not state the victim's condition, whether a weapon was recovered, or the nature of the prior probation matter",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "This turn's search found nothing new on the charges, the Hate Crime Unit or a court date; fresh pages were unrelated court and legal-reference material",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      9,
+      10,
+      11,
+      13
+     ],
+     "date": "",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1792081300743,
+   "claims": [
+    {
+     "claim": "Toronto Police say Christopher Lawson, 43, of Toronto, was arrested in a suspected hate-motivated assault with a weapon at Danforth Avenue and Logan Avenue",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The alleged assault occurred Tuesday, October 13, 2026, while the victim was working in the Danforth and Logan area",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The suspect allegedly made anti-immigrant and anti-South Asian remarks at the victim before assaulting him",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The victim called 9-1-1 and officers arrived while the suspect was still on scene, taking him into custody",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Lawson is charged with Offence Motivated by Hatred related to an Assault with a Weapon, and Breach of Probation",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The investigation is being treated as a suspected hate-motivated offence and is led by the Hate Crime Unit",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Lawson was scheduled to appear at the Toronto Regional Bail Centre, 2201 Finch Avenue West, on Wednesday, October 14, 2026, at 10 a.m., room 102",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Charges are allegations and not proven in court",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    }
+   ]
+  }
+ ]
+}

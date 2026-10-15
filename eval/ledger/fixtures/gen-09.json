@@ -1,0 +1,371 @@
+{
+ "id": "gen-09",
+ "title": "What do we know about Kawhi Leonard's return",
+ "origin": "generated",
+ "sources": [
+  {
+   "n": 1,
+   "url": "https://www.tsn.ca/nba/article/leonard-to-re-debut-for-raptors-tonight-in-pre-season-game-vs-knicks/",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Kawhi Leonard scores 21 points in re-debut as Raptors blast Knicks in pre-season game"
+  },
+  {
+   "n": 3,
+   "url": "https://hoopsnightly.com/injuries/430-kawhi-leonard-cleared",
+   "date": "2026-10-12T00:00:00.000Z",
+   "title": "Kawhi Leonard injury update: cleared to play"
+  },
+  {
+   "n": 4,
+   "url": "https://raptors.com/news/raptors-announce-2026-training-camp-and-preseason-schedule",
+   "date": "2026-07-29T00:00:00.000Z",
+   "title": "RAPTORS ANNOUNCE 2026 TRAINING CAMP AND PRESEASON SCHEDULE | Toronto Raptors"
+  },
+  {
+   "n": 5,
+   "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-to-make-pre-season-debut-tuesday-vs-knicks/",
+   "date": "2026-10-13T17:23:21.000Z",
+   "title": "Raptors' Kawhi Leonard to make pre-season debut Tuesday vs. Knicks - Sportsnet.ca"
+  },
+  {
+   "n": 6,
+   "url": "https://basketball.realgm.com/nba/preseason/team/Toronto-Raptors/28/schedule",
+   "date": "",
+   "title": "2026 Toronto Raptors Preseason Schedule"
+  },
+  {
+   "n": 7,
+   "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-wont-play-in-vancouver-vs-clippers/",
+   "date": "2026-10-09T17:31:10.000Z",
+   "title": "Raptors' Kawhi Leonard won't play in Vancouver vs. Clippers - Sportsnet.ca"
+  },
+  {
+   "n": 8,
+   "url": "https://www.nba.com/watch/video/kawhi-1h-buckets-mix",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Kawhi Leonard heats up in preseason action with 21 points in the first half | NBA.com"
+  },
+  {
+   "n": 9,
+   "url": "https://www.nba.com/gamenotes/raptors.pdf",
+   "date": "",
+   "title": "2025-26 REGULAR SEASON RAPTORS RECORDS RECORD HOME ROAD OT"
+  },
+  {
+   "n": 10,
+   "url": "https://www.tsn.ca/nba/article/leonard-available-to-make-first-appearance-in-second-run-with-raptors-on-tuesday/",
+   "date": "2026-10-13T04:00:07.000Z",
+   "title": "Kawhi Leonard available to make first appearance in second run with Toronto Raptors vs. Knicks"
+  },
+  {
+   "n": 11,
+   "url": "https://www.nba.com/news/starting-5-october-14-2026",
+   "date": "",
+   "title": "Starting 5: Kawhi shines in preseason return to Toronto"
+  },
+  {
+   "n": 13,
+   "url": "https://www.nba.com/team/1610612761/schedule",
+   "date": "",
+   "title": "Toronto Raptors Team Info and News | NBA.com"
+  },
+  {
+   "n": 15,
+   "url": "https://www.hoopsrumors.com/2026/10/eastern-notes-kawhi-hezonja-watson-haliburton-hornets.html",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Eastern Notes: Kawhi, Hezonja, Watson, Haliburton, Hornets | Hoops Rumors"
+  }
+ ],
+ "turns": [
+  {
+   "at": 1792081472035,
+   "claims": [
+    {
+     "claim": "Kawhi Leonard scored 21 points in 17 minutes in his Raptors re-debut, a 148-98 preseason win over the Knicks on Oct. 13, 2026",
+     "status": "confirmed",
+     "attributed_to": "TSN/Canadian Press; RealGM; NBA.com",
+     "citations": [
+      1,
+      6,
+      8
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard did not play in Toronto's first two preseason games",
+     "status": "confirmed",
+     "attributed_to": "TSN/Canadian Press; Sportsnet",
+     "citations": [
+      1,
+      7
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Raptors are 2-1 in preseason",
+     "status": "confirmed",
+     "attributed_to": "TSN/Canadian Press; RealGM",
+     "citations": [
+      1,
+      6
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "A Raptors injury report cleared Leonard from a day-to-day listing on Monday, Oct. 12",
+     "status": "reported",
+     "attributed_to": "Hoops Nightly",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "Leonard was listed day-to-day since Oct. 3 as not injury related",
+     "status": "reported",
+     "attributed_to": "Hoops Nightly",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "Rajakovic said Leonard's minutes would be limited and the goal was for him to have fun and get integrated",
+     "status": "confirmed",
+     "attributed_to": "Darko Rajakovic, via Sportsnet/Canadian Press",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The Clippers traded Leonard back to Toronto in a deal delayed by an NBA salary-cap circumvention investigation; Ingram, Dick, two unprotected first-round picks, a 2027 pick swap and two second-rounders went to Los Angeles",
+     "status": "confirmed",
+     "attributed_to": "TSN/Canadian Press; Sportsnet",
+     "citations": [
+      1,
+      5,
+      7
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The team, owner Steve Ballmer and several executives were severely punished; Leonard received a relatively small fine",
+     "status": "reported",
+     "attributed_to": "Canadian Press via TSN and Sportsnet",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Toronto's next preseason game is at the Knicks on Oct. 15, followed by the Pistons on Oct. 16; regular season opens Oct. 21 vs. Chicago",
+     "status": "confirmed",
+     "attributed_to": "Toronto Raptors; RealGM",
+     "citations": [
+      4,
+      6
+     ],
+     "date": "2026-07-29",
+     "needs_check": false
+    },
+    {
+     "claim": "No specific reason was given for Leonard's day-to-day listing beyond not injury related",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081482483,
+   "claims": [
+    {
+     "claim": "Rajakovic said Monday, Oct. 12 that Leonard practiced fully and would be available for Tuesday's game vs. the Knicks",
+     "status": "confirmed",
+     "attributed_to": "Darko Rajakovic, via Hoops Rumors/Sportsnet",
+     "citations": [
+      15
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard was available to make his preseason debut for Toronto on Oct. 13 vs. the Knicks",
+     "status": "reported",
+     "attributed_to": "TSN",
+     "citations": [
+      10
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Raptors beat the Knicks 148-98 at Scotiabank Arena on Oct. 13, the team's most recent preseason game",
+     "status": "confirmed",
+     "attributed_to": "NBA.com game notes",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard scored 21 points in 17 minutes, all in the first half, in his Toronto return",
+     "status": "confirmed",
+     "attributed_to": "NBA.com",
+     "citations": [
+      8,
+      11
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Toronto is 2-1 in preseason",
+     "status": "confirmed",
+     "attributed_to": "NBA.com game notes",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Remaining preseason: at Knicks Oct. 15, at Pistons Oct. 16; regular season opens Oct. 21 vs. Chicago",
+     "status": "confirmed",
+     "attributed_to": "NBA.com game notes; NBA.com schedule",
+     "citations": [
+      9,
+      13
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "No reason was given for Leonard's day-to-day listing beyond not injury related, and none attached to the clearance",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081491399,
+   "claims": [
+    {
+     "claim": "Leonard scored 21 points in 17 minutes, all in the first half, in his Toronto return",
+     "status": "confirmed",
+     "attributed_to": "NBA.com",
+     "citations": [
+      8,
+      11
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Raptors beat the Knicks 148-98 at Scotiabank Arena on Oct. 13, the team's most recent preseason game",
+     "status": "confirmed",
+     "attributed_to": "NBA.com game notes",
+     "citations": [
+      9
+     ],
+     "date": "",
+     "needs_check": false
+    },
+    {
+     "claim": "It was Leonard's first game for the Raptors since the 2018-19 championship season",
+     "status": "confirmed",
+     "attributed_to": "Hoops Rumors",
+     "citations": [
+      15
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The Clippers traded Leonard back to Toronto in a deal delayed by an NBA salary-cap circumvention investigation; Ingram, Dick, two unprotected first-round picks, a 2027 pick swap and two second-rounders went to Los Angeles",
+     "status": "confirmed",
+     "attributed_to": "TSN/Canadian Press; Sportsnet",
+     "citations": [
+      1,
+      5,
+      7
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Rajakovic said Leonard's minutes would be limited and the goal was for him to have fun and get integrated",
+     "status": "confirmed",
+     "attributed_to": "Darko Rajakovic, via Sportsnet/Canadian Press",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard did not play in Toronto's first two preseason games",
+     "status": "confirmed",
+     "attributed_to": "TSN/Canadian Press; Sportsnet",
+     "citations": [
+      1,
+      7
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard was listed day-to-day since Oct. 3 as not injury related",
+     "status": "reported",
+     "attributed_to": "Hoops Nightly",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "Toronto is 2-1 in preseason",
+     "status": "confirmed",
+     "attributed_to": "NBA.com game notes",
+     "citations": [
+      9
+     ],
+     "date": "",
+     "needs_check": false
+    },
+    {
+     "claim": "Remaining preseason: at Knicks Oct. 15, at Pistons Oct. 16; regular season opens Oct. 21 vs. Chicago",
+     "status": "confirmed",
+     "attributed_to": "NBA.com game notes",
+     "citations": [
+      9,
+      13
+     ],
+     "date": "",
+     "needs_check": false
+    }
+   ]
+  }
+ ]
+}

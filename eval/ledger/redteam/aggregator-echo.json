@@ -1,0 +1,50 @@
+{
+ "about": "Two aggregator pages echo one wire story. Aggregators are not independent sources, so the claim must not be confirmed.",
+ "thread": {
+  "id": "rt-aggregator-echo",
+  "title": "Aggregator echo",
+  "origin": "redteam",
+  "sources": [
+   {
+    "n": 1,
+    "url": "https://ca.news.yahoo.com/plant-closure-hamilton-120000.html",
+    "date": "2026-10-14"
+   },
+   {
+    "n": 2,
+    "url": "https://www.msn.com/en-ca/news/canada/plant-closure-hamilton/ar-AA1",
+    "date": "2026-10-14"
+   }
+  ],
+  "turns": [
+   {
+    "at": 1000,
+    "claims": [
+     {
+      "claim": "The Hamilton plant will close in March, cutting 400 jobs",
+      "status": "confirmed",
+      "attributed_to": "",
+      "citations": [
+       1,
+       2
+      ],
+      "date": "2026-10-14",
+      "needs_check": false
+     }
+    ]
+   }
+  ]
+ },
+ "judge": [],
+ "expect": [
+  {
+   "phase": 1,
+   "live": 1
+  },
+  {
+   "phase": 2,
+   "claim": "Hamilton plant",
+   "not_status": "confirmed"
+  }
+ ]
+}

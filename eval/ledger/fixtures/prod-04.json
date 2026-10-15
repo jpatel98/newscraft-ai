@@ -1,0 +1,676 @@
+{
+ "id": "prod-04",
+ "title": "Latest on kawhi and raptorsa",
+ "origin": "prod",
+ "sources": [
+  {
+   "n": 1,
+   "url": "https://www.tsn.ca/nba/article/leonard-available-to-make-first-appearance-in-second-run-with-raptors-on-tuesday/",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Kawhi Leonard available to make first appearance in second run with Toronto Raptors vs. Knicks"
+  },
+  {
+   "n": 2,
+   "url": "https://www.raptorshq.com/raptors-training-camp-and-pre-season/52050/shead-on-conditioning-im-way-ahead-of-where-i-was-my-first-two-years",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Shead on conditioning: Way ahead of where I was in my first two years | Raptors HQ"
+  },
+  {
+   "n": 4,
+   "url": "https://globalnews.ca/news/12098752/dick-faces-raptors-for-first-time-since-trade/",
+   "date": "2026-10-10T00:00:00.000Z",
+   "title": "Dick faces Raptors for first time since trade  | Globalnews.ca"
+  },
+  {
+   "n": 5,
+   "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-expected-to-make-pre-season-debut-against-knicks/",
+   "date": "2026-10-12T00:00:00.000Z",
+   "title": "Raptors' Kawhi Leonard expected to make pre-season debut against Knicks - Sportsnet.ca"
+  },
+  {
+   "n": 7,
+   "url": "https://www.cbc.ca/sports/basketball/nba/raptors-sign-centre-jamarion-sharp-9.7378189",
+   "date": "2026-10-12T00:00:00.000Z",
+   "title": "Raptors sign 7-foot-5 centre Jamarion Sharp | CBC Sports"
+  },
+  {
+   "n": 8,
+   "url": "https://hoopsnightly.com/injuries/430-kawhi-leonard-cleared",
+   "date": "2026-10-12T00:00:00.000Z",
+   "title": "Kawhi Leonard injury update: cleared to play"
+  },
+  {
+   "n": 10,
+   "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-wont-play-in-vancouver-vs-clippers/",
+   "date": "2026-10-09T00:00:00.000Z",
+   "title": "Raptors' Kawhi Leonard won't play in Vancouver vs. Clippers - Sportsnet.ca"
+  },
+  {
+   "n": 12,
+   "url": "https://whynba.com/raptors-kawhi-leonard-preseason-debut-knicks/",
+   "date": "2026-10-12T00:00:00.000Z",
+   "title": "Kawhi Leonard Set for First Raptors Game in Seven Years | WhyNBA"
+  },
+  {
+   "n": 14,
+   "url": "https://www.nbcsports.com/fantasy/basketball/player-news/2026-10-12/kawhi-leonard-to-make-preseason-debut-vs-knicks",
+   "date": "2026-10-12T00:00:00.000Z",
+   "title": "Kawhi Leonard to make preseason debut vs. Knicks - NBC Sports"
+  },
+  {
+   "n": 16,
+   "url": "https://www.cbc.ca/news/canada/toronto/supreme-court-bicycle-lanes-9.7378765",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Toronto cyclists ask Canada's top court to weigh in on Ford's bike lane removal plan | CBC Embedded-Only"
+  },
+  {
+   "n": 17,
+   "url": "https://www.nationalobserver.com/2026/10/13/news/cyclists-seek-revive-court-case-toronto-bike-lane-removals-begin",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Cyclists seek to revive court case as Toronto bike lane removals begin | Canada's National Observer: Climate News"
+  },
+  {
+   "n": 20,
+   "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
+   "date": "2026-10-12T00:00:00.000Z",
+   "title": "Bike lane removals begin in Etobicoke"
+  },
+  {
+   "n": 21,
+   "url": "https://www.tps.ca/media-centre/news-releases/man-arrested-in-sexual-assault-investigation-blo/",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Man Arrested in Sexual Assault Investigation,\nBloor Street West and The East Mall area,\nImage Released"
+  },
+  {
+   "n": 22,
+   "url": "https://www.cbc.ca/news/canada/toronto/toronto-2026-advance-voter-turnout-increase-9.7378763",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Advance voter turnout in Toronto election jumped nearly 72% from 2023 byelection: city | CBC News"
+  },
+  {
+   "n": 23,
+   "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
+  },
+  {
+   "n": 25,
+   "url": "https://www.tps.ca/media-centre/news-releases/67108/",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Suspect Sought in Sexual Assault Investigation,\nEglinton Avenue East and Yonge Street area"
+  },
+  {
+   "n": 26,
+   "url": "https://toronto.citynews.ca/2026/10/13/more-than-a-third-of-torontonians-dont-feel-safe-in-their-own-neighbourhood-after-dark-poll/",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "More than a third of Torontonians don't feel safe in their own neighbourhood after dark: poll"
+  },
+  {
+   "n": 27,
+   "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
+  },
+  {
+   "n": 28,
+   "url": "https://toronto.citynews.ca/2026/10/13/nearly-two-thirds-of-torontonians-support-bike-lane-removals-on-major-streets-by-the-province-poll/",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Nearly two-thirds of Torontonians support bike lane removals on major streets by the province: poll"
+  }
+ ],
+ "turns": [
+  {
+   "at": 1791937601803,
+   "claims": [
+    {
+     "claim": "Rajakovic told reporters Monday that Kawhi Leonard will be available Tuesday against the New York Knicks",
+     "status": "confirmed",
+     "attributed_to": "Darko Rajakovic, via TSN",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard was a full participant in practice Monday and Rajakovic said he feels great",
+     "status": "confirmed",
+     "attributed_to": "Darko Rajakovic, via Sportsnet",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Raptors hosted the Knicks at Scotiabank Arena Tuesday with tip-off at 7 p.m. ET",
+     "status": "reported",
+     "attributed_to": "Raptors HQ",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The Knicks are the defending NBA champions",
+     "status": "reported",
+     "attributed_to": "Raptors HQ",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "New York was expected to rest its starters on the second night of a back-to-back",
+     "status": "reported",
+     "attributed_to": "Knicks head coach Mike Brown, per Stefan Bondy of the New York Post",
+     "citations": [
+      2,
+      5
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Rajakovic expected to restrict Leonard to first-half minutes and would not say how much he would play",
+     "status": "reported",
+     "attributed_to": "Raptors HQ and Sportsnet",
+     "citations": [
+      2,
+      5
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard averaged a career-high 27.9 points over 65 games for the Clippers last season",
+     "status": "confirmed",
+     "attributed_to": "TSN and Global News",
+     "citations": [
+      1,
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard was acquired from the Clippers in a September trade that sent Ingram, Dick, two unprotected first-round picks, a 2027 pick swap and two second-round picks to Los Angeles",
+     "status": "reported",
+     "attributed_to": "The Canadian Press via Global News",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "The NBA opened a September investigation into whether a $28 million endorsement contract involving Leonard broke league rules, delaying the trade",
+     "status": "reported",
+     "attributed_to": "The Canadian Press via Global News",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "Raptors signed seven-foot-five centre Jamarion Sharp and waived guard Chucky Hepburn",
+     "status": "confirmed",
+     "attributed_to": "Toronto Raptors announcement, via CBC",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Toronto's regular-season opener is Oct. 21 against the Chicago Bulls; pre-season continues Thursday against the Knicks and Friday at Detroit",
+     "status": "reported",
+     "attributed_to": "TSN and Sportsnet",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Final score and Leonard's minutes from Tuesday's game",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1791937673890,
+   "claims": [
+    {
+     "claim": "Leonard did not play in either of the Raptors' first two pre-season games",
+     "status": "confirmed",
+     "attributed_to": "Sportsnet and WhyNBA",
+     "citations": [
+      10,
+      12
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard's absences were attributed to reconditioning, not injury",
+     "status": "reported",
+     "attributed_to": "Sportsnet and NBC Sports",
+     "citations": [
+      10,
+      14
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard sat out the pre-season opener against Miami in Quebec City on Saturday, Oct. 3",
+     "status": "reported",
+     "attributed_to": "Sportsnet",
+     "citations": [
+      10
+     ],
+     "date": "2026-10-09",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard missed the second exhibition, a 114-106 win over the Clippers in Vancouver on Saturday, Oct. 10",
+     "status": "reported",
+     "attributed_to": "Sportsnet and WhyNBA",
+     "citations": [
+      10,
+      12
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard made his pre-season debut Tuesday against the Knicks, expected in a limited role",
+     "status": "reported",
+     "attributed_to": "TSN, WhyNBA and NBC Sports",
+     "citations": [
+      1,
+      12,
+      14
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "No minutes target or starting role was made public for Tuesday, and whether he plays more than one of the remaining three exhibitions has not been announced",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      12
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1791937732647,
+   "claims": [
+    {
+     "claim": "Leonard did not play in either of the Raptors' first two pre-season games",
+     "status": "confirmed",
+     "attributed_to": "Sportsnet and WhyNBA",
+     "citations": [
+      10,
+      12
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard's absences were attributed to reconditioning, not injury",
+     "status": "reported",
+     "attributed_to": "Sportsnet and NBC Sports",
+     "citations": [
+      10,
+      14
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Final score and Leonard's minutes from Tuesday's game",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1791937773433,
+   "claims": [
+    {
+     "claim": "Leonard made his pre-season debut Tuesday against the Knicks, expected in a limited role",
+     "status": "reported",
+     "attributed_to": "TSN, WhyNBA and NBC Sports",
+     "citations": [
+      1,
+      12,
+      14
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard was cleared in the Raptors' Monday injury report, filed at 2:07 PM ET",
+     "status": "reported",
+     "attributed_to": "hoopsnightly.com",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "One outlet calls Tuesday's game the season opener; other sources call it pre-season",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      8
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "Toronto's regular-season opener is Oct. 21 against Chicago; pre-season continues Thursday against the Knicks and Friday at Detroit",
+     "status": "reported",
+     "attributed_to": "TSN and Sportsnet",
+     "citations": [
+      1,
+      5
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The trade and contract material comes from a single wire report",
+     "status": "unverified",
+     "attributed_to": "The Canadian Press via Global News",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    },
+    {
+     "claim": "Final score and Leonard's minutes from Tuesday's game are not in hand",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1791937791034,
+   "claims": []
+  },
+  {
+   "at": 1791938804943,
+   "claims": [
+    {
+     "claim": "Cycle Toronto and co-applicants announced Tuesday they will seek leave to appeal to the Supreme Court of Canada over Ontario's bike lane removal plan",
+     "status": "reported",
+     "attributed_to": "Cycle Toronto, via CBC News",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The Ontario Court of Appeal overturned a lower-court ruling against the bike lane removals in an August decision",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The province began removing bike lanes on a stretch of Bloor Street West in Etobicoke Tuesday, per the Ministry of Transportation",
+     "status": "reported",
+     "attributed_to": "Ministry of Transportation, via CBC News",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The first phase of removal is a roughly 600-metre stretch along Bloor Street West starting at Clissold Road in Etobicoke",
+     "status": "reported",
+     "attributed_to": "Canada's National Observer",
+     "citations": [
+      17
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The City of Toronto has estimated removing the 19 kilometres of bike lanes would cost approximately $48 million",
+     "status": "reported",
+     "attributed_to": "City of Toronto, via CityNews",
+     "citations": [
+      20
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Cyclists lined bikes along Bloor Street West between Islington and past Royal York Road Tuesday and Toronto police were on scene",
+     "status": "reported",
+     "attributed_to": "CityNews",
+     "citations": [
+      20
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Organizers cited two earlier mass rides: roughly 850 riders on Aug. 30 along Danforth Avenue and about 800 on Sept. 30",
+     "status": "reported",
+     "attributed_to": "CityNews",
+     "citations": [
+      20
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Ministry of Transportation spokesperson Dakota Brasier said the Court of Appeal's judgment should stand and Ontario has a clear mandate to tackle traffic costing the economy over $56 billion a year",
+     "status": "reported",
+     "attributed_to": "Dakota Brasier, Ministry of Transportation, via CBC News",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Whether the Supreme Court will accept the application is not established; the request must be granted before another hearing moves forward",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      16,
+      17
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1791943507552,
+   "claims": [
+    {
+     "claim": "Cycle Toronto and co-applicants announced Tuesday they will seek leave to appeal to the Supreme Court of Canada over Ontario's bike lane removal plan",
+     "status": "reported",
+     "attributed_to": "Cycle Toronto, via CBC News",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Ministry of Transportation spokesperson Dakota Brasier said the Court of Appeal's judgment should stand and Ontario has a clear mandate to tackle traffic costing the economy over $56 billion a year",
+     "status": "reported",
+     "attributed_to": "Dakota Brasier, Ministry of Transportation, via CBC News",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The first phase of removal is a roughly 600-metre stretch along Bloor Street West starting at Clissold Road in Etobicoke",
+     "status": "reported",
+     "attributed_to": "Canada's National Observer",
+     "citations": [
+      17
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The City of Toronto has estimated removing the 19 kilometres of bike lanes would cost approximately $48 million",
+     "status": "reported",
+     "attributed_to": "City of Toronto, via CityNews",
+     "citations": [
+      20
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "A Canada Pulse Insights poll for CityNews found 62 per cent of Torontonians support turning bike lanes on major streets back into vehicle lanes",
+     "status": "reported",
+     "attributed_to": "Canada Pulse Insights via CityNews",
+     "citations": [
+      28
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Whether the Supreme Court will accept the application is not established",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      17
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Advance voting in Toronto's 2026 municipal election saw 222,550 voters between Oct. 6 and Oct. 11",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto",
+     "citations": [
+      23
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Advance turnout jumped nearly 72 per cent from the 2023 mayoral byelection's 129,745 votes",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      22
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "A Liaison Strategies poll conducted during advance voting suggested Olivia Chow leads Brad Bradford 51-46 among decided and leaning voters",
+     "status": "reported",
+     "attributed_to": "Liaison Strategies, via CBC News",
+     "citations": [
+      22
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "A Nanos poll for CP24 and CTV News found Chow ahead by about 3.5 points among decided voters, 51-47, with 17 per cent undecided",
+     "status": "reported",
+     "attributed_to": "Nanos Research, via CP24",
+     "citations": [
+      27
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Toronto police are seeking a suspect in an Oct. 9 sexual assault near Eglinton Avenue East and Yonge Street in which the man represented himself as a Spiritual Holistic Healer",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      25
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Paul Conn, 71, was arrested and charged with five counts of sexual assault, three counts of sexual interference with a person under 16 and four counts of sexual exploitation of a young person",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      21
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Canada Pulse Insights poll for CityNews found 35 per cent of Torontonians say they don't feel safe walking their neighbourhood after dark",
+     "status": "reported",
+     "attributed_to": "Canada Pulse Insights via CityNews",
+     "citations": [
+      26
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Leonard made his pre-season debut Tuesday against the Knicks, expected in a limited role",
+     "status": "reported",
+     "attributed_to": "TSN, WhyNBA and NBC Sports",
+     "citations": [
+      1,
+      12,
+      14
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Final score and Leonard's minutes from Tuesday's game are not in hand",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  }
+ ]
+}

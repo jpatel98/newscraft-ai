@@ -6,6 +6,7 @@ import { conversations, hermesRunArtifactRefs, hermesRunEvents, hermesRuns, mess
 import { newId } from '$lib/utils/id';
 import { splitLedgerBlock, stripLedgerForDisplay, type LedgerClaim } from '$lib/utils/story-ledger';
 import { upsertStoryClaims } from './story-claims';
+import { workerClaimJudge } from '../ledger-judge';
 import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import {
 	serializeToolMetadata,
@@ -725,7 +726,7 @@ async function saveLedgerClaims(
 ): Promise<void> {
 	if (!claims?.length) return;
 	try {
-		await upsertStoryClaims(conversationId, messageId, claims);
+		await upsertStoryClaims(conversationId, messageId, claims, Date.now(), workerClaimJudge);
 	} catch (cause) {
 		recordChatDiagnostic(conversationId, 'chat.story_ledger_error', {
 			errorName: cause instanceof Error ? cause.name : 'Error',

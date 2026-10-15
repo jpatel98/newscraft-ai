@@ -345,6 +345,7 @@ async def _durable_recovery_loop(
 
 
 def create_app(settings: Settings | None = None):
+    from . import ledger_judge as ledger_judge_module
     from .portable import PortableAgentRunner
 
     # HTTPX INFO includes complete signed upload URLs; httpcore DEBUG includes
@@ -420,6 +421,25 @@ def create_app(settings: Settings | None = None):
             return JSONResponse({"detail": "valid JSON required"}, status_code=400)
         except DurableRunError as exc:
             return JSONResponse({"detail": str(exc)}, status_code=exc.status_code or 409)
+
+    @app.post("/v1/ledger/judge")
+    async def ledger_judge(request: Request):
+        """Same fact / conflict / different for candidate story-ledger claim pairs (one small model call)."""
+        if not _authorized(request, settings):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        try:
+            payload = await request.json()
+        except (json.JSONDecodeError, UnicodeError):
+            return JSONResponse({"detail": "valid JSON required"}, status_code=400)
+        pairs = payload.get("pairs") if isinstance(payload, dict) else None
+        if not isinstance(pairs, list):
+            return JSONResponse({"detail": "pairs required"}, status_code=400)
+        try:
+            verdicts = await ledger_judge_module.judge_pairs(runner.model, settings.model, pairs)
+        except Exception:
+            logger.warning("Ledger judge call failed")
+            return JSONResponse({"detail": "judge unavailable"}, status_code=503)
+        return JSONResponse({"verdicts": [{"id": k, "verdict": v} for k, v in verdicts.items()]})
 
     @app.post("/")
     async def direct_stream_removed(request: Request):

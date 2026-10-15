@@ -1,0 +1,731 @@
+{
+ "id": "prod-02",
+ "title": "Morning",
+ "origin": "prod",
+ "sources": [
+  {
+   "n": 1,
+   "url": "https://urbanmag.ca/is-olivia-chow-out-of-ideas-why-her-campaign-isnt-pitching-anything-new-and-brad-bradfords-is/",
+   "date": "2026-10-12T00:00:00.000Z",
+   "title": "Is Olivia Chow 'out of ideas'? Why her campaign isn't pitching anything new — and Brad Bradford's is | Urban Mag"
+  },
+  {
+   "n": 2,
+   "url": "https://www.oliviachow.ca/olivia_chow_lays_out_a_clear_choice_for_toronto_at_latest_debate",
+   "date": "2026-10-06T00:00:00.000Z",
+   "title": "Olivia Chow lays out a clear choice for Toronto at latest debate - Olivia Chow for Mayor of Toronto"
+  },
+  {
+   "n": 3,
+   "url": "https://toronto.citynews.ca/2026/10/07/cityvotes-2026-chow-bradford-scarborough-debate/",
+   "date": "2026-10-07T00:00:00.000Z",
+   "title": "Chow, Bradford go head-to-head in fiery Scarborough-centric debate"
+  },
+  {
+   "n": 4,
+   "url": "https://toronto.citynews.ca/2026/10/05/olivia-chow-universal-school-lunch-program-toronto-election/",
+   "date": "2026-10-05T00:00:00.000Z",
+   "title": "Olivia Chow pledges universal school lunch program"
+  },
+  {
+   "n": 5,
+   "url": "https://www.toronto.ca/news/city-of-toronto-receives-global-grant-to-launch-play-mobile-for-newcomers/",
+   "date": "2026-09-20T00:00:00.000Z",
+   "title": "City of Toronto receives global grant to launch Play Mobile for Newcomers – City of Toronto"
+  },
+  {
+   "n": 6,
+   "url": "https://www.villagereport.ca/village-picks/why-olivia-chows-free-school-lunch-promise-no-easy-recipe-12860710",
+   "date": "2026-10-06T00:00:00.000Z",
+   "title": "Toronto universal school food program could expand to free lunch under Chow plan  - Village Report"
+  },
+  {
+   "n": 7,
+   "url": "https://toronto.citynews.ca/2026/10/12/police-search-for-man-in-alleged-bloorcourt-village-sexual-assault/",
+   "date": "",
+   "title": "Police search for man in alleged Bloorcourt Village sexual ..."
+  },
+  {
+   "n": 8,
+   "url": "https://www.nationalobserver.com/2026/10/05/news/chow-promises-universal-school-lunch-bradford-questions-how-pay",
+   "date": "2026-10-06T02:44:03.000Z",
+   "title": "Chow promises universal school lunch, Bradford questions how to pay | Canada's National Observer: Climate News"
+  }
+ ],
+ "turns": [
+  {
+   "at": 1791851584214,
+   "claims": [
+    {
+     "claim": "TPS says Tevin Campbell, 23, of Toronto is wanted on two counts of fail to comply with a release order",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege the breach occurred Sept. 12, 2026 around 12:32 a.m. near Yonge St. and Dundas St. W., including curfew violation and cutting a GPS ankle monitor",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "TPS asks for help locating Dean, 47, last seen Oct. 11, 2026 near Queen St. W. and Ossington Ave., and says it is concerned for their safety",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow says she would make the city student nutrition program universal by 2030 and include lunches",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "The program serves about 330,000 students daily with the city contributing $32 million this year",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow did not say what the expansion would cost taxpayers",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Bradford says he supports the idea but the mayor has not said how the city would pay for it",
+     "status": "reported",
+     "attributed_to": "Brad Bradford",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Neither the federal government nor the province would say whether they are committed to funding an expansion",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "Polls suggest a tight race between Chow and Bradford in the Oct. 26 vote",
+     "status": "reported",
+     "attributed_to": "CityNews / The Canadian Press",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "TTC disruption and 510 Spadina streetcar items surfaced only on undated or non-news sites, not established",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1,
+      5,
+      7
+     ],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1791851655146,
+   "claims": [
+    {
+     "claim": "Chow says if re-elected she would make the city's student nutrition program universal by 2030 and extend it to cover lunches",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow did not say what the expansion would cost taxpayers",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "The program serves about 330,000 students daily with the city contributing $32 million this year",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "In 2024-2025 the city received $4.7M federal and $8.5M provincial for school food, and was the largest funder at $21.9M, raised to $32M in the 2026 budget",
+     "status": "reported",
+     "attributed_to": "CBC News / Toronto Public Health presentation",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Council authorized receiving a USD $1.2M (CAD $1,643,720) Bloomberg Philanthropies award for the universal school food program",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto Council record",
+     "citations": [
+      3
+     ],
+     "date": "",
+     "needs_check": false
+    },
+    {
+     "claim": "Ontario funds its Student Nutrition Programs at $37.5 million in 2025-26, serving more than 800,000 students provincewide",
+     "status": "confirmed",
+     "attributed_to": "Ontario government",
+     "citations": [
+      4
+     ],
+     "date": "2025-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "Neither the federal government nor the province would say whether they are committed to funding an expansion",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "Bradford says he supports the idea but the mayor has not said how the city would pay for it",
+     "status": "reported",
+     "attributed_to": "Brad Bradford",
+     "citations": [
+      2,
+      7
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Bradford has pledged to freeze property tax rates in his first year and scrap the land transfer tax for homes under $1.1 million",
+     "status": "reported",
+     "attributed_to": "CityNews / The Canadian Press",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Council approved a 2024 motion directing staff toward a universal lunch program by 2030",
+     "status": "reported",
+     "attributed_to": "Urban Mag, citing Toronto Star reporting",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1791851714852,
+   "claims": [
+    {
+     "claim": "Chow announced the universal lunch pledge at a Monday press conference, promising a full lunch for all students if re-elected",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-05",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow said she would fund the expansion the same way as the morning meal program, phased in by 2030 with provincial, federal and private partners",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-05",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow did not provide a detailed cost breakdown, saying the dollar amount depends on the school and on partnerships with senior governments",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-06",
+     "needs_check": true
+    },
+    {
+     "claim": "Bradford called the pledge a program with no idea how to fund it and no idea of the scope",
+     "status": "reported",
+     "attributed_to": "Brad Bradford",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "Neither the federal government nor the province would say whether they are committed to funding an expansion",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "Public money covers only 20 per cent of total operating costs, with the provincial and federal share around 30 to 35 per cent of food cost, per Raza",
+     "status": "reported",
+     "attributed_to": "Sahar Raza, Daily Bread Foodbank, via Village Report",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-06",
+     "needs_check": true
+    },
+    {
+     "claim": "Bradford promises to keep the school food program at its current funding level and calls it one of the best things the city does",
+     "status": "reported",
+     "attributed_to": "Brad Bradford",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "Bradford did not directly say whether he would create a universal school lunch program",
+     "status": "unverified",
+     "attributed_to": "Village Report",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-06",
+     "needs_check": true
+    },
+    {
+     "claim": "Bradford has pledged to freeze property tax rates in his first year and scrap the land transfer tax for homes under $1.1 million",
+     "status": "reported",
+     "attributed_to": "CityNews / The Canadian Press",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "The current program provides at least a mid-morning meal to 330,000 students",
+     "status": "reported",
+     "attributed_to": "City of Toronto / CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow will freeze TTC fares for a fourth year and introduce a 10-week fare cap if re-elected",
+     "status": "reported",
+     "attributed_to": "Olivia Chow campaign",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "TPS released a photo of a suspect in a Bloorcourt Village sexual assault search, unrelated to this story",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1791851776234,
+   "claims": [
+    {
+     "claim": "Chow announced the universal lunch pledge at a Monday press conference, promising a full lunch for all students if re-elected",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-05",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow did not provide a detailed cost breakdown, saying the dollar amount depends on the school and on partnerships with senior governments",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-06",
+     "needs_check": true
+    },
+    {
+     "claim": "Bradford called the pledge a program with no idea how to fund it and no idea of the scope",
+     "status": "reported",
+     "attributed_to": "Brad Bradford",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "Bradford promises to keep the school food program at its current funding level and calls it one of the best things the city does",
+     "status": "reported",
+     "attributed_to": "Brad Bradford",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "The program serves about 330,000 students daily with the city contributing $32 million this year",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Neither the federal government nor the province would say whether they are committed to funding an expansion",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "Public money covers only 20 per cent of total operating costs, with the provincial and federal share around 30 to 35 per cent of food cost, per Raza",
+     "status": "reported",
+     "attributed_to": "Sahar Raza, Daily Bread Foodbank, via Village Report",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-06",
+     "needs_check": true
+    },
+    {
+     "claim": "Chow said she would fund the expansion the same way as the morning meal program, phased in by 2030 with provincial, federal and private partners",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-05",
+     "needs_check": false
+    },
+    {
+     "claim": "TPS released a photo of a suspect in a Bloorcourt Village sexual assault search, unrelated to this story",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1791851804216,
+   "claims": [
+    {
+     "claim": "Chow announced the universal lunch pledge at a Monday press conference, promising a full lunch for all students if re-elected",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-05",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow said she would fund the expansion the same way as the morning meal program, phased in by 2030 with provincial, federal and private partners",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-05",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow did not provide a detailed cost breakdown, saying the dollar amount depends on the school and on partnerships with senior governments",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-06",
+     "needs_check": true
+    },
+    {
+     "claim": "Bradford called the pledge a program with no idea how to fund it and no idea of the scope",
+     "status": "reported",
+     "attributed_to": "Brad Bradford",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "Bradford promises to keep the school food program at its current funding level and calls it one of the best things the city does",
+     "status": "reported",
+     "attributed_to": "Brad Bradford",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "The current program provides at least a mid-morning meal to 330,000 students",
+     "status": "reported",
+     "attributed_to": "City of Toronto / CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1791851818979,
+   "claims": [
+    {
+     "claim": "Chow says if re-elected she would make the city's student nutrition program universal by 2030 and extend it to cover lunches",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      2,
+      4
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow announced the universal lunch pledge at a Monday press conference on October 5",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-05",
+     "needs_check": false
+    },
+    {
+     "claim": "About 330,000 students get at least a mid-morning meal daily, with the city contributing $32 million this year",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "In 2024-25 the city was the largest funder at $21.9M, alongside $4.7M federal and $8.5M provincial, raised to $32M in the 2026 budget",
+     "status": "reported",
+     "attributed_to": "CBC News / Toronto Public Health presentation",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Ontario funds its Student Nutrition Programs at $37.5 million in 2025-26, serving more than 800,000 students provincewide",
+     "status": "confirmed",
+     "attributed_to": "Ontario government",
+     "citations": [
+      4
+     ],
+     "date": "2025-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "Council authorized receiving a USD $1.2M (CAD $1,643,720) Bloomberg Philanthropies award for the universal school food program",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto Council record",
+     "citations": [
+      3
+     ],
+     "date": "",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow has not put a dollar figure on the expansion and did not say what it would cost taxpayers",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow said the dollar amount depends on the school, what each has, and partnerships with senior governments",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-06",
+     "needs_check": true
+    },
+    {
+     "claim": "Chow says she would fund the expansion like the morning meal program, phased in by 2030 with provincial, federal and private partners",
+     "status": "reported",
+     "attributed_to": "Olivia Chow",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-05",
+     "needs_check": false
+    },
+    {
+     "claim": "Bradford promises to keep the school food program at its current funding level and calls it one of the best things the city does",
+     "status": "reported",
+     "attributed_to": "Brad Bradford",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "Bradford called the pledge a program with no idea how to fund it and no idea of the scope",
+     "status": "reported",
+     "attributed_to": "Brad Bradford",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "Bradford has pledged a first-year property-tax freeze and scrapping the land transfer tax on homes under $1.1 million",
+     "status": "reported",
+     "attributed_to": "CityNews / The Canadian Press",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Public money covers about 20 per cent of operating costs, with the provincial and federal share around 30 to 35 per cent of food cost, per Raza",
+     "status": "reported",
+     "attributed_to": "Sahar Raza, Daily Bread Foodbank, via Village Report",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-06",
+     "needs_check": true
+    },
+    {
+     "claim": "Neither the federal government nor the province would say whether they are committed to funding an expansion",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "Bradford has not directly said whether he would create a universal school lunch program himself",
+     "status": "unverified",
+     "attributed_to": "Village Report",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-06",
+     "needs_check": true
+    },
+    {
+     "claim": "Council approved a 2024 motion directing staff toward a universal lunch program by 2030, reported second-hand",
+     "status": "reported",
+     "attributed_to": "Urban Mag, citing Toronto Star reporting",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "Polls suggest a tight race between Chow and Bradford in the Oct. 26 vote",
+     "status": "reported",
+     "attributed_to": "CityNews / The Canadian Press",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,411 @@
+{
+ "id": "gen-15",
+ "title": "What do we know about Canada's health ministers",
+ "origin": "generated",
+ "sources": [
+  {
+   "n": 1,
+   "url": "https://www.cma.ca/about-us/press-room/canadas-doctors-and-nurses-stand-provinces-and-territories-call-predictable",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Canada's doctors and nurses stand with provinces and territories to call for predictable, sustainable health care funding | CMA"
+  },
+  {
+   "n": 2,
+   "url": "https://www.canada.ca/en/department-finance/news/2026/10/minister-of-finance-meets-with-provincial-and-territorial-counterparts-to-discuss-economic-growth-health-care-and-internal-trade.html",
+   "date": "2026-10-02T00:00:00.000Z",
+   "title": "Minister of Finance meets with provincial and territorial counterparts to discuss economic growth, health care and internal trade - Canada.ca"
+  },
+  {
+   "n": 3,
+   "url": "https://www.thecanadianpressnews.ca/health/health-ministers-say-ottawa-needs-to-renew-mental-health-home-care-funding/article_c85f4db3-5326-5735-8520-3815dc77513b.html",
+   "date": "2026-10-01T00:00:00.000Z",
+   "title": "Health ministers say Ottawa needs to renew mental health, home care funding | Health News | thecanadianpressnews.ca"
+  },
+  {
+   "n": 4,
+   "url": "https://www.nationalobserver.com/2026/10/01/news/health-ministers-say-ottawa-needs-renew-mental-health-home-care-funding",
+   "date": "2026-10-02T00:00:00.000Z",
+   "title": "Health ministers say Ottawa needs to renew mental health, home care funding | Canada's National Observer: Climate News"
+  },
+  {
+   "n": 5,
+   "url": "https://www.thecanadianpressnews.ca/politics/health-ministers-set-to-meet-in-winnipeg-after-ottawa-announces-funding-extension/article_bc28aefd-36a5-5a2b-97d2-51ad04e7ccef.html",
+   "date": "2026-10-15T00:00:00.000Z",
+   "title": "Health ministers set to meet in Winnipeg after Ottawa announces funding extension | Politics | thecanadianpressnews.ca"
+  },
+  {
+   "n": 6,
+   "url": "https://www.winnipegfreepress.com/arts-and-life/life/health/2026/10/15/health-ministers-set-to-meet-in-winnipeg-after-ottawa-announces-funding-extension",
+   "date": "2026-10-15T00:00:00.000Z",
+   "title": "Health ministers set to meet in Winnipeg after Ottawa announces funding extension – Winnipeg Free Press"
+  },
+  {
+   "n": 7,
+   "url": "https://vocm.com/2026/10/02/312175/",
+   "date": "2026-10-02T00:00:00.000Z",
+   "title": "Health Minister Warns Cuts to Federal Funding Could Impact Upcoming Projects | VOCM"
+  },
+  {
+   "n": 8,
+   "url": "https://www.canada.ca/en/health-canada/news/2026/10/canada-and-northwest-territories-partner-to-improve-health-infrastructure-and-access-to-health-care-for-communities.html",
+   "date": "2026-10-05T00:00:00.000Z",
+   "title": "Canada and Northwest Territories partner to improve health infrastructure and access to health care for communities - Canada.ca"
+  },
+  {
+   "n": 9,
+   "url": "https://vsk24.com/article/saskatchewan-s-health-crisis-federal-funding-at-risk",
+   "date": "2026-10-15T00:00:00.000Z",
+   "title": "Saskatchewan's Health Crisis: Federal Funding at Risk (2026)"
+  },
+  {
+   "n": 11,
+   "url": "https://genznewz.com/canada-health-transfer-fight-hits-winnipeg-this-week",
+   "date": "2026-10-13T00:00:00.000Z",
+   "title": "Canada Health Transfer Fight Hits Winnipeg This Week | GenZ NewZ"
+  },
+  {
+   "n": 13,
+   "url": "https://www.thecanadianpressnews.ca/health/ottawa-to-extend-1-2b-in-funding-for-home-care-mental-health-services/article_e5322eac-b3bc-53e8-bfe6-b5ee9e95260f.html",
+   "date": "2026-10-15T00:00:00.000Z",
+   "title": "Ottawa to extend $1.2B in funding for home care, mental health services | Health News | thecanadianpressnews.ca"
+  },
+  {
+   "n": 16,
+   "url": "https://www.canada.ca/en/health-canada/news/2026/10/federal-provincial-territorial-health-ministers-meeting.html",
+   "date": "2026-10-09T00:00:00.000Z",
+   "title": "Federal-Provincial-Territorial Health Ministers’ Meeting - Canada.ca"
+  }
+ ],
+ "turns": [
+  {
+   "at": 1792081680229,
+   "claims": [
+    {
+     "claim": "Canadian health ministers meet in Winnipeg on Oct. 15, 2026, hosted by Manitoba's Uzoma Asagwara, with Michel co-chairing Friday's meeting",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Federal Health Minister Marjorie Michel announced on social media late Wednesday a one-year extension of mental health, addictions and home care funding worth $1.2 billion",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      5,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Provincial and territorial health ministers, meeting with finance counterparts earlier in October, said they were united in calling on Ottawa to be a full funding partner",
+     "status": "reported",
+     "attributed_to": "statement from health ministers via The Canadian Press",
+     "citations": [
+      3,
+      4
+     ],
+     "date": "2026-10-01",
+     "needs_check": false
+    },
+    {
+     "claim": "Health ministers warned of 'profound and negative' effects on patients and health-care jobs if the agreements were not renewed",
+     "status": "reported",
+     "attributed_to": "health ministers' statement",
+     "citations": [
+      3,
+      4
+     ],
+     "date": "2026-10-01",
+     "needs_check": false
+    },
+    {
+     "claim": "$4.8 billion over four years for home care, community care and mental health and addiction services ends March 2027; $3 billion for long-term care safety sunsets in 2026; $1.7 billion for PSW wages pays out by 2028",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-02",
+     "needs_check": false
+    },
+    {
+     "claim": "The 2023 federal budget pledged $200 billion in additional health funding over 10 years",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-02",
+     "needs_check": false
+    },
+    {
+     "claim": "The Canada Health Transfer grows five per cent a year until 2028, then a minimum three per cent; premiers say the five per cent floor must hold",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      5,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Manitoba Health Minister Uzoma Asagwara said 'I feel Minister Michel has been listening'",
+     "status": "reported",
+     "attributed_to": "Uzoma Asagwara via The Canadian Press",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Newfoundland and Labrador Health Minister Joedy Wall said Humberwood expansion and Corner Brook long-term beds will not be affected if funding is not renewed",
+     "status": "reported",
+     "attributed_to": "Joedy Wall via VOCM",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-02",
+     "needs_check": false
+    },
+    {
+     "claim": "CMA and nurses' unions jointly called for CHT and bilateral agreement certainty and urged ministers to press for passage of Bill S-5 and Bill C-34",
+     "status": "reported",
+     "attributed_to": "Canadian Medical Association",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Finance Minister Champagne committed to continuing discussions on immediate funding pressures and long-term health system sustainability after meeting provincial and territorial finance ministers",
+     "status": "confirmed",
+     "attributed_to": "Department of Finance Canada",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-02",
+     "needs_check": false
+    },
+    {
+     "claim": "Health Canada renewed the Working Together bilateral agreement with the Northwest Territories, $51.2 million over seven years, the first in a series of renewals",
+     "status": "confirmed",
+     "attributed_to": "Health Canada",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-05",
+     "needs_check": false
+    },
+    {
+     "claim": "The full text and duration of Michel's announcement beyond the one-year, $1.2-billion figure, whether all three funding streams are covered at existing levels, and when other bilateral renewals will be announced are not established",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      5,
+      6
+     ],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081693724,
+   "claims": [
+    {
+     "claim": "The Canada Health Transfer rises five per cent a year until March 31, 2028, then a minimum three per cent, and Michel announced no change to that schedule",
+     "status": "reported",
+     "attributed_to": "Canadian Medical Association Journal commentary via GenZ NewZ; The Canadian Press",
+     "citations": [
+      11,
+      3,
+      5,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "Michel announced on social media a one-year extension of $1.2 billion for mental health, addictions and home care",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      13,
+      5,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Provincial and territorial ministers are asking Ottawa for three things: renew $1.2 billion a year, commit to at least five per cent CHT growth after March 31, 2028, and be a full and committed funding partner",
+     "status": "reported",
+     "attributed_to": "The Canadian Wire via GenZ NewZ",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "A CMAJ commentary published Oct. 13 says the federal spring economic update set the annual CHT increase to fall from five to three per cent in April 2028",
+     "status": "reported",
+     "attributed_to": "CMAJ commentary via GenZ NewZ",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Ontario Health Minister Sylvia Jones is cited as flagging growing federal-provincial tension over health funding and concern Ottawa is backing away from CHT commitments",
+     "status": "unverified",
+     "attributed_to": "vsk24.com opinion piece",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "Manitoba Health Minister Uzoma Asagwara said of Michel: 'I feel Minister Michel has been listening'",
+     "status": "reported",
+     "attributed_to": "Uzoma Asagwara via The Canadian Press",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Newfoundland and Labrador Health Minister Joedy Wall said Humberwood expansion and Corner Brook long-term beds will not be affected if funding is not renewed",
+     "status": "reported",
+     "attributed_to": "Joedy Wall via VOCM",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-02",
+     "needs_check": false
+    },
+    {
+     "claim": "Health ministers meet in Winnipeg Oct. 15-16; Michel co-chairs the Oct. 16 FPT meeting, with news conferences at 4 p.m. CT Thursday and 3 p.m. CT Friday",
+     "status": "confirmed",
+     "attributed_to": "Health Canada media advisory",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-09",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1792081709729,
+   "claims": [
+    {
+     "claim": "Canadian health ministers are meeting in Winnipeg today, the first in-person meeting since Ottawa announced a funding extension",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Michel co-chairs the FPT session Friday",
+     "status": "confirmed",
+     "attributed_to": "Health Canada media advisory",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-09",
+     "needs_check": false
+    },
+    {
+     "claim": "Michel announced late Wednesday a one-year, $1.2-billion extension of mental health, addictions and home care funding",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      13,
+      5
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Expiring funds: $4.8B over four years for home care, community care and mental health; $3B for long-term care safety; $1.7B for PSW wages",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-02",
+     "needs_check": false
+    },
+    {
+     "claim": "Provincial and territorial ministers said in an Oct. 1 statement they were united in calling on Ottawa to be a full funding partner and warned of 'profound and negative' effects if agreements lapse",
+     "status": "reported",
+     "attributed_to": "health ministers' statement via The Canadian Press",
+     "citations": [
+      3,
+      4
+     ],
+     "date": "2026-10-01",
+     "needs_check": false
+    },
+    {
+     "claim": "Manitoba's Uzoma Asagwara said 'I feel Minister Michel has been listening'",
+     "status": "reported",
+     "attributed_to": "Uzoma Asagwara via The Canadian Press",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Provinces want the five per cent CHT floor to hold past 2028",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      5,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "News conferences: provincial-territorial Thursday 4 p.m. CT; FPT Friday 3 p.m. CT",
+     "status": "confirmed",
+     "attributed_to": "Health Canada media advisory",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-09",
+     "needs_check": false
+    },
+    {
+     "claim": "No on-record Ontario response to the extension in these sources; the only Ontario mention is an aggregator opinion piece citing Sylvia Jones, single-source",
+     "status": "unverified",
+     "attributed_to": "vsk24.com opinion piece",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    }
+   ]
+  }
+ ]
+}

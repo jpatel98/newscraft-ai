@@ -765,3 +765,51 @@ export const storyClaims = pgTable(
 		)
 	})
 );
+
+/** Append-only log of every change to a ledger claim; story_claims holds the fold. */
+export const storyClaimEvents = pgTable(
+	'story_claim_events',
+	{
+		seq: bigint('seq', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+		id: text('id').notNull().unique(),
+		conversationId: text('conversation_id')
+			.notNull()
+			.references(() => conversations.id, { onDelete: 'cascade' }),
+		claimId: text('claim_id')
+			.notNull()
+			.references(() => storyClaims.id, { onDelete: 'cascade' }),
+		kind: text('kind', {
+			enum: ['asserted', 'status_changed', 'contradicted', 'retracted', 'check_opened', 'check_closed']
+		}).notNull(),
+		actor: text('actor', { enum: ['model', 'person', 'system'] }).notNull(),
+		actorName: text('actor_name').notNull().default(''),
+		messageId: text('message_id'),
+		data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
+		createdAt: timestampMs('created_at').notNull()
+	},
+	(t) => ({
+		conversationSeqIdx: index('story_claim_events_conversation_seq_idx').on(t.conversationId, t.seq),
+		claimSeqIdx: index('story_claim_events_claim_seq_idx').on(t.claimId, t.seq)
+	})
+);
+
+/** Every wording the model has used for a canonical ledger claim. */
+export const storyClaimVariants = pgTable(
+	'story_claim_variants',
+	{
+		id: text('id').primaryKey(),
+		conversationId: text('conversation_id')
+			.notNull()
+			.references(() => conversations.id, { onDelete: 'cascade' }),
+		claimId: text('claim_id')
+			.notNull()
+			.references(() => storyClaims.id, { onDelete: 'cascade' }),
+		text: text('text').notNull(),
+		messageId: text('message_id'),
+		createdAt: timestampMs('created_at').notNull()
+	},
+	(t) => ({
+		conversationIdx: index('story_claim_variants_conversation_idx').on(t.conversationId),
+		claimTextUnique: uniqueIndex('story_claim_variants_claim_text_unique').on(t.claimId, t.text)
+	})
+);

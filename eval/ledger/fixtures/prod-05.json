@@ -1,0 +1,202 @@
+{
+ "id": "prod-05",
+ "title": "Top stories today go now",
+ "origin": "prod",
+ "sources": [
+  {
+   "n": 1,
+   "url": "https://www.tps.ca/media-centre/news-releases/67124/",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Man Arrested in Hate-Motivated Assault with a Weapon Investigation, \nDanforth Avenue and Logan Avenue area"
+  },
+  {
+   "n": 2,
+   "url": "https://news.ontario.ca/en/statement/1008131/us-softwood-lumber-duties-continue-to-increase-costs-for-american-and-canadian-families",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "U.S. Softwood Lumber Duties Continue to Increase Costs for American and Canadian Families | Ontario Newsroom"
+  },
+  {
+   "n": 3,
+   "url": "https://www.cp24.com/video/2026/10/14/chow-has-no-plan-to-improve-bike-lanes-bradford-says-he-wants-to-expand-cycling-infrastructure/",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Chow has ‘no plan’ to improve bike lanes, Bradford says he wants to ‘expand cycling infrastructure’ – CP24"
+  },
+  {
+   "n": 4,
+   "url": "https://www.cbc.ca/news/canada/toronto/3rd-caf-member-charged-toronto-kidnapping-9.7380360",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "3rd member of Canadian Armed Forces charged in kidnapping probe: Toronto police | CBC News"
+  },
+  {
+   "n": 5,
+   "url": "https://www.tps.ca/media-centre/news-releases/67123/",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Woman Arrested at Demonstration,\nLothian Avenue and Bloor Street West area"
+  },
+  {
+   "n": 6,
+   "url": "https://www.cbc.ca/news/canada/toronto/toronto-mayoral-race-endorsements-9.7379352",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Can Blue Rodeo or Rush swing the balance of power in Toronto? How endorsements affect the mayoral race | CBC News"
+  },
+  {
+   "n": 7,
+   "url": "https://www.tps.ca/media-centre/news-releases/67121/",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "Missing Youth,\nSheppard Avenue East and Meadowvale Road area"
+  },
+  {
+   "n": 8,
+   "url": "https://torontosun.com/uncategorized/news-of-the-day-oct-14-2026",
+   "date": "2026-10-14T00:00:00.000Z",
+   "title": "News of the day: Joni Mitchell becomes a U.S. citizen, and more | Toronto Sun"
+  }
+ ],
+ "turns": [
+  {
+   "at": 1792024215326,
+   "claims": [
+    {
+     "claim": "Nina Thi Thi Tran, 25, of Hamilton, was arrested at a demonstration near Lothian Avenue and Bloor Street West on Oct. 14, 2026, charged with obstruct peace officer and mischief under $5,000.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege Tran sat on a curb barrier and refused officers' requests to leave the area while road work was underway.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Tran is scheduled to appear in court at 10 Armoury Street on January 8, 2027.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "Protesters stalled bike lane removal work in the Bloor West and Islington area Tuesday night and the province says the work will be done.",
+     "status": "reported",
+     "attributed_to": "Toronto Sun",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "A third Canadian Armed Forces member and four civilians were charged in a kidnapping probe, announced by Toronto police Wednesday.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege the victim was confined in a car at gunpoint, handcuffed and assaulted as suspects tried to access cryptocurrency assets.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Jack Miley, 24, a Toronto reservist, was arrested Sept. 24 and faces seven charges including kidnapping for ransom with a firearm and forcible confinement.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service, CBC News",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Investigators recovered at least four firearms, 2,700 rounds of ammunition and quantities of cocaine, methamphetamine and other controlled substances.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Ontario ministers Holland, Harris and Fedeli called U.S. softwood lumber duties unjustified as the Commerce Department decreased the duty rate to 24.75 per cent.",
+     "status": "confirmed",
+     "attributed_to": "Ontario government statement",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Christopher Lawson, 43, of Toronto was charged with an offence motivated by hatred related to an assault with a weapon and breach of probation.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege the suspect made anti-immigrant and anti-South Asian remarks before assaulting a man working in the Danforth and Logan area on Oct. 13.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Michael, 17, was last seen Oct. 14 at about 2:33 a.m. in the Sheppard Avenue East and Meadowvale Road area; police are concerned for his safety.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "Bradford says he wants to build hundreds of kilometres of high quality cycling infrastructure; his campaign says Chow has no plan to improve bike lanes.",
+     "status": "reported",
+     "attributed_to": "CP24",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Geddy Lee endorsed Brad Bradford and Jim Cuddy endorsed Olivia Chow in the mayoral race.",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    }
+   ]
+  }
+ ]
+}
