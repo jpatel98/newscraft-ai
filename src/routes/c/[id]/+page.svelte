@@ -19,7 +19,7 @@
 	} from '$lib/utils/stream-events';
 	import type { ChatCommand, ChatMessage, MessageContent } from '$lib/types';
 	import { contentText } from '$lib/types';
-	import { invalidateAll, replaceState } from '$app/navigation';
+	import { invalidate, invalidateAll, replaceState } from '$app/navigation';
 	import { chat } from '$lib/stores/chat.svelte';
 	import { onMount, tick, untrack } from 'svelte';
 	import { formatThreadUpdated } from '$lib/utils/time';
@@ -74,6 +74,8 @@
 	} from '$lib/client/conversation-title';
 import X from 'lucide-svelte/icons/x';
 import Send from 'lucide-svelte/icons/send-horizontal';
+import Folder from 'lucide-svelte/icons/folder';
+import MoreHorizontal from 'lucide-svelte/icons/more-horizontal';
 import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 
 	type ThreadMessage = PersistedThreadMessage & { createdAt: number };
@@ -132,6 +134,22 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	let storyLoading = $state(false);
 	let storyError = $state<string | null>(null);
 	let storyRequestSeq = 0;
+	const storyOpenChecks = $derived(storyClaims.filter((claim) => claim.needs_check).length);
+	// Header folder menu. A move saves in place, so the chat stays open; the
+	// override shows the new folder until the next page load agrees.
+	type HeaderFolder = { id: string; name: string };
+	const folders = $derived((data.folders ?? []) as HeaderFolder[]);
+	let folderMenuOpen = $state(false);
+	let folderBusy = $state(false);
+	let folderError = $state<string | null>(null);
+	let creatingFolder = $state(false);
+	let newFolderName = $state('');
+	let folderOverride = $state<{ conversationId: string; folder: HeaderFolder | null } | null>(null);
+	const currentFolder = $derived(
+		folderOverride?.conversationId === data.conversation.id
+			? folderOverride.folder
+			: ((data.project ?? null) as HeaderFolder | null)
+	);
 	let viewportWidth = $state(0);
 	const artifactMode = $derived(artifactPaneMode(viewportWidth));
 	let activeArtifact = $state<ArtifactDraft | null>(null);
@@ -1018,8 +1036,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 				} catch {
 					/* ignore */
 				}
-				// New claims land when the run completes; keep an open Story pane current.
-				if (storyOpen && conversationId === activeConversationId) void refreshStoryLedger();
+				// New claims land when the run completes; keep the Story count and pane current.
+				if (conversationId === activeConversationId) void refreshStoryLedger();
 				// Drop only this run's items from the overlay (other runs may have
 				// added their own).
 				const ids = new Set([...(userMsg ? [userMsg.id] : [])]);
@@ -1095,6 +1113,77 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		} finally {
 			if (sequence === storyRequestSeq) storyLoading = false;
 		}
+	}
+
+	function closeFolderMenu() {
+		folderMenuOpen = false;
+		creatingFolder = false;
+		newFolderName = '';
+		folderError = null;
+	}
+
+	function toggleFolderMenu() {
+		if (folderMenuOpen) closeFolderMenu();
+		else folderMenuOpen = true;
+	}
+
+	async function moveToFolder(folder: HeaderFolder | null) {
+		const conversationId = data.conversation.id;
+		folderBusy = true;
+		folderError = null;
+		try {
+			const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/project`, {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ projectId: folder?.id ?? null })
+			});
+			if (!response.ok) throw new Error(`move ${response.status}`);
+			if (conversationId !== data.conversation.id) return;
+			folderOverride = { conversationId, folder };
+			closeFolderMenu();
+			// Refresh the sidebar's folder tree without reloading this thread.
+			void invalidate('app:projects');
+		} catch {
+			if (conversationId === data.conversation.id) folderError = 'Could not move the chat. Try again.';
+		} finally {
+			folderBusy = false;
+		}
+	}
+
+	async function createFolderAndMove(event: SubmitEvent) {
+		event.preventDefault();
+		const name = newFolderName.trim();
+		if (!name || folderBusy) return;
+		folderBusy = true;
+		folderError = null;
+		let created: HeaderFolder;
+		try {
+			const response = await fetch('/api/projects', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ name })
+			});
+			if (!response.ok) throw new Error(`create ${response.status}`);
+			created = (await response.json()) as HeaderFolder;
+		} catch {
+			folderError = 'Could not create the folder. Try again.';
+			folderBusy = false;
+			return;
+		}
+		folderBusy = false;
+		await moveToFolder(created);
+	}
+
+	function onWindowClick(event: MouseEvent) {
+		if (!folderMenuOpen) return;
+		const inside = event
+			.composedPath()
+			.some((el) => el instanceof HTMLElement && el.hasAttribute('data-thread-menu'));
+		if (!inside) closeFolderMenu();
+	}
+
+	function onWindowKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && folderMenuOpen) closeFolderMenu();
 	}
 
 	function toggleStory() {
@@ -1376,6 +1465,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	onMount(() => {
 		const onHashChange = () => loadHashTarget();
 		window.addEventListener('hashchange', onHashChange);
+		void refreshStoryLedger();
 		void documentsCapabilityEnabled(fetch, data.user?.id ?? 'anonymous').then((enabled) => {
 			documentsEnabled = enabled;
 		});
@@ -1455,6 +1545,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		storyError = null;
 		storyRequestSeq += 1;
 		storyLoading = false;
+		closeFolderMenu();
+		untrack(() => void refreshStoryLedger());
 		for (const controller of historyAbortControllers) controller.abort();
 		historyAbortControllers.clear();
 		historyRequestGeneration += 1;
@@ -1487,25 +1579,84 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	<title>{conversationTitle || 'Untitled thread'} · NewsCraft</title>
 </svelte:head>
 
-<header class="pane__header">
-	<div>
+<header class="pane__header thread-header">
+	<div class="thread-header__text">
 		<div class="pane__header__title">
 			{conversationTitle || 'Untitled thread'}
 		</div>
 		<div class="pane__header__topic">{topic}</div>
 	</div>
-	<a class="conversation-project-link" href={`/c/${data.conversation.id}/project`}>Move to folder</a>
-	<button
-		type="button"
-		class="conversation-project-link conversation-story-button"
-		data-testid="story-ledger-button"
-		aria-pressed={storyOpen}
-		onclick={toggleStory}
-	>Story</button>
-	{#if data.project}<a class="conversation-project-link" href={`/projects/${data.project.id}`}>{data.project.name}</a>{/if}
+	<div class="thread-header__actions">
+		{#if currentFolder}
+			<a class="thread-header__folder" href={`/projects/${currentFolder.id}`} title={`Open folder ${currentFolder.name}`}>
+				<Folder size="13" strokeWidth={1.8} aria-hidden="true" />
+				<span>{currentFolder.name}</span>
+			</a>
+		{/if}
+		<button
+			type="button"
+			class="thread-header__btn conversation-story-button"
+			data-testid="story-ledger-button"
+			aria-pressed={storyOpen}
+			aria-label={storyOpenChecks > 0 ? `Story, ${storyOpenChecks} to check` : undefined}
+			onclick={toggleStory}
+		>Story{#if storyOpenChecks > 0}<span class="thread-header__count">· {storyOpenChecks}<span class="thread-header__count-label">{' to check'}</span></span>{/if}</button>
+		<div class="thread-header__menu-wrap" data-thread-menu>
+			<button
+				type="button"
+				class="thread-header__icon-btn"
+				aria-label="Move to folder"
+				title="Move to folder"
+				aria-haspopup="menu"
+				aria-expanded={folderMenuOpen}
+				onclick={toggleFolderMenu}
+			>
+				<MoreHorizontal size="16" strokeWidth={1.8} />
+			</button>
+			{#if folderMenuOpen}
+				<div class="sidebar__menu thread-header__menu" role="menu" aria-label="Move to folder">
+					<div class="thread-header__menu-label">Move to folder</div>
+					{#each folders as f (f.id)}
+						<button
+							type="button"
+							role="menuitem"
+							disabled={folderBusy || currentFolder?.id === f.id}
+							onclick={() => moveToFolder(f)}
+						>
+							{f.name}{currentFolder?.id === f.id ? ' ✓' : ''}
+						</button>
+					{/each}
+					{#if creatingFolder}
+						<form class="thread-header__new-folder" onsubmit={createFolderAndMove}>
+							<!-- svelte-ignore a11y_autofocus -->
+							<input
+								aria-label="New folder name"
+								placeholder="Folder name"
+								maxlength="100"
+								autofocus
+								bind:value={newFolderName}
+								disabled={folderBusy}
+							/>
+							<button type="submit" disabled={folderBusy || !newFolderName.trim()}>Add</button>
+						</form>
+					{:else}
+						<button type="button" role="menuitem" disabled={folderBusy} onclick={() => (creatingFolder = true)}>
+							New folder…
+						</button>
+					{/if}
+					{#if currentFolder}
+						<button type="button" role="menuitem" disabled={folderBusy} onclick={() => moveToFolder(null)}>
+							Remove from folder
+						</button>
+					{/if}
+					{#if folderError}<div class="thread-header__menu-error" role="alert">{folderError}</div>{/if}
+				</div>
+			{/if}
+		</div>
+	</div>
 </header>
 
-<svelte:window bind:innerWidth={viewportWidth} />
+<svelte:window bind:innerWidth={viewportWidth} onclick={onWindowClick} onkeydown={onWindowKeydown} />
 
 <div class="conversation-workspace">
 	{#key data.conversation.id}
@@ -1682,9 +1833,94 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 </div>
 
 <style>
-	.conversation-project-link { font-size: 13px; padding: 8px; overflow-wrap: anywhere; }
-	.conversation-story-button { border: 0; background: transparent; color: inherit; font-family: inherit; cursor: pointer; }
-	.conversation-story-button[aria-pressed='true'] { color: var(--accent-fg); font-weight: 650; }
+	/* One row on every width: title and topic truncate, actions stay right. */
+	.thread-header {
+		display: flex;
+		flex-wrap: nowrap;
+		align-items: center;
+		gap: 12px;
+	}
+	.thread-header__text { flex: 1; min-width: 0; }
+	.thread-header .pane__header__title {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.thread-header__actions {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+	.thread-header__folder {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		max-width: 180px;
+		padding: 5px 8px;
+		border: 0;
+		border-radius: var(--radius-2);
+		color: var(--fg-3);
+		font-size: 12.5px;
+	}
+	.thread-header__folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.thread-header__folder:hover { color: var(--fg-1); background: var(--bg-raised); }
+	.thread-header__btn,
+	.thread-header__icon-btn {
+		display: inline-flex;
+		align-items: center;
+		border: 1px solid transparent;
+		border-radius: var(--radius-2);
+		background: transparent;
+		color: var(--fg-2);
+		font-family: var(--font-body);
+		font-size: 13px;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.thread-header__btn { padding: 5px 9px; }
+	.thread-header__icon-btn { justify-content: center; width: 30px; height: 30px; padding: 0; color: var(--fg-3); }
+	.thread-header__btn:hover,
+	.thread-header__icon-btn:hover,
+	.thread-header__icon-btn[aria-expanded='true'] { background: var(--bg-raised); color: var(--fg-1); }
+	.thread-header__btn:focus-visible,
+	.thread-header__icon-btn:focus-visible,
+	.thread-header__folder:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+	.thread-header__btn[aria-pressed='true'] {
+		background: var(--bg-raised);
+		border-color: var(--border-default);
+		color: var(--fg-1);
+	}
+	.thread-header__count { margin-left: 0.3em; color: var(--accent-fg); white-space: pre; }
+	.thread-header__menu-wrap { position: relative; }
+	.thread-header__menu { right: 0; min-width: 200px; max-width: min(280px, calc(100vw - 32px)); }
+	.thread-header__menu-label {
+		padding: 6px 8px 4px;
+		color: var(--fg-3);
+		font-size: 12px;
+	}
+	.thread-header__new-folder { display: flex; gap: 4px; padding: 3px; }
+	.thread-header__new-folder input {
+		flex: 1;
+		min-width: 0;
+		padding: 5px 7px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		background: var(--bg-page);
+		color: var(--fg-1);
+		font-family: var(--font-body);
+		font-size: 13px;
+	}
+	.thread-header__new-folder button { width: auto !important; flex-shrink: 0; }
+	.thread-header__menu-error { padding: 6px 8px; color: var(--flag-700); font-size: 12px; }
+	@media (max-width: 760px) {
+		.thread-header { gap: 8px; }
+		.thread-header__folder,
+		.thread-header__count-label { display: none; }
+		.thread-header__btn,
+		.thread-header__icon-btn { min-height: 44px; }
+		.thread-header__icon-btn { min-width: 44px; }
+	}
 	.conversation-workspace {
 		flex: 1;
 		min-height: 0;

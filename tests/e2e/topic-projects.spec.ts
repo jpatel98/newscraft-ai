@@ -30,11 +30,12 @@ for (const mobile of [false, true]) {
   expect(fixture.ok()).toBeTruthy(); const { conversationId } = await fixture.json();
   await page.goto(`/c/${conversationId}`);
   const before = await (await page.request.get(`/api/conversations/${conversationId}/messages`)).json();
-  await page.getByRole('link', { name: 'Move to folder', exact: true }).click();
-  await page.getByLabel('Folder', { exact: true }).selectOption(id);
-  await page.getByRole('button', { name: 'Save folder' }).click();
-  await expect(page).toHaveURL(projectUrl);
-  await page.reload(); await expect(page.locator(`a[href="/c/${conversationId}"]`).last()).toBeVisible();
+  await page.getByRole('button', { name: 'Move to folder', exact: true }).click();
+  await page.getByRole('menuitem', { name: name + ' reporting', exact: true }).click();
+  // Moving from the chat header keeps the chat open.
+  await expect(page).toHaveURL(new RegExp(`/c/${conversationId}$`));
+  await expect(page.locator('.thread-header').getByText(name + ' reporting')).toBeAttached();
+  await page.goto(projectUrl); await expect(page.locator(`a[href="/c/${conversationId}"]`).last()).toBeVisible();
   await page.getByRole('link', { name: /Move or remove/ }).click();
   await page.getByLabel('Folder', { exact: true }).selectOption('');
   await page.getByRole('button', { name: 'Save folder' }).click();

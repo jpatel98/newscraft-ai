@@ -31,13 +31,13 @@ describe('Story ledger pane', () => {
 		expect(pane).toContain('class="story-claim__chip story-claim__chip--plain"');
 	});
 
-	it('mounts from a Story header button next to Move to folder using the artifact slot layout', () => {
+	it('mounts from a Story header button beside the folder menu using the artifact slot layout', () => {
 		const page = source('../../routes/c/[id]/+page.svelte');
-		const moveIndex = page.indexOf('Move to folder</a>');
 		const storyIndex = page.indexOf('data-testid="story-ledger-button"');
-		expect(moveIndex).toBeGreaterThan(0);
-		expect(storyIndex).toBeGreaterThan(moveIndex);
-		expect(page).toContain('>Story</button>');
+		const menuIndex = page.indexOf('aria-label="Move to folder"');
+		expect(storyIndex).toBeGreaterThan(0);
+		expect(menuIndex).toBeGreaterThan(storyIndex);
+		expect(page).toContain("{' to check'}</span></span>{/if}</button>");
 		expect(page).toContain("import StoryLedgerPane from '$lib/components/StoryLedgerPane.svelte'");
 		expect(page).toContain('<StoryLedgerPane');
 		expect(page).toContain('artifact-slot artifact-slot--{artifactMode}');
