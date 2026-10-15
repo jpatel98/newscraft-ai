@@ -6,6 +6,7 @@
 	import ZoomIn from 'lucide-svelte/icons/zoom-in';
 	import ZoomOut from 'lucide-svelte/icons/zoom-out';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
+	import Markdown from './Markdown.svelte';
 	import {
 		chartDomain as chartDomainFor,
 		chartPeriodsFor,
@@ -285,7 +286,7 @@
 				{:else if spec.kind === 'image'}
 					{#if assetUrl}<img class="artifact-image" src={assetUrl} alt={spec.alt} />{:else}<div class="canvas-state">Image asset is missing.</div>{/if}
 				{:else if spec.kind === 'markdown'}
-					<pre class="markdown-preview">{spec.markdown}</pre>
+					<div class="markdown-preview"><Markdown content={spec.markdown} /></div>
 				{/if}
 				{#if tableOpen && chart}
 					<div class="table-scroll table-scroll--secondary"><table><caption>Data table · all {chartPeriods.length} periods</caption><thead><tr><th scope="col">Period</th>{#each chart.series as series}<th scope="col" class="table-cell--number">{series.label}{chart.unit ? ` (${chart.unit})` : ''}</th>{/each}</tr></thead><tbody>{#each chartPeriods as period}<tr><th scope="row">{period}</th>{#each chart.series as series}<td class="table-cell--number">{series.points.find((point) => point.period === period)?.value ?? 'Missing'}</td>{/each}</tr>{/each}</tbody></table></div>
@@ -350,7 +351,7 @@
 	.map-line { fill: none; stroke: var(--cobalt-700); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
 	.map-selection { margin-top: 8px; padding: 8px 10px; border-radius: 7px; background: var(--bg-raised); color: var(--fg-2); font: 11px var(--font-mono); }
 	.artifact-image { display: block; max-width: 100%; max-height: 560px; margin: 0 auto; object-fit: contain; border-radius: 8px; }
-	.markdown-preview { white-space: pre-wrap; font: 13px/1.55 var(--font-mono); }
+	.markdown-preview { max-width: 72ch; }
 	.sources { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 10px 20px; border-top: 1px solid var(--border-default); color: var(--fg-3); font: 10px var(--font-mono); }
 	.sources strong { color: var(--fg-2); }
 	.sources a { color: var(--accent-fg); text-decoration: underline; text-underline-offset: 2px; }

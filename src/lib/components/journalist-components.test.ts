@@ -65,6 +65,12 @@ describe('journalist trust components', () => {
 		expect(artifact).toContain('downloadArtifact');
 	});
 
+	it('renders saved markdown artifacts as formatted markdown, not raw text', () => {
+		const canvas = source('./ArtifactCanvas.svelte');
+		expect(canvas).toContain('<Markdown content={spec.markdown} />');
+		expect(canvas).not.toContain('<pre class="markdown-preview">');
+	});
+
 	it('does not cancel a durable run when a focused control consumes Escape', () => {
 		const shortcuts = source('./KeyboardShortcuts.svelte');
 		const composer = source('./Composer.svelte');
