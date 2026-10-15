@@ -7,8 +7,10 @@ import {
 	type ClaimMatch,
 	type ClaimState
 } from '$lib/utils/claim-events';
+import type { CitedPage } from '$lib/utils/claim-evidence';
 import { matchIncoming, type ClaimJudge } from '$lib/utils/claim-matcher';
 import { normalizeClaimText } from '$lib/utils/claim-similarity';
+import type { SourceTier } from '$lib/utils/source-tiers';
 import type { LedgerClaim, LedgerStatus } from '$lib/utils/story-ledger';
 import { db } from './index';
 import { storyClaimEvents, storyClaims, storyClaimVariants } from './schema';
@@ -23,8 +25,12 @@ function toState(row: StoryClaimRow, variants: string[], contradicts: string[], 
 		id: row.id,
 		claim: row.claim,
 		status: row.status as LedgerStatus,
+		suggestedStatus: (row.suggestedStatus ?? row.status) as LedgerStatus,
 		attributedTo: row.attributedTo,
 		citations: Array.isArray(row.citationNumbers) ? row.citationNumbers : [],
+		evidence: Array.isArray(row.evidence) ? row.evidence : [],
+		sourceTier: (row.sourceTier ?? null) as SourceTier | null,
+		corroboration: row.corroboration ?? 0,
 		date: row.publicationDate,
 		needsCheck: row.needsCheck,
 		checkReason: row.needsCheck ? (checkReason ?? 'model') : null,
@@ -43,6 +49,10 @@ function rowPatch(state: ClaimState) {
 	return {
 		claim: state.claim.slice(0, 240),
 		status: state.status,
+		suggestedStatus: state.suggestedStatus,
+		sourceTier: state.sourceTier,
+		corroboration: state.corroboration,
+		evidence: state.evidence,
 		attributedTo: state.attributedTo,
 		citationNumbers: state.citations,
 		publicationDate: state.date,
@@ -132,7 +142,8 @@ export async function upsertStoryClaims(
 	messageId: string | null,
 	claims: readonly LedgerClaim[],
 	now: number = Date.now(),
-	judge: ClaimJudge | null = null
+	judge: ClaimJudge | null = null,
+	sources?: ReadonlyMap<number, CitedPage>
 ): Promise<UpsertResult> {
 	if (!claims.length) return { inserted: 0, updated: 0, events: 0, judged: 0, judgeAvailable: false };
 	// The judge is a network call: match outside the transaction, then re-plan
@@ -149,7 +160,8 @@ export async function upsertStoryClaims(
 			messageId,
 			at: now,
 			newId,
-			maxActive: MAX_ACTIVE_CLAIMS
+			maxActive: MAX_ACTIVE_CLAIMS,
+			sources
 		});
 		for (const state of plan.created) {
 			await tx.insert(storyClaims).values({

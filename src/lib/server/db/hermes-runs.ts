@@ -6,6 +6,7 @@ import { conversations, hermesRunArtifactRefs, hermesRunEvents, hermesRuns, mess
 import { newId } from '$lib/utils/id';
 import { splitLedgerBlock, stripLedgerForDisplay, type LedgerClaim } from '$lib/utils/story-ledger';
 import { upsertStoryClaims } from './story-claims';
+import { citationSources } from '$lib/utils/claim-evidence';
 import { workerClaimJudge } from '../ledger-judge';
 import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import {
@@ -722,11 +723,12 @@ function stripLedgerFromAnswerEvent(
 async function saveLedgerClaims(
 	conversationId: string,
 	messageId: string,
-	claims: LedgerClaim[] | null
+	claims: LedgerClaim[] | null,
+	citations: readonly CitationRecord[]
 ): Promise<void> {
 	if (!claims?.length) return;
 	try {
-		await upsertStoryClaims(conversationId, messageId, claims, Date.now(), workerClaimJudge);
+		await upsertStoryClaims(conversationId, messageId, claims, Date.now(), workerClaimJudge, citationSources(citations));
 	} catch (cause) {
 		recordChatDiagnostic(conversationId, 'chat.story_ledger_error', {
 			errorName: cause instanceof Error ? cause.name : 'Error',
@@ -782,6 +784,8 @@ export async function appendHermesRunEvents(
 	let ledgerConversationId = '';
 	let ledgerMessageId = '';
 	let terminalLedgerClaims: LedgerClaim[] | null = null;
+	// The run's citations as of this batch: what the ledger block's [n] numbers point at.
+	let ledgerCitations: CitationRecord[] = [];
 
 	const appended = await db.transaction(async (tx: any) => {
 		const [current] = (await tx
@@ -894,6 +898,9 @@ export async function appendHermesRunEvents(
 				}
 			}
 			const nextSnapshot = applyHermesRunEventData(working, eventType, eventData);
+			// Before completion trims citations to those the visible answer uses: the
+			// ledger block may cite a page the prose does not.
+			ledgerCitations = nextSnapshot.citations;
 			const completedCitations =
 				nextSnapshot.state === 'complete'
 					? citationRecordsUsedInAnswer(nextSnapshot.answerText, nextSnapshot.citations)
@@ -1031,7 +1038,7 @@ export async function appendHermesRunEvents(
 		return { run, event };
 	});
 	if (!replayed) {
-		await saveLedgerClaims(ledgerConversationId, ledgerMessageId, terminalLedgerClaims ?? ledgerClaims);
+		await saveLedgerClaims(ledgerConversationId, ledgerMessageId, terminalLedgerClaims ?? ledgerClaims, ledgerCitations);
 	}
 	return appended;
 }

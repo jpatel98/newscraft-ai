@@ -1,4 +1,5 @@
 import { sql as schemaSql } from 'drizzle-orm';
+import type { EvidenceSource } from '../../utils/claim-evidence';
 import { bigint, boolean, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, uniqueIndex } from 'drizzle-orm/pg-core';
 
 const timestampMs = (name: string) => bigint(name, { mode: 'number' });
@@ -746,6 +747,10 @@ export const storyClaims = pgTable(
 		supersededBy: text('superseded_by'),
 		reviewedBy: text('reviewed_by'),
 		reviewedAt: timestampMs('reviewed_at'),
+		suggestedStatus: text('suggested_status'),
+		sourceTier: text('source_tier', { enum: ['official', 'wire_major', 'local', 'other', 'aggregator'] }),
+		corroboration: integer('corroboration').notNull().default(0),
+		evidence: jsonb('evidence').$type<EvidenceSource[]>().notNull().default([]),
 		createdAt: timestampMs('created_at').notNull(),
 		updatedAt: timestampMs('updated_at').notNull()
 	},

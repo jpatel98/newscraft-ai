@@ -126,13 +126,13 @@ describe('explicit Postgres migration runner', () => {
 		expect(client.queries.some(query => /^REVOKE .* FROM anon, authenticated;$/m.test(query))).toBe(false);
 	});
 
-	it('applies only the explicitly expected topic migration from the 23-version merged ledger', async () => {
+	it('applies only the explicitly expected topic migration from the 24-version merged ledger', async () => {
 		const initialVersions = MIGRATION_VERSIONS.filter(version => version !== '0017_topic_projects');
-		expect(initialVersions).toHaveLength(23);
+		expect(initialVersions).toHaveLength(24);
 		const client = new ConcurrentMigrationFakeClient(initialVersions);
 		const result = await runMigrations(client, { expectedPending: ['0017_topic_projects'] });
 
-		expect(result).toEqual({ applied: ['0017_topic_projects'], baseline: false, latest: '0022_story_claim_events' });
+		expect(result).toEqual({ applied: ['0017_topic_projects'], baseline: false, latest: '0023_story_claim_evidence' });
 		expect(client.queries[0]).toContain('pg_advisory_xact_lock');
 		expect(client.queries[1]).toContain('to_regclass');
 		expect(client.queries[2]).toContain('SELECT version FROM');
@@ -140,7 +140,7 @@ describe('explicit Postgres migration runner', () => {
 		expect(client.queries.filter(query => query.startsWith('DO $newscraft_roles$'))).toHaveLength(2);
 		expect(client.queries.filter(query => query.includes(`INSERT INTO ${MIGRATION_TABLE}`))).toHaveLength(1);
 		await expect(runMigrations(client, { expectedPending: [] })).resolves.toEqual({
-			applied: [], baseline: false, latest: '0022_story_claim_events'
+			applied: [], baseline: false, latest: '0023_story_claim_evidence'
 		});
 	});
 

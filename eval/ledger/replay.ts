@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { mergeEvidence, resolveEvidence, summarizeEvidence, type CitedPage, type EvidenceSource } from '../../src/lib/utils/claim-evidence';
 import { planTurn, type ClaimEvent, type ClaimMatch, type ClaimState } from '../../src/lib/utils/claim-events';
 import { matchIncoming, type ClaimJudge, type JudgePair, type JudgeVerdict } from '../../src/lib/utils/claim-matcher';
 import { normalizeClaimText } from '../../src/lib/utils/claim-similarity';
@@ -119,13 +120,30 @@ export interface Replay {
 	events: ClaimEvent[];
 	/** Live claim id for each extracted claim, keyed `${turn}:${index}`. */
 	landedOn: Map<string, string>;
+	/** Every page cited for each live claim, resolved per turn (whether or not the planner used it). */
+	cited: Map<string, EvidenceSource[]>;
+}
+
+export interface ReplayOptions {
+	/** Pass each turn's sources to the planner so status follows evidence (Phase 2). */
+	evidence?: boolean;
+}
+
+export function turnPages(thread: FixtureThread, turn: number): Map<number, CitedPage> {
+	return new Map(turnSources(thread, turn).map((s) => [s.n, { url: s.url, date: s.date ?? '' }]));
 }
 
 /** `exact` reproduces the pre-rework upsert (case-insensitive exact text only). */
-export async function replayThread(thread: FixtureThread, judge: ClaimJudge | null, matcher: Matcher = 'events'): Promise<Replay> {
+export async function replayThread(
+	thread: FixtureThread,
+	judge: ClaimJudge | null,
+	matcher: Matcher = 'events',
+	options: ReplayOptions = {}
+): Promise<Replay> {
 	const states = new Map<string, ClaimState>();
 	const events: ClaimEvent[] = [];
 	const landedOn = new Map<string, string>();
+	const cited = new Map<string, EvidenceSource[]>();
 	let n = 0;
 	for (const [t, turn] of thread.turns.entries()) {
 		const incoming = turnClaims(turn);
@@ -142,12 +160,25 @@ export async function replayThread(thread: FixtureThread, judge: ClaimJudge | nu
 		} else {
 			matches = (await matchIncoming(active, incoming, judge)).matches;
 		}
-		const plan = planTurn({ active, incoming, matches, messageId: `${thread.id}:${t}`, at: turn.at, newId: () => `${thread.id}#${++n}` });
+		const pages = turnPages(thread, t);
+		const plan = planTurn({
+			active,
+			incoming,
+			matches,
+			messageId: `${thread.id}:${t}`,
+			at: turn.at,
+			newId: () => `${thread.id}#${++n}`,
+			sources: options.evidence ? pages : undefined
+		});
 		for (const c of [...plan.created, ...plan.touched.values()]) states.set(c.id, c);
 		events.push(...plan.events);
-		plan.resolved.forEach((id, i) => id && landedOn.set(`${t}:${i}`, id));
+		plan.resolved.forEach((id, i) => {
+			if (!id) return;
+			landedOn.set(`${t}:${i}`, id);
+			cited.set(id, mergeEvidence(cited.get(id) ?? [], resolveEvidence(incoming[i].citations, pages)));
+		});
 	}
-	return { live: [...states.values()].filter((s) => s.status !== undefined), events, landedOn };
+	return { live: [...states.values()], events, landedOn, cited };
 }
 
 // ---- metrics --------------------------------------------------------------
@@ -164,6 +195,15 @@ export interface ThreadScore {
 	wrongMerges: number;
 	statusChecked: number;
 	statusCorrect: number;
+	/** Live claims shown as confirmed. */
+	confirmed: number;
+	/** ...of which no official source and fewer than two independent wire/major outlets back it. */
+	confirmedUnbacked: number;
+}
+
+/** Confirmed live claims whose cited pages do not reach the confirmed bar. */
+export function unbackedConfirmed(replay: Replay): ClaimState[] {
+	return replay.live.filter((s) => s.status === 'confirmed' && summarizeEvidence(replay.cited.get(s.id) ?? []).ceiling !== 'confirmed');
 }
 
 export function scoreThread(replay: Replay, labels: GoldenLabels): ThreadScore {
@@ -209,7 +249,9 @@ export function scoreThread(replay: Replay, labels: GoldenLabels): ThreadScore {
 		duplicates,
 		wrongMerges,
 		statusChecked,
-		statusCorrect
+		statusCorrect,
+		confirmed: replay.live.filter((s) => s.status === 'confirmed').length,
+		confirmedUnbacked: unbackedConfirmed(replay).length
 	};
 }
 
@@ -223,6 +265,8 @@ export function summarize(scores: ThreadScore[]) {
 		liveClaims: sum('live'),
 		duplicateRate: ratio(sum('duplicates'), sum('live')),
 		wrongMerges: sum('wrongMerges'),
-		statusAccuracy: ratio(sum('statusCorrect'), sum('statusChecked'))
+		statusAccuracy: ratio(sum('statusCorrect'), sum('statusChecked')),
+		confirmed: sum('confirmed'),
+		confirmedUnbacked: sum('confirmedUnbacked')
 	};
 }

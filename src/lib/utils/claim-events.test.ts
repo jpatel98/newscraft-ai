@@ -8,6 +8,7 @@ import {
 	type ClaimMatch,
 	type ClaimState
 } from './claim-events';
+import { deriveStatus, isStale, summarizeEvidence, type CitedPage } from './claim-evidence';
 import { LEDGER_STATUSES, type LedgerClaim, type LedgerStatus } from './story-ledger';
 
 function rng(seed: number) {
@@ -30,12 +31,24 @@ function counter() {
 }
 
 /** Runs turns through the planner the way the db layer does and keeps the full log. */
-function simulate(turns: { incoming: LedgerClaim[]; matches: ClaimMatch[] }[], reviews: Map<number, (states: ClaimState[]) => { id: string; status?: LedgerStatus; needsCheck?: boolean } | null> = new Map()) {
+function simulate(
+	turns: { incoming: LedgerClaim[]; matches: ClaimMatch[] }[],
+	reviews: Map<number, (states: ClaimState[]) => { id: string; status?: LedgerStatus; needsCheck?: boolean } | null> = new Map(),
+	sources?: (turn: number) => Map<number, CitedPage>
+) {
 	const states = new Map<string, ClaimState>();
 	const log: ClaimEvent[] = [];
 	const newId = counter();
 	turns.forEach((turn, t) => {
-		const plan = planTurn({ active: [...states.values()], incoming: turn.incoming, matches: turn.matches, messageId: `m${t}`, at: 1000 + t * 10, newId });
+		const plan = planTurn({
+			active: [...states.values()],
+			incoming: turn.incoming,
+			matches: turn.matches,
+			messageId: `m${t}`,
+			at: 1000 + t * 10,
+			newId,
+			sources: sources?.(t)
+		});
 		for (const c of plan.created) states.set(c.id, c);
 		for (const c of plan.touched.values()) states.set(c.id, c);
 		log.push(...plan.events);
@@ -243,6 +256,111 @@ describe('ledger fold properties', () => {
 					expect(first.data.status === 'retracted' || events.some((e) => e.kind === 'retracted'), `seed ${seed}`).toBe(true);
 				}
 			}
+		}
+	});
+});
+
+describe('ledger evidence properties', () => {
+	const STATUSES = LEDGER_STATUSES as readonly LedgerStatus[];
+	const PAGES = [
+		'https://www.tps.ca/media-centre/1', 'https://www.cbc.ca/news/1', 'https://www.ctvnews.ca/1', 'https://www.cp24.com/1',
+		'https://www.citynews.ca/1', 'https://www.insauga.com/1', 'https://ca.news.yahoo.com/1', 'https://www.msn.com/1',
+		'https://example.org/1'
+	];
+	const DAY = 86_400_000;
+
+	function randomRun(seed: number) {
+		const r = rng(seed);
+		const pick = <T,>(xs: readonly T[]) => xs[Math.floor(r() * xs.length)];
+		const turns: { incoming: LedgerClaim[]; matches: ClaimMatch[] }[] = [];
+		const pages: Map<number, CitedPage>[] = [];
+		let created = 0;
+		const turnCount = 2 + Math.floor(r() * 5);
+		for (let t = 0; t < turnCount; t++) {
+			const map = new Map<number, CitedPage>();
+			for (let n = 1; n <= 6; n++) {
+				// Fixture time is ~1000 ms after the epoch, so "recent" is 1970 and "old" is a year before that.
+				if (r() < 0.85) map.set(n, { url: pick(PAGES), date: r() < 0.2 ? '1969-01-01' : r() < 0.5 ? '' : '1970-01-01' });
+			}
+			pages.push(map);
+			const incoming: LedgerClaim[] = [];
+			const matches: ClaimMatch[] = [];
+			const n = 1 + Math.floor(r() * 5);
+			for (let i = 0; i < n; i++) {
+				incoming.push(
+					claim(`fact ${Math.floor(r() * 7)}`, {
+						status: pick(STATUSES),
+						needsCheck: r() < 0.3,
+						citations: [...new Set([1 + Math.floor(r() * 6), 1 + Math.floor(r() * 6)])].slice(0, 1 + Math.floor(r() * 2))
+					})
+				);
+				const roll = r();
+				if (created && roll < 0.45) matches.push({ kind: 'same', claimId: `c${1 + Math.floor(r() * created)}`, how: 'judge' });
+				else if (created && roll < 0.55) matches.push({ kind: 'contradicts', claimId: `c${1 + Math.floor(r() * created)}` });
+				else matches.push({ kind: 'new' });
+			}
+			created += n;
+			turns.push({ incoming, matches });
+		}
+		return { turns, pages };
+	}
+
+	it('stored state equals the fold of its events with evidence on', () => {
+		for (let seed = 1; seed <= 400; seed++) {
+			const { turns, pages } = randomRun(seed);
+			const { states, log } = simulate(turns, new Map(), (t) => pages[t]);
+			for (const [id, state] of states) {
+				const folded = foldClaim(id, log.filter((e) => e.claimId === id));
+				expect({ ...folded, createdAt: 0 }, `seed ${seed} claim ${id}`).toEqual({ ...state, createdAt: 0 });
+			}
+		}
+	});
+
+	it('status is always what the evidence supports for the latest suggestion', () => {
+		for (let seed = 1; seed <= 400; seed++) {
+			const { turns, pages } = randomRun(seed);
+			const { states } = simulate(turns, new Map(), (t) => pages[t]);
+			for (const state of states.values()) {
+				expect(state.status, `seed ${seed} ${state.id}`).toBe(deriveStatus(state.suggestedStatus, state.evidence, state.contradicts.length > 0));
+				if (state.status === 'confirmed') {
+					expect(summarizeEvidence(state.evidence).ceiling).toBe('confirmed');
+					expect(state.contradicts).toHaveLength(0);
+				}
+			}
+		}
+	});
+
+	it('evidence never changes alleged, retracted or unverified suggestions', () => {
+		for (let seed = 1; seed <= 300; seed++) {
+			const { turns, pages } = randomRun(seed);
+			const { states } = simulate(turns, new Map(), (t) => pages[t]);
+			for (const state of states.values()) {
+				if (['alleged', 'retracted', 'unverified'].includes(state.suggestedStatus)) expect(state.status).toBe(state.suggestedStatus);
+			}
+		}
+	});
+
+	it('every stale claim carries an open check, and a stale check closes only when fresher evidence arrives', () => {
+		for (let seed = 1; seed <= 300; seed++) {
+			const { turns, pages } = randomRun(seed);
+			const { states, log } = simulate(turns, new Map(), (t) => pages[t]);
+			for (const state of states.values()) {
+				const last = log.filter((e) => e.claimId === state.id).at(-1)!;
+				if (isStale(state.evidence, state.date, last.at)) expect(state.needsCheck, `seed ${seed} ${state.id}`).toBe(true);
+				for (const event of log.filter((e) => e.claimId === state.id && e.kind === 'check_closed' && e.data.reason === 'stale')) {
+					expect(event.actor).toBe('system');
+				}
+			}
+		}
+	});
+
+	it('a person-reviewed claim keeps its status whatever the evidence says', () => {
+		for (let seed = 1; seed <= 200; seed++) {
+			const { turns, pages } = randomRun(seed);
+			const reviews = new Map([[0, (list: ClaimState[]) => (list[0] ? { id: list[0].id, status: 'confirmed' as LedgerStatus } : null)]]);
+			const { states } = simulate(turns, reviews, (t) => pages[t]);
+			const first = [...states.values()].find((s) => s.reviewedAt != null);
+			if (first) expect(first.status).toBe('confirmed');
 		}
 	});
 });

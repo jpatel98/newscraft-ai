@@ -7,7 +7,17 @@
  * for it. This module is pure so the fold and the per-turn planner can be
  * tested exhaustively; the db layer only persists what it returns.
  */
+import {
+	deriveStatus,
+	isStale,
+	mergeEvidence,
+	resolveEvidence,
+	summarizeEvidence,
+	type CitedPage,
+	type EvidenceSource
+} from './claim-evidence';
 import { normalizeClaimText } from './claim-similarity';
+import type { SourceTier } from './source-tiers';
 import { LEDGER_MAX_CITATIONS, type LedgerClaim, type LedgerStatus } from './story-ledger';
 
 export const CLAIM_EVENT_KINDS = [
@@ -36,8 +46,16 @@ export interface ClaimState {
 	id: string;
 	claim: string;
 	status: LedgerStatus;
+	/** The status the model last gave; `status` is what the evidence supports. */
+	suggestedStatus: LedgerStatus;
 	attributedTo: string;
 	citations: number[];
+	/** The cited pages, resolved against the answer that cited them. */
+	evidence: EvidenceSource[];
+	/** Best source tier, kept apart from corroboration (null with no resolved sources). */
+	sourceTier: SourceTier | null;
+	/** Independent publishers behind the evidence, aggregators excluded. */
+	corroboration: number;
 	date: string;
 	needsCheck: boolean;
 	/** Why the open check was opened ('model', 'contradicted', 'person', ...); null when no check is open. */
@@ -69,13 +87,24 @@ function mergeCitations(current: number[], next: number[]): number[] {
 	return out.slice(0, LEDGER_MAX_CITATIONS);
 }
 
+function evidenceList(value: unknown): EvidenceSource[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter(
+		(s): s is EvidenceSource => !!s && typeof s === 'object' && typeof s.url === 'string' && typeof s.tier === 'string'
+	);
+}
+
 function emptyState(id: string): ClaimState {
 	return {
 		id,
 		claim: '',
 		status: 'unverified',
+		suggestedStatus: 'unverified',
 		attributedTo: '',
 		citations: [],
+		evidence: [],
+		sourceTier: null,
+		corroboration: 0,
 		date: '',
 		needsCheck: false,
 		checkReason: null,
@@ -96,6 +125,7 @@ export function applyClaimEvent(state: ClaimState, event: ClaimEvent): ClaimStat
 	const next: ClaimState = {
 		...state,
 		citations: [...state.citations],
+		evidence: [...state.evidence],
 		contradicts: [...state.contradicts],
 		variants: [...state.variants],
 		updatedAt: Math.max(state.updatedAt, event.at)
@@ -110,6 +140,15 @@ export function applyClaimEvent(state: ClaimState, event: ClaimEvent): ClaimStat
 				next.firstSeenMessageId = event.messageId;
 				const status = stringData(data, 'status');
 				if (status) next.status = status as LedgerStatus;
+			}
+			const suggested = stringData(data, 'status');
+			if (suggested) next.suggestedStatus = suggested as LedgerStatus;
+			const sources = evidenceList(data.sources);
+			if (sources.length) {
+				next.evidence = mergeEvidence(next.evidence, sources);
+				const summary = summarizeEvidence(next.evidence);
+				next.sourceTier = summary.tier;
+				next.corroboration = summary.corroboration;
 			}
 			// The latest wording is the one shown; every wording stays a variant.
 			if (text) next.claim = text;
@@ -196,6 +235,12 @@ export interface PlanTurnInput {
 	at: number;
 	newId: () => string;
 	maxActive?: number;
+	/**
+	 * The answer's citation numbers -> pages. When given, status follows the
+	 * evidence (see claim-evidence.ts) and stale sources open a check; without
+	 * it the model's status is stored as given.
+	 */
+	sources?: ReadonlyMap<number, CitedPage>;
 }
 
 const INCOMING_PREFIX = 'incoming:';
@@ -223,8 +268,8 @@ export function planTurn(input: PlanTurnInput): TurnPlan {
 	let activeCount = input.active.length;
 	let skipped = 0;
 
-	const emit = (claimId: string, kind: ClaimEventKind, data: Record<string, unknown>) => {
-		const event: ClaimEvent = { claimId, kind, actor: 'model', actorName: '', messageId: input.messageId, data, at: input.at };
+	const emit = (claimId: string, kind: ClaimEventKind, data: Record<string, unknown>, actor: ClaimEventActor = 'model') => {
+		const event: ClaimEvent = { claimId, kind, actor, actorName: '', messageId: input.messageId, data, at: input.at };
 		events.push(event);
 		const current = states.get(claimId);
 		if (current) {
@@ -240,20 +285,37 @@ export function planTurn(input: PlanTurnInput): TurnPlan {
 		return Number.isInteger(index) ? (resolvedIncoming[index] ?? null) : null;
 	};
 
+	const evidenceMode = input.sources !== undefined;
+
+	/** Move a claim to the status its evidence supports, unless a person settled it. */
+	const settle = (claimId: string) => {
+		const state = states.get(claimId)!;
+		if (!evidenceMode || state.reviewedAt != null) return;
+		const to = deriveStatus(state.suggestedStatus, state.evidence, state.contradicts.length > 0);
+		if (to === state.status) return;
+		const summary = summarizeEvidence(state.evidence);
+		const why = { suggested: state.suggestedStatus, tier: summary.tier, corroboration: summary.corroboration };
+		if (to === 'retracted') emit(claimId, 'retracted', { from: state.status, ...why }, 'model');
+		else emit(claimId, 'status_changed', { from: state.status, to, ...why }, to === state.suggestedStatus ? 'model' : 'system');
+	};
+
 	const assertInto = (claimId: string, claim: LedgerClaim, isNew: boolean) => {
 		const before = states.get(claimId)!;
 		const key = normalizeClaimText(claim.claim);
-		emit(claimId, 'asserted', {
+		const data: Record<string, unknown> = {
 			text: claim.claim,
 			status: claim.status,
 			attributed_to: claim.attributedTo,
 			citations: claim.citations,
 			date: claim.date
-		});
+		};
+		if (input.sources) data.sources = resolveEvidence(claim.citations, input.sources);
+		emit(claimId, 'asserted', data);
 		if (!before.variants.includes(key)) variants.push({ claimId, text: claim.claim });
 		const after = states.get(claimId)!;
 		const locked = after.reviewedAt != null;
-		if (!isNew && !locked && claim.status !== after.status) {
+		if (evidenceMode) settle(claimId);
+		else if (!isNew && !locked && claim.status !== after.status) {
 			if (claim.status === 'retracted') emit(claimId, 'retracted', { from: after.status });
 			else emit(claimId, 'status_changed', { from: after.status, to: claim.status });
 		}
@@ -262,6 +324,13 @@ export function planTurn(input: PlanTurnInput): TurnPlan {
 		// The model may only withdraw a flag it raised itself; a conflict or a person's flag stays open.
 		if (!locked && !isNew && !claim.needsCheck && current.needsCheck && current.checkReason === 'model') {
 			emit(claimId, 'check_closed', { reason: 'model' });
+		}
+		// Runs after the model's own flag so a closed model check cannot hide a stale source.
+		if (evidenceMode && !locked) {
+			const state = states.get(claimId)!;
+			const stale = isStale(state.evidence, state.date, input.at);
+			if (stale && !state.needsCheck) emit(claimId, 'check_opened', { reason: 'stale' }, 'system');
+			if (!stale && state.needsCheck && state.checkReason === 'stale') emit(claimId, 'check_closed', { reason: 'stale' }, 'system');
 		}
 	};
 
@@ -299,6 +368,8 @@ export function planTurn(input: PlanTurnInput): TurnPlan {
 				if (!states.get(target)!.needsCheck) emit(target, 'check_opened', { reason: 'contradicted' });
 				const otherState = states.get(other)!;
 				if (!otherState.needsCheck && otherState.reviewedAt == null) emit(other, 'check_opened', { reason: 'contradicted' });
+				settle(target);
+				settle(other);
 			}
 		}
 		if (!target) target = createClaim(claim);
