@@ -14,6 +14,7 @@ import type {
 import {
 	deriveResearchRequestContract,
 	isConversationMetaDiagnosticRequest,
+	isSmallTalk,
 	mergeLatestResearchContract
 } from '@newscraft/shared';
 import type { MessageRow } from '$lib/server/db/conversations';
@@ -180,7 +181,10 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 	// The current user instruction is the task. Research starts on this turn;
 	// there is no intermediate proposal/approval state to resolve.
 	const resolvedRequest = currentRequest;
-	const researchRequired = requestNeedsResearch(resolvedRequest, diagnosticBound, Boolean(input.outputAction));
+	const smallTalk = !input.outputAction && isSmallTalk(resolvedRequest);
+	const researchRequired = smallTalk
+		? false
+		: requestNeedsResearch(resolvedRequest, diagnosticBound, Boolean(input.outputAction));
 	// A one-click transformation can use verified research to fill an essential
 	// gap, but a complete source answer must not trigger unnecessary research.
 	const researchAllowed = Boolean(input.outputAction);
@@ -226,7 +230,8 @@ export function buildConversationContext(input: BuildConversationContextInput): 
 				...(researchAllowed ? { researchAllowed: true } : {}),
 				...(isCurrentResearchRequest(resolvedRequest) ? { freshness: 'current' as const } : {}),
 				...(researchRequired !== false || researchAllowed ? { researchContract } : {}),
-				...(input.outputAction && input.outputActionKind ? { outputAction: input.outputActionKind } : {})
+				...(input.outputAction && input.outputActionKind ? { outputAction: input.outputActionKind } : {}),
+				...(smallTalk ? { smallTalk: true } : {})
 		},
 		...(recentTurns.length ? { recentTurns } : {}),
 		...(topicPrompt

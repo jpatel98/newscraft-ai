@@ -316,6 +316,8 @@ export interface ConversationCurrentTurn {
 	researchContract?: ResearchRequestContract;
 	/** The output action (rundown_line, tease, ...) this turn runs, so the worker can shape its result. */
 	outputAction?: string;
+	/** A greeting, thanks or similar chat: the worker replies briefly and plans no research. */
+	smallTalk?: boolean;
 }
 
 export interface ConversationRecentTurn {

@@ -45,6 +45,19 @@ function message(
 }
 
 describe('conversation context builder', () => {
+	it('marks a greeting as small talk with research off', () => {
+		const context = buildConversationContext({ messages: [], currentRequest: 'yoo' });
+		expect(context.currentTurn?.smallTalk).toBe(true);
+		expect(context.currentTurn?.researchRequired).toBe(false);
+		expect(context.currentTurn?.researchContract).toBeUndefined();
+	});
+
+	it('leaves a greeting with a question on the research path', () => {
+		const context = buildConversationContext({ messages: [], currentRequest: 'hey, any TTC closures today?' });
+		expect(context.currentTurn?.smallTalk).toBeUndefined();
+		expect(context.currentTurn?.researchRequired).toBe(true);
+	});
+
 	it('starts current-events research from the initial user request', () => {
 		const context = buildConversationContext({
 			messages: [message('m1', 'user', "What's the latest on Ottawa's housing vote?")],
