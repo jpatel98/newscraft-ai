@@ -9,7 +9,7 @@
 	import { stripLedgerForDisplay } from '$lib/utils/story-ledger';
 	import type { StoryClaimReviewInput, StoryLedgerClaimView } from '$lib/utils/story-ledger-view';
 	import { parseToolMetadata } from '$lib/utils/tool-metadata';
-	import type { CitationRecord } from '@newscraft/shared';
+	import { isSmallTalk, type CitationRecord } from '@newscraft/shared';
 	import type {
 		PersistedSource,
 		StreamPlanUpdate,
@@ -700,7 +700,11 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		existingRun?: DurableRunData
 	) {
 		const conversationId = args.conversation_id;
-		const controller = chat.startStream(args.conversation_id, { rewriting: Boolean(args.output_action) });
+		const controller = chat.startStream(args.conversation_id, {
+			rewriting:
+				Boolean(args.output_action) ||
+				isSmallTalk((args.content ? contentText(args.content) : chat.lastUserContent) ?? '')
+		});
 
 		const requestArgs: RunStreamArgs = existingRun
 			? args

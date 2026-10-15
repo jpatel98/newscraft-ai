@@ -1226,8 +1226,10 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
 
     # ---- Planned research in the fast path ----------------------------------------------------------------------
 
-    def fast_payload(self, request, *, required=None, newsroom=None, prior=(), subject=None):
+    def fast_payload(self, request, *, required=None, newsroom=None, prior=(), subject=None, small_talk=False):
         turn = {"resolvedRequest": request}
+        if small_talk:
+            turn["smallTalk"] = True
         if required is not None:
             turn["researchRequired"] = required
         if subject:
@@ -1264,6 +1266,23 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def snapshot_sources(events):
         return [e for e in events if e["type"] == "STATE_SNAPSHOT"][-1]["snapshot"]["newscraftSources"]
+
+    async def test_small_talk_gets_one_short_reply_with_no_plan_or_search(self):
+        exa, calls = self.fake_exa()
+        runner = self.runner([answer("Hey. Send me a story when you're ready.")])
+        events = await self.collect_fast(runner, self.fast_payload("yoo", required=False, small_talk=True), exa)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual(calls, [])
+        self.assertEqual(len(self.requests), 1)  # No planner call.
+        self.assertFalse([e for e in events if e.get("name") == "newscraft.plan" or e["type"].startswith("TOOL_CALL")])
+        self.assertEqual(self.final_answer(events), "Hey. Send me a story when you're ready.")
+        self.assertIn("small talk", self.model_prompts()[0])
+
+    async def test_small_talk_reply_drops_a_ledger_and_markers(self):
+        exa, _ = self.fake_exa()
+        runner = self.runner([answer("Hi there. [1]\n\n```newscraft-ledger\n[]\n```")])
+        events = await self.collect_fast(runner, self.fast_payload("hello", required=False, small_talk=True), exa)
+        self.assertEqual(self.final_answer(events), "Hi there.")
 
     SOLDIER_TEXT = "The Toronto Police Service said three soldiers were charged on Oct. 9 after the August incident."
 

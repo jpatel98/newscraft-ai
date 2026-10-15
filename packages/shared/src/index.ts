@@ -7,3 +7,4 @@ export * from './hermes.js';
 export * from './jobs.js';
 export * from './sse.js';
 export * from './agent-contract.js';
+export * from './small-talk.js';

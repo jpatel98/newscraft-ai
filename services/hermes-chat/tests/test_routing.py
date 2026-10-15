@@ -1,6 +1,6 @@
 import unittest
 
-from hermes_chat.portable import ROUTE_DELIVERABLE, ROUTE_LOOP, ROUTE_QUICK, choose_route, fresh_turn
+from hermes_chat.portable import ROUTE_CHAT, ROUTE_DELIVERABLE, ROUTE_LOOP, ROUTE_QUICK, choose_route, fresh_turn
 
 
 def state(**overrides):
@@ -15,6 +15,11 @@ class RouterTests(unittest.TestCase):
     def test_a_file_request_is_researched_first_only_with_page_search(self):
         self.assertEqual(choose_route(True, "Make a CSV of closures", has_page_search=True), ROUTE_DELIVERABLE)
         self.assertEqual(choose_route(True, "Make a CSV of closures", has_page_search=False), ROUTE_LOOP)
+
+    def test_small_talk_skips_research_only_on_a_fresh_turn(self):
+        self.assertEqual(choose_route(True, "yoo", has_page_search=True, small_talk=True), ROUTE_CHAT)
+        self.assertEqual(choose_route(False, "yoo", has_page_search=True, small_talk=True), ROUTE_LOOP)
+        self.assertEqual(choose_route(True, "yoo", has_page_search=True), ROUTE_QUICK)
 
     def test_started_turns_images_and_computers_go_to_the_loop(self):
         self.assertTrue(fresh_turn(state(), has_computer=False))

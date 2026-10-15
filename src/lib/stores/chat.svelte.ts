@@ -111,7 +111,7 @@ export class ChatSession {
 	streamStartedAt = $state<number | null>(null);
 	toolUpdatedAt = $state<number | null>(null);
 	hasAssistantOutput = $state(false);
-	/** The turn rewrites an earlier answer (an output action) and plans no research. */
+	/** The turn plans no research: it rewrites an earlier answer (an output action) or answers small talk. */
 	rewriting = $state(false);
 	activityConversationId = $state<string | null>(null);
 	streaming = $state(false);
