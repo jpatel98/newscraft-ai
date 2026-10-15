@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
+import { signInWithPassword } from './auth';
 import {
 	JIG181_LAYOUT_SHIFT_THRESHOLD,
 	JIG181_SETTLING_WINDOW_MS,
@@ -136,10 +137,7 @@ async function ensureTestAccount(request: APIRequestContext) {
 }
 
 async function signIn(page: Page) {
-	await page.goto('/login');
-	await page.getByLabel('Password', { exact: true }).fill(password);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await expect(page).toHaveURL(/\/$/);
+	await signInWithPassword(page, password);
 	await expect(page.locator('.shell')).toHaveAttribute('data-ready', 'true');
 	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
 }

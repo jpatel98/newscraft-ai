@@ -2,15 +2,16 @@
  * E2E test-account provisioning endpoint.
  *
  * Only active when `E2E_SECRET` is set in the environment (i.e. during
- * Playwright runs). Returns the test-account password so the suite can
- * sign in without knowing whether this is a fresh or pre-seeded database.
+ * Playwright runs). Returns the test account's email so the suite can sign in
+ * with email + password without knowing whether this is a fresh or
+ * pre-seeded database.
  *
  * Never touches production auth logic — it only calls the same
  * `createPasswordOnlyAccount` helper that the `/setup` page uses.
  */
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { accountCount, createPasswordOnlyAccount, findAccountByPassword } from '$lib/server/db/accounts';
+import { createPasswordOnlyAccount, findAccountByPassword } from '$lib/server/db/accounts';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const secret = env.E2E_SECRET ?? '';
@@ -30,13 +31,13 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	// If an account with this password already exists, return success immediately.
 	const existing = await findAccountByPassword(password);
-	if (existing) return json({ ok: true, created: false });
+	if (existing) return json({ ok: true, created: false, email: existing.email });
 
 	// If the DB has no accounts at all, create it as the first (admin) account.
 	// Otherwise create it as a regular member account.
 	try {
-		await createPasswordOnlyAccount(password);
-		return json({ ok: true, created: true });
+		const account = await createPasswordOnlyAccount(password);
+		return json({ ok: true, created: true, email: account.email });
 	} catch {
 		throw error(409, 'could not create test account');
 	}

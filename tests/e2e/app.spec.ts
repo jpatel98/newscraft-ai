@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInWithPassword } from './auth';
 
 const password = 'correct horse battery staple';
 // Secret must match E2E_SECRET in playwright.config.ts / the test webserver env.
@@ -17,10 +18,7 @@ async function collectPageProblems(page: Page) {
 }
 
 async function signIn(page: Page) {
-	await page.goto('/login');
-	await page.getByLabel('Password', { exact: true }).fill(password);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await expect(page).toHaveURL(/\/$/);
+	await signInWithPassword(page, password);
 	await expect(page.locator('.shell')).toHaveAttribute('data-ready', 'true');
 	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
 }

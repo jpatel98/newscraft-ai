@@ -1,12 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInWithPassword } from './auth';
 const password = 'topic-projects-account-a-password';
 const otherPassword = 'topic-projects-account-b-password';
 const secret = process.env.E2E_SECRET ?? 'newscraft-e2e-seed-secret';
 async function login(page: Page, pass = password) {
- await page.request.post('/api/e2e/seed', { data: { secret, password: pass } });
- await page.goto('/login'); await page.getByLabel('Password', { exact: true }).fill(pass);
- await page.getByRole('button', { name: 'Sign in', exact: true }).click();
- await expect(page).toHaveURL(/\/$/);
+ await signInWithPassword(page, pass);
  await expect(page.locator('.shell')).toHaveAttribute('data-ready', 'true');
 }
 for (const mobile of [false, true]) {
@@ -29,6 +27,7 @@ for (const mobile of [false, true]) {
   const fixture = await page.request.post('/api/e2e/history-fixture', { data: { secret, password, count: 2 } });
   expect(fixture.ok()).toBeTruthy(); const { conversationId } = await fixture.json();
   await page.goto(`/c/${conversationId}`);
+  await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
   const before = await (await page.request.get(`/api/conversations/${conversationId}/messages`)).json();
   await page.getByRole('button', { name: 'Move to folder', exact: true }).click();
   await page.getByRole('menuitem', { name: name + ' reporting', exact: true }).click();
@@ -93,21 +92,21 @@ test('failed create, rename and move keep input and existing membership for retr
  await expect(page.getByRole('heading',{name:'Retained name',exact:true})).toBeVisible();
  const id = new URL(page.url()).pathname.split('/').pop()!;
  await page.getByRole('button',{name:'Rename folder'}).click();
- await page.getByLabel('Project name',{exact:true}).fill('Retry name');
+ await page.getByLabel('Folder name',{exact:true}).fill('Retry name');
  await page.route(`**/api/projects/${id}`, route => route.fulfill({status:503,body:'Unavailable'}));
  await page.getByRole('button',{name:'Save name'}).click();
  await expect(page.getByRole('alert')).toContainText('Could not rename');
- await expect(page.getByLabel('Project name',{exact:true})).toHaveValue('Retry name');
+ await expect(page.getByLabel('Folder name',{exact:true})).toHaveValue('Retry name');
  await page.unroute(`**/api/projects/${id}`);
  await page.getByRole('button',{name:'Save name'}).click();
  await expect(page.getByRole('heading',{name:'Retry name',exact:true})).toBeVisible();
  const c = await (await page.request.post('/api/conversations',{data:{projectId:id}})).json();
  await page.goto(`/c/${c.id}/project`);
- await page.getByLabel('Project',{exact:true}).selectOption('');
+ await page.getByLabel('Folder',{exact:true}).selectOption('');
  await page.route(`**/api/conversations/${c.id}/project`, route => route.fulfill({status:503,body:'Unavailable'}));
  await page.getByRole('button',{name:'Save folder'}).click();
  await expect(page.getByRole('alert')).toContainText('Could not move');
- await page.reload(); await expect(page.getByText('Current project: Retry name')).toBeVisible();
+ await page.reload(); await expect(page.getByText('Current folder: Retry name')).toBeVisible();
 });
 test('route changes reset form state and ignore delayed membership saves', async ({ page }) => {
  await login(page);
@@ -121,13 +120,13 @@ test('route changes reset form state and ignore delayed membership saves', async
   await page.locator('#test-route-navigation').evaluate(el => el.remove());
  }
  await page.goto(`/c/${c1.id}/project`);
- await page.getByLabel('Project',{exact:true}).selectOption('');
+ await page.getByLabel('Folder',{exact:true}).selectOption('');
  let release!: () => void;
  const gate = new Promise<void>(resolve => { release=resolve; });
  await page.route(`**/api/conversations/${c1.id}/project`, async route => { await gate; await route.fulfill({status:200,contentType:'application/json',body:'{"ok":true}'}); });
  await page.getByRole('button',{name:'Save folder'}).click();
  await navigateLink(`/c/${c2.id}/project`);
- await expect(page.getByLabel('Project',{exact:true})).toHaveValue(p2.id);
+ await expect(page.getByLabel('Folder',{exact:true})).toHaveValue(p2.id);
  const response = page.waitForResponse(r => r.url().endsWith(`/api/conversations/${c1.id}/project`));
  release(); await response;
  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -135,9 +134,9 @@ test('route changes reset form state and ignore delayed membership saves', async
  await expect(page.getByRole('button',{name:'Save folder'})).toBeEnabled();
  await page.goto(`/projects/${p1.id}`);
  await page.getByRole('button',{name:'Rename folder'}).click();
- await page.getByLabel('Project name',{exact:true}).fill('Stale edit');
+ await page.getByLabel('Folder name',{exact:true}).fill('Stale edit');
  await navigateLink(`/projects/${p2.id}`);
- await expect(page.getByLabel('Project name',{exact:true})).toHaveCount(0);
+ await expect(page.getByLabel('Folder name',{exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'Rename folder'}).click();
- await expect(page.getByLabel('Project name',{exact:true})).toHaveValue('Route two');
+ await expect(page.getByLabel('Folder name',{exact:true})).toHaveValue('Route two');
 });

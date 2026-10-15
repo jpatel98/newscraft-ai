@@ -1,13 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInWithPassword } from './auth';
 
 const password = 'correct horse battery staple';
 const e2eSecret = process.env.E2E_SECRET ?? 'newscraft-e2e-seed-secret';
 
 async function signIn(page: Page) {
-	await page.goto('/login');
-	await page.getByLabel('Password', { exact: true }).fill(password);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await expect(page).toHaveURL(/\/$/);
+	await signInWithPassword(page, password);
 }
 
 async function ensureTestAccount(request: import('@playwright/test').APIRequestContext) {
