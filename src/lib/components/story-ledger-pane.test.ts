@@ -45,7 +45,7 @@ describe('Story ledger pane', () => {
 		expect(page).toContain('<StoryLedgerPane');
 		expect(page).toContain('title={conversationTitle}');
 		expect(page).toContain('artifact-slot artifact-slot--{artifactMode}');
-		expect(page).toContain('/ledger`');
+		expect(page).toContain('/ledger${query}`');
 		expect(page).toContain('conversationId === activeConversationId) void refreshStoryLedger()');
 		expect(page).toContain('stripLedgerForDisplay(asstText)');
 	});
