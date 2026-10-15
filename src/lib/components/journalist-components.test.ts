@@ -31,13 +31,18 @@ describe('journalist trust components', () => {
 		expect(preview).toContain('href={citation.retrieval.archivedUrl}');
 	});
 
-	it('keeps the legacy source list unless every visible citation resolves', () => {
+	it('shows a source row under every answer and counts the same sources in the footer', () => {
 		const thread = source('./Thread.svelte');
 		const disclosure = source('./SourceDisclosure.svelte');
+		const markdown = source('./Markdown.svelte');
 		expect(thread).toContain('parseToolMetadata(message.toolCalls).citations');
 		expect(thread).toContain('activeAssistant ? chat.citations : []');
-		expect(thread).toContain('resolvedInline={citationState.allResolved}');
-		expect(disclosure).toContain('{#if sources.length > 0 && !resolvedInline}');
+		expect(thread).toContain('<SourceDisclosure sources={answerSources} />');
+		expect(thread).toContain("{latestReadySources.length} source{latestReadySources.length === 1 ? '' : 's'}");
+		expect(disclosure).toContain('{#if sources.length > 0}');
+		expect(disclosure).toContain('{shortSourceDateLabel(source.publicationDate)}');
+		expect(markdown).toContain('outletLabel(records[0].domain)');
+		expect(markdown).not.toContain('View evidence for citation');
 	});
 
 	it('dispatches each Use answer choice through the visible-turn integration callback', () => {

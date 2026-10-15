@@ -8,6 +8,7 @@ import {
 	type CitationSourceType,
 	type RetrievalProvenance
 } from '@newscraft/shared';
+import { sortNewestFirst } from './source-labels';
 import type { PersistedSource, StreamToolCall } from './stream-events';
 
 interface ToolMetadataEnvelope {
@@ -83,6 +84,16 @@ export interface DisplaySourceReceipt {
 	domain: string;
 	archivedUrl?: string;
 	retrievalMode?: string;
+}
+
+/** One distinct source an answer used, for the source row and the footer count. */
+export interface AnswerSource {
+	url: string;
+	label: string;
+	domain: string;
+	publicationDate: string | null;
+	sourceType?: CitationSourceType;
+	archivedUrl?: string;
 }
 
 export interface SourceReceiptInput {
@@ -725,6 +736,62 @@ export function sourceReceiptsForAnswer(
 	}
 
 	return Array.from(receipts.values());
+}
+
+/**
+ * Every distinct source an answer used, newest first: the citations it cites
+ * plus the sources the run marked as used, including ones linked inline.
+ */
+export function answerSourcesForAnswer(
+	raw: string | null | undefined,
+	answerText: string,
+	citedRecords: ReadonlyArray<CitationRecord>,
+	liveSources: ReadonlyArray<SourceReceiptInput> = []
+): AnswerSource[] {
+	if (!answerText.trim()) return [];
+	const entries = new Map<string, AnswerSource>();
+
+	for (const citation of citedRecords) {
+		if (!isInspectableCitationRecord(citation)) continue;
+		const url = sourceReceiptUrl(citation.url);
+		const key = url ? sourceUrlKey(url) : null;
+		if (!url || !key || entries.has(key)) continue;
+		const title = cleanSourceLabel(citation.title);
+		const domain = cleanSourceLabel(citation.domain) || domainOf(url) || 'Attached document';
+		entries.set(key, {
+			url,
+			label: title && !labelLooksTechnical(title) && !labelLooksLikeUrl(title) ? title : domain || 'Source',
+			domain,
+			publicationDate: citation.publicationDate || null,
+			sourceType: citation.sourceType,
+			...(citation.retrieval?.archivedUrl ? { archivedUrl: citation.retrieval.archivedUrl } : {})
+		});
+	}
+
+	const live = liveSources
+		.map((source) => normalizeSource(source))
+		.filter((source): source is PersistedSource => Boolean(source))
+		.filter((source) => source.used && retrievalSupportsEvidence(source.retrieval));
+	for (const source of [...usedSources(parseToolMetadata(raw).sources), ...live]) {
+		const url = sourceReceiptUrl(source.url);
+		const key = url ? sourceUrlKey(url) : null;
+		if (!url || !key) continue;
+		const publicationDate = source.publishedAt || null;
+		const existing = entries.get(key);
+		if (existing) {
+			if (!existing.publicationDate && publicationDate) existing.publicationDate = publicationDate;
+			continue;
+		}
+		entries.set(key, {
+			url,
+			label: humanSourceLabel(source),
+			domain: domainOf(url),
+			publicationDate,
+			...(source.retrieval?.archivedUrl ? { archivedUrl: source.retrieval.archivedUrl } : {})
+		});
+	}
+
+	return sortNewestFirst(Array.from(entries.values()));
 }
 
 export function sourceContextForFollowup(raw: string | null | undefined): string {

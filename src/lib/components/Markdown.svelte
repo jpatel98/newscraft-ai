@@ -4,6 +4,7 @@
 	import { highlight } from '$lib/utils/highlight';
 	import { prepareAssistantMarkdown, renderMarkdownToHtml } from '$lib/utils/markdown-render';
 	import { createMarkdownStreamScheduler } from '$lib/utils/markdown-stream-scheduler';
+	import { outletLabel, shortSourceDateLabel } from '$lib/utils/source-labels';
 	import { isInspectableCitationRecord } from '$lib/utils/tool-metadata';
 
 	interface Props {
@@ -115,7 +116,7 @@
 				button.dataset.citationNumber = String(number);
 				button.textContent = `[${number}]`;
 				button.setAttribute('aria-label', `Citation ${number}: ${records[0].title}`);
-				button.title = `View evidence for citation ${number}`;
+				button.title = `${outletLabel(records[0].domain) || 'Source'} · ${shortSourceDateLabel(records[0].publicationDate)}`;
 				button.addEventListener('click', () => onCitationSelect?.(records[0], button));
 				fragment.append(button);
 				cursor = index + match[0].length;

@@ -1007,13 +1007,13 @@ test.describe('persisted answer sources', () => {
 
 		const disclosure = page.locator('[data-testid="message-sources"]').first();
 		await expect(disclosure).toBeVisible();
-		await disclosure.locator('summary').click();
-		await expect(disclosure.getByRole('link', { name: 'Reuters Canada update' })).toHaveAttribute(
+		await expect(disclosure.locator('a[title="Reuters Canada update"]')).toHaveAttribute(
 			'href',
 			'https://news.example.com/story'
 		);
 		await expect(disclosure.getByRole('link', { name: 'internal.example.com' })).toBeVisible();
-		await expect(disclosure.getByRole('link', { name: 'Already linked source' })).toHaveCount(0);
+		// Sources linked inline still count as sources the answer used.
+		await expect(disclosure.locator('a[title="Already linked source"]')).toHaveCount(1);
 
 		let disclosureText = await disclosure.innerText();
 		expect(disclosureText).not.toMatch(/openai_web_search|call_internal|source_internal|javascript|token=|user:pass/i);
@@ -1022,8 +1022,7 @@ test.describe('persisted answer sources', () => {
 		await expect(page.getByText('The Bank of Canada held its policy rate steady')).toBeVisible();
 		const reloadedDisclosure = page.locator('[data-testid="message-sources"]').first();
 		await expect(reloadedDisclosure).toBeVisible();
-		await reloadedDisclosure.locator('summary').click();
-		await expect(reloadedDisclosure.getByRole('link', { name: 'Reuters Canada update' })).toHaveAttribute(
+		await expect(reloadedDisclosure.locator('a[title="Reuters Canada update"]')).toHaveAttribute(
 			'href',
 			'https://news.example.com/story'
 		);
@@ -1088,7 +1087,8 @@ test.describe('citation evidence UI', () => {
 		await page.goto(`/c/${convId}`);
 		const citation = page.getByRole('button', { name: 'Citation 1: FIFA match schedule' });
 		await expect(citation).toBeVisible();
-		await expect(page.locator('[data-testid="message-sources"]')).toHaveCount(0);
+		await expect(citation).toHaveAttribute('title', /· Jul 10/);
+		await expect(page.locator('[data-testid="message-sources"]')).toBeVisible();
 
 		await citation.focus();
 		await citation.press('Enter');

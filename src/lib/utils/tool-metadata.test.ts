@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	answerSourcesForAnswer,
 	buildAnswerProvenanceBundle,
 	allCitationMarkersResolve,
 	citationRecordsForAnswer,
@@ -672,5 +673,66 @@ describe('tool metadata', () => {
 		expect(raw).not.toContain('sk-testsecret123');
 		expect(raw).not.toContain('Bearer abc123');
 		expect(raw).not.toContain('user:pass');
+	});
+	it('lists each distinct source an answer used, newest first, including inline links', () => {
+		const cited = [
+			{
+				citationNumber: 1,
+				title: 'Council vote delayed',
+				url: 'https://www.cbc.ca/news/council#top',
+				domain: 'cbc.ca',
+				publicationDate: '2026-10-10',
+				sourceType: 'news_report' as const,
+				supportingExcerpt: 'Council delayed the vote.'
+			},
+			{
+				citationNumber: 2,
+				title: 'City notice',
+				url: 'https://www.toronto.ca/notice',
+				domain: 'toronto.ca',
+				publicationDate: '2026-10-12',
+				sourceType: 'official' as const,
+				supportingExcerpt: 'The city posted a notice.'
+			}
+		];
+		const raw = serializeToolMetadata(
+			[],
+			[
+				{
+					id: 's1',
+					url: 'https://www.cbc.ca/news/council',
+					title: 'Council vote delayed',
+					domain: 'cbc.ca',
+					status: 'used',
+					firstSeenAt: 1,
+					lastSeenAt: 1,
+					used: true
+				},
+				{
+					id: 's2',
+					url: 'https://www.thestar.com/linked',
+					title: 'Star story',
+					domain: 'thestar.com',
+					status: 'used',
+					publishedAt: '2026-10-11',
+					firstSeenAt: 2,
+					lastSeenAt: 2,
+					used: true
+				}
+			],
+			cited
+		);
+
+		const sources = answerSourcesForAnswer(
+			raw,
+			'The vote moved [1] and the city confirmed [2]. See [the Star](https://www.thestar.com/linked).',
+			cited
+		);
+
+		expect(sources.map((source) => [source.url, source.publicationDate, source.sourceType])).toEqual([
+			['https://www.toronto.ca/notice', '2026-10-12', 'official'],
+			['https://www.thestar.com/linked', '2026-10-11', undefined],
+			['https://www.cbc.ca/news/council', '2026-10-10', 'news_report']
+		]);
 	});
 });

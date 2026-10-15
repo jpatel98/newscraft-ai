@@ -1,30 +1,45 @@
 <script lang="ts">
-	import type { DisplaySourceReceipt } from '$lib/utils/tool-metadata';
+	import { outletLabel, shortSourceDateLabel } from '$lib/utils/source-labels';
+	import type { AnswerSource } from '$lib/utils/tool-metadata';
 
 	interface Props {
-		sources: DisplaySourceReceipt[];
-		/** Structured inline citations are complete, so a second source list would be redundant. */
-		resolvedInline?: boolean;
+		/** Distinct sources the answer used, already sorted newest first. */
+		sources: AnswerSource[];
 	}
 
-	let { sources, resolvedInline = false }: Props = $props();
+	const COLLAPSED_LIMIT = 6;
+
+	let { sources }: Props = $props();
+	let expanded = $state(false);
+
+	const visible = $derived(expanded ? sources : sources.slice(0, COLLAPSED_LIMIT));
+	const hiddenCount = $derived(sources.length - visible.length);
+
+	function sourceName(source: AnswerSource): string {
+		// Web sources read best as the outlet; documents and notes as their own label.
+		return source.domain.includes('.') ? outletLabel(source.domain) : source.label;
+	}
 </script>
 
-{#if sources.length > 0 && !resolvedInline}
-	<details class="source-disclosure" data-testid="message-sources">
-		<summary class="source-disclosure__summary">
-			<span>Sources</span>
-			<span class="source-disclosure__count">{sources.length}</span>
-		</summary>
-		<ul class="source-disclosure__list">
-			{#each sources as source (source.url)}
-				<li class="source-disclosure__item">
-					<a class="source-disclosure__link" href={source.url} target="_blank" rel="noopener noreferrer">
-						{source.label}
+{#if sources.length > 0}
+	<div class="source-row" data-testid="message-sources">
+		<span class="source-row__label">Sources</span>
+		<ul class="source-row__list">
+			{#each visible as source (source.url)}
+				<li class="source-row__item">
+					<a
+						class="source-row__link"
+						href={source.url}
+						target="_blank"
+						rel="noopener noreferrer"
+						title={source.label}
+					>
+						{sourceName(source)}
 					</a>
+					<span class="source-row__date">{shortSourceDateLabel(source.publicationDate)}</span>
 					{#if source.archivedUrl}
 						<a
-							class="source-disclosure__archive-link"
+							class="source-row__archive-link"
 							href={source.archivedUrl}
 							target="_blank"
 							rel="noopener noreferrer"
@@ -32,17 +47,24 @@
 							archive copy
 						</a>
 					{/if}
-					{#if source.domain && source.domain !== source.label}
-						<span class="source-disclosure__domain">{source.domain}</span>
-					{/if}
 				</li>
 			{/each}
+			{#if hiddenCount > 0}
+				<li>
+					<button type="button" class="source-row__more" onclick={() => (expanded = true)}>
+						+{hiddenCount} more
+					</button>
+				</li>
+			{/if}
 		</ul>
-	</details>
+	</div>
 {/if}
 
 <style>
-	.source-disclosure {
+	.source-row {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
 		margin-top: 8px;
 		max-width: 100%;
 		font-family: var(--font-mono);
@@ -50,71 +72,70 @@
 		color: var(--fg-2);
 	}
 
-	.source-disclosure__summary {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		min-height: 24px;
-		padding: 2px 8px;
-		border: 1px solid var(--border-soft);
-		border-radius: var(--radius-1);
-		background: var(--bg-surface);
-		color: var(--fg-2);
-		cursor: pointer;
+	.source-row__label {
+		flex: none;
+		color: var(--fg-3);
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0;
 	}
 
-	.source-disclosure__summary:hover {
-		border-color: var(--border-default);
-		color: var(--fg-1);
-	}
-
-	.source-disclosure__summary:focus-visible {
-		outline: none;
-		box-shadow: var(--shadow-focus);
-	}
-
-	.source-disclosure__count {
-		color: var(--fg-3);
-		font-weight: 500;
-	}
-
-	.source-disclosure__list {
-		display: grid;
-		gap: 4px;
-		margin: 6px 0 0;
+	.source-row__list {
+		display: flex;
+		min-width: 0;
+		flex-wrap: wrap;
+		gap: 4px 14px;
+		margin: 0;
 		padding: 0;
 		list-style: none;
 	}
 
-	.source-disclosure__item {
-		display: flex;
-		min-width: 0;
-		flex-wrap: wrap;
-		align-items: baseline;
-		gap: 4px 8px;
-	}
-
-	.source-disclosure__link {
+	.source-row__item {
+		display: inline-flex;
 		min-width: 0;
 		max-width: 100%;
+		align-items: baseline;
+		gap: 6px;
+	}
+
+	.source-row__link {
+		min-width: 0;
 		color: var(--cobalt-700);
 		text-decoration: underline;
 		text-underline-offset: 2px;
 		overflow-wrap: anywhere;
 	}
 
-	.source-disclosure__domain {
+	.source-row__date {
+		flex: none;
 		color: var(--fg-3);
-		overflow-wrap: anywhere;
 	}
 
-	.source-disclosure__archive-link {
+	.source-row__archive-link {
 		color: var(--fg-3);
 		font-size: 10px;
 		text-decoration: underline;
 		text-underline-offset: 2px;
+	}
+
+	.source-row__more {
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--fg-2);
+		font: inherit;
+		cursor: pointer;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.source-row__more:hover {
+		color: var(--fg-1);
+	}
+
+	.source-row__more:focus-visible,
+	.source-row__link:focus-visible {
+		outline: none;
+		box-shadow: var(--shadow-focus);
 	}
 </style>

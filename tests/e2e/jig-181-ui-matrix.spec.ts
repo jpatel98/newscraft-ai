@@ -884,11 +884,11 @@ test('JIG-181 persisted sources survive reload and layout remains stable', async
 	const readProblems = await installPageProblemCounters(page);
 	await openThread(page, 'Persisted source local matrix thread');
 	await expect(page.getByRole('button', { name: 'Citation 1: Local fixture source' })).toBeVisible();
-	await expect(page.locator('[data-testid="message-sources"]')).toHaveCount(0);
+	await expect(page.locator('[data-testid="message-sources"]')).toBeVisible();
 	await page.reload();
 	const citation = page.getByRole('button', { name: 'Citation 1: Local fixture source' });
 	await expect(citation).toBeVisible();
-	await expect(page.locator('[data-testid="message-sources"]')).toHaveCount(0);
+	await expect(page.locator('[data-testid="message-sources"]')).toBeVisible();
 	await citation.click();
 	const evidence = page.getByRole('dialog', { name: 'Local fixture source' });
 	await expect(evidence).toBeVisible();

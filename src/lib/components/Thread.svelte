@@ -18,10 +18,9 @@
 	import { tick } from 'svelte';
 	import type { HistoryGap } from '$lib/client/message-history';
 	import { durableFailureReason, durableRunPresentation } from '$lib/utils/durable-run-presentation';
-	import { parseToolMetadata, sourceReceiptsForAnswer } from '$lib/utils/tool-metadata';
+	import { answerSourcesForAnswer, parseToolMetadata } from '$lib/utils/tool-metadata';
 	import {
 		answerExportUrl,
-		citationResolution,
 		footerCitationRecords,
 		mergeCitationRecords,
 		type AnswerUseAction
@@ -272,23 +271,25 @@
 	const lastAssistantId = $derived(latestAssistantId ?? renderedLastAssistantId);
 	const latestReadyAssistant = $derived.by(() => {
 		if (latestReadyAssistantId) {
-			const target = messages.find((message) => message.id === latestReadyAssistantId);
-			return target && target.role === 'assistant' && !target.partial && !target.failure ? target : null;
+			const targetIndex = messages.findIndex((message) => message.id === latestReadyAssistantId);
+			if (targetIndex < 0) return null;
+			// A failed turn can still be stored as finished; step back to the last answer that landed.
+			for (let i = targetIndex; i >= 0; i--) {
+				if (isReadyAnswer(messages[i])) return messages[i];
+			}
+			return null;
 		}
 		for (let i = messages.length - 1; i >= 0; i--) {
-			const message = messages[i];
-			if (message.role === 'assistant' && !message.partial && !message.failure) return message;
+			if (isReadyAnswer(messages[i])) return messages[i];
 		}
 		return null;
 	});
-	const latestReadyCitations = $derived(
-		latestReadyAssistant
-			? footerCitationRecords(textOf(latestReadyAssistant.content), citationsOf(latestReadyAssistant, false))
-			: []
+	const latestReadySources = $derived(
+		latestReadyAssistant ? answerSourcesOf(latestReadyAssistant, textOf(latestReadyAssistant.content), false) : []
 	);
 	const latestPrimaryCount = $derived(
-		latestReadyCitations.filter(
-			(citation) => citation.sourceType === 'official' || citation.sourceType === 'primary'
+		latestReadySources.filter(
+			(source) => source.sourceType === 'official' || source.sourceType === 'primary'
 		).length
 	);
 	const latestExportUrl = $derived(
@@ -325,6 +326,24 @@
 		const persisted = parseToolMetadata(message.toolCalls).citations;
 		const live = activeAssistant ? chat.citations : [];
 		return mergeCitationRecords(persisted, live);
+	}
+
+	function isReadyAnswer(message: ChatMessage): boolean {
+		return (
+			message.role === 'assistant' &&
+			!message.partial &&
+			!message.failure &&
+			message.durableState !== 'failed'
+		);
+	}
+
+	function answerSourcesOf(message: ChatMessage, text: string, activeAssistant: boolean) {
+		return answerSourcesForAnswer(
+			message.toolCalls,
+			text,
+			footerCitationRecords(text, citationsOf(message, activeAssistant)),
+			activeAssistant ? chat.sources : []
+		);
 	}
 
 	function openEvidence(citation: CitationRecord, trigger: HTMLElement) {
@@ -385,20 +404,10 @@
 				{@const activity = parseToolMetadata(m.toolCalls)}
 				{@const citationRecords =
 					m.role === 'assistant' ? citationsOf(m, activeAssistant) : []}
-				{@const citationState =
-					m.role === 'assistant'
-						? citationResolution(messageText, citationRecords)
-						: { markers: [], resolved: [], dangling: [], allResolved: false }}
 				{@const exportUrl =
 					m.role === 'assistant' ? answerExportUrl(conversationId, m.id) : null}
-				{@const sourceReceipts =
-					m.role === 'assistant'
-						? sourceReceiptsForAnswer(
-								m.toolCalls,
-								messageText,
-								activeAssistant ? chat.sources : []
-							)
-						: []}
+				{@const answerSources =
+					m.role === 'assistant' ? answerSourcesOf(m, messageText, activeAssistant) : []}
 				{@const failure = m.failure}
 				{@const runPresentation = durableRunPresentation(m.durableState)}
 				{@const failureReason = m.durableState === 'failed' ? durableFailureReason(m.durableError) : null}
@@ -483,11 +492,8 @@
 							{/if}
 						</div>
 
-						{#if sourceReceipts.length > 0}
-							<SourceDisclosure
-								sources={sourceReceipts}
-								resolvedInline={citationState.allResolved}
-							/>
+						{#if answerSources.length > 0 && !m.streaming}
+							<SourceDisclosure sources={answerSources} />
 						{/if}
 
 						{#if m.role === 'assistant' && m.artifacts?.length}
@@ -634,7 +640,7 @@
 			aria-label="Latest answer actions"
 		>
 			<div class="answer-utility__trust">
-				<span>{latestReadyCitations.length} citation{latestReadyCitations.length === 1 ? '' : 's'}</span>
+				<span>{latestReadySources.length} source{latestReadySources.length === 1 ? '' : 's'}</span>
 				{#if latestPrimaryCount > 0}
 					<span aria-hidden="true">·</span>
 					<span>{latestPrimaryCount} primary</span>
