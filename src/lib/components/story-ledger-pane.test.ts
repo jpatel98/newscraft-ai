@@ -25,7 +25,8 @@ describe('Story ledger pane', () => {
 		expect(pane).toContain('Open checks only');
 		expect(pane).toContain('Copy as brief');
 		expect(pane).toContain('needs check');
-		expect(pane).toContain('No claims recorded yet. The ledger fills as answers are researched.');
+		expect(pane).toContain('No facts recorded in this chat yet. The ledger fills as answers here are researched.');
+		expect(pane).toContain('Story ledger · this chat');
 		expect(pane).toContain('groupLedgerClaims(claims, { openChecksOnly })');
 		expect(pane).toContain('<EvidencePreview');
 		expect(pane).toContain('class="story-claim__chip story-claim__chip--plain"');
@@ -40,6 +41,7 @@ describe('Story ledger pane', () => {
 		expect(page).toContain("{' to check'}</span></span>{/if}</button>");
 		expect(page).toContain("import StoryLedgerPane from '$lib/components/StoryLedgerPane.svelte'");
 		expect(page).toContain('<StoryLedgerPane');
+		expect(page).toContain('title={conversationTitle}');
 		expect(page).toContain('artifact-slot artifact-slot--{artifactMode}');
 		expect(page).toContain('/ledger`');
 		expect(page).toContain('conversationId === activeConversationId) void refreshStoryLedger()');

@@ -12,6 +12,8 @@
 
 	interface Props {
 		claims: StoryLedgerClaimView[];
+		/** Title of the chat these claims belong to; the ledger is per chat. */
+		title?: string;
 		/** Citation map for the thread, keyed by citation number. */
 		citations?: CitationRecord[];
 		loading?: boolean;
@@ -20,7 +22,7 @@
 		onClose: () => void;
 	}
 
-	let { claims, citations = [], loading = false, error = null, onRefresh, onClose }: Props = $props();
+	let { claims, title = '', citations = [], loading = false, error = null, onRefresh, onClose }: Props = $props();
 	let openChecksOnly = $state(false);
 	let copyState = $state<'idle' | 'success' | 'error'>('idle');
 	let copyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -52,8 +54,8 @@
 <aside class="story-pane" data-testid="story-ledger-pane" aria-label="Story ledger">
 	<header class="story-pane__header">
 		<div>
-			<div class="story-pane__eyebrow">Story ledger</div>
-			<h2>Story</h2>
+			<div class="story-pane__eyebrow">Story ledger · this chat</div>
+			<h2 title={title || undefined}>{title || 'Untitled chat'}</h2>
 		</div>
 		<div class="story-pane__header-actions">
 			{#if onRefresh}
@@ -88,7 +90,7 @@
 		{#if error}
 			<p class="story-pane__empty" role="alert">{error}</p>
 		{:else if !claims.length}
-			<p class="story-pane__empty">No claims recorded yet. The ledger fills as answers are researched.</p>
+			<p class="story-pane__empty">No facts recorded in this chat yet. The ledger fills as answers here are researched.</p>
 		{:else if !groups.length}
 			<p class="story-pane__empty">No claims need a check right now.</p>
 		{:else}
@@ -170,6 +172,10 @@
 		gap: 14px;
 		padding: 16px 18px 12px;
 	}
+
+	.story-pane__header > div:first-child {
+		min-width: 0;
+	}
 	.story-pane__header-actions { display: flex; gap: 6px; }
 	.story-pane__eyebrow {
 		font-family: var(--font-mono);
@@ -181,6 +187,9 @@
 	}
 	.story-pane h2 {
 		margin: 3px 0 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-family: var(--font-display);
 		font-size: 18px;
 		line-height: 1.2;

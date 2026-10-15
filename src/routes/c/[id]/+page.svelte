@@ -1708,6 +1708,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		<div class="artifact-slot artifact-slot--{artifactMode}" data-artifact-mode={artifactMode}>
 			<StoryLedgerPane
 				claims={storyClaims}
+				title={conversationTitle}
 				citations={storyCitations}
 				loading={storyLoading}
 				error={storyError}
