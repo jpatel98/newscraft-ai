@@ -1,0 +1,255 @@
+{
+ "thread": "gen-16",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "m1",
+   "text": "Ottawa opened applications Oct. 15 for $430 million over five years for skilled trades training, mostly via an expanded Union Training and Innovation Program",
+   "status": "reported"
+  },
+  {
+   "id": "m2",
+   "text": "Secretary of State for Labour John Zerucelli announced the funding",
+   "status": "reported"
+  },
+  {
+   "id": "m3",
+   "text": "Facility/infrastructure expressions of interest close Nov. 12; shovel-ready projects sought for next spring",
+   "status": "reported"
+  },
+  {
+   "id": "m4",
+   "text": "Equipment stream applications are ongoing, with the federal share temporarily raised to 70 per cent from 50",
+   "status": "reported"
+  },
+  {
+   "id": "m5",
+   "text": "Innovation stream proposals are due Dec. 17",
+   "status": "reported"
+  },
+  {
+   "id": "m6",
+   "text": "Nearly half the $430 million was already counted in a previous Liberal pledge ($8 billion, up to 100,000 trades workers)",
+   "status": "reported"
+  },
+  {
+   "id": "m7",
+   "text": "Carney announced Team Canada Strong April 29, 2026: $6 billion over five years for 80,000-100,000 new Red Seal workers",
+   "status": "confirmed"
+  },
+  {
+   "id": "m8",
+   "text": "Team Canada Strong's training component is $331 million over five years plus $18 million ongoing, including UTIP expansion",
+   "status": "confirmed"
+  },
+  {
+   "id": "m9",
+   "text": "Spring Economic Update 2026 sets a target of 80,000-100,000 new Red Seal workers by 2030-31",
+   "status": "confirmed"
+  },
+  {
+   "id": "m10",
+   "text": "ESDC's Oct. 15 release on the $430 million was published but its text could not be retrieved",
+   "status": "unverified"
+  },
+  {
+   "id": "m11",
+   "text": "The $8 billion (CP) and $6 billion (PMO) pledge figures are not reconciled",
+   "status": "unverified"
+  },
+  {
+   "id": "m12",
+   "text": "No Ontario-specific allocation of the $430 million has been confirmed",
+   "status": "unverified"
+  },
+  {
+   "id": "m13",
+   "text": "The program is national and application-based, open to unions and training providers, with no per-province formula",
+   "status": "reported"
+  },
+  {
+   "id": "m14",
+   "text": "The equipment stream has no published closing date",
+   "status": "unverified"
+  },
+  {
+   "id": "m15",
+   "text": "Ontario and Canada investing $203,000+ for 75 Hamilton-area steel/manufacturing workers, part of a $228.8M program for up to 27,000 workers",
+   "status": "confirmed"
+  },
+  {
+   "id": "m16",
+   "text": "Zerucelli says Canada needs more workers to build homes, infrastructure and major projects",
+   "status": "reported"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "m1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "m2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "m3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "m4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "m5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "m6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "m7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "m8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "m9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "m10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "m11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "m12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "m13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "m3",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "m4",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "m5",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "m14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "m15",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "m10",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "m1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "m3",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "m4",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "m5",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "m16",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "m13",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "m6",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Zerucelli: Canada needs more workers to build homes, infrastructure and major projects, 'that's why we're investing in apprenticeship training facilities, modern equipment, and new approaches to training'"
+  },
+  {
+   "turn": 0,
+   "text": "No breakdown of the $430 million by stream and no list of approved applicants has been published"
+  }
+ ]
+}

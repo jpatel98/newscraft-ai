@@ -1,0 +1,239 @@
+{
+ "thread": "gen-01",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Nasser Gholami, 47, of Brampton, charged by CBSA with firearm-related offences",
+   "status": "alleged"
+  },
+  {
+   "id": "f2",
+   "text": "Gholami is a Toronto Police constable with seven years of service",
+   "status": "confirmed"
+  },
+  {
+   "id": "f3",
+   "text": "CBSA intercepted a U.S. parcel with two firearm suppressors at its Mississauga facility on July 23, 2026",
+   "status": "confirmed"
+  },
+  {
+   "id": "f4",
+   "text": "OFSET searched Gholami's Brampton home Sept. 24, seizing three firearms, a suppressor, devices and ammunition",
+   "status": "confirmed"
+  },
+  {
+   "id": "f5",
+   "text": "Gholami faces four counts: smuggling, importing, possession of prohibited devices and unsafe display of a firearm",
+   "status": "alleged"
+  },
+  {
+   "id": "f6",
+   "text": "Gholami is suspended with pay; chief intends to suspend without pay after mandated 60-day period",
+   "status": "confirmed"
+  },
+  {
+   "id": "f7",
+   "text": "TPS says the CBSA charges are unrelated to his police duties",
+   "status": "confirmed"
+  },
+  {
+   "id": "f8",
+   "text": "Next court appearance Nov. 5, 2026 at Brampton Courthouse",
+   "status": "confirmed"
+  },
+  {
+   "id": "f9",
+   "text": "Allegations not tested in court; Gholami presumed innocent",
+   "status": "reported"
+  },
+  {
+   "id": "f10",
+   "text": "Gholami has been released on conditions",
+   "status": "reported"
+  },
+  {
+   "id": "f11",
+   "text": "Not confirmed that suspension without pay has taken effect; notification date not published",
+   "status": "unverified"
+  },
+  {
+   "id": "f12",
+   "text": "No reported cancellation or adjournment of the Nov. 5 court date",
+   "status": "unverified"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 8,
+   "fact": "f8",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "CBSA announced the arrest and charges on Oct. 8, 2026; TPS confirmed Gholami's identity and suspension Oct. 10"
+  },
+  {
+   "turn": 0,
+   "text": "CBSA's release did not name Gholami's employer"
+  },
+  {
+   "turn": 0,
+   "text": "Charges laid under s. 159(1) Customs Act, ss. 103(1)(a), 92(2), 86(2) Criminal Code and s. 117(h) Firearms Act"
+  },
+  {
+   "turn": 0,
+   "text": "CBSA release does not state whether Gholami has retained counsel or entered a plea; bail/release conditions not published"
+  },
+  {
+   "turn": 1,
+   "text": "The Nov. 5 appearance is Gholami's first appearance"
+  },
+  {
+   "turn": 1,
+   "text": "The duty-status and 'unrelated to his duties' lines are a single TPS statement repeated across CBC, CityNews, CP24/Star and Sun"
+  }
+ ]
+}

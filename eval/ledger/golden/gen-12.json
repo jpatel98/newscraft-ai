@@ -1,0 +1,363 @@
+{
+ "thread": "gen-12",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Cycle Toronto and two individuals announced Oct. 13 they are seeking leave to appeal to the Supreme Court over Ontario's bike lane removal law",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Applicants Eva Stanger-Ross and Narada Kiondo join Cycle Toronto; counsel from Ecojustice and Paliare Roland Rosenberg Rothstein",
+   "status": "reported"
+  },
+  {
+   "id": "f3",
+   "text": "Ontario Court of Appeal in August overturned the lower-court ruling that the removal plan violated Charter Section 7",
+   "status": "confirmed"
+  },
+  {
+   "id": "f4",
+   "text": "The Supreme Court has not agreed to hear the appeal",
+   "status": "reported"
+  },
+  {
+   "id": "f5",
+   "text": "Whether the leave application has been formally filed is not established",
+   "status": "unverified"
+  },
+  {
+   "id": "f6",
+   "text": "2024 provincial law lets Ontario remove about 19 km of protected bike lanes on Bloor, Yonge and University",
+   "status": "confirmed"
+  },
+  {
+   "id": "f7",
+   "text": "Province says removal cuts congestion, which it says costs Ontario's economy $56 billion a year",
+   "status": "confirmed"
+  },
+  {
+   "id": "f8",
+   "text": "Government-commissioned report found removals could raise collisions 54 per cent without meaningfully easing congestion",
+   "status": "reported"
+  },
+  {
+   "id": "f9",
+   "text": "Removal of 1.2 km of Bloor West between Clissold Rd. and Royal York Rd. was slated to start the night of Oct. 13",
+   "status": "confirmed"
+  },
+  {
+   "id": "f10",
+   "text": "Tuesday-night removal work was halted when protesters blocked pylon trucks, which were escorted off Bloor before 8 p.m.",
+   "status": "confirmed"
+  },
+  {
+   "id": "f11",
+   "text": "The Supreme Court typically takes several months to decide on leave, too late to affect the Bloor removal",
+   "status": "reported"
+  },
+  {
+   "id": "f12",
+   "text": "Toronto's mayoral election is about two weeks away, front-runners split on bike lanes",
+   "status": "reported"
+  },
+  {
+   "id": "f13",
+   "text": "Bloor West bike lane removal in Etobicoke resumed Wednesday afternoon; crews removing markings, signs and concrete barriers",
+   "status": "reported"
+  },
+  {
+   "id": "f14",
+   "text": "The work covers roughly one km of Bloor West from Clissold Rd. to Royal York Rd., starting west of Islington",
+   "status": "reported"
+  },
+  {
+   "id": "f15",
+   "text": "Removal brings temporary vehicle lane reductions and is expected to finish in November",
+   "status": "reported"
+  },
+  {
+   "id": "f16",
+   "text": "Two people were arrested during Wednesday's protest",
+   "status": "confirmed"
+  },
+  {
+   "id": "f17",
+   "text": "Nina Thi Thi Tran, 25, of Hamilton charged with obstructing a peace officer and mischief under $5,000",
+   "status": "alleged"
+  },
+  {
+   "id": "f18",
+   "text": "A second person was arrested near Bloor West and Islington for mischief; charges not yet stated",
+   "status": "alleged"
+  },
+  {
+   "id": "f19",
+   "text": "Minister Prabmeet Sarkaria posted on X that work was 'halted by protesters' and the bike lanes 'are coming out'",
+   "status": "confirmed"
+  },
+  {
+   "id": "f20",
+   "text": "Police Chief Myron Demkiw: no injunction prevents the removal; obstructing the lawful work can bring criminal charges",
+   "status": "reported"
+  },
+  {
+   "id": "f21",
+   "text": "Mayor's spokesperson: work proceeded despite city proposals to keep bike lanes while restoring a traffic lane",
+   "status": "reported"
+  },
+  {
+   "id": "f22",
+   "text": "City of Toronto media room lists no release or advisory on the bike lane removal through Oct. 13",
+   "status": "confirmed"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 11,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 8,
+   "fact": "f20",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 9,
+   "fact": "f21",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 10,
+   "fact": "f22",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 11,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f20",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f15",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Court of Appeal said the trial judge misapplied the law and strayed into policy-making; lower court had 'effectively created a right to bike lanes where none existed'"
+  },
+  {
+   "turn": 0,
+   "text": "The 2024 law also requires municipalities to seek provincial approval for new bike lanes that remove traffic lanes"
+  },
+  {
+   "turn": 0,
+   "text": "Applicants want the Supreme Court to clarify whether Charter Section 7 applies to government decisions that increase risk to life and safety"
+  },
+  {
+   "turn": 0,
+   "text": "Cycle Toronto executive director Michael Longfield said no network of side streets can replace the 19 km on Bloor, Yonge and University"
+  },
+  {
+   "turn": 0,
+   "text": "Ecojustice lawyer Bronwyn Roe: 'The consequences of this case reach far beyond bike lanes'"
+  },
+  {
+   "turn": 0,
+   "text": "Paliare Roland partner Andrew Lewis said applicants hope the court weighs whether 'common sense' can prevail over uncontested engineering evidence"
+  },
+  {
+   "turn": 0,
+   "text": "Trial judge found the government pursued the plan despite its own advisers concluding it would not achieve its goal and could worsen congestion"
+  },
+  {
+   "turn": 0,
+   "text": "Remaining sections of the removal are expected to begin next spring; province announced in September it would start on Bloor West"
+  },
+  {
+   "turn": 0,
+   "text": "Mayor Olivia Chow's office says the city repeatedly shared designs keeping both vehicle and bike lanes; a stretch between Kipling and Islington kept its bike lane"
+  },
+  {
+   "turn": 0,
+   "text": "Prior rides: about 850 cyclists on Danforth Aug. 30 and about 800 toward Royal York Sept. 30"
+  },
+  {
+   "turn": 0,
+   "text": "In the past decade 28 people were killed and 380 seriously injured cycling in Toronto, per advocacy groups"
+  },
+  {
+   "turn": 0,
+   "text": "Sarkaria's office did not answer questions on the location, duration or cost of the work"
+  },
+  {
+   "turn": 1,
+   "text": "More than 30 police cruisers and a drone accompanied Wednesday's resumed work"
+  },
+  {
+   "turn": 1,
+   "text": "No Ontario newsroom release on the Bloor removal this week; latest transportation release was Oct. 8 on Grimsby GO"
+  }
+ ]
+}

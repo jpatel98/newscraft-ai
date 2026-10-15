@@ -1,0 +1,340 @@
+{
+ "thread": "gen-14",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "h1",
+   "text": "Defence Construction Canada issued an Advance Procurement Notice for a data centre in the National Capital Region (ref. WA257004_88262)",
+   "status": "confirmed"
+  },
+  {
+   "id": "h2",
+   "text": "The planned data centre is 60 MW with an estimated cost of $1.5 billion to $1.85 billion",
+   "status": "confirmed"
+  },
+  {
+   "id": "h3",
+   "text": "The contract is conditional on approval to proceed; DCC says there is no guarantee it will proceed",
+   "status": "confirmed"
+  },
+  {
+   "id": "h4",
+   "text": "Solicitation is anticipated in Winter 2027",
+   "status": "confirmed"
+  },
+  {
+   "id": "h5",
+   "text": "The contract carries security requirements, including facility security clearance",
+   "status": "confirmed"
+  },
+  {
+   "id": "h6",
+   "text": "At 60 MW the facility meets Ottawa's 'hyperscale' threshold of at least 50 MW",
+   "status": "reported"
+  },
+  {
+   "id": "h7",
+   "text": "Hydro Ottawa received 34 large-load requests in two years, about 60 per cent (653 MW) data-centre related, per CEO Bryce Conrad",
+   "status": "reported"
+  },
+  {
+   "id": "h8",
+   "text": "The project has not been officially approved by government",
+   "status": "reported"
+  },
+  {
+   "id": "h9",
+   "text": "No site, contract award, construction start or operating department has been published",
+   "status": "unverified"
+  },
+  {
+   "id": "h10",
+   "text": "DND referred questions to the CSE, which did not respond by deadline",
+   "status": "reported"
+  },
+  {
+   "id": "h11",
+   "text": "A DND Data Centre roof replacement at 101 Goldenrod Driveway is a separate contract",
+   "status": "reported"
+  },
+  {
+   "id": "h12",
+   "text": "FedDev's $500M Regional AI Initiative expansion and the 2024 ISED AI compute consultation do not mention the Ottawa data centre",
+   "status": "confirmed"
+  },
+  {
+   "id": "h13",
+   "text": "The notice lists a one-time delivery date of 2027/02/01; no construction start or completion date is stated",
+   "status": "confirmed"
+  },
+  {
+   "id": "h14",
+   "text": "A tender aggregator lists a Jan. 5, 2027 deadline for the APN",
+   "status": "reported"
+  },
+  {
+   "id": "h15",
+   "text": "The APN is not a bid solicitation or request for proposals",
+   "status": "confirmed"
+  },
+  {
+   "id": "h16",
+   "text": "No revised cost estimate has been published",
+   "status": "unverified"
+  },
+  {
+   "id": "h17",
+   "text": "Ottawa Sun, Urban Mag and CTV News Ottawa reported the project at $1.5 billion on Oct. 15",
+   "status": "confirmed"
+  },
+  {
+   "id": "h18",
+   "text": "A Malayalam-language outlet gave the range as $1.5 billion to $1.8 billion (rounding)",
+   "status": "reported"
+  },
+  {
+   "id": "h19",
+   "text": "No amendment or addendum to notice WA257004_88262 was found",
+   "status": "unverified"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "h1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "h2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "h3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "h4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "h5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "h6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "h7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "h8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "h9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "h10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "h11",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 11,
+   "fact": "h12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "h2",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "h4",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "h13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "h14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "h3",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "h15",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "h9",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "h8",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "h2",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "h15",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "h3",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "h6",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "h9",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "h8",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "h4",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "h14",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 8,
+   "fact": "h7",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 0,
+   "fact": "h16",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 1,
+   "fact": "h2",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 2,
+   "fact": "h17",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 3,
+   "fact": "h18",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 4,
+   "fact": "h2",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 5,
+   "fact": "h19",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Stated purpose: to support 'operations, security, and technology modernization'"
+  },
+  {
+   "turn": 0,
+   "text": "Scope includes design and construction plus a small office space and a shipping and receiving area"
+  },
+  {
+   "turn": 0,
+   "text": "A construction listing records a bid date of Jan. 5, 2027 and a start date of Feb. 19, 2027"
+  },
+  {
+   "turn": 0,
+   "text": "The project may include an Indigenous business participation component"
+  },
+  {
+   "turn": 0,
+   "text": "Hydro Ottawa's data-centre load requests represent 86 per cent of the city's average system load"
+  },
+  {
+   "turn": 3,
+   "text": "DCC published the Advance Procurement Notice on Oct. 7"
+  }
+ ]
+}

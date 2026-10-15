@@ -1,0 +1,379 @@
+{
+ "thread": "gen-06",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Kyiv death and injury toll from the Oct. 13-14 Russian strike (rising to five killed, 36 injured per Kyiv police)",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Ballistic missile hit Darnytska CHP-4 power plant supplying Kyiv heat and electricity, per Zelenskyy",
+   "status": "reported"
+  },
+  {
+   "id": "f3",
+   "text": "At least 600,000 people across Ukraine left without electricity after overnight strikes",
+   "status": "confirmed"
+  },
+  {
+   "id": "f4",
+   "text": "Desnianskyi high-rise hit: 21 injured including a child, 16 residents rescued, 400 sq m fire",
+   "status": "confirmed"
+  },
+  {
+   "id": "f5",
+   "text": "Desnianskyi district administration: 17 injured, two dead, 14 buildings damaged as of 09:00 Oct. 14",
+   "status": "confirmed"
+  },
+  {
+   "id": "f6",
+   "text": "Oct. 15 Pechersk drone crash injured seven, three hospitalized, per Klitschko",
+   "status": "reported"
+  },
+  {
+   "id": "f7",
+   "text": "Air Force: Russia launched 580 drones overnight, 536 neutralized",
+   "status": "reported"
+  },
+  {
+   "id": "f8",
+   "text": "Nationwide toll from drone waves across Ukraine (rising to at least 17 killed, 67 injured)",
+   "status": "reported"
+  },
+  {
+   "id": "f9",
+   "text": "Russia says its strikes hit communications and energy facilities used by Ukraine's military and downed 900 drones",
+   "status": "reported"
+  },
+  {
+   "id": "f10",
+   "text": "Russia accuses Ukraine of attacking Saratov and Ryazan refineries in breach of energy ceasefire; Kyiv calls claim fake",
+   "status": "alleged"
+  },
+  {
+   "id": "f11",
+   "text": "SpaceX Starlink 160 km/h speed limit disrupted Ukrainian drone operations, per Beskrestnov",
+   "status": "reported"
+  },
+  {
+   "id": "f12",
+   "text": "No consolidated Kyiv casualty figure covering both the Oct. 13-14 and Oct. 15 strikes",
+   "status": "unverified"
+  },
+  {
+   "id": "f13",
+   "text": "Three women aged 35, 58 and 84 killed in Desnianskyi block, 25 injured there; two killed in Holosiivskyi",
+   "status": "confirmed"
+  },
+  {
+   "id": "f14",
+   "text": "Prosecutor's Office as of 08:50 Oct. 14: three women killed, 19 injured in Desnianskyi incl. seven-year-old girl",
+   "status": "reported"
+  },
+  {
+   "id": "f15",
+   "text": "Klitschko Oct. 14: at least three killed, 22 injured",
+   "status": "reported"
+  },
+  {
+   "id": "f16",
+   "text": "Nationwide toll from Oct. 14 strikes (at least nine killed, later 10 killed and 91 injured)",
+   "status": "confirmed"
+  },
+  {
+   "id": "f17",
+   "text": "Desnianskyi injured counts differ between district admin, SES and mayor (17/21/22), not reconciled",
+   "status": "unverified"
+  },
+  {
+   "id": "f18",
+   "text": "No deaths reported in the Oct. 15 Pechersk drone strike",
+   "status": "confirmed"
+  },
+  {
+   "id": "f19",
+   "text": "Zelenskyy says Russia is defying Trump's energy ceasefire",
+   "status": "reported"
+  },
+  {
+   "id": "f20",
+   "text": "Kyiv police: Oct. 15 Pechersk drone crash injured six by 12:10 p.m., four hospitalized",
+   "status": "confirmed"
+  },
+  {
+   "id": "f21",
+   "text": "Kyiv City Prosecutor's Office Oct. 14: at least four killed, 25 injured in capital",
+   "status": "reported"
+  },
+  {
+   "id": "f22",
+   "text": "Prosecutor's four killed/25 injured figure below police five/36 and not reconciled",
+   "status": "unverified"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 11,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 8,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 9,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 1,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 2,
+   "fact": "f20",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 3,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 4,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 5,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 6,
+   "fact": "f21",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 7,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 8,
+   "fact": "f22",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Strikes came days after Trump announced an \"energy ceasefire\"; Zelenskyy accused Moscow of \"ostentatious disrespect\" toward the US"
+  },
+  {
+   "turn": 0,
+   "text": "Kirovohrad Oblast hit by its largest attack of the war: three killed, six injured in Kropyvnytskyi, per governor Andrii Raikovych"
+  },
+  {
+   "turn": 0,
+   "text": "Lutsk warehouse strike killed six and injured 12, per Volyn governor Roman Romaniuk"
+  },
+  {
+   "turn": 0,
+   "text": "Other Kyiv districts hit Oct. 13-14: Dniprovskyi, Darnytskyi, Shevchenkivskyi, and Holosiivskyi (one killed, one injured)"
+  },
+  {
+   "turn": 0,
+   "text": "Not established whether the energy ceasefire is still nominally in force; both sides allege violations"
+  },
+  {
+   "turn": 3,
+   "text": "Kyiv police have received about 80 damage claims at a mobile tent in Desnianskyi"
+  }
+ ]
+}

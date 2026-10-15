@@ -1,0 +1,345 @@
+{
+ "thread": "gen-02",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Toronto police announced 82 charges against seven accused on Oct. 14, 2026 in probe that began with July 25 abduction",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Police allege the victim was abducted at gunpoint near Finch Ave. E. and Bayview Ave., handcuffed and assaulted",
+   "status": "alleged"
+  },
+  {
+   "id": "f3",
+   "text": "Police allege suspects tried to access the victim's cryptocurrency assets and business security systems",
+   "status": "alleged"
+  },
+  {
+   "id": "f4",
+   "text": "Victim was released, threatened and warned not to contact police; minor injuries, has recovered",
+   "status": "alleged"
+  },
+  {
+   "id": "f5",
+   "text": "Talarambage Fernando, 22, James Moreau, 29, and Jack Miley, 24, are 7th Toronto Regiment reservists",
+   "status": "confirmed"
+  },
+  {
+   "id": "f6",
+   "text": "Fernando and Moreau arrested Aug. 11; Miley Sept. 24",
+   "status": "confirmed"
+  },
+  {
+   "id": "f7",
+   "text": "DND removed the three from duties and restricted access pending administrative review",
+   "status": "confirmed"
+  },
+  {
+   "id": "f8",
+   "text": "Police allege ~2,500 rounds and five over-capacity magazines were stolen from the CAF and not reported stolen",
+   "status": "alleged"
+  },
+  {
+   "id": "f9",
+   "text": "Seizures included a shotgun, two 3D-printed handguns, two silencers and 2,700+ rounds",
+   "status": "confirmed"
+  },
+  {
+   "id": "f10",
+   "text": "No link to a larger organized crime group has been established",
+   "status": "unverified"
+  },
+  {
+   "id": "f11",
+   "text": "Victim's identity has not been made public",
+   "status": "confirmed"
+  },
+  {
+   "id": "f12",
+   "text": "Miley faces seven charges incl. kidnapping for ransom with a firearm; Fernando faces 20 counts",
+   "status": "reported"
+  },
+  {
+   "id": "f13",
+   "text": "Miley is a master bombardier deployed on Op Reassurance 2025; Fernando enrolled Jan 2020; Moreau enrolled March 2018, Op Laser 2020",
+   "status": "reported"
+  },
+  {
+   "id": "f14",
+   "text": "Investigation remains ongoing per TPS",
+   "status": "confirmed"
+  },
+  {
+   "id": "f15",
+   "text": "Police allege the victim owned a cryptocurrency exchange and was targeted for it",
+   "status": "alleged"
+  },
+  {
+   "id": "f16",
+   "text": "Seizures also included methamphetamine, cocaine, GPS trackers, radios, handcuffs and a balaclava",
+   "status": "confirmed"
+  },
+  {
+   "id": "f17",
+   "text": "Global News reports Fernando and Moreau together face 49 charges",
+   "status": "reported"
+  },
+  {
+   "id": "f18",
+   "text": "No revised charge total below 82 appears in police material or reporting",
+   "status": "unverified"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 9,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 10,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 11,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 1,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 2,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 3,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 4,
+   "fact": "f18",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Two suspects were arrested within 24 hours; all seven accused were in custody by Sept. 24"
+  },
+  {
+   "turn": 0,
+   "text": "Fernando and Moreau hold the rank of bombardier; DND spokesperson Andree-Anne Poulin confirmed their enrolment"
+  },
+  {
+   "turn": 0,
+   "text": "Fernando enrolled January 2020 and never deployed; Moreau enrolled March 2018 and deployed on Operation Laser in 2020"
+  },
+  {
+   "turn": 0,
+   "text": "Military police are investigating alongside Toronto police"
+  },
+  {
+   "turn": 0,
+   "text": "Charges include kidnapping for ransom and forcible confinement; Moreau alone faces two counts of drug possession for trafficking; Fernando faces 20 of the 82 charges"
+  },
+  {
+   "turn": 0,
+   "text": "Seizures included a third 9mm police allege was not safely stored and ten over-capacity magazines; about half the stolen rounds were blanks"
+  },
+  {
+   "turn": 0,
+   "text": "Other items recovered: cellphones, replica firearm, knives, hatchets, baton, money counter and Canadian currency"
+  },
+  {
+   "turn": 0,
+   "text": "Chief Supt. Joe Matthews said the victim suffered minor injuries and has recovered"
+  },
+  {
+   "turn": 0,
+   "text": "DND's earlier statement had suggested organized crime involvement; investigators still reviewing cellphones"
+  },
+  {
+   "turn": 1,
+   "text": "DND's emailed statement came Oct. 14; no separate DND news release on the case"
+  }
+ ]
+}

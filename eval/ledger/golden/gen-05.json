@@ -1,0 +1,381 @@
+{
+ "thread": "gen-05",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Pentagon official Iran-war troop death toll is 21 after the Oct. 9 database update",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Official wounded count rose to 865, up 98 since August",
+   "status": "confirmed"
+  },
+  {
+   "id": "f3",
+   "text": "Both added deaths were noncombat",
+   "status": "reported"
+  },
+  {
+   "id": "f4",
+   "text": "One added death: Maj. Sorffly Davius, 46, Army National Guard, died in Kuwait March 6",
+   "status": "reported"
+  },
+  {
+   "id": "f5",
+   "text": "Other added death: unidentified Navy suicide in September",
+   "status": "reported"
+  },
+  {
+   "id": "f6",
+   "text": "Washington Post reported last month, citing six officials, that losses exceeded Pentagon database figures",
+   "status": "reported"
+  },
+  {
+   "id": "f7",
+   "text": "Casualties split: Operation Epic Fury 15 killed/417 wounded; overseas operations since July 7 6 killed/448 wounded",
+   "status": "reported"
+  },
+  {
+   "id": "f8",
+   "text": "Pentagon official told AP in July the second category was created because Epic Fury had concluded",
+   "status": "reported"
+  },
+  {
+   "id": "f9",
+   "text": "Wikipedia lists 21 killed/865 wounded, with independent estimates of 25 killed/905 wounded",
+   "status": "unverified"
+  },
+  {
+   "id": "f10",
+   "text": "No Pentagon release or statement announcing the revised toll found",
+   "status": "unverified"
+  },
+  {
+   "id": "f11",
+   "text": "Previous disclosed Pentagon toll was 19 (after a Sept. 22 addition)",
+   "status": "confirmed"
+  },
+  {
+   "id": "f12",
+   "text": "Pentagon describes DCAS changes as administrative: two key enhancements",
+   "status": "reported"
+  },
+  {
+   "id": "f13",
+   "text": "Defense official says DCAS changes triggered by internal audit of reporting systems",
+   "status": "reported"
+  },
+  {
+   "id": "f14",
+   "text": "Post reported Sept. 18 at least 22 service members died vs. 19 disclosed",
+   "status": "reported"
+  },
+  {
+   "id": "f15",
+   "text": "Hegseth called the Post's casualty reporting 'DISGUSTING and FAKE' and 'a complete lie'",
+   "status": "reported"
+  },
+  {
+   "id": "f16",
+   "text": "Davius's death acknowledged earlier but not added to DCAS until Oct. 9",
+   "status": "reported"
+  },
+  {
+   "id": "f17",
+   "text": "No Pentagon statement explaining the Oct. 9 revision found",
+   "status": "unverified"
+  },
+  {
+   "id": "f18",
+   "text": "No Pentagon casualty revision reported after the Oct. 9 update",
+   "status": "confirmed"
+  },
+  {
+   "id": "f19",
+   "text": "Second added death: unidentified enlisted Navy woman, 25-30, died in September, cause pending in DCAS",
+   "status": "reported"
+  },
+  {
+   "id": "f20",
+   "text": "Five soldiers wounded in October disclosed for the first time in Oct. 9 update",
+   "status": "reported"
+  },
+  {
+   "id": "f21",
+   "text": "Pentagon told the Post it maintains a commitment to transparent, accurate casualty accounting",
+   "status": "reported"
+  },
+  {
+   "id": "f22",
+   "text": "Reps. Adam Smith and Chrissy Houlahan called the discrepancy an egregious error and an embarrassment",
+   "status": "reported"
+  },
+  {
+   "id": "f23",
+   "text": "Task & Purpose says the Post reported four more deaths than the official count",
+   "status": "reported"
+  },
+  {
+   "id": "f24",
+   "text": "Defense official told Task & Purpose additional Middle East deaths were not directly related to the Iran war",
+   "status": "reported"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 8,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 1,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 2,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 3,
+   "fact": "f20",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 4,
+   "fact": "f21",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 5,
+   "fact": "f22",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 6,
+   "fact": "f23",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 7,
+   "fact": "f24",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 8,
+   "fact": "f18",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Davius's death had been reported publicly but was not counted in the official toll"
+  },
+  {
+   "turn": 0,
+   "text": "Operation Epic Fury began with U.S. and Israeli strikes on Feb. 28"
+  },
+  {
+   "turn": 0,
+   "text": "The New York Times frames the revision as another quiet increase amid criticism of transparency on the war's costs"
+  },
+  {
+   "turn": 1,
+   "text": "The Sept. 22 addition was a female Army officer who suffered a fatal medical emergency in flight to the Middle East"
+  },
+  {
+   "turn": 1,
+   "text": "DCAS enhancements: standardized hostile/non-hostile subcategories and a new 'pending adjudication' category"
+  },
+  {
+   "turn": 3,
+   "text": "Davius died of a medical emergency at Camp Buehring, Kuwait"
+  },
+  {
+   "turn": 3,
+   "text": "At least 865 wounded since Feb. 28, the majority after July 7"
+  }
+ ]
+}

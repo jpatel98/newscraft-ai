@@ -1,0 +1,157 @@
+{
+ "thread": "prod-01",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Canada and more than two dozen countries signed a joint statement condemning Iran's violent attacks and lethal plotting",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Joint statement recognizes UK attribution of Iran's involvement in Sept. 27 RAF Fairford incident",
+   "status": "confirmed"
+  },
+  {
+   "id": "f3",
+   "text": "Seven men arrested in RAF Fairford probe; all released on bail, none charged",
+   "status": "reported"
+  },
+  {
+   "id": "f4",
+   "text": "Advance voting opened for Alberta's 10-question referendum ahead of Oct. 19 vote",
+   "status": "reported"
+  },
+  {
+   "id": "f5",
+   "text": "Premier Danielle Smith hopes Albertans vote yes to first nine questions for leverage with Ottawa",
+   "status": "reported"
+  },
+  {
+   "id": "f6",
+   "text": "Belleville synagogue shooter Sean Ward had no firearms licence, per police source",
+   "status": "reported"
+  },
+  {
+   "id": "f7",
+   "text": "Canadian cybersecurity executive arrested in U.S. in connection with ShinyHunters hack of FBI data",
+   "status": "alleged"
+  },
+  {
+   "id": "f8",
+   "text": "Arrested man named as Edward Dubrovsky; charged with conspiracy to extort and interference with commerce by threats",
+   "status": "alleged"
+  },
+  {
+   "id": "f9",
+   "text": "Foreign Affairs Minister Anita Anand to travel to India and UAE Oct. 13-16",
+   "status": "confirmed"
+  },
+  {
+   "id": "f10",
+   "text": "Canada signed Law of the Sea pledge opposing fees or tolls on international straits",
+   "status": "confirmed"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Iran has denied involvement in the RAF Fairford plot"
+  },
+  {
+   "turn": 0,
+   "text": "Signatories of the Iran statement include the US, France, Germany and Australia"
+  },
+  {
+   "turn": 0,
+   "text": "Referendum has nine questions on immigration and the Constitution and a tenth on starting the legal process for a binding separation referendum"
+  },
+  {
+   "turn": 0,
+   "text": "Prof. Grace Skogstad told Global News the results 'will be difficult to interpret' and the province lacks authority on some constitutional questions"
+  },
+  {
+   "turn": 0,
+   "text": "PM Mark Carney, in a Thanksgiving message from Alberta, said separation would be a 'long, uncertain process'"
+  },
+  {
+   "turn": 0,
+   "text": "Ward died after a shootout with police; Const. Jeff Smith was shot in the head; no worshippers were injured"
+  },
+  {
+   "turn": 0,
+   "text": "RCMP and Belleville Police declined to discuss Ward's firearms or licensing status, citing the ongoing investigation"
+  },
+  {
+   "turn": 0,
+   "text": "A 54-year-old Edward Dubrovsky was detained in Philadelphia and appeared in court last Thursday, per U.S. records"
+  },
+  {
+   "turn": 0,
+   "text": "FBI Director Kash Patel confirmed the arrest on social media Friday"
+  }
+ ]
+}

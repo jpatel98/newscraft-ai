@@ -1,0 +1,170 @@
+{
+ "thread": "gen-08",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Chris Tanev is out week-to-week with an upper-body injury, per the Maple Leafs",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Tanev placed on injured reserve Monday, retroactive to Oct. 10",
+   "status": "confirmed"
+  },
+  {
+   "id": "f3",
+   "text": "Tanev was hurt in the 6-3 win at Colorado, leaving at 11:08 of the first period after five shifts",
+   "status": "confirmed"
+  },
+  {
+   "id": "f4",
+   "text": "Leafs were still running tests on Tanev as of Oct. 13, per TSN",
+   "status": "reported"
+  },
+  {
+   "id": "f5",
+   "text": "Chris Johnston cited \"a little more optimism\" than with last season's injuries",
+   "status": "reported"
+  },
+  {
+   "id": "f6",
+   "text": "Leafs have not placed Tanev on LTIR",
+   "status": "reported"
+  },
+  {
+   "id": "f7",
+   "text": "Tanev has one assist in six games and is tied for team lead with 14 blocked shots",
+   "status": "confirmed"
+  },
+  {
+   "id": "f8",
+   "text": "No return date or diagnosis beyond upper-body released",
+   "status": "unverified"
+  },
+  {
+   "id": "f9",
+   "text": "Nylander had one assist vs. Utah Oct. 13, primary helper on Gavin McKenna's goal at 11:01 of the third",
+   "status": "confirmed"
+  },
+  {
+   "id": "f10",
+   "text": "Utah beat Toronto 5-4; McKenna extended point streak to four games",
+   "status": "confirmed"
+  },
+  {
+   "id": "f11",
+   "text": "Nylander had five points including his 700th NHL point in the 6-3 win at Colorado Oct. 10",
+   "status": "confirmed"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f11",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "IR move prompted recall of defenceman Marshall Rifai from the AHL Marlies; Nick Blankenburg has filled in"
+  },
+  {
+   "turn": 0,
+   "text": "Tanev, 36, was limited to 11 games last season with spine and groin injuries and a concussion"
+  },
+  {
+   "turn": 0,
+   "text": "Tanev is in the third year of a six-year contract with a $4.5M cap hit"
+  },
+  {
+   "turn": 1,
+   "text": "The assist was Nylander's seventh of the season"
+  },
+  {
+   "turn": 1,
+   "text": "Toronto's goals vs. Utah were scored by Matthews, Roslovic, Tavares (PP) and McKenna"
+  }
+ ]
+}

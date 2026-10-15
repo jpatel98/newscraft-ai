@@ -1,0 +1,260 @@
+{
+ "thread": "gen-11",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "44,049 advance ballots cast Oct. 6-11, a Mississauga advance-voting record",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Previous advance totals: 19,188 (2018), 28,052 (2022), 24,731 (2024 by-election)",
+   "status": "confirmed"
+  },
+  {
+   "id": "f3",
+   "text": "Oct. 11 busiest advance day with 12,335 ballots",
+   "status": "confirmed"
+  },
+  {
+   "id": "f4",
+   "text": "Election day Monday Oct. 26, 9 a.m. to 8 p.m.",
+   "status": "confirmed"
+  },
+  {
+   "id": "f5",
+   "text": "14 mayoral candidates on the ballot",
+   "status": "reported"
+  },
+  {
+   "id": "f6",
+   "text": "Parrish is sitting mayor, Crombie former mayor, Tedjo and Damerla sitting councillors running for mayor",
+   "status": "reported"
+  },
+  {
+   "id": "f7",
+   "text": "Mid-August Liaison poll: Parrish and Crombie tied at 26, Damerla 13, Tedjo 9, 26 undecided",
+   "status": "reported"
+  },
+  {
+   "id": "f8",
+   "text": "End-of-September Mainstreet poll had Crombie top with others slightly behind",
+   "status": "reported"
+  },
+  {
+   "id": "f9",
+   "text": "Front-runners prioritize affordability, crime and transportation; Damerla also City Hall accountability",
+   "status": "reported"
+  },
+  {
+   "id": "f10",
+   "text": "Living Arts Centre: Crombie would cancel redevelopment, Tedjo and Damerla oppose, Parrish backs it",
+   "status": "reported"
+  },
+  {
+   "id": "f11",
+   "text": "Full Mainstreet numbers and certified candidate list not located",
+   "status": "unverified"
+  },
+  {
+   "id": "f12",
+   "text": "Advance turnout up 57 per cent over 2022's 28,052",
+   "status": "confirmed"
+  },
+  {
+   "id": "f13",
+   "text": "Overall turnout 21.8 per cent in 2022, 26.5 in 2018, 25.7 in 2024 by-election",
+   "status": "reported"
+  },
+  {
+   "id": "f14",
+   "text": "Ward-level advance breakdowns and final 2026 turnout not available",
+   "status": "unverified"
+  },
+  {
+   "id": "f15",
+   "text": "Voters choose mayor, city/regional councillor and school trustee",
+   "status": "confirmed"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f5",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Daily advance totals: Oct. 6 1,139; Oct. 7 948; Oct. 8 11,022; Oct. 9 9,147; Oct. 10 9,458"
+  },
+  {
+   "turn": 0,
+   "text": "Other top advance sites: Erin Meadows 3,120 and Civic Centre 2,812; advance voters could use any location citywide"
+  },
+  {
+   "turn": 0,
+   "text": "75 candidates across 11 ward races; nominations closed 2 p.m. Aug. 21"
+  },
+  {
+   "turn": 0,
+   "text": "Liaison decided voters: Parrish 35, Crombie 35, Damerla 18, Tedjo 12"
+  },
+  {
+   "turn": 0,
+   "text": "Crombie is a former Ontario Liberal leader; Parrish was elected in the 2024 by-election"
+  },
+  {
+   "turn": 0,
+   "text": "Crombie calls the Living Arts Centre plan a \"$2.5-billion vanity project\"; Damerla wants a health care innovation district instead"
+  }
+ ]
+}

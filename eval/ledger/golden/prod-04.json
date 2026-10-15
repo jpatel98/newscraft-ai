@@ -1,0 +1,535 @@
+{
+ "thread": "prod-04",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Rajakovic said Kawhi Leonard would be available Tuesday against the Knicks",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Leonard was a full participant in Monday practice; Rajakovic said 'He feels great'",
+   "status": "reported"
+  },
+  {
+   "id": "f3",
+   "text": "Raptors hosted the Knicks at Scotiabank Arena Tuesday, 7 p.m. ET tip-off",
+   "status": "reported"
+  },
+  {
+   "id": "f4",
+   "text": "The Knicks are the defending NBA champions",
+   "status": "reported"
+  },
+  {
+   "id": "f5",
+   "text": "Knicks expected to rest starters on second night of a back-to-back",
+   "status": "reported"
+  },
+  {
+   "id": "f6",
+   "text": "Rajakovic expected to limit Leonard to first-half minutes and wouldn't say how much he'd play",
+   "status": "reported"
+  },
+  {
+   "id": "f7",
+   "text": "Leonard averaged a career-high 27.9 points in 65 games with the Clippers last season",
+   "status": "confirmed"
+  },
+  {
+   "id": "f8",
+   "text": "Leonard trade sent Ingram, Dick, two unprotected firsts, a 2027 pick swap and two seconds to the Clippers",
+   "status": "reported"
+  },
+  {
+   "id": "f9",
+   "text": "NBA investigation over a $28 million endorsement contract delayed the Leonard trade",
+   "status": "reported"
+  },
+  {
+   "id": "f10",
+   "text": "Raptors signed 7-foot-5 centre Jamarion Sharp and waived guard Chucky Hepburn",
+   "status": "reported"
+  },
+  {
+   "id": "f11",
+   "text": "Raptors' regular-season opener is Oct. 21 vs. Chicago; pre-season continues Thursday vs. Knicks and Friday at Detroit",
+   "status": "confirmed"
+  },
+  {
+   "id": "f12",
+   "text": "Leonard did not play in either of the Raptors' first two pre-season games",
+   "status": "reported"
+  },
+  {
+   "id": "f13",
+   "text": "Leonard's absences were attributed to reconditioning, not injury",
+   "status": "reported"
+  },
+  {
+   "id": "f14",
+   "text": "Leonard sat out the pre-season opener vs. Miami in Quebec City Oct. 3",
+   "status": "reported"
+  },
+  {
+   "id": "f15",
+   "text": "Leonard missed the second exhibition, a 114-106 win over the Clippers in Vancouver Oct. 10",
+   "status": "reported"
+  },
+  {
+   "id": "f16",
+   "text": "Leonard made his pre-season debut Tuesday vs. the Knicks in a limited role",
+   "status": "reported"
+  },
+  {
+   "id": "f17",
+   "text": "No minutes target or starting role made public; how many remaining exhibitions he plays not announced",
+   "status": "unverified"
+  },
+  {
+   "id": "f18",
+   "text": "Leonard was cleared on the Raptors' Monday injury report (hoopsnightly)",
+   "status": "reported"
+  },
+  {
+   "id": "f19",
+   "text": "hoopsnightly calls Tuesday's game the season opener; all other sources call it pre-season",
+   "status": "unverified"
+  },
+  {
+   "id": "f20",
+   "text": "Final score and Leonard's minutes from Tuesday's game are not in hand",
+   "status": "unverified"
+  },
+  {
+   "id": "f21",
+   "text": "Cycle Toronto and co-applicants will seek leave to appeal bike lane removals to the Supreme Court of Canada",
+   "status": "reported"
+  },
+  {
+   "id": "f22",
+   "text": "Ontario Court of Appeal overturned the lower-court bike lane ruling in August",
+   "status": "reported"
+  },
+  {
+   "id": "f23",
+   "text": "Province began removing bike lanes on Bloor Street West in Etobicoke Tuesday, per MTO",
+   "status": "reported"
+  },
+  {
+   "id": "f24",
+   "text": "First removal phase is a roughly 600-metre stretch of Bloor West starting near Clissold Road",
+   "status": "reported"
+  },
+  {
+   "id": "f25",
+   "text": "City of Toronto estimated removing the 19 km of bike lanes would cost about $48 million",
+   "status": "reported"
+  },
+  {
+   "id": "f26",
+   "text": "Cyclists lined Bloor West between Islington and past Royal York Tuesday; police on scene",
+   "status": "reported"
+  },
+  {
+   "id": "f27",
+   "text": "Organizers cite earlier rides: ~850 riders Aug. 30 on Danforth, ~800 on Sept. 30",
+   "status": "reported"
+  },
+  {
+   "id": "f28",
+   "text": "MTO spokesperson Dakota Brasier: Ontario has a clear mandate to tackle traffic costing the economy over $56B a year",
+   "status": "reported"
+  },
+  {
+   "id": "f29",
+   "text": "Not established whether the Supreme Court will hear the bike lane application",
+   "status": "unverified"
+  },
+  {
+   "id": "f30",
+   "text": "CityNews/Canada Pulse poll: 62% of Torontonians support turning bike lanes back into vehicle lanes",
+   "status": "reported"
+  },
+  {
+   "id": "f31",
+   "text": "City of Toronto: 222,550 advance votes Oct. 6-11",
+   "status": "confirmed"
+  },
+  {
+   "id": "f32",
+   "text": "Advance turnout up nearly 72% from the 2023 by-election's 129,745",
+   "status": "confirmed"
+  },
+  {
+   "id": "f33",
+   "text": "Liaison Strategies poll: Chow 51, Bradford 46 among decided and leaning voters",
+   "status": "reported"
+  },
+  {
+   "id": "f34",
+   "text": "Nanos poll for CP24/CTV: Chow 51, Bradford 47 among decided voters, 17% undecided",
+   "status": "reported"
+  },
+  {
+   "id": "f35",
+   "text": "Police seek suspect who posed as a 'Spiritual Holistic Healer' in Oct. 9 sexual assault near Eglinton Ave. E. and Yonge St.",
+   "status": "alleged"
+  },
+  {
+   "id": "f36",
+   "text": "Paul Conn, 71, charged with five counts of sexual assault, three of sexual interference and four of sexual exploitation",
+   "status": "alleged"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 11,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 3,
+   "index": 0,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 1,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 2,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 3,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 4,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 3,
+   "index": 5,
+   "fact": "f20",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 0,
+   "fact": "f21",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 1,
+   "fact": "f22",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 2,
+   "fact": "f23",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 3,
+   "fact": "f24",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 4,
+   "fact": "f25",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 5,
+   "fact": "f26",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 6,
+   "fact": "f27",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 7,
+   "fact": "f28",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 8,
+   "fact": "f29",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 0,
+   "fact": "f21",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 1,
+   "fact": "f28",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 2,
+   "fact": "f24",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 3,
+   "fact": "f25",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 4,
+   "fact": "f30",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 5,
+   "fact": "f29",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 6,
+   "fact": "f31",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 7,
+   "fact": "f32",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 8,
+   "fact": "f33",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 9,
+   "fact": "f34",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 10,
+   "fact": "f35",
+   "valid": true
+  },
+  {
+   "turn": 6,
+   "index": 11,
+   "fact": "f36",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Leonard, 35, has two titles and two Finals MVPs (2014 San Antonio, 2019 Toronto)"
+  },
+  {
+   "turn": 0,
+   "text": "Tuesday was Leonard's first game in a Raptors uniform since Game 5 of the 2019 Finals"
+  },
+  {
+   "turn": 0,
+   "text": "Knicks beat Minnesota 122-104 the night before"
+  },
+  {
+   "turn": 0,
+   "text": "Knicks coach Mike Brown said his team won't play its starters"
+  },
+  {
+   "turn": 1,
+   "text": "Toronto went 1-1 in the two pre-season games without Leonard"
+  },
+  {
+   "turn": 5,
+   "text": "Ecojustice lawyer Bronwyn Roe called the case 'a matter of public and national importance'"
+  },
+  {
+   "turn": 5,
+   "text": "Advocates said removal crews could start Tuesday evening and work overnight"
+  },
+  {
+   "turn": 5,
+   "text": "The province's plan removes bike lanes on three Toronto roads: Bloor St. W., Yonge St. and University Ave."
+  },
+  {
+   "turn": 6,
+   "text": "Canada Pulse Insights poll for CityNews: 35% of Torontonians don't feel safe walking their neighbourhood after dark (claim beyond index 12)"
+  },
+  {
+   "turn": 6,
+   "text": "First removal phase covers about 19 km city-wide, with the rest expected next spring"
+  },
+  {
+   "turn": 6,
+   "text": "MPP Alexa Gilmour (Parkdale-High Park) said the bike lane fight is not over"
+  },
+  {
+   "turn": 6,
+   "text": "Nanos: 'Toronto's race remains an open contest'; both campaigns claimed momentum from the turnout"
+  },
+  {
+   "turn": 6,
+   "text": "Investigators believe there may be more victims of Paul Conn; image released"
+  },
+  {
+   "turn": 6,
+   "text": "CityNews safety poll: 71% rate police response good or great; 68% worry police will be too slow; GTA 73% feel safe after dark, up from 64%"
+  }
+ ]
+}
