@@ -107,3 +107,26 @@ test('the story pane fits a phone screen', async ({ page }) => {
 	const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 	expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test('the story pane writes a VO from the ledger and says what it changed', async ({ page }) => {
+	await signInWithPassword(page, password);
+	const { conversationId } = await ledgerTurn(page, {
+		claims: [
+			claim('The driver was going twice the speed limit', 'alleged', [2], { attributed_to: 'Toronto police' }),
+			claim('A second vehicle fled the scene', 'confirmed', [3, 5])
+		]
+	});
+	// The copy model runs on the worker; this test covers the pane, so the route answers with a fixed draft.
+	await page.route(`**/api/conversations/${conversationId}/ledger/copy`, (route) =>
+		route.fulfill({
+			json: { format: 'vo', text: '{VO}\nTORONTO POLICE ALLEGE THAT THE DRIVER WAS GOING TWICE THE SPEED LIMIT.', repaired: 1, dropped: 0, withheld: 1 }
+		})
+	);
+	await openChat(page, conversationId);
+	await page.getByTestId('story-ledger-button').click();
+	await page.getByTestId('story-write-vo').click();
+	const draft = page.getByTestId('story-copy-draft');
+	await expect(draft.getByTestId('story-copy-text')).toContainText('TORONTO POLICE ALLEGE THAT');
+	await expect(draft).toContainText('Attribution put back in 1 sentence.');
+	await expect(draft).toContainText('Leaves out 1 claim not ready for air.');
+});
