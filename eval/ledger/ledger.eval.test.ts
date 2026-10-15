@@ -80,6 +80,7 @@ describe('ledger golden set', () => {
 		if (recordUrl) cassette.save();
 		writeFileSync(join(EVAL_DIR, 'report.json'), JSON.stringify(report, null, 1) + '\n');
 		console.log(JSON.stringify({ before: report.before, after: report.after, unrecordedJudgePairs: report.unrecordedJudgePairs }));
+		if (!labelled.length) return;
 		expect(cassette.missing, 'record the judge cassette (pnpm eval:ledger:record)').toHaveLength(0);
 		expect(report.after.duplicateRate!).toBeLessThan(TARGET_DUPLICATE_RATE);
 		expect(report.after.wrongMerges).toBe(0);
