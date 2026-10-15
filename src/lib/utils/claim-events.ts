@@ -310,6 +310,7 @@ export function planTurn(input: PlanTurnInput): TurnPlan {
 			date: claim.date
 		};
 		if (input.sources) data.sources = resolveEvidence(claim.citations, input.sources);
+		if (isNew) data.first = true;
 		emit(claimId, 'asserted', data);
 		if (!before.variants.includes(key)) variants.push({ claimId, text: claim.claim });
 		const after = states.get(claimId)!;

@@ -7,7 +7,7 @@
 	import Thread from '$lib/components/Thread.svelte';
 	import { artifactPaneMode } from '$lib/components/artifact-layout';
 	import { stripLedgerForDisplay } from '$lib/utils/story-ledger';
-	import type { StoryClaimReviewInput, StoryLedgerClaimView } from '$lib/utils/story-ledger-view';
+	import type { StoryClaimReviewInput, StoryLedgerChangeView, StoryLedgerClaimView } from '$lib/utils/story-ledger-view';
 	import { parseToolMetadata } from '$lib/utils/tool-metadata';
 	import type { CitationRecord } from '@newscraft/shared';
 	import type {
@@ -131,6 +131,9 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	// The Story ledger pane shares the artifact pane's side/overlay slot; only one is open.
 	let storyOpen = $state(false);
 	let storyClaims = $state<StoryLedgerClaimView[]>([]);
+	// Ledger events since this person last looked at this chat's ledger (kept per browser).
+	let storyChanges = $state<StoryLedgerChangeView[]>([]);
+	let storyLastSeq = 0;
 	let storyLoading = $state(false);
 	let storyError = $state<string | null>(null);
 	let storyRequestSeq = 0;
@@ -1094,18 +1097,50 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		});
 	}
 
+	const ledgerSeenKey = (conversationId: string) => `newscraft:ledger-seen:${conversationId}`;
+
+	function readLedgerSeen(conversationId: string): number | null {
+		try {
+			const value = Number(localStorage.getItem(ledgerSeenKey(conversationId)));
+			return Number.isSafeInteger(value) && value > 0 ? value : null;
+		} catch {
+			return null;
+		}
+	}
+
+	function markStoryLedgerSeen() {
+		const conversationId = activeConversationId;
+		storyChanges = [];
+		if (!storyLastSeq) return;
+		try {
+			localStorage.setItem(ledgerSeenKey(conversationId), String(storyLastSeq));
+		} catch {
+			// Private windows can refuse storage; the changes list just shows again next time.
+		}
+	}
+
 	async function refreshStoryLedger() {
 		const conversationId = activeConversationId;
 		const sequence = ++storyRequestSeq;
 		storyLoading = true;
 		try {
-			const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/ledger`, {
+			const seen = readLedgerSeen(conversationId);
+			const query = seen ? `?since=${seen}` : '';
+			const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/ledger${query}`, {
 				headers: { accept: 'application/json' }
 			});
 			if (!response.ok) throw new Error(`ledger ${response.status}`);
-			const payload = (await response.json()) as { claims?: StoryLedgerClaimView[] };
+			const payload = (await response.json()) as {
+				claims?: StoryLedgerClaimView[];
+				last_seq?: number;
+				changes?: StoryLedgerChangeView[];
+			};
 			if (sequence !== storyRequestSeq || conversationId !== activeConversationId) return;
 			storyClaims = Array.isArray(payload.claims) ? payload.claims : [];
+			storyLastSeq = Number(payload.last_seq) || 0;
+			storyChanges = Array.isArray(payload.changes) ? payload.changes : [];
+			// The first look at a chat's ledger is the baseline for "changed since you last looked".
+			if (!seen && storyLastSeq) markStoryLedgerSeen();
 			storyError = null;
 		} catch {
 			if (sequence !== storyRequestSeq || conversationId !== activeConversationId) return;
@@ -1562,6 +1597,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		artifactOpen = false;
 		storyOpen = false;
 		storyClaims = [];
+		storyChanges = [];
+		storyLastSeq = 0;
 		storyError = null;
 		storyRequestSeq += 1;
 		storyLoading = false;
@@ -1730,11 +1767,16 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 				claims={storyClaims}
 				title={conversationTitle}
 				citations={storyCitations}
+				changes={storyChanges}
 				loading={storyLoading}
 				error={storyError}
 				onRefresh={() => void refreshStoryLedger()}
 				onReview={reviewStoryClaim}
-				onClose={() => (storyOpen = false)}
+				onMarkSeen={markStoryLedgerSeen}
+				onClose={() => {
+					markStoryLedgerSeen();
+					storyOpen = false;
+				}}
 			/>
 		</div>
 	{:else if artifactOpen && activeArtifact}

@@ -127,6 +127,8 @@ export interface Replay {
 export interface ReplayOptions {
 	/** Pass each turn's sources to the planner so status follows evidence (Phase 2). */
 	evidence?: boolean;
+	/** Take every judge "same" as a merge (no score or gap guard), to record and compare the raw judge. */
+	unguarded?: boolean;
 }
 
 export function turnPages(thread: FixtureThread, turn: number): Map<number, CitedPage> {
@@ -158,7 +160,7 @@ export async function replayThread(
 				return hit >= 0 ? { kind: 'same', claimId: `incoming:${hit}`, how: 'text' } : { kind: 'new' };
 			});
 		} else {
-			matches = (await matchIncoming(active, incoming, judge)).matches;
+			matches = (await matchIncoming(active, incoming, judge, options.unguarded ? () => true : undefined)).matches;
 		}
 		const pages = turnPages(thread, t);
 		const plan = planTurn({

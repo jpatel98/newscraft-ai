@@ -33,7 +33,7 @@ function toState(row: StoryClaimRow, variants: string[], contradicts: string[], 
 		corroboration: row.corroboration ?? 0,
 		date: row.publicationDate,
 		needsCheck: row.needsCheck,
-		checkReason: row.needsCheck ? (checkReason ?? 'model') : null,
+		checkReason: row.needsCheck ? (checkReason ?? row.checkReason ?? 'model') : null,
 		contradicts,
 		variants: [...new Set([normalizeClaimText(row.claim), ...variants.map(normalizeClaimText)])],
 		reviewedBy: row.reviewedBy ?? null,
@@ -57,6 +57,7 @@ function rowPatch(state: ClaimState) {
 		citationNumbers: state.citations,
 		publicationDate: state.date,
 		needsCheck: state.needsCheck,
+		checkReason: state.checkReason,
 		lastUpdatedMessageId: state.lastUpdatedMessageId,
 		reviewedBy: state.reviewedBy,
 		reviewedAt: state.reviewedAt,
@@ -235,7 +236,7 @@ export async function reviewStoryClaim(
 		const events = planReview(before, review, reviewer, now);
 		const patch = {
 			...(review.status ? { status: review.status } : {}),
-			...(typeof review.needsCheck === 'boolean' ? { needsCheck: review.needsCheck } : {}),
+			...(typeof review.needsCheck === 'boolean' ? { needsCheck: review.needsCheck, checkReason: review.needsCheck ? (row.needsCheck ? row.checkReason : 'person') : null } : {}),
 			reviewedBy: reviewer,
 			reviewedAt: now,
 			updatedAt: now
@@ -266,6 +267,15 @@ export async function listStoryClaimEvents(conversationId: string, afterSeq = 0,
 		.where(and(eq(storyClaimEvents.conversationId, conversationId), sql`${storyClaimEvents.seq} > ${afterSeq}`))
 		.orderBy(asc(storyClaimEvents.seq))
 		.limit(Math.max(1, Math.min(limit, 5000)))) as StoryClaimEventRow[];
+}
+
+/** The newest ledger event's sequence number for a conversation (0 with none). */
+export async function lastStoryClaimEventSeq(conversationId: string): Promise<number> {
+	const [row] = (await db
+		.select({ seq: sql<number>`coalesce(max(${storyClaimEvents.seq}), 0)` })
+		.from(storyClaimEvents)
+		.where(eq(storyClaimEvents.conversationId, conversationId))) as { seq: number | string }[];
+	return Number(row?.seq ?? 0);
 }
 
 /** Remove a conversation's ledger. Deleting the conversation already cascades. */

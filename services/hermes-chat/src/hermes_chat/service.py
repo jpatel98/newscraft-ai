@@ -67,6 +67,7 @@ class Settings:
     output_cost_per_million: float = 0.0
     search_api_key: str = field(default="", repr=False)
     search_model: str = "gpt-6-astra"
+    ledger_judge_model: str = ""
     search_base_url: str = "https://api.openai.com/v1"
     max_search_calls: int = 5
     search_cost_ceiling_usd: float = 0.0
@@ -214,6 +215,9 @@ def settings_from_env() -> Settings:
     # aliases here so the dispatched model matches its explicit price ceiling.
     if provider == "deepseek" and model not in DEEPSEEK_MODELS:
         raise RuntimeError("DeepSeek NEWSCRAFT_AGENT_MODEL must be deepseek-flash or deepseek-v4-pro")
+    ledger_judge_model = _setting("NEWSCRAFT_LEDGER_JUDGE_MODEL", model)
+    if provider == "deepseek" and ledger_judge_model not in DEEPSEEK_MODELS:
+        raise RuntimeError("DeepSeek NEWSCRAFT_LEDGER_JUDGE_MODEL must be deepseek-flash or deepseek-v4-pro")
     credential_file = _setting("NEWSCRAFT_AGENT_CREDENTIAL_FILE")
     model_key = _setting(key_name)
     if not model_key and provider in {"openai", "deepseek"} and credential_file:
@@ -285,6 +289,7 @@ def settings_from_env() -> Settings:
         image_token_ceiling=_integer_setting("NEWSCRAFT_AGENT_IMAGE_TOKEN_CEILING", 32768, 32768, 1000000),
         search_api_key=search_key,
         search_model=_setting("NEWSCRAFT_SEARCH_MODEL", "gpt-6-astra"),
+        ledger_judge_model=ledger_judge_model,
         search_base_url=_http_endpoint(_setting("NEWSCRAFT_SEARCH_BASE_URL", "https://api.openai.com/v1"), "NEWSCRAFT_SEARCH_BASE_URL"),
         max_search_calls=_integer_setting("NEWSCRAFT_AGENT_MAX_SEARCH_CALLS", 5, 1, 20),
         executor=executor,
@@ -435,7 +440,7 @@ def create_app(settings: Settings | None = None):
         if not isinstance(pairs, list):
             return JSONResponse({"detail": "pairs required"}, status_code=400)
         try:
-            verdicts = await ledger_judge_module.judge_pairs(runner.model, settings.model, pairs)
+            verdicts = await ledger_judge_module.judge_pairs(runner.model, settings.ledger_judge_model or settings.model, pairs)
         except Exception:
             logger.warning("Ledger judge call failed")
             return JSONResponse({"detail": "judge unavailable"}, status_code=503)

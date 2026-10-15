@@ -751,6 +751,7 @@ export const storyClaims = pgTable(
 		sourceTier: text('source_tier', { enum: ['official', 'wire_major', 'local', 'other', 'aggregator'] }),
 		corroboration: integer('corroboration').notNull().default(0),
 		evidence: jsonb('evidence').$type<EvidenceSource[]>().notNull().default([]),
+		checkReason: text('check_reason'),
 		createdAt: timestampMs('created_at').notNull(),
 		updatedAt: timestampMs('updated_at').notNull()
 	},

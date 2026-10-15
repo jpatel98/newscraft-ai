@@ -905,6 +905,11 @@ describe('story ledger context entry', () => {
 		supersededBy: null,
 		reviewedBy: null,
 		reviewedAt: null,
+		suggestedStatus: 'alleged',
+		sourceTier: null,
+		corroboration: 0,
+		evidence: [],
+		checkReason: null,
 		createdAt: 1000 + index,
 		updatedAt: 2000 + index,
 		...overrides

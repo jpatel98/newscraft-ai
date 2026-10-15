@@ -60,11 +60,16 @@ describe('ledger golden set', () => {
 	const labelled = threads.filter((t) => existsSync(join(EVAL_DIR, 'golden', `${t.id}.json`)));
 
 	it.skipIf(!labelled.length && !process.env.LEDGER_EVAL_JUDGE_URL)('meets the duplicate target with no wrong merges, and reports before/after', async () => {
-		const cassette = new Cassette(join(EVAL_DIR, 'judge-cassette.json'));
+		const cassette = new Cassette(join(EVAL_DIR, process.env.LEDGER_EVAL_CASSETTE || 'judge-cassette.json'));
 		const recordUrl = process.env.LEDGER_EVAL_JUDGE_URL;
 		const judge = recordUrl ? cassette.recording(recordUrl, process.env.LEDGER_EVAL_JUDGE_TOKEN || '') : cassette.judge;
 		// Record mode covers every fixture, labelled or not, so labels can land later without new judge calls.
-		if (recordUrl) for (const thread of threads) await replayThread(thread, judge);
+		if (recordUrl) {
+			for (const thread of threads) {
+				await replayThread(thread, judge);
+				await replayThread(thread, judge, 'events', { unguarded: true });
+			}
+		}
 		const legacy = [];
 		const eventLog = [];
 		const after = [];

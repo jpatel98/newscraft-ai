@@ -23,6 +23,13 @@ export const MATCH_CANDIDATES = 3;
 export const MATCH_MIN_SCORE = 0.2;
 /** Without a judge verdict, merge only above this score and with identical figures. */
 export const MATCH_AUTO_SCORE = 0.86;
+/**
+ * A judge "same" stands only for pairs this close that agree on whether they
+ * state a gap ("not published", "unclear"). Below it the judge mostly merged a
+ * bundled claim into one of its parts, or two different gaps in the reporting.
+ */
+export const MATCH_JUDGE_MIN_SCORE = 0.45;
+const GAP = /\b(?:no|not|none|nothing|never|unclear|unknown|unconfirmed|without)\b/i;
 
 interface PoolEntry {
 	ref: string;
@@ -35,6 +42,11 @@ function sameNumbers(a: string, b: string): boolean {
 	const x = claimNumbers(a);
 	const y = claimNumbers(b);
 	return x.length === y.length && x.every((n) => y.includes(n));
+}
+
+/** Whether a judge "same" is allowed to merge this pair. */
+export function judgeMergeAllowed(a: string, b: string, score: number): boolean {
+	return score >= MATCH_JUDGE_MIN_SCORE && GAP.test(a) === GAP.test(b);
 }
 
 function bestScore(query: ClaimVector, entry: PoolEntry): number {
@@ -51,7 +63,8 @@ export interface MatchResult {
 export async function matchIncoming(
 	active: readonly ClaimState[],
 	incoming: readonly LedgerClaim[],
-	judge: ClaimJudge | null
+	judge: ClaimJudge | null,
+	allowMerge: (a: string, b: string, score: number) => boolean = judgeMergeAllowed
 ): Promise<MatchResult> {
 	const pool: PoolEntry[] = active.map((claim) => {
 		const texts = [claim.claim, ...claim.variants];
@@ -111,7 +124,9 @@ export async function matchIncoming(
 		for (const candidate of candidates[index]) {
 			const verdict = verdicts?.get(candidate.pairId) ?? null;
 			judged.push({ pair: pairs.find((pair) => pair.id === candidate.pairId)!, verdict, score: candidate.score });
-			if (verdict === 'same') return { kind: 'same', claimId: candidate.entry.ref, how: 'judge' };
+			if (verdict === 'same' && allowMerge(candidate.entry.text, claim.claim, candidate.score)) {
+				return { kind: 'same', claimId: candidate.entry.ref, how: 'judge' };
+			}
 			if (verdict === 'contradicts' && !conflict) conflict = candidate.entry.ref;
 			if (verdict === null && candidate.score >= MATCH_AUTO_SCORE && sameNumbers(candidate.entry.text, claim.claim)) {
 				return { kind: 'same', claimId: candidate.entry.ref, how: 'similar' };

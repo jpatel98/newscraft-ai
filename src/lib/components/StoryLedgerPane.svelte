@@ -4,30 +4,50 @@
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 	import X from 'lucide-svelte/icons/x';
 	import EvidencePreview from './EvidencePreview.svelte';
+	import { attributionFor, publisherName } from '$lib/utils/claim-air';
 	import { LEDGER_STATUSES, type LedgerStatus } from '$lib/utils/story-ledger';
 	import {
+		CHECK_REASON,
 		groupLedgerClaims,
 		LEDGER_STATUS_LABELS,
 		ledgerBrief,
+		ledgerChangeLines,
 		type StoryClaimReviewInput,
-		type StoryLedgerClaimView
+		type StoryLedgerChangeView,
+		type StoryLedgerClaimView,
+		type StoryLedgerSourceView
 	} from '$lib/utils/story-ledger-view';
 
 	interface Props {
 		claims: StoryLedgerClaimView[];
 		/** Title of the chat these claims belong to; the ledger is per chat. */
 		title?: string;
-		/** Citation map for the thread, keyed by citation number. */
+		/** Citation map for the thread, keyed by citation number (fallback for claims without resolved sources). */
 		citations?: CitationRecord[];
+		/** Ledger events since the person last looked. */
+		changes?: StoryLedgerChangeView[];
 		loading?: boolean;
 		error?: string | null;
 		onRefresh?: () => void;
 		/** Saves a person's call on one claim; rejects when the save failed. */
 		onReview?: (claimId: string, review: StoryClaimReviewInput) => Promise<void>;
+		/** The person has seen the listed changes. */
+		onMarkSeen?: () => void;
 		onClose: () => void;
 	}
 
-	let { claims, title = '', citations = [], loading = false, error = null, onRefresh, onReview, onClose }: Props = $props();
+	let {
+		claims,
+		title = '',
+		citations = [],
+		changes = [],
+		loading = false,
+		error = null,
+		onRefresh,
+		onReview,
+		onMarkSeen,
+		onClose
+	}: Props = $props();
 	let savingId = $state<string | null>(null);
 	let reviewError = $state<{ id: string; message: string } | null>(null);
 	let openChecksOnly = $state(false);
@@ -37,9 +57,33 @@
 
 	const groups = $derived(groupLedgerClaims(claims, { openChecksOnly }));
 	const openCheckCount = $derived(claims.filter((claim) => claim.needs_check).length);
+	const changeLines = $derived(ledgerChangeLines(changes, claims));
 	const citationByNumber = $derived(
 		new Map(citations.map((citation) => [citation.citationNumber, citation]))
 	);
+
+	/** A claim's chips: its own resolved sources, else the thread's citation map. */
+	function chipsFor(claim: StoryLedgerClaimView): { n: number; label: string; citation: CitationRecord | null }[] {
+		if (claim.sources?.length) {
+			return claim.sources.map((source) => ({ n: source.n, label: publisherName(source.host), citation: asCitation(source) }));
+		}
+		return claim.citations.map((n) => ({ n, label: '', citation: citationByNumber.get(n) ?? null }));
+	}
+
+	function asCitation(source: StoryLedgerSourceView): CitationRecord {
+		const known = citations.find((citation) => citation.url === source.url);
+		return (
+			known ?? {
+				citationNumber: source.n,
+				title: source.host,
+				url: source.url,
+				domain: source.host,
+				publicationDate: source.date || null,
+				sourceType: source.tier === 'official' ? 'official' : source.tier === 'aggregator' ? 'aggregator' : 'news_report',
+				supportingExcerpt: ''
+			}
+		);
+	}
 
 	function setCopyState(state: 'success' | 'error') {
 		copyState = state;
@@ -114,6 +158,21 @@
 	</div>
 
 	<div class="story-pane__body">
+		{#if changeLines.length && !openChecksOnly}
+			<section class="story-changes" data-testid="story-ledger-changes" aria-label="Changed since you last looked">
+				<div class="story-changes__head">
+					<h3>Changed since you last looked<span>{changeLines.length}</span></h3>
+					{#if onMarkSeen}
+						<button type="button" class="story-claim__action" onclick={onMarkSeen}>Mark as seen</button>
+					{/if}
+				</div>
+				<ul>
+					{#each changeLines as line, index (`${line.claimId}-${index}`)}
+						<li><span class="story-changes__what">{line.what}</span> {line.claim}</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
 		{#if error}
 			<p class="story-pane__empty" role="alert">{error}</p>
 		{:else if !claims.length}
@@ -121,36 +180,44 @@
 		{:else if !groups.length}
 			<p class="story-pane__empty">No claims need a check right now.</p>
 		{:else}
-			{#each groups as group (group.status)}
-				<section class="story-group" aria-label={group.label}>
-					<h3 class="story-group__title story-group__title--{group.status}">
+			{#each groups as group (group.bucket)}
+				<section class="story-group" aria-label={group.label} data-bucket={group.bucket}>
+					<h3 class="story-group__title story-group__title--{group.bucket}">
 						{group.label}<span>{group.claims.length}</span>
 					</h3>
 					<ul>
 						{#each group.claims as claim (claim.id)}
-							<li class="story-claim">
+							{@const attribution = attributionFor(claim)}
+							<li class="story-claim" data-testid="story-claim">
 								<p class="story-claim__text">{claim.claim}</p>
+								{#if attribution.required && attribution.phrase && claim.status !== 'unverified' && claim.status !== 'retracted'}
+									<p class="story-claim__say" data-testid="story-claim-say">Say: “{attribution.phrase}”</p>
+								{/if}
 								<div class="story-claim__meta">
+									<span class="story-claim__status-tag story-claim__status-tag--{claim.status}">{LEDGER_STATUS_LABELS[claim.status]}</span>
+									{#if claim.suggested_status && claim.suggested_status !== claim.status && !claim.reviewed_by}
+										<span title="What the research said before the sources were weighed">model said {LEDGER_STATUS_LABELS[claim.suggested_status].toLowerCase()}</span>
+									{/if}
 									{#if claim.attributed_to}<span>per {claim.attributed_to}</span>{/if}
 									{#if claim.date}<span>{claim.date}</span>{/if}
-									{#each claim.citations as number (number)}
-										{@const citation = citationByNumber.get(number)}
-										{#if citation}
+									{#each chipsFor(claim) as chip (chip.n)}
+										{#if chip.citation}
+											{@const citation = chip.citation}
 											<button
 												type="button"
 												class="story-claim__chip"
-												aria-label={`Open source ${number}`}
+												aria-label={`Open source ${chip.n}`}
 												onclick={(event) =>
 													(selectedEvidence = {
 														citation,
 														trigger: event.currentTarget as HTMLElement
 													})}
-											>[{number}]</button>
+											>[{chip.n}]{chip.label ? ` ${chip.label}` : ''}</button>
 										{:else}
-											<span class="story-claim__chip story-claim__chip--plain">[{number}]</span>
+											<span class="story-claim__chip story-claim__chip--plain">[{chip.n}]</span>
 										{/if}
 									{/each}
-									{#if claim.needs_check}<span class="story-claim__check">needs check</span>{/if}
+									{#if claim.needs_check}<span class="story-claim__check">needs check{claim.check_reason && CHECK_REASON[claim.check_reason] ? `: ${CHECK_REASON[claim.check_reason]}` : ''}</span>{/if}
 								</div>
 								{#if claim.reviewed_by}
 									<p class="story-claim__reviewed">
@@ -304,9 +371,39 @@
 		color: var(--fg-2);
 	}
 	.story-group__title span { color: var(--fg-3); font-weight: 500; }
-	.story-group__title--alleged,
-	.story-group__title--unverified { color: var(--cobalt-700); }
-	.story-group__title--retracted { color: var(--fg-3); text-decoration: line-through; }
+	.story-group__title--check,
+	.story-group__title--careful { color: var(--cobalt-700); }
+	.story-group__title--hold { color: var(--fg-3); }
+	.story-claim__say {
+		margin: 4px 0 0;
+		font-size: 12.5px;
+		color: var(--cobalt-700);
+	}
+	.story-claim__status-tag { font-weight: 650; color: var(--fg-2); }
+	.story-claim__status-tag--retracted { text-decoration: line-through; }
+	.story-changes {
+		margin-bottom: 18px;
+		padding: 10px 12px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		background: var(--bg-raised);
+		font-size: 12.5px;
+	}
+	.story-changes__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+	.story-changes h3 {
+		display: flex;
+		gap: 8px;
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		font-weight: 650;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--fg-2);
+	}
+	.story-changes h3 span { color: var(--fg-3); font-weight: 500; }
+	.story-changes ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+	.story-changes__what { font-family: var(--font-mono); font-size: 10.5px; font-weight: 650; color: var(--accent-fg); }
 	.story-claim {
 		padding: 10px 12px;
 		border: 1px solid var(--border-soft);
