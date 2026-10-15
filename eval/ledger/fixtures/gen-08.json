@@ -2,71 +2,47 @@
  "id": "gen-08",
  "title": "What do we know about the Maple Leafs'",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://medicinehatnews.com/sports/national-sports/2026/10/15/leafs-defenceman-tanev-out-week-to-week-with-upper-body-injury/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Leafs defenceman Tanev out week-to-week with upper-body injury - Medicine Hat NewsMedicine Hat News"
-  },
-  {
-   "n": 2,
-   "url": "https://www.nhl.com/fr/news/maple-leafs-tanev-sur-la-liste-des-blesses",
-   "date": "2026-10-13T16:39:52.000Z",
-   "title": "Maple Leafs : Tanev sur la liste des blessés | LNH.com"
-  },
-  {
-   "n": 3,
-   "url": "https://www.nhl.com/news/nhl-status-report-news-and-notes-october-15-2026",
-   "date": "2026-10-15T15:30:16.000Z",
-   "title": "NHL Status Report: Tanev week to week for Maple Leafs | NHL.com"
-  },
-  {
-   "n": 4,
-   "url": "https://www.tsn.ca/nhl/article/insider-trading-leafs-still-doing-due-diligence-on-tanev-injury/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Insider Trading: Toronto Maple Leafs still doing due diligence on Chris Tanev injury"
-  },
-  {
-   "n": 5,
-   "url": "https://thehockeynews.com/nhl/toronto-maple-leafs/latest-news/maple-leafs-reveal-update-on-the-status-of-chris-tanevs-injury",
-   "date": "",
-   "title": "Maple Leafs Reveal Update On The Status Of Chris ..."
-  },
-  {
-   "n": 8,
-   "url": "https://puckbeat.com/story/nhl-eastern-conference-injury-update-staal-out-a-month-tanev-on-ir",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "NHL Eastern Conference Injury Update: Staal Out a Month, Tanev on IR"
-  },
-  {
-   "n": 10,
-   "url": "https://www.nhl.com/news/toronto-maple-leafs-utah-mammoth-game-recap-october-13-2026",
-   "date": "2026-10-14T03:58:00.000Z",
-   "title": "Mammoth hold off late surge in 3rd by Maple Leafs | NHL.com"
-  },
-  {
-   "n": 11,
-   "url": "https://www.tsn.ca/nhl/article/mammoth-survive-maple-leafs-late-surge-for-high-scoring-win/",
-   "date": "2026-10-14T04:19:32.000Z",
-   "title": "Utah Mammoth survive Toronto Maple Leafs’ late surge for high-scoring win"
-  },
-  {
-   "n": 12,
-   "url": "https://www.espn.com/nhl/game/_/gameId/401892500/maple-leafs-mammoth",
-   "date": "",
-   "title": "Mammoth 5-4 Maple Leafs (Oct 13, 2026) Final Score"
-  },
-  {
-   "n": 15,
-   "url": "https://www.nhl.com/mapleleafs/news/game-day-utah-oct-13-2026",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "GAME DAY @ UTAH | Oct. 13, 2026 | Toronto Maple Leafs"
-  }
- ],
  "turns": [
   {
    "at": 1792081447792,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://medicinehatnews.com/sports/national-sports/2026/10/15/leafs-defenceman-tanev-out-week-to-week-with-upper-body-injury/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Leafs defenceman Tanev out week-to-week with upper-body injury - Medicine Hat NewsMedicine Hat News"
+    },
+    {
+     "n": 2,
+     "url": "https://www.nhl.com/fr/news/maple-leafs-tanev-sur-la-liste-des-blesses",
+     "date": "2026-10-13T16:39:52.000Z",
+     "title": "Maple Leafs : Tanev sur la liste des blessés | LNH.com"
+    },
+    {
+     "n": 3,
+     "url": "https://www.nhl.com/news/nhl-status-report-news-and-notes-october-15-2026",
+     "date": "2026-10-15T15:30:16.000Z",
+     "title": "NHL Status Report: Tanev week to week for Maple Leafs | NHL.com"
+    },
+    {
+     "n": 4,
+     "url": "https://www.tsn.ca/nhl/article/insider-trading-leafs-still-doing-due-diligence-on-tanev-injury/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Insider Trading: Toronto Maple Leafs still doing due diligence on Chris Tanev injury"
+    },
+    {
+     "n": 5,
+     "url": "https://thehockeynews.com/nhl/toronto-maple-leafs/latest-news/maple-leafs-reveal-update-on-the-status-of-chris-tanevs-injury",
+     "date": "",
+     "title": "Maple Leafs Reveal Update On The Status Of Chris ..."
+    },
+    {
+     "n": 8,
+     "url": "https://puckbeat.com/story/nhl-eastern-conference-injury-update-staal-out-a-month-tanev-on-ir",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "NHL Eastern Conference Injury Update: Staal Out a Month, Tanev on IR"
+    }
+   ],
    "claims": [
     {
      "claim": "Chris Tanev is out week-to-week with an upper-body injury, per the Maple Leafs",
@@ -159,6 +135,38 @@
   },
   {
    "at": 1792081456959,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://medicinehatnews.com/sports/national-sports/2026/10/15/leafs-defenceman-tanev-out-week-to-week-with-upper-body-injury/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Leafs defenceman Tanev out week-to-week with upper-body injury - Medicine Hat NewsMedicine Hat News"
+    },
+    {
+     "n": 3,
+     "url": "https://www.nhl.com/news/nhl-status-report-news-and-notes-october-15-2026",
+     "date": "2026-10-15T15:30:16.000Z",
+     "title": "NHL Status Report: Tanev week to week for Maple Leafs | NHL.com"
+    },
+    {
+     "n": 10,
+     "url": "https://www.nhl.com/news/toronto-maple-leafs-utah-mammoth-game-recap-october-13-2026",
+     "date": "2026-10-14T03:58:00.000Z",
+     "title": "Mammoth hold off late surge in 3rd by Maple Leafs | NHL.com"
+    },
+    {
+     "n": 12,
+     "url": "https://www.espn.com/nhl/game/_/gameId/401892500/maple-leafs-mammoth",
+     "date": "",
+     "title": "Mammoth 5-4 Maple Leafs (Oct 13, 2026) Final Score"
+    },
+    {
+     "n": 15,
+     "url": "https://www.nhl.com/mapleleafs/news/game-day-utah-oct-13-2026",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "GAME DAY @ UTAH | Oct. 13, 2026 | Toronto Maple Leafs"
+    }
+   ],
    "claims": [
     {
      "claim": "Tanev is out week-to-week with an upper-body injury, per the Maple Leafs, and that is the only duration stated",

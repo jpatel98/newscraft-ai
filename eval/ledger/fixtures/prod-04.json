@@ -2,125 +2,41 @@
  "id": "prod-04",
  "title": "Latest on kawhi and raptorsa",
  "origin": "prod",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.tsn.ca/nba/article/leonard-available-to-make-first-appearance-in-second-run-with-raptors-on-tuesday/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Kawhi Leonard available to make first appearance in second run with Toronto Raptors vs. Knicks"
-  },
-  {
-   "n": 2,
-   "url": "https://www.raptorshq.com/raptors-training-camp-and-pre-season/52050/shead-on-conditioning-im-way-ahead-of-where-i-was-my-first-two-years",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Shead on conditioning: Way ahead of where I was in my first two years | Raptors HQ"
-  },
-  {
-   "n": 4,
-   "url": "https://globalnews.ca/news/12098752/dick-faces-raptors-for-first-time-since-trade/",
-   "date": "2026-10-10T00:00:00.000Z",
-   "title": "Dick faces Raptors for first time since trade  | Globalnews.ca"
-  },
-  {
-   "n": 5,
-   "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-expected-to-make-pre-season-debut-against-knicks/",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Raptors' Kawhi Leonard expected to make pre-season debut against Knicks - Sportsnet.ca"
-  },
-  {
-   "n": 7,
-   "url": "https://www.cbc.ca/sports/basketball/nba/raptors-sign-centre-jamarion-sharp-9.7378189",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Raptors sign 7-foot-5 centre Jamarion Sharp | CBC Sports"
-  },
-  {
-   "n": 8,
-   "url": "https://hoopsnightly.com/injuries/430-kawhi-leonard-cleared",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Kawhi Leonard injury update: cleared to play"
-  },
-  {
-   "n": 10,
-   "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-wont-play-in-vancouver-vs-clippers/",
-   "date": "2026-10-09T00:00:00.000Z",
-   "title": "Raptors' Kawhi Leonard won't play in Vancouver vs. Clippers - Sportsnet.ca"
-  },
-  {
-   "n": 12,
-   "url": "https://whynba.com/raptors-kawhi-leonard-preseason-debut-knicks/",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Kawhi Leonard Set for First Raptors Game in Seven Years | WhyNBA"
-  },
-  {
-   "n": 14,
-   "url": "https://www.nbcsports.com/fantasy/basketball/player-news/2026-10-12/kawhi-leonard-to-make-preseason-debut-vs-knicks",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Kawhi Leonard to make preseason debut vs. Knicks - NBC Sports"
-  },
-  {
-   "n": 16,
-   "url": "https://www.cbc.ca/news/canada/toronto/supreme-court-bicycle-lanes-9.7378765",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Toronto cyclists ask Canada's top court to weigh in on Ford's bike lane removal plan | CBC Embedded-Only"
-  },
-  {
-   "n": 17,
-   "url": "https://www.nationalobserver.com/2026/10/13/news/cyclists-seek-revive-court-case-toronto-bike-lane-removals-begin",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Cyclists seek to revive court case as Toronto bike lane removals begin | Canada's National Observer: Climate News"
-  },
-  {
-   "n": 20,
-   "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Bike lane removals begin in Etobicoke"
-  },
-  {
-   "n": 21,
-   "url": "https://www.tps.ca/media-centre/news-releases/man-arrested-in-sexual-assault-investigation-blo/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Man Arrested in Sexual Assault Investigation,\nBloor Street West and The East Mall area,\nImage Released"
-  },
-  {
-   "n": 22,
-   "url": "https://www.cbc.ca/news/canada/toronto/toronto-2026-advance-voter-turnout-increase-9.7378763",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Advance voter turnout in Toronto election jumped nearly 72% from 2023 byelection: city | CBC News"
-  },
-  {
-   "n": 23,
-   "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
-  },
-  {
-   "n": 25,
-   "url": "https://www.tps.ca/media-centre/news-releases/67108/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Suspect Sought in Sexual Assault Investigation,\nEglinton Avenue East and Yonge Street area"
-  },
-  {
-   "n": 26,
-   "url": "https://toronto.citynews.ca/2026/10/13/more-than-a-third-of-torontonians-dont-feel-safe-in-their-own-neighbourhood-after-dark-poll/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "More than a third of Torontonians don't feel safe in their own neighbourhood after dark: poll"
-  },
-  {
-   "n": 27,
-   "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
-  },
-  {
-   "n": 28,
-   "url": "https://toronto.citynews.ca/2026/10/13/nearly-two-thirds-of-torontonians-support-bike-lane-removals-on-major-streets-by-the-province-poll/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Nearly two-thirds of Torontonians support bike lane removals on major streets by the province: poll"
-  }
- ],
  "turns": [
   {
    "at": 1791937601803,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tsn.ca/nba/article/leonard-available-to-make-first-appearance-in-second-run-with-raptors-on-tuesday/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Kawhi Leonard available to make first appearance in second run with Toronto Raptors vs. Knicks"
+    },
+    {
+     "n": 2,
+     "url": "https://www.raptorshq.com/raptors-training-camp-and-pre-season/52050/shead-on-conditioning-im-way-ahead-of-where-i-was-my-first-two-years",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Shead on conditioning: Way ahead of where I was in my first two years | Raptors HQ"
+    },
+    {
+     "n": 4,
+     "url": "https://globalnews.ca/news/12098752/dick-faces-raptors-for-first-time-since-trade/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Dick faces Raptors for first time since trade  | Globalnews.ca"
+    },
+    {
+     "n": 5,
+     "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-expected-to-make-pre-season-debut-against-knicks/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Raptors' Kawhi Leonard expected to make pre-season debut against Knicks - Sportsnet.ca"
+    },
+    {
+     "n": 7,
+     "url": "https://www.cbc.ca/sports/basketball/nba/raptors-sign-centre-jamarion-sharp-9.7378189",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Raptors sign 7-foot-5 centre Jamarion Sharp | CBC Sports"
+    }
+   ],
    "claims": [
     {
      "claim": "Rajakovic told reporters Monday that Kawhi Leonard will be available Tuesday against the New York Knicks",
@@ -248,6 +164,32 @@
   },
   {
    "at": 1791937673890,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tsn.ca/nba/article/leonard-available-to-make-first-appearance-in-second-run-with-raptors-on-tuesday/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Kawhi Leonard available to make first appearance in second run with Toronto Raptors vs. Knicks"
+    },
+    {
+     "n": 10,
+     "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-wont-play-in-vancouver-vs-clippers/",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "Raptors' Kawhi Leonard won't play in Vancouver vs. Clippers - Sportsnet.ca"
+    },
+    {
+     "n": 12,
+     "url": "https://whynba.com/raptors-kawhi-leonard-preseason-debut-knicks/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard Set for First Raptors Game in Seven Years | WhyNBA"
+    },
+    {
+     "n": 14,
+     "url": "https://www.nbcsports.com/fantasy/basketball/player-news/2026-10-12/kawhi-leonard-to-make-preseason-debut-vs-knicks",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard to make preseason debut vs. Knicks - NBC Sports"
+    }
+   ],
    "claims": [
     {
      "claim": "Leonard did not play in either of the Raptors' first two pre-season games",
@@ -318,6 +260,26 @@
   },
   {
    "at": 1791937732647,
+   "sources": [
+    {
+     "n": 10,
+     "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-wont-play-in-vancouver-vs-clippers/",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "Raptors' Kawhi Leonard won't play in Vancouver vs. Clippers - Sportsnet.ca"
+    },
+    {
+     "n": 12,
+     "url": "https://whynba.com/raptors-kawhi-leonard-preseason-debut-knicks/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard Set for First Raptors Game in Seven Years | WhyNBA"
+    },
+    {
+     "n": 14,
+     "url": "https://www.nbcsports.com/fantasy/basketball/player-news/2026-10-12/kawhi-leonard-to-make-preseason-debut-vs-knicks",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard to make preseason debut vs. Knicks - NBC Sports"
+    }
+   ],
    "claims": [
     {
      "claim": "Leonard did not play in either of the Raptors' first two pre-season games",
@@ -353,6 +315,44 @@
   },
   {
    "at": 1791937773433,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tsn.ca/nba/article/leonard-available-to-make-first-appearance-in-second-run-with-raptors-on-tuesday/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Kawhi Leonard available to make first appearance in second run with Toronto Raptors vs. Knicks"
+    },
+    {
+     "n": 4,
+     "url": "https://globalnews.ca/news/12098752/dick-faces-raptors-for-first-time-since-trade/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Dick faces Raptors for first time since trade  | Globalnews.ca"
+    },
+    {
+     "n": 5,
+     "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-expected-to-make-pre-season-debut-against-knicks/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Raptors' Kawhi Leonard expected to make pre-season debut against Knicks - Sportsnet.ca"
+    },
+    {
+     "n": 8,
+     "url": "https://hoopsnightly.com/injuries/430-kawhi-leonard-cleared",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard injury update: cleared to play"
+    },
+    {
+     "n": 12,
+     "url": "https://whynba.com/raptors-kawhi-leonard-preseason-debut-knicks/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard Set for First Raptors Game in Seven Years | WhyNBA"
+    },
+    {
+     "n": 14,
+     "url": "https://www.nbcsports.com/fantasy/basketball/player-news/2026-10-12/kawhi-leonard-to-make-preseason-debut-vs-knicks",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard to make preseason debut vs. Knicks - NBC Sports"
+    }
+   ],
    "claims": [
     {
      "claim": "Leonard made his pre-season debut Tuesday against the Knicks, expected in a limited role",
@@ -419,10 +419,31 @@
   },
   {
    "at": 1791937791034,
+   "sources": [],
    "claims": []
   },
   {
    "at": 1791938804943,
+   "sources": [
+    {
+     "n": 16,
+     "url": "https://www.cbc.ca/news/canada/toronto/supreme-court-bicycle-lanes-9.7378765",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto cyclists ask Canada's top court to weigh in on Ford's bike lane removal plan | CBC Embedded-Only"
+    },
+    {
+     "n": 17,
+     "url": "https://www.nationalobserver.com/2026/10/13/news/cyclists-seek-revive-court-case-toronto-bike-lane-removals-begin",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Cyclists seek to revive court case as Toronto bike lane removals begin | Canada's National Observer: Climate News"
+    },
+    {
+     "n": 20,
+     "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Bike lane removals begin in Etobicoke"
+    }
+   ],
    "claims": [
     {
      "claim": "Cycle Toronto and co-applicants announced Tuesday they will seek leave to appeal to the Supreme Court of Canada over Ontario's bike lane removal plan",
@@ -519,6 +540,86 @@
   },
   {
    "at": 1791943507552,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tsn.ca/nba/article/leonard-available-to-make-first-appearance-in-second-run-with-raptors-on-tuesday/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Kawhi Leonard available to make first appearance in second run with Toronto Raptors vs. Knicks"
+    },
+    {
+     "n": 12,
+     "url": "https://whynba.com/raptors-kawhi-leonard-preseason-debut-knicks/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard Set for First Raptors Game in Seven Years | WhyNBA"
+    },
+    {
+     "n": 14,
+     "url": "https://www.nbcsports.com/fantasy/basketball/player-news/2026-10-12/kawhi-leonard-to-make-preseason-debut-vs-knicks",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard to make preseason debut vs. Knicks - NBC Sports"
+    },
+    {
+     "n": 16,
+     "url": "https://www.cbc.ca/news/canada/toronto/supreme-court-bicycle-lanes-9.7378765",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto cyclists ask Canada's top court to weigh in on Ford's bike lane removal plan | CBC Embedded-Only"
+    },
+    {
+     "n": 17,
+     "url": "https://www.nationalobserver.com/2026/10/13/news/cyclists-seek-revive-court-case-toronto-bike-lane-removals-begin",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Cyclists seek to revive court case as Toronto bike lane removals begin | Canada's National Observer: Climate News"
+    },
+    {
+     "n": 20,
+     "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Bike lane removals begin in Etobicoke"
+    },
+    {
+     "n": 21,
+     "url": "https://www.tps.ca/media-centre/news-releases/man-arrested-in-sexual-assault-investigation-blo/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Man Arrested in Sexual Assault Investigation,\nBloor Street West and The East Mall area,\nImage Released"
+    },
+    {
+     "n": 22,
+     "url": "https://www.cbc.ca/news/canada/toronto/toronto-2026-advance-voter-turnout-increase-9.7378763",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Advance voter turnout in Toronto election jumped nearly 72% from 2023 byelection: city | CBC News"
+    },
+    {
+     "n": 23,
+     "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 25,
+     "url": "https://www.tps.ca/media-centre/news-releases/67108/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Suspect Sought in Sexual Assault Investigation,\nEglinton Avenue East and Yonge Street area"
+    },
+    {
+     "n": 26,
+     "url": "https://toronto.citynews.ca/2026/10/13/more-than-a-third-of-torontonians-dont-feel-safe-in-their-own-neighbourhood-after-dark-poll/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "More than a third of Torontonians don't feel safe in their own neighbourhood after dark: poll"
+    },
+    {
+     "n": 27,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
+    },
+    {
+     "n": 28,
+     "url": "https://toronto.citynews.ca/2026/10/13/nearly-two-thirds-of-torontonians-support-bike-lane-removals-on-major-streets-by-the-province-poll/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Nearly two-thirds of Torontonians support bike lane removals on major streets by the province: poll"
+    }
+   ],
    "claims": [
     {
      "claim": "Cycle Toronto and co-applicants announced Tuesday they will seek leave to appeal to the Supreme Court of Canada over Ontario's bike lane removal plan",

@@ -2,137 +2,59 @@
  "id": "gen-07",
  "title": "What do we know about Tropical Storm Rachel",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://cimss.ssec.wisc.edu/satellite-blog/archives/72623",
-   "date": "2026-10-11T21:33:45.000Z",
-   "title": "Post-tropical Cyclone Rachel Makes Landfall in Baja California, Impacts Southeast US — CIMSS Satellite Blog, CIMSS"
-  },
-  {
-   "n": 2,
-   "url": "https://www.bajacalifornia.gob.mx/coordinaciondegabinete/Prensa/NoticiaCompleta/27935",
-   "date": "2026-10-08T00:00:00.000Z",
-   "title": "Coordinación de Gabinete de Baja California"
-  },
-  {
-   "n": 3,
-   "url": "https://smn.conagua.gob.mx/files/pdfs/comunicados-de-prensa/Aviso%20Meteorologico%20103-26.pdf",
-   "date": "",
-   "title": "El huracán Simon se localiza a 95 km al oeste de Manzanillo ..."
-  },
-  {
-   "n": 4,
-   "url": "https://www.nhc.noaa.gov/mobile/text/refresh/MIATCDEP3+html/110857.shtml",
-   "date": "2026-10-11T00:00:00.000Z",
-   "title": "Post-Tropical Cyclone Rachel Forecast Discussion"
-  },
-  {
-   "n": 5,
-   "url": "https://en.wikipedia.org/wiki/Hurricane_Rachel_(2026)",
-   "date": "",
-   "title": "Hurricane Rachel (2026)"
-  },
-  {
-   "n": 6,
-   "url": "https://www.nhc.noaa.gov/mobile/text/refresh/MIATCPEP3+html/272036.shtml",
-   "date": "",
-   "title": "Post-Tropical Cyclone Rachel Public Advisory"
-  },
-  {
-   "n": 7,
-   "url": "https://www.infobae.com/america/agencias/2026/10/11/rachel-toca-tierra-en-baja-california-noroeste-de-mexico-con-fuertes-lluvias-y-va-a-eeuu/",
-   "date": "2026-10-11T16:31:53.000Z",
-   "title": "Rachel toca tierra en Baja California, noroeste de México, con fuertes lluvias y va a EEUU - Infobae"
-  },
-  {
-   "n": 8,
-   "url": "https://hojaderutadigital.mx/en-las-proximas-horas-rachel-entrara-a-tierra-en-la-costa-occidental-de-baja-california-como-ciclon-post-tropical/",
-   "date": "2026-10-11T00:00:00.000Z",
-   "title": "En las próximas horas, Rachel entrará a tierra en la costa occidental de Baja California como ciclón post-tropical"
-  },
-  {
-   "n": 9,
-   "url": "https://elpais.com/mexico/2026-10-14/baja-california-eleva-a-ocho-el-numero-de-muertos-por-el-ciclon-rachel.html",
-   "date": "2026-10-14T23:59:52.000Z",
-   "title": "Baja California eleva a ocho el número de muertos por el ciclón ‘Rachel’ | EL PAÍS México"
-  },
-  {
-   "n": 11,
-   "url": "https://www.info7.mx/nacional/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/3993305990",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Sube a ocho la cifra de muertos por Rachel en Baja California"
-  },
-  {
-   "n": 12,
-   "url": "https://www.europapress.es/internacional/noticia-ascienden-ocho-muertos-ellos-cuatro-menores-paso-ciclon-rachel-mexico-20261015040228.html",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Ascienden a ocho los muertos, entre ellos cuatro menores, por el paso del ciclón 'Rachel' en México"
-  },
-  {
-   "n": 13,
-   "url": "https://www.thedailystar.net/news/world/news/death-toll-tropical-storm-rachel-rises-8-mexico-4299161",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Mexico Tropical Storm Rachel Death Toll | Death toll from Tropical Storm Rachel rises to 8 in Mexico | The Daily Star"
-  },
-  {
-   "n": 14,
-   "url": "https://www.nst.com.my/world/world/2026/10/1556019/death-toll-tropical-storm-rachel-rises-8-mexico",
-   "date": "",
-   "title": "Death toll from Tropical Storm Rachel rises to 8 in Mexico"
-  },
-  {
-   "n": 16,
-   "url": "https://www.jornada.com.mx/noticia/2026/10/15/estados/son-nueve-muertos-en-ensenada-por-remanentes-de-rachel",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "La Jornada - Son nueve muertos en Ensenada por remanentes de 'Rachel'"
-  },
-  {
-   "n": 21,
-   "url": "https://grupoanimal.mx/baja-california/sociedad/aumenta-cifra-muertos-rachel-ensenada-buscan-personas",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Sube a 8 cifra de muertos por Rachel en Ensenada; buscan a cuatro personas más | Grupo Animal"
-  },
-  {
-   "n": 22,
-   "url": "https://www.pan.senado.gob.mx/2026/10/senador-jose-maximo-garcia-lopez-al-referirse-a-los-danos-causados-en-baja-california-por-el-huracan-rachel/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Senador José Máximo García López, al referirse a los daños causados en Baja California, por el huracán “Rachel” | PAN SENADO 2026"
-  },
-  {
-   "n": 23,
-   "url": "https://www.elhorizonte.mx/nacional/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/3179278571",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Sube a ocho la cifra de muertos por Rachel en Baja California"
-  },
-  {
-   "n": 25,
-   "url": "https://lanoticiaregional.com.mx/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Sube a ocho la cifra de muertos por ‘Rachel’ en Baja California - La Noticia"
-  },
-  {
-   "n": 27,
-   "url": "https://www.eluniversal.com.mx/estados/tormenta-rachel-deja-8-muertos-en-baja-california-alcaldesa-de-ensenada-solicita-declaratoria-de-desastre/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Tormenta Rachel deja 8 muertos en Baja California"
-  },
-  {
-   "n": 28,
-   "url": "https://puntonorte.info/2026/10/14/encuentran-sin-vida-a-rosa-maria-la-novena-victima-mortal-de-rachel-en-ensenada/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Encuentran sin vida a Rosa María, la novena víctima mortal de Rachel en Ensenada - Punto Norte"
-  },
-  {
-   "n": 29,
-   "url": "https://www.jornada.com.mx/2026/10/14/estados/026n2est",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "La Jornada: Son 8 decesos en Ensenada por Rachel; continúa búsqueda de dos desaparecidos"
-  }
- ],
  "turns": [
   {
    "at": 1792081392264,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://cimss.ssec.wisc.edu/satellite-blog/archives/72623",
+     "date": "2026-10-11T21:33:45.000Z",
+     "title": "Post-tropical Cyclone Rachel Makes Landfall in Baja California, Impacts Southeast US — CIMSS Satellite Blog, CIMSS"
+    },
+    {
+     "n": 2,
+     "url": "https://www.bajacalifornia.gob.mx/coordinaciondegabinete/Prensa/NoticiaCompleta/27935",
+     "date": "2026-10-08T00:00:00.000Z",
+     "title": "Coordinación de Gabinete de Baja California"
+    },
+    {
+     "n": 3,
+     "url": "https://smn.conagua.gob.mx/files/pdfs/comunicados-de-prensa/Aviso%20Meteorologico%20103-26.pdf",
+     "date": "",
+     "title": "El huracán Simon se localiza a 95 km al oeste de Manzanillo ..."
+    },
+    {
+     "n": 4,
+     "url": "https://www.nhc.noaa.gov/mobile/text/refresh/MIATCDEP3+html/110857.shtml",
+     "date": "2026-10-11T00:00:00.000Z",
+     "title": "Post-Tropical Cyclone Rachel Forecast Discussion"
+    },
+    {
+     "n": 5,
+     "url": "https://en.wikipedia.org/wiki/Hurricane_Rachel_(2026)",
+     "date": "",
+     "title": "Hurricane Rachel (2026)"
+    },
+    {
+     "n": 6,
+     "url": "https://www.nhc.noaa.gov/mobile/text/refresh/MIATCPEP3+html/272036.shtml",
+     "date": "",
+     "title": "Post-Tropical Cyclone Rachel Public Advisory"
+    },
+    {
+     "n": 7,
+     "url": "https://www.infobae.com/america/agencias/2026/10/11/rachel-toca-tierra-en-baja-california-noroeste-de-mexico-con-fuertes-lluvias-y-va-a-eeuu/",
+     "date": "2026-10-11T16:31:53.000Z",
+     "title": "Rachel toca tierra en Baja California, noroeste de México, con fuertes lluvias y va a EEUU - Infobae"
+    },
+    {
+     "n": 8,
+     "url": "https://hojaderutadigital.mx/en-las-proximas-horas-rachel-entrara-a-tierra-en-la-costa-occidental-de-baja-california-como-ciclon-post-tropical/",
+     "date": "2026-10-11T00:00:00.000Z",
+     "title": "En las próximas horas, Rachel entrará a tierra en la costa occidental de Baja California como ciclón post-tropical"
+    }
+   ],
    "claims": [
     {
      "claim": "Rachel made landfall in far northern Baja California on the evening of Oct 10 as a weakened tropical storm",
@@ -258,6 +180,38 @@
   },
   {
    "at": 1792081406263,
+   "sources": [
+    {
+     "n": 9,
+     "url": "https://elpais.com/mexico/2026-10-14/baja-california-eleva-a-ocho-el-numero-de-muertos-por-el-ciclon-rachel.html",
+     "date": "2026-10-14T23:59:52.000Z",
+     "title": "Baja California eleva a ocho el número de muertos por el ciclón ‘Rachel’ | EL PAÍS México"
+    },
+    {
+     "n": 11,
+     "url": "https://www.info7.mx/nacional/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/3993305990",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Sube a ocho la cifra de muertos por Rachel en Baja California"
+    },
+    {
+     "n": 12,
+     "url": "https://www.europapress.es/internacional/noticia-ascienden-ocho-muertos-ellos-cuatro-menores-paso-ciclon-rachel-mexico-20261015040228.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ascienden a ocho los muertos, entre ellos cuatro menores, por el paso del ciclón 'Rachel' en México"
+    },
+    {
+     "n": 13,
+     "url": "https://www.thedailystar.net/news/world/news/death-toll-tropical-storm-rachel-rises-8-mexico-4299161",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Mexico Tropical Storm Rachel Death Toll | Death toll from Tropical Storm Rachel rises to 8 in Mexico | The Daily Star"
+    },
+    {
+     "n": 14,
+     "url": "https://www.nst.com.my/world/world/2026/10/1556019/death-toll-tropical-storm-rachel-rises-8-mexico",
+     "date": "",
+     "title": "Death toll from Tropical Storm Rachel rises to 8 in Mexico"
+    }
+   ],
    "claims": [
     {
      "claim": "Mexico's death toll from Tropical Storm Rachel rose to eight, all in Ensenada municipality, four of them minors, per General Daniel Gallegos Acevedo, commander of the Second Military Zone",
@@ -405,6 +359,50 @@
   },
   {
    "at": 1792081420784,
+   "sources": [
+    {
+     "n": 9,
+     "url": "https://elpais.com/mexico/2026-10-14/baja-california-eleva-a-ocho-el-numero-de-muertos-por-el-ciclon-rachel.html",
+     "date": "2026-10-14T23:59:52.000Z",
+     "title": "Baja California eleva a ocho el número de muertos por el ciclón ‘Rachel’ | EL PAÍS México"
+    },
+    {
+     "n": 11,
+     "url": "https://www.info7.mx/nacional/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/3993305990",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Sube a ocho la cifra de muertos por Rachel en Baja California"
+    },
+    {
+     "n": 12,
+     "url": "https://www.europapress.es/internacional/noticia-ascienden-ocho-muertos-ellos-cuatro-menores-paso-ciclon-rachel-mexico-20261015040228.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ascienden a ocho los muertos, entre ellos cuatro menores, por el paso del ciclón 'Rachel' en México"
+    },
+    {
+     "n": 13,
+     "url": "https://www.thedailystar.net/news/world/news/death-toll-tropical-storm-rachel-rises-8-mexico-4299161",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Mexico Tropical Storm Rachel Death Toll | Death toll from Tropical Storm Rachel rises to 8 in Mexico | The Daily Star"
+    },
+    {
+     "n": 14,
+     "url": "https://www.nst.com.my/world/world/2026/10/1556019/death-toll-tropical-storm-rachel-rises-8-mexico",
+     "date": "",
+     "title": "Death toll from Tropical Storm Rachel rises to 8 in Mexico"
+    },
+    {
+     "n": 16,
+     "url": "https://www.jornada.com.mx/noticia/2026/10/15/estados/son-nueve-muertos-en-ensenada-por-remanentes-de-rachel",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "La Jornada - Son nueve muertos en Ensenada por remanentes de 'Rachel'"
+    },
+    {
+     "n": 21,
+     "url": "https://grupoanimal.mx/baja-california/sociedad/aumenta-cifra-muertos-rachel-ensenada-buscan-personas",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Sube a 8 cifra de muertos por Rachel en Ensenada; buscan a cuatro personas más | Grupo Animal"
+    }
+   ],
    "claims": [
     {
      "claim": "Mexico's death toll from Rachel rose to nine, four of them minors, all in Ensenada municipality, per the Baja California government and federal authorities",
@@ -528,6 +526,80 @@
   },
   {
    "at": 1792081432269,
+   "sources": [
+    {
+     "n": 9,
+     "url": "https://elpais.com/mexico/2026-10-14/baja-california-eleva-a-ocho-el-numero-de-muertos-por-el-ciclon-rachel.html",
+     "date": "2026-10-14T23:59:52.000Z",
+     "title": "Baja California eleva a ocho el número de muertos por el ciclón ‘Rachel’ | EL PAÍS México"
+    },
+    {
+     "n": 11,
+     "url": "https://www.info7.mx/nacional/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/3993305990",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Sube a ocho la cifra de muertos por Rachel en Baja California"
+    },
+    {
+     "n": 12,
+     "url": "https://www.europapress.es/internacional/noticia-ascienden-ocho-muertos-ellos-cuatro-menores-paso-ciclon-rachel-mexico-20261015040228.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ascienden a ocho los muertos, entre ellos cuatro menores, por el paso del ciclón 'Rachel' en México"
+    },
+    {
+     "n": 13,
+     "url": "https://www.thedailystar.net/news/world/news/death-toll-tropical-storm-rachel-rises-8-mexico-4299161",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Mexico Tropical Storm Rachel Death Toll | Death toll from Tropical Storm Rachel rises to 8 in Mexico | The Daily Star"
+    },
+    {
+     "n": 14,
+     "url": "https://www.nst.com.my/world/world/2026/10/1556019/death-toll-tropical-storm-rachel-rises-8-mexico",
+     "date": "",
+     "title": "Death toll from Tropical Storm Rachel rises to 8 in Mexico"
+    },
+    {
+     "n": 16,
+     "url": "https://www.jornada.com.mx/noticia/2026/10/15/estados/son-nueve-muertos-en-ensenada-por-remanentes-de-rachel",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "La Jornada - Son nueve muertos en Ensenada por remanentes de 'Rachel'"
+    },
+    {
+     "n": 22,
+     "url": "https://www.pan.senado.gob.mx/2026/10/senador-jose-maximo-garcia-lopez-al-referirse-a-los-danos-causados-en-baja-california-por-el-huracan-rachel/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Senador José Máximo García López, al referirse a los daños causados en Baja California, por el huracán “Rachel” | PAN SENADO 2026"
+    },
+    {
+     "n": 23,
+     "url": "https://www.elhorizonte.mx/nacional/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/3179278571",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Sube a ocho la cifra de muertos por Rachel en Baja California"
+    },
+    {
+     "n": 25,
+     "url": "https://lanoticiaregional.com.mx/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Sube a ocho la cifra de muertos por ‘Rachel’ en Baja California - La Noticia"
+    },
+    {
+     "n": 27,
+     "url": "https://www.eluniversal.com.mx/estados/tormenta-rachel-deja-8-muertos-en-baja-california-alcaldesa-de-ensenada-solicita-declaratoria-de-desastre/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Tormenta Rachel deja 8 muertos en Baja California"
+    },
+    {
+     "n": 28,
+     "url": "https://puntonorte.info/2026/10/14/encuentran-sin-vida-a-rosa-maria-la-novena-victima-mortal-de-rachel-en-ensenada/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Encuentran sin vida a Rosa María, la novena víctima mortal de Rachel en Ensenada - Punto Norte"
+    },
+    {
+     "n": 29,
+     "url": "https://www.jornada.com.mx/2026/10/14/estados/026n2est",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "La Jornada: Son 8 decesos en Ensenada por Rachel; continúa búsqueda de dos desaparecidos"
+    }
+   ],
    "claims": [
     {
      "claim": "Mexico's death toll from Rachel rose to nine, four of them minors, all in Ensenada municipality, per the Baja California government and federal authorities",

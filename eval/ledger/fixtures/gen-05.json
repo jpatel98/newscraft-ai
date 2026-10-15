@@ -2,95 +2,35 @@
  "id": "gen-05",
  "title": "What do we know about the Pentagon raising",
  "origin": "generated",
- "sources": [
-  {
-   "n": 2,
-   "url": "https://www.washingtonpost.com/national-security/2026/10/10/pentagon-raises-official-toll-troops-killed-during-war-with-iran-21/",
-   "date": "2026-10-10T00:00:00.000Z",
-   "title": "Pentagon raises official toll of troops who died during war with Iran to 21 - The Washington Post"
-  },
-  {
-   "n": 5,
-   "url": "https://www.nytimes.com/2026/10/10/us/politics/pentagon-casualties-iran-war.html",
-   "date": "",
-   "title": "Pentagon Again Increases Number of U.S. Casualties in ..."
-  },
-  {
-   "n": 7,
-   "url": "https://en.wikipedia.org/wiki/Casualties_of_the_2026_Iran_war",
-   "date": "",
-   "title": "Casualties of the 2026 Iran war"
-  },
-  {
-   "n": 8,
-   "url": "https://www.stripes.com/theaters/middle_east/2026-10-10/pentagon-death-toll-iran-war-23114546.html",
-   "date": "2026-10-10T00:00:00.000Z",
-   "title": "Pentagon raises official death toll from Iran war to 21 | Stars and Stripes"
-  },
-  {
-   "n": 9,
-   "url": "https://www.washingtonpost.com/national-security/2026/09/18/more-us-troops-have-died-amid-iran-war-than-pentagon-has-disclosed-publicly/",
-   "date": "2026-09-18T00:00:00.000Z",
-   "title": "More U.S. troops have died amid Iran war than Pentagon has disclosed publicly - The Washington Post"
-  },
-  {
-   "n": 10,
-   "url": "https://thehill.com/policy/defense/6140821-pentagon-updates-iran-death-tally/",
-   "date": "2026-10-10T21:59:35.000Z",
-   "title": "Pentagon raises Iran war's American death toll to 21"
-  },
-  {
-   "n": 11,
-   "url": "https://defensescoop.com/2026/10/09/dcas-defense-casualty-analysis-system-changes/",
-   "date": "2026-10-09T20:10:13.000Z",
-   "title": "Pentagon moving to modify its online portal for reporting U.S. military casualties | DefenseScoop"
-  },
-  {
-   "n": 12,
-   "url": "https://www.washingtonpost.com/politics/2026/09/22/pentagon-adds-one-death-tally-troop-fatalities-amid-iran-war/",
-   "date": "2026-09-22T00:00:00.000Z",
-   "title": "Another U.S. service member dies amid Iran war, Pentagon tally shows - The Washington Post"
-  },
-  {
-   "n": 13,
-   "url": "https://www.military.com/pentagon-updates-protocols-tracking-iran-war-related-deaths-of-us-service-members",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Pentagon Updates Protocols Tracking Iran War-Related Deaths of US Service Members"
-  },
-  {
-   "n": 15,
-   "url": "https://www.defense.gov/News/Feature-Stories/Story/Article/2065561/dod-official-says-34-service-members-injured-by-iranian-blast/",
-   "date": "",
-   "title": "DOD Official Says 34 Service Members Injured by Iranian Blast"
-  },
-  {
-   "n": 16,
-   "url": "https://taskandpurpose.com/news/pentagon-iran-war-death-toll-21/",
-   "date": "2026-10-10T00:00:00.000Z",
-   "title": "Pentagon raises Iran war death toll to 21"
-  },
-  {
-   "n": 17,
-   "url": "https://www.defense.gov/News/Releases/Release/Article/2874042/defense-department-launches-memorial-for-service-members/",
-   "date": "",
-   "title": "Defense Department Launches Memorial for Service Members"
-  },
-  {
-   "n": 18,
-   "url": "https://www.seattletimes.com/nation-world/pentagon-raises-official-toll-of-troops-who-died-during-war-with-iran-to-21/",
-   "date": "2026-10-10T18:57:43.000Z",
-   "title": "Pentagon raises official toll of troops who died during war with Iran to 21 | The Seattle Times"
-  },
-  {
-   "n": 19,
-   "url": "https://www.upi.com/Top_News/US/2026/10/10/pentagon-death-toll-iran-war/3431791673489/",
-   "date": "2026-10-10T00:00:00.000Z",
-   "title": "Pentagon updates U.S. death toll of Iran war to 21 - UPI.com"
-  }
- ],
  "turns": [
   {
    "at": 1792081305348,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.washingtonpost.com/national-security/2026/10/10/pentagon-raises-official-toll-troops-killed-during-war-with-iran-21/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official toll of troops who died during war with Iran to 21 - The Washington Post"
+    },
+    {
+     "n": 5,
+     "url": "https://www.nytimes.com/2026/10/10/us/politics/pentagon-casualties-iran-war.html",
+     "date": "",
+     "title": "Pentagon Again Increases Number of U.S. Casualties in ..."
+    },
+    {
+     "n": 7,
+     "url": "https://en.wikipedia.org/wiki/Casualties_of_the_2026_Iran_war",
+     "date": "",
+     "title": "Casualties of the 2026 Iran war"
+    },
+    {
+     "n": 8,
+     "url": "https://www.stripes.com/theaters/middle_east/2026-10-10/pentagon-death-toll-iran-war-23114546.html",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official death toll from Iran war to 21 | Stars and Stripes"
+    }
+   ],
    "claims": [
     {
      "claim": "The Pentagon raised its official count of U.S. troops killed in Iran war operations to 21, up from 18, in a late Friday database update",
@@ -200,6 +140,56 @@
   },
   {
    "at": 1792081315285,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.washingtonpost.com/national-security/2026/10/10/pentagon-raises-official-toll-troops-killed-during-war-with-iran-21/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official toll of troops who died during war with Iran to 21 - The Washington Post"
+    },
+    {
+     "n": 5,
+     "url": "https://www.nytimes.com/2026/10/10/us/politics/pentagon-casualties-iran-war.html",
+     "date": "",
+     "title": "Pentagon Again Increases Number of U.S. Casualties in ..."
+    },
+    {
+     "n": 8,
+     "url": "https://www.stripes.com/theaters/middle_east/2026-10-10/pentagon-death-toll-iran-war-23114546.html",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official death toll from Iran war to 21 | Stars and Stripes"
+    },
+    {
+     "n": 9,
+     "url": "https://www.washingtonpost.com/national-security/2026/09/18/more-us-troops-have-died-amid-iran-war-than-pentagon-has-disclosed-publicly/",
+     "date": "2026-09-18T00:00:00.000Z",
+     "title": "More U.S. troops have died amid Iran war than Pentagon has disclosed publicly - The Washington Post"
+    },
+    {
+     "n": 10,
+     "url": "https://thehill.com/policy/defense/6140821-pentagon-updates-iran-death-tally/",
+     "date": "2026-10-10T21:59:35.000Z",
+     "title": "Pentagon raises Iran war's American death toll to 21"
+    },
+    {
+     "n": 11,
+     "url": "https://defensescoop.com/2026/10/09/dcas-defense-casualty-analysis-system-changes/",
+     "date": "2026-10-09T20:10:13.000Z",
+     "title": "Pentagon moving to modify its online portal for reporting U.S. military casualties | DefenseScoop"
+    },
+    {
+     "n": 12,
+     "url": "https://www.washingtonpost.com/politics/2026/09/22/pentagon-adds-one-death-tally-troop-fatalities-amid-iran-war/",
+     "date": "2026-09-22T00:00:00.000Z",
+     "title": "Another U.S. service member dies amid Iran war, Pentagon tally shows - The Washington Post"
+    },
+    {
+     "n": 13,
+     "url": "https://www.military.com/pentagon-updates-protocols-tracking-iran-war-related-deaths-of-us-service-members",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Pentagon Updates Protocols Tracking Iran War-Related Deaths of US Service Members"
+    }
+   ],
    "claims": [
     {
      "claim": "The disclosed Pentagon death toll stood at 19 as of Sept. 22-23, 2026, after one death was added",
@@ -291,6 +281,50 @@
   },
   {
    "at": 1792081326463,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.washingtonpost.com/national-security/2026/10/10/pentagon-raises-official-toll-troops-killed-during-war-with-iran-21/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official toll of troops who died during war with Iran to 21 - The Washington Post"
+    },
+    {
+     "n": 5,
+     "url": "https://www.nytimes.com/2026/10/10/us/politics/pentagon-casualties-iran-war.html",
+     "date": "",
+     "title": "Pentagon Again Increases Number of U.S. Casualties in ..."
+    },
+    {
+     "n": 8,
+     "url": "https://www.stripes.com/theaters/middle_east/2026-10-10/pentagon-death-toll-iran-war-23114546.html",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official death toll from Iran war to 21 | Stars and Stripes"
+    },
+    {
+     "n": 9,
+     "url": "https://www.washingtonpost.com/national-security/2026/09/18/more-us-troops-have-died-amid-iran-war-than-pentagon-has-disclosed-publicly/",
+     "date": "2026-09-18T00:00:00.000Z",
+     "title": "More U.S. troops have died amid Iran war than Pentagon has disclosed publicly - The Washington Post"
+    },
+    {
+     "n": 10,
+     "url": "https://thehill.com/policy/defense/6140821-pentagon-updates-iran-death-tally/",
+     "date": "2026-10-10T21:59:35.000Z",
+     "title": "Pentagon raises Iran war's American death toll to 21"
+    },
+    {
+     "n": 11,
+     "url": "https://defensescoop.com/2026/10/09/dcas-defense-casualty-analysis-system-changes/",
+     "date": "2026-10-09T20:10:13.000Z",
+     "title": "Pentagon moving to modify its online portal for reporting U.S. military casualties | DefenseScoop"
+    },
+    {
+     "n": 13,
+     "url": "https://www.military.com/pentagon-updates-protocols-tracking-iran-war-related-deaths-of-us-service-members",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Pentagon Updates Protocols Tracking Iran War-Related Deaths of US Service Members"
+    }
+   ],
    "claims": [
     {
      "claim": "The Pentagon raised its official count of U.S. troops killed in Iran war operations to 21, up from 18, in a late Friday database update",
@@ -402,6 +436,38 @@
   },
   {
    "at": 1792081332612,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.washingtonpost.com/national-security/2026/10/10/pentagon-raises-official-toll-troops-killed-during-war-with-iran-21/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official toll of troops who died during war with Iran to 21 - The Washington Post"
+    },
+    {
+     "n": 5,
+     "url": "https://www.nytimes.com/2026/10/10/us/politics/pentagon-casualties-iran-war.html",
+     "date": "",
+     "title": "Pentagon Again Increases Number of U.S. Casualties in ..."
+    },
+    {
+     "n": 8,
+     "url": "https://www.stripes.com/theaters/middle_east/2026-10-10/pentagon-death-toll-iran-war-23114546.html",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official death toll from Iran war to 21 | Stars and Stripes"
+    },
+    {
+     "n": 16,
+     "url": "https://taskandpurpose.com/news/pentagon-iran-war-death-toll-21/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises Iran war death toll to 21"
+    },
+    {
+     "n": 19,
+     "url": "https://www.upi.com/Top_News/US/2026/10/10/pentagon-death-toll-iran-war/3431791673489/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon updates U.S. death toll of Iran war to 21 - UPI.com"
+    }
+   ],
    "claims": [
     {
      "claim": "The published Pentagon death toll remains 21 killed; no revision above 21 was found",

@@ -2,59 +2,59 @@
  "id": "prod-05",
  "title": "Top stories today go now",
  "origin": "prod",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.tps.ca/media-centre/news-releases/67124/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Man Arrested in Hate-Motivated Assault with a Weapon Investigation, \nDanforth Avenue and Logan Avenue area"
-  },
-  {
-   "n": 2,
-   "url": "https://news.ontario.ca/en/statement/1008131/us-softwood-lumber-duties-continue-to-increase-costs-for-american-and-canadian-families",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "U.S. Softwood Lumber Duties Continue to Increase Costs for American and Canadian Families | Ontario Newsroom"
-  },
-  {
-   "n": 3,
-   "url": "https://www.cp24.com/video/2026/10/14/chow-has-no-plan-to-improve-bike-lanes-bradford-says-he-wants-to-expand-cycling-infrastructure/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Chow has ‘no plan’ to improve bike lanes, Bradford says he wants to ‘expand cycling infrastructure’ – CP24"
-  },
-  {
-   "n": 4,
-   "url": "https://www.cbc.ca/news/canada/toronto/3rd-caf-member-charged-toronto-kidnapping-9.7380360",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "3rd member of Canadian Armed Forces charged in kidnapping probe: Toronto police | CBC News"
-  },
-  {
-   "n": 5,
-   "url": "https://www.tps.ca/media-centre/news-releases/67123/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Woman Arrested at Demonstration,\nLothian Avenue and Bloor Street West area"
-  },
-  {
-   "n": 6,
-   "url": "https://www.cbc.ca/news/canada/toronto/toronto-mayoral-race-endorsements-9.7379352",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Can Blue Rodeo or Rush swing the balance of power in Toronto? How endorsements affect the mayoral race | CBC News"
-  },
-  {
-   "n": 7,
-   "url": "https://www.tps.ca/media-centre/news-releases/67121/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Missing Youth,\nSheppard Avenue East and Meadowvale Road area"
-  },
-  {
-   "n": 8,
-   "url": "https://torontosun.com/uncategorized/news-of-the-day-oct-14-2026",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "News of the day: Joni Mitchell becomes a U.S. citizen, and more | Toronto Sun"
-  }
- ],
  "turns": [
   {
    "at": 1792024215326,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/news-releases/67124/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Man Arrested in Hate-Motivated Assault with a Weapon Investigation, \nDanforth Avenue and Logan Avenue area"
+    },
+    {
+     "n": 2,
+     "url": "https://news.ontario.ca/en/statement/1008131/us-softwood-lumber-duties-continue-to-increase-costs-for-american-and-canadian-families",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "U.S. Softwood Lumber Duties Continue to Increase Costs for American and Canadian Families | Ontario Newsroom"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cp24.com/video/2026/10/14/chow-has-no-plan-to-improve-bike-lanes-bradford-says-he-wants-to-expand-cycling-infrastructure/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Chow has ‘no plan’ to improve bike lanes, Bradford says he wants to ‘expand cycling infrastructure’ – CP24"
+    },
+    {
+     "n": 4,
+     "url": "https://www.cbc.ca/news/canada/toronto/3rd-caf-member-charged-toronto-kidnapping-9.7380360",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "3rd member of Canadian Armed Forces charged in kidnapping probe: Toronto police | CBC News"
+    },
+    {
+     "n": 5,
+     "url": "https://www.tps.ca/media-centre/news-releases/67123/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Woman Arrested at Demonstration,\nLothian Avenue and Bloor Street West area"
+    },
+    {
+     "n": 6,
+     "url": "https://www.cbc.ca/news/canada/toronto/toronto-mayoral-race-endorsements-9.7379352",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Can Blue Rodeo or Rush swing the balance of power in Toronto? How endorsements affect the mayoral race | CBC News"
+    },
+    {
+     "n": 7,
+     "url": "https://www.tps.ca/media-centre/news-releases/67121/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Missing Youth,\nSheppard Avenue East and Meadowvale Road area"
+    },
+    {
+     "n": 8,
+     "url": "https://torontosun.com/uncategorized/news-of-the-day-oct-14-2026",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "News of the day: Joni Mitchell becomes a U.S. citizen, and more | Toronto Sun"
+    }
+   ],
    "claims": [
     {
      "claim": "Nina Thi Thi Tran, 25, of Hamilton, was arrested at a demonstration near Lothian Avenue and Bloor Street West on Oct. 14, 2026, charged with obstruct peace officer and mischief under $5,000.",

@@ -2,101 +2,47 @@
  "id": "gen-12",
  "title": "What do we know about Toronto cyclists asking",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.theglobeandmail.com/canada/toronto/article-supreme-court-toronto-bike-lanes/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Cyclists ask Supreme Court to weigh in on Toronto bike lane removal plan - The Globe and Mail"
-  },
-  {
-   "n": 2,
-   "url": "https://thelegalcircle.ca/news/toronto-bike-lanes-supreme-court-leave-charter/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Toronto Bike-Lane Fight Heads Toward Supreme Court Leave Bid"
-  },
-  {
-   "n": 3,
-   "url": "https://www.theglobeandmail.com/canada/article-cycling-advocates-rally-petition-supreme-court-to-rule-on-toronto-bike/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Cycling advocates rally, petition Supreme Court to rule on Toronto bike-lane removal - The Globe and Mail"
-  },
-  {
-   "n": 4,
-   "url": "https://www.thecanadianpressnews.ca/politics/toronto-cyclists-ask-canadas-top-court-to-weigh-in-on-fords-bike-lane-removal-plan/article_5f336269-e0ee-5966-acc7-d03a39c21ca3.html",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Toronto cyclists ask Canada's top court to weigh in on Ford's bike lane removal plan | Politics | thecanadianpressnews.ca"
-  },
-  {
-   "n": 5,
-   "url": "https://cyclingmagazine.ca/sections/news/toronto-bike-lane-advocates-take-fight-to-supreme-court/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Toronto bike lane advocates take fight to Supreme Court - Canadian Cycling Magazine"
-  },
-  {
-   "n": 6,
-   "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Bike lane removals begin in Etobicoke"
-  },
-  {
-   "n": 7,
-   "url": "https://scc-csc.ca/media-medias/new-nouveautes/",
-   "date": "2026-09-25T00:00:00.000Z",
-   "title": "Supreme Court of Canada | What’s new"
-  },
-  {
-   "n": 8,
-   "url": "https://www.toronto.ca/news/?nrkey=E215AE36087B0EEF8525854C006CD0A4",
-   "date": "2026-10-09T00:00:00.000Z",
-   "title": "News Releases & Other Resources – City of Toronto"
-  },
-  {
-   "n": 9,
-   "url": "https://www.cbc.ca/news/canada/toronto/cyclist-protest-blocks-bike-lane-removal-9.7379928",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Cyclist protest blocks province from removing bike lane in Etobicoke | CBC News"
-  },
-  {
-   "n": 10,
-   "url": "https://toronto.citynews.ca/2026/10/14/etobicoke-bike-lane-protests/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "2 arrests made at protest to stop Etobicoke bike lane removal"
-  },
-  {
-   "n": 11,
-   "url": "https://news.ontario.ca/en/release/1008126/ontario-starts-major-construction-on-grimsby-go-station",
-   "date": "2026-10-08T00:00:00.000Z",
-   "title": "Ontario Starts Major Construction on Grimsby GO Station | Ontario Newsroom"
-  },
-  {
-   "n": 12,
-   "url": "https://www.toronto.ca/news/?nrkey=A0B4D04BC98F860A8525856A006C4EA7",
-   "date": "2026-10-09T00:00:00.000Z",
-   "title": "News Releases & Other Resources – City of Toronto"
-  },
-  {
-   "n": 13,
-   "url": "https://www.torontotoday.ca/local/transportation-infrastructure/bloor-bike-lane-removal-protest-woman-arrested-12893283",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Woman arrested at Bloor St. W. bike lane removal protest - TorontoToday.ca"
-  },
-  {
-   "n": 14,
-   "url": "https://www.toronto.ca/news/?nrkey=26214EFD1E998B74852585070041BCF8",
-   "date": "2026-10-09T00:00:00.000Z",
-   "title": "News Releases & Other Resources – City of Toronto"
-  },
-  {
-   "n": 15,
-   "url": "https://www.humberetc.ca/news/protesters-block-bloor-bike-lane-removal-15971",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Protesters briefly halt Bloor bike lane removal  - Humber Polytechnic"
-  }
- ],
  "turns": [
   {
    "at": 1792081569114,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-supreme-court-toronto-bike-lanes/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Cyclists ask Supreme Court to weigh in on Toronto bike lane removal plan - The Globe and Mail"
+    },
+    {
+     "n": 2,
+     "url": "https://thelegalcircle.ca/news/toronto-bike-lanes-supreme-court-leave-charter/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Bike-Lane Fight Heads Toward Supreme Court Leave Bid"
+    },
+    {
+     "n": 3,
+     "url": "https://www.theglobeandmail.com/canada/article-cycling-advocates-rally-petition-supreme-court-to-rule-on-toronto-bike/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Cycling advocates rally, petition Supreme Court to rule on Toronto bike-lane removal - The Globe and Mail"
+    },
+    {
+     "n": 4,
+     "url": "https://www.thecanadianpressnews.ca/politics/toronto-cyclists-ask-canadas-top-court-to-weigh-in-on-fords-bike-lane-removal-plan/article_5f336269-e0ee-5966-acc7-d03a39c21ca3.html",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto cyclists ask Canada's top court to weigh in on Ford's bike lane removal plan | Politics | thecanadianpressnews.ca"
+    },
+    {
+     "n": 5,
+     "url": "https://cyclingmagazine.ca/sections/news/toronto-bike-lane-advocates-take-fight-to-supreme-court/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto bike lane advocates take fight to Supreme Court - Canadian Cycling Magazine"
+    },
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Bike lane removals begin in Etobicoke"
+    }
+   ],
    "claims": [
     {
      "claim": "Cycle Toronto and two individual applicants announced Oct. 13 they will seek leave to appeal to the Supreme Court of Canada over Ontario's bike lane removal law.",
@@ -228,6 +174,62 @@
   },
   {
    "at": 1792081586437,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://thelegalcircle.ca/news/toronto-bike-lanes-supreme-court-leave-charter/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Bike-Lane Fight Heads Toward Supreme Court Leave Bid"
+    },
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Bike lane removals begin in Etobicoke"
+    },
+    {
+     "n": 8,
+     "url": "https://www.toronto.ca/news/?nrkey=E215AE36087B0EEF8525854C006CD0A4",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "News Releases & Other Resources – City of Toronto"
+    },
+    {
+     "n": 9,
+     "url": "https://www.cbc.ca/news/canada/toronto/cyclist-protest-blocks-bike-lane-removal-9.7379928",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Cyclist protest blocks province from removing bike lane in Etobicoke | CBC News"
+    },
+    {
+     "n": 10,
+     "url": "https://toronto.citynews.ca/2026/10/14/etobicoke-bike-lane-protests/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "2 arrests made at protest to stop Etobicoke bike lane removal"
+    },
+    {
+     "n": 12,
+     "url": "https://www.toronto.ca/news/?nrkey=A0B4D04BC98F860A8525856A006C4EA7",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "News Releases & Other Resources – City of Toronto"
+    },
+    {
+     "n": 13,
+     "url": "https://www.torontotoday.ca/local/transportation-infrastructure/bloor-bike-lane-removal-protest-woman-arrested-12893283",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Woman arrested at Bloor St. W. bike lane removal protest - TorontoToday.ca"
+    },
+    {
+     "n": 14,
+     "url": "https://www.toronto.ca/news/?nrkey=26214EFD1E998B74852585070041BCF8",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "News Releases & Other Resources – City of Toronto"
+    },
+    {
+     "n": 15,
+     "url": "https://www.humberetc.ca/news/protesters-block-bloor-bike-lane-removal-15971",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Protesters briefly halt Bloor bike lane removal  - Humber Polytechnic"
+    }
+   ],
    "claims": [
     {
      "claim": "Etobicoke Bloor Street West bike lane removal resumed Wednesday afternoon and is underway, with crews removing pavement markings, signs and concrete barriers.",
@@ -363,6 +365,38 @@
   },
   {
    "at": 1792081602716,
+   "sources": [
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Bike lane removals begin in Etobicoke"
+    },
+    {
+     "n": 9,
+     "url": "https://www.cbc.ca/news/canada/toronto/cyclist-protest-blocks-bike-lane-removal-9.7379928",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Cyclist protest blocks province from removing bike lane in Etobicoke | CBC News"
+    },
+    {
+     "n": 10,
+     "url": "https://toronto.citynews.ca/2026/10/14/etobicoke-bike-lane-protests/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "2 arrests made at protest to stop Etobicoke bike lane removal"
+    },
+    {
+     "n": 13,
+     "url": "https://www.torontotoday.ca/local/transportation-infrastructure/bloor-bike-lane-removal-protest-woman-arrested-12893283",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Woman arrested at Bloor St. W. bike lane removal protest - TorontoToday.ca"
+    },
+    {
+     "n": 15,
+     "url": "https://www.humberetc.ca/news/protesters-block-bloor-bike-lane-removal-15971",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Protesters briefly halt Bloor bike lane removal  - Humber Polytechnic"
+    }
+   ],
    "claims": [
     {
      "claim": "Crews resumed removing the Etobicoke Bloor Street West bike lanes Wednesday afternoon, stripping pavement markings, signs and concrete barriers.",

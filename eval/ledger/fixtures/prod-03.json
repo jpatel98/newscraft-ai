@@ -2,143 +2,53 @@
  "id": "prod-03",
  "title": "Find a reporter assignment for Toronto news at",
  "origin": "prod",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.tps.ca/media-centre/news-releases/67105/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Man Arrested in Arson Investigation,\nSunrise Avenue and O'Connor Drive area"
-  },
-  {
-   "n": 2,
-   "url": "https://toronto.citynews.ca/2026/10/13/crime-and-punishment-how-are-mayoral-candidates-chow-and-bradford-planning-to-keep-toronto-safe/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "How are Chow and Bradford planning to keep Toronto safe?"
-  },
-  {
-   "n": 3,
-   "url": "https://www.cbc.ca/news/canada/toronto/ontario-safe-supply-9.7379145",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Ontarians prescribed safer supply drugs will now have to take them in front of health-care professionals | CBC News"
-  },
-  {
-   "n": 4,
-   "url": "https://www.ctvnews.ca/toronto/article/exclusive-poll-chows-lead-shrinks-against-bradford-in-toronto-mayoral-race/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
-  },
-  {
-   "n": 5,
-   "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
-  },
-  {
-   "n": 6,
-   "url": "https://canada.constructconnect.com/dcn/news/government/2026/10/toronto-voters-want-action-on-affordability-housing-ahead-of-municipal-election",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Toronto voters want action on affordability, housing ahead of municipal election"
-  },
-  {
-   "n": 7,
-   "url": "https://www.blogto.com/city/2026/10/stretch-toronto-rail-line-shut-down-all-weekend/",
-   "date": "2026-10-13T10:01:45.000Z",
-   "title": "Key stretch of Toronto's busiest commuter rail line will shut down all weekend"
-  },
-  {
-   "n": 8,
-   "url": "https://www.tps.ca/media-centre/news-releases/67104/",
-   "date": "2026-10-13T14:29:31.000Z",
-   "title": "Man Arrested in Sexual Assault Investigation,\nBloor Street West and The East Mall area,\nImage Released"
-  },
-  {
-   "n": 9,
-   "url": "https://www.tps.ca/media-centre/news-releases/67109/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Fatal Collision #42/2026,\nLawrence Avenue East and Scarborough Golf Club Road,\nUPDATE: Two Men Arrested"
-  },
-  {
-   "n": 10,
-   "url": "https://newsglobalcanada.com/2026/10/10/ontarios-medical-regulator-looking-to-clamp-down-on-prescribing-safer-supply-drugs/",
-   "date": "2026-10-10T00:00:00.000Z",
-   "title": "Ontario’s medical regulator looking to clamp down on prescribing safer supply drugs – Global News Canada"
-  },
-  {
-   "n": 11,
-   "url": "https://www.tps.ca/media-centre/news-releases/sexual-assault-alert-suspect-sought-in-sexual-as-8/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Suspect Sought in Sexual Assault Investigation,\nEglinton Avenue East and Yonge Street area"
-  },
-  {
-   "n": 12,
-   "url": "https://www.cp24.com/local/toronto/2026/10/13/toronto-sees-massive-increase-in-advance-voting-with-more-than-200000-people-casting-ballots/",
-   "date": "2026-10-13T13:25:37.000Z",
-   "title": "Advance voting up in 2026 Toronto municipal election"
-  },
-  {
-   "n": 13,
-   "url": "https://www.narcity.com/safer-supply-changes-coming-to-ontario",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Ontario's medical regulator approves changes to prescribing safer supply drugs - Narcity"
-  },
-  {
-   "n": 14,
-   "url": "https://toronto.citynews.ca/2026/10/13/toronto-arrests-made-scarborough-fatal-crash/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Toronto police charge driver in deadly Scarborough collision"
-  },
-  {
-   "n": 15,
-   "url": "https://www.ctvnews.ca/toronto/local/peel/article/man-arrested-in-connection-to-stabbing-in-mississauga/",
-   "date": "",
-   "title": "Man arrested in connection to stabbing in Mississauga"
-  },
-  {
-   "n": 16,
-   "url": "https://www.cbc.ca/news/canada/toronto/collision-2-men-charged-scarborough-9.7379081",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "2 men charged days after fatal collision in Scarborough: police | CBC News"
-  },
-  {
-   "n": 17,
-   "url": "https://www.cbc.ca/news/canada/toronto/arson-arrest-word-of-faith-9.7378790",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Man facing arson charge week after hundreds of Israeli flags torched at North York church: police | CBC Accessibility"
-  },
-  {
-   "n": 19,
-   "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
-   "date": "2026-10-13T18:58:53.000Z",
-   "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
-  },
-  {
-   "n": 20,
-   "url": "https://www.tps.ca/media-centre/news-releases/man-arrested-in-sexual-assault-investigation-blo/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Man Arrested in Sexual Assault Investigation,\nBloor Street West and The East Mall area,\nImage Released"
-  },
-  {
-   "n": 21,
-   "url": "https://deeparrival.com/news/lakeshore-west-go-train-gap-october-17-18-2026/",
-   "date": "2026-10-11T00:00:00.000Z",
-   "title": "Which Lakeshore West GO Trips Need a Bus October 17 and 18?"
-  },
-  {
-   "n": 22,
-   "url": "https://toronto.citynews.ca/2026/10/13/more-than-a-third-of-torontonians-dont-feel-safe-in-their-own-neighbourhood-after-dark-poll/",
-   "date": "2026-10-13T09:30:07.000Z",
-   "title": "More than a third of Torontonians don't feel safe in their own neighbourhood after dark: poll"
-  },
-  {
-   "n": 23,
-   "url": "https://toronto.citynews.ca/2026/10/13/voter-turnout-advance-polls-toronto-election/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Advance voter turnout in Toronto municipal election highest since 2010"
-  }
- ],
  "turns": [
   {
    "at": 1791928955811,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/news-releases/67105/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Man Arrested in Arson Investigation,\nSunrise Avenue and O'Connor Drive area"
+    },
+    {
+     "n": 2,
+     "url": "https://toronto.citynews.ca/2026/10/13/crime-and-punishment-how-are-mayoral-candidates-chow-and-bradford-planning-to-keep-toronto-safe/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "How are Chow and Bradford planning to keep Toronto safe?"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cbc.ca/news/canada/toronto/ontario-safe-supply-9.7379145",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontarians prescribed safer supply drugs will now have to take them in front of health-care professionals | CBC News"
+    },
+    {
+     "n": 4,
+     "url": "https://www.ctvnews.ca/toronto/article/exclusive-poll-chows-lead-shrinks-against-bradford-in-toronto-mayoral-race/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
+    },
+    {
+     "n": 5,
+     "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 6,
+     "url": "https://canada.constructconnect.com/dcn/news/government/2026/10/toronto-voters-want-action-on-affordability-housing-ahead-of-municipal-election",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto voters want action on affordability, housing ahead of municipal election"
+    },
+    {
+     "n": 7,
+     "url": "https://www.blogto.com/city/2026/10/stretch-toronto-rail-line-shut-down-all-weekend/",
+     "date": "2026-10-13T10:01:45.000Z",
+     "title": "Key stretch of Toronto's busiest commuter rail line will shut down all weekend"
+    }
+   ],
    "claims": [
     {
      "claim": "Ontario's medical regulator approved changes requiring safer supply medications to be prescribed only with opioid agonist therapy and taken in front of a health-care professional.",
@@ -234,6 +144,62 @@
   },
   {
    "at": 1791929029373,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/news-releases/67105/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Man Arrested in Arson Investigation,\nSunrise Avenue and O'Connor Drive area"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cbc.ca/news/canada/toronto/ontario-safe-supply-9.7379145",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontarians prescribed safer supply drugs will now have to take them in front of health-care professionals | CBC News"
+    },
+    {
+     "n": 5,
+     "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 9,
+     "url": "https://www.tps.ca/media-centre/news-releases/67109/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Fatal Collision #42/2026,\nLawrence Avenue East and Scarborough Golf Club Road,\nUPDATE: Two Men Arrested"
+    },
+    {
+     "n": 11,
+     "url": "https://www.tps.ca/media-centre/news-releases/sexual-assault-alert-suspect-sought-in-sexual-as-8/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Suspect Sought in Sexual Assault Investigation,\nEglinton Avenue East and Yonge Street area"
+    },
+    {
+     "n": 12,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/toronto-sees-massive-increase-in-advance-voting-with-more-than-200000-people-casting-ballots/",
+     "date": "2026-10-13T13:25:37.000Z",
+     "title": "Advance voting up in 2026 Toronto municipal election"
+    },
+    {
+     "n": 13,
+     "url": "https://www.narcity.com/safer-supply-changes-coming-to-ontario",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontario's medical regulator approves changes to prescribing safer supply drugs - Narcity"
+    },
+    {
+     "n": 14,
+     "url": "https://toronto.citynews.ca/2026/10/13/toronto-arrests-made-scarborough-fatal-crash/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto police charge driver in deadly Scarborough collision"
+    },
+    {
+     "n": 16,
+     "url": "https://www.cbc.ca/news/canada/toronto/collision-2-men-charged-scarborough-9.7379081",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "2 men charged days after fatal collision in Scarborough: police | CBC News"
+    }
+   ],
    "claims": [
     {
      "claim": "Toronto police charged Florin Mitea, 34, with dangerous operation causing death and bodily harm and obstructing a peace officer, and Gabriel Mitea, 25, with obstructing a peace officer, over an October 11 Scarborough collision.",
@@ -355,6 +321,86 @@
   },
   {
    "at": 1791935185548,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/news-releases/67105/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Man Arrested in Arson Investigation,\nSunrise Avenue and O'Connor Drive area"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cbc.ca/news/canada/toronto/ontario-safe-supply-9.7379145",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontarians prescribed safer supply drugs will now have to take them in front of health-care professionals | CBC News"
+    },
+    {
+     "n": 7,
+     "url": "https://www.blogto.com/city/2026/10/stretch-toronto-rail-line-shut-down-all-weekend/",
+     "date": "2026-10-13T10:01:45.000Z",
+     "title": "Key stretch of Toronto's busiest commuter rail line will shut down all weekend"
+    },
+    {
+     "n": 9,
+     "url": "https://www.tps.ca/media-centre/news-releases/67109/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Fatal Collision #42/2026,\nLawrence Avenue East and Scarborough Golf Club Road,\nUPDATE: Two Men Arrested"
+    },
+    {
+     "n": 12,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/toronto-sees-massive-increase-in-advance-voting-with-more-than-200000-people-casting-ballots/",
+     "date": "2026-10-13T13:25:37.000Z",
+     "title": "Advance voting up in 2026 Toronto municipal election"
+    },
+    {
+     "n": 13,
+     "url": "https://www.narcity.com/safer-supply-changes-coming-to-ontario",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontario's medical regulator approves changes to prescribing safer supply drugs - Narcity"
+    },
+    {
+     "n": 14,
+     "url": "https://toronto.citynews.ca/2026/10/13/toronto-arrests-made-scarborough-fatal-crash/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto police charge driver in deadly Scarborough collision"
+    },
+    {
+     "n": 16,
+     "url": "https://www.cbc.ca/news/canada/toronto/collision-2-men-charged-scarborough-9.7379081",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "2 men charged days after fatal collision in Scarborough: police | CBC News"
+    },
+    {
+     "n": 19,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
+     "date": "2026-10-13T18:58:53.000Z",
+     "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
+    },
+    {
+     "n": 20,
+     "url": "https://www.tps.ca/media-centre/news-releases/man-arrested-in-sexual-assault-investigation-blo/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Man Arrested in Sexual Assault Investigation,\nBloor Street West and The East Mall area,\nImage Released"
+    },
+    {
+     "n": 21,
+     "url": "https://deeparrival.com/news/lakeshore-west-go-train-gap-october-17-18-2026/",
+     "date": "2026-10-11T00:00:00.000Z",
+     "title": "Which Lakeshore West GO Trips Need a Bus October 17 and 18?"
+    },
+    {
+     "n": 22,
+     "url": "https://toronto.citynews.ca/2026/10/13/more-than-a-third-of-torontonians-dont-feel-safe-in-their-own-neighbourhood-after-dark-poll/",
+     "date": "2026-10-13T09:30:07.000Z",
+     "title": "More than a third of Torontonians don't feel safe in their own neighbourhood after dark: poll"
+    },
+    {
+     "n": 23,
+     "url": "https://toronto.citynews.ca/2026/10/13/voter-turnout-advance-polls-toronto-election/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Advance voter turnout in Toronto municipal election highest since 2010"
+    }
+   ],
    "claims": [
     {
      "claim": "A Nanos Poll for CP24 and CTV News Toronto, surveyed Oct. 8-10 among 757 residents, puts Chow at 51 per cent and Bradford at 47 per cent among decided voters, a lead of about 3.5 points.",

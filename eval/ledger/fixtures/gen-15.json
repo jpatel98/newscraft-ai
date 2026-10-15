@@ -2,83 +2,59 @@
  "id": "gen-15",
  "title": "What do we know about Canada's health ministers",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.cma.ca/about-us/press-room/canadas-doctors-and-nurses-stand-provinces-and-territories-call-predictable",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Canada's doctors and nurses stand with provinces and territories to call for predictable, sustainable health care funding | CMA"
-  },
-  {
-   "n": 2,
-   "url": "https://www.canada.ca/en/department-finance/news/2026/10/minister-of-finance-meets-with-provincial-and-territorial-counterparts-to-discuss-economic-growth-health-care-and-internal-trade.html",
-   "date": "2026-10-02T00:00:00.000Z",
-   "title": "Minister of Finance meets with provincial and territorial counterparts to discuss economic growth, health care and internal trade - Canada.ca"
-  },
-  {
-   "n": 3,
-   "url": "https://www.thecanadianpressnews.ca/health/health-ministers-say-ottawa-needs-to-renew-mental-health-home-care-funding/article_c85f4db3-5326-5735-8520-3815dc77513b.html",
-   "date": "2026-10-01T00:00:00.000Z",
-   "title": "Health ministers say Ottawa needs to renew mental health, home care funding | Health News | thecanadianpressnews.ca"
-  },
-  {
-   "n": 4,
-   "url": "https://www.nationalobserver.com/2026/10/01/news/health-ministers-say-ottawa-needs-renew-mental-health-home-care-funding",
-   "date": "2026-10-02T00:00:00.000Z",
-   "title": "Health ministers say Ottawa needs to renew mental health, home care funding | Canada's National Observer: Climate News"
-  },
-  {
-   "n": 5,
-   "url": "https://www.thecanadianpressnews.ca/politics/health-ministers-set-to-meet-in-winnipeg-after-ottawa-announces-funding-extension/article_bc28aefd-36a5-5a2b-97d2-51ad04e7ccef.html",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Health ministers set to meet in Winnipeg after Ottawa announces funding extension | Politics | thecanadianpressnews.ca"
-  },
-  {
-   "n": 6,
-   "url": "https://www.winnipegfreepress.com/arts-and-life/life/health/2026/10/15/health-ministers-set-to-meet-in-winnipeg-after-ottawa-announces-funding-extension",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Health ministers set to meet in Winnipeg after Ottawa announces funding extension – Winnipeg Free Press"
-  },
-  {
-   "n": 7,
-   "url": "https://vocm.com/2026/10/02/312175/",
-   "date": "2026-10-02T00:00:00.000Z",
-   "title": "Health Minister Warns Cuts to Federal Funding Could Impact Upcoming Projects | VOCM"
-  },
-  {
-   "n": 8,
-   "url": "https://www.canada.ca/en/health-canada/news/2026/10/canada-and-northwest-territories-partner-to-improve-health-infrastructure-and-access-to-health-care-for-communities.html",
-   "date": "2026-10-05T00:00:00.000Z",
-   "title": "Canada and Northwest Territories partner to improve health infrastructure and access to health care for communities - Canada.ca"
-  },
-  {
-   "n": 9,
-   "url": "https://vsk24.com/article/saskatchewan-s-health-crisis-federal-funding-at-risk",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Saskatchewan's Health Crisis: Federal Funding at Risk (2026)"
-  },
-  {
-   "n": 11,
-   "url": "https://genznewz.com/canada-health-transfer-fight-hits-winnipeg-this-week",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Canada Health Transfer Fight Hits Winnipeg This Week | GenZ NewZ"
-  },
-  {
-   "n": 13,
-   "url": "https://www.thecanadianpressnews.ca/health/ottawa-to-extend-1-2b-in-funding-for-home-care-mental-health-services/article_e5322eac-b3bc-53e8-bfe6-b5ee9e95260f.html",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Ottawa to extend $1.2B in funding for home care, mental health services | Health News | thecanadianpressnews.ca"
-  },
-  {
-   "n": 16,
-   "url": "https://www.canada.ca/en/health-canada/news/2026/10/federal-provincial-territorial-health-ministers-meeting.html",
-   "date": "2026-10-09T00:00:00.000Z",
-   "title": "Federal-Provincial-Territorial Health Ministers’ Meeting - Canada.ca"
-  }
- ],
  "turns": [
   {
    "at": 1792081680229,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.cma.ca/about-us/press-room/canadas-doctors-and-nurses-stand-provinces-and-territories-call-predictable",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Canada's doctors and nurses stand with provinces and territories to call for predictable, sustainable health care funding | CMA"
+    },
+    {
+     "n": 2,
+     "url": "https://www.canada.ca/en/department-finance/news/2026/10/minister-of-finance-meets-with-provincial-and-territorial-counterparts-to-discuss-economic-growth-health-care-and-internal-trade.html",
+     "date": "2026-10-02T00:00:00.000Z",
+     "title": "Minister of Finance meets with provincial and territorial counterparts to discuss economic growth, health care and internal trade - Canada.ca"
+    },
+    {
+     "n": 3,
+     "url": "https://www.thecanadianpressnews.ca/health/health-ministers-say-ottawa-needs-to-renew-mental-health-home-care-funding/article_c85f4db3-5326-5735-8520-3815dc77513b.html",
+     "date": "2026-10-01T00:00:00.000Z",
+     "title": "Health ministers say Ottawa needs to renew mental health, home care funding | Health News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 4,
+     "url": "https://www.nationalobserver.com/2026/10/01/news/health-ministers-say-ottawa-needs-renew-mental-health-home-care-funding",
+     "date": "2026-10-02T00:00:00.000Z",
+     "title": "Health ministers say Ottawa needs to renew mental health, home care funding | Canada's National Observer: Climate News"
+    },
+    {
+     "n": 5,
+     "url": "https://www.thecanadianpressnews.ca/politics/health-ministers-set-to-meet-in-winnipeg-after-ottawa-announces-funding-extension/article_bc28aefd-36a5-5a2b-97d2-51ad04e7ccef.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Health ministers set to meet in Winnipeg after Ottawa announces funding extension | Politics | thecanadianpressnews.ca"
+    },
+    {
+     "n": 6,
+     "url": "https://www.winnipegfreepress.com/arts-and-life/life/health/2026/10/15/health-ministers-set-to-meet-in-winnipeg-after-ottawa-announces-funding-extension",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Health ministers set to meet in Winnipeg after Ottawa announces funding extension – Winnipeg Free Press"
+    },
+    {
+     "n": 7,
+     "url": "https://vocm.com/2026/10/02/312175/",
+     "date": "2026-10-02T00:00:00.000Z",
+     "title": "Health Minister Warns Cuts to Federal Funding Could Impact Upcoming Projects | VOCM"
+    },
+    {
+     "n": 8,
+     "url": "https://www.canada.ca/en/health-canada/news/2026/10/canada-and-northwest-territories-partner-to-improve-health-infrastructure-and-access-to-health-care-for-communities.html",
+     "date": "2026-10-05T00:00:00.000Z",
+     "title": "Canada and Northwest Territories partner to improve health infrastructure and access to health care for communities - Canada.ca"
+    }
+   ],
    "claims": [
     {
      "claim": "Canadian health ministers meet in Winnipeg on Oct. 15, 2026, hosted by Manitoba's Uzoma Asagwara, with Michel co-chairing Friday's meeting",
@@ -220,6 +196,56 @@
   },
   {
    "at": 1792081693724,
+   "sources": [
+    {
+     "n": 3,
+     "url": "https://www.thecanadianpressnews.ca/health/health-ministers-say-ottawa-needs-to-renew-mental-health-home-care-funding/article_c85f4db3-5326-5735-8520-3815dc77513b.html",
+     "date": "2026-10-01T00:00:00.000Z",
+     "title": "Health ministers say Ottawa needs to renew mental health, home care funding | Health News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 5,
+     "url": "https://www.thecanadianpressnews.ca/politics/health-ministers-set-to-meet-in-winnipeg-after-ottawa-announces-funding-extension/article_bc28aefd-36a5-5a2b-97d2-51ad04e7ccef.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Health ministers set to meet in Winnipeg after Ottawa announces funding extension | Politics | thecanadianpressnews.ca"
+    },
+    {
+     "n": 6,
+     "url": "https://www.winnipegfreepress.com/arts-and-life/life/health/2026/10/15/health-ministers-set-to-meet-in-winnipeg-after-ottawa-announces-funding-extension",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Health ministers set to meet in Winnipeg after Ottawa announces funding extension – Winnipeg Free Press"
+    },
+    {
+     "n": 7,
+     "url": "https://vocm.com/2026/10/02/312175/",
+     "date": "2026-10-02T00:00:00.000Z",
+     "title": "Health Minister Warns Cuts to Federal Funding Could Impact Upcoming Projects | VOCM"
+    },
+    {
+     "n": 9,
+     "url": "https://vsk24.com/article/saskatchewan-s-health-crisis-federal-funding-at-risk",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Saskatchewan's Health Crisis: Federal Funding at Risk (2026)"
+    },
+    {
+     "n": 11,
+     "url": "https://genznewz.com/canada-health-transfer-fight-hits-winnipeg-this-week",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Canada Health Transfer Fight Hits Winnipeg This Week | GenZ NewZ"
+    },
+    {
+     "n": 13,
+     "url": "https://www.thecanadianpressnews.ca/health/ottawa-to-extend-1-2b-in-funding-for-home-care-mental-health-services/article_e5322eac-b3bc-53e8-bfe6-b5ee9e95260f.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ottawa to extend $1.2B in funding for home care, mental health services | Health News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 16,
+     "url": "https://www.canada.ca/en/health-canada/news/2026/10/federal-provincial-territorial-health-ministers-meeting.html",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "Federal-Provincial-Territorial Health Ministers’ Meeting - Canada.ca"
+    }
+   ],
    "claims": [
     {
      "claim": "The Canada Health Transfer rises five per cent a year until March 31, 2028, then a minimum three per cent, and Michel announced no change to that schedule",
@@ -310,6 +336,50 @@
   },
   {
    "at": 1792081709729,
+   "sources": [
+    {
+     "n": 3,
+     "url": "https://www.thecanadianpressnews.ca/health/health-ministers-say-ottawa-needs-to-renew-mental-health-home-care-funding/article_c85f4db3-5326-5735-8520-3815dc77513b.html",
+     "date": "2026-10-01T00:00:00.000Z",
+     "title": "Health ministers say Ottawa needs to renew mental health, home care funding | Health News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 4,
+     "url": "https://www.nationalobserver.com/2026/10/01/news/health-ministers-say-ottawa-needs-renew-mental-health-home-care-funding",
+     "date": "2026-10-02T00:00:00.000Z",
+     "title": "Health ministers say Ottawa needs to renew mental health, home care funding | Canada's National Observer: Climate News"
+    },
+    {
+     "n": 5,
+     "url": "https://www.thecanadianpressnews.ca/politics/health-ministers-set-to-meet-in-winnipeg-after-ottawa-announces-funding-extension/article_bc28aefd-36a5-5a2b-97d2-51ad04e7ccef.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Health ministers set to meet in Winnipeg after Ottawa announces funding extension | Politics | thecanadianpressnews.ca"
+    },
+    {
+     "n": 6,
+     "url": "https://www.winnipegfreepress.com/arts-and-life/life/health/2026/10/15/health-ministers-set-to-meet-in-winnipeg-after-ottawa-announces-funding-extension",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Health ministers set to meet in Winnipeg after Ottawa announces funding extension – Winnipeg Free Press"
+    },
+    {
+     "n": 9,
+     "url": "https://vsk24.com/article/saskatchewan-s-health-crisis-federal-funding-at-risk",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Saskatchewan's Health Crisis: Federal Funding at Risk (2026)"
+    },
+    {
+     "n": 13,
+     "url": "https://www.thecanadianpressnews.ca/health/ottawa-to-extend-1-2b-in-funding-for-home-care-mental-health-services/article_e5322eac-b3bc-53e8-bfe6-b5ee9e95260f.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ottawa to extend $1.2B in funding for home care, mental health services | Health News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 16,
+     "url": "https://www.canada.ca/en/health-canada/news/2026/10/federal-provincial-territorial-health-ministers-meeting.html",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "Federal-Provincial-Territorial Health Ministers’ Meeting - Canada.ca"
+    }
+   ],
    "claims": [
     {
      "claim": "Canadian health ministers are meeting in Winnipeg today, the first in-person meeting since Ottawa announced a funding extension",

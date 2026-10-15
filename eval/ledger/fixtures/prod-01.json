@@ -2,59 +2,59 @@
  "id": "prod-01",
  "title": "There",
  "origin": "prod",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://globalnews.ca/news/12099749/alberta-referendum-advanced-voting/",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Advance voting opens as experts debate meaning of Alberta referendum results  | Globalnews.ca"
-  },
-  {
-   "n": 2,
-   "url": "https://www.canada.ca/en/global-affairs/news/2026/10/minister-anand-to-travel-to-india-and-the-united-arab-emirates.html",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Minister Anand to travel to India and the United Arab Emirates - Canada.ca"
-  },
-  {
-   "n": 3,
-   "url": "https://www.winnipegfreepress.com/canada/2026/10/12/canada-signs-joint-statement-denouncing-iran-after-uk-air-base-plot",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Canada signs joint statement denouncing Iran after UK air base plot – Winnipeg Free Press"
-  },
-  {
-   "n": 4,
-   "url": "https://www.canada.ca/en/global-affairs/news/2026/10/pledge-on-maintaining-the-integrity-of-the-international-law-of-the-sea--no-fees--no-tolls.html",
-   "date": "2026-10-12T13:30:37.000Z",
-   "title": "Pledge on maintaining the integrity of the International Law of the Sea – No Fees / No Tolls - Canada.ca"
-  },
-  {
-   "n": 5,
-   "url": "https://www.theglobeandmail.com/canada/article-canadian-cybersecurity-executive-arrested-by-fbi-in-hacking-case/",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Canadian cybersecurity executive arrested by FBI in hacking case - The Globe and Mail"
-  },
-  {
-   "n": 6,
-   "url": "https://www.canada.ca/fr/affaires-mondiales/nouvelles/2026/10/declaration-commune-sur-liran-12-octobre.html",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Déclaration commune sur l’Iran, 12 octobre - Canada.ca"
-  },
-  {
-   "n": 7,
-   "url": "https://www.theglobeandmail.com/canada/article-belleville-synagogue-shooter-did-not-have-gun-licence-source-says/",
-   "date": "2026-10-12T09:00:00.000Z",
-   "title": "Belleville synagogue shooter did not have gun licence, source says - The Globe and Mail"
-  },
-  {
-   "n": 8,
-   "url": "https://www.canada.ca/fr/affaires-mondiales/nouvelles/2026/10/engagement-en-faveur-du-respect-de-lintegrite-du-droit-international-de-la-mer--pas-de-droits-de-passage-ni-de-peages.html",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Engagement en faveur du respect de l’intégrité du droit international de la mer – Pas de droits de passage ni de péages - Canada.ca"
-  }
- ],
  "turns": [
   {
    "at": 1791851204943,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://globalnews.ca/news/12099749/alberta-referendum-advanced-voting/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Advance voting opens as experts debate meaning of Alberta referendum results  | Globalnews.ca"
+    },
+    {
+     "n": 2,
+     "url": "https://www.canada.ca/en/global-affairs/news/2026/10/minister-anand-to-travel-to-india-and-the-united-arab-emirates.html",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Minister Anand to travel to India and the United Arab Emirates - Canada.ca"
+    },
+    {
+     "n": 3,
+     "url": "https://www.winnipegfreepress.com/canada/2026/10/12/canada-signs-joint-statement-denouncing-iran-after-uk-air-base-plot",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Canada signs joint statement denouncing Iran after UK air base plot – Winnipeg Free Press"
+    },
+    {
+     "n": 4,
+     "url": "https://www.canada.ca/en/global-affairs/news/2026/10/pledge-on-maintaining-the-integrity-of-the-international-law-of-the-sea--no-fees--no-tolls.html",
+     "date": "2026-10-12T13:30:37.000Z",
+     "title": "Pledge on maintaining the integrity of the International Law of the Sea – No Fees / No Tolls - Canada.ca"
+    },
+    {
+     "n": 5,
+     "url": "https://www.theglobeandmail.com/canada/article-canadian-cybersecurity-executive-arrested-by-fbi-in-hacking-case/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Canadian cybersecurity executive arrested by FBI in hacking case - The Globe and Mail"
+    },
+    {
+     "n": 6,
+     "url": "https://www.canada.ca/fr/affaires-mondiales/nouvelles/2026/10/declaration-commune-sur-liran-12-octobre.html",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Déclaration commune sur l’Iran, 12 octobre - Canada.ca"
+    },
+    {
+     "n": 7,
+     "url": "https://www.theglobeandmail.com/canada/article-belleville-synagogue-shooter-did-not-have-gun-licence-source-says/",
+     "date": "2026-10-12T09:00:00.000Z",
+     "title": "Belleville synagogue shooter did not have gun licence, source says - The Globe and Mail"
+    },
+    {
+     "n": 8,
+     "url": "https://www.canada.ca/fr/affaires-mondiales/nouvelles/2026/10/engagement-en-faveur-du-respect-de-lintegrite-du-droit-international-de-la-mer--pas-de-droits-de-passage-ni-de-peages.html",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Engagement en faveur du respect de l’intégrité du droit international de la mer – Pas de droits de passage ni de péages - Canada.ca"
+    }
+   ],
    "claims": [
     {
      "claim": "Canada and more than two dozen countries signed a joint statement Monday condemning Iran's use of violent attacks and lethal plotting.",

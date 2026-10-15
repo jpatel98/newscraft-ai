@@ -2,83 +2,47 @@
  "id": "gen-09",
  "title": "What do we know about Kawhi Leonard's return",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.tsn.ca/nba/article/leonard-to-re-debut-for-raptors-tonight-in-pre-season-game-vs-knicks/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Kawhi Leonard scores 21 points in re-debut as Raptors blast Knicks in pre-season game"
-  },
-  {
-   "n": 3,
-   "url": "https://hoopsnightly.com/injuries/430-kawhi-leonard-cleared",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "Kawhi Leonard injury update: cleared to play"
-  },
-  {
-   "n": 4,
-   "url": "https://raptors.com/news/raptors-announce-2026-training-camp-and-preseason-schedule",
-   "date": "2026-07-29T00:00:00.000Z",
-   "title": "RAPTORS ANNOUNCE 2026 TRAINING CAMP AND PRESEASON SCHEDULE | Toronto Raptors"
-  },
-  {
-   "n": 5,
-   "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-to-make-pre-season-debut-tuesday-vs-knicks/",
-   "date": "2026-10-13T17:23:21.000Z",
-   "title": "Raptors' Kawhi Leonard to make pre-season debut Tuesday vs. Knicks - Sportsnet.ca"
-  },
-  {
-   "n": 6,
-   "url": "https://basketball.realgm.com/nba/preseason/team/Toronto-Raptors/28/schedule",
-   "date": "",
-   "title": "2026 Toronto Raptors Preseason Schedule"
-  },
-  {
-   "n": 7,
-   "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-wont-play-in-vancouver-vs-clippers/",
-   "date": "2026-10-09T17:31:10.000Z",
-   "title": "Raptors' Kawhi Leonard won't play in Vancouver vs. Clippers - Sportsnet.ca"
-  },
-  {
-   "n": 8,
-   "url": "https://www.nba.com/watch/video/kawhi-1h-buckets-mix",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Kawhi Leonard heats up in preseason action with 21 points in the first half | NBA.com"
-  },
-  {
-   "n": 9,
-   "url": "https://www.nba.com/gamenotes/raptors.pdf",
-   "date": "",
-   "title": "2025-26 REGULAR SEASON RAPTORS RECORDS RECORD HOME ROAD OT"
-  },
-  {
-   "n": 10,
-   "url": "https://www.tsn.ca/nba/article/leonard-available-to-make-first-appearance-in-second-run-with-raptors-on-tuesday/",
-   "date": "2026-10-13T04:00:07.000Z",
-   "title": "Kawhi Leonard available to make first appearance in second run with Toronto Raptors vs. Knicks"
-  },
-  {
-   "n": 11,
-   "url": "https://www.nba.com/news/starting-5-october-14-2026",
-   "date": "",
-   "title": "Starting 5: Kawhi shines in preseason return to Toronto"
-  },
-  {
-   "n": 13,
-   "url": "https://www.nba.com/team/1610612761/schedule",
-   "date": "",
-   "title": "Toronto Raptors Team Info and News | NBA.com"
-  },
-  {
-   "n": 15,
-   "url": "https://www.hoopsrumors.com/2026/10/eastern-notes-kawhi-hezonja-watson-haliburton-hornets.html",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Eastern Notes: Kawhi, Hezonja, Watson, Haliburton, Hornets | Hoops Rumors"
-  }
- ],
  "turns": [
   {
    "at": 1792081472035,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tsn.ca/nba/article/leonard-to-re-debut-for-raptors-tonight-in-pre-season-game-vs-knicks/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kawhi Leonard scores 21 points in re-debut as Raptors blast Knicks in pre-season game"
+    },
+    {
+     "n": 3,
+     "url": "https://hoopsnightly.com/injuries/430-kawhi-leonard-cleared",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard injury update: cleared to play"
+    },
+    {
+     "n": 4,
+     "url": "https://raptors.com/news/raptors-announce-2026-training-camp-and-preseason-schedule",
+     "date": "2026-07-29T00:00:00.000Z",
+     "title": "RAPTORS ANNOUNCE 2026 TRAINING CAMP AND PRESEASON SCHEDULE | Toronto Raptors"
+    },
+    {
+     "n": 5,
+     "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-to-make-pre-season-debut-tuesday-vs-knicks/",
+     "date": "2026-10-13T17:23:21.000Z",
+     "title": "Raptors' Kawhi Leonard to make pre-season debut Tuesday vs. Knicks - Sportsnet.ca"
+    },
+    {
+     "n": 6,
+     "url": "https://basketball.realgm.com/nba/preseason/team/Toronto-Raptors/28/schedule",
+     "date": "",
+     "title": "2026 Toronto Raptors Preseason Schedule"
+    },
+    {
+     "n": 7,
+     "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-wont-play-in-vancouver-vs-clippers/",
+     "date": "2026-10-09T17:31:10.000Z",
+     "title": "Raptors' Kawhi Leonard won't play in Vancouver vs. Clippers - Sportsnet.ca"
+    }
+   ],
    "claims": [
     {
      "claim": "Kawhi Leonard scored 21 points in 17 minutes in his Raptors re-debut, a 148-98 preseason win over the Knicks on Oct. 13, 2026",
@@ -192,6 +156,50 @@
   },
   {
    "at": 1792081482483,
+   "sources": [
+    {
+     "n": 3,
+     "url": "https://hoopsnightly.com/injuries/430-kawhi-leonard-cleared",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard injury update: cleared to play"
+    },
+    {
+     "n": 8,
+     "url": "https://www.nba.com/watch/video/kawhi-1h-buckets-mix",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Kawhi Leonard heats up in preseason action with 21 points in the first half | NBA.com"
+    },
+    {
+     "n": 9,
+     "url": "https://www.nba.com/gamenotes/raptors.pdf",
+     "date": "",
+     "title": "2025-26 REGULAR SEASON RAPTORS RECORDS RECORD HOME ROAD OT"
+    },
+    {
+     "n": 10,
+     "url": "https://www.tsn.ca/nba/article/leonard-available-to-make-first-appearance-in-second-run-with-raptors-on-tuesday/",
+     "date": "2026-10-13T04:00:07.000Z",
+     "title": "Kawhi Leonard available to make first appearance in second run with Toronto Raptors vs. Knicks"
+    },
+    {
+     "n": 11,
+     "url": "https://www.nba.com/news/starting-5-october-14-2026",
+     "date": "",
+     "title": "Starting 5: Kawhi shines in preseason return to Toronto"
+    },
+    {
+     "n": 13,
+     "url": "https://www.nba.com/team/1610612761/schedule",
+     "date": "",
+     "title": "Toronto Raptors Team Info and News | NBA.com"
+    },
+    {
+     "n": 15,
+     "url": "https://www.hoopsrumors.com/2026/10/eastern-notes-kawhi-hezonja-watson-haliburton-hornets.html",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Eastern Notes: Kawhi, Hezonja, Watson, Haliburton, Hornets | Hoops Rumors"
+    }
+   ],
    "claims": [
     {
      "claim": "Rajakovic said Monday, Oct. 12 that Leonard practiced fully and would be available for Tuesday's game vs. the Knicks",
@@ -269,6 +277,62 @@
   },
   {
    "at": 1792081491399,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tsn.ca/nba/article/leonard-to-re-debut-for-raptors-tonight-in-pre-season-game-vs-knicks/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kawhi Leonard scores 21 points in re-debut as Raptors blast Knicks in pre-season game"
+    },
+    {
+     "n": 3,
+     "url": "https://hoopsnightly.com/injuries/430-kawhi-leonard-cleared",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Kawhi Leonard injury update: cleared to play"
+    },
+    {
+     "n": 5,
+     "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-to-make-pre-season-debut-tuesday-vs-knicks/",
+     "date": "2026-10-13T17:23:21.000Z",
+     "title": "Raptors' Kawhi Leonard to make pre-season debut Tuesday vs. Knicks - Sportsnet.ca"
+    },
+    {
+     "n": 7,
+     "url": "https://www.sportsnet.ca/nba/article/raptors-kawhi-leonard-wont-play-in-vancouver-vs-clippers/",
+     "date": "2026-10-09T17:31:10.000Z",
+     "title": "Raptors' Kawhi Leonard won't play in Vancouver vs. Clippers - Sportsnet.ca"
+    },
+    {
+     "n": 8,
+     "url": "https://www.nba.com/watch/video/kawhi-1h-buckets-mix",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Kawhi Leonard heats up in preseason action with 21 points in the first half | NBA.com"
+    },
+    {
+     "n": 9,
+     "url": "https://www.nba.com/gamenotes/raptors.pdf",
+     "date": "",
+     "title": "2025-26 REGULAR SEASON RAPTORS RECORDS RECORD HOME ROAD OT"
+    },
+    {
+     "n": 11,
+     "url": "https://www.nba.com/news/starting-5-october-14-2026",
+     "date": "",
+     "title": "Starting 5: Kawhi shines in preseason return to Toronto"
+    },
+    {
+     "n": 13,
+     "url": "https://www.nba.com/team/1610612761/schedule",
+     "date": "",
+     "title": "Toronto Raptors Team Info and News | NBA.com"
+    },
+    {
+     "n": 15,
+     "url": "https://www.hoopsrumors.com/2026/10/eastern-notes-kawhi-hezonja-watson-haliburton-hornets.html",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Eastern Notes: Kawhi, Hezonja, Watson, Haliburton, Hornets | Hoops Rumors"
+    }
+   ],
    "claims": [
     {
      "claim": "Leonard scored 21 points in 17 minutes, all in the first half, in his Toronto return",

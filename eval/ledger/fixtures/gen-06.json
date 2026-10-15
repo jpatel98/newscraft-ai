@@ -2,143 +2,53 @@
  "id": "gen-06",
  "title": "What do we know about the Russian strikes",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://kyivindependent.com/russian-drone-strikes-kyiv-injures-6-sets-car-ablaze/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Russian drone strikes Kyiv, injures 7, sets car ablaze"
-  },
-  {
-   "n": 2,
-   "url": "https://apnews.com/article/russia-ukraine-war-zelenskyy-burnham-trump-putin-9fe44ec1bb361f19d46dfafb58da46f6",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Zelenskyy condemns Russia's power grid strikes after Trump's ceasefire claim | AP News"
-  },
-  {
-   "n": 3,
-   "url": "https://dnipr.kyivcity.gov.ua/news/try-liudyny-zahynuly-vnaslidok-rosiiskoho-obstrilu-tryvaie-likvidatsiia-naslidkiv-u-trokh-raionakh-stolytsi",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Три людини загинули внаслідок російського обстрілу, триває ліквідація наслідків у трьох районах столиці | Дніпровська районна в місті Києві державна адміністрація"
-  },
-  {
-   "n": 4,
-   "url": "https://www.bbc.co.uk/news/articles/cm2d6e62p49do",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Russian strikes leave 600,000 without power in Ukraine, as Starlink restrictions affect front line operations - BBC News"
-  },
-  {
-   "n": 5,
-   "url": "https://desn.kyivcity.gov.ua/news/operatyvna-informatsiia-shchodo-likvidatsii-naslidkiv-vorozhoi-ataky",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "ОПЕРАТИВНА ІНФОРМАЦІЯ ЩОДО ЛІКВІДАЦІЇ НАСЛІДКІВ ВОРОЖОЇ АТАКИ | Деснянська районна в місті Києві державна адміністрація"
-  },
-  {
-   "n": 7,
-   "url": "https://www.euronews.com/2026/10/14/one-person-killed-and-20-others-injured-in-overnight-russian-attacks-on-kyiv",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Russia and Ukraine trade blame over Trump’s ‘energy ceasefire’ after deadly Kyiv strike | Euronews"
-  },
-  {
-   "n": 8,
-   "url": "https://kyivindependent.com/russian-attacks-kill-at-least-17-injure-67-across-ukraine-as-drone-waves-wreak-havoc-in-central-western-oblasts/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Russian attacks kill at least 17, injure 67 across Ukraine,   as drone waves wreak havoc in central, western oblasts"
-  },
-  {
-   "n": 10,
-   "url": "https://www.ukrinform.net/rubric-ato/4174310-combined-russian-attack-five-killed-36-injured-in-kyiv-since-last-evening.html",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Combined Russian attack: Five killed, 36 injured in Kyiv since last evening"
-  },
-  {
-   "n": 11,
-   "url": "https://www.rferl.org/a/russia-ballistic-missile-attack-ukraine/33876280.html",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Russian Missile Strikes Kill 3 In Kyiv, Knock Out Power As Zelenskyy Says West Gave No Warning"
-  },
-  {
-   "n": 12,
-   "url": "https://www.pravda.com.ua/eng/news/2026/10/14/8057948/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Russian attacks on Kyiv kill five, injure 36 | Ukrainska Pravda"
-  },
-  {
-   "n": 13,
-   "url": "https://shelter.in.ua/en/viyna/rosiia-vdaryla-po-kilkokh-enerhoobyektakh-kyyeva",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Russia strikes residential building and energy infrastructure in Kyiv, killing five people | (shelter)"
-  },
-  {
-   "n": 14,
-   "url": "https://redcross.org.ua/en/news/2026/10/163946/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Kyiv: The Ukrainian Red Cross emergency response team responds to the aftermath of a night-time attack – Ukrainian Red Cross Society"
-  },
-  {
-   "n": 15,
-   "url": "https://kyivindependent.com/ostentatious-disrespect-zelensky-says-russia-defied-trumps-energy-ceasefire-with-massive-missile-strike/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "'Ostentatious disrespect' — Zelensky says Russia defied Trump's energy ceasefire with latest missile strike"
-  },
-  {
-   "n": 16,
-   "url": "https://www.aljazeera.com/news/2026/10/14/massive-russian-attack-on-ukraine-kills-at-least-six-cuts-power-in-kyiv",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "‘Massive’ Russian attack on Ukraine kills at least 9, damages power sites | News | Al Jazeera"
-  },
-  {
-   "n": 17,
-   "url": "https://kyiv.npu.gov.ua/news/kilkist-zahyblykh-vnaslidok-vorozhoho-udaru-po-stolytsi-zbilshylasia-do-piaty-osib-politsiia-kyieva",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Кількість загиблих внаслідок ворожого удару по столиці збільшилася до п’яти осіб, – поліція Києва | Головне управління Національної поліції у місті Києві"
-  },
-  {
-   "n": 18,
-   "url": "https://en.interfax.com.ua/news/general/1219860.html",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Death toll from Russian attacks on Kyiv rises to 5, injured to 36 – police"
-  },
-  {
-   "n": 19,
-   "url": "https://www.ukrinform.net/rubric-ato/4174687-injury-toll-in-russian-drone-attack-on-kyiv-rises-to-six.html",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Injury toll in Russian drone attack on Kyiv rises to six"
-  },
-  {
-   "n": 20,
-   "url": "https://npu.gov.ua/news/kilkist-zahyblykh-vnaslidok-vorozhoho-udaru-po-stolytsi-zbilshylasia-do-piaty-osib-politsiia-kyieva",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Кількість загиблих внаслідок ворожого удару по столиці збільшилася до п’яти осіб, – поліція Києва | Національна поліція України"
-  },
-  {
-   "n": 21,
-   "url": "https://npu.gov.ua/news/u-kyievi-shist-osib-postrazhdalo-cherez-ataku-vorozhoho-bpla-politsiia-fiksuie-naslidky-rosiiskoho-teroru",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "У Києві шість осіб постраждало через атаку ворожого БпЛА – поліція фіксує наслідки російського терору | Національна поліція України"
-  },
-  {
-   "n": 22,
-   "url": "https://www.pravda.com.ua/news/2026/10/15/8058177/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Кількість потерпілих від падіння дрона РФ у Києві зросла до 7 | Українська правда"
-  },
-  {
-   "n": 23,
-   "url": "https://kyivindependent.com/russian-attacks-kill-at-least-10-injure-91-across-ukraine-over-past-day-as-ballistic-missiles-strike-kyiv-for-second-straight-night/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Russian attacks kill at least 10, injure 91 across Ukraine over past day as ballistic missiles strike Kyiv for second straight night"
-  },
-  {
-   "n": 24,
-   "url": "https://www.radiosvoboda.org/a/news-kyiv-ataka-postrazhdali/33877301.html",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "У Києві знову зросло число постраждалих від удару РФ, три людини в лікарні – Кличко"
-  }
- ],
  "turns": [
   {
    "at": 1792081351185,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://kyivindependent.com/russian-drone-strikes-kyiv-injures-6-sets-car-ablaze/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian drone strikes Kyiv, injures 7, sets car ablaze"
+    },
+    {
+     "n": 2,
+     "url": "https://apnews.com/article/russia-ukraine-war-zelenskyy-burnham-trump-putin-9fe44ec1bb361f19d46dfafb58da46f6",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Zelenskyy condemns Russia's power grid strikes after Trump's ceasefire claim | AP News"
+    },
+    {
+     "n": 3,
+     "url": "https://dnipr.kyivcity.gov.ua/news/try-liudyny-zahynuly-vnaslidok-rosiiskoho-obstrilu-tryvaie-likvidatsiia-naslidkiv-u-trokh-raionakh-stolytsi",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Три людини загинули внаслідок російського обстрілу, триває ліквідація наслідків у трьох районах столиці | Дніпровська районна в місті Києві державна адміністрація"
+    },
+    {
+     "n": 4,
+     "url": "https://www.bbc.co.uk/news/articles/cm2d6e62p49do",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russian strikes leave 600,000 without power in Ukraine, as Starlink restrictions affect front line operations - BBC News"
+    },
+    {
+     "n": 5,
+     "url": "https://desn.kyivcity.gov.ua/news/operatyvna-informatsiia-shchodo-likvidatsii-naslidkiv-vorozhoi-ataky",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "ОПЕРАТИВНА ІНФОРМАЦІЯ ЩОДО ЛІКВІДАЦІЇ НАСЛІДКІВ ВОРОЖОЇ АТАКИ | Деснянська районна в місті Києві державна адміністрація"
+    },
+    {
+     "n": 7,
+     "url": "https://www.euronews.com/2026/10/14/one-person-killed-and-20-others-injured-in-overnight-russian-attacks-on-kyiv",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russia and Ukraine trade blame over Trump’s ‘energy ceasefire’ after deadly Kyiv strike | Euronews"
+    },
+    {
+     "n": 8,
+     "url": "https://kyivindependent.com/russian-attacks-kill-at-least-17-injure-67-across-ukraine-as-drone-waves-wreak-havoc-in-central-western-oblasts/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian attacks kill at least 17, injure 67 across Ukraine,   as drone waves wreak havoc in central, western oblasts"
+    }
+   ],
    "claims": [
     {
      "claim": "At least three people were killed in Kyiv in the Oct. 13-14 Russian strike; one person killed and more than 20 injured, with damage to residential buildings.",
@@ -272,6 +182,68 @@
   },
   {
    "at": 1792081363926,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://kyivindependent.com/russian-drone-strikes-kyiv-injures-6-sets-car-ablaze/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian drone strikes Kyiv, injures 7, sets car ablaze"
+    },
+    {
+     "n": 5,
+     "url": "https://desn.kyivcity.gov.ua/news/operatyvna-informatsiia-shchodo-likvidatsii-naslidkiv-vorozhoi-ataky",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "ОПЕРАТИВНА ІНФОРМАЦІЯ ЩОДО ЛІКВІДАЦІЇ НАСЛІДКІВ ВОРОЖОЇ АТАКИ | Деснянська районна в місті Києві державна адміністрація"
+    },
+    {
+     "n": 8,
+     "url": "https://kyivindependent.com/russian-attacks-kill-at-least-17-injure-67-across-ukraine-as-drone-waves-wreak-havoc-in-central-western-oblasts/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian attacks kill at least 17, injure 67 across Ukraine,   as drone waves wreak havoc in central, western oblasts"
+    },
+    {
+     "n": 10,
+     "url": "https://www.ukrinform.net/rubric-ato/4174310-combined-russian-attack-five-killed-36-injured-in-kyiv-since-last-evening.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Combined Russian attack: Five killed, 36 injured in Kyiv since last evening"
+    },
+    {
+     "n": 11,
+     "url": "https://www.rferl.org/a/russia-ballistic-missile-attack-ukraine/33876280.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russian Missile Strikes Kill 3 In Kyiv, Knock Out Power As Zelenskyy Says West Gave No Warning"
+    },
+    {
+     "n": 12,
+     "url": "https://www.pravda.com.ua/eng/news/2026/10/14/8057948/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russian attacks on Kyiv kill five, injure 36 | Ukrainska Pravda"
+    },
+    {
+     "n": 13,
+     "url": "https://shelter.in.ua/en/viyna/rosiia-vdaryla-po-kilkokh-enerhoobyektakh-kyyeva",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russia strikes residential building and energy infrastructure in Kyiv, killing five people | (shelter)"
+    },
+    {
+     "n": 14,
+     "url": "https://redcross.org.ua/en/news/2026/10/163946/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kyiv: The Ukrainian Red Cross emergency response team responds to the aftermath of a night-time attack – Ukrainian Red Cross Society"
+    },
+    {
+     "n": 15,
+     "url": "https://kyivindependent.com/ostentatious-disrespect-zelensky-says-russia-defied-trumps-energy-ceasefire-with-massive-missile-strike/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "'Ostentatious disrespect' — Zelensky says Russia defied Trump's energy ceasefire with latest missile strike"
+    },
+    {
+     "n": 16,
+     "url": "https://www.aljazeera.com/news/2026/10/14/massive-russian-attack-on-ukraine-kills-at-least-six-cuts-power-in-kyiv",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "‘Massive’ Russian attack on Ukraine kills at least 9, damages power sites | News | Al Jazeera"
+    }
+   ],
    "claims": [
     {
      "claim": "Five killed and 36 injured in Kyiv since the evening of Oct. 13, per Kyiv police; figures carried by Ukrinform and Ukrainska Pravda.",
@@ -387,6 +359,50 @@
   },
   {
    "at": 1792081375136,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://kyivindependent.com/russian-drone-strikes-kyiv-injures-6-sets-car-ablaze/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian drone strikes Kyiv, injures 7, sets car ablaze"
+    },
+    {
+     "n": 7,
+     "url": "https://www.euronews.com/2026/10/14/one-person-killed-and-20-others-injured-in-overnight-russian-attacks-on-kyiv",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russia and Ukraine trade blame over Trump’s ‘energy ceasefire’ after deadly Kyiv strike | Euronews"
+    },
+    {
+     "n": 8,
+     "url": "https://kyivindependent.com/russian-attacks-kill-at-least-17-injure-67-across-ukraine-as-drone-waves-wreak-havoc-in-central-western-oblasts/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian attacks kill at least 17, injure 67 across Ukraine,   as drone waves wreak havoc in central, western oblasts"
+    },
+    {
+     "n": 10,
+     "url": "https://www.ukrinform.net/rubric-ato/4174310-combined-russian-attack-five-killed-36-injured-in-kyiv-since-last-evening.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Combined Russian attack: Five killed, 36 injured in Kyiv since last evening"
+    },
+    {
+     "n": 12,
+     "url": "https://www.pravda.com.ua/eng/news/2026/10/14/8057948/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russian attacks on Kyiv kill five, injure 36 | Ukrainska Pravda"
+    },
+    {
+     "n": 13,
+     "url": "https://shelter.in.ua/en/viyna/rosiia-vdaryla-po-kilkokh-enerhoobyektakh-kyyeva",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russia strikes residential building and energy infrastructure in Kyiv, killing five people | (shelter)"
+    },
+    {
+     "n": 15,
+     "url": "https://kyivindependent.com/ostentatious-disrespect-zelensky-says-russia-defied-trumps-energy-ceasefire-with-massive-missile-strike/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "'Ostentatious disrespect' — Zelensky says Russia defied Trump's energy ceasefire with latest missile strike"
+    }
+   ],
    "claims": [
     {
      "claim": "Kyiv police say five killed, 36 injured in Kyiv since the evening of Oct. 13.",
@@ -481,6 +497,56 @@
   },
   {
    "at": 1792081381800,
+   "sources": [
+    {
+     "n": 17,
+     "url": "https://kyiv.npu.gov.ua/news/kilkist-zahyblykh-vnaslidok-vorozhoho-udaru-po-stolytsi-zbilshylasia-do-piaty-osib-politsiia-kyieva",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Кількість загиблих внаслідок ворожого удару по столиці збільшилася до п’яти осіб, – поліція Києва | Головне управління Національної поліції у місті Києві"
+    },
+    {
+     "n": 18,
+     "url": "https://en.interfax.com.ua/news/general/1219860.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Death toll from Russian attacks on Kyiv rises to 5, injured to 36 – police"
+    },
+    {
+     "n": 19,
+     "url": "https://www.ukrinform.net/rubric-ato/4174687-injury-toll-in-russian-drone-attack-on-kyiv-rises-to-six.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Injury toll in Russian drone attack on Kyiv rises to six"
+    },
+    {
+     "n": 20,
+     "url": "https://npu.gov.ua/news/kilkist-zahyblykh-vnaslidok-vorozhoho-udaru-po-stolytsi-zbilshylasia-do-piaty-osib-politsiia-kyieva",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Кількість загиблих внаслідок ворожого удару по столиці збільшилася до п’яти осіб, – поліція Києва | Національна поліція України"
+    },
+    {
+     "n": 21,
+     "url": "https://npu.gov.ua/news/u-kyievi-shist-osib-postrazhdalo-cherez-ataku-vorozhoho-bpla-politsiia-fiksuie-naslidky-rosiiskoho-teroru",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "У Києві шість осіб постраждало через атаку ворожого БпЛА – поліція фіксує наслідки російського терору | Національна поліція України"
+    },
+    {
+     "n": 22,
+     "url": "https://www.pravda.com.ua/news/2026/10/15/8058177/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Кількість потерпілих від падіння дрона РФ у Києві зросла до 7 | Українська правда"
+    },
+    {
+     "n": 23,
+     "url": "https://kyivindependent.com/russian-attacks-kill-at-least-10-injure-91-across-ukraine-over-past-day-as-ballistic-missiles-strike-kyiv-for-second-straight-night/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russian attacks kill at least 10, injure 91 across Ukraine over past day as ballistic missiles strike Kyiv for second straight night"
+    },
+    {
+     "n": 24,
+     "url": "https://www.radiosvoboda.org/a/news-kyiv-ataka-postrazhdali/33877301.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "У Києві знову зросло число постраждалих від удару РФ, три людини в лікарні – Кличко"
+    }
+   ],
    "claims": [
     {
      "claim": "Kyiv has not recorded a new death in the last 24 hours; the citywide figure remains five killed and 36 injured from the Oct. 13-14 missile strike, per Kyiv police.",

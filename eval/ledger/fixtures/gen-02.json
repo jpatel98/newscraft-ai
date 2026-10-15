@@ -2,95 +2,41 @@
  "id": "gen-02",
  "title": "What do we know about the Toronto police",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.tps.ca/media-centre/stories/kidnapping-case-leads-to-cache-of-weapons/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Kidnapping Case Leads to Cache of Weapons"
-  },
-  {
-   "n": 3,
-   "url": "https://www.theglobeandmail.com/canada/article-toronto-police-arrest-canadian-armed-forces-members-seize-allegedly/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Toronto police arrest three reservists, seize allegedly stolen ammunition in crypto-kidnapping investigation - The Globe and Mail"
-  },
-  {
-   "n": 5,
-   "url": "https://www.theglobeandmail.com/canada/toronto/article-caf-arrests-probe-stolen-ammunition/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Military members charged in Toronto abduction probe that recovered ammunition stolen from CAF - The Globe and Mail"
-  },
-  {
-   "n": 7,
-   "url": "https://toronto.citynews.ca/2026/10/14/toronto-police-abduction-investigation-canadian-armed-forces/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Canadian Armed Forces members charged in kidnapping probe"
-  },
-  {
-   "n": 8,
-   "url": "https://www.thecanadianpressnews.ca/national/ammo-stolen-from-military-recovered-in-toronto-abduction-probe-3-caf-members-charged/article_9504bd25-fb33-5a97-ac09-e0a92eba4839.html",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Ammo stolen from military recovered in Toronto abduction probe, 3 CAF members charged | National News | thecanadianpressnews.ca"
-  },
-  {
-   "n": 9,
-   "url": "https://www.cbc.ca/news/canada/toronto/3rd-caf-member-charged-toronto-kidnapping-9.7380360",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "3rd member of Canadian Armed Forces charged in kidnapping probe: Toronto police | CBC News"
-  },
-  {
-   "n": 10,
-   "url": "https://www.tps.ca/media-centre/news-releases/67117/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Toronto Police Arrest Seven Men, Seize More Than 2,700 Rounds of Ammunition Following Violent Abduction Investigation"
-  },
-  {
-   "n": 12,
-   "url": "https://www.canada.ca/en/department-national-defence/maple-leaf/defence/2026/10/from-ideas-to-defence-capability-ideas-turning-innovation-into-solutions-for-caf.html",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "From ideas to defence capability:  IDEaS is turning innovation into solutions for the CAF - Canada.ca"
-  },
-  {
-   "n": 13,
-   "url": "https://www.canada.ca/en/department-national-defence/maple-leaf/defence/2026/10/when-workplace-conflict-happens-you-have-options.html",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "When workplace conflict happens, you have options - Canada.ca"
-  },
-  {
-   "n": 14,
-   "url": "https://www.canada.ca/en/department-national-defence/maple-leaf/defence/2026/10/caf-members-begin-wearing-remembrance-day-poppy-october24.html",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Canadian Armed Forces members to begin wearing Remembrance Day poppy on October 24 - Canada.ca"
-  },
-  {
-   "n": 15,
-   "url": "https://www.canada.ca/en/department-national-defence/maple-leaf/defence/2026/10/rest-success-caf-members.html",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Rest for success: Sleep resources for CAF members - Canada.ca"
-  },
-  {
-   "n": 17,
-   "url": "https://www.tps.ca/media-centre/news-releases/toronto-police-arrest-seven-men-seize-more-than-2/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Toronto Police Arrest Seven Men, Seize More Than 2,700 Rounds of Ammunition Following Violent Abduction Investigation"
-  },
-  {
-   "n": 18,
-   "url": "https://globalnews.ca/news/12101916/toronto-police-canadian-soldiers-charges/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Toronto police recover military ammo in kidnapping probe involving 3 soldiers  | Globalnews.ca"
-  },
-  {
-   "n": 20,
-   "url": "https://nationalpost.com/news/canada/toronto-soldiers-charged-in-kidnapping-were-looking-for-cryptocurrency-police-say",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Toronto soldiers charged in kidnapping were looking for cryptocurrency | National Post"
-  }
- ],
  "turns": [
   {
    "at": 1792081185287,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/stories/kidnapping-case-leads-to-cache-of-weapons/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kidnapping Case Leads to Cache of Weapons"
+    },
+    {
+     "n": 3,
+     "url": "https://www.theglobeandmail.com/canada/article-toronto-police-arrest-canadian-armed-forces-members-seize-allegedly/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto police arrest three reservists, seize allegedly stolen ammunition in crypto-kidnapping investigation - The Globe and Mail"
+    },
+    {
+     "n": 5,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-caf-arrests-probe-stolen-ammunition/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Military members charged in Toronto abduction probe that recovered ammunition stolen from CAF - The Globe and Mail"
+    },
+    {
+     "n": 7,
+     "url": "https://toronto.citynews.ca/2026/10/14/toronto-police-abduction-investigation-canadian-armed-forces/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Canadian Armed Forces members charged in kidnapping probe"
+    },
+    {
+     "n": 8,
+     "url": "https://www.thecanadianpressnews.ca/national/ammo-stolen-from-military-recovered-in-toronto-abduction-probe-3-caf-members-charged/article_9504bd25-fb33-5a97-ac09-e0a92eba4839.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Ammo stolen from military recovered in Toronto abduction probe, 3 CAF members charged | National News | thecanadianpressnews.ca"
+    }
+   ],
    "claims": [
     {
      "claim": "Toronto police announced 82 criminal charges against seven accused on Oct. 14, 2026, in a probe that began with a July 25 abduction.",
@@ -232,6 +178,50 @@
   },
   {
    "at": 1792081196509,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/stories/kidnapping-case-leads-to-cache-of-weapons/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kidnapping Case Leads to Cache of Weapons"
+    },
+    {
+     "n": 3,
+     "url": "https://www.theglobeandmail.com/canada/article-toronto-police-arrest-canadian-armed-forces-members-seize-allegedly/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto police arrest three reservists, seize allegedly stolen ammunition in crypto-kidnapping investigation - The Globe and Mail"
+    },
+    {
+     "n": 5,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-caf-arrests-probe-stolen-ammunition/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Military members charged in Toronto abduction probe that recovered ammunition stolen from CAF - The Globe and Mail"
+    },
+    {
+     "n": 7,
+     "url": "https://toronto.citynews.ca/2026/10/14/toronto-police-abduction-investigation-canadian-armed-forces/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Canadian Armed Forces members charged in kidnapping probe"
+    },
+    {
+     "n": 8,
+     "url": "https://www.thecanadianpressnews.ca/national/ammo-stolen-from-military-recovered-in-toronto-abduction-probe-3-caf-members-charged/article_9504bd25-fb33-5a97-ac09-e0a92eba4839.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Ammo stolen from military recovered in Toronto abduction probe, 3 CAF members charged | National News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 9,
+     "url": "https://www.cbc.ca/news/canada/toronto/3rd-caf-member-charged-toronto-kidnapping-9.7380360",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "3rd member of Canadian Armed Forces charged in kidnapping probe: Toronto police | CBC News"
+    },
+    {
+     "n": 10,
+     "url": "https://www.tps.ca/media-centre/news-releases/67117/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Police Arrest Seven Men, Seize More Than 2,700 Rounds of Ammunition Following Violent Abduction Investigation"
+    }
+   ],
    "claims": [
     {
      "claim": "Toronto police announced 82 charges against seven accused on Oct. 14, 2026.",
@@ -305,6 +295,44 @@
   },
   {
    "at": 1792081211240,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/stories/kidnapping-case-leads-to-cache-of-weapons/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kidnapping Case Leads to Cache of Weapons"
+    },
+    {
+     "n": 3,
+     "url": "https://www.theglobeandmail.com/canada/article-toronto-police-arrest-canadian-armed-forces-members-seize-allegedly/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto police arrest three reservists, seize allegedly stolen ammunition in crypto-kidnapping investigation - The Globe and Mail"
+    },
+    {
+     "n": 5,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-caf-arrests-probe-stolen-ammunition/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Military members charged in Toronto abduction probe that recovered ammunition stolen from CAF - The Globe and Mail"
+    },
+    {
+     "n": 7,
+     "url": "https://toronto.citynews.ca/2026/10/14/toronto-police-abduction-investigation-canadian-armed-forces/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Canadian Armed Forces members charged in kidnapping probe"
+    },
+    {
+     "n": 8,
+     "url": "https://www.thecanadianpressnews.ca/national/ammo-stolen-from-military-recovered-in-toronto-abduction-probe-3-caf-members-charged/article_9504bd25-fb33-5a97-ac09-e0a92eba4839.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Ammo stolen from military recovered in Toronto abduction probe, 3 CAF members charged | National News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 10,
+     "url": "https://www.tps.ca/media-centre/news-releases/67117/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Police Arrest Seven Men, Seize More Than 2,700 Rounds of Ammunition Following Violent Abduction Investigation"
+    }
+   ],
    "claims": [
     {
      "claim": "Toronto police charged seven men, including three CAF reservists, in an abduction that grew into an ammunition and drug investigation.",
@@ -468,6 +496,56 @@
   },
   {
    "at": 1792081219417,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/stories/kidnapping-case-leads-to-cache-of-weapons/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kidnapping Case Leads to Cache of Weapons"
+    },
+    {
+     "n": 5,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-caf-arrests-probe-stolen-ammunition/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Military members charged in Toronto abduction probe that recovered ammunition stolen from CAF - The Globe and Mail"
+    },
+    {
+     "n": 7,
+     "url": "https://toronto.citynews.ca/2026/10/14/toronto-police-abduction-investigation-canadian-armed-forces/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Canadian Armed Forces members charged in kidnapping probe"
+    },
+    {
+     "n": 8,
+     "url": "https://www.thecanadianpressnews.ca/national/ammo-stolen-from-military-recovered-in-toronto-abduction-probe-3-caf-members-charged/article_9504bd25-fb33-5a97-ac09-e0a92eba4839.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Ammo stolen from military recovered in Toronto abduction probe, 3 CAF members charged | National News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 10,
+     "url": "https://www.tps.ca/media-centre/news-releases/67117/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Police Arrest Seven Men, Seize More Than 2,700 Rounds of Ammunition Following Violent Abduction Investigation"
+    },
+    {
+     "n": 17,
+     "url": "https://www.tps.ca/media-centre/news-releases/toronto-police-arrest-seven-men-seize-more-than-2/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Police Arrest Seven Men, Seize More Than 2,700 Rounds of Ammunition Following Violent Abduction Investigation"
+    },
+    {
+     "n": 18,
+     "url": "https://globalnews.ca/news/12101916/toronto-police-canadian-soldiers-charges/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto police recover military ammo in kidnapping probe involving 3 soldiers  | Globalnews.ca"
+    },
+    {
+     "n": 20,
+     "url": "https://nationalpost.com/news/canada/toronto-soldiers-charged-in-kidnapping-were-looking-for-cryptocurrency-police-say",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto soldiers charged in kidnapping were looking for cryptocurrency | National Post"
+    }
+   ],
    "claims": [
     {
      "claim": "Toronto police say 82 charges were laid against seven accused, unchanged from the Oct. 14 announcement.",

@@ -2,107 +2,47 @@
  "id": "gen-10",
  "title": "What do we know about the Toronto mayoral",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
-   "date": "2026-10-13T18:58:53.000Z",
-   "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
-  },
-  {
-   "n": 3,
-   "url": "https://www.oliviachow.ca/olivia_chow_asks_torontonians_to_move_forward_together",
-   "date": "2026-10-11T00:00:00.000Z",
-   "title": "Olivia Chow asks Torontonians to move forward, together - Olivia Chow for Mayor of Toronto"
-  },
-  {
-   "n": 4,
-   "url": "https://www.liaison.ca/polls/toronto-chow-51-bradford-46-renters-and-owners-split-october-13",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Liaison Strategies"
-  },
-  {
-   "n": 5,
-   "url": "https://www.toronto.ca/news/toronto-city-clerk-certifies-361-candidates-for-2026-municipal-election/",
-   "date": "2026-08-24T20:00:26.000Z",
-   "title": "Toronto City Clerk certifies 361 candidates for 2026 municipal election – City of Toronto"
-  },
-  {
-   "n": 6,
-   "url": "https://en.wikipedia.org/wiki/2026_Toronto_mayoral_election",
-   "date": "2026-10-08T00:00:00.000Z",
-   "title": "2026 Toronto mayoral election"
-  },
-  {
-   "n": 7,
-   "url": "https://nowtoronto.com/news/toronto-election-2026-chow-leads-bradford-by-five-points-new-poll/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Toronto Election 2026: Olivia Chow leads Brad Bradford by five points | NOW Toronto"
-  },
-  {
-   "n": 8,
-   "url": "https://www.cbc.ca/news/canada/toronto/toronto-mayoral-race-endorsements-9.7379352",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Can Blue Rodeo or Rush swing the balance of power in Toronto? How endorsements affect the mayoral race | CBC News"
-  },
-  {
-   "n": 12,
-   "url": "https://www.thetorontoscoop.com/news/toronto-sees-record-advance-voting-turnout-ahead-of-municipal-election",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Toronto Sees Record Advance Voting Turnout Ahead of Municipal Election | The Toronto Scoop"
-  },
-  {
-   "n": 14,
-   "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
-   "date": "2026-10-13T11:32:59.000Z",
-   "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
-  },
-  {
-   "n": 16,
-   "url": "https://www.toronto.ca/news/turnout-for-2022-toronto-municipal-election-advance-vote/",
-   "date": "2022-10-15T14:05:59.000Z",
-   "title": "Turnout for 2022 Toronto municipal election advance vote – City of Toronto"
-  },
-  {
-   "n": 17,
-   "url": "https://globalnews.ca/news/12100365/what-was-turnout-during-toronto-advance-voting/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "More than 220K cast advance votes in 2026 Toronto election, city says - Toronto | Globalnews.ca"
-  },
-  {
-   "n": 20,
-   "url": "https://www.cp24.com/local/toronto/2026/10/13/toronto-sees-massive-increase-in-advance-voting-with-more-than-200000-people-casting-ballots/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Advance voting up in 2026 Toronto municipal election"
-  },
-  {
-   "n": 23,
-   "url": "https://toronto.citynews.ca/2026/10/13/voter-turnout-advance-polls-toronto-election/",
-   "date": "2026-10-13T12:24:09.000Z",
-   "title": "More than 200,000 Torontonians voted in advance polls for municipal election"
-  },
-  {
-   "n": 25,
-   "url": "https://www.cbc.ca/news/canada/toronto/toronto-2026-advance-voter-turnout-increase-9.7378763",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Advance voter turnout in Toronto election jumped nearly 72% from 2023 byelection"
-  },
-  {
-   "n": 26,
-   "url": "https://www.toronto.ca/news/?nrkey=26214EFD1E998B74852585070041BCF8",
-   "date": "2026-10-09T00:00:00.000Z",
-   "title": "News Releases & Other Resources – City of Toronto"
-  },
-  {
-   "n": 31,
-   "url": "https://torontosun.com/news/local-news/advance-polling-in-toronto-way-up",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "‘CUSP OF CHANGE?’ Advance polling in Toronto way up | Toronto Sun"
-  }
- ],
  "turns": [
   {
    "at": 1792081497793,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
+     "date": "2026-10-13T18:58:53.000Z",
+     "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
+    },
+    {
+     "n": 4,
+     "url": "https://www.liaison.ca/polls/toronto-chow-51-bradford-46-renters-and-owners-split-october-13",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Liaison Strategies"
+    },
+    {
+     "n": 5,
+     "url": "https://www.toronto.ca/news/toronto-city-clerk-certifies-361-candidates-for-2026-municipal-election/",
+     "date": "2026-08-24T20:00:26.000Z",
+     "title": "Toronto City Clerk certifies 361 candidates for 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 6,
+     "url": "https://en.wikipedia.org/wiki/2026_Toronto_mayoral_election",
+     "date": "2026-10-08T00:00:00.000Z",
+     "title": "2026 Toronto mayoral election"
+    },
+    {
+     "n": 7,
+     "url": "https://nowtoronto.com/news/toronto-election-2026-chow-leads-bradford-by-five-points-new-poll/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Election 2026: Olivia Chow leads Brad Bradford by five points | NOW Toronto"
+    },
+    {
+     "n": 8,
+     "url": "https://www.cbc.ca/news/canada/toronto/toronto-mayoral-race-endorsements-9.7379352",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Can Blue Rodeo or Rush swing the balance of power in Toronto? How endorsements affect the mayoral race | CBC News"
+    }
+   ],
    "claims": [
     {
      "claim": "Liaison Strategies poll of 1,000 Toronto residents Oct. 8-9, 2026 puts Chow at 51 per cent and Bradford at 46 per cent among decided and leaning voters, with 3 per cent backing another candidate",
@@ -241,6 +181,50 @@
   },
   {
    "at": 1792081518947,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
+     "date": "2026-10-13T18:58:53.000Z",
+     "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
+    },
+    {
+     "n": 4,
+     "url": "https://www.liaison.ca/polls/toronto-chow-51-bradford-46-renters-and-owners-split-october-13",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Liaison Strategies"
+    },
+    {
+     "n": 5,
+     "url": "https://www.toronto.ca/news/toronto-city-clerk-certifies-361-candidates-for-2026-municipal-election/",
+     "date": "2026-08-24T20:00:26.000Z",
+     "title": "Toronto City Clerk certifies 361 candidates for 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 12,
+     "url": "https://www.thetorontoscoop.com/news/toronto-sees-record-advance-voting-turnout-ahead-of-municipal-election",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Sees Record Advance Voting Turnout Ahead of Municipal Election | The Toronto Scoop"
+    },
+    {
+     "n": 14,
+     "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
+     "date": "2026-10-13T11:32:59.000Z",
+     "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 20,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/toronto-sees-massive-increase-in-advance-voting-with-more-than-200000-people-casting-ballots/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Advance voting up in 2026 Toronto municipal election"
+    },
+    {
+     "n": 23,
+     "url": "https://toronto.citynews.ca/2026/10/13/voter-turnout-advance-polls-toronto-election/",
+     "date": "2026-10-13T12:24:09.000Z",
+     "title": "More than 200,000 Torontonians voted in advance polls for municipal election"
+    }
+   ],
    "claims": [
     {
      "claim": "The City of Toronto says 222,550 eligible voters cast ballots during six days of advance voting, Oct. 6-11, a record",
@@ -337,6 +321,50 @@
   },
   {
    "at": 1792081529139,
+   "sources": [
+    {
+     "n": 14,
+     "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
+     "date": "2026-10-13T11:32:59.000Z",
+     "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 17,
+     "url": "https://globalnews.ca/news/12100365/what-was-turnout-during-toronto-advance-voting/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "More than 220K cast advance votes in 2026 Toronto election, city says - Toronto | Globalnews.ca"
+    },
+    {
+     "n": 20,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/toronto-sees-massive-increase-in-advance-voting-with-more-than-200000-people-casting-ballots/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Advance voting up in 2026 Toronto municipal election"
+    },
+    {
+     "n": 23,
+     "url": "https://toronto.citynews.ca/2026/10/13/voter-turnout-advance-polls-toronto-election/",
+     "date": "2026-10-13T12:24:09.000Z",
+     "title": "More than 200,000 Torontonians voted in advance polls for municipal election"
+    },
+    {
+     "n": 25,
+     "url": "https://www.cbc.ca/news/canada/toronto/toronto-2026-advance-voter-turnout-increase-9.7378763",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Advance voter turnout in Toronto election jumped nearly 72% from 2023 byelection"
+    },
+    {
+     "n": 26,
+     "url": "https://www.toronto.ca/news/?nrkey=26214EFD1E998B74852585070041BCF8",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "News Releases & Other Resources – City of Toronto"
+    },
+    {
+     "n": 31,
+     "url": "https://torontosun.com/news/local-news/advance-polling-in-toronto-way-up",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "‘CUSP OF CHANGE?’ Advance polling in Toronto way up | Toronto Sun"
+    }
+   ],
    "claims": [
     {
      "claim": "No revised advance turnout figure has been issued; the City of Toronto's released total remains 222,550 over six days of advance voting, Oct. 6-11",

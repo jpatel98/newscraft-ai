@@ -2,71 +2,53 @@
  "id": "gen-13",
  "title": "What do we know about Ontario's new rule",
  "origin": "generated",
- "sources": [
-  {
-   "n": 2,
-   "url": "https://www.theglobeandmail.com/canada/toronto/article-safer-supply-drugs-opioids-ontario/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Changes to prescribing safer supply drugs approved by Ontario’s medical regulator - The Globe and Mail"
-  },
-  {
-   "n": 3,
-   "url": "https://www.cpso.on.ca/News/News-Articles/CPSO-Board-Approves-Amendments-to-Strengthen-Safeg",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "CPSO - CPSO Board Approves Amendments to Strengthen Safeguards for Safer Supply Prescribing"
-  },
-  {
-   "n": 4,
-   "url": "https://pharmasist.ca/news/cpso-proposes-eight-week-limit-supervised-safer-supply",
-   "date": "2026-10-01T00:00:00.000Z",
-   "title": "CPSO Proposes Eight-Week Limit and No Take-Home Doses for Safer Supply"
-  },
-  {
-   "n": 5,
-   "url": "https://news.ontario.ca/en/release/1007167/ontario-taking-action-to-protect-local-communities-and-break-the-cycle-of-addiction",
-   "date": "2026-03-16T00:00:00.000Z",
-   "title": "Ontario Taking Action to Protect Local Communities and Break the Cycle of Addiction | Ontario Newsroom"
-  },
-  {
-   "n": 6,
-   "url": "https://www.thecanadianpressnews.ca/ontario/ontarios-medical-regulator-approves-changes-to-prescribing-safer-supply-drugs/article_b6a6f033-9a3d-5c22-a11c-8aa0a61eaa3a.html",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Ontario's medical regulator approves changes to prescribing safer supply drugs | Ontario News | thecanadianpressnews.ca"
-  },
-  {
-   "n": 7,
-   "url": "https://globalnews.ca/news/12089750/ontario-safe-supply-regulating-changes/",
-   "date": "2026-10-06T00:00:00.000Z",
-   "title": "Ontario’s medical regulator proposing sweeping changes to prescribing safer supply  | Globalnews.ca"
-  },
-  {
-   "n": 8,
-   "url": "https://www.nugget.ca/news/north-bay-police-expect-new-rules-will-crush-safer-supply-drug-diversion/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "North Bay police expect new rules will crush safer supply drug diversion - North Bay Nugget"
-  },
-  {
-   "n": 11,
-   "url": "https://globalnews.ca/news/12101112/ontario-safe-supply-drugs-prescriptions-changing/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Changes to prescribing safer supply drugs approved by Ontario medical regulator  | Globalnews.ca"
-  },
-  {
-   "n": 13,
-   "url": "https://www.ottown.ca/articles/ottawa-ontario-safer-supply-prescribing-changes-approved",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Ontario Safer Supply Patients Must Take Drugs in Front of Clinicians | ottown"
-  },
-  {
-   "n": 15,
-   "url": "https://www.cbc.ca/news/canada/toronto/ontario-safe-supply-9.7379145",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Ontarians prescribed safer supply drugs will now have to take them in front of health-care professionals | CBC News"
-  }
- ],
  "turns": [
   {
    "at": 1792081608358,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-safer-supply-drugs-opioids-ontario/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Changes to prescribing safer supply drugs approved by Ontario’s medical regulator  - The Globe and Mail"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cpso.on.ca/News/News-Articles/CPSO-Board-Approves-Amendments-to-Strengthen-Safeg",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "CPSO - CPSO Board Approves Amendments to Strengthen Safeguards for Safer Supply Prescribing"
+    },
+    {
+     "n": 4,
+     "url": "https://pharmasist.ca/news/cpso-proposes-eight-week-limit-supervised-safer-supply",
+     "date": "2026-10-01T00:00:00.000Z",
+     "title": "CPSO Proposes Eight-Week Limit and No Take-Home Doses for Safer Supply"
+    },
+    {
+     "n": 5,
+     "url": "https://news.ontario.ca/en/release/1007167/ontario-taking-action-to-protect-local-communities-and-break-the-cycle-of-addiction",
+     "date": "2026-03-16T00:00:00.000Z",
+     "title": "Ontario Taking Action to Protect Local Communities and Break the Cycle of Addiction | Ontario Newsroom"
+    },
+    {
+     "n": 6,
+     "url": "https://www.thecanadianpressnews.ca/ontario/ontarios-medical-regulator-approves-changes-to-prescribing-safer-supply-drugs/article_b6a6f033-9a3d-5c22-a11c-8aa0a61eaa3a.html",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontario's medical regulator approves changes to prescribing safer supply drugs | Ontario News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 7,
+     "url": "https://globalnews.ca/news/12089750/ontario-safe-supply-regulating-changes/",
+     "date": "2026-10-06T00:00:00.000Z",
+     "title": "Ontario’s medical regulator proposing sweeping changes to prescribing safer supply  | Globalnews.ca"
+    },
+    {
+     "n": 8,
+     "url": "https://www.nugget.ca/news/north-bay-police-expect-new-rules-will-crush-safer-supply-drug-diversion/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "North Bay police expect new rules will crush safer supply drug diversion - North Bay Nugget"
+    }
+   ],
    "claims": [
     {
      "claim": "CPSO's board approved amendments on Oct. 13, 2026 requiring physicians to identify 'safer supply' and specify 'no carries' on prescriptions, supporting supervised consumption",
@@ -184,6 +166,38 @@
   },
   {
    "at": 1792081622610,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-safer-supply-drugs-opioids-ontario/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Changes to prescribing safer supply drugs approved by Ontario’s medical regulator  - The Globe and Mail"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cpso.on.ca/News/News-Articles/CPSO-Board-Approves-Amendments-to-Strengthen-Safeg",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "CPSO - CPSO Board Approves Amendments to Strengthen Safeguards for Safer Supply Prescribing"
+    },
+    {
+     "n": 6,
+     "url": "https://www.thecanadianpressnews.ca/ontario/ontarios-medical-regulator-approves-changes-to-prescribing-safer-supply-drugs/article_b6a6f033-9a3d-5c22-a11c-8aa0a61eaa3a.html",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontario's medical regulator approves changes to prescribing safer supply drugs | Ontario News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 11,
+     "url": "https://globalnews.ca/news/12101112/ontario-safe-supply-drugs-prescriptions-changing/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Changes to prescribing safer supply drugs approved by Ontario medical regulator  | Globalnews.ca"
+    },
+    {
+     "n": 13,
+     "url": "https://www.ottown.ca/articles/ottawa-ontario-safer-supply-prescribing-changes-approved",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Ontario Safer Supply Patients Must Take Drugs in Front of Clinicians | ottown"
+    }
+   ],
    "claims": [
     {
      "claim": "CPSO expects physicians to transition to compliance with the amendments by Nov. 16, 2026",
@@ -260,6 +274,26 @@
   },
   {
    "at": 1792081633551,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-safer-supply-drugs-opioids-ontario/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Changes to prescribing safer supply drugs approved by Ontario’s medical regulator - The Globe and Mail"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cpso.on.ca/News/News-Articles/CPSO-Board-Approves-Amendments-to-Strengthen-Safeg",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "CPSO - CPSO Board Approves Amendments to Strengthen Safeguards for Safer Supply Prescribing"
+    },
+    {
+     "n": 15,
+     "url": "https://www.cbc.ca/news/canada/toronto/ontario-safe-supply-9.7379145",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontarians prescribed safer supply drugs will now have to take them in front of health-care professionals | CBC News"
+    }
+   ],
    "claims": [
     {
      "claim": "CPSO's board approved amendments on Oct. 13, 2026 requiring physicians to identify 'safer supply' and specify 'no carries' on prescriptions, supporting supervised consumption",

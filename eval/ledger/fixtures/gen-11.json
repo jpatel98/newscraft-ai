@@ -2,65 +2,47 @@
  "id": "gen-11",
  "title": "What do we know about Mississauga's municipal election",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.mississauga.ca/city-of-mississauga-news/news/positive-turnout-for-mississaugas-2026-municipal-election-advance-polls/",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Positive turnout for Mississauga’s 2026 municipal election advance polls – City of Mississauga"
-  },
-  {
-   "n": 2,
-   "url": "https://thepointer.com/article/2026-10-11/four-candidates-four-visions-how-mississauga-s-mayoral-hopefuls-would-tackle-affordability-housing-crime-and-transit",
-   "date": "2026-10-11T19:55:12.000Z",
-   "title": "Four candidates, four visions: How Mississauga’s mayoral hopefuls would tackle affordability, housing, crime and transit | The Pointer"
-  },
-  {
-   "n": 3,
-   "url": "https://policc.com/news/policc-2026-09-20-mississauga-certified-candidates",
-   "date": "2026-09-20T00:00:00.000Z",
-   "title": "Mississauga 2026: 75 ward candidates across 11 wards, 14 running for mayor · POLICC"
-  },
-  {
-   "n": 4,
-   "url": "https://toronto.citynews.ca/2026/10/14/mississauga-advance-voting-jumps-57-per-cent-ahead-of-municipal-election/",
-   "date": "2026-10-14T16:12:41.000Z",
-   "title": "Mississauga advance voting jumps 57 per cent ahead of municipal election"
-  },
-  {
-   "n": 6,
-   "url": "https://toronto.citynews.ca/2026/10/08/mississauga-election-2026-living-arts-centre-policy-platforms/",
-   "date": "2026-10-08T23:55:59.000Z",
-   "title": "Mississauga election 2026: Mayoral candidates talk redeveloping Living Arts Centre, platform policy planks"
-  },
-  {
-   "n": 8,
-   "url": "https://toronto.citynews.ca/2026/09/15/mississauga-election-2026-mayor-candidates/",
-   "date": "2026-09-15T00:00:00.000Z",
-   "title": "2026 Mississauga election: How the mayor's race could be one of Ontario's most watched"
-  },
-  {
-   "n": 11,
-   "url": "https://thecanadavoice.ca/news/mississauga-sets-advance-voting-record-with-more-than-44-000-ballots-cast",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Mississauga sets advance voting record: 44,049 ballots | The Canada Voice"
-  },
-  {
-   "n": 13,
-   "url": "https://www.insauga.com/voter-turnout-way-up-during-advance-polling-in-mississauga/",
-   "date": "2026-10-13T21:24:31.000Z",
-   "title": "Voter turnout way up during advance polling in Mississauga | INSAUGA Canada"
-  },
-  {
-   "n": 15,
-   "url": "https://torontonewsupdate.ca/mississauga-advance-voting-surges-ahead-of-october-municipal-election/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Mississauga Advance Voting Surges Ahead of October Municipal Election - torontonewsupdate"
-  }
- ],
  "turns": [
   {
    "at": 1792081541585,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.mississauga.ca/city-of-mississauga-news/news/positive-turnout-for-mississaugas-2026-municipal-election-advance-polls/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Positive turnout for Mississauga’s 2026 municipal election advance polls – City of Mississauga"
+    },
+    {
+     "n": 2,
+     "url": "https://thepointer.com/article/2026-10-11/four-candidates-four-visions-how-mississauga-s-mayoral-hopefuls-would-tackle-affordability-housing-crime-and-transit",
+     "date": "2026-10-11T19:55:12.000Z",
+     "title": "Four candidates, four visions: How Mississauga’s mayoral hopefuls would tackle affordability, housing, crime and transit | The Pointer"
+    },
+    {
+     "n": 3,
+     "url": "https://policc.com/news/policc-2026-09-20-mississauga-certified-candidates",
+     "date": "2026-09-20T00:00:00.000Z",
+     "title": "Mississauga 2026: 75 ward candidates across 11 wards, 14 running for mayor · POLICC"
+    },
+    {
+     "n": 4,
+     "url": "https://toronto.citynews.ca/2026/10/14/mississauga-advance-voting-jumps-57-per-cent-ahead-of-municipal-election/",
+     "date": "2026-10-14T16:12:41.000Z",
+     "title": "Mississauga advance voting jumps 57 per cent ahead of municipal election"
+    },
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/08/mississauga-election-2026-living-arts-centre-policy-platforms/",
+     "date": "2026-10-08T23:55:59.000Z",
+     "title": "Mississauga election 2026: Mayoral candidates talk redeveloping Living Arts Centre, platform policy planks"
+    },
+    {
+     "n": 8,
+     "url": "https://toronto.citynews.ca/2026/09/15/mississauga-election-2026-mayor-candidates/",
+     "date": "2026-09-15T00:00:00.000Z",
+     "title": "2026 Mississauga election: How the mayor's race could be one of Ontario's most watched"
+    }
+   ],
    "claims": [
     {
      "claim": "Advance polls drew 44,049 voters Oct. 6–11, 2026, up 57 per cent from 28,052 in 2022",
@@ -181,6 +163,32 @@
   },
   {
    "at": 1792081553552,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.mississauga.ca/city-of-mississauga-news/news/positive-turnout-for-mississaugas-2026-municipal-election-advance-polls/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Positive turnout for Mississauga’s 2026 municipal election advance polls – City of Mississauga"
+    },
+    {
+     "n": 4,
+     "url": "https://toronto.citynews.ca/2026/10/14/mississauga-advance-voting-jumps-57-per-cent-ahead-of-municipal-election/",
+     "date": "2026-10-14T16:12:41.000Z",
+     "title": "Mississauga advance voting jumps 57 per cent ahead of municipal election"
+    },
+    {
+     "n": 11,
+     "url": "https://thecanadavoice.ca/news/mississauga-sets-advance-voting-record-with-more-than-44-000-ballots-cast",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Mississauga sets advance voting record: 44,049 ballots | The Canada Voice"
+    },
+    {
+     "n": 13,
+     "url": "https://www.insauga.com/voter-turnout-way-up-during-advance-polling-in-mississauga/",
+     "date": "2026-10-13T21:24:31.000Z",
+     "title": "Voter turnout way up during advance polling in Mississauga | INSAUGA Canada"
+    }
+   ],
    "claims": [
     {
      "claim": "City of Mississauga confirmed 44,049 advance ballots cast Oct. 6–11, 2026, a new advance-voting record",
@@ -278,6 +286,38 @@
   },
   {
    "at": 1792081562978,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.mississauga.ca/city-of-mississauga-news/news/positive-turnout-for-mississaugas-2026-municipal-election-advance-polls/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Positive turnout for Mississauga’s 2026 municipal election advance polls – City of Mississauga"
+    },
+    {
+     "n": 3,
+     "url": "https://policc.com/news/policc-2026-09-20-mississauga-certified-candidates",
+     "date": "2026-09-20T00:00:00.000Z",
+     "title": "Mississauga 2026: 75 ward candidates across 11 wards, 14 running for mayor · POLICC"
+    },
+    {
+     "n": 4,
+     "url": "https://toronto.citynews.ca/2026/10/14/mississauga-advance-voting-jumps-57-per-cent-ahead-of-municipal-election/",
+     "date": "2026-10-14T16:12:41.000Z",
+     "title": "Mississauga advance voting jumps 57 per cent ahead of municipal election"
+    },
+    {
+     "n": 11,
+     "url": "https://thecanadavoice.ca/news/mississauga-sets-advance-voting-record-with-more-than-44-000-ballots-cast",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Mississauga sets advance voting record: 44,049 ballots | The Canada Voice"
+    },
+    {
+     "n": 13,
+     "url": "https://www.insauga.com/voter-turnout-way-up-during-advance-polling-in-mississauga/",
+     "date": "2026-10-13T21:24:31.000Z",
+     "title": "Voter turnout way up during advance polling in Mississauga | INSAUGA Canada"
+    }
+   ],
    "claims": [
     {
      "claim": "City of Mississauga confirmed 44,049 advance ballots cast Oct. 6–11, 2026, a new advance-voting record",

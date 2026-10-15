@@ -2,83 +2,53 @@
  "id": "gen-03",
  "title": "What do we know about the catalytic converter",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.tps.ca/media-centre/news-releases/67128/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Toronto Police to Provide Update on Theft Investigation at Second Harvest, \nThursday, October 15, 2026, at 11:30 a.m., \n22 Division (3699 Bloor Street West)"
-  },
-  {
-   "n": 2,
-   "url": "https://www.cbc.ca/news/canada/toronto/seven-food-trucks-out-of-service-second-harvest-receives-donation-9.7380526",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Second Harvest receives $60K donation to repair 7 food trucks after catalytic converters stolen Sunday | CBC News"
-  },
-  {
-   "n": 3,
-   "url": "https://globalnews.ca/news/12103620/second-harvest-catalytic-converters-thefts/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Toronto police to update catalytic converter theft that disabled 7 Second Harvest trucks - Toronto | Globalnews.ca"
-  },
-  {
-   "n": 4,
-   "url": "https://www.tps.ca/media-centre/news-releases/suspect-sought-in-a-theft-investigation-the-east/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Suspect Sought in a Theft Investigation,\nThe East Mall and North Queen Street area,\nImages Released"
-  },
-  {
-   "n": 5,
-   "url": "https://globalnews.ca/news/12099225/second-harvest-truck-vandalism/",
-   "date": "2026-10-11T00:00:00.000Z",
-   "title": "Toronto food charity says 7 trucks vandalized over Thanksgiving weekend  | Globalnews.ca"
-  },
-  {
-   "n": 6,
-   "url": "https://toronto.citynews.ca/2026/10/11/etobicoke-food-charity-claims-7-trucks-were-vandalized-over-thanksgiving-weekend/",
-   "date": "2026-10-11T00:00:00.000Z",
-   "title": "Etobicoke food charity claims 7 trucks were vandalized over Thanksgiving weekend"
-  },
-  {
-   "n": 8,
-   "url": "https://www.cp24.com/local/toronto/2026/10/11/7-trucks-belonging-to-food-charity-second-harvest-out-of-service-after-catalytic-converters-stolen/",
-   "date": "2026-10-11T00:00:00.000Z",
-   "title": "Second Harvest theft: 7 trucks out of service after catalytic converters stolen"
-  },
-  {
-   "n": 9,
-   "url": "https://www.tps.ca/media-centre/news-releases/67112/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Suspect Sought in a Theft Investigation,\nThe East Mall and North Queen Street area,\nImages Released"
-  },
-  {
-   "n": 10,
-   "url": "https://toronto.citynews.ca/2026/10/14/police-release-suspect-vehicle-image-in-etobicoke-food-charity-vandalism/",
-   "date": "2026-10-14T00:00:00.000Z",
-   "title": "Police release suspect vehicle image in Etobicoke food charity vandalism"
-  },
-  {
-   "n": 11,
-   "url": "https://www.tps.ca/media-centre/news-releases/toronto-police-to-provide-update-on-theft-investig/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Toronto Police to Provide Update on Theft Investigation at Second Harvest, \nThursday, October 15, 2026, at 11:30 a.m., \n22 Division (3699 Bloor Street West)"
-  },
-  {
-   "n": 12,
-   "url": "https://www.cp24.com/local/toronto/2026/10/14/toronto-based-charity-that-had-7-trucks-vandalized-over-thanksgiving-weekend-receives-60k-donation-as-police-investigation-continues/",
-   "date": "2026-10-14T19:44:06.000Z",
-   "title": "Second Harvest trucks vandalized: Charity gets $60K donation, police investigating"
-  },
-  {
-   "n": 15,
-   "url": "https://globalnews.ca/news/12102254/second-harvest-60k-donation-repairs/",
-   "date": "2026-10-14T16:36:40.000Z",
-   "title": "Toronto food charity receives $60K donation after trucks vandalized  | Globalnews.ca"
-  }
- ],
  "turns": [
   {
    "at": 1792081230854,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/news-releases/67128/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto Police to Provide Update on Theft Investigation at Second Harvest, \nThursday, October 15, 2026, at 11:30 a.m., \n22 Division (3699 Bloor Street West)"
+    },
+    {
+     "n": 2,
+     "url": "https://www.cbc.ca/news/canada/toronto/seven-food-trucks-out-of-service-second-harvest-receives-donation-9.7380526",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Second Harvest receives $60K donation to repair 7 food trucks after catalytic converters stolen Sunday | CBC News"
+    },
+    {
+     "n": 3,
+     "url": "https://globalnews.ca/news/12103620/second-harvest-catalytic-converters-thefts/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto police to update catalytic converter theft that disabled 7 Second Harvest trucks - Toronto | Globalnews.ca"
+    },
+    {
+     "n": 4,
+     "url": "https://www.tps.ca/media-centre/news-releases/suspect-sought-in-a-theft-investigation-the-east/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Suspect Sought in a Theft Investigation,\nThe East Mall and North Queen Street area,\nImages Released"
+    },
+    {
+     "n": 5,
+     "url": "https://globalnews.ca/news/12099225/second-harvest-truck-vandalism/",
+     "date": "2026-10-11T00:00:00.000Z",
+     "title": "Toronto food charity says 7 trucks vandalized over Thanksgiving weekend  | Globalnews.ca"
+    },
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/11/etobicoke-food-charity-claims-7-trucks-were-vandalized-over-thanksgiving-weekend/",
+     "date": "2026-10-11T00:00:00.000Z",
+     "title": "Etobicoke food charity claims 7 trucks were vandalized over Thanksgiving weekend"
+    },
+    {
+     "n": 8,
+     "url": "https://www.cp24.com/local/toronto/2026/10/11/7-trucks-belonging-to-food-charity-second-harvest-out-of-service-after-catalytic-converters-stolen/",
+     "date": "2026-10-11T00:00:00.000Z",
+     "title": "Second Harvest theft: 7 trucks out of service after catalytic converters stolen"
+    }
+   ],
    "claims": [
     {
      "claim": "Suspects cut through the exhaust systems of seven Second Harvest trucks and stole their catalytic converters at the charity's Etobicoke yard over Thanksgiving weekend",
@@ -212,6 +182,32 @@
   },
   {
    "at": 1792081249392,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/news-releases/67128/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto Police to Provide Update on Theft Investigation at Second Harvest, \nThursday, October 15, 2026, at 11:30 a.m., \n22 Division (3699 Bloor Street West)"
+    },
+    {
+     "n": 3,
+     "url": "https://globalnews.ca/news/12103620/second-harvest-catalytic-converters-thefts/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto police to update catalytic converter theft that disabled 7 Second Harvest trucks - Toronto | Globalnews.ca"
+    },
+    {
+     "n": 9,
+     "url": "https://www.tps.ca/media-centre/news-releases/67112/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Suspect Sought in a Theft Investigation,\nThe East Mall and North Queen Street area,\nImages Released"
+    },
+    {
+     "n": 10,
+     "url": "https://toronto.citynews.ca/2026/10/14/police-release-suspect-vehicle-image-in-etobicoke-food-charity-vandalism/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Police release suspect vehicle image in Etobicoke food charity vandalism"
+    }
+   ],
    "claims": [
     {
      "claim": "No arrest has been announced in the Second Harvest catalytic converter theft; police describe suspects as sought, not in custody",
@@ -281,6 +277,62 @@
   },
   {
    "at": 1792081262350,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/news-releases/67128/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto Police to Provide Update on Theft Investigation at Second Harvest, \nThursday, October 15, 2026, at 11:30 a.m., \n22 Division (3699 Bloor Street West)"
+    },
+    {
+     "n": 2,
+     "url": "https://www.cbc.ca/news/canada/toronto/seven-food-trucks-out-of-service-second-harvest-receives-donation-9.7380526",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Second Harvest receives $60K donation to repair 7 food trucks after catalytic converters stolen Sunday | CBC News"
+    },
+    {
+     "n": 3,
+     "url": "https://globalnews.ca/news/12103620/second-harvest-catalytic-converters-thefts/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto police to update catalytic converter theft that disabled 7 Second Harvest trucks - Toronto | Globalnews.ca"
+    },
+    {
+     "n": 4,
+     "url": "https://www.tps.ca/media-centre/news-releases/suspect-sought-in-a-theft-investigation-the-east/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Suspect Sought in a Theft Investigation,\nThe East Mall and North Queen Street area,\nImages Released"
+    },
+    {
+     "n": 9,
+     "url": "https://www.tps.ca/media-centre/news-releases/67112/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Suspect Sought in a Theft Investigation,\nThe East Mall and North Queen Street area,\nImages Released"
+    },
+    {
+     "n": 10,
+     "url": "https://toronto.citynews.ca/2026/10/14/police-release-suspect-vehicle-image-in-etobicoke-food-charity-vandalism/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Police release suspect vehicle image in Etobicoke food charity vandalism"
+    },
+    {
+     "n": 11,
+     "url": "https://www.tps.ca/media-centre/news-releases/toronto-police-to-provide-update-on-theft-investig/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto Police to Provide Update on Theft Investigation at Second Harvest, \nThursday, October 15, 2026, at 11:30 a.m., \n22 Division (3699 Bloor Street West)"
+    },
+    {
+     "n": 12,
+     "url": "https://www.cp24.com/local/toronto/2026/10/14/toronto-based-charity-that-had-7-trucks-vandalized-over-thanksgiving-weekend-receives-60k-donation-as-police-investigation-continues/",
+     "date": "2026-10-14T19:44:06.000Z",
+     "title": "Second Harvest trucks vandalized: Charity gets $60K donation, police investigating"
+    },
+    {
+     "n": 15,
+     "url": "https://globalnews.ca/news/12102254/second-harvest-60k-donation-repairs/",
+     "date": "2026-10-14T16:36:40.000Z",
+     "title": "Toronto food charity receives $60K donation after trucks vandalized  | Globalnews.ca"
+    }
+   ],
    "claims": [
     {
      "claim": "Toronto police are still looking for whoever cut catalytic converters from seven Second Harvest trucks; no arrest, no charges, no name",

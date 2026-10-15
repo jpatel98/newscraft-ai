@@ -2,65 +2,35 @@
  "id": "gen-01",
  "title": "What do we know about the Toronto police",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.canada.ca/en/border-services-agency/news/2026/10/cbsa-makes-arrest-and-lays-charges-in-firearm-investigation.html",
-   "date": "2026-10-08T00:00:00.000Z",
-   "title": "CBSA makes arrest and lays charges in firearm investigation - Canada.ca"
-  },
-  {
-   "n": 2,
-   "url": "https://www.cbc.ca/news/canada/toronto/toronto-police-cbsa-firearm-suppressors-charges-suspended-9.7377079",
-   "date": "2026-10-10T00:00:00.000Z",
-   "title": "Toronto police officer charged after CBSA intercepts firearm suppressors | CBC News"
-  },
-  {
-   "n": 6,
-   "url": "https://toronto.citynews.ca/2026/10/09/toronto-police-officer-charged-with-firearm-related-offences-cbsa/",
-   "date": "2026-10-09T20:04:57.000Z",
-   "title": "Toronto police officer charged with several firearm-related offences after Canada Border Services Agency probe"
-  },
-  {
-   "n": 7,
-   "url": "https://www.orilliamatters.com/police-beat/toronto-cop-arrested-for-smuggling-firearm-silencers-from-us-12880863",
-   "date": "2026-10-10T00:00:00.000Z",
-   "title": "Toronto cop arrested for smuggling firearm silencers from U.S. - Orillia News"
-  },
-  {
-   "n": 8,
-   "url": "https://www.thestar.com/news/gta/toronto-police-officer-charged-after-cbsa-finds-illegal-firearm-suppressors/article_e3a32fbb-b875-4880-a60d-bdecea42ebaf.html",
-   "date": "",
-   "title": "CBSA charges Toronto police officer with firearm offences"
-  },
-  {
-   "n": 11,
-   "url": "https://torontodailyreport.com/2026/10/10/toronto-police-officer-charged-with-several-firearm-related-offences-after-canada-border-services-agency-probe/",
-   "date": "2026-10-10T00:00:00.000Z",
-   "title": "Toronto Daily Report-Toronto police officer charged with several firearm-related offences after Canada Border Services Agency probe"
-  },
-  {
-   "n": 12,
-   "url": "https://www.europesays.com/canada/243871/",
-   "date": "2026-10-09T00:00:00.000Z",
-   "title": "Brampton Man Charged Over Smuggled Firearm Suppressors - Canada"
-  },
-  {
-   "n": 13,
-   "url": "https://torontosun.com/news/local-news/cbsa-charges-toronto-cop-firearm-related-offences",
-   "date": "2026-10-09T00:00:00.000Z",
-   "title": "CBSA charges Toronto cop with firearm-related offences | Toronto Sun"
-  },
-  {
-   "n": 15,
-   "url": "https://www.ullaw.ca/news/nasser-gholami-has-been-suspended-pay-2026-10-11",
-   "date": "2026-10-11T16:22:19.000Z",
-   "title": "Toronto Police Officer Charged with Firearm Offences in Brampton"
-  }
- ],
  "turns": [
   {
    "at": 1792081155189,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.canada.ca/en/border-services-agency/news/2026/10/cbsa-makes-arrest-and-lays-charges-in-firearm-investigation.html",
+     "date": "2026-10-08T00:00:00.000Z",
+     "title": "CBSA makes arrest and lays charges in firearm investigation - Canada.ca"
+    },
+    {
+     "n": 2,
+     "url": "https://www.cbc.ca/news/canada/toronto/toronto-police-cbsa-firearm-suppressors-charges-suspended-9.7377079",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Toronto police officer charged after CBSA intercepts firearm suppressors | CBC News"
+    },
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/09/toronto-police-officer-charged-with-firearm-related-offences-cbsa/",
+     "date": "2026-10-09T20:04:57.000Z",
+     "title": "Toronto police officer charged with several firearm-related offences after Canada Border Services Agency probe"
+    },
+    {
+     "n": 7,
+     "url": "https://www.orilliamatters.com/police-beat/toronto-cop-arrested-for-smuggling-firearm-silencers-from-us-12880863",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Toronto cop arrested for smuggling firearm silencers from U.S. - Orillia News"
+    }
+   ],
    "claims": [
     {
      "claim": "Nasser Gholami, 47, of Brampton, is charged with multiple firearm-related offences by CBSA",
@@ -161,6 +131,50 @@
   },
   {
    "at": 1792081166638,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.canada.ca/en/border-services-agency/news/2026/10/cbsa-makes-arrest-and-lays-charges-in-firearm-investigation.html",
+     "date": "2026-10-08T00:00:00.000Z",
+     "title": "CBSA makes arrest and lays charges in firearm investigation - Canada.ca"
+    },
+    {
+     "n": 2,
+     "url": "https://www.cbc.ca/news/canada/toronto/toronto-police-cbsa-firearm-suppressors-charges-suspended-9.7377079",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Toronto police officer charged after CBSA intercepts firearm suppressors | CBC News"
+    },
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/09/toronto-police-officer-charged-with-firearm-related-offences-cbsa/",
+     "date": "2026-10-09T20:04:57.000Z",
+     "title": "Toronto police officer charged with several firearm-related offences after Canada Border Services Agency probe"
+    },
+    {
+     "n": 8,
+     "url": "https://www.thestar.com/news/gta/toronto-police-officer-charged-after-cbsa-finds-illegal-firearm-suppressors/article_e3a32fbb-b875-4880-a60d-bdecea42ebaf.html",
+     "date": "",
+     "title": "CBSA charges Toronto police officer with firearm offences"
+    },
+    {
+     "n": 11,
+     "url": "https://torontodailyreport.com/2026/10/10/toronto-police-officer-charged-with-several-firearm-related-offences-after-canada-border-services-agency-probe/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Toronto Daily Report-Toronto police officer charged with several firearm-related offences after Canada Border Services Agency probe"
+    },
+    {
+     "n": 12,
+     "url": "https://www.europesays.com/canada/243871/",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "Brampton Man Charged Over Smuggled Firearm Suppressors - Canada"
+    },
+    {
+     "n": 15,
+     "url": "https://www.ullaw.ca/news/nasser-gholami-has-been-suspended-pay-2026-10-11",
+     "date": "2026-10-11T16:22:19.000Z",
+     "title": "Toronto Police Officer Charged with Firearm Offences in Brampton"
+    }
+   ],
    "claims": [
     {
      "claim": "Gholami is suspended with pay and has been served notice the chief intends to suspend him without pay after the mandated 60-day period under the Community Safety and Policing Act",
@@ -237,6 +251,38 @@
   },
   {
    "at": 1792081179631,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.canada.ca/en/border-services-agency/news/2026/10/cbsa-makes-arrest-and-lays-charges-in-firearm-investigation.html",
+     "date": "2026-10-08T00:00:00.000Z",
+     "title": "CBSA makes arrest and lays charges in firearm investigation - Canada.ca"
+    },
+    {
+     "n": 2,
+     "url": "https://www.cbc.ca/news/canada/toronto/toronto-police-cbsa-firearm-suppressors-charges-suspended-9.7377079",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Toronto police officer charged after CBSA intercepts firearm suppressors | CBC News"
+    },
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/09/toronto-police-officer-charged-with-firearm-related-offences-cbsa/",
+     "date": "2026-10-09T20:04:57.000Z",
+     "title": "Toronto police officer charged with several firearm-related offences after Canada Border Services Agency probe"
+    },
+    {
+     "n": 7,
+     "url": "https://www.orilliamatters.com/police-beat/toronto-cop-arrested-for-smuggling-firearm-silencers-from-us-12880863",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Toronto cop arrested for smuggling firearm silencers from U.S. - Orillia News"
+    },
+    {
+     "n": 12,
+     "url": "https://www.europesays.com/canada/243871/",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "Brampton Man Charged Over Smuggled Firearm Suppressors - Canada"
+    }
+   ],
    "claims": [
     {
      "claim": "Nasser Gholami, 47, of Brampton, a seven-year Toronto Police constable, faces firearm and customs charges laid by CBSA",

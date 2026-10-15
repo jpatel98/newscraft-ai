@@ -23,8 +23,10 @@ export interface FixtureThread {
 	id: string;
 	title: string;
 	origin: 'prod' | 'generated' | 'redteam';
-	sources: FixtureSource[];
-	turns: { at: number; claims: unknown[] }[];
+	/** Thread-wide sources (hand-written fixtures); recorded threads carry them per turn. */
+	sources?: FixtureSource[];
+	/** `sources` resolves the turn's citation numbers as the answer that wrote it showed them. */
+	turns: { at: number; claims: unknown[]; sources?: FixtureSource[] }[];
 }
 export interface GoldenLabels {
 	thread: string;
@@ -47,6 +49,10 @@ export function loadThreads(dir: string): FixtureThread[] {
 		.filter((name) => name.endsWith('.json'))
 		.sort()
 		.map((name) => loadJson<FixtureThread>(join(dir, name)));
+}
+
+export function turnSources(thread: FixtureThread, turn: number): FixtureSource[] {
+	return thread.turns[turn]?.sources ?? thread.sources ?? [];
 }
 
 export function turnClaims(turn: FixtureThread['turns'][number]): LedgerClaim[] {

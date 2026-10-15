@@ -2,101 +2,47 @@
  "id": "gen-14",
  "title": "What do we know about the federal government's",
  "origin": "generated",
- "sources": [
-  {
-   "n": 1,
-   "url": "https://www.merx.com/dcc/solicitations/open-bids/Advance-Procurement-Notice-APN-Data-Center-National-Capital-Region/0000334093",
-   "date": "2026-10-07T00:00:00.000Z",
-   "title": "Advance Procurement Notice (apn) Data Center, National Capital Region - WA257004_88262 | MERX"
-  },
-  {
-   "n": 2,
-   "url": "https://www.canada.ca/en/economic-development-southern-ontario/news/2026/10/government-of-canada-expands-support-to-adopt-and-commercialize-artificial-intelligence.html",
-   "date": "2026-10-13T00:00:00.000Z",
-   "title": "Government of Canada expands support to adopt and commercialize artificial intelligence - Canada.ca"
-  },
-  {
-   "n": 3,
-   "url": "https://projects.constructconnect.com/details/7734668-dnd-roof-replacement&find_loc=-K1P-5G5",
-   "date": "2026-10-08T00:00:00.000Z",
-   "title": "DND - Roof Replacement"
-  },
-  {
-   "n": 4,
-   "url": "https://www.ctvnews.ca/ottawa/article/feds-looking-to-build-15-billion-data-centre-in-ottawa-area/",
-   "date": "2026-10-15T11:59:14.000Z",
-   "title": "Federal government issues advance notice to build data centre in Ottawa"
-  },
-  {
-   "n": 5,
-   "url": "https://projects.constructconnect.com/details/7736074-rfp-contractor-data-center-ncr&find_loc=-K1A-0A2",
-   "date": "2026-10-08T00:00:00.000Z",
-   "title": "RFP Contractor - Data Center NCR"
-  },
-  {
-   "n": 6,
-   "url": "https://urbanmag.ca/government-planning-hyperscale-1-5b-data-centre-for-national-capital-region/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Government planning 'hyperscale' $1.5B data centre for National Capital Region | Urban Mag"
-  },
-  {
-   "n": 7,
-   "url": "https://ottawasun.com/public-service/government-planning-data-centre-capital-region",
-   "date": "2026-10-15T08:00:03.000Z",
-   "title": "Government planning $1.5B capital region data centre | Ottawa Sun"
-  },
-  {
-   "n": 8,
-   "url": "https://www.canada.ca/en/innovation-science-economic-development/news/2024/06/government-of-canada-launches-public-consultation-on-artificial-intelligence-computing-infrastructure.html",
-   "date": "2024-06-26T19:14:07.000Z",
-   "title": "Government of Canada launches public consultation on artificial intelligence computing infrastructure - Canada.ca"
-  },
-  {
-   "n": 9,
-   "url": "https://www.merx.com/public/solicitations/4120526211/abstract",
-   "date": "2026-10-07T00:00:00.000Z",
-   "title": "Advance Procurement Notice (apn) Data Center, National Capital Region - WA257004_88262 | MERX"
-  },
-  {
-   "n": 11,
-   "url": "https://www.globaltenders.com/tender-detail/advance-procurement-notice-apn-data-center-BsFNxDI6At6D9ftH",
-   "date": "2026-10-08T00:00:00.000Z",
-   "title": "Advance Procurement Notice (Apn) Data Center, National Capital Region Canada Tender"
-  },
-  {
-   "n": 12,
-   "url": "https://ottawasted.ca/contracts/opportunities/MX-444187993328",
-   "date": "2026-10-07T00:00:00.000Z",
-   "title": "Advance Procurement Notice (APN) Data Center, National Capital Region — CanadaBuys Tender · Ottawasted"
-  },
-  {
-   "n": 13,
-   "url": "https://estimatingsolutions.com.au/blog/how-to-handle-electrical-tender-addenda-without-missing-cost-changes/",
-   "date": "2026-09-21T00:00:00.000Z",
-   "title": "Electrical Tender Addenda: Review Revisions & Costs"
-  },
-  {
-   "n": 14,
-   "url": "https://app.govly.com/public/signals/220723",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "Waterloo Region Firms Pursue Defence Contracts | Govly"
-  },
-  {
-   "n": 15,
-   "url": "https://mcnews.ca/2026/10/15/feds-looking-to-build-1-5-billion-data-centre-in-ottawa-area/",
-   "date": "2026-10-15T00:00:00.000Z",
-   "title": "ഓട്ടവയില്‍ $1.5 ബില്യണിന്റെ ഡാറ്റ സെന്റര്‍ നിര്‍മ്മിക്കാന്‍ ഫെഡറല്‍ സര്‍ക്കാര്‍ - MC News Canada"
-  },
-  {
-   "n": 16,
-   "url": "https://julianrsterling.com/articles/data-centre-construction-cost-per-mw/",
-   "date": "2026-10-12T00:00:00.000Z",
-   "title": "How much does a data centre cost to build per MW?"
-  }
- ],
  "turns": [
   {
    "at": 1792081643238,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.merx.com/dcc/solicitations/open-bids/Advance-Procurement-Notice-APN-Data-Center-National-Capital-Region/0000334093",
+     "date": "2026-10-07T00:00:00.000Z",
+     "title": "Advance Procurement Notice (apn) Data Center, National Capital Region - WA257004_88262 | MERX"
+    },
+    {
+     "n": 2,
+     "url": "https://www.canada.ca/en/economic-development-southern-ontario/news/2026/10/government-of-canada-expands-support-to-adopt-and-commercialize-artificial-intelligence.html",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Government of Canada expands support to adopt and commercialize artificial intelligence - Canada.ca"
+    },
+    {
+     "n": 3,
+     "url": "https://projects.constructconnect.com/details/7734668-dnd-roof-replacement&find_loc=-K1P-5G5",
+     "date": "2026-10-08T00:00:00.000Z",
+     "title": "DND - Roof Replacement"
+    },
+    {
+     "n": 6,
+     "url": "https://urbanmag.ca/government-planning-hyperscale-1-5b-data-centre-for-national-capital-region/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Government planning 'hyperscale' $1.5B data centre for National Capital Region | Urban Mag"
+    },
+    {
+     "n": 7,
+     "url": "https://ottawasun.com/public-service/government-planning-data-centre-capital-region",
+     "date": "2026-10-15T08:00:03.000Z",
+     "title": "Government planning $1.5B capital region data centre | Ottawa Sun"
+    },
+    {
+     "n": 8,
+     "url": "https://www.canada.ca/en/innovation-science-economic-development/news/2024/06/government-of-canada-launches-public-consultation-on-artificial-intelligence-computing-infrastructure.html",
+     "date": "2024-06-26T19:14:07.000Z",
+     "title": "Government of Canada launches public consultation on artificial intelligence computing infrastructure - Canada.ca"
+    }
+   ],
    "claims": [
     {
      "claim": "Defence Construction Canada issued an Advance Procurement Notice for a data centre in the National Capital Region, reference WA257004_88262.",
@@ -225,6 +171,26 @@
   },
   {
    "at": 1792081655968,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.merx.com/dcc/solicitations/open-bids/Advance-Procurement-Notice-APN-Data-Center-National-Capital-Region/0000334093",
+     "date": "2026-10-07T00:00:00.000Z",
+     "title": "Advance Procurement Notice (apn) Data Center, National Capital Region - WA257004_88262 | MERX"
+    },
+    {
+     "n": 9,
+     "url": "https://www.merx.com/public/solicitations/4120526211/abstract",
+     "date": "2026-10-07T00:00:00.000Z",
+     "title": "Advance Procurement Notice (apn) Data Center, National Capital Region - WA257004_88262 | MERX"
+    },
+    {
+     "n": 11,
+     "url": "https://www.globaltenders.com/tender-detail/advance-procurement-notice-apn-data-center-BsFNxDI6At6D9ftH",
+     "date": "2026-10-08T00:00:00.000Z",
+     "title": "Advance Procurement Notice (Apn) Data Center, National Capital Region Canada Tender"
+    }
+   ],
    "claims": [
     {
      "claim": "DCC's Advance Procurement Notice states an approximate estimate of $1.5B to $1.85B for the data centre.",
@@ -314,6 +280,38 @@
   },
   {
    "at": 1792081665173,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.merx.com/dcc/solicitations/open-bids/Advance-Procurement-Notice-APN-Data-Center-National-Capital-Region/0000334093",
+     "date": "2026-10-07T00:00:00.000Z",
+     "title": "Advance Procurement Notice (apn) Data Center, National Capital Region - WA257004_88262 | MERX"
+    },
+    {
+     "n": 6,
+     "url": "https://urbanmag.ca/government-planning-hyperscale-1-5b-data-centre-for-national-capital-region/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Government planning 'hyperscale' $1.5B data centre for National Capital Region | Urban Mag"
+    },
+    {
+     "n": 7,
+     "url": "https://ottawasun.com/public-service/government-planning-data-centre-capital-region",
+     "date": "2026-10-15T08:00:03.000Z",
+     "title": "Government planning $1.5B capital region data centre | Ottawa Sun"
+    },
+    {
+     "n": 9,
+     "url": "https://www.merx.com/public/solicitations/4120526211/abstract",
+     "date": "2026-10-07T00:00:00.000Z",
+     "title": "Advance Procurement Notice (apn) Data Center, National Capital Region - WA257004_88262 | MERX"
+    },
+    {
+     "n": 11,
+     "url": "https://www.globaltenders.com/tender-detail/advance-procurement-notice-apn-data-center-BsFNxDI6At6D9ftH",
+     "date": "2026-10-08T00:00:00.000Z",
+     "title": "Advance Procurement Notice (Apn) Data Center, National Capital Region Canada Tender"
+    }
+   ],
    "claims": [
     {
      "claim": "The federal government is planning a 60 MW data centre in the National Capital Region, estimated at $1.5B to $1.85B.",
@@ -409,6 +407,50 @@
   },
   {
    "at": 1792081671308,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.merx.com/dcc/solicitations/open-bids/Advance-Procurement-Notice-APN-Data-Center-National-Capital-Region/0000334093",
+     "date": "2026-10-07T00:00:00.000Z",
+     "title": "Advance Procurement Notice (apn) Data Center, National Capital Region - WA257004_88262 | MERX"
+    },
+    {
+     "n": 4,
+     "url": "https://www.ctvnews.ca/ottawa/article/feds-looking-to-build-15-billion-data-centre-in-ottawa-area/",
+     "date": "2026-10-15T11:59:14.000Z",
+     "title": "Federal government issues advance notice to build data centre in Ottawa"
+    },
+    {
+     "n": 6,
+     "url": "https://urbanmag.ca/government-planning-hyperscale-1-5b-data-centre-for-national-capital-region/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Government planning 'hyperscale' $1.5B data centre for National Capital Region | Urban Mag"
+    },
+    {
+     "n": 7,
+     "url": "https://ottawasun.com/public-service/government-planning-data-centre-capital-region",
+     "date": "2026-10-15T08:00:03.000Z",
+     "title": "Government planning $1.5B capital region data centre | Ottawa Sun"
+    },
+    {
+     "n": 9,
+     "url": "https://www.merx.com/public/solicitations/4120526211/abstract",
+     "date": "2026-10-07T00:00:00.000Z",
+     "title": "Advance Procurement Notice (apn) Data Center, National Capital Region - WA257004_88262 | MERX"
+    },
+    {
+     "n": 12,
+     "url": "https://ottawasted.ca/contracts/opportunities/MX-444187993328",
+     "date": "2026-10-07T00:00:00.000Z",
+     "title": "Advance Procurement Notice (APN) Data Center, National Capital Region — CanadaBuys Tender · Ottawasted"
+    },
+    {
+     "n": 15,
+     "url": "https://mcnews.ca/2026/10/15/feds-looking-to-build-1-5-billion-data-centre-in-ottawa-area/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "ഓട്ടവയില്‍ $1.5 ബില്യണിന്റെ ഡാറ്റ സെന്റര്‍ നിര്‍മ്മിക്കാന്‍ ഫെഡറല്‍ സര്‍ക്കാര്‍ - MC News Canada"
+    }
+   ],
    "claims": [
     {
      "claim": "No revised cost estimate for the Ottawa data centre is published; all sources carry DCC's $1.5B to $1.85B range.",
