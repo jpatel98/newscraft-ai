@@ -200,7 +200,7 @@
 									{/if}
 									{#if claim.attributed_to}<span>per {claim.attributed_to}</span>{/if}
 									{#if claim.date}<span>{claim.date}</span>{/if}
-									{#each chipsFor(claim) as chip (chip.n)}
+									{#each chipsFor(claim) as chip, index (`${chip.n}-${index}`)}
 										{#if chip.citation}
 											{@const citation = chip.citation}
 											<button

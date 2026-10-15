@@ -89,7 +89,8 @@ export class Cassette {
 		return async (pairs) => {
 			const unknown = pairs.filter((pair) => !this.verdicts[pairKey(pair.a, pair.b)]);
 			for (let i = 0; i < unknown.length; i += 30) {
-				const batch = unknown.slice(i, i + 30);
+				// Fresh ids per batch: the matcher's pair ids are only unique within one turn.
+				const batch = unknown.slice(i, i + 30).map((pair, k) => ({ ...pair, id: `p${k}` }));
 				const response = await fetch(`${url.replace(/\/$/, '')}/v1/ledger/judge`, {
 					method: 'POST',
 					headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -129,6 +130,8 @@ export interface ReplayOptions {
 	evidence?: boolean;
 	/** Take every judge "same" as a merge (no score or gap guard), to record and compare the raw judge. */
 	unguarded?: boolean;
+	/** Replace the matcher's merge guard (for tuning experiments). */
+	mergeGuard?: (a: string, b: string, score: number) => boolean;
 }
 
 export function turnPages(thread: FixtureThread, turn: number): Map<number, CitedPage> {
@@ -160,7 +163,7 @@ export async function replayThread(
 				return hit >= 0 ? { kind: 'same', claimId: `incoming:${hit}`, how: 'text' } : { kind: 'new' };
 			});
 		} else {
-			matches = (await matchIncoming(active, incoming, judge, options.unguarded ? () => true : undefined)).matches;
+			matches = (await matchIncoming(active, incoming, judge, options.unguarded ? () => true : options.mergeGuard)).matches;
 		}
 		const pages = turnPages(thread, t);
 		const plan = planTurn({

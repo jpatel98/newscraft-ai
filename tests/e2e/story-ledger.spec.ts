@@ -32,6 +32,11 @@ async function ledgerTurn(page: Page, body: Record<string, unknown>) {
 	return (await response.json()) as { conversationId: string };
 }
 
+async function openChat(page: Page, conversationId: string) {
+	await page.goto(`/c/${conversationId}`);
+	await expect(page.locator('.thread')).toHaveAttribute('data-hydrated', 'true');
+}
+
 const group = (page: Page, label: string) => page.getByTestId('story-ledger-pane').getByRole('region', { name: label });
 
 test('the story pane sorts claims by what can go to air and says how to attribute them', async ({ page }) => {
@@ -47,7 +52,7 @@ test('the story pane sorts claims by what can go to air and says how to attribut
 		]
 	});
 
-	await page.goto(`/c/${conversationId}`);
+	await openChat(page, conversationId);
 	await page.getByTestId('story-ledger-button').click();
 	const pane = page.getByTestId('story-ledger-pane');
 	await expect(pane.getByRole('heading', { name: 'Bloor crash' })).toBeVisible();
@@ -72,8 +77,8 @@ test('the story pane sorts claims by what can go to air and says how to attribut
 	await pane.getByRole('button', { name: 'Close story pane' }).click();
 	await ledgerTurn(page, {
 		conversationId,
-		citations: [{ citationNumber: 1, url: 'https://www.cp24.com/news/crash', publicationDate: today }, ...citations.slice(1)],
-		claims: [claim('Police say two people were taken to hospital after the Bloor Street crash', 'retracted', [1], { attributed_to: 'Toronto police' })]
+		citations: [...citations, { citationNumber: 6, url: 'https://www.cp24.com/news/crash', publicationDate: today }],
+		claims: [claim('Police say two people were taken to hospital after the Bloor Street crash', 'retracted', [6], { attributed_to: 'Toronto police' })]
 	});
 	await page.getByTestId('story-ledger-button').click();
 	const changes = pane.getByTestId('story-ledger-changes');
@@ -96,7 +101,7 @@ test('the story pane fits a phone screen', async ({ page }) => {
 	const { conversationId } = await ledgerTurn(page, {
 		claims: [claim('The driver was going twice the speed limit on a very long stretch of Bloor Street West', 'alleged', [2], { attributed_to: 'Toronto police' })]
 	});
-	await page.goto(`/c/${conversationId}`);
+	await openChat(page, conversationId);
 	await page.getByTestId('story-ledger-button').click();
 	await expect(page.getByTestId('story-claim-say')).toHaveText('Say: “Toronto police allege”');
 	const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
