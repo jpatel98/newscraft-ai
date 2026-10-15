@@ -13,6 +13,8 @@ export function toStoryLedgerClaimView(row: StoryClaimRow): StoryLedgerClaimView
 		date: row.publicationDate,
 		needs_check: row.needsCheck,
 		updated_at: new Date(Number(row.updatedAt)).toISOString(),
+		reviewed_by: row.reviewedBy ?? null,
+		reviewed_at: row.reviewedAt != null ? new Date(Number(row.reviewedAt)).toISOString() : null,
 		first_seen_message_id: row.firstSeenMessageId,
 		last_updated_message_id: row.lastUpdatedMessageId
 	};

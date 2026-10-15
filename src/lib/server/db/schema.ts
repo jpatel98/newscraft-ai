@@ -744,6 +744,8 @@ export const storyClaims = pgTable(
 		firstSeenMessageId: text('first_seen_message_id'),
 		lastUpdatedMessageId: text('last_updated_message_id'),
 		supersededBy: text('superseded_by'),
+		reviewedBy: text('reviewed_by'),
+		reviewedAt: timestampMs('reviewed_at'),
 		createdAt: timestampMs('created_at').notNull(),
 		updatedAt: timestampMs('updated_at').notNull()
 	},

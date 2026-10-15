@@ -4,9 +4,12 @@
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 	import X from 'lucide-svelte/icons/x';
 	import EvidencePreview from './EvidencePreview.svelte';
+	import { LEDGER_STATUSES, type LedgerStatus } from '$lib/utils/story-ledger';
 	import {
 		groupLedgerClaims,
+		LEDGER_STATUS_LABELS,
 		ledgerBrief,
+		type StoryClaimReviewInput,
 		type StoryLedgerClaimView
 	} from '$lib/utils/story-ledger-view';
 
@@ -19,10 +22,14 @@
 		loading?: boolean;
 		error?: string | null;
 		onRefresh?: () => void;
+		/** Saves a person's call on one claim; rejects when the save failed. */
+		onReview?: (claimId: string, review: StoryClaimReviewInput) => Promise<void>;
 		onClose: () => void;
 	}
 
-	let { claims, title = '', citations = [], loading = false, error = null, onRefresh, onClose }: Props = $props();
+	let { claims, title = '', citations = [], loading = false, error = null, onRefresh, onReview, onClose }: Props = $props();
+	let savingId = $state<string | null>(null);
+	let reviewError = $state<{ id: string; message: string } | null>(null);
 	let openChecksOnly = $state(false);
 	let copyState = $state<'idle' | 'success' | 'error'>('idle');
 	let copyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -38,6 +45,26 @@
 		copyState = state;
 		if (copyTimer) clearTimeout(copyTimer);
 		copyTimer = setTimeout(() => (copyState = 'idle'), 1600);
+	}
+
+	async function review(claimId: string, input: StoryClaimReviewInput) {
+		if (!onReview || savingId) return;
+		savingId = claimId;
+		reviewError = null;
+		try {
+			await onReview(claimId, input);
+		} catch {
+			reviewError = { id: claimId, message: "Couldn't save that. Try again." };
+		} finally {
+			savingId = null;
+		}
+	}
+
+	function reviewedWhen(iso: string | null | undefined): string {
+		if (!iso) return '';
+		const date = new Date(iso);
+		if (Number.isNaN(date.getTime())) return '';
+		return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 	}
 
 	async function copyBrief() {
@@ -125,6 +152,39 @@
 									{/each}
 									{#if claim.needs_check}<span class="story-claim__check">needs check</span>{/if}
 								</div>
+								{#if claim.reviewed_by}
+									<p class="story-claim__reviewed">
+										Checked by {claim.reviewed_by}{#if reviewedWhen(claim.reviewed_at)}, {reviewedWhen(claim.reviewed_at)}{/if}
+									</p>
+								{/if}
+								{#if onReview}
+									<div class="story-claim__actions">
+										<button
+											type="button"
+											class="story-claim__action"
+											disabled={savingId !== null}
+											onclick={() => review(claim.id, { needs_check: !claim.needs_check })}
+										>{claim.needs_check ? 'Mark checked' : 'Flag for check'}</button>
+										<select
+											class="story-claim__status"
+											aria-label="Change status"
+											value={claim.status}
+											disabled={savingId !== null}
+											onchange={(event) => {
+												const next = (event.currentTarget as HTMLSelectElement).value as LedgerStatus;
+												if (next !== claim.status) void review(claim.id, { status: next });
+											}}
+										>
+											{#each LEDGER_STATUSES as status (status)}
+												<option value={status}>{LEDGER_STATUS_LABELS[status]}</option>
+											{/each}
+										</select>
+										{#if savingId === claim.id}<span class="story-claim__saving" role="status">Saving…</span>{/if}
+									</div>
+									{#if reviewError?.id === claim.id}
+										<p class="story-claim__error" role="alert">{reviewError.message}</p>
+									{/if}
+								{/if}
 							</li>
 						{/each}
 					</ul>
@@ -281,6 +341,39 @@
 		color: var(--cobalt-700);
 		font-weight: 650;
 	}
+	.story-claim__reviewed {
+		margin: 6px 0 0;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--fg-2);
+	}
+	.story-claim__actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		margin-top: 8px;
+	}
+	.story-claim__action,
+	.story-claim__status {
+		min-height: 28px;
+		padding: 0 8px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-1);
+		background: var(--bg-surface);
+		color: var(--fg-2);
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		cursor: pointer;
+	}
+	.story-claim__action:hover:not(:disabled),
+	.story-claim__status:hover:not(:disabled) { background: var(--bg-raised); color: var(--fg-1); }
+	.story-claim__action:disabled,
+	.story-claim__status:disabled { opacity: 0.5; cursor: default; }
+	.story-claim__action:focus-visible,
+	.story-claim__status:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+	.story-claim__saving { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); }
+	.story-claim__error { margin: 6px 0 0; font-size: 12px; color: var(--danger-fg, var(--fg-1)); }
 	.story-pane__footer {
 		display: flex;
 		gap: 8px;

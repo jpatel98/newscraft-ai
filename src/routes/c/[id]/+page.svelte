@@ -7,7 +7,7 @@
 	import Thread from '$lib/components/Thread.svelte';
 	import { artifactPaneMode } from '$lib/components/artifact-layout';
 	import { stripLedgerForDisplay } from '$lib/utils/story-ledger';
-	import type { StoryLedgerClaimView } from '$lib/utils/story-ledger-view';
+	import type { StoryClaimReviewInput, StoryLedgerClaimView } from '$lib/utils/story-ledger-view';
 	import { parseToolMetadata } from '$lib/utils/tool-metadata';
 	import type { CitationRecord } from '@newscraft/shared';
 	import type {
@@ -1115,6 +1115,26 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		}
 	}
 
+	async function reviewStoryClaim(
+		claimId: string,
+		review: StoryClaimReviewInput
+	): Promise<void> {
+		const conversationId = activeConversationId;
+		const response = await fetch(
+			`/api/conversations/${encodeURIComponent(conversationId)}/ledger/${encodeURIComponent(claimId)}`,
+			{
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json', accept: 'application/json' },
+				body: JSON.stringify(review)
+			}
+		);
+		if (!response.ok) throw new Error(`ledger review ${response.status}`);
+		const payload = (await response.json()) as { claim?: StoryLedgerClaimView };
+		if (conversationId !== activeConversationId || !payload.claim) return;
+		const updated = payload.claim;
+		storyClaims = storyClaims.map((claim) => (claim.id === updated.id ? updated : claim));
+	}
+
 	function closeFolderMenu() {
 		folderMenuOpen = false;
 		creatingFolder = false;
@@ -1713,6 +1733,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 				loading={storyLoading}
 				error={storyError}
 				onRefresh={() => void refreshStoryLedger()}
+				onReview={reviewStoryClaim}
 				onClose={() => (storyOpen = false)}
 			/>
 		</div>

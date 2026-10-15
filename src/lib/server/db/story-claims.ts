@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { newId } from '$lib/utils/id';
-import type { LedgerClaim } from '$lib/utils/story-ledger';
+import type { LedgerClaim, LedgerStatus } from '$lib/utils/story-ledger';
 import { db } from './index';
 import { storyClaims } from './schema';
 
@@ -22,6 +22,8 @@ function comparable(text: string): string {
  *   updates a text-matching row) and the old row is marked `superseded_by`.
  * - Otherwise a new row is inserted.
  * Empty attribution, date, and citations never erase what is already stored.
+ * A claim a person reviewed keeps its status and needs-check flag, and is never
+ * superseded by the model; a changed version is added as a new row instead.
  */
 export async function upsertStoryClaims(
 	conversationId: string,
@@ -41,12 +43,13 @@ export async function upsertStoryClaims(
 		let updated = 0;
 
 		const apply = async (row: StoryClaimRow, claim: LedgerClaim): Promise<void> => {
+			const reviewed = row.reviewedAt != null;
 			const patch = {
-				status: claim.status,
+				status: reviewed ? row.status : claim.status,
 				attributedTo: claim.attributedTo || row.attributedTo,
 				citationNumbers: claim.citations.length ? claim.citations : row.citationNumbers,
 				publicationDate: claim.date || row.publicationDate,
-				needsCheck: claim.needsCheck,
+				needsCheck: reviewed ? row.needsCheck : claim.needsCheck,
 				lastUpdatedMessageId: messageId ?? row.lastUpdatedMessageId,
 				updatedAt: now
 			};
@@ -57,7 +60,9 @@ export async function upsertStoryClaims(
 
 		for (const claim of claims) {
 			const key = comparable(claim.claim);
-			const named = claim.supersedes ? active.find((row) => row.id === claim.supersedes) : undefined;
+			const named = claim.supersedes
+				? active.find((row) => row.id === claim.supersedes && row.reviewedAt == null)
+				: undefined;
 			const textMatch = active.find((row) => comparable(row.claim) === key);
 
 			if (named && textMatch === named) {
@@ -79,6 +84,8 @@ export async function upsertStoryClaims(
 					firstSeenMessageId: messageId,
 					lastUpdatedMessageId: messageId,
 					supersededBy: null,
+					reviewedBy: null,
+					reviewedAt: null,
 					createdAt: now,
 					updatedAt: now
 				};
@@ -99,6 +106,46 @@ export async function upsertStoryClaims(
 		}
 		return { inserted, updated };
 	});
+}
+
+export interface StoryClaimReview {
+	status?: LedgerStatus;
+	needsCheck?: boolean;
+}
+
+/**
+ * A person settles one live claim: sets its status and/or needs-check flag and
+ * records who and when. Returns the updated row, or null when the claim is not
+ * a live claim of this conversation.
+ */
+export async function reviewStoryClaim(
+	conversationId: string,
+	claimId: string,
+	review: StoryClaimReview,
+	reviewer: string,
+	now: number = Date.now()
+): Promise<StoryClaimRow | null> {
+	const [row] = (await db
+		.select()
+		.from(storyClaims)
+		.where(
+			and(
+				eq(storyClaims.id, claimId),
+				eq(storyClaims.conversationId, conversationId),
+				isNull(storyClaims.supersededBy)
+			)
+		)
+		.limit(1)) as StoryClaimRow[];
+	if (!row) return null;
+	const patch = {
+		...(review.status ? { status: review.status } : {}),
+		...(typeof review.needsCheck === 'boolean' ? { needsCheck: review.needsCheck } : {}),
+		reviewedBy: reviewer,
+		reviewedAt: now,
+		updatedAt: now
+	};
+	await db.update(storyClaims).set(patch).where(eq(storyClaims.id, row.id));
+	return { ...row, ...patch };
 }
 
 /** Live claims for a conversation, most recently updated first. */

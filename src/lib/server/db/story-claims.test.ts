@@ -69,7 +69,7 @@ vi.mock('./index', () => {
 	return { db: fake };
 });
 
-import { deleteStoryClaims, listStoryClaims, upsertStoryClaims } from './story-claims';
+import { deleteStoryClaims, listStoryClaims, reviewStoryClaim, upsertStoryClaims } from './story-claims';
 
 const base = {
 	status: 'reported' as const,
@@ -178,5 +178,28 @@ describe('story claim storage', () => {
 		await upsertStoryClaims('c2', 'm1', [{ ...base, claim: 'B.' }]);
 		await deleteStoryClaims('c1');
 		expect(state.rows.map((row) => row.conversationId)).toEqual(['c2']);
+	});
+	it('records a person\'s review of a live claim in its own conversation only', async () => {
+		await upsertStoryClaims('c1', 'm1', [{ ...base, claim: 'The bridge closed.', needsCheck: true }], 1000);
+		const id = state.rows[0].id;
+		expect(await reviewStoryClaim('c2', id, { needsCheck: false }, 'Jigar', 2000)).toBeNull();
+		expect(await reviewStoryClaim('c1', 'missing', { needsCheck: false }, 'Jigar', 2000)).toBeNull();
+		const row = await reviewStoryClaim('c1', id, { needsCheck: false, status: 'confirmed' }, 'Jigar', 3000);
+		expect(row).toMatchObject({ id, status: 'confirmed', needsCheck: false, reviewedBy: 'Jigar', reviewedAt: 3000, updatedAt: 3000 });
+		expect(state.rows[0]).toMatchObject({ status: 'confirmed', needsCheck: false, reviewedBy: 'Jigar', reviewedAt: 3000 });
+	});
+
+	it('keeps a reviewed claim\'s status and flag when a later answer repeats or supersedes it', async () => {
+		await upsertStoryClaims('c1', 'm1', [{ ...base, claim: 'The bridge closed.', needsCheck: true }], 1000);
+		const id = state.rows[0].id;
+		await reviewStoryClaim('c1', id, { needsCheck: false, status: 'confirmed' }, 'Jigar', 2000);
+
+		await upsertStoryClaims('c1', 'm2', [{ ...base, claim: 'The bridge closed.', status: 'reported', needsCheck: true, citations: [3] }], 3000);
+		expect(state.rows).toHaveLength(1);
+		expect(state.rows[0]).toMatchObject({ status: 'confirmed', needsCheck: false, citationNumbers: [3], reviewedBy: 'Jigar' });
+
+		await upsertStoryClaims('c1', 'm3', [{ ...base, claim: 'The bridge reopened.', supersedes: id }], 4000);
+		expect(state.rows).toHaveLength(2);
+		expect(state.rows.find((row) => row.id === id)!.supersededBy).toBeNull();
 	});
 });

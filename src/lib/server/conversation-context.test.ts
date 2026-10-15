@@ -903,6 +903,8 @@ describe('story ledger context entry', () => {
 		firstSeenMessageId: 'm1',
 		lastUpdatedMessageId: 'm2',
 		supersededBy: null,
+		reviewedBy: null,
+		reviewedAt: null,
 		createdAt: 1000 + index,
 		updatedAt: 2000 + index,
 		...overrides

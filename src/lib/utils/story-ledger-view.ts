@@ -10,8 +10,17 @@ export interface StoryLedgerClaimView {
 	date: string;
 	needs_check: boolean;
 	updated_at: string;
+	/** Who settled this claim by hand, and when (ISO); absent when only the model has set it. */
+	reviewed_by?: string | null;
+	reviewed_at?: string | null;
 	first_seen_message_id?: string | null;
 	last_updated_message_id?: string | null;
+}
+
+/** Body of PATCH /api/conversations/[id]/ledger/[claimId]: a person's call on one claim. */
+export interface StoryClaimReviewInput {
+	status?: LedgerStatus;
+	needs_check?: boolean;
 }
 
 export const LEDGER_STATUS_LABELS: Record<LedgerStatus, string> = {
@@ -54,7 +63,7 @@ export function ledgerBrief(claims: readonly StoryLedgerClaimView[]): string {
 			const markers = claim.citations.map((number) => `[${number}]`).join('');
 			return `- ${claim.claim}${details.length ? ` (${details.join(', ')})` : ''}${
 				markers ? ` ${markers}` : ''
-			}${claim.needs_check ? ' NEEDS CHECK' : ''}`;
+			}${claim.needs_check ? ' NEEDS CHECK' : ''}${claim.reviewed_by ? ` (checked by ${claim.reviewed_by})` : ''}`;
 		});
 		return `${group.label.toUpperCase()}\n${lines.join('\n')}`;
 	});
