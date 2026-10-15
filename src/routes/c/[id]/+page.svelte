@@ -4,6 +4,7 @@
 	import ArtifactCanvasLoader from '$lib/components/ArtifactCanvasLoader.svelte';
 	import NewsroomArtifactPaneLoader from '$lib/components/NewsroomArtifactPaneLoader.svelte';
 	import StoryLedgerPane from '$lib/components/StoryLedgerPane.svelte';
+	import type { CopyFormat } from '$lib/utils/ledger-copy';
 	import Thread from '$lib/components/Thread.svelte';
 	import { artifactPaneMode } from '$lib/components/artifact-layout';
 	import { stripLedgerForDisplay } from '$lib/utils/story-ledger';
@@ -1108,6 +1109,19 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		}
 	}
 
+	async function writeStoryCopy(format: CopyFormat) {
+		const response = await fetch(`/api/conversations/${encodeURIComponent(activeConversationId)}/ledger/copy`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ format })
+		});
+		const body = (await response.json().catch(() => null)) as
+			| { text?: string; repaired?: number; withheld?: number; message?: string }
+			| null;
+		if (!response.ok || typeof body?.text !== 'string') throw new Error(body?.message || "Couldn't write copy. Try again.");
+		return { text: body.text, repaired: body.repaired ?? 0, withheld: body.withheld ?? 0 };
+	}
+
 	function markStoryLedgerSeen() {
 		const conversationId = activeConversationId;
 		storyChanges = [];
@@ -1773,6 +1787,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 				onRefresh={() => void refreshStoryLedger()}
 				onReview={reviewStoryClaim}
 				onMarkSeen={markStoryLedgerSeen}
+				onWriteCopy={writeStoryCopy}
 				onClose={() => {
 					markStoryLedgerSeen();
 					storyOpen = false;

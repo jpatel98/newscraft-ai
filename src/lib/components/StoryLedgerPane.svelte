@@ -5,6 +5,7 @@
 	import X from 'lucide-svelte/icons/x';
 	import EvidencePreview from './EvidencePreview.svelte';
 	import { attributionFor, publisherName } from '$lib/utils/claim-air';
+	import { COPY_FORMAT_LABELS, COPY_FORMATS, type CopyFormat } from '$lib/utils/ledger-copy';
 	import { LEDGER_STATUSES, type LedgerStatus } from '$lib/utils/story-ledger';
 	import {
 		CHECK_REASON,
@@ -33,7 +34,15 @@
 		onReview?: (claimId: string, review: StoryClaimReviewInput) => Promise<void>;
 		/** The person has seen the listed changes. */
 		onMarkSeen?: () => void;
+		/** Writes broadcast copy from the ledger; rejects with a message to show. */
+		onWriteCopy?: (format: CopyFormat) => Promise<WrittenCopy>;
 		onClose: () => void;
+	}
+
+	interface WrittenCopy {
+		text: string;
+		repaired: number;
+		withheld: number;
 	}
 
 	let {
@@ -46,8 +55,38 @@
 		onRefresh,
 		onReview,
 		onMarkSeen,
+		onWriteCopy,
 		onClose
 	}: Props = $props();
+	let draft = $state<(WrittenCopy & { format: CopyFormat }) | null>(null);
+	let writing = $state<CopyFormat | null>(null);
+	let writeError = $state<string | null>(null);
+	let draftCopied = $state(false);
+	const airReady = $derived(claims.filter((claim) => !claim.needs_check && ['confirmed', 'reported', 'alleged'].includes(claim.status)).length);
+
+	async function writeCopy(format: CopyFormat) {
+		if (!onWriteCopy || writing) return;
+		writing = format;
+		writeError = null;
+		draftCopied = false;
+		try {
+			draft = { ...(await onWriteCopy(format)), format };
+		} catch (err) {
+			writeError = err instanceof Error && err.message ? err.message : "Couldn't write copy. Try again.";
+		} finally {
+			writing = null;
+		}
+	}
+
+	async function copyDraft() {
+		if (!draft) return;
+		try {
+			await navigator.clipboard.writeText(draft.text);
+			draftCopied = true;
+		} catch {
+			writeError = 'Copy failed. Select the text instead.';
+		}
+	}
 	let savingId = $state<string | null>(null);
 	let reviewError = $state<{ id: string; message: string } | null>(null);
 	let openChecksOnly = $state(false);
@@ -261,12 +300,45 @@
 	</div>
 
 	<footer class="story-pane__footer">
+		{#if draft}
+			<section class="story-draft" data-testid="story-copy-draft" aria-label="{COPY_FORMAT_LABELS[draft.format]} draft">
+				<div class="story-draft__head">
+					<span>{COPY_FORMAT_LABELS[draft.format]} from the ledger</span>
+					<button type="button" class="story-pane__icon" onclick={() => (draft = null)} aria-label="Close draft">
+						<X size="13" strokeWidth={1.8} aria-hidden="true" />
+					</button>
+				</div>
+				<p class="story-draft__text" data-testid="story-copy-text">{draft.text}</p>
+				<p class="story-draft__note">
+					{#if draft.repaired}Attribution put back in {draft.repaired} sentence{draft.repaired === 1 ? '' : 's'}. {/if}{#if draft.withheld}Leaves out {draft.withheld} claim{draft.withheld === 1 ? '' : 's'} not ready for air.{/if}
+				</p>
+				<button type="button" class="story-pane__button" onclick={copyDraft}>
+					<Copy size="14" strokeWidth={1.7} aria-hidden="true" />
+					<span aria-live="polite">{draftCopied ? 'Copied' : 'Copy draft'}</span>
+				</button>
+			</section>
+		{/if}
+		{#if writeError}<p class="story-draft__error" role="alert">{writeError}</p>{/if}
+		<div class="story-pane__actions">
+		{#if onWriteCopy}
+			<span class="story-pane__write-label">Write</span>
+			{#each COPY_FORMATS as format (format)}
+				<button
+					type="button"
+					class="story-pane__button"
+					data-testid="story-write-{format}"
+					onclick={() => void writeCopy(format)}
+					disabled={!airReady || writing !== null}
+				>{writing === format ? 'Writing…' : COPY_FORMAT_LABELS[format]}</button>
+			{/each}
+		{/if}
 		<button type="button" class="story-pane__button" onclick={copyBrief} disabled={!claims.length}>
 			<Copy size="14" strokeWidth={1.7} aria-hidden="true" />
 			<span aria-live="polite">
 				{copyState === 'success' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy as brief'}
 			</span>
 		</button>
+		</div>
 	</footer>
 </aside>
 
@@ -472,12 +544,20 @@
 	.story-claim__saving { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); }
 	.story-claim__error { margin: 6px 0 0; font-size: 12px; color: var(--danger-fg, var(--fg-1)); }
 	.story-pane__footer {
-		display: flex;
+		display: grid;
 		gap: 8px;
 		padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
 		border-top: 1px solid var(--border-default);
 		background: var(--bg-page);
 	}
+	.story-pane__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+	.story-pane__write-label { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.06em; }
+	.story-draft { display: grid; gap: 6px; max-height: 40vh; overflow: auto; padding: 10px; border: 1px solid var(--border-default); border-radius: var(--radius-1); background: var(--bg-surface); }
+	.story-draft__head { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.06em; }
+	.story-draft__text { margin: 0; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; color: var(--fg-1); }
+	.story-draft__note { margin: 0; font-size: 12px; color: var(--fg-3); }
+	.story-draft__note:empty { display: none; }
+	.story-draft__error { margin: 0; font-size: 12px; color: var(--danger-fg); }
 	.story-pane__button {
 		min-height: 34px;
 		display: inline-flex;

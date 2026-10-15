@@ -345,6 +345,7 @@ async def _durable_recovery_loop(
 
 
 def create_app(settings: Settings | None = None):
+    from . import ledger_copy as ledger_copy_module
     from . import ledger_judge as ledger_judge_module
     from .portable import PortableAgentRunner
 
@@ -440,6 +441,26 @@ def create_app(settings: Settings | None = None):
             logger.warning("Ledger judge call failed")
             return JSONResponse({"detail": "judge unavailable"}, status_code=503)
         return JSONResponse({"verdicts": [{"id": k, "verdict": v} for k, v in verdicts.items()]})
+
+    @app.post("/v1/ledger/copy")
+    async def ledger_copy(request: Request):
+        """Intro, VO or reader copy from story-ledger claims, one tagged sentence per line (one model call)."""
+        if not _authorized(request, settings):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        try:
+            payload = await request.json()
+        except (json.JSONDecodeError, UnicodeError):
+            return JSONResponse({"detail": "valid JSON required"}, status_code=400)
+        payload = payload if isinstance(payload, dict) else {}
+        claims, fmt = payload.get("claims"), payload.get("format")
+        if not isinstance(claims, list) or fmt not in ledger_copy_module.FORMATS:
+            return JSONResponse({"detail": "claims and a known format required"}, status_code=400)
+        try:
+            lines = await ledger_copy_module.write_copy(runner.model, settings.model, claims, fmt, str(payload.get("title") or ""))
+        except Exception:
+            logger.warning("Ledger copy call failed")
+            return JSONResponse({"detail": "copy unavailable"}, status_code=503)
+        return JSONResponse({"lines": lines})
 
     @app.post("/")
     async def direct_stream_removed(request: Request):
