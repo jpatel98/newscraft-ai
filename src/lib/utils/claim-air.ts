@@ -68,11 +68,30 @@ function verb(who: string, singular: string, plural: string): string {
 	return PLURAL.test(who) ? plural : singular;
 }
 
-/** Who to credit on air: the ledger's own attribution, else the strongest cited publisher. */
+/** Each body named in the ledger's attribution ("TSN/Canadian Press; RealGM", "X via EFE"), in order. */
+export function attributionParts(attributedTo: string): string[] {
+	return attributedTo
+		.split(/[;/,]|\s+via\s+/i)
+		.map((part) => part.trim())
+		.filter((part) => part.length > 1);
+}
+
+function bestSource(claim: AirClaim): AirSource | undefined {
+	return [...(claim.sources ?? [])].sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier))[0];
+}
+
+/** Who to credit on air: the first body the ledger attributes the claim to, else the strongest cited publisher. */
 export function creditFor(claim: AirClaim): string {
-	if (claim.attributed_to.trim()) return claim.attributed_to.trim();
-	const best = [...(claim.sources ?? [])].sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier))[0];
+	const named = attributionParts(claim.attributed_to)[0];
+	if (named) return named;
+	const best = bestSource(claim);
 	return best ? publisherName(best.host) : '';
+}
+
+/** Every name copy may credit for a claim: the bodies it is attributed to and its cited publishers. */
+export function creditsFor(claim: AirClaim): string[] {
+	const names = [...attributionParts(claim.attributed_to), ...(claim.sources ?? []).map((s) => publisherName(s.host))];
+	return [...new Set(names.map((name) => name.replace(/^the\s+/i, '')))];
 }
 
 export interface Attribution {

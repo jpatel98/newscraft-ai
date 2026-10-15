@@ -6,7 +6,7 @@
  * states a reported or alleged claim is checked for one of that claim's allowed
  * wordings, and a sentence that lost it gets the phrase put back.
  */
-import { airBucket, attributionFor, type AirClaim } from './claim-air';
+import { airBucket, attributionFor, creditsFor, type AirClaim } from './claim-air';
 import { cosine, embedClaim } from './claim-similarity';
 
 export const COPY_FORMATS = ['intro', 'vo', 'reader'] as const;
@@ -57,20 +57,31 @@ function fold(text: string): string {
 	return text.toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, ' ');
 }
 
-/** A sentence keeps a claim's attribution when it contains one of the claim's allowed wordings. */
+/** Words that hang a statement on a source when the source is named in the same sentence. */
+const ATTRIBUTION_CUE =
+	/\b(?:according to|says?|said|reports?|reported|reporting|alleges?|alleged|allegedly|accus\w*|charged|announced|announces|confirms?|confirmed|anticipates?|lists?|listed|states?|stated|told|tells|warned|warns|calls?|called|estimates?|estimated|expects?|puts?)\b/;
+
+/**
+ * A sentence keeps a claim's attribution when it contains one of the claim's
+ * allowed wordings, or names one of the claim's sources together with an
+ * attribution word ("Toronto police allege", "according to TSN and the Canadian Press").
+ */
 export function keepsAttribution(sentence: string, claim: AirClaim): boolean {
 	const attribution = attributionFor(claim);
 	if (!attribution.required) return true;
 	const text = fold(sentence);
-	return attribution.allowed.some((phrase) => text.includes(fold(phrase)));
+	if (attribution.allowed.some((phrase) => text.includes(fold(phrase)))) return true;
+	if (claim.status === 'unverified' || claim.status === 'retracted') return false;
+	return ATTRIBUTION_CUE.test(text) && creditsFor(claim).some((name) => text.includes(fold(name)));
 }
 
-/** Untagged restatements count too: a sentence this close to a claim is treated as stating it. */
+/** An untagged sentence this close to a claim is treated as stating it. */
 export const RESTATES_SCORE = 0.5;
 
-/** Claims each line states: its tags, plus any attribution-bound claim it closely restates. */
+/** Claims each line states: its tags, or for an untagged line, any attribution-bound claim it closely restates. */
 export function claimsStated(line: CopyLine, byRef: ReadonlyMap<string, CopyClaim>): CopyClaim[] {
 	const out = line.claims.map((ref) => byRef.get(ref)).filter((claim): claim is CopyClaim => Boolean(claim));
+	if (out.length) return out;
 	const vector = embedClaim(line.text);
 	for (const claim of byRef.values()) {
 		if (out.includes(claim) || !attributionFor(claim).required) continue;
@@ -105,6 +116,10 @@ function lowerFirst(sentence: string): string {
 export function attribute(sentence: string, claim: AirClaim): string {
 	const { phrase } = attributionFor(claim);
 	if (!phrase) return sentence;
+	// "They allege it..." / "He said..." -> name the source as the subject.
+	const pronoun = /^(?:They|He|She|It)\s+(?=(?:allege|alleges|alleged|say|says|said|report|reports|reported)\b)/.exec(sentence.trim());
+	const credit = phrase.replace(/^according to\s+/i, '').replace(/\s+(?:alleges?|confirms?)$/i, '');
+	if (pronoun && credit) return credit + ' ' + sentence.trim().slice(pronoun[0].length);
 	const body = lowerFirst(sentence.trim());
 	const lead = phrase[0].toUpperCase() + phrase.slice(1);
 	return /^according to /i.test(phrase) ? `${lead}, ${body}` : `${lead} that ${body}`;

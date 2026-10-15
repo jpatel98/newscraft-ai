@@ -65,6 +65,21 @@ describe('ledger copy', () => {
 		expect(lostAttributions(checked.lines, byRef)).toEqual([]);
 	});
 
+	it('accepts a sentence that names any of the claim\'s sources with an attribution word', () => {
+		const raptors = claim('r', 'Raptors are 2-1 in preseason', 'reported', { attributed_to: 'TSN/Canadian Press; RealGM' });
+		expect(keepsAttribution('The Raptors are two and one in the preseason, according to TSN and the Canadian Press.', raptors)).toBe(true);
+		expect(keepsAttribution('The Raptors are two and one in the preseason.', raptors)).toBe(false);
+		const dcc = claim('d', 'DCC anticipates the solicitation in Winter 2027', 'reported', { attributed_to: 'Defence Construction Canada' });
+		expect(keepsAttribution('Defence Construction Canada anticipates the solicitation will start in Winter 2027.', dcc)).toBe(true);
+		// Naming the source without saying it is the source's claim is not attribution.
+		expect(keepsAttribution('Defence Construction Canada will build it in Winter 2027.', dcc)).toBe(false);
+	});
+
+	it('names the source in place of a pronoun when it puts attribution back', () => {
+		const breach = claim('p', 'Police allege a curfew breach', 'alleged', { attributed_to: 'Toronto Police Service' });
+		expect(attribute('They allege it included a curfew violation.', breach)).toBe('Toronto Police Service allege it included a curfew violation.');
+	});
+
 	it('keeps proper nouns capitalized when it adds a phrase', () => {
 		expect(attribute('Gholami faces 12 charges.', claim('x', 'Gholami faces 12 charges', 'alleged', { attributed_to: 'CBSA' }))).toBe(
 			'CBSA alleges that Gholami faces 12 charges.'

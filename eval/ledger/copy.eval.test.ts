@@ -68,6 +68,7 @@ describe('copy from the ledger', () => {
 		}
 		expect(jobs.length).toBe(SCRIPTS);
 
+		const used = new Set<string>();
 		let missing = 0;
 		let rawLost = 0;
 		let repaired = 0;
@@ -78,6 +79,7 @@ describe('copy from the ledger', () => {
 		for (const job of jobs) {
 			const { request, byRef, withheld } = copyRequest(job.claims);
 			const key = requestKey(job.format, job.title, request);
+			used.add(key);
 			if (!recorded[key] && recordUrl) {
 				const response = await fetch(`${recordUrl.replace(/\/$/, '')}/v1/ledger/copy`, {
 					method: 'POST',
@@ -94,8 +96,14 @@ describe('copy from the ledger', () => {
 			}
 			const raw = lostAttributions(lines, byRef);
 			rawLost += raw.length;
-			if (raw.length && examples.length < 12) examples.push(`${job.id} ${job.format}: ${raw[0].text}`);
 			const checked = checkCopy(lines, byRef, withheld);
+			if (process.env.COPY_DEBUG) for (const r of raw) {
+				const c = job.claims.find((x) => x.id === r.claimId)!;
+				const line = lines[r.line];
+				const fixed = checkCopy([line], byRef, withheld).lines[0]?.text;
+				console.log(`\n${job.id} ${job.format} tags=${line.claims.join(',')} via=${[...byRef.entries()].find(([, v]) => v === c)?.[0]} ${c.status} [${c.attributed_to}]\n  CLAIM: ${c.claim}\n  RAW:   ${line.text}\n  FIXED: ${fixed}`);
+			}
+			if (raw.length && examples.length < 12) examples.push(`${job.id} ${job.format}: ${raw[0].text}`);
 			repaired += checked.repaired;
 			dropped += checked.dropped;
 			lostAfter += lostAttributions(checked.lines, byRef).length;
@@ -103,7 +111,10 @@ describe('copy from the ledger', () => {
 				checked.lines.flatMap((l) => l.claims).filter((ref) => byRef.get(ref) && byRef.get(ref)!.status !== 'confirmed')
 			).size;
 		}
-		if (recordUrl) writeFileSync(CASSETTE, JSON.stringify(recorded, null, 1) + '\n');
+		if (recordUrl) {
+			const kept = Object.fromEntries(Object.entries(recorded).filter(([key]) => used.has(key)));
+			writeFileSync(CASSETTE, JSON.stringify(kept, null, 1) + '\n');
+		}
 		const report = { scripts: jobs.length, unrecorded: missing, attributedClaimsUsed: requiredClaimsUsed, rawLost, repaired, dropped, lostAfterCheck: lostAfter, examples };
 		writeFileSync(join(EVAL_DIR, 'copy-report.json'), JSON.stringify(report, null, 1) + '\n');
 		console.log(JSON.stringify(report));
