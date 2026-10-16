@@ -2882,3 +2882,10 @@ body,
 	color: var(--fg-3) !important;
 	font-size: 12px !important;
 }
+
+/* Typing on a phone: the story peek bar above the composer gives way to the keyboard. */
+@media (max-width: 760px) {
+	.shell[data-keyboard-open='true'] .story-peek {
+		display: none;
+	}
+}

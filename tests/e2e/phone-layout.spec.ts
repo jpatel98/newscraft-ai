@@ -52,3 +52,65 @@ test('on a phone the chat title shares the toolbar row and Use answer opens a bo
 	await page.mouse.click(195, 100);
 	await expect(menu).toBeHidden();
 });
+
+test('on a phone the story ledger is a bottom sheet you open from the peek bar and swipe to check', async ({ page }) => {
+	const accountPassword = `${password} ledger ${Date.now()}`;
+	await signUp(page, accountPassword);
+	const seeded = await page.request.post('/api/e2e/seed-conversation', {
+		data: {
+			secret: e2eSecret,
+			password: accountPassword,
+			userMessage: 'What did council decide?',
+			assistantMessage: 'Council approved the bike lane 18-7.'
+		}
+	});
+	const { id } = (await seeded.json()) as { id: string };
+
+	const claim = {
+		id: 'claim-1',
+		claim: 'Construction starts in spring',
+		status: 'reported',
+		attributed_to: 'Mayor',
+		citations: [],
+		date: '2026-10-11',
+		needs_check: true,
+		updated_at: '2026-10-16T00:00:00.000Z'
+	};
+	const patches: unknown[] = [];
+	await page.route(`**/api/conversations/${id}/ledger`, (route) =>
+		route.fulfill({ json: { claims: [claim] } })
+	);
+	await page.route(`**/api/conversations/${id}/ledger/claim-1`, async (route) => {
+		const body = route.request().postDataJSON() as Record<string, unknown>;
+		patches.push(body);
+		await route.fulfill({ json: { claim: { ...claim, ...body, reviewed_by: 'Phone Tester' } } });
+	});
+
+	await page.goto(`/c/${id}`);
+	await expect(page.getByLabel('Message NewsCraft')).toHaveAttribute('data-ready', 'true');
+	const peek = page.getByTestId('story-peek');
+	await expect(peek).toContainText('1 to check');
+	await peek.click();
+
+	const sheet = page.getByTestId('story-ledger-pane');
+	await expect(sheet).toHaveAttribute('data-snap', 'half');
+	await expect(peek).toBeHidden();
+	// No scrim: the answer above the half sheet stays readable.
+	await expect(page.getByText('Council approved the bike lane 18-7.')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Expand story ledger' }).click();
+	await expect(sheet).toHaveAttribute('data-snap', 'full');
+
+	const card = (await page.locator('.story-claim').first().boundingBox())!;
+	await page.mouse.move(card.x + 30, card.y + 20);
+	await page.mouse.down();
+	await page.mouse.move(card.x + 90, card.y + 22, { steps: 4 });
+	await page.mouse.move(card.x + 170, card.y + 22, { steps: 4 });
+	await page.mouse.up();
+	await expect.poll(() => patches).toEqual([{ needs_check: false }]);
+	await expect(page.getByText('Checked by Phone Tester')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Close story pane' }).click();
+	await expect(sheet).toBeHidden();
+	await expect(peek).toContainText('1 fact, all checked');
+});
