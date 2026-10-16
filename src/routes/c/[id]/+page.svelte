@@ -1940,7 +1940,17 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	.thread-header__new-folder button { width: auto !important; flex-shrink: 0; }
 	.thread-header__menu-error { padding: 6px 8px; color: var(--flag-700); font-size: 12px; }
 	@media (max-width: 760px) {
-		.thread-header { gap: 8px; }
+		.thread-header { gap: 4px; }
+		/* Next to the command bar there's room for two short lines, not one long one. */
+		.thread-header .pane__header__title {
+			display: -webkit-box;
+			-webkit-box-orient: vertical;
+			-webkit-line-clamp: 2;
+			line-clamp: 2;
+			white-space: normal;
+			font-size: 15px;
+			line-height: 1.2;
+		}
 		.thread-header__folder,
 		.thread-header__count-label { display: none; }
 		.thread-header__btn,

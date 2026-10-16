@@ -183,12 +183,6 @@ body,
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-.drawer__brand__compact {
-	display: none;
-}
-.drawer__brand__full {
-	display: inline;
-}
 
 .drawer__quick-actions {
 	padding: 12px 14px 8px;
@@ -2462,12 +2456,6 @@ body,
 		min-height: 0;
 		overflow: hidden;
 	}
-	.drawer__brand__full {
-		display: none;
-	}
-	.drawer__brand__compact {
-		display: inline;
-	}
 	.drawer__head {
 		padding: 11px 12px 10px;
 	}
@@ -2505,12 +2493,17 @@ body,
 		gap: 4px;
 		align-items: start;
 	}
+	/* The chat title shares the command bar's row instead of sitting under it.
+	 * 98px is the two-button bar (menu, new chat) with its padding and border. */
 	.pane--thread .pane__header {
-		/* Keep the non-scrolling thread below the command bar. */
-		padding-top: calc(env(safe-area-inset-top, 0px) + 64px);
+		min-height: calc(env(safe-area-inset-top, 0px) + 60px);
+		padding: calc(env(safe-area-inset-top, 0px) + 8px) 6px 0
+			calc(env(safe-area-inset-left, 0px) + 12px + 98px + 10px);
+		align-items: center;
+		border-bottom: 1px solid var(--border-soft);
 	}
-	.shell--drawer-open .pane__header {
-		padding-top: 12px;
+	.pane--thread .pane__header__topic {
+		display: none;
 	}
 	.pane__header__title {
 		font-size: 16px;
@@ -2591,6 +2584,26 @@ body,
 	}
 	.cmdbar__btn:hover {
 		background: var(--bg-surface);
+	}
+	/* Search is the first thing in the drawer, so the phone bar keeps only the
+	 * menu and New chat. */
+	.cmdbar__btn--search {
+		display: none;
+	}
+	/* On a chat the bar is part of the header row, so it drops its card look. */
+	.shell--thread .cmdbar {
+		background: transparent;
+		border-color: transparent;
+		box-shadow: none;
+	}
+	.drawer__head {
+		grid-template-columns: 44px 1fr 44px;
+		padding-block: 6px;
+	}
+	.drawer__head__btn,
+	.sidebar__section-btn {
+		width: 44px;
+		height: 44px;
 	}
 	.drawer {
 		width: min(88vw, 320px);

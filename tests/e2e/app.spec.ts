@@ -1223,7 +1223,7 @@ test.describe('answer handoff actions', () => {
 		const actions = [
 			['Producer brief', 'producer_brief', 'Create a producer brief from this answer.'],
 			[
-				'Turn into OCVO',
+				'Turn into OC/VO',
 				'thirty_second_script',
 				'Write a 30-second OC/VO from this answer.'
 			],

@@ -42,7 +42,7 @@ export const ANSWER_USE_ACTIONS: ReadonlyArray<{ action: AnswerUseAction; label:
 	},
 	{
 		action: 'thirty_second_script',
-		label: 'Turn into OCVO'
+		label: 'Turn into OC/VO'
 	},
 	{
 		action: 'interview_questions',
