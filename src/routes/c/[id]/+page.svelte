@@ -5,6 +5,7 @@
 	import NewsroomArtifactPaneLoader from '$lib/components/NewsroomArtifactPaneLoader.svelte';
 	import StoryLedgerPane from '$lib/components/StoryLedgerPane.svelte';
 	import type { CopyFormat } from '$lib/utils/ledger-copy';
+	import ChevronUp from 'lucide-svelte/icons/chevron-up';
 	import Thread from '$lib/components/Thread.svelte';
 	import { artifactPaneMode } from '$lib/components/artifact-layout';
 	import { stripLedgerForDisplay } from '$lib/utils/story-ledger';
@@ -156,6 +157,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	);
 	let viewportWidth = $state(0);
 	const artifactMode = $derived(artifactPaneMode(viewportWidth));
+	// Matches the 760px phone breakpoint in components.css.
+	const isPhone = $derived(viewportWidth > 0 && viewportWidth <= 760);
 	let activeArtifact = $state<ArtifactDraft | null>(null);
 	let activeCanvasArtifact = $state<ArtifactDetail | null>(null);
 	let activeArtifactSummary = $state<ArtifactSummary | null>(null);
@@ -1769,7 +1772,27 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 			onRetry={retryArtifact}
 		/>
 	{/if}
-	{#if storyOpen}
+	{#if storyOpen && isPhone}
+		<!-- Phone: a bottom sheet with no scrim, so the answer stays readable and
+		     scrollable above it while the producer works the claims. -->
+		<StoryLedgerPane
+			sheet
+			claims={storyClaims}
+			title={conversationTitle}
+			citations={storyCitations}
+			changes={storyChanges}
+			loading={storyLoading}
+			error={storyError}
+			onRefresh={() => void refreshStoryLedger()}
+			onReview={reviewStoryClaim}
+			onMarkSeen={markStoryLedgerSeen}
+			onWriteCopy={writeStoryCopy}
+			onClose={() => {
+				markStoryLedgerSeen();
+				storyOpen = false;
+			}}
+		/>
+	{:else if storyOpen}
 		{#if artifactMode === 'overlay'}
 			<button
 				type="button"
@@ -1904,6 +1927,22 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 
 <div class="composer-zone">
 	<div class="composer-zone__inner">
+		{#if isPhone && !storyOpen && storyClaims.length > 0}
+			<button
+				type="button"
+				class="story-peek"
+				data-testid="story-peek"
+				onclick={toggleStory}
+			>
+				<span class="story-peek__label">Story ledger</span>
+				<span class="story-peek__count" class:story-peek__count--open={storyOpenChecks > 0}>
+					{storyOpenChecks > 0
+						? `${storyOpenChecks} to check`
+						: `${storyClaims.length} fact${storyClaims.length === 1 ? '' : 's'}, all checked`}
+				</span>
+				<ChevronUp size="16" strokeWidth={1.8} aria-hidden="true" />
+			</button>
+		{/if}
 		<Composer
 			onSend={handleSend}
 			draftKey={data.conversation.id}
@@ -1997,13 +2036,43 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	.thread-header__new-folder button { width: auto !important; flex-shrink: 0; }
 	.thread-header__menu-error { padding: 6px 8px; color: var(--flag-700); font-size: 12px; }
 	@media (max-width: 760px) {
-		.thread-header { gap: 8px; }
+		.thread-header { gap: 4px; }
+		/* Next to the command bar there's room for two short lines, not one long one. */
+		.thread-header .pane__header__title {
+			display: -webkit-box;
+			-webkit-box-orient: vertical;
+			-webkit-line-clamp: 2;
+			line-clamp: 2;
+			white-space: normal;
+			font-size: 15px;
+			line-height: 1.2;
+		}
 		.thread-header__folder,
 		.thread-header__count-label { display: none; }
 		.thread-header__btn,
 		.thread-header__icon-btn { min-height: 44px; }
 		.thread-header__icon-btn { min-width: 44px; }
 	}
+	.story-peek {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		min-height: 40px;
+		margin-bottom: 6px;
+		padding: 0 12px;
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-2);
+		background: var(--bg-surface);
+		color: var(--fg-2);
+		font-family: var(--font-mono);
+		font-size: 11px;
+		cursor: pointer;
+	}
+	.story-peek__label { color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
+	.story-peek__count { flex: 1; text-align: left; }
+	.story-peek__count--open { color: var(--cobalt-700); font-weight: 650; }
+	.story-peek:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
 	.conversation-workspace {
 		flex: 1;
 		min-height: 0;

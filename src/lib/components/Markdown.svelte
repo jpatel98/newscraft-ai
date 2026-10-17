@@ -289,4 +289,17 @@
 		outline: none;
 		box-shadow: var(--shadow-focus);
 	}
+
+	/* Chips stay small in the text; on touch screens the tap area grows to about
+	 * 44px tall without moving the line. */
+	@media (pointer: coarse) {
+		:global(.md .md-citation) {
+			position: relative;
+		}
+		:global(.md .md-citation::after) {
+			content: '';
+			position: absolute;
+			inset: -12px -5px;
+		}
+	}
 </style>

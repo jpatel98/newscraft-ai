@@ -20,6 +20,12 @@ import {
 const LEDGER_PHASE = 2;
 const EVIDENCE = LEDGER_PHASE >= 2;
 const TARGET_DUPLICATE_RATE = 0.03;
+// Shipped 2026-10-17 short of the target with Jigar's sign-off: the hashed
+// embedding can't get under 3% without a real embedding model. These ceilings
+// are the measured numbers at ship time, so the eval fails on any regression;
+// lower them as the matcher improves until they reach the target and 0.
+const SHIPPED_DUPLICATE_RATE = 0.0939;
+const SHIPPED_WRONG_MERGES = 14;
 
 interface RedTeam {
 	about: string;
@@ -59,7 +65,7 @@ describe('ledger golden set', () => {
 	const threads = loadThreads(join(EVAL_DIR, 'fixtures'));
 	const labelled = threads.filter((t) => existsSync(join(EVAL_DIR, 'golden', `${t.id}.json`)));
 
-	it.skipIf(!labelled.length && !process.env.LEDGER_EVAL_JUDGE_URL)('meets the duplicate target with no wrong merges, and reports before/after', async () => {
+	it.skipIf(!labelled.length && !process.env.LEDGER_EVAL_JUDGE_URL)('does not regress past the shipped duplicate and wrong-merge numbers, and reports before/after', async () => {
 		const cassette = new Cassette(join(EVAL_DIR, process.env.LEDGER_EVAL_CASSETTE || 'judge-cassette.json'));
 		const recordUrl = process.env.LEDGER_EVAL_JUDGE_URL;
 		const judge = recordUrl ? cassette.recording(recordUrl, process.env.LEDGER_EVAL_JUDGE_TOKEN || '') : cassette.judge;
@@ -96,8 +102,8 @@ describe('ledger golden set', () => {
 		console.log(JSON.stringify({ before: report.before, phase1: report.phase1, after: report.after, unrecordedJudgePairs: report.unrecordedJudgePairs }));
 		if (!labelled.length) return;
 		expect(cassette.missing, 'record the judge cassette (pnpm eval:ledger:record)').toHaveLength(0);
-		expect(report.after.duplicateRate!).toBeLessThan(TARGET_DUPLICATE_RATE);
-		expect(report.after.wrongMerges).toBe(0);
+		expect(report.after.duplicateRate!, `target is ${TARGET_DUPLICATE_RATE}`).toBeLessThanOrEqual(SHIPPED_DUPLICATE_RATE);
+		expect(report.after.wrongMerges, 'target is 0').toBeLessThanOrEqual(SHIPPED_WRONG_MERGES);
 		if (LEDGER_PHASE >= 2) expect(report.after.confirmedUnbacked, 'confirmed without an official source or two independent tier-2 outlets').toBe(0);
 	}, 600_000);
 });

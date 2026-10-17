@@ -98,7 +98,7 @@ describe('journalist citation UI helpers', () => {
 		]);
 		expect(ANSWER_USE_ACTIONS.slice(-2).map((action) => action.label)).toEqual(['Rundown line', 'Tease']);
 		expect(ANSWER_USE_ACTIONS.find((action) => action.action === 'thirty_second_script')?.label).toBe(
-			'Turn into OCVO'
+			'Turn into OC/VO'
 		);
 		expect(answerExportUrl('conversation 1', 'message/1')).toBe(
 			'/api/conversations/conversation%201/messages/message%2F1/export'

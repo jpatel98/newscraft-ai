@@ -797,7 +797,7 @@
 			</button>
 			<button
 				type="button"
-				class="cmdbar__btn"
+				class="cmdbar__btn cmdbar__btn--search"
 				aria-label="Search threads"
 				title="Search threads"
 				onclick={openDrawerForSearch}
@@ -840,8 +840,7 @@
 					<PanelLeft size="15" strokeWidth={1.7} />
 				</button>
 				<a class="drawer__brand" href="/" aria-label="NewsCraft home" onclick={onSelectThread}>
-					<span class="drawer__brand__full">NewsCraft</span>
-					<span class="drawer__brand__compact">NC</span>
+					NewsCraft
 				</a>
 				<span class="drawer__head__btn drawer__head__btn--static" aria-hidden="true">
 					<Sparkles size="15" strokeWidth={1.7} />

@@ -100,6 +100,7 @@
 
 	.source-row__link {
 		min-width: 0;
+		border-bottom: 0;
 		color: var(--cobalt-700);
 		text-decoration: underline;
 		text-underline-offset: 2px;
@@ -112,6 +113,7 @@
 	}
 
 	.source-row__archive-link {
+		border-bottom: 0;
 		color: var(--fg-3);
 		font-size: 10px;
 		text-decoration: underline;
@@ -131,6 +133,22 @@
 
 	.source-row__more:hover {
 		color: var(--fg-1);
+	}
+
+	@media (pointer: coarse) {
+		.source-row__list {
+			row-gap: 12px;
+		}
+		.source-row__link,
+		.source-row__more {
+			position: relative;
+		}
+		.source-row__link::after,
+		.source-row__more::after {
+			content: '';
+			position: absolute;
+			inset: -12px -3px;
+		}
 	}
 
 	.source-row__more:focus-visible,

@@ -23,7 +23,7 @@
  <h1>Folders</h1><p>Keep conversations about a topic together.</p>
  <form onsubmit={create} class="project-form">
   <label for="project-name">New folder name</label>
-  <div><input id="project-name" bind:value={name} required maxlength="100" placeholder="e.g. Mark Carney" disabled={!ready || busy} /><button disabled={!ready || busy || !name.trim()}>{busy ? 'Creating…' : 'Create folder'}</button></div>
+  <div><input id="project-name" bind:value={name} required maxlength="100" placeholder="e.g. City council budget" disabled={!ready || busy} /><button disabled={!ready || busy || !name.trim()}>{busy ? 'Creating…' : 'Create folder'}</button></div>
  </form>
  {#if failure}<p role="alert">{failure}</p>{/if}
  {#if data.projects.length}

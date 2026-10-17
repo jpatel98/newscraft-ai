@@ -108,6 +108,14 @@
 	</button>
 
 	{#if open}
+		<!-- Phone only: the menu is a bottom sheet and this dims the page behind it. -->
+		<button
+			type="button"
+			class="answer-actions__scrim"
+			tabindex="-1"
+			aria-hidden="true"
+			onclick={() => closeMenu()}
+		></button>
 		<div
 			bind:this={menu}
 			id={menuId}
@@ -117,6 +125,7 @@
 			aria-label="Use answer as"
 			onkeydown={onMenuKeydown}
 		>
+			<div class="answer-actions__sheet-title" aria-hidden="true">Use answer as</div>
 			{#each ANSWER_USE_ACTIONS as action (action.action)}
 				<button
 					type="button"
@@ -222,10 +231,51 @@
 		color: var(--danger-fg, #b34040);
 	}
 
+	.answer-actions__scrim,
+	.answer-actions__sheet-title {
+		display: none;
+	}
+	/* Phone: a bottom sheet with full-width rows instead of a small dropdown.
+	 * Fixed positioning also keeps it from being clipped by the scrolling
+	 * action bar above the composer. */
 	@media (max-width: 760px) {
 		.answer-actions__trigger {
 			min-height: 44px;
 			padding-inline: 8px;
+		}
+		.answer-actions__scrim {
+			display: block;
+			position: fixed;
+			inset: 0;
+			z-index: 70;
+			padding: 0;
+			border: 0;
+			background: color-mix(in srgb, var(--ink-900) 32%, transparent);
+			cursor: default;
+		}
+		.answer-actions__menu {
+			position: fixed;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			z-index: 71;
+			width: auto;
+			padding: 6px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+			border-width: 1px 0 0;
+			border-radius: 14px 14px 0 0;
+			box-shadow: var(--shadow-3);
+		}
+		.answer-actions__sheet-title {
+			display: block;
+			padding: 10px 12px 6px;
+			color: var(--fg-3);
+			font-family: var(--font-mono);
+			font-size: 11px;
+		}
+		.answer-actions__item {
+			min-height: 48px;
+			padding: 12px;
+			font-size: 16px;
 		}
 	}
 </style>

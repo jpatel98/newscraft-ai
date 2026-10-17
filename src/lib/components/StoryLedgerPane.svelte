@@ -37,6 +37,9 @@
 		/** Writes broadcast copy from the ledger; rejects with a message to show. */
 		onWriteCopy?: (format: CopyFormat) => Promise<WrittenCopy>;
 		onClose: () => void;
+		/** Phone layout: a bottom sheet that drags between half and full height,
+		 * with swipe on a claim to mark it checked or flag it. */
+		sheet?: boolean;
 	}
 
 	interface WrittenCopy {
@@ -56,7 +59,8 @@
 		onReview,
 		onMarkSeen,
 		onWriteCopy,
-		onClose
+		onClose,
+		sheet = false
 	}: Props = $props();
 	let draft = $state<(WrittenCopy & { format: CopyFormat }) | null>(null);
 	let writing = $state<CopyFormat | null>(null);
@@ -150,6 +154,90 @@
 		return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 	}
 
+	// ---- Bottom sheet (phone) ----
+	const SWIPE_COMMIT_PX = 90;
+	let pane: HTMLElement | undefined = $state();
+	let snap = $state<'half' | 'full'>('half');
+	let dragHeight = $state<number | null>(null);
+	let drag: { pointerId: number; startY: number; startHeight: number; moved: boolean } | null = null;
+
+	function fullHeight(): number {
+		const viewport = window.visualViewport?.height ?? window.innerHeight;
+		return Math.max(200, viewport - 24);
+	}
+
+	function onGrabDown(event: PointerEvent) {
+		if (!sheet || !pane) return;
+		drag = {
+			pointerId: event.pointerId,
+			startY: event.clientY,
+			startHeight: pane.getBoundingClientRect().height,
+			moved: false
+		};
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+	}
+
+	function onGrabMove(event: PointerEvent) {
+		if (!drag || event.pointerId !== drag.pointerId) return;
+		const dy = event.clientY - drag.startY;
+		if (Math.abs(dy) > 4) drag.moved = true;
+		if (drag.moved) dragHeight = Math.min(fullHeight(), Math.max(60, drag.startHeight - dy));
+	}
+
+	function onGrabUp(event: PointerEvent) {
+		if (!drag || event.pointerId !== drag.pointerId) return;
+		const { moved, startHeight } = drag;
+		drag = null;
+		const height = dragHeight;
+		dragHeight = null;
+		if (!moved || height === null) {
+			snap = snap === 'half' ? 'full' : 'half';
+			return;
+		}
+		const full = fullHeight();
+		const half = full * 0.6;
+		if (height < Math.min(half, startHeight) * 0.65) onClose();
+		else snap = height > (half + full) / 2 ? 'full' : 'half';
+	}
+
+	let swipe = $state<{ id: string; dx: number } | null>(null);
+	let swipeStart: { id: string; pointerId: number; x: number; y: number; active: boolean } | null = null;
+
+	function onClaimDown(event: PointerEvent, id: string) {
+		if (!sheet || !onReview || savingId || (event.target as HTMLElement).closest('button, select, a')) return;
+		swipeStart = { id, pointerId: event.pointerId, x: event.clientX, y: event.clientY, active: false };
+	}
+
+	function onClaimMove(event: PointerEvent) {
+		if (!swipeStart || event.pointerId !== swipeStart.pointerId) return;
+		const dx = event.clientX - swipeStart.x;
+		const dy = event.clientY - swipeStart.y;
+		if (!swipeStart.active) {
+			if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) {
+				swipeStart = null;
+				return;
+			}
+			if (Math.abs(dx) < 10) return;
+			swipeStart.active = true;
+			(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		}
+		swipe = { id: swipeStart.id, dx: Math.max(-140, Math.min(140, dx)) };
+	}
+
+	function onClaimUp(event: PointerEvent, claim: StoryLedgerClaimView) {
+		if (!swipeStart || event.pointerId !== swipeStart.pointerId) return;
+		const dx = swipe?.id === claim.id ? swipe.dx : 0;
+		swipeStart = null;
+		swipe = null;
+		if (dx >= SWIPE_COMMIT_PX && claim.needs_check) void review(claim.id, { needs_check: false });
+		else if (dx <= -SWIPE_COMMIT_PX && !claim.needs_check) void review(claim.id, { needs_check: true });
+	}
+
+	function cancelSwipe() {
+		swipeStart = null;
+		swipe = null;
+	}
+
 	async function copyBrief() {
 		try {
 			if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
@@ -161,7 +249,37 @@
 	}
 </script>
 
-<aside class="story-pane" data-testid="story-ledger-pane" aria-label="Story ledger">
+<aside
+	bind:this={pane}
+	class="story-pane"
+	class:story-pane--sheet={sheet}
+	class:story-pane--dragging={dragHeight !== null}
+	data-testid="story-ledger-pane"
+	data-snap={sheet ? snap : undefined}
+	style={dragHeight !== null ? `height: ${dragHeight}px` : undefined}
+	aria-label="Story ledger"
+>
+	{#if sheet}
+		<button
+			type="button"
+			class="story-pane__grab"
+			aria-label={snap === 'half' ? 'Expand story ledger' : 'Shrink story ledger'}
+			onclick={(event) => event.preventDefault()}
+			onpointerdown={onGrabDown}
+			onpointermove={onGrabMove}
+			onpointerup={onGrabUp}
+			onpointercancel={() => {
+				drag = null;
+				dragHeight = null;
+			}}
+			onkeydown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					snap = snap === 'half' ? 'full' : 'half';
+				}
+			}}
+		><span aria-hidden="true"></span></button>
+	{/if}
 	<header class="story-pane__header">
 		<div>
 			<div class="story-pane__eyebrow">Story ledger · this chat</div>
@@ -227,7 +345,30 @@
 					<ul>
 						{#each group.claims as claim (claim.id)}
 							{@const attribution = attributionFor(claim)}
-							<li class="story-claim" data-testid="story-claim">
+							{@const dx = swipe?.id === claim.id ? swipe.dx : 0}
+							<li class="story-claim-row">
+								{#if sheet && onReview && dx !== 0}
+									<span
+										class="story-claim__swipe-hint story-claim__swipe-hint--{dx > 0 ? 'check' : 'flag'}"
+										class:story-claim__swipe-hint--ready={Math.abs(dx) >= SWIPE_COMMIT_PX &&
+											(dx > 0 ? claim.needs_check : !claim.needs_check)}
+										aria-hidden="true"
+									>{dx > 0
+											? claim.needs_check ? 'Mark checked' : 'Already checked'
+											: claim.needs_check ? 'Already flagged' : 'Flag for check'}</span>
+								{/if}
+								<div
+									class="story-claim"
+									data-testid="story-claim"
+									class:story-claim--swiping={dx !== 0}
+									style={dx !== 0 ? `transform: translateX(${dx}px)` : undefined}
+									onpointerdown={(event) => onClaimDown(event, claim.id)}
+									onpointermove={onClaimMove}
+									onpointerup={(event) => onClaimUp(event, claim)}
+									onpointercancel={cancelSwipe}
+									role="group"
+									aria-label={claim.claim}
+								>
 								<p class="story-claim__text">{claim.claim}</p>
 								{#if attribution.required && attribution.phrase && claim.status !== 'unverified' && claim.status !== 'retracted'}
 									<p class="story-claim__say" data-testid="story-claim-say">Say: “{attribution.phrase}”</p>
@@ -291,6 +432,7 @@
 										<p class="story-claim__error" role="alert">{reviewError.message}</p>
 									{/if}
 								{/if}
+								</div>
 							</li>
 						{/each}
 					</ul>
@@ -476,7 +618,9 @@
 	.story-changes h3 span { color: var(--fg-3); font-weight: 500; }
 	.story-changes ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
 	.story-changes__what { font-family: var(--font-mono); font-size: 10.5px; font-weight: 650; color: var(--accent-fg); }
+	.story-claim-row { position: relative; }
 	.story-claim {
+		position: relative;
 		padding: 10px 12px;
 		border: 1px solid var(--border-soft);
 		border-radius: var(--radius-1);
@@ -576,6 +720,68 @@
 	.story-pane__icon:disabled { opacity: 0.5; cursor: default; }
 	.story-pane__icon:hover:not(:disabled),
 	.story-pane__button:hover:not(:disabled) { background: var(--bg-raised); color: var(--fg-1); }
+	/* ---- Phone bottom sheet ---- */
+	.story-pane--sheet {
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 61;
+		height: calc(var(--visual-vh, 100dvh) * 0.6);
+		grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+		border: 1px solid var(--border-default);
+		border-bottom: 0;
+		border-radius: 14px 14px 0 0;
+		box-shadow: 0 -8px 28px rgb(15 23 42 / 14%);
+		transition: height 180ms var(--ease-std, ease);
+	}
+	.story-pane--sheet[data-snap='full'] {
+		height: calc(var(--visual-vh, 100dvh) - 24px);
+	}
+	.story-pane--dragging { transition: none; }
+	.story-pane__grab {
+		display: flex;
+		justify-content: center;
+		width: 100%;
+		height: 28px;
+		padding: 10px 0 0;
+		border: 0;
+		background: transparent;
+		cursor: grab;
+		touch-action: none;
+	}
+	.story-pane__grab span {
+		width: 40px;
+		height: 5px;
+		border-radius: 3px;
+		background: var(--border-strong, var(--fg-3));
+	}
+	.story-pane__grab:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+	.story-pane--sheet .story-pane__header { padding-top: 4px; }
+	.story-pane--sheet .story-pane__icon { width: 44px; height: 44px; flex-basis: 44px; }
+	.story-pane--sheet .story-pane__toggle { min-height: 44px; }
+	.story-pane--sheet .story-claim { touch-action: pan-y; transition: transform 160ms var(--ease-std, ease); }
+	.story-pane--sheet .story-claim--swiping { transition: none; }
+	.story-pane--sheet .story-claim__action,
+	.story-pane--sheet .story-claim__status { min-height: 40px; font-size: 12px; }
+	.story-pane--sheet .story-claim__chip { min-height: 32px; min-width: 36px; }
+	.story-pane--sheet .story-pane__button { min-height: 44px; }
+	.story-claim__swipe-hint {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		padding: 0 16px;
+		border-radius: var(--radius-1);
+		background: var(--bg-raised);
+		color: var(--fg-3);
+		font-family: var(--font-mono);
+		font-size: 11px;
+		font-weight: 650;
+	}
+	.story-claim__swipe-hint--flag { justify-content: flex-end; }
+	.story-claim__swipe-hint--ready.story-claim__swipe-hint--check { background: var(--cobalt-600); color: #fff; }
+	.story-claim__swipe-hint--ready.story-claim__swipe-hint--flag { background: var(--cobalt-100); color: var(--cobalt-800); }
 	.story-pane__icon:focus-visible,
 	.story-pane__button:focus-visible,
 	.story-claim__chip:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
