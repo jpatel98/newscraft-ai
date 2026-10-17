@@ -1,0 +1,466 @@
+{
+ "id": "gen-10",
+ "title": "What do we know about the Toronto mayoral",
+ "origin": "generated",
+ "turns": [
+  {
+   "at": 1792081497793,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
+     "date": "2026-10-13T18:58:53.000Z",
+     "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
+    },
+    {
+     "n": 4,
+     "url": "https://www.liaison.ca/polls/toronto-chow-51-bradford-46-renters-and-owners-split-october-13",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Liaison Strategies"
+    },
+    {
+     "n": 5,
+     "url": "https://www.toronto.ca/news/toronto-city-clerk-certifies-361-candidates-for-2026-municipal-election/",
+     "date": "2026-08-24T20:00:26.000Z",
+     "title": "Toronto City Clerk certifies 361 candidates for 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 6,
+     "url": "https://en.wikipedia.org/wiki/2026_Toronto_mayoral_election",
+     "date": "2026-10-08T00:00:00.000Z",
+     "title": "2026 Toronto mayoral election"
+    },
+    {
+     "n": 7,
+     "url": "https://nowtoronto.com/news/toronto-election-2026-chow-leads-bradford-by-five-points-new-poll/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Election 2026: Olivia Chow leads Brad Bradford by five points | NOW Toronto"
+    },
+    {
+     "n": 8,
+     "url": "https://www.cbc.ca/news/canada/toronto/toronto-mayoral-race-endorsements-9.7379352",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Can Blue Rodeo or Rush swing the balance of power in Toronto? How endorsements affect the mayoral race | CBC News"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Liaison Strategies poll of 1,000 Toronto residents Oct. 8-9, 2026 puts Chow at 51 per cent and Bradford at 46 per cent among decided and leaning voters, with 3 per cent backing another candidate",
+     "status": "reported",
+     "attributed_to": "Liaison Strategies",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The Liaison margin of error for the total sample is plus or minus 3.1 percentage points, 19 times out of 20",
+     "status": "reported",
+     "attributed_to": "Liaison Strategies",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow's lead narrowed from eight points in Liaison's Oct. 6 poll to five points, after Chris Alexander left the race",
+     "status": "reported",
+     "attributed_to": "Liaison Strategies",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Nanos poll for CP24 and CTV News Toronto, 757 Toronto residents Oct. 8-10, puts Chow at 51 and Bradford at 47 among decided voters, a 3.5-point gap, with 17 per cent undecided",
+     "status": "reported",
+     "attributed_to": "Nanos Research for CP24/CTV News Toronto",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Liaison finds Chow leading renters 57-40 and Bradford leading homeowners 50-45",
+     "status": "reported",
+     "attributed_to": "Liaison Strategies",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow's approval stands at 52 per cent, disapproval 43 per cent, unsure 5 per cent",
+     "status": "reported",
+     "attributed_to": "Liaison Strategies",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Bradford's favourability is 37 per cent favourable and 40 per cent unfavourable among all respondents",
+     "status": "reported",
+     "attributed_to": "Liaison Strategies",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "More than 222,000 eligible voters cast advance ballots before advance voting closed Oct. 11, the city's biggest advance turnout in over a decade",
+     "status": "reported",
+     "attributed_to": "City of Toronto, via NOW Toronto and CBC News",
+     "citations": [
+      7,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Election day is Monday, Oct. 26, 10 a.m. to 8 p.m., with 361 candidates certified by the Toronto City Clerk on Aug. 24",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto",
+     "citations": [
+      5
+     ],
+     "date": "2026-08-24",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow and Bradford are certified mayoral candidates, nominated May 25 and May 1 respectively",
+     "status": "reported",
+     "attributed_to": "Wikipedia, citing City of Toronto certified candidate list",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-08",
+     "needs_check": true
+    },
+    {
+     "claim": "The Oct. 15 debate hosted by the Rotman School of Management and TVO, moderated by Steve Paikin, is the campaign's final scheduled debate",
+     "status": "reported",
+     "attributed_to": "Wikipedia debate table",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-08",
+     "needs_check": true
+    },
+    {
+     "claim": "Both candidates campaigned in Scarborough this week, Chow on transit and the Scarborough East LRT, Bradford on homeownership costs and city spending",
+     "status": "reported",
+     "attributed_to": "NOW Toronto",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Polls disagree on Scarborough and North York, so no single regional read holds",
+     "status": "unverified",
+     "attributed_to": "Nanos vs Liaison",
+     "citations": [
+      1,
+      4,
+      7
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081518947,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
+     "date": "2026-10-13T18:58:53.000Z",
+     "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
+    },
+    {
+     "n": 4,
+     "url": "https://www.liaison.ca/polls/toronto-chow-51-bradford-46-renters-and-owners-split-october-13",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Liaison Strategies"
+    },
+    {
+     "n": 5,
+     "url": "https://www.toronto.ca/news/toronto-city-clerk-certifies-361-candidates-for-2026-municipal-election/",
+     "date": "2026-08-24T20:00:26.000Z",
+     "title": "Toronto City Clerk certifies 361 candidates for 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 12,
+     "url": "https://www.thetorontoscoop.com/news/toronto-sees-record-advance-voting-turnout-ahead-of-municipal-election",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Sees Record Advance Voting Turnout Ahead of Municipal Election | The Toronto Scoop"
+    },
+    {
+     "n": 14,
+     "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
+     "date": "2026-10-13T11:32:59.000Z",
+     "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 20,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/toronto-sees-massive-increase-in-advance-voting-with-more-than-200000-people-casting-ballots/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Advance voting up in 2026 Toronto municipal election"
+    },
+    {
+     "n": 23,
+     "url": "https://toronto.citynews.ca/2026/10/13/voter-turnout-advance-polls-toronto-election/",
+     "date": "2026-10-13T12:24:09.000Z",
+     "title": "More than 200,000 Torontonians voted in advance polls for municipal election"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "The City of Toronto says 222,550 eligible voters cast ballots during six days of advance voting, Oct. 6-11, a record",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto",
+     "citations": [
+      14
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Advance turnout was up nearly 92 per cent from the 115,911 advance votes in 2022",
+     "status": "reported",
+     "attributed_to": "CityNews, citing City of Toronto",
+     "citations": [
+      23
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Sunday, Oct. 11 was the single busiest advance day at 53,363, the highest one-day advance total since amalgamation",
+     "status": "reported",
+     "attributed_to": "City of Toronto via CP24",
+     "citations": [
+      14,
+      20
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Chow said people told her they voted for her, giving her confidence; Bradford said the turnout shows change is coming",
+     "status": "reported",
+     "attributed_to": "CityNews",
+     "citations": [
+      23
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Advance voting numbers do not indicate which candidates voters selected",
+     "status": "reported",
+     "attributed_to": "The Toronto Scoop",
+     "citations": [
+      12
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "Chow leads Bradford 51 to 46 among decided and leaning voters, Liaison Strategies poll of 1,000 residents Oct. 8-9, margin of error plus or minus 3.1 points",
+     "status": "reported",
+     "attributed_to": "Liaison Strategies",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Nanos poll for CP24 and CTV News Toronto had Chow 51 to Bradford 47 among decided voters",
+     "status": "reported",
+     "attributed_to": "Nanos Research for CP24/CTV News Toronto",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "CP24 reported the advance total as 225,550, which does not match the city's 222,550 figure carried by other outlets",
+     "status": "unverified",
+     "attributed_to": "CP24",
+     "citations": [
+      20
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Election day is Monday, Oct. 26, polls open 10 a.m. to 8 p.m.",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto",
+     "citations": [
+      5
+     ],
+     "date": "2026-08-24",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1792081529139,
+   "sources": [
+    {
+     "n": 14,
+     "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
+     "date": "2026-10-13T11:32:59.000Z",
+     "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 17,
+     "url": "https://globalnews.ca/news/12100365/what-was-turnout-during-toronto-advance-voting/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "More than 220K cast advance votes in 2026 Toronto election, city says - Toronto | Globalnews.ca"
+    },
+    {
+     "n": 20,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/toronto-sees-massive-increase-in-advance-voting-with-more-than-200000-people-casting-ballots/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Advance voting up in 2026 Toronto municipal election"
+    },
+    {
+     "n": 23,
+     "url": "https://toronto.citynews.ca/2026/10/13/voter-turnout-advance-polls-toronto-election/",
+     "date": "2026-10-13T12:24:09.000Z",
+     "title": "More than 200,000 Torontonians voted in advance polls for municipal election"
+    },
+    {
+     "n": 25,
+     "url": "https://www.cbc.ca/news/canada/toronto/toronto-2026-advance-voter-turnout-increase-9.7378763",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Advance voter turnout in Toronto election jumped nearly 72% from 2023 byelection"
+    },
+    {
+     "n": 26,
+     "url": "https://www.toronto.ca/news/?nrkey=26214EFD1E998B74852585070041BCF8",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "News Releases & Other Resources – City of Toronto"
+    },
+    {
+     "n": 31,
+     "url": "https://torontosun.com/news/local-news/advance-polling-in-toronto-way-up",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "‘CUSP OF CHANGE?’ Advance polling in Toronto way up | Toronto Sun"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "No revised advance turnout figure has been issued; the City of Toronto's released total remains 222,550 over six days of advance voting, Oct. 6-11",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto",
+     "citations": [
+      14
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "CityNews, Global News and the Toronto Sun all carry the city's 222,550 figure",
+     "status": "reported",
+     "attributed_to": "CityNews, Global News, Toronto Sun",
+     "citations": [
+      17,
+      23,
+      31
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The city's news release list shows no advance-turnout release dated after Oct. 13",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto",
+     "citations": [
+      26
+     ],
+     "date": "2026-10-09",
+     "needs_check": false
+    },
+    {
+     "claim": "CP24 gives the advance total as 225,550, which does not match the city's 222,550 carried by other outlets",
+     "status": "unverified",
+     "attributed_to": "CP24",
+     "citations": [
+      20
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "CBC reports advance turnout as nearly 72 per cent above the 2023 byelection's 129,745 advance votes",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      25,
+      31
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The nearly 92 per cent comparison is measured against the 115,911 advance votes in 2022",
+     "status": "reported",
+     "attributed_to": "CityNews, citing City of Toronto",
+     "citations": [
+      14,
+      23
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Liaison analysis: Downtown held 40 per cent of the advance vote while holding a bit over a third of voters; North York's share rose 24.9 to 27.8 per cent and Scarborough's fell 21.2 to 19.1 per cent; Etobicoke unchanged",
+     "status": "reported",
+     "attributed_to": "Liaison Strategies via Toronto Sun",
+     "citations": [
+      31
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Eglinton-Lawrence led wards in early turnout at about 15,000 ballots, 16.7 per cent of its electorate; citywide advance participation was 10.4 per cent",
+     "status": "reported",
+     "attributed_to": "Liaison Strategies via Toronto Sun",
+     "citations": [
+      31
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "No city statement correcting, withdrawing or restating the 222,550 figure was found",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      26
+     ],
+     "date": "2026-10-09",
+     "needs_check": true
+    }
+   ]
+  }
+ ]
+}

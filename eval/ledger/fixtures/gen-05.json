@@ -1,0 +1,570 @@
+{
+ "id": "gen-05",
+ "title": "What do we know about the Pentagon raising",
+ "origin": "generated",
+ "turns": [
+  {
+   "at": 1792081305348,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.washingtonpost.com/national-security/2026/10/10/pentagon-raises-official-toll-troops-killed-during-war-with-iran-21/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official toll of troops who died during war with Iran to 21 - The Washington Post"
+    },
+    {
+     "n": 5,
+     "url": "https://www.nytimes.com/2026/10/10/us/politics/pentagon-casualties-iran-war.html",
+     "date": "",
+     "title": "Pentagon Again Increases Number of U.S. Casualties in ..."
+    },
+    {
+     "n": 7,
+     "url": "https://en.wikipedia.org/wiki/Casualties_of_the_2026_Iran_war",
+     "date": "",
+     "title": "Casualties of the 2026 Iran war"
+    },
+    {
+     "n": 8,
+     "url": "https://www.stripes.com/theaters/middle_east/2026-10-10/pentagon-death-toll-iran-war-23114546.html",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official death toll from Iran war to 21 | Stars and Stripes"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "The Pentagon raised its official count of U.S. troops killed in Iran war operations to 21, up from 18, in a late Friday database update",
+     "status": "confirmed",
+     "attributed_to": "Pentagon (Defense Casualty Analysis System), reported by Washington Post, NYT, Stars and Stripes",
+     "citations": [
+      2,
+      5,
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "The official wounded count rose to 865, up 98 since August",
+     "status": "confirmed",
+     "attributed_to": "Pentagon database, reported by NYT and Stars and Stripes",
+     "citations": [
+      5,
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "The two added deaths were both noncombat",
+     "status": "reported",
+     "attributed_to": "Stars and Stripes, citing Washington Post",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "One added death was Maj. Sorffly Davius, 46, an Army National Guard member who died in Kuwait on March 6",
+     "status": "reported",
+     "attributed_to": "Washington Post, citing a U.S. official, via Stars and Stripes",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    },
+    {
+     "claim": "The other added death was an unidentified Navy suicide in September",
+     "status": "reported",
+     "attributed_to": "Washington Post, citing a U.S. official, via Stars and Stripes",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    },
+    {
+     "claim": "The Washington Post reported last month, based on six U.S. officials, that service member losses exceeded the Pentagon's public database figures",
+     "status": "reported",
+     "attributed_to": "Washington Post",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "Casualties are split into Operation Epic Fury (15 killed, 417 wounded) and 'overseas operations' since July 7 (6 killed, 448 wounded)",
+     "status": "confirmed",
+     "attributed_to": "Stars and Stripes, citing military categories",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "A Pentagon official told the AP in July the second casualty category was created because Operation Epic Fury had concluded",
+     "status": "reported",
+     "attributed_to": "Pentagon official, via AP, cited by Stars and Stripes",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "Wikipedia lists 21 killed and 865 wounded as CENTCOM/DOD figures, with independent estimates of 25 killed and 905 wounded",
+     "status": "unverified",
+     "attributed_to": "Wikipedia compilation of CENTCOM/DOD and independent estimates",
+     "citations": [
+      7
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "No Pentagon public release or statement announcing the revised toll was found",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      5,
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081315285,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.washingtonpost.com/national-security/2026/10/10/pentagon-raises-official-toll-troops-killed-during-war-with-iran-21/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official toll of troops who died during war with Iran to 21 - The Washington Post"
+    },
+    {
+     "n": 5,
+     "url": "https://www.nytimes.com/2026/10/10/us/politics/pentagon-casualties-iran-war.html",
+     "date": "",
+     "title": "Pentagon Again Increases Number of U.S. Casualties in ..."
+    },
+    {
+     "n": 8,
+     "url": "https://www.stripes.com/theaters/middle_east/2026-10-10/pentagon-death-toll-iran-war-23114546.html",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official death toll from Iran war to 21 | Stars and Stripes"
+    },
+    {
+     "n": 9,
+     "url": "https://www.washingtonpost.com/national-security/2026/09/18/more-us-troops-have-died-amid-iran-war-than-pentagon-has-disclosed-publicly/",
+     "date": "2026-09-18T00:00:00.000Z",
+     "title": "More U.S. troops have died amid Iran war than Pentagon has disclosed publicly - The Washington Post"
+    },
+    {
+     "n": 10,
+     "url": "https://thehill.com/policy/defense/6140821-pentagon-updates-iran-death-tally/",
+     "date": "2026-10-10T21:59:35.000Z",
+     "title": "Pentagon raises Iran war's American death toll to 21"
+    },
+    {
+     "n": 11,
+     "url": "https://defensescoop.com/2026/10/09/dcas-defense-casualty-analysis-system-changes/",
+     "date": "2026-10-09T20:10:13.000Z",
+     "title": "Pentagon moving to modify its online portal for reporting U.S. military casualties | DefenseScoop"
+    },
+    {
+     "n": 12,
+     "url": "https://www.washingtonpost.com/politics/2026/09/22/pentagon-adds-one-death-tally-troop-fatalities-amid-iran-war/",
+     "date": "2026-09-22T00:00:00.000Z",
+     "title": "Another U.S. service member dies amid Iran war, Pentagon tally shows - The Washington Post"
+    },
+    {
+     "n": 13,
+     "url": "https://www.military.com/pentagon-updates-protocols-tracking-iran-war-related-deaths-of-us-service-members",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Pentagon Updates Protocols Tracking Iran War-Related Deaths of US Service Members"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "The disclosed Pentagon death toll stood at 19 as of Sept. 22-23, 2026, after one death was added",
+     "status": "reported",
+     "attributed_to": "Washington Post, citing a U.S. defense official",
+     "citations": [
+      12
+     ],
+     "date": "2026-09-22",
+     "needs_check": false
+    },
+    {
+     "claim": "The current official toll is 21, revised from 18 in the Oct. 9, 2026 database update",
+     "status": "confirmed",
+     "attributed_to": "Pentagon (DCAS), reported by Washington Post, NYT, Stars and Stripes",
+     "citations": [
+      2,
+      5,
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "The Pentagon has described the DCAS changes as administrative: two key enhancements to make the data more easily understood",
+     "status": "reported",
+     "attributed_to": "Pentagon official statement, via DefenseScoop and Military.com",
+     "citations": [
+      11,
+      13
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "A Defense official said the DCAS changes were triggered by an internal audit of reporting systems",
+     "status": "reported",
+     "attributed_to": "War Department official, via DefenseScoop",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-09",
+     "needs_check": true
+    },
+    {
+     "claim": "The Post reported Sept. 18 that at least 22 service members had died against a disclosed 19",
+     "status": "reported",
+     "attributed_to": "Washington Post, citing six U.S. officials, via Military.com",
+     "citations": [
+      9,
+      13
+     ],
+     "date": "2026-09-18",
+     "needs_check": false
+    },
+    {
+     "claim": "Hegseth called the Post's casualty reporting 'DISGUSTING and FAKE' and 'a complete lie'",
+     "status": "reported",
+     "attributed_to": "Defense Secretary Pete Hegseth, via The Hill and Military.com",
+     "citations": [
+      10,
+      13
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "Davius's death was acknowledged earlier in the year but not added to DCAS until the Oct. 9 update",
+     "status": "reported",
+     "attributed_to": "U.S. official, via The Hill",
+     "citations": [
+      10
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "No Pentagon public release or statement explaining the Oct. 9 revision was found",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      5,
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081326463,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.washingtonpost.com/national-security/2026/10/10/pentagon-raises-official-toll-troops-killed-during-war-with-iran-21/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official toll of troops who died during war with Iran to 21 - The Washington Post"
+    },
+    {
+     "n": 5,
+     "url": "https://www.nytimes.com/2026/10/10/us/politics/pentagon-casualties-iran-war.html",
+     "date": "",
+     "title": "Pentagon Again Increases Number of U.S. Casualties in ..."
+    },
+    {
+     "n": 8,
+     "url": "https://www.stripes.com/theaters/middle_east/2026-10-10/pentagon-death-toll-iran-war-23114546.html",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official death toll from Iran war to 21 | Stars and Stripes"
+    },
+    {
+     "n": 9,
+     "url": "https://www.washingtonpost.com/national-security/2026/09/18/more-us-troops-have-died-amid-iran-war-than-pentagon-has-disclosed-publicly/",
+     "date": "2026-09-18T00:00:00.000Z",
+     "title": "More U.S. troops have died amid Iran war than Pentagon has disclosed publicly - The Washington Post"
+    },
+    {
+     "n": 10,
+     "url": "https://thehill.com/policy/defense/6140821-pentagon-updates-iran-death-tally/",
+     "date": "2026-10-10T21:59:35.000Z",
+     "title": "Pentagon raises Iran war's American death toll to 21"
+    },
+    {
+     "n": 11,
+     "url": "https://defensescoop.com/2026/10/09/dcas-defense-casualty-analysis-system-changes/",
+     "date": "2026-10-09T20:10:13.000Z",
+     "title": "Pentagon moving to modify its online portal for reporting U.S. military casualties | DefenseScoop"
+    },
+    {
+     "n": 13,
+     "url": "https://www.military.com/pentagon-updates-protocols-tracking-iran-war-related-deaths-of-us-service-members",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Pentagon Updates Protocols Tracking Iran War-Related Deaths of US Service Members"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "The Pentagon raised its official count of U.S. troops killed in Iran war operations to 21, up from 18, in a late Friday database update",
+     "status": "confirmed",
+     "attributed_to": "Pentagon (Defense Casualty Analysis System), reported by Washington Post, NYT, Stars and Stripes",
+     "citations": [
+      2,
+      5,
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "The two added deaths were both noncombat",
+     "status": "reported",
+     "attributed_to": "Stars and Stripes, citing Washington Post",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "One added death was Maj. Sorffly Davius, 46, an Army National Guard member who died in Kuwait on March 6",
+     "status": "reported",
+     "attributed_to": "Washington Post, citing a U.S. official, via Stars and Stripes",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    },
+    {
+     "claim": "The other added death was an unidentified Navy suicide in September",
+     "status": "reported",
+     "attributed_to": "Washington Post, citing a U.S. official, via Stars and Stripes",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    },
+    {
+     "claim": "The official wounded count rose to 865, up 98 since August",
+     "status": "confirmed",
+     "attributed_to": "Pentagon database, reported by NYT and Stars and Stripes",
+     "citations": [
+      5,
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "The Post reported Sept. 18 that at least 22 service members had died against a disclosed 19",
+     "status": "reported",
+     "attributed_to": "Washington Post, citing six U.S. officials",
+     "citations": [
+      2,
+      9
+     ],
+     "date": "2026-09-18",
+     "needs_check": false
+    },
+    {
+     "claim": "Hegseth called the Post's casualty reporting 'DISGUSTING and FAKE'",
+     "status": "reported",
+     "attributed_to": "Defense Secretary Pete Hegseth, via The Hill",
+     "citations": [
+      10
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "The Pentagon has described the DCAS changes as administrative: two key enhancements to make the data more easily understood",
+     "status": "reported",
+     "attributed_to": "Pentagon official statement, via DefenseScoop and Military.com",
+     "citations": [
+      11,
+      13
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "A Defense official said the DCAS changes were triggered by an internal audit of reporting systems",
+     "status": "reported",
+     "attributed_to": "War Department official, via DefenseScoop",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-09",
+     "needs_check": true
+    },
+    {
+     "claim": "No Pentagon public release or statement announcing the revised toll was found",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      5,
+      8
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081332612,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.washingtonpost.com/national-security/2026/10/10/pentagon-raises-official-toll-troops-killed-during-war-with-iran-21/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official toll of troops who died during war with Iran to 21 - The Washington Post"
+    },
+    {
+     "n": 5,
+     "url": "https://www.nytimes.com/2026/10/10/us/politics/pentagon-casualties-iran-war.html",
+     "date": "",
+     "title": "Pentagon Again Increases Number of U.S. Casualties in ..."
+    },
+    {
+     "n": 8,
+     "url": "https://www.stripes.com/theaters/middle_east/2026-10-10/pentagon-death-toll-iran-war-23114546.html",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises official death toll from Iran war to 21 | Stars and Stripes"
+    },
+    {
+     "n": 16,
+     "url": "https://taskandpurpose.com/news/pentagon-iran-war-death-toll-21/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon raises Iran war death toll to 21"
+    },
+    {
+     "n": 19,
+     "url": "https://www.upi.com/Top_News/US/2026/10/10/pentagon-death-toll-iran-war/3431791673489/",
+     "date": "2026-10-10T00:00:00.000Z",
+     "title": "Pentagon updates U.S. death toll of Iran war to 21 - UPI.com"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "The published Pentagon death toll remains 21 killed; no revision above 21 was found",
+     "status": "confirmed",
+     "attributed_to": "Pentagon (DCAS), reported by Washington Post, NYT, Stars and Stripes, UPI, Task & Purpose",
+     "citations": [
+      2,
+      5,
+      8,
+      16,
+      19
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "Task & Purpose and UPI say the DCAS database had previously reported 19 deaths before the Oct. 9 update",
+     "status": "reported",
+     "attributed_to": "Task & Purpose and UPI",
+     "citations": [
+      16,
+      19
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "An unidentified enlisted Navy woman aged 25-30 died in September, cause listed as pending in DCAS",
+     "status": "reported",
+     "attributed_to": "Task & Purpose, citing DCAS",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    },
+    {
+     "claim": "Five soldiers wounded in October were disclosed for the first time in the Oct. 9 update",
+     "status": "reported",
+     "attributed_to": "Task & Purpose, citing DCAS",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    },
+    {
+     "claim": "The Pentagon told the Post it maintains a commitment to transparent, accurate accounting of all service member casualties",
+     "status": "reported",
+     "attributed_to": "Pentagon statement to the Washington Post, via UPI",
+     "citations": [
+      19
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "Reps. Adam Smith and Chrissy Houlahan called the casualty discrepancy an egregious error and an embarrassment for the Department",
+     "status": "reported",
+     "attributed_to": "Reps. Adam Smith and Chrissy Houlahan, via UPI",
+     "citations": [
+      19
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "The Post reported in September that four more troops had died than the official count showed, per Task & Purpose",
+     "status": "reported",
+     "attributed_to": "Task & Purpose, describing Washington Post reporting",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    },
+    {
+     "claim": "A defense official told Task & Purpose additional Middle East deaths were not directly related to the war with Iran",
+     "status": "reported",
+     "attributed_to": "Defense official, via Task & Purpose",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "No source reports a Pentagon casualty revision after the Oct. 9 DCAS update",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-10",
+     "needs_check": true
+    }
+   ]
+  }
+ ]
+}

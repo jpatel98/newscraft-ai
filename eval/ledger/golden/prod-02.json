@@ -1,0 +1,526 @@
+{
+ "thread": "prod-02",
+ "labeled_by": "jigar",
+ "confirmed_at": "2026-10-15T20:13:12.995Z",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Tevin Campbell, 23, wanted by TPS on two counts of fail to comply with a release order",
+   "status": "alleged"
+  },
+  {
+   "id": "f2",
+   "text": "Police allege Campbell breached curfew and cut off a GPS ankle monitor near Yonge and Dundas on Sept. 12",
+   "status": "alleged"
+  },
+  {
+   "id": "f3",
+   "text": "TPS seeking missing man Dean, 47, last seen Oct. 11 near Queen St. W. and Ossington Ave.",
+   "status": "confirmed"
+  },
+  {
+   "id": "f4",
+   "text": "Chow pledges to make Toronto's student nutrition program universal by 2030 and extend it to lunches",
+   "status": "confirmed"
+  },
+  {
+   "id": "f5",
+   "text": "Student nutrition program serves about 330,000 students daily; city contributing $32 million this year",
+   "status": "reported"
+  },
+  {
+   "id": "f6",
+   "text": "Chow has not said what the lunch expansion would cost",
+   "status": "reported"
+  },
+  {
+   "id": "f7",
+   "text": "Bradford supports the idea but says Chow hasn't said how the city would pay for it",
+   "status": "confirmed"
+  },
+  {
+   "id": "f8",
+   "text": "Neither Ottawa nor the province would say whether they will fund an expansion",
+   "status": "reported"
+  },
+  {
+   "id": "f9",
+   "text": "Polls suggest a tight Chow-Bradford race ahead of the Oct. 26 vote",
+   "status": "reported"
+  },
+  {
+   "id": "f10",
+   "text": "TTC line 1/2 outage and 510 Spadina disruption items surfaced only on undated/non-news sites; not established",
+   "status": "unverified"
+  },
+  {
+   "id": "f11",
+   "text": "2024-25 school food funding: city $21.9M (largest), federal $4.7M, provincial $8.5M; city share raised to $32M in 2026 budget",
+   "status": "reported"
+  },
+  {
+   "id": "f12",
+   "text": "Council authorized receiving a USD $1.2M (CAD $1,643,720) Bloomberg Philanthropies award for universal school food",
+   "status": "confirmed"
+  },
+  {
+   "id": "f13",
+   "text": "Ontario funds Student Nutrition Programs at $37.5M in 2025-26, serving 800,000+ students provincewide",
+   "status": "confirmed"
+  },
+  {
+   "id": "f14",
+   "text": "Bradford pledges first-year property tax freeze and scrapping land transfer tax on homes under $1.1M",
+   "status": "reported"
+  },
+  {
+   "id": "f15",
+   "text": "Council approved a 2024 motion directing staff toward a universal lunch program by 2030",
+   "status": "reported"
+  },
+  {
+   "id": "f16",
+   "text": "Chow announced the lunch pledge at a Monday (Oct. 5) press conference",
+   "status": "reported"
+  },
+  {
+   "id": "f17",
+   "text": "Chow says the cost depends on the school, what it has and partnerships with senior governments",
+   "status": "reported"
+  },
+  {
+   "id": "f18",
+   "text": "Daily Bread's Sahar Raza: provincial/federal share is about 30-35% of food cost; public money ~20% of operating costs",
+   "status": "reported"
+  },
+  {
+   "id": "f19",
+   "text": "Bradford promises to keep the school food program at current funding",
+   "status": "reported"
+  },
+  {
+   "id": "f20",
+   "text": "Bradford has not directly said whether he would create a universal lunch program",
+   "status": "reported"
+  },
+  {
+   "id": "f21",
+   "text": "Chow campaign pledges to freeze TTC fares if re-elected",
+   "status": "confirmed"
+  },
+  {
+   "id": "f22",
+   "text": "Police released a suspect photo in an unrelated Bloorcourt Village sexual assault search",
+   "status": "reported"
+  },
+  {
+   "id": "f23",
+   "text": "Bradford called it a program with no idea how to fund it and no idea of the scope",
+   "status": "reported"
+  },
+  {
+   "id": "f24",
+   "text": "Chow would fund the expansion like the morning meal program, phased in by 2030 with provincial, federal and private partners",
+   "status": "reported"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 8,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 9,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f20",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 8,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 9,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 10,
+   "fact": "f21",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 11,
+   "fact": "f22",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 0,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 1,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 2,
+   "fact": "f23",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 3,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 5,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 6,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 7,
+   "fact": "f24",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 8,
+   "fact": "f22",
+   "valid": true
+  },
+  {
+   "turn": 4,
+   "index": 0,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 4,
+   "index": 1,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 4,
+   "index": 2,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 4,
+   "index": 3,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 4,
+   "index": 4,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 4,
+   "index": 5,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 5,
+   "index": 0,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 1,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 2,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 3,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 4,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 5,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 6,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 7,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 8,
+   "fact": "f24",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 9,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 10,
+   "fact": "f23",
+   "valid": true
+  },
+  {
+   "turn": 5,
+   "index": 11,
+   "fact": "f14",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Chow pitched the lunch plan as saving the average family $1,800 a year"
+  },
+  {
+   "turn": 0,
+   "text": "Chow says the expansion would be phased in by 2030 with other levels of government and private donors"
+  },
+  {
+   "turn": 0,
+   "text": "Bradford noted there is no national or provincial lunch program"
+  },
+  {
+   "turn": 0,
+   "text": "Police say Campbell's whereabouts are unknown and released his image"
+  },
+  {
+   "turn": 1,
+   "text": "Federal government announced $1 billion over five years in 2024 for a school food program"
+  },
+  {
+   "turn": 1,
+   "text": "Carney's first budget includes permanent funding of $216.6 million for the school food program"
+  },
+  {
+   "turn": 1,
+   "text": "At the Scarborough debate Bradford said 'there is no plan to pay for it' and called Chow 'a mayor who has run out of ideas'"
+  },
+  {
+   "turn": 1,
+   "text": "TMU's Myer Siemiatycki called it a classic incumbent-versus-challenger race (Urban Mag)"
+  },
+  {
+   "turn": 2,
+   "text": "Bradford called the lunch pledge throwing everything at the wall"
+  },
+  {
+   "turn": 5,
+   "text": "Bradford ties the pledge to what he calls a broader lack of financial accountability"
+  }
+ ]
+}

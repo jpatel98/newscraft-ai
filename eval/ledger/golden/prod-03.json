@@ -1,0 +1,377 @@
+{
+ "thread": "prod-03",
+ "labeled_by": "jigar",
+ "confirmed_at": "2026-10-15T20:13:18.595Z",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Ontario's College of Physicians and Surgeons approved rules: safer supply only with opioid agonist therapy, taken in front of a health-care professional",
+   "status": "reported"
+  },
+  {
+   "id": "f2",
+   "text": "The college dropped a previously considered eight-week safer supply prescribing limit",
+   "status": "reported"
+  },
+  {
+   "id": "f3",
+   "text": "Metrolinx shutting Lakeshore West between Aldershot and Oakville Oct. 17-18; no service at Appleby or Bronte",
+   "status": "reported"
+  },
+  {
+   "id": "f4",
+   "text": "TPS charged Syed Raza, 29, with arson and related offences over Israeli flags burned in front of a church Oct. 7",
+   "status": "alleged"
+  },
+  {
+   "id": "f5",
+   "text": "Raza was scheduled to appear at the Toronto Regional Bail Centre Oct. 11",
+   "status": "confirmed"
+  },
+  {
+   "id": "f6",
+   "text": "Canada Pulse Insights poll for CityNews: 35% of Torontonians don't feel safe walking their neighbourhood after dark",
+   "status": "reported"
+  },
+  {
+   "id": "f7",
+   "text": "CP24/Nanos poll shows Bradford narrowing Chow's lead (Chow 51, Bradford 47 among decided voters)",
+   "status": "reported"
+  },
+  {
+   "id": "f8",
+   "text": "City of Toronto: 222,550 advance votes over six days ending Oct. 11, up from 129,745 in the 2023 by-election",
+   "status": "confirmed"
+  },
+  {
+   "id": "f9",
+   "text": "More than 50 candidates running; polls suggest a tight Chow-Bradford race",
+   "status": "reported"
+  },
+  {
+   "id": "f10",
+   "text": "Florin Mitea, 34, and Gabriel Mitea charged over fatal Oct. 11 Scarborough crash",
+   "status": "alleged"
+  },
+  {
+   "id": "f11",
+   "text": "A 68-year-old woman in the Ford Escape died after the Oct. 11 crash at Lawrence Ave. E. and Scarborough Golf Club Rd.",
+   "status": "confirmed"
+  },
+  {
+   "id": "f12",
+   "text": "Gabriel Mitea's age is disputed: TPS says 25, CBC says 24",
+   "status": "unverified"
+  },
+  {
+   "id": "f13",
+   "text": "Police say a man claiming to be a 'Spiritual Holistic Healer' sexually assaulted a person near Eglinton Ave. E. and Yonge St. on Oct. 9",
+   "status": "alleged"
+  },
+  {
+   "id": "f14",
+   "text": "Eglinton suspect described as 50-60, medium build, long black and grey hair in a black dew rag, full beard",
+   "status": "confirmed"
+  },
+  {
+   "id": "f15",
+   "text": "CP24 reports 225,550 advance voters (conflicts with city's 222,550), with a 53,363 single-day record Oct. 11",
+   "status": "unverified"
+  },
+  {
+   "id": "f16",
+   "text": "Election day is Monday, Oct. 26, polls open 10 a.m. to 8 p.m.",
+   "status": "confirmed"
+  },
+  {
+   "id": "f17",
+   "text": "No implementation date for the safer supply changes is stated",
+   "status": "unverified"
+  },
+  {
+   "id": "f18",
+   "text": "Not established whether Raza's Oct. 11 bail centre appearance happened",
+   "status": "unverified"
+  },
+  {
+   "id": "f19",
+   "text": "Paul Conn, 71, charged with five counts of sexual assault, three of sexual interference and four of sexual exploitation",
+   "status": "alleged"
+  },
+  {
+   "id": "f20",
+   "text": "Police allege Conn met the victim while working at a church near Bloor West and Kipling and assaulted the youth repeatedly 2021-2026",
+   "status": "alleged"
+  },
+  {
+   "id": "f21",
+   "text": "Conn was scheduled to appear at Toronto Regional Bail Centre Oct. 13 at 9:30 a.m.",
+   "status": "confirmed"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 8,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 9,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 10,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f20",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f21",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 8,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 9,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 10,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 11,
+   "fact": "f3",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Voters rank crime, policing and public safety second behind affordability (CityNews poll)"
+  },
+  {
+   "turn": 0,
+   "text": "Advance turnout also up from 115,911 in 2022"
+  },
+  {
+   "turn": 0,
+   "text": "Raza was identified Oct. 10 at a demonstration at Dundas St. E. and Yonge St. and arrested"
+  },
+  {
+   "turn": 0,
+   "text": "CP copy lists affordability, housing, public safety and transit as top voter issues"
+  },
+  {
+   "turn": 0,
+   "text": "Zara Jabbi bail review decision was reserved for a later date"
+  },
+  {
+   "turn": 1,
+   "text": "Two men were taken to hospital with serious but non-life-threatening injuries after the Scarborough crash"
+  },
+  {
+   "turn": 1,
+   "text": "Both Mitea men were arrested Monday, Oct. 12"
+  },
+  {
+   "turn": 1,
+   "text": "Traffic Services is asking for dashcam or security footage of the Scarborough crash"
+  },
+  {
+   "turn": 1,
+   "text": "A college spokesperson tied the safer supply measures to diversion concerns"
+  },
+  {
+   "turn": 1,
+   "text": "Hydromorphone is the most common safer supply drug"
+  },
+  {
+   "turn": 2,
+   "text": "Gabriel Mitea is scheduled to appear at Ontario Court of Justice on Dec. 23"
+  },
+  {
+   "turn": 2,
+   "text": "Nanos among all voters: Chow 43, Bradford 39, 17 undecided; Bradford leads North York and Etobicoke/York, Scarborough a dead heat"
+  },
+  {
+   "turn": 2,
+   "text": "Chow called advance numbers a confidence signal; Bradford said they show 'change is coming'"
+  },
+  {
+   "turn": 2,
+   "text": "Investigators believe there may be more victims of Paul Conn; his image was released"
+  },
+  {
+   "turn": 2,
+   "text": "CityNews poll: 71% rate police response times good or great; 46% want focus on gun violence, 37% on home invasions and robberies"
+  },
+  {
+   "turn": 2,
+   "text": "Flags were burned in front of Word of Faith International Christian Centre on the third anniversary of the Hamas-led attack; church put up 1,200 new flags"
+  },
+  {
+   "turn": 2,
+   "text": "Pastor John Ward said the congregation will keep standing with Israel and the Jewish people"
+  }
+ ]
+}

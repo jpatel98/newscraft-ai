@@ -1,0 +1,323 @@
+{
+ "thread": "gen-10",
+ "labeled_by": "jigar",
+ "confirmed_at": "2026-10-15T20:12:57.545Z",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Liaison poll Oct. 8-9: Chow 51, Bradford 46 among decided and leaning voters",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Liaison margin of error plus or minus 3.1 points, 19 times out of 20",
+   "status": "confirmed"
+  },
+  {
+   "id": "f3",
+   "text": "Chow's Liaison lead narrowed from eight points to five after Chris Alexander left the race",
+   "status": "reported"
+  },
+  {
+   "id": "f4",
+   "text": "Nanos poll for CP24/CTV: Chow 51, Bradford 47 among decided voters, 17 per cent undecided",
+   "status": "reported"
+  },
+  {
+   "id": "f5",
+   "text": "Renters back Chow 57-40; homeowners back Bradford 50-45",
+   "status": "confirmed"
+  },
+  {
+   "id": "f6",
+   "text": "Chow approval 52 per cent, disapproval 43",
+   "status": "confirmed"
+  },
+  {
+   "id": "f7",
+   "text": "Bradford 37 per cent favourable, 40 unfavourable",
+   "status": "confirmed"
+  },
+  {
+   "id": "f8",
+   "text": "Record advance vote: 222,550 ballots over six days Oct. 6-11, per City of Toronto",
+   "status": "confirmed"
+  },
+  {
+   "id": "f9",
+   "text": "Election day Monday Oct. 26, 10 a.m. to 8 p.m.; 361 candidates certified Aug. 24",
+   "status": "confirmed"
+  },
+  {
+   "id": "f10",
+   "text": "Chow and Bradford certified mayoral candidates, nominated May 25 and May 1",
+   "status": "reported"
+  },
+  {
+   "id": "f11",
+   "text": "Final debate Oct. 15 hosted by Rotman and TVO, moderated by Steve Paikin",
+   "status": "reported"
+  },
+  {
+   "id": "f12",
+   "text": "Both candidates campaigned in Scarborough this week on transit and housing costs/spending",
+   "status": "reported"
+  },
+  {
+   "id": "f13",
+   "text": "Advance turnout up nearly 92 per cent from 115,911 advance votes in 2022",
+   "status": "confirmed"
+  },
+  {
+   "id": "f14",
+   "text": "Oct. 11 busiest advance day at 53,363, highest one-day total since amalgamation",
+   "status": "confirmed"
+  },
+  {
+   "id": "f15",
+   "text": "Chow said voters told her they voted for her; Bradford said turnout shows change is coming",
+   "status": "reported"
+  },
+  {
+   "id": "f16",
+   "text": "Advance numbers do not show which candidates were chosen",
+   "status": "reported"
+  },
+  {
+   "id": "f17",
+   "text": "CP24 gave the advance total as 225,550, not matching the city's 222,550",
+   "status": "unverified"
+  },
+  {
+   "id": "f18",
+   "text": "CityNews, Global News and the Toronto Sun carry the city's 222,550 figure",
+   "status": "confirmed"
+  },
+  {
+   "id": "f19",
+   "text": "City news release list shows no advance-turnout release after Oct. 13",
+   "status": "confirmed"
+  },
+  {
+   "id": "f20",
+   "text": "CBC: advance turnout nearly 72 per cent above 2023 byelection's 129,745",
+   "status": "confirmed"
+  },
+  {
+   "id": "f21",
+   "text": "Liaison: Downtown 40 per cent of advance vote; North York share up, Scarborough down",
+   "status": "reported"
+  },
+  {
+   "id": "f22",
+   "text": "Eglinton-Lawrence led wards with about 15,000 advance ballots; citywide participation 10.4 per cent",
+   "status": "reported"
+  },
+  {
+   "id": "f23",
+   "text": "No city statement correcting or restating the 222,550 figure found",
+   "status": "unverified"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 11,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f20",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f21",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f22",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 8,
+   "fact": "f23",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Liaison regional numbers: Bradford leads Scarborough 50-47 and Etobicoke 59-38; Chow leads Downtown 57-39 and North York 50-46"
+  },
+  {
+   "turn": 0,
+   "text": "Nanos regional numbers: Bradford leads Etobicoke/York 42.2-39 and North York 45.6-38.8; Chow leads Toronto/East York 49-30"
+  },
+  {
+   "turn": 0,
+   "text": "Endorsements: Geddy Lee for Bradford; Jim Cuddy and LIUNA Local 183 for Chow"
+  },
+  {
+   "turn": 0,
+   "text": "Chow's Oct. 11 message: lower grocery bills, 10 transit rides per week then free, renter protections, more housing, seniors' supports"
+  }
+ ]
+}

@@ -1,0 +1,483 @@
+{
+ "thread": "gen-07",
+ "labeled_by": "jigar",
+ "confirmed_at": "2026-10-15T20:12:20.112Z",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Rachel made landfall in far northern Baja California the evening of Oct. 10 as a weakened tropical storm",
+   "status": "reported"
+  },
+  {
+   "id": "f2",
+   "text": "SMN: Rachel entered Mexico early Oct. 11 about 40 km SSE of Ensenada with 95 km/h winds, 110 km/h gusts",
+   "status": "reported"
+  },
+  {
+   "id": "f3",
+   "text": "At 21:00 Oct. 11 post-tropical Rachel was 65 km SW of Cabo San Quintin moving NNE at 57 km/h",
+   "status": "reported"
+  },
+  {
+   "id": "f4",
+   "text": "NHC final advisory Oct. 11: Rachel dissipated over the southwestern U.S.",
+   "status": "confirmed"
+  },
+  {
+   "id": "f5",
+   "text": "NHC advisory 56A tropical storm warnings for Baja California coasts",
+   "status": "confirmed"
+  },
+  {
+   "id": "f6",
+   "text": "Baja California government forecast 60-80 km/h winds, gusts to 140 km/h, and opened shelters via DIF",
+   "status": "confirmed"
+  },
+  {
+   "id": "f7",
+   "text": "SMN forecast 25-50 mm rain, gusts to 100 km/h, waves to 6 m, landslide and flood risk",
+   "status": "reported"
+  },
+  {
+   "id": "f8",
+   "text": "Rachel prompted the second-ever tropical storm watch for California (San Diego County)",
+   "status": "reported"
+  },
+  {
+   "id": "f9",
+   "text": "NHC: major coastal flooding with water levels up to 1.5 ft above predictions",
+   "status": "confirmed"
+  },
+  {
+   "id": "f10",
+   "text": "Wikipedia: Rachel caused two deaths in Mexico from rain and flash flooding",
+   "status": "unverified"
+  },
+  {
+   "id": "f11",
+   "text": "No official Mexican fatality or damage figure located; 5 dead/5 missing tally is Wikipedia's",
+   "status": "unverified"
+  },
+  {
+   "id": "f12",
+   "text": "Oct. 11 SMN advisory: Hurricane Simon Category 4, 95 km west of Manzanillo, 240 km/h winds",
+   "status": "confirmed"
+  },
+  {
+   "id": "f13",
+   "text": "Mexico death toll from Rachel, all in Ensenada, four minors (eight per Gen. Gallegos, later nine)",
+   "status": "reported"
+  },
+  {
+   "id": "f14",
+   "text": "Four deaths had been reported as of Monday",
+   "status": "reported"
+  },
+  {
+   "id": "f15",
+   "text": "Eighth victim was a 17-year-old boy (Luis Fernando Lopez) found in Lomas de Mendoza",
+   "status": "confirmed"
+  },
+  {
+   "id": "f16",
+   "text": "Other seven dead: three minors (4, 13, 14), three women and a 51-year-old man",
+   "status": "reported"
+  },
+  {
+   "id": "f17",
+   "text": "Five of the dead are members of the Burgos (Terán) family of Hermosillo, Sonora",
+   "status": "reported"
+  },
+  {
+   "id": "f18",
+   "text": "Outstanding missing count unresolved: two per Gen. Gallegos, four per El País",
+   "status": "unverified"
+  },
+  {
+   "id": "f19",
+   "text": "10-year-old boy found alive; 32 civilians airlifted from Rancho Génesis",
+   "status": "reported"
+  },
+  {
+   "id": "f20",
+   "text": "Six shelters active and more than 3,500 troops and personnel mobilized",
+   "status": "confirmed"
+  },
+  {
+   "id": "f21",
+   "text": "Gov. Marina del Pilar Ávila says emergency remains active, warns Simon could reach Baja California Sunday",
+   "status": "reported"
+  },
+  {
+   "id": "f22",
+   "text": "Simon now Category 1, semi-stationary off Jalisco, not expected to make landfall",
+   "status": "confirmed"
+  },
+  {
+   "id": "f23",
+   "text": "Tropical Storm Trudy formed Tuesday and could become a major hurricane by Friday",
+   "status": "reported"
+  },
+  {
+   "id": "f24",
+   "text": "At least 370 homes damaged in Ensenada and 258 in San Quintín",
+   "status": "confirmed"
+  },
+  {
+   "id": "f25",
+   "text": "Ninth victim Rosa María Olivera Almazán, 44, found Wednesday in Maneadero",
+   "status": "reported"
+  },
+  {
+   "id": "f26",
+   "text": "Rosalinda (Olivera) Almazán remains missing; age given as 23 or 24",
+   "status": "reported"
+  },
+  {
+   "id": "f27",
+   "text": "Ensenada mayor Claudia Agatón Muñiz requested a disaster declaration",
+   "status": "reported"
+  },
+  {
+   "id": "f28",
+   "text": "22 per cent of Ensenada lacks water after desalination plant flooded; crops and ~200 cattle lost",
+   "status": "reported"
+  },
+  {
+   "id": "f29",
+   "text": "Olivera Almazán was swept away Saturday night in Lomas de Mendoza",
+   "status": "reported"
+  },
+  {
+   "id": "f30",
+   "text": "Several outlets still report the earlier eight-death figure",
+   "status": "reported"
+  },
+  {
+   "id": "f31",
+   "text": "Other identified dead include the Burgos Terán family, Valentín Lozano Gómez and Keila Azalea Sandria González",
+   "status": "reported"
+  },
+  {
+   "id": "f32",
+   "text": "Óscar Ulloa, 40, and nephew Adrián Caro Villares, 12, missing in San Felipe",
+   "status": "reported"
+  },
+  {
+   "id": "f33",
+   "text": "PAN senator told the Senate Oct. 13 the toll was five dead and seven missing",
+   "status": "reported"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 11,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f16",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "f19",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "f20",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 8,
+   "fact": "f21",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 9,
+   "fact": "f22",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 10,
+   "fact": "f23",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 11,
+   "fact": "f24",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f25",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f26",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f17",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f27",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f24",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 8,
+   "fact": "f28",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 9,
+   "fact": "f21",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 10,
+   "fact": "f22",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 0,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 1,
+   "fact": "f25",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 2,
+   "fact": "f29",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 3,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 4,
+   "fact": "f30",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 5,
+   "fact": "f18",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 6,
+   "fact": "f26",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 7,
+   "fact": "f15",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 8,
+   "fact": "f31",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 9,
+   "fact": "f32",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 10,
+   "fact": "f33",
+   "valid": true
+  },
+  {
+   "turn": 3,
+   "index": 11,
+   "fact": "f14",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Rachel formed Sept. 27 off Guerrero and peaked as a Category 3 hurricane"
+  },
+  {
+   "turn": 0,
+   "text": "Flash flood warnings issued for Las Vegas and southwestern and central Utah"
+  },
+  {
+   "turn": 0,
+   "text": "Remnants produced over 1 ft of snow in parts of Montana and flood watches in Utah"
+  },
+  {
+   "turn": 1,
+   "text": "President Sheinbaum on Monday directed the armed forces to maintain vigilance and aid in the zone"
+  },
+  {
+   "turn": 1,
+   "text": "No federal (SEDENA/Segob/Conagua) death-toll statement located; eight figure comes from the Second Military Zone commander and state officials"
+  },
+  {
+   "turn": 1,
+   "text": "Earlier missing count of 13 has fallen with search-and-rescue recoveries"
+  }
+ ]
+}

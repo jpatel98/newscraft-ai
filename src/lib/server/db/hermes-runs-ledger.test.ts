@@ -4,6 +4,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 const mocks = vi.hoisted(() => ({ transaction: vi.fn(), upsertStoryClaims: vi.fn() }));
 vi.mock('./index', () => ({ db: mocks }));
 vi.mock('./story-claims', () => ({ upsertStoryClaims: mocks.upsertStoryClaims }));
+vi.mock('../ledger-judge', () => ({ workerClaimJudge: async () => null }));
 
 import { appendHermesRunEvents, type HermesRunRecord, type HermesRunEventRecord } from './hermes-runs';
 import { hermesRuns, hermesRunEvents, messages } from './schema';
@@ -74,7 +75,11 @@ describe('story-ledger block on durable runs', () => {
 		const saved = recordTransaction();
 		const inputs = [
 			{ workerCursor: 1, eventType: 'agent.answer.replace', dataJson: JSON.stringify({ content: `Three soldiers were hurt.${block(ledgerJson)}` }) },
-			{ workerCursor: 2, eventType: 'response.completed', dataJson: '{}' }
+			{ workerCursor: 2, eventType: 'agent.citations', dataJson: JSON.stringify({ citations: [{
+				citationNumber: 3, title: 'DND statement', url: 'https://www.canada.ca/en/department-national-defence/news/1.html',
+				domain: 'canada.ca', publicationDate: '2026-07-02', sourceType: 'official', supportingExcerpt: 'Three soldiers were hurt.'
+			}] }) },
+			{ workerCursor: 3, eventType: 'response.completed', dataJson: '{}' }
 		];
 		const result = await appendHermesRunEvents('account-1', 'run-1', 'worker-1', 'lease-1', inputs);
 		expect(result.run.answerText).toBe('Three soldiers were hurt.');
@@ -84,12 +89,15 @@ describe('story-ledger block on durable runs', () => {
 		expect(mocks.upsertStoryClaims).toHaveBeenCalledOnce();
 		expect(mocks.upsertStoryClaims).toHaveBeenCalledWith('conversation-1', 'assistant-1', [
 			{ claim: 'Three soldiers were hurt.', status: 'confirmed', attributedTo: 'DND', citations: [3], date: '2026-07-02', needsCheck: false }
-		]);
+		], expect.any(Number), expect.any(Function), expect.any(Map));
+		// The claim's [3] resolves against this run's citations, so evidence can be judged.
+		const pages = mocks.upsertStoryClaims.mock.calls[0][5] as Map<number, { url: string }>;
+		expect(pages.get(3)?.url).toBe('https://www.canada.ca/en/department-national-defence/news/1.html');
 
 		// A lost acknowledgment replays the same batch: still idempotent, no second save.
 		const replay = await appendHermesRunEvents('account-1', 'run-1', 'worker-1', 'lease-1', inputs);
 		expect(replay.event.cursor).toBe(result.event.cursor);
-		expect(saved.events).toHaveLength(2);
+		expect(saved.events).toHaveLength(3);
 		expect(mocks.upsertStoryClaims).toHaveBeenCalledOnce();
 	});
 

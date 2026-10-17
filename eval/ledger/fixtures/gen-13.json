@@ -1,0 +1,379 @@
+{
+ "id": "gen-13",
+ "title": "What do we know about Ontario's new rule",
+ "origin": "generated",
+ "turns": [
+  {
+   "at": 1792081608358,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-safer-supply-drugs-opioids-ontario/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Changes to prescribing safer supply drugs approved by Ontario’s medical regulator  - The Globe and Mail"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cpso.on.ca/News/News-Articles/CPSO-Board-Approves-Amendments-to-Strengthen-Safeg",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "CPSO - CPSO Board Approves Amendments to Strengthen Safeguards for Safer Supply Prescribing"
+    },
+    {
+     "n": 4,
+     "url": "https://pharmasist.ca/news/cpso-proposes-eight-week-limit-supervised-safer-supply",
+     "date": "2026-10-01T00:00:00.000Z",
+     "title": "CPSO Proposes Eight-Week Limit and No Take-Home Doses for Safer Supply"
+    },
+    {
+     "n": 5,
+     "url": "https://news.ontario.ca/en/release/1007167/ontario-taking-action-to-protect-local-communities-and-break-the-cycle-of-addiction",
+     "date": "2026-03-16T00:00:00.000Z",
+     "title": "Ontario Taking Action to Protect Local Communities and Break the Cycle of Addiction | Ontario Newsroom"
+    },
+    {
+     "n": 6,
+     "url": "https://www.thecanadianpressnews.ca/ontario/ontarios-medical-regulator-approves-changes-to-prescribing-safer-supply-drugs/article_b6a6f033-9a3d-5c22-a11c-8aa0a61eaa3a.html",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontario's medical regulator approves changes to prescribing safer supply drugs | Ontario News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 7,
+     "url": "https://globalnews.ca/news/12089750/ontario-safe-supply-regulating-changes/",
+     "date": "2026-10-06T00:00:00.000Z",
+     "title": "Ontario’s medical regulator proposing sweeping changes to prescribing safer supply  | Globalnews.ca"
+    },
+    {
+     "n": 8,
+     "url": "https://www.nugget.ca/news/north-bay-police-expect-new-rules-will-crush-safer-supply-drug-diversion/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "North Bay police expect new rules will crush safer supply drug diversion - North Bay Nugget"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "CPSO's board approved amendments on Oct. 13, 2026 requiring physicians to identify 'safer supply' and specify 'no carries' on prescriptions, supporting supervised consumption",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The amendments require safer supply be prescribed only with opioid agonist therapy and an in-person assessment at least monthly",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "CPSO expects transition to compliance by Nov. 16, 2026",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "An eight-week prescribing time limit previously considered was not included in the approved changes",
+     "status": "reported",
+     "attributed_to": "The Globe and Mail / The Canadian Press",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "CPSO says the amendments do not prohibit safer supply prescribing",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The board heard information from governments and medical groups that hydromorphone diversion is occurring, but no data quantifies how much street supply comes from safer supply prescriptions",
+     "status": "reported",
+     "attributed_to": "Dr. Anil Chopra, CPSO associate registrar",
+     "citations": [
+      2,
+      6
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Board member Peter Wiesner said more than 87 per cent of safer supply patients are also on OAT and raised concerns about the remaining 12 per cent, rural and employed patients",
+     "status": "reported",
+     "attributed_to": "Peter Wiesner, CPSO board member",
+     "citations": [
+      2,
+      6
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "North Bay police say the changes will 'pretty much eliminate diversion' and describe an attendance-based program",
+     "status": "reported",
+     "attributed_to": "Brad Reaume, North Bay Police Service",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "Ontario's Community Care and Recovery Act, 2024 sets a 200-metre restriction on injection sites near schools and requires provincial approval before municipalities seek federal exemptions or funding for supervised consumption or safer supply",
+     "status": "confirmed",
+     "attributed_to": "Ontario government",
+     "citations": [
+      5
+     ],
+     "date": "2026-03-16",
+     "needs_check": false
+    },
+    {
+     "claim": "CPSO's proposal was reported Oct. 6, 2026, a week before the board vote, and builds on changes introduced in May 2026",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "No data establishes the clinical or diversion effect of the supervised-consumption requirement",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-01",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081622610,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-safer-supply-drugs-opioids-ontario/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Changes to prescribing safer supply drugs approved by Ontario’s medical regulator  - The Globe and Mail"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cpso.on.ca/News/News-Articles/CPSO-Board-Approves-Amendments-to-Strengthen-Safeg",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "CPSO - CPSO Board Approves Amendments to Strengthen Safeguards for Safer Supply Prescribing"
+    },
+    {
+     "n": 6,
+     "url": "https://www.thecanadianpressnews.ca/ontario/ontarios-medical-regulator-approves-changes-to-prescribing-safer-supply-drugs/article_b6a6f033-9a3d-5c22-a11c-8aa0a61eaa3a.html",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontario's medical regulator approves changes to prescribing safer supply drugs | Ontario News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 11,
+     "url": "https://globalnews.ca/news/12101112/ontario-safe-supply-drugs-prescriptions-changing/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Changes to prescribing safer supply drugs approved by Ontario medical regulator  | Globalnews.ca"
+    },
+    {
+     "n": 13,
+     "url": "https://www.ottown.ca/articles/ottawa-ontario-safer-supply-prescribing-changes-approved",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Ontario Safer Supply Patients Must Take Drugs in Front of Clinicians | ottown"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "CPSO expects physicians to transition to compliance with the amendments by Nov. 16, 2026",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The CPSO board approved the safer supply amendments on Oct. 13, 2026",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Health Minister Sylvia Jones's office has previously said she supports the changes",
+     "status": "reported",
+     "attributed_to": "Health Minister Sylvia Jones's office",
+     "citations": [
+      13
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "No count of patients affected by the supervised-consumption requirement has been confirmed by the health minister's office in the recorded sources",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "Ontario Drug Policy Research Network data cited at the board meeting show more than 87 per cent of safer supply patients are also on opioid agonist therapy",
+     "status": "reported",
+     "attributed_to": "Ontario Drug Policy Research Network, cited at CPSO board meeting",
+     "citations": [
+      2,
+      6,
+      11
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Board member Peter Wiesner called for exemptions for the roughly 12 per cent of patients not on OAT",
+     "status": "reported",
+     "attributed_to": "Peter Wiesner, CPSO board member",
+     "citations": [
+      11,
+      13
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Reporting so far does not say whether exemptions for the 12 per cent were included in the motion that passed",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      13
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081633551,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-safer-supply-drugs-opioids-ontario/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Changes to prescribing safer supply drugs approved by Ontario’s medical regulator - The Globe and Mail"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cpso.on.ca/News/News-Articles/CPSO-Board-Approves-Amendments-to-Strengthen-Safeg",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "CPSO - CPSO Board Approves Amendments to Strengthen Safeguards for Safer Supply Prescribing"
+    },
+    {
+     "n": 15,
+     "url": "https://www.cbc.ca/news/canada/toronto/ontario-safe-supply-9.7379145",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontarians prescribed safer supply drugs will now have to take them in front of health-care professionals | CBC News"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "CPSO's board approved amendments on Oct. 13, 2026 requiring physicians to identify 'safer supply' and specify 'no carries' on prescriptions, supporting supervised consumption",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "CPSO says the amendments do not prohibit safer supply prescribing",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The amendments require safer supply be prescribed only with opioid agonist therapy and an in-person assessment at least monthly",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "CPSO expects physicians to transition to compliance with the amendments by Nov. 16, 2026",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "An eight-week prescribing time limit previously considered was not included in the approved changes",
+     "status": "reported",
+     "attributed_to": "The Globe and Mail / The Canadian Press",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The board heard information from governments and medical groups that hydromorphone diversion is occurring, but no data quantifies how much street supply comes from safer supply prescriptions",
+     "status": "reported",
+     "attributed_to": "Dr. Anil Chopra, CPSO associate registrar",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Board chair Dr. Patrick Safieh says the goal is preventing diversion while ensuring patients also get opioid agonist therapy",
+     "status": "reported",
+     "attributed_to": "Dr. Patrick Safieh, CPSO board chair",
+     "citations": [
+      15
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "No count of patients affected by the supervised-consumption requirement has been confirmed by the health minister's office in the recorded sources",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  }
+ ]
+}

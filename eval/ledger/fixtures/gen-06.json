@@ -1,0 +1,655 @@
+{
+ "id": "gen-06",
+ "title": "What do we know about the Russian strikes",
+ "origin": "generated",
+ "turns": [
+  {
+   "at": 1792081351185,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://kyivindependent.com/russian-drone-strikes-kyiv-injures-6-sets-car-ablaze/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian drone strikes Kyiv, injures 7, sets car ablaze"
+    },
+    {
+     "n": 2,
+     "url": "https://apnews.com/article/russia-ukraine-war-zelenskyy-burnham-trump-putin-9fe44ec1bb361f19d46dfafb58da46f6",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Zelenskyy condemns Russia's power grid strikes after Trump's ceasefire claim | AP News"
+    },
+    {
+     "n": 3,
+     "url": "https://dnipr.kyivcity.gov.ua/news/try-liudyny-zahynuly-vnaslidok-rosiiskoho-obstrilu-tryvaie-likvidatsiia-naslidkiv-u-trokh-raionakh-stolytsi",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Три людини загинули внаслідок російського обстрілу, триває ліквідація наслідків у трьох районах столиці | Дніпровська районна в місті Києві державна адміністрація"
+    },
+    {
+     "n": 4,
+     "url": "https://www.bbc.co.uk/news/articles/cm2d6e62p49do",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russian strikes leave 600,000 without power in Ukraine, as Starlink restrictions affect front line operations - BBC News"
+    },
+    {
+     "n": 5,
+     "url": "https://desn.kyivcity.gov.ua/news/operatyvna-informatsiia-shchodo-likvidatsii-naslidkiv-vorozhoi-ataky",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "ОПЕРАТИВНА ІНФОРМАЦІЯ ЩОДО ЛІКВІДАЦІЇ НАСЛІДКІВ ВОРОЖОЇ АТАКИ | Деснянська районна в місті Києві державна адміністрація"
+    },
+    {
+     "n": 7,
+     "url": "https://www.euronews.com/2026/10/14/one-person-killed-and-20-others-injured-in-overnight-russian-attacks-on-kyiv",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russia and Ukraine trade blame over Trump’s ‘energy ceasefire’ after deadly Kyiv strike | Euronews"
+    },
+    {
+     "n": 8,
+     "url": "https://kyivindependent.com/russian-attacks-kill-at-least-17-injure-67-across-ukraine-as-drone-waves-wreak-havoc-in-central-western-oblasts/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian attacks kill at least 17, injure 67 across Ukraine,   as drone waves wreak havoc in central, western oblasts"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "At least three people were killed in Kyiv in the Oct. 13-14 Russian strike; one person killed and more than 20 injured, with damage to residential buildings.",
+     "status": "reported",
+     "attributed_to": "local officials, AP/Euronews/BBC reports",
+     "citations": [
+      2,
+      4,
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "A ballistic missile hit the Darnytska CHP-4 power plant supplying Kyiv with heat and electricity.",
+     "status": "reported",
+     "attributed_to": "President Volodymyr Zelenskyy",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "At least 600,000 people across Ukraine were left without electricity after overnight Russian missile and drone strikes.",
+     "status": "reported",
+     "attributed_to": "Zelenskyy",
+     "citations": [
+      4,
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "In Desnianskyi district, two bodies were found at a hit high-rise; 21 injured including a child; 16 residents rescued; a 400 sq m fire extinguished.",
+     "status": "confirmed",
+     "attributed_to": "Dniprovska district administration",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Desnianskyi district stood at 17 injured and two dead as of 09:00 Oct. 14, with 14 residential buildings damaged.",
+     "status": "confirmed",
+     "attributed_to": "Desnianska district administration",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "A Russian drone crashed in Kyiv's Pechersk District, injuring seven and hospitalizing three, and a later strike hit a Sviatoshynskyi District warehouse.",
+     "status": "reported",
+     "attributed_to": "Kyiv Mayor Vitali Klitschko",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Ukraine's Air Force said Russia attacked overnight with 580 Shahed-type and other drones, neutralizing 536 across 31 locations.",
+     "status": "reported",
+     "attributed_to": "Ukraine's Air Force",
+     "citations": [
+      1,
+      8
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "At least 10 killed and 66 injured across Ukraine over the past day as drone waves struck central and western oblasts.",
+     "status": "reported",
+     "attributed_to": "regional authorities",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Russia said its massive strikes hit communications and energy facilities used by Ukraine's military, and claimed to down 900 Ukrainian drones overnight.",
+     "status": "alleged",
+     "attributed_to": "Russian officials",
+     "citations": [
+      4,
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Russia accused Ukraine of attacking two oil refineries in Saratov and Ryazan in breach of the energy ceasefire; Zelenskyy adviser Dmytro Lytvyn called the claim fake.",
+     "status": "alleged",
+     "attributed_to": "Russian Deputy PM Alexander Novak / Dmytro Lytvyn",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "SpaceX imposed an overnight 160 km/h Starlink speed limit that disrupted Ukrainian drone operations; SpaceX has not commented.",
+     "status": "reported",
+     "attributed_to": "Zelensky adviser Serhiy Beskrestnov",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "The full consolidated casualty count for Kyiv across Oct. 13-15 is not established.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1,
+      3,
+      4,
+      8
+     ],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081363926,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://kyivindependent.com/russian-drone-strikes-kyiv-injures-6-sets-car-ablaze/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian drone strikes Kyiv, injures 7, sets car ablaze"
+    },
+    {
+     "n": 5,
+     "url": "https://desn.kyivcity.gov.ua/news/operatyvna-informatsiia-shchodo-likvidatsii-naslidkiv-vorozhoi-ataky",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "ОПЕРАТИВНА ІНФОРМАЦІЯ ЩОДО ЛІКВІДАЦІЇ НАСЛІДКІВ ВОРОЖОЇ АТАКИ | Деснянська районна в місті Києві державна адміністрація"
+    },
+    {
+     "n": 8,
+     "url": "https://kyivindependent.com/russian-attacks-kill-at-least-17-injure-67-across-ukraine-as-drone-waves-wreak-havoc-in-central-western-oblasts/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian attacks kill at least 17, injure 67 across Ukraine,   as drone waves wreak havoc in central, western oblasts"
+    },
+    {
+     "n": 10,
+     "url": "https://www.ukrinform.net/rubric-ato/4174310-combined-russian-attack-five-killed-36-injured-in-kyiv-since-last-evening.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Combined Russian attack: Five killed, 36 injured in Kyiv since last evening"
+    },
+    {
+     "n": 11,
+     "url": "https://www.rferl.org/a/russia-ballistic-missile-attack-ukraine/33876280.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russian Missile Strikes Kill 3 In Kyiv, Knock Out Power As Zelenskyy Says West Gave No Warning"
+    },
+    {
+     "n": 12,
+     "url": "https://www.pravda.com.ua/eng/news/2026/10/14/8057948/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russian attacks on Kyiv kill five, injure 36 | Ukrainska Pravda"
+    },
+    {
+     "n": 13,
+     "url": "https://shelter.in.ua/en/viyna/rosiia-vdaryla-po-kilkokh-enerhoobyektakh-kyyeva",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russia strikes residential building and energy infrastructure in Kyiv, killing five people | (shelter)"
+    },
+    {
+     "n": 14,
+     "url": "https://redcross.org.ua/en/news/2026/10/163946/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kyiv: The Ukrainian Red Cross emergency response team responds to the aftermath of a night-time attack – Ukrainian Red Cross Society"
+    },
+    {
+     "n": 15,
+     "url": "https://kyivindependent.com/ostentatious-disrespect-zelensky-says-russia-defied-trumps-energy-ceasefire-with-massive-missile-strike/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "'Ostentatious disrespect' — Zelensky says Russia defied Trump's energy ceasefire with latest missile strike"
+    },
+    {
+     "n": 16,
+     "url": "https://www.aljazeera.com/news/2026/10/14/massive-russian-attack-on-ukraine-kills-at-least-six-cuts-power-in-kyiv",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "‘Massive’ Russian attack on Ukraine kills at least 9, damages power sites | News | Al Jazeera"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Five killed and 36 injured in Kyiv since the evening of Oct. 13, per Kyiv police; figures carried by Ukrinform and Ukrainska Pravda.",
+     "status": "reported",
+     "attributed_to": "Kyiv police, via Ukrinform and Ukrainska Pravda",
+     "citations": [
+      10,
+      12,
+      13
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Three women aged 35, 58 and 84 killed in the Desnianskyi district apartment block, 25 injured there including a child; two more killed in Holosiivskyi district.",
+     "status": "reported",
+     "attributed_to": "Kyiv police",
+     "citations": [
+      10,
+      12,
+      13
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "As of 08:50 Oct. 14, three women killed and 19 injured in the Desnianskyi evening attack, including a seven-year-old girl with cuts and burns.",
+     "status": "confirmed",
+     "attributed_to": "Kyiv City Prosecutor's Office",
+     "citations": [
+      12
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "State Emergency Service put it at three killed in Kyiv, 21 injured in Desnianskyi including one child, 16 rescued, and one killed one injured in Holosiivskyi.",
+     "status": "confirmed",
+     "attributed_to": "State Emergency Service of Ukraine, via Ukrainian Red Cross",
+     "citations": [
+      14
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "At least three killed and 22 injured from the strike on the Desnianskyi residential building and power plants, per Mayor Vitali Klitschko.",
+     "status": "reported",
+     "attributed_to": "Kyiv Mayor Vitali Klitschko",
+     "citations": [
+      15
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "At least nine killed across Ukraine in the Oct. 14 strikes: three in Kyiv, two in Dnipropetrovsk, one in Zaporizhzhia, three in Lutsk.",
+     "status": "reported",
+     "attributed_to": "Ukrainian authorities and regional officials",
+     "citations": [
+      11,
+      16
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "At least 17 killed and 67 injured across Ukraine as drone waves struck central and western oblasts, including three killed and six injured in Kropyvnytskyi.",
+     "status": "reported",
+     "attributed_to": "regional authorities, via Kyiv Independent",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "No single consolidated Kyiv figure covers both the Oct. 13-14 missile attack and the Oct. 15 drone strike.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1,
+      8,
+      10,
+      12
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "District-level injured counts differ between the district administration, State Emergency Service and the mayor (17 vs 21 vs 22 in Desnianskyi), reflecting different cutoff times and not reconciled in available sources.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      5,
+      14,
+      15
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "No deaths reported in the Oct. 15 Pechersk drone strike; seven injured, three hospitalized.",
+     "status": "reported",
+     "attributed_to": "Kyiv Mayor Vitali Klitschko",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1792081375136,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://kyivindependent.com/russian-drone-strikes-kyiv-injures-6-sets-car-ablaze/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian drone strikes Kyiv, injures 7, sets car ablaze"
+    },
+    {
+     "n": 7,
+     "url": "https://www.euronews.com/2026/10/14/one-person-killed-and-20-others-injured-in-overnight-russian-attacks-on-kyiv",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russia and Ukraine trade blame over Trump’s ‘energy ceasefire’ after deadly Kyiv strike | Euronews"
+    },
+    {
+     "n": 8,
+     "url": "https://kyivindependent.com/russian-attacks-kill-at-least-17-injure-67-across-ukraine-as-drone-waves-wreak-havoc-in-central-western-oblasts/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Russian attacks kill at least 17, injure 67 across Ukraine,   as drone waves wreak havoc in central, western oblasts"
+    },
+    {
+     "n": 10,
+     "url": "https://www.ukrinform.net/rubric-ato/4174310-combined-russian-attack-five-killed-36-injured-in-kyiv-since-last-evening.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Combined Russian attack: Five killed, 36 injured in Kyiv since last evening"
+    },
+    {
+     "n": 12,
+     "url": "https://www.pravda.com.ua/eng/news/2026/10/14/8057948/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russian attacks on Kyiv kill five, injure 36 | Ukrainska Pravda"
+    },
+    {
+     "n": 13,
+     "url": "https://shelter.in.ua/en/viyna/rosiia-vdaryla-po-kilkokh-enerhoobyektakh-kyyeva",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russia strikes residential building and energy infrastructure in Kyiv, killing five people | (shelter)"
+    },
+    {
+     "n": 15,
+     "url": "https://kyivindependent.com/ostentatious-disrespect-zelensky-says-russia-defied-trumps-energy-ceasefire-with-massive-missile-strike/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "'Ostentatious disrespect' — Zelensky says Russia defied Trump's energy ceasefire with latest missile strike"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Kyiv police say five killed, 36 injured in Kyiv since the evening of Oct. 13.",
+     "status": "reported",
+     "attributed_to": "Kyiv police, via Ukrinform, Ukrainska Pravda, Shelter",
+     "citations": [
+      10,
+      12,
+      13
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Three women aged 35, 58 and 84 were killed in the Desnianskyi district apartment block; 25 injured there including a child; two more killed in Holosiivskyi.",
+     "status": "reported",
+     "attributed_to": "Kyiv police",
+     "citations": [
+      10,
+      12,
+      13
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "As of 08:50 Oct. 14, three women killed and 19 injured in the Desnianskyi evening attack, including a seven-year-old girl with cuts and burns.",
+     "status": "confirmed",
+     "attributed_to": "Kyiv City Prosecutor's Office",
+     "citations": [
+      12
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "A ballistic missile hit the Darnytska CHP-4 power plant supplying Kyiv with heat and electricity.",
+     "status": "reported",
+     "attributed_to": "President Volodymyr Zelenskyy",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Zelenskyy says Russia is defying Trump's energy ceasefire with the latest strikes on Kyiv.",
+     "status": "reported",
+     "attributed_to": "President Volodymyr Zelenskyy, via Euronews and Kyiv Independent",
+     "citations": [
+      7,
+      15
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "At least 17 killed and 67 injured across Ukraine as drone waves hit central and western oblasts, including three killed and six injured in Kropyvnytskyi.",
+     "status": "reported",
+     "attributed_to": "regional authorities, via Kyiv Independent",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Ukraine's Air Force said Russia attacked overnight with 580 Shahed-type and other drones, neutralizing 536 across 31 locations.",
+     "status": "reported",
+     "attributed_to": "Ukraine's Air Force",
+     "citations": [
+      1,
+      8
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "No single consolidated Kyiv figure covers both the Oct. 13-14 missile attack and the Oct. 15 drone strike; the 5/36 count is dated to Oct. 14.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1,
+      8,
+      10,
+      12
+     ],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081381800,
+   "sources": [
+    {
+     "n": 17,
+     "url": "https://kyiv.npu.gov.ua/news/kilkist-zahyblykh-vnaslidok-vorozhoho-udaru-po-stolytsi-zbilshylasia-do-piaty-osib-politsiia-kyieva",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Кількість загиблих внаслідок ворожого удару по столиці збільшилася до п’яти осіб, – поліція Києва | Головне управління Національної поліції у місті Києві"
+    },
+    {
+     "n": 18,
+     "url": "https://en.interfax.com.ua/news/general/1219860.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Death toll from Russian attacks on Kyiv rises to 5, injured to 36 – police"
+    },
+    {
+     "n": 19,
+     "url": "https://www.ukrinform.net/rubric-ato/4174687-injury-toll-in-russian-drone-attack-on-kyiv-rises-to-six.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Injury toll in Russian drone attack on Kyiv rises to six"
+    },
+    {
+     "n": 20,
+     "url": "https://npu.gov.ua/news/kilkist-zahyblykh-vnaslidok-vorozhoho-udaru-po-stolytsi-zbilshylasia-do-piaty-osib-politsiia-kyieva",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Кількість загиблих внаслідок ворожого удару по столиці збільшилася до п’яти осіб, – поліція Києва | Національна поліція України"
+    },
+    {
+     "n": 21,
+     "url": "https://npu.gov.ua/news/u-kyievi-shist-osib-postrazhdalo-cherez-ataku-vorozhoho-bpla-politsiia-fiksuie-naslidky-rosiiskoho-teroru",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "У Києві шість осіб постраждало через атаку ворожого БпЛА – поліція фіксує наслідки російського терору | Національна поліція України"
+    },
+    {
+     "n": 22,
+     "url": "https://www.pravda.com.ua/news/2026/10/15/8058177/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Кількість потерпілих від падіння дрона РФ у Києві зросла до 7 | Українська правда"
+    },
+    {
+     "n": 23,
+     "url": "https://kyivindependent.com/russian-attacks-kill-at-least-10-injure-91-across-ukraine-over-past-day-as-ballistic-missiles-strike-kyiv-for-second-straight-night/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Russian attacks kill at least 10, injure 91 across Ukraine over past day as ballistic missiles strike Kyiv for second straight night"
+    },
+    {
+     "n": 24,
+     "url": "https://www.radiosvoboda.org/a/news-kyiv-ataka-postrazhdali/33877301.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "У Києві знову зросло число постраждалих від удару РФ, три людини в лікарні – Кличко"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Kyiv has not recorded a new death in the last 24 hours; the citywide figure remains five killed and 36 injured from the Oct. 13-14 missile strike, per Kyiv police.",
+     "status": "reported",
+     "attributed_to": "Kyiv police",
+     "citations": [
+      17,
+      18,
+      20
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Three women aged 35, 58 and 84 were killed in the Desnianskyi apartment block hit, with 25 injured there including a young child; two more killed in Holosiivskyi.",
+     "status": "reported",
+     "attributed_to": "Kyiv police",
+     "citations": [
+      17,
+      20
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The Oct. 15 Pecherskyi district drone crash injured six people by 12:10 p.m., four hospitalized - a 68-year-old man and three women aged 24, 49 and 64.",
+     "status": "reported",
+     "attributed_to": "Kyiv police, via Ukrinform and National Police",
+     "citations": [
+      19,
+      21
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Klitschko later put the Pecherskyi drone crash toll at seven injured, three hospitalized.",
+     "status": "reported",
+     "attributed_to": "Kyiv Mayor Vitali Klitschko, via Ukrainska Pravda and Radio Svoboda",
+     "citations": [
+      22,
+      24
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "No deaths were reported in the Oct. 15 drone strike on Kyiv.",
+     "status": "reported",
+     "attributed_to": "Kyiv police and Kyiv Mayor Vitali Klitschko",
+     "citations": [
+      19,
+      21,
+      22
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "At least 10 killed and 91 injured across Ukraine over the day to Oct. 14, as Russia fired 39 ballistic missiles and 128 Shahed-type drones.",
+     "status": "reported",
+     "attributed_to": "regional authorities, via Kyiv Independent",
+     "citations": [
+      23
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Kyiv City Prosecutor's Office on Oct. 14 had at least four killed and 25 injured in the capital's overnight missile strikes.",
+     "status": "reported",
+     "attributed_to": "Kyiv City Prosecutor's Office, via Kyiv Independent",
+     "citations": [
+      23
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "No consolidated Kyiv figure covers both the Oct. 13-14 missile strike and the Oct. 15 drone strike.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      17,
+      19,
+      21,
+      22
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "Prosecutor's Office Oct. 14 figure of four killed and 25 injured still sits below the police's five and 36 and is not reconciled in any source here.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      23,
+      17
+     ],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,423 @@
+{
+ "id": "gen-16",
+ "title": "What do we know about the federal government's",
+ "origin": "generated",
+ "turns": [
+  {
+   "at": 1792081717406,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://budget.canada.ca/update-miseajour/2026/report-rapport/chap2-en.html",
+     "date": "",
+     "title": "Chapter 2: Benefitting Canadians: A Canada for all | Spring Economic Update 2026"
+    },
+    {
+     "n": 2,
+     "url": "https://www.canada.ca/en/employment-social-development/news/2026/10/government-of-canada-announces-major-investment-in-apprenticeship-training-to-build-team-canada-strong.html",
+     "date": "2026-10-15T10:19:14.000Z",
+     "title": "Government of Canada announces major investment in apprenticeship training to build Team Canada Strong - Canada.ca"
+    },
+    {
+     "n": 3,
+     "url": "https://panow.com/2026/10/15/ottawa-opens-up-430m-for-training-facilities-equipment-in-skilled-trades/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ottawa opens up $430M for training facilities, equipment in skilled trades | paNOW"
+    },
+    {
+     "n": 5,
+     "url": "https://www.pm.gc.ca/en/news/news-releases/2026/04/29/prime-minister-carney-announces-team-canada-strong-nationwide-plan",
+     "date": "2026-04-29T16:23:14.000Z",
+     "title": "Prime Minister Carney announces Team Canada Strong – a nationwide plan to recruit up to 100,000 skilled trades workers | Prime Minister of Canada"
+    },
+    {
+     "n": 6,
+     "url": "https://www.cjme.com/2026/10/15/ottawa-opens-up-430m-for-training-facilities-equipment-in-skilled-trades/",
+     "date": "2026-10-15T13:37:00.000Z",
+     "title": "Ottawa opens up $430M for training facilities, equipment in skilled trades | 980 CJME"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Ottawa opened applications Oct. 15, 2026 for $430 million over five years for skilled trades training, most from an expanded Union Training and Innovation Program launched in 2017",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Secretary of State for Labour John Zerucelli announced the funding",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Facility and infrastructure expressions of interest close Nov. 12, with shovel-ready projects sought for next spring",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Equipment stream applications are ongoing with the federal share temporarily raised to 70 per cent from 50 per cent",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Innovation stream proposals are due Dec. 17",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Nearly half the $430 million was accounted for in a previous Liberal pledge to spend $8 billion to recruit and train up to 100,000 skilled trades workers over five years",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Carney announced Team Canada Strong on April 29, 2026 as a $6 billion five-year plan to recruit, train and hire 80,000 to 100,000 new Red Seal workers",
+     "status": "confirmed",
+     "attributed_to": "Prime Minister of Canada",
+     "citations": [
+      5
+     ],
+     "date": "2026-04-29",
+     "needs_check": false
+    },
+    {
+     "claim": "The training component of Team Canada Strong is $331 million over five years from 2026-27 plus $18 million ongoing, including expansion of the Union Training and Innovation Program",
+     "status": "confirmed",
+     "attributed_to": "Prime Minister of Canada",
+     "citations": [
+      5
+     ],
+     "date": "2026-04-29",
+     "needs_check": false
+    },
+    {
+     "claim": "The Spring Economic Update 2026 lists a Team Canada Strong target of 80,000 to 100,000 new Red Seal skilled trades workers by 2030-31",
+     "status": "confirmed",
+     "attributed_to": "Government of Canada",
+     "citations": [
+      1
+     ],
+     "date": "",
+     "needs_check": false
+    },
+    {
+     "claim": "The canada.ca release announcing the $430 million was published Oct. 15, 2026 but its page text was not retrievable",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "The $8 billion figure in the Oct. 15 CP copy and the $6 billion figure in the April PMO release are not reconciled in the sources",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      3,
+      5,
+      6
+     ],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081730627,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://www.canada.ca/en/employment-social-development/news/2026/10/government-of-canada-announces-major-investment-in-apprenticeship-training-to-build-team-canada-strong.html",
+     "date": "2026-10-15T10:19:14.000Z",
+     "title": "Government of Canada announces major investment in apprenticeship training to build Team Canada Strong - Canada.ca"
+    },
+    {
+     "n": 3,
+     "url": "https://panow.com/2026/10/15/ottawa-opens-up-430m-for-training-facilities-equipment-in-skilled-trades/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ottawa opens up $430M for training facilities, equipment in skilled trades | paNOW"
+    },
+    {
+     "n": 5,
+     "url": "https://www.pm.gc.ca/en/news/news-releases/2026/04/29/prime-minister-carney-announces-team-canada-strong-nationwide-plan",
+     "date": "2026-04-29T16:23:14.000Z",
+     "title": "Prime Minister Carney announces Team Canada Strong – a nationwide plan to recruit up to 100,000 skilled trades workers | Prime Minister of Canada"
+    },
+    {
+     "n": 6,
+     "url": "https://www.cjme.com/2026/10/15/ottawa-opens-up-430m-for-training-facilities-equipment-in-skilled-trades/",
+     "date": "2026-10-15T13:37:00.000Z",
+     "title": "Ottawa opens up $430M for training facilities, equipment in skilled trades | 980 CJME"
+    },
+    {
+     "n": 11,
+     "url": "https://news.ontario.ca/en/release/1008101/ontario-and-canada-investing-over-203000-to-protect-steel-workers-in-the-hamilton-area",
+     "date": "2026-10-06T00:00:00.000Z",
+     "title": "Ontario and Canada Investing Over $203,000 to Protect Steel Workers in the Hamilton Area | Ontario Newsroom"
+    },
+    {
+     "n": 13,
+     "url": "https://www.theepochtimes.com/world/ottawa-opens-up-430m-for-training-facilities-equipment-in-skilled-trades-6104341",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ottawa Opens up $430M for Training Facilities, Equipment in Skilled Trades | The Epoch Times"
+    },
+    {
+     "n": 15,
+     "url": "https://toronto.citynews.ca/2026/10/15/ottawa-opens-up-430m-for-training-facilities-equipment-in-skilled-trades/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ottawa opens up $430M for training facilities, equipment in skilled trades"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "No Ontario-specific allocation of the $430 million has been confirmed in the announcement material",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      2,
+      3,
+      5,
+      6,
+      13,
+      15
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "The $430 million is a national application-based program open to unions and training providers, with no per-province formula in the sources",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6,
+      13,
+      15
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Facility and infrastructure expressions of interest close Nov. 12, with shovel-ready projects sought for next spring",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6,
+      13,
+      15
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Equipment stream applications are ongoing with the federal share temporarily raised to 70 per cent from 50 per cent",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6,
+      13,
+      15
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Innovation stream proposals are due Dec. 17",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6,
+      13,
+      15
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "The equipment stream has no published closing date; the sources describe applications as ongoing",
+     "status": "unverified",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6,
+      13,
+      15
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "Ontario and Canada are investing more than $203,000 through the Canada-Ontario Workforce Tariff Response to help 75 Hamilton-area steel and manufacturing workers, part of a $228.8 million joint program for up to 27,000 workers",
+     "status": "confirmed",
+     "attributed_to": "Ontario Newsroom",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-06",
+     "needs_check": false
+    },
+    {
+     "claim": "The canada.ca release announcing the $430 million was published Oct. 15, 2026 but its page text was not retrievable",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081741066,
+   "sources": [
+    {
+     "n": 3,
+     "url": "https://panow.com/2026/10/15/ottawa-opens-up-430m-for-training-facilities-equipment-in-skilled-trades/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ottawa opens up $430M for training facilities, equipment in skilled trades | paNOW"
+    },
+    {
+     "n": 6,
+     "url": "https://www.cjme.com/2026/10/15/ottawa-opens-up-430m-for-training-facilities-equipment-in-skilled-trades/",
+     "date": "2026-10-15T13:37:00.000Z",
+     "title": "Ottawa opens up $430M for training facilities, equipment in skilled trades | 980 CJME"
+    },
+    {
+     "n": 13,
+     "url": "https://www.theepochtimes.com/world/ottawa-opens-up-430m-for-training-facilities-equipment-in-skilled-trades-6104341",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ottawa Opens up $430M for Training Facilities, Equipment in Skilled Trades | The Epoch Times"
+    },
+    {
+     "n": 15,
+     "url": "https://toronto.citynews.ca/2026/10/15/ottawa-opens-up-430m-for-training-facilities-equipment-in-skilled-trades/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ottawa opens up $430M for training facilities, equipment in skilled trades"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Ottawa opened applications Oct. 15, 2026 for $430 million over five years in skilled trades training, most from an expanded Union Training and Innovation Program",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Facility and infrastructure expressions of interest close Nov. 12, with projects sought for next spring",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6,
+      15
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Equipment stream applications are ongoing with the federal share temporarily raised to 70 per cent from 50 per cent",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6,
+      13
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Innovation stream proposals are due Dec. 17",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Secretary of State for Labour John Zerucelli says Canada needs more workers to build homes, infrastructure and major projects",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "The $430 million is a national application-based program open to unions and training providers, with no per-province formula in the sources",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6,
+      13,
+      15
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Nearly half the $430 million was accounted for in a previous Liberal pledge to spend $8 billion to recruit and train up to 100,000 skilled trades workers over five years",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    }
+   ]
+  }
+ ]
+}

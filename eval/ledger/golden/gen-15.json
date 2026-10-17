@@ -1,0 +1,297 @@
+{
+ "thread": "gen-15",
+ "labeled_by": "jigar",
+ "confirmed_at": "2026-10-15T20:10:50.995Z",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "k1",
+   "text": "Health ministers meet in Winnipeg Oct. 15-16, hosted by Manitoba's Uzoma Asagwara",
+   "status": "confirmed"
+  },
+  {
+   "id": "k2",
+   "text": "Federal Health Minister Marjorie Michel announced on social media a one-year, $1.2-billion extension of mental health, addictions and home care funding",
+   "status": "reported"
+  },
+  {
+   "id": "k3",
+   "text": "Provincial and territorial ministers said Oct. 1 they were united in calling on Ottawa to be 'a full and committed funding partner'",
+   "status": "reported"
+  },
+  {
+   "id": "k4",
+   "text": "P/T ministers warned of 'profound and negative' effects on patients and health-care jobs if agreements lapse",
+   "status": "reported"
+  },
+  {
+   "id": "k5",
+   "text": "Expiring funds: $4.8B over four years for home/community care and mental health; $3B for long-term care safety; $1.7B for PSW wages",
+   "status": "reported"
+  },
+  {
+   "id": "k6",
+   "text": "The 2023 federal pledge was $200 billion in health funding over 10 years",
+   "status": "reported"
+  },
+  {
+   "id": "k7",
+   "text": "Canada Health Transfer grows 5 per cent a year until 2028, then a minimum 3 per cent",
+   "status": "reported"
+  },
+  {
+   "id": "k8",
+   "text": "Asagwara: 'I feel Minister Michel has been listening'",
+   "status": "reported"
+  },
+  {
+   "id": "k9",
+   "text": "N.L. Health Minister Joedy Wall said Humberwood and Corner Brook projects won't be affected if funding lapses",
+   "status": "reported"
+  },
+  {
+   "id": "k10",
+   "text": "CMA and nurses' unions jointly backed provinces' call for predictable CHT funding and urged passage of Bills S-5 and C-34",
+   "status": "confirmed"
+  },
+  {
+   "id": "k11",
+   "text": "Finance Minister Champagne committed to continuing talks with provinces on immediate health funding pressures",
+   "status": "confirmed"
+  },
+  {
+   "id": "k12",
+   "text": "Health Canada renewed the Working Together agreement with N.W.T.: $51.2 million over seven years, first of a series",
+   "status": "confirmed"
+  },
+  {
+   "id": "k13",
+   "text": "Provinces ask Ottawa to renew $1.2B a year, commit to at least 5 per cent CHT growth after 2028, and be a full funding partner",
+   "status": "reported"
+  },
+  {
+   "id": "k14",
+   "text": "CMAJ commentary says the spring economic update already set the CHT increase to fall from 5 to 3 per cent in April 2028",
+   "status": "reported"
+  },
+  {
+   "id": "k15",
+   "text": "Ontario Health Minister Sylvia Jones is cited by an aggregator piece as flagging federal-provincial tension over CHT",
+   "status": "unverified"
+  },
+  {
+   "id": "k16",
+   "text": "Michel co-chairs Friday's FPT session",
+   "status": "confirmed"
+  },
+  {
+   "id": "k17",
+   "text": "Provinces want the 5 per cent CHT floor to hold past 2028",
+   "status": "reported"
+  },
+  {
+   "id": "k18",
+   "text": "News conferences: P/T Thursday 4 p.m. CT; FPT Friday 3 p.m. CT",
+   "status": "confirmed"
+  },
+  {
+   "id": "k19",
+   "text": "No on-record Ontario response to the extension found",
+   "status": "unverified"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "k1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "k2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "k3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "k4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "k5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "k6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "k7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "k8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "k9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "k10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "k11",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 11,
+   "fact": "k12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "k7",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "k2",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "k13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "k14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "k15",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "k8",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "k9",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": "k1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "k1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "k16",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "k2",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "k5",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "k3",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "k8",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "k17",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "k18",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 8,
+   "fact": "k19",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Asagwara called the funding expiry a 'looming fiscal cliff' with 'devastating consequences'"
+  },
+  {
+   "turn": 0,
+   "text": "CFNU's Linda Silas said health care must be balanced against defence and other spending: 'There has to be a just balance'"
+  },
+  {
+   "turn": 0,
+   "text": "The Canadian Press corrected its story; an earlier version used an incorrect pronoun for Asagwara"
+  },
+  {
+   "turn": 1,
+   "text": "No Ontario government statement or on-record comment from Jones or Premier Ford on the extension was found"
+  }
+ ]
+}
