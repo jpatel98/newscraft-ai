@@ -1,0 +1,171 @@
+{
+ "thread": "prod-05",
+ "labeled_by": "suggested",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Nina Thi Thi Tran, 25, of Hamilton, arrested at Bloor West bike lane demonstration, charged with obstructing police and mischief under $5,000",
+   "status": "alleged"
+  },
+  {
+   "id": "f2",
+   "text": "Police allege Tran sat on a curb barrier and refused to leave while crews worked",
+   "status": "alleged"
+  },
+  {
+   "id": "f3",
+   "text": "Tran due in court at 10 Armoury St. on Jan. 8, 2027",
+   "status": "confirmed"
+  },
+  {
+   "id": "f4",
+   "text": "Protesters stalled bike lane removal near Bloor West and Islington Tuesday night; province says work will get done",
+   "status": "reported"
+  },
+  {
+   "id": "f5",
+   "text": "A third Canadian Armed Forces reservist and four civilians charged in July 25 crypto kidnapping probe",
+   "status": "alleged"
+  },
+  {
+   "id": "f6",
+   "text": "Police allege the victim was held at gunpoint in a car, handcuffed and assaulted while suspects tried to access crypto assets",
+   "status": "alleged"
+  },
+  {
+   "id": "f7",
+   "text": "Jack Miley, 24, a Toronto reservist arrested Sept. 24, faces seven charges including kidnapping for ransom with a firearm",
+   "status": "alleged"
+  },
+  {
+   "id": "f8",
+   "text": "Investigators recovered at least four firearms, 2,700 rounds of ammunition, and cocaine and methamphetamine",
+   "status": "reported"
+  },
+  {
+   "id": "f9",
+   "text": "Ontario ministers Holland, Harris and Fedeli called U.S. softwood duties unjustified as the rate dropped to 24.75%",
+   "status": "confirmed"
+  },
+  {
+   "id": "f10",
+   "text": "Christopher Lawson, 43, charged with hate-motivated assault with a weapon and breach of probation",
+   "status": "alleged"
+  },
+  {
+   "id": "f11",
+   "text": "Police allege Lawson made anti-immigrant and anti-South Asian remarks before assaulting a worker near Danforth and Logan Oct. 13",
+   "status": "alleged"
+  },
+  {
+   "id": "f12",
+   "text": "Police seek missing youth Michael, 17, last seen Oct. 14 about 2:33 a.m. near Sheppard Ave. E. and Meadowvale Rd.",
+   "status": "confirmed"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 11,
+   "fact": "f12",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Chief Myron Demkiw: 'no one is above the law,' whether military, police or public official"
+  },
+  {
+   "turn": 0,
+   "text": "Bombardiers Talarambage Fernando, 22, and James Moreau, 29, arrested Aug. 11, together face 49 charges"
+  },
+  {
+   "turn": 0,
+   "text": "About half of the 2,700 rounds were blanks allegedly stolen from the military"
+  },
+  {
+   "turn": 0,
+   "text": "Ontario calls on Washington to eliminate all softwood duties and tariffs and negotiate a long-term agreement"
+  },
+  {
+   "turn": 0,
+   "text": "Lawson was scheduled to appear at the Toronto Regional Bail Centre Wednesday at 10 a.m."
+  },
+  {
+   "turn": 0,
+   "text": "Bradford wants to build hundreds of kilometres of 'high quality' cycling infrastructure; his campaign says Chow has 'no plan' (claim beyond index 12)"
+  },
+  {
+   "turn": 0,
+   "text": "Geddy Lee endorsed Bradford and Jim Cuddy endorsed Chow (claim beyond index 12)"
+  }
+ ]
+}

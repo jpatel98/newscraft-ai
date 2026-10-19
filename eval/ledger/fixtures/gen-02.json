@@ -1,0 +1,610 @@
+{
+ "id": "gen-02",
+ "title": "What do we know about the Toronto police",
+ "origin": "generated",
+ "turns": [
+  {
+   "at": 1792081185287,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/stories/kidnapping-case-leads-to-cache-of-weapons/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kidnapping Case Leads to Cache of Weapons"
+    },
+    {
+     "n": 3,
+     "url": "https://www.theglobeandmail.com/canada/article-toronto-police-arrest-canadian-armed-forces-members-seize-allegedly/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto police arrest three reservists, seize allegedly stolen ammunition in crypto-kidnapping investigation - The Globe and Mail"
+    },
+    {
+     "n": 5,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-caf-arrests-probe-stolen-ammunition/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Military members charged in Toronto abduction probe that recovered ammunition stolen from CAF - The Globe and Mail"
+    },
+    {
+     "n": 7,
+     "url": "https://toronto.citynews.ca/2026/10/14/toronto-police-abduction-investigation-canadian-armed-forces/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Canadian Armed Forces members charged in kidnapping probe"
+    },
+    {
+     "n": 8,
+     "url": "https://www.thecanadianpressnews.ca/national/ammo-stolen-from-military-recovered-in-toronto-abduction-probe-3-caf-members-charged/article_9504bd25-fb33-5a97-ac09-e0a92eba4839.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Ammo stolen from military recovered in Toronto abduction probe, 3 CAF members charged | National News | thecanadianpressnews.ca"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Toronto police announced 82 criminal charges against seven accused on Oct. 14, 2026, in a probe that began with a July 25 abduction.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Chief Myron Demkiw",
+     "citations": [
+      1,
+      5,
+      7,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege the victim, a cryptocurrency exchange owner, was abducted at gunpoint near Finch Avenue East and Bayview Avenue, handcuffed and assaulted.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      3,
+      5,
+      7,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege suspects tried to gain access to the victim's cryptocurrency assets and business security systems.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      3,
+      5,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The victim was released, threatened and warned not to contact police; he had minor injuries and has recovered, police say.",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      3,
+      5,
+      7,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Talarambage Fernando, 22, James Moreau, 29, and Jack Miley, 24, are reservists in the 7th Toronto Regiment, per DND.",
+     "status": "confirmed",
+     "attributed_to": "DND spokesperson Andree-Anne Poulin",
+     "citations": [
+      3,
+      5,
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Fernando and Moreau were arrested Aug. 11 and Miley on Sept. 24.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service and DND",
+     "citations": [
+      3,
+      5,
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "DND says the three were removed from duties and had access restricted, remaining CAF members pending an administrative review.",
+     "status": "confirmed",
+     "attributed_to": "Department of National Defence",
+     "citations": [
+      3,
+      5,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege about 2,500 rounds of ammunition and five over-capacity magazines were stolen from the CAF and had not been reported stolen beforehand.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Seizures included a shotgun, two 3D-printed handguns, two silencers, over 2,700 rounds of ammunition and illicit drugs.",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      3,
+      5,
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "No connection between the accused and a larger organized crime group has been established.",
+     "status": "unverified",
+     "attributed_to": "Chief Supt. Joe Matthews",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "The victim's identity has not been made public.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      3,
+      5
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1792081196509,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/stories/kidnapping-case-leads-to-cache-of-weapons/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kidnapping Case Leads to Cache of Weapons"
+    },
+    {
+     "n": 3,
+     "url": "https://www.theglobeandmail.com/canada/article-toronto-police-arrest-canadian-armed-forces-members-seize-allegedly/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto police arrest three reservists, seize allegedly stolen ammunition in crypto-kidnapping investigation - The Globe and Mail"
+    },
+    {
+     "n": 5,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-caf-arrests-probe-stolen-ammunition/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Military members charged in Toronto abduction probe that recovered ammunition stolen from CAF - The Globe and Mail"
+    },
+    {
+     "n": 7,
+     "url": "https://toronto.citynews.ca/2026/10/14/toronto-police-abduction-investigation-canadian-armed-forces/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Canadian Armed Forces members charged in kidnapping probe"
+    },
+    {
+     "n": 8,
+     "url": "https://www.thecanadianpressnews.ca/national/ammo-stolen-from-military-recovered-in-toronto-abduction-probe-3-caf-members-charged/article_9504bd25-fb33-5a97-ac09-e0a92eba4839.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Ammo stolen from military recovered in Toronto abduction probe, 3 CAF members charged | National News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 9,
+     "url": "https://www.cbc.ca/news/canada/toronto/3rd-caf-member-charged-toronto-kidnapping-9.7380360",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "3rd member of Canadian Armed Forces charged in kidnapping probe: Toronto police | CBC News"
+    },
+    {
+     "n": 10,
+     "url": "https://www.tps.ca/media-centre/news-releases/67117/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Police Arrest Seven Men, Seize More Than 2,700 Rounds of Ammunition Following Violent Abduction Investigation"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Toronto police announced 82 charges against seven accused on Oct. 14, 2026.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service and Chief Myron Demkiw",
+     "citations": [
+      1,
+      5,
+      7,
+      8,
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The victim's identity has not been made public.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      3,
+      5,
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Miley, 24, faces seven charges including kidnapping for ransom with a firearm and forcible confinement; Fernando, 22, faces 20 counts.",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Miley is a master bombardier who deployed on Operation Reassurance in 2025; Fernando enrolled January 2020 and has not deployed on a CAF operation; Moreau enrolled March 2018 and deployed on Operation Laser in 2020.",
+     "status": "confirmed",
+     "attributed_to": "Department of National Defence",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "DND says the three were removed from duties and had access restricted, remaining CAF members pending an administrative review.",
+     "status": "confirmed",
+     "attributed_to": "Department of National Defence",
+     "citations": [
+      3,
+      5,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The investigation remains ongoing per the Toronto police news release.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1792081211240,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/stories/kidnapping-case-leads-to-cache-of-weapons/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kidnapping Case Leads to Cache of Weapons"
+    },
+    {
+     "n": 3,
+     "url": "https://www.theglobeandmail.com/canada/article-toronto-police-arrest-canadian-armed-forces-members-seize-allegedly/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Toronto police arrest three reservists, seize allegedly stolen ammunition in crypto-kidnapping investigation - The Globe and Mail"
+    },
+    {
+     "n": 5,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-caf-arrests-probe-stolen-ammunition/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Military members charged in Toronto abduction probe that recovered ammunition stolen from CAF - The Globe and Mail"
+    },
+    {
+     "n": 7,
+     "url": "https://toronto.citynews.ca/2026/10/14/toronto-police-abduction-investigation-canadian-armed-forces/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Canadian Armed Forces members charged in kidnapping probe"
+    },
+    {
+     "n": 8,
+     "url": "https://www.thecanadianpressnews.ca/national/ammo-stolen-from-military-recovered-in-toronto-abduction-probe-3-caf-members-charged/article_9504bd25-fb33-5a97-ac09-e0a92eba4839.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Ammo stolen from military recovered in Toronto abduction probe, 3 CAF members charged | National News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 10,
+     "url": "https://www.tps.ca/media-centre/news-releases/67117/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Police Arrest Seven Men, Seize More Than 2,700 Rounds of Ammunition Following Violent Abduction Investigation"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Toronto police charged seven men, including three CAF reservists, in an abduction that grew into an ammunition and drug investigation.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5,
+      7,
+      8,
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege the victim owned a cryptocurrency exchange and was targeted for it.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      3,
+      5,
+      7,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege he was abducted at gunpoint on July 25 near Finch Avenue East and Bayview Avenue in North York, handcuffed and assaulted.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Police say the victim was later released, threatened and warned not to contact police; he had minor injuries and has recovered.",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      3,
+      5,
+      7,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The victim's identity has not been made public.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      3,
+      5,
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Chief Myron Demkiw announced 82 charges on Wednesday, Oct. 14, 2026.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service and Chief Myron Demkiw",
+     "citations": [
+      1,
+      5,
+      7,
+      8,
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Talarambage Fernando, 22, James Moreau, 29, and Jack Miley, 24, are reservists in the 7th Toronto Regiment.",
+     "status": "confirmed",
+     "attributed_to": "DND spokesperson Andree-Anne Poulin",
+     "citations": [
+      3,
+      5,
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "DND says the three were removed from duties and had access restricted, remaining CAF members pending an administrative review.",
+     "status": "confirmed",
+     "attributed_to": "Department of National Defence",
+     "citations": [
+      3,
+      5,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Seizures included a shotgun, two 3D-printed handguns, two silencers, and more than 2,700 rounds of ammunition.",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      3,
+      5,
+      7
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege about 2,500 rounds of ammunition and five over-capacity magazines were stolen from the CAF and had not been reported stolen beforehand.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1,
+      5,
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Seizures also included methamphetamine, cocaine, GPS trackers, radios, handcuffs and a balaclava.",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The investigation remains ongoing per the Toronto police news release.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "No connection between the accused and a larger organized crime group has been established.",
+     "status": "unverified",
+     "attributed_to": "Chief Supt. Joe Matthews",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081219417,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/stories/kidnapping-case-leads-to-cache-of-weapons/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Kidnapping Case Leads to Cache of Weapons"
+    },
+    {
+     "n": 5,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-caf-arrests-probe-stolen-ammunition/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Military members charged in Toronto abduction probe that recovered ammunition stolen from CAF - The Globe and Mail"
+    },
+    {
+     "n": 7,
+     "url": "https://toronto.citynews.ca/2026/10/14/toronto-police-abduction-investigation-canadian-armed-forces/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Canadian Armed Forces members charged in kidnapping probe"
+    },
+    {
+     "n": 8,
+     "url": "https://www.thecanadianpressnews.ca/national/ammo-stolen-from-military-recovered-in-toronto-abduction-probe-3-caf-members-charged/article_9504bd25-fb33-5a97-ac09-e0a92eba4839.html",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Ammo stolen from military recovered in Toronto abduction probe, 3 CAF members charged | National News | thecanadianpressnews.ca"
+    },
+    {
+     "n": 10,
+     "url": "https://www.tps.ca/media-centre/news-releases/67117/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Police Arrest Seven Men, Seize More Than 2,700 Rounds of Ammunition Following Violent Abduction Investigation"
+    },
+    {
+     "n": 17,
+     "url": "https://www.tps.ca/media-centre/news-releases/toronto-police-arrest-seven-men-seize-more-than-2/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Police Arrest Seven Men, Seize More Than 2,700 Rounds of Ammunition Following Violent Abduction Investigation"
+    },
+    {
+     "n": 18,
+     "url": "https://globalnews.ca/news/12101916/toronto-police-canadian-soldiers-charges/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto police recover military ammo in kidnapping probe involving 3 soldiers  | Globalnews.ca"
+    },
+    {
+     "n": 20,
+     "url": "https://nationalpost.com/news/canada/toronto-soldiers-charged-in-kidnapping-were-looking-for-cryptocurrency-police-say",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto soldiers charged in kidnapping were looking for cryptocurrency | National Post"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Toronto police say 82 charges were laid against seven accused, unchanged from the Oct. 14 announcement.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service and Chief Myron Demkiw",
+     "citations": [
+      1,
+      5,
+      7,
+      8,
+      10,
+      17
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The TPS news release states seven men have been arrested and 82 charges laid.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      17
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Global News, updated Oct. 15, reports seven people facing 82 charges.",
+     "status": "reported",
+     "attributed_to": "Global News",
+     "citations": [
+      18
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Global News reports Fernando and Moreau together face 49 charges.",
+     "status": "reported",
+     "attributed_to": "Global News",
+     "citations": [
+      18
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "No revised total lower than 82 appears in Toronto police material or the Oct. 14-15 reporting.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      17,
+      18,
+      20
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    }
+   ]
+  }
+ ]
+}

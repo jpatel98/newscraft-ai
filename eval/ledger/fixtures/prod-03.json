@@ -1,0 +1,533 @@
+{
+ "id": "prod-03",
+ "title": "Find a reporter assignment for Toronto news at",
+ "origin": "prod",
+ "turns": [
+  {
+   "at": 1791928955811,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/news-releases/67105/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Man Arrested in Arson Investigation,\nSunrise Avenue and O'Connor Drive area"
+    },
+    {
+     "n": 2,
+     "url": "https://toronto.citynews.ca/2026/10/13/crime-and-punishment-how-are-mayoral-candidates-chow-and-bradford-planning-to-keep-toronto-safe/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "How are Chow and Bradford planning to keep Toronto safe?"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cbc.ca/news/canada/toronto/ontario-safe-supply-9.7379145",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontarians prescribed safer supply drugs will now have to take them in front of health-care professionals | CBC News"
+    },
+    {
+     "n": 4,
+     "url": "https://www.ctvnews.ca/toronto/article/exclusive-poll-chows-lead-shrinks-against-bradford-in-toronto-mayoral-race/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
+    },
+    {
+     "n": 5,
+     "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 6,
+     "url": "https://canada.constructconnect.com/dcn/news/government/2026/10/toronto-voters-want-action-on-affordability-housing-ahead-of-municipal-election",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto voters want action on affordability, housing ahead of municipal election"
+    },
+    {
+     "n": 7,
+     "url": "https://www.blogto.com/city/2026/10/stretch-toronto-rail-line-shut-down-all-weekend/",
+     "date": "2026-10-13T10:01:45.000Z",
+     "title": "Key stretch of Toronto's busiest commuter rail line will shut down all weekend"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Ontario's medical regulator approved changes requiring safer supply medications to be prescribed only with opioid agonist therapy and taken in front of a health-care professional.",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario, via CBC/Canadian Press",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The college dropped a previously considered eight-week limit on prescribing safer supply.",
+     "status": "confirmed",
+     "attributed_to": "CBC/Canadian Press",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Metrolinx will shut part of the Lakeshore West line the weekend of October 17-18, with no service at Appleby or Bronte and none between Aldershot and Oakville.",
+     "status": "reported",
+     "attributed_to": "blogTO, attributing Metrolinx",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Toronto police charged Syed Raza, 29, with arson and related offences over flags burned in front of a church on October 7.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service Hate Crime Unit",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Raza was scheduled to appear at the Toronto Regional Bail Centre on October 11.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "A CityNews poll found 35 per cent of Torontonians don't feel safe walking their neighbourhood after dark.",
+     "status": "reported",
+     "attributed_to": "Canada Pulse Insights poll for CityNews",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "An exclusive CP24 poll found Bradford narrowing Chow's lead in the mayoral race.",
+     "status": "reported",
+     "attributed_to": "CP24",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Advance voting ended October 11 with 222,550 votes over six days, up from 129,745 in the 2023 mayoral by-election.",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "More than 50 candidates are running and polls suggest a tight race between Chow and Bradford.",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1791929029373,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/news-releases/67105/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Man Arrested in Arson Investigation,\nSunrise Avenue and O'Connor Drive area"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cbc.ca/news/canada/toronto/ontario-safe-supply-9.7379145",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontarians prescribed safer supply drugs will now have to take them in front of health-care professionals | CBC News"
+    },
+    {
+     "n": 5,
+     "url": "https://www.toronto.ca/news/turnout-increases-for-advance-voting-in-torontos-2026-municipal-election/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Turnout increases for advance voting in Toronto’s 2026 municipal election – City of Toronto"
+    },
+    {
+     "n": 9,
+     "url": "https://www.tps.ca/media-centre/news-releases/67109/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Fatal Collision #42/2026,\nLawrence Avenue East and Scarborough Golf Club Road,\nUPDATE: Two Men Arrested"
+    },
+    {
+     "n": 11,
+     "url": "https://www.tps.ca/media-centre/news-releases/sexual-assault-alert-suspect-sought-in-sexual-as-8/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Suspect Sought in Sexual Assault Investigation,\nEglinton Avenue East and Yonge Street area"
+    },
+    {
+     "n": 12,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/toronto-sees-massive-increase-in-advance-voting-with-more-than-200000-people-casting-ballots/",
+     "date": "2026-10-13T13:25:37.000Z",
+     "title": "Advance voting up in 2026 Toronto municipal election"
+    },
+    {
+     "n": 13,
+     "url": "https://www.narcity.com/safer-supply-changes-coming-to-ontario",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontario's medical regulator approves changes to prescribing safer supply drugs - Narcity"
+    },
+    {
+     "n": 14,
+     "url": "https://toronto.citynews.ca/2026/10/13/toronto-arrests-made-scarborough-fatal-crash/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto police charge driver in deadly Scarborough collision"
+    },
+    {
+     "n": 16,
+     "url": "https://www.cbc.ca/news/canada/toronto/collision-2-men-charged-scarborough-9.7379081",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "2 men charged days after fatal collision in Scarborough: police | CBC News"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Toronto police charged Florin Mitea, 34, with dangerous operation causing death and bodily harm and obstructing a peace officer, and Gabriel Mitea, 25, with obstructing a peace officer, over an October 11 Scarborough collision.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      9,
+      14
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "A 68-year-old woman passenger in the Ford Escape died in hospital after the October 11 crash at Lawrence Avenue East and Scarborough Golf Club Road.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      9,
+      14
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "TPS lists the second accused as 25 while CBC reports 24.",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service; CBC News",
+     "citations": [
+      9,
+      16
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Gabriel Mitea is scheduled to appear at Ontario Court of Justice on December 23.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "A man approached a person in the Eglinton Avenue East and Yonge Street area on October 9, claimed to be a Spiritual Holistic Healer and sexually assaulted the victim during a reading, police say.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service 53 Division",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The suspect is described as 50 to 60 years old, medium build, long black and grey hair in a black dew rag, full beard.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The College of Physicians and Surgeons of Ontario board approved requiring safer supply prescriptions only with opioid agonist therapy and consumption in front of a health-care professional, and dropped the eight-week limit.",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3,
+      13
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "CP24 reports 225,550 advance voters and a single-day record of 53,363 on October 11; the City of Toronto's figure recorded earlier is 222,550.",
+     "status": "reported",
+     "attributed_to": "CP24; City of Toronto",
+     "citations": [
+      5,
+      12
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Election day is Monday, October 26, with polls open 10 a.m. to 8 p.m.",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto, via CP24",
+     "citations": [
+      12
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "No implementation date for the safer supply changes is stated in the reports.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      3,
+      13
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "It is not established whether Syed Raza appeared at the Toronto Regional Bail Centre on October 11.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1791935185548,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.tps.ca/media-centre/news-releases/67105/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Man Arrested in Arson Investigation,\nSunrise Avenue and O'Connor Drive area"
+    },
+    {
+     "n": 3,
+     "url": "https://www.cbc.ca/news/canada/toronto/ontario-safe-supply-9.7379145",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontarians prescribed safer supply drugs will now have to take them in front of health-care professionals | CBC News"
+    },
+    {
+     "n": 7,
+     "url": "https://www.blogto.com/city/2026/10/stretch-toronto-rail-line-shut-down-all-weekend/",
+     "date": "2026-10-13T10:01:45.000Z",
+     "title": "Key stretch of Toronto's busiest commuter rail line will shut down all weekend"
+    },
+    {
+     "n": 9,
+     "url": "https://www.tps.ca/media-centre/news-releases/67109/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Fatal Collision #42/2026,\nLawrence Avenue East and Scarborough Golf Club Road,\nUPDATE: Two Men Arrested"
+    },
+    {
+     "n": 12,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/toronto-sees-massive-increase-in-advance-voting-with-more-than-200000-people-casting-ballots/",
+     "date": "2026-10-13T13:25:37.000Z",
+     "title": "Advance voting up in 2026 Toronto municipal election"
+    },
+    {
+     "n": 13,
+     "url": "https://www.narcity.com/safer-supply-changes-coming-to-ontario",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Ontario's medical regulator approves changes to prescribing safer supply drugs - Narcity"
+    },
+    {
+     "n": 14,
+     "url": "https://toronto.citynews.ca/2026/10/13/toronto-arrests-made-scarborough-fatal-crash/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto police charge driver in deadly Scarborough collision"
+    },
+    {
+     "n": 16,
+     "url": "https://www.cbc.ca/news/canada/toronto/collision-2-men-charged-scarborough-9.7379081",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "2 men charged days after fatal collision in Scarborough: police | CBC News"
+    },
+    {
+     "n": 19,
+     "url": "https://www.cp24.com/local/toronto/2026/10/13/exclusive-poll-bradford-closing-gap-with-chow-in-torontos-mayoral-race/",
+     "date": "2026-10-13T18:58:53.000Z",
+     "title": "Toronto mayoral race 2026: Bradford gains ground on Chow"
+    },
+    {
+     "n": 20,
+     "url": "https://www.tps.ca/media-centre/news-releases/man-arrested-in-sexual-assault-investigation-blo/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Man Arrested in Sexual Assault Investigation,\nBloor Street West and The East Mall area,\nImage Released"
+    },
+    {
+     "n": 21,
+     "url": "https://deeparrival.com/news/lakeshore-west-go-train-gap-october-17-18-2026/",
+     "date": "2026-10-11T00:00:00.000Z",
+     "title": "Which Lakeshore West GO Trips Need a Bus October 17 and 18?"
+    },
+    {
+     "n": 22,
+     "url": "https://toronto.citynews.ca/2026/10/13/more-than-a-third-of-torontonians-dont-feel-safe-in-their-own-neighbourhood-after-dark-poll/",
+     "date": "2026-10-13T09:30:07.000Z",
+     "title": "More than a third of Torontonians don't feel safe in their own neighbourhood after dark: poll"
+    },
+    {
+     "n": 23,
+     "url": "https://toronto.citynews.ca/2026/10/13/voter-turnout-advance-polls-toronto-election/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Advance voter turnout in Toronto municipal election highest since 2010"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "A Nanos Poll for CP24 and CTV News Toronto, surveyed Oct. 8-10 among 757 residents, puts Chow at 51 per cent and Bradford at 47 per cent among decided voters, a lead of about 3.5 points.",
+     "status": "reported",
+     "attributed_to": "Nanos Polling for CP24 and CTV News Toronto",
+     "citations": [
+      19
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "The City of Toronto says 222,550 voters cast advance ballots over six days, Oct. 6-11, a record since 2010 and up about 92 per cent from 2022.",
+     "status": "reported",
+     "attributed_to": "City of Toronto, via CityNews",
+     "citations": [
+      23
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Election day is Monday, Oct. 26, with polls open 10 a.m. to 8 p.m.",
+     "status": "confirmed",
+     "attributed_to": "City of Toronto, via CP24",
+     "citations": [
+      12,
+      23
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Paul Conn, 71, of Toronto, was arrested and charged with five counts of sexual assault, three counts of sexual interference with a person under 16, and four counts of sexual exploitation of a young person.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service 22 Division",
+     "citations": [
+      20
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Police allege Conn met the victim while working at a church in the Bloor Street West and Kipling Avenue area and assaulted the victim multiple times between 2021 and 2026 while the victim was a youth.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service 22 Division",
+     "citations": [
+      20
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Conn was scheduled to appear at the Toronto Regional Bail Centre on Tuesday, Oct. 13, at 9:30 a.m. in room 107.",
+     "status": "confirmed",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      20
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "A Canada Pulse Insights poll for CityNews found 35 per cent of Torontonians don't feel safe walking their own neighbourhood after dark, an improvement of three points on last year.",
+     "status": "reported",
+     "attributed_to": "Canada Pulse Insights poll for CityNews",
+     "citations": [
+      22
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Toronto police charged Florin Mitea, 34, with dangerous operation causing death and bodily harm and obstructing a peace officer, and Gabriel Mitea, 25, with obstructing a peace officer, over an October 11 crash.",
+     "status": "alleged",
+     "attributed_to": "Toronto Police Service",
+     "citations": [
+      9,
+      14
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "TPS lists the second accused as 25 while CBC reports 24.",
+     "status": "reported",
+     "attributed_to": "Toronto Police Service; CBC News",
+     "citations": [
+      9,
+      16
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "The College of Physicians and Surgeons of Ontario board approved requiring safer supply prescriptions only with opioid agonist therapy and consumption in front of a health-care professional, and dropped a previously considered eight-week limit.",
+     "status": "confirmed",
+     "attributed_to": "College of Physicians and Surgeons of Ontario",
+     "citations": [
+      3,
+      13
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "It is not established whether Syed Raza appeared at the Toronto Regional Bail Centre on October 11.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Metrolinx will shut part of the Lakeshore West line the weekend of October 17-18, with no service between Aldershot and Oakville and replacement buses that skip Appleby and Bronte.",
+     "status": "reported",
+     "attributed_to": "Metrolinx, via blogTO and Deep Arrival",
+     "citations": [
+      7,
+      21
+     ],
+     "date": "2026-10-11",
+     "needs_check": true
+    }
+   ]
+  }
+ ]
+}

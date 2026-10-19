@@ -1,0 +1,264 @@
+{
+ "thread": "gen-13",
+ "labeled_by": "jigar",
+ "confirmed_at": "2026-10-15T20:13:04.929Z",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "g1",
+   "text": "CPSO board approved amendments Oct. 13, 2026 requiring 'safer supply' and 'no carries' on prescriptions, supporting supervised consumption",
+   "status": "confirmed"
+  },
+  {
+   "id": "g2",
+   "text": "Safer supply may be prescribed only with opioid agonist therapy and an in-person assessment at least monthly",
+   "status": "confirmed"
+  },
+  {
+   "id": "g3",
+   "text": "CPSO expects physicians to comply by Nov. 16, 2026",
+   "status": "confirmed"
+  },
+  {
+   "id": "g4",
+   "text": "A previously considered eight-week prescribing limit was dropped from the approved changes",
+   "status": "reported"
+  },
+  {
+   "id": "g5",
+   "text": "CPSO says the amendments do not prohibit safer supply prescribing",
+   "status": "confirmed"
+  },
+  {
+   "id": "g6",
+   "text": "Board heard diversion of hydromorphone is occurring, but no data quantifies how much street supply comes from safer supply",
+   "status": "confirmed"
+  },
+  {
+   "id": "g7",
+   "text": "More than 87 per cent of safer supply patients are also on OAT (ODPRN data cited by board member Peter Wiesner)",
+   "status": "confirmed"
+  },
+  {
+   "id": "g8",
+   "text": "North Bay police say the changes will 'pretty much eliminate diversion'",
+   "status": "reported"
+  },
+  {
+   "id": "g9",
+   "text": "Community Care and Recovery Act, 2024 sets a 200-m buffer for injection sites near schools and requires provincial approval for municipal exemption/funding requests",
+   "status": "confirmed"
+  },
+  {
+   "id": "g10",
+   "text": "CPSO proposal was reported Oct. 6, a week before the vote, building on May 2026 changes",
+   "status": "reported"
+  },
+  {
+   "id": "g11",
+   "text": "No data establishes the clinical or diversion effect of the supervised-consumption requirement",
+   "status": "unverified"
+  },
+  {
+   "id": "g12",
+   "text": "Health Minister Sylvia Jones's office has said she supports the changes",
+   "status": "reported"
+  },
+  {
+   "id": "g13",
+   "text": "No count of affected patients has been confirmed by the health minister's office",
+   "status": "unverified"
+  },
+  {
+   "id": "g14",
+   "text": "Peter Wiesner called for exemptions for the roughly 12 per cent of patients not on OAT",
+   "status": "reported"
+  },
+  {
+   "id": "g15",
+   "text": "Whether exemptions for the 12 per cent were in the passed motion is not established",
+   "status": "unverified"
+  },
+  {
+   "id": "g16",
+   "text": "Board chair Dr. Patrick Safieh says the goal is preventing diversion while ensuring patients get OAT",
+   "status": "reported"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "g1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "g2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "g3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "g4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "g5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "g6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "g7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "g8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "g9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "g10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "g11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "g3",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "g1",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "g12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "g13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "g7",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "g14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "g15",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "g1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "g5",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "g2",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "g3",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "g4",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "g6",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "g16",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "g13",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "CPSO registrar and CEO Dr. Nancy Whitmore: 'The diversion of safer supply medication raises serious concerns for patient and public safety'"
+  },
+  {
+   "turn": 0,
+   "text": "Associate registrar Dr. Anil Chopra told the board diversion information came from governments, Addiction Medicine Canada, the OMA addictions section and public health officers"
+  },
+  {
+   "turn": 0,
+   "text": "Safer Municipalities Act, 2025 (passed June 2025) prohibits public consumption of illegal substances"
+  },
+  {
+   "turn": 0,
+   "text": "Hydromorphone is the most common form of safer supply"
+  }
+ ]
+}

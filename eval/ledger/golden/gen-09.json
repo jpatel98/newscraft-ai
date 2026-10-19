@@ -1,0 +1,249 @@
+{
+ "thread": "gen-09",
+ "labeled_by": "jigar",
+ "confirmed_at": "2026-10-15T20:12:32.246Z",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Leonard scored 21 points in 17 minutes, all in the first half, in his Raptors return Oct. 13",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Leonard did not play in Toronto's first two preseason games",
+   "status": "confirmed"
+  },
+  {
+   "id": "f3",
+   "text": "Raptors are 2-1 in preseason",
+   "status": "confirmed"
+  },
+  {
+   "id": "f4",
+   "text": "Leonard cleared from day-to-day listing on Monday, Oct. 12 injury report",
+   "status": "reported"
+  },
+  {
+   "id": "f5",
+   "text": "Leonard listed day-to-day since Oct. 3, not injury related",
+   "status": "reported"
+  },
+  {
+   "id": "f6",
+   "text": "Rajakovic said Leonard's minutes would be limited; goal to have fun and get integrated",
+   "status": "confirmed"
+  },
+  {
+   "id": "f7",
+   "text": "Clippers traded Leonard to Toronto in deal delayed by NBA cap-circumvention probe; Ingram, Dick and picks to LA",
+   "status": "confirmed"
+  },
+  {
+   "id": "f8",
+   "text": "Clippers, owner Steve Ballmer and executives severely punished; Leonard received relatively small fine",
+   "status": "reported"
+  },
+  {
+   "id": "f9",
+   "text": "Next: at Knicks Oct. 15, at Pistons Oct. 16; regular season opens Oct. 21 vs. Chicago",
+   "status": "confirmed"
+  },
+  {
+   "id": "f10",
+   "text": "No reason given for the day-to-day listing beyond not injury related",
+   "status": "unverified"
+  },
+  {
+   "id": "f11",
+   "text": "Leonard practised fully and was available for the Oct. 13 game vs. the Knicks",
+   "status": "reported"
+  },
+  {
+   "id": "f12",
+   "text": "Raptors beat Knicks 148-98 at Scotiabank Arena Oct. 13",
+   "status": "confirmed"
+  },
+  {
+   "id": "f13",
+   "text": "First game for the Raptors since the 2018-19 championship season",
+   "status": "confirmed"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "It was Leonard's first game for the Raptors since the 2018-19 championship season"
+  },
+  {
+   "turn": 0,
+   "text": "Preseason results: Heat 129-105 over Raptors Oct. 3 in Quebec City; Raptors 114-106 over Clippers Oct. 10 in Vancouver"
+  },
+  {
+   "turn": 0,
+   "text": "Leonard had five rebounds and did not play the second half vs. the Knicks"
+  },
+  {
+   "turn": 0,
+   "text": "Leonard's minutes plan for the remaining preseason games is not settled"
+  }
+ ]
+}

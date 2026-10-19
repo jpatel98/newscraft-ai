@@ -1,0 +1,77 @@
+{
+ "about": "Police say two people were hurt; a later broadcast report says three. Both stay, linked as a conflict, each with an open check.",
+ "thread": {
+  "id": "rt-police-conflict",
+  "title": "Crash injuries conflict",
+  "origin": "redteam",
+  "sources": [
+   {
+    "n": 1,
+    "url": "https://www.tps.ca/media-centre/news-releases/60002/",
+    "date": "2026-10-14"
+   },
+   {
+    "n": 2,
+    "url": "https://www.cp24.com/news/crash-bloor-1.7000002",
+    "date": "2026-10-14"
+   }
+  ],
+  "turns": [
+   {
+    "at": 1000,
+    "claims": [
+     {
+      "claim": "Police say two people were taken to hospital after the Bloor Street crash",
+      "status": "confirmed",
+      "attributed_to": "Toronto police",
+      "citations": [
+       1
+      ],
+      "date": "2026-10-14",
+      "needs_check": false
+     }
+    ]
+   },
+   {
+    "at": 2000,
+    "claims": [
+     {
+      "claim": "CP24 reports three people were taken to hospital after the Bloor Street crash",
+      "status": "reported",
+      "attributed_to": "CP24",
+      "citations": [
+       2
+      ],
+      "date": "2026-10-14",
+      "needs_check": false
+     }
+    ]
+   }
+  ]
+ },
+ "judge": [
+  [
+   "Police say two people were taken to hospital after the Bloor Street crash",
+   "CP24 reports three people were taken to hospital after the Bloor Street crash",
+   "contradicts"
+  ]
+ ],
+ "expect": [
+  {
+   "phase": 1,
+   "live": 2
+  },
+  {
+   "phase": 1,
+   "claim": "Police say two",
+   "needs_check": true,
+   "contradicts": "CP24 reports three"
+  },
+  {
+   "phase": 1,
+   "claim": "CP24 reports three",
+   "needs_check": true,
+   "contradicts": "Police say two"
+  }
+ ]
+}

@@ -1,0 +1,479 @@
+{
+ "id": "gen-12",
+ "title": "What do we know about Toronto cyclists asking",
+ "origin": "generated",
+ "turns": [
+  {
+   "at": 1792081569114,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://www.theglobeandmail.com/canada/toronto/article-supreme-court-toronto-bike-lanes/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Cyclists ask Supreme Court to weigh in on Toronto bike lane removal plan - The Globe and Mail"
+    },
+    {
+     "n": 2,
+     "url": "https://thelegalcircle.ca/news/toronto-bike-lanes-supreme-court-leave-charter/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Bike-Lane Fight Heads Toward Supreme Court Leave Bid"
+    },
+    {
+     "n": 3,
+     "url": "https://www.theglobeandmail.com/canada/article-cycling-advocates-rally-petition-supreme-court-to-rule-on-toronto-bike/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Cycling advocates rally, petition Supreme Court to rule on Toronto bike-lane removal - The Globe and Mail"
+    },
+    {
+     "n": 4,
+     "url": "https://www.thecanadianpressnews.ca/politics/toronto-cyclists-ask-canadas-top-court-to-weigh-in-on-fords-bike-lane-removal-plan/article_5f336269-e0ee-5966-acc7-d03a39c21ca3.html",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto cyclists ask Canada's top court to weigh in on Ford's bike lane removal plan | Politics | thecanadianpressnews.ca"
+    },
+    {
+     "n": 5,
+     "url": "https://cyclingmagazine.ca/sections/news/toronto-bike-lane-advocates-take-fight-to-supreme-court/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Toronto bike lane advocates take fight to Supreme Court - Canadian Cycling Magazine"
+    },
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Bike lane removals begin in Etobicoke"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Cycle Toronto and two individual applicants announced Oct. 13 they will seek leave to appeal to the Supreme Court of Canada over Ontario's bike lane removal law.",
+     "status": "confirmed",
+     "attributed_to": "Cycle Toronto; The Canadian Press; Globe and Mail",
+     "citations": [
+      1,
+      3,
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The applicants are represented by Ecojustice and Paliare Roland Rosenberg Rothstein LLP; co-applicants are Eva Stanger-Ross and Narada Kiondo.",
+     "status": "reported",
+     "attributed_to": "Canadian Cycling Magazine",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The Ontario Court of Appeal's August ruling overturned a lower-court decision that found the removal plan an unconstitutional risk to cyclist safety under Section 7 of the Charter.",
+     "status": "confirmed",
+     "attributed_to": "The Canadian Press; Globe and Mail",
+     "citations": [
+      1,
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The Supreme Court has not agreed to hear the appeal.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "Whether the leave application has been formally filed is not established, as of Oct. 15.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "A 2024 provincial law empowers Ontario to remove about 19 km of protected bike lanes on Bloor, Yonge and University.",
+     "status": "confirmed",
+     "attributed_to": "The Canadian Press; Globe and Mail",
+     "citations": [
+      3,
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Ontario says removing bike lanes and restoring car lanes will cut congestion, which it says costs the provincial economy $56 billion a year.",
+     "status": "reported",
+     "attributed_to": "Dakota Brasier, spokesman for Transportation Minister Prabmeet Sarkaria",
+     "citations": [
+      3,
+      4
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "A government-commissioned report found the removals could increase collisions by 54 per cent among all road users without meaningfully reducing congestion.",
+     "status": "reported",
+     "attributed_to": "Canadian Cycling Magazine",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-13",
+     "needs_check": true
+    },
+    {
+     "claim": "Work to remove a 1.2-km section of Bloor Street West between Clissold Road and Royal York Road was slated for the night of Oct. 13.",
+     "status": "confirmed",
+     "attributed_to": "Globe and Mail; CityNews",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "The work was halted when pylon trucks were blocked by protesters; Sarkaria posted on X that the bike lanes 'are coming out.'",
+     "status": "reported",
+     "attributed_to": "Prabmeet Sarkaria; CityNews",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The Supreme Court generally takes several months to decide whether to hear an appeal, too late to affect the immediate Bloor removal plans.",
+     "status": "reported",
+     "attributed_to": "Globe and Mail",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Toronto's mayoral election is about two weeks away, with the two front-runners holding opposing bike-lane positions.",
+     "status": "reported",
+     "attributed_to": "Globe and Mail",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1792081586437,
+   "sources": [
+    {
+     "n": 2,
+     "url": "https://thelegalcircle.ca/news/toronto-bike-lanes-supreme-court-leave-charter/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Toronto Bike-Lane Fight Heads Toward Supreme Court Leave Bid"
+    },
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Bike lane removals begin in Etobicoke"
+    },
+    {
+     "n": 8,
+     "url": "https://www.toronto.ca/news/?nrkey=E215AE36087B0EEF8525854C006CD0A4",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "News Releases & Other Resources – City of Toronto"
+    },
+    {
+     "n": 9,
+     "url": "https://www.cbc.ca/news/canada/toronto/cyclist-protest-blocks-bike-lane-removal-9.7379928",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Cyclist protest blocks province from removing bike lane in Etobicoke | CBC News"
+    },
+    {
+     "n": 10,
+     "url": "https://toronto.citynews.ca/2026/10/14/etobicoke-bike-lane-protests/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "2 arrests made at protest to stop Etobicoke bike lane removal"
+    },
+    {
+     "n": 12,
+     "url": "https://www.toronto.ca/news/?nrkey=A0B4D04BC98F860A8525856A006C4EA7",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "News Releases & Other Resources – City of Toronto"
+    },
+    {
+     "n": 13,
+     "url": "https://www.torontotoday.ca/local/transportation-infrastructure/bloor-bike-lane-removal-protest-woman-arrested-12893283",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Woman arrested at Bloor St. W. bike lane removal protest - TorontoToday.ca"
+    },
+    {
+     "n": 14,
+     "url": "https://www.toronto.ca/news/?nrkey=26214EFD1E998B74852585070041BCF8",
+     "date": "2026-10-09T00:00:00.000Z",
+     "title": "News Releases & Other Resources – City of Toronto"
+    },
+    {
+     "n": 15,
+     "url": "https://www.humberetc.ca/news/protesters-block-bloor-bike-lane-removal-15971",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Protesters briefly halt Bloor bike lane removal  - Humber Polytechnic"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Etobicoke Bloor Street West bike lane removal resumed Wednesday afternoon and is underway, with crews removing pavement markings, signs and concrete barriers.",
+     "status": "reported",
+     "attributed_to": "CBC News; TorontoToday; Humber Et Cetera",
+     "citations": [
+      9,
+      13,
+      15
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The work covers roughly one kilometre of Bloor Street West from Clissold Road to Royal York Road, starting west of Islington Avenue.",
+     "status": "reported",
+     "attributed_to": "TorontoToday; Humber Et Cetera",
+     "citations": [
+      13,
+      15
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The removal will require temporary vehicle lane reductions and is expected to finish in November.",
+     "status": "reported",
+     "attributed_to": "TorontoToday",
+     "citations": [
+      13
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "Two people were arrested during Wednesday's protest.",
+     "status": "reported",
+     "attributed_to": "CBC News; CityNews",
+     "citations": [
+      9,
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Nina Thi Thi Tran, 25, of Hamilton was charged with obstructing a peace officer and mischief under $5,000 after refusing to move from a curb barrier.",
+     "status": "reported",
+     "attributed_to": "Toronto police, via CBC News and CityNews",
+     "citations": [
+      9,
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "A second person was arrested near Bloor West and Islington Avenue for mischief; charges were not stated as of Wednesday night.",
+     "status": "reported",
+     "attributed_to": "Toronto police, via CBC News",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "Pylon trucks were blocked by protesters Tuesday night and escorted off Bloor Street shortly before 8 p.m.",
+     "status": "reported",
+     "attributed_to": "CBC News; Humber Et Cetera",
+     "citations": [
+      9,
+      15
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Transportation Minister Prabmeet Sarkaria said on X the work was 'halted by protesters' and that the bike lanes 'are coming out.'",
+     "status": "reported",
+     "attributed_to": "Prabmeet Sarkaria, via CityNews",
+     "citations": [
+      6,
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Toronto Police Chief Myron Demkiw said there is no injunction preventing the removal and that obstructing the lawful work carries potential criminal liability.",
+     "status": "reported",
+     "attributed_to": "Myron Demkiw, via CityNews and TorontoToday",
+     "citations": [
+      10,
+      13
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The mayor's spokesperson said the work proceeded despite city proposals to keep bike lanes while restoring a traffic lane, a compromise already used further west on Bloor.",
+     "status": "reported",
+     "attributed_to": "Mayor's spokesperson, via CBC News",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "No City of Toronto news release or media advisory on the bike lane removal appears in the city's media room list through Oct. 13.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      8,
+      12,
+      14
+     ],
+     "date": "2026-10-09",
+     "needs_check": true
+    },
+    {
+     "claim": "The Supreme Court has not agreed to hear the appeal, and the leave announcement does not suspend the work.",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081602716,
+   "sources": [
+    {
+     "n": 6,
+     "url": "https://toronto.citynews.ca/2026/10/12/cycling-advocates-plan-large-demonstration-etobicoke-bike-lanes-tuesday/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Bike lane removals begin in Etobicoke"
+    },
+    {
+     "n": 9,
+     "url": "https://www.cbc.ca/news/canada/toronto/cyclist-protest-blocks-bike-lane-removal-9.7379928",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Cyclist protest blocks province from removing bike lane in Etobicoke | CBC News"
+    },
+    {
+     "n": 10,
+     "url": "https://toronto.citynews.ca/2026/10/14/etobicoke-bike-lane-protests/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "2 arrests made at protest to stop Etobicoke bike lane removal"
+    },
+    {
+     "n": 13,
+     "url": "https://www.torontotoday.ca/local/transportation-infrastructure/bloor-bike-lane-removal-protest-woman-arrested-12893283",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Woman arrested at Bloor St. W. bike lane removal protest - TorontoToday.ca"
+    },
+    {
+     "n": 15,
+     "url": "https://www.humberetc.ca/news/protesters-block-bloor-bike-lane-removal-15971",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Protesters briefly halt Bloor bike lane removal  - Humber Polytechnic"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Crews resumed removing the Etobicoke Bloor Street West bike lanes Wednesday afternoon, stripping pavement markings, signs and concrete barriers.",
+     "status": "reported",
+     "attributed_to": "CBC News; TorontoToday; Humber Et Cetera",
+     "citations": [
+      9,
+      13,
+      15
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The work covers roughly one kilometre of Bloor Street West from Clissold Road to Royal York Road.",
+     "status": "reported",
+     "attributed_to": "TorontoToday; Humber Et Cetera",
+     "citations": [
+      13,
+      15
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Two people were arrested, including Nina Thi Thi Tran, 25, of Hamilton, charged with obstructing a peace officer and mischief under $5,000.",
+     "status": "reported",
+     "attributed_to": "Toronto police, via CBC News and CityNews",
+     "citations": [
+      9,
+      10
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Pylon trucks were blocked by protesters Tuesday night and escorted off Bloor Street shortly before 8 p.m.",
+     "status": "reported",
+     "attributed_to": "CBC News",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Transportation Minister Prabmeet Sarkaria said on X the bike lanes 'are coming out.'",
+     "status": "reported",
+     "attributed_to": "Prabmeet Sarkaria, via CityNews",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Toronto Police Chief Myron Demkiw said there is no injunction preventing the removal and that obstructing the lawful work carries potential criminal liability.",
+     "status": "reported",
+     "attributed_to": "Myron Demkiw, via CityNews and TorontoToday",
+     "citations": [
+      10,
+      13
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The removal will require temporary vehicle lane reductions and is expected to finish in November.",
+     "status": "reported",
+     "attributed_to": "TorontoToday",
+     "citations": [
+      13
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,229 @@
+{
+ "thread": "gen-04",
+ "labeled_by": "jigar",
+ "confirmed_at": "2026-10-15T20:09:46.145Z",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Christopher Lawson, 43, of Toronto, arrested in suspected hate-motivated assault with a weapon at Danforth and Logan",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Alleged assault occurred Tuesday, Oct. 13, 2026 while the victim was working in the area",
+   "status": "alleged"
+  },
+  {
+   "id": "f3",
+   "text": "Suspect allegedly made anti-immigrant and anti-South Asian remarks before the assault",
+   "status": "alleged"
+  },
+  {
+   "id": "f4",
+   "text": "Victim called 911; officers arrived with suspect still on scene and took him into custody",
+   "status": "confirmed"
+  },
+  {
+   "id": "f5",
+   "text": "Lawson charged with Offence Motivated by Hatred re Assault with a Weapon, and Breach of Probation",
+   "status": "alleged"
+  },
+  {
+   "id": "f6",
+   "text": "Lawson scheduled to appear at Toronto Regional Bail Centre, Oct. 14, 2026, 10 a.m., room 102",
+   "status": "confirmed"
+  },
+  {
+   "id": "f7",
+   "text": "Treated as suspected hate-motivated offence, led by the Hate Crime Unit",
+   "status": "confirmed"
+  },
+  {
+   "id": "f8",
+   "text": "Outcome of Oct. 14 court appearance not published",
+   "status": "unverified"
+  },
+  {
+   "id": "f9",
+   "text": "Police release does not state victim's condition, whether a weapon was recovered, or the probation matter",
+   "status": "unverified"
+  },
+  {
+   "id": "f10",
+   "text": "Charges are allegations, not proven in court",
+   "status": "confirmed"
+  },
+  {
+   "id": "f11",
+   "text": "No future court date published after Oct. 14",
+   "status": "unverified"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 6,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 7,
+   "fact": null,
+   "valid": false
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f10",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "No injuries were described in either the police or CityNews account"
+  },
+  {
+   "turn": 0,
+   "text": "TPS release issued for the Counter-Terrorism Security Unit; case #2026-2159671"
+  },
+  {
+   "turn": 0,
+   "text": "Police ask anyone with information to call 416-808-3505"
+  }
+ ]
+}

@@ -18,7 +18,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "pnpm --filter @newscraft/shared build && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"test": "vitest run && pnpm --filter @newscraft/shared test && pnpm --filter @newscraft/newsroom-harness test",
+		"test": "vitest run && pnpm --filter @newscraft/shared test && pnpm --filter @newscraft/newsroom-harness test && pnpm eval:ledger",
 		"eval:fixture": "NEWSROOM_EVAL_MODE=fixture node services/newsroom-harness/eval/run-eval.mjs",
 		"test:e2e": "playwright test",
 		"producer:acceptance": "node scripts/producer-acceptance.mjs",
@@ -27,7 +27,9 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "pnpm --filter @newscraft/newsroom-harness exec tsx ../../scripts/run-db-migrations.ts",
 		"storage:provision": "node scripts/provision-newsroom-documents.mjs",
-		"hash-password": "node scripts/hash-password.mjs"
+		"hash-password": "node scripts/hash-password.mjs",
+		"eval:ledger": "vitest run --config vitest.eval.config.ts",
+		"eval:ledger:record": "test -n \"$LEDGER_EVAL_JUDGE_URL\" && vitest run --config vitest.eval.config.ts"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.59.1",

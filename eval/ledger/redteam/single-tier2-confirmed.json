@@ -1,0 +1,45 @@
+{
+ "about": "A claim the model marks confirmed rests on one major outlet. Without an official source or two independent tier-2 sources it is reported, not confirmed.",
+ "thread": {
+  "id": "rt-single-tier2",
+  "title": "One tier-2 source",
+  "origin": "redteam",
+  "sources": [
+   {
+    "n": 1,
+    "url": "https://www.cbc.ca/news/canada/kidnapping-probe-1.7000003",
+    "date": "2026-10-10"
+   }
+  ],
+  "turns": [
+   {
+    "at": 1000,
+    "claims": [
+     {
+      "claim": "A third Canadian Armed Forces member and four civilians were charged in a kidnapping probe",
+      "status": "confirmed",
+      "attributed_to": "",
+      "citations": [
+       1
+      ],
+      "date": "2026-10-10",
+      "needs_check": false
+     }
+    ]
+   }
+  ]
+ },
+ "judge": [],
+ "expect": [
+  {
+   "phase": 1,
+   "live": 1
+  },
+  {
+   "phase": 2,
+   "claim": "third Canadian Armed Forces",
+   "status": "reported",
+   "attribution_required": true
+  }
+ ]
+}

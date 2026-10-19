@@ -28,7 +28,9 @@ export const MIGRATION_VERSIONS = [
 	'0018_portable_agent_core',
 	'0019_newsroom_show_profile',
 	'0020_story_claims',
-	'0021_story_claim_review'
+	'0021_story_claim_review',
+	'0022_story_claim_events',
+	'0023_story_claim_evidence'
 ] as const;
 
 /** Versions represented by the legacy runtime-created schema. */

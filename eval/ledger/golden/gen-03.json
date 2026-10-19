@@ -1,0 +1,250 @@
+{
+ "thread": "gen-03",
+ "labeled_by": "jigar",
+ "confirmed_at": "2026-10-15T20:09:41.112Z",
+ "missed_reviewed": true,
+ "facts": [
+  {
+   "id": "f1",
+   "text": "Suspects cut catalytic converters from seven Second Harvest trucks at its Etobicoke yard over Thanksgiving weekend",
+   "status": "confirmed"
+  },
+  {
+   "id": "f2",
+   "text": "Police responded at 12:16 a.m. Sunday, Oct. 11, 2026 to a theft call near The East Mall and North Queen St.",
+   "status": "confirmed"
+  },
+  {
+   "id": "f3",
+   "text": "Police say suspect(s) drove in, cut the fence, removed converters and fled in the same vehicle",
+   "status": "alleged"
+  },
+  {
+   "id": "f4",
+   "text": "Suspect vehicle: black four-door Infiniti G25 sedan with black rims; images released",
+   "status": "confirmed"
+  },
+  {
+   "id": "f5",
+   "text": "Seven of Second Harvest's eight trucks out of service",
+   "status": "confirmed"
+  },
+  {
+   "id": "f6",
+   "text": "Repairs estimated at ~$80,000 and two to three weeks, per CEO Lori Nikkel",
+   "status": "confirmed"
+  },
+  {
+   "id": "f7",
+   "text": "Aurora Foods/Aurora Importing donated $60,000 toward repairs",
+   "status": "confirmed"
+  },
+  {
+   "id": "f8",
+   "text": "VP Duncan Salisbury told CityNews total costs could be about $100,000",
+   "status": "reported"
+  },
+  {
+   "id": "f9",
+   "text": "Second Harvest delivers to more than 300 non-profits across Toronto",
+   "status": "confirmed"
+  },
+  {
+   "id": "f10",
+   "text": "Four trucks damaged New Year's Day by apparent water in gas tanks; fence installed afterward",
+   "status": "confirmed"
+  },
+  {
+   "id": "f11",
+   "text": "Acting Supt. Jeff Bangild scheduled to give update at 11:30 a.m. Oct. 15 at 22 Division",
+   "status": "confirmed"
+  },
+  {
+   "id": "f12",
+   "text": "No arrest, named suspect or charges announced",
+   "status": "unverified"
+  },
+  {
+   "id": "f13",
+   "text": "TPS release 'Suspect Sought in a Theft Investigation' asks public for help",
+   "status": "confirmed"
+  },
+  {
+   "id": "f14",
+   "text": "Security video shows at least two suspects (CityNews)",
+   "status": "reported"
+  }
+ ],
+ "claims": [
+  {
+   "turn": 0,
+   "index": 0,
+   "fact": "f1",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 1,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 2,
+   "fact": "f3",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 4,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 5,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 6,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 7,
+   "fact": "f8",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 8,
+   "fact": "f9",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 9,
+   "fact": "f10",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 10,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 0,
+   "index": 11,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 0,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 1,
+   "fact": "f13",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 2,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 3,
+   "fact": "f14",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 4,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 1,
+   "index": 5,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 0,
+   "fact": "f12",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 1,
+   "fact": "f5",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 2,
+   "fact": "f2",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 3,
+   "fact": "f4",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 4,
+   "fact": "f6",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 5,
+   "fact": "f7",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 6,
+   "fact": "f11",
+   "valid": true
+  },
+  {
+   "turn": 2,
+   "index": 7,
+   "fact": "f12",
+   "valid": true
+  }
+ ],
+ "missed": [
+  {
+   "turn": 0,
+   "text": "Police case number 2026-2145903, Theft Over $5000, 22 Division"
+  },
+  {
+   "turn": 0,
+   "text": "Aurora president Joe Moscato: 'When we heard what happened, there wasn't much of a decision to make. You fix the trucks.'"
+  },
+  {
+   "turn": 0,
+   "text": "Second Harvest had been preparing for its advertised Thanksgiving turkey giveaway"
+  }
+ ]
+}

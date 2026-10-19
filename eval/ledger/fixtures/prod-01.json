@@ -1,0 +1,165 @@
+{
+ "id": "prod-01",
+ "title": "There",
+ "origin": "prod",
+ "turns": [
+  {
+   "at": 1791851204943,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://globalnews.ca/news/12099749/alberta-referendum-advanced-voting/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Advance voting opens as experts debate meaning of Alberta referendum results  | Globalnews.ca"
+    },
+    {
+     "n": 2,
+     "url": "https://www.canada.ca/en/global-affairs/news/2026/10/minister-anand-to-travel-to-india-and-the-united-arab-emirates.html",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Minister Anand to travel to India and the United Arab Emirates - Canada.ca"
+    },
+    {
+     "n": 3,
+     "url": "https://www.winnipegfreepress.com/canada/2026/10/12/canada-signs-joint-statement-denouncing-iran-after-uk-air-base-plot",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Canada signs joint statement denouncing Iran after UK air base plot – Winnipeg Free Press"
+    },
+    {
+     "n": 4,
+     "url": "https://www.canada.ca/en/global-affairs/news/2026/10/pledge-on-maintaining-the-integrity-of-the-international-law-of-the-sea--no-fees--no-tolls.html",
+     "date": "2026-10-12T13:30:37.000Z",
+     "title": "Pledge on maintaining the integrity of the International Law of the Sea – No Fees / No Tolls - Canada.ca"
+    },
+    {
+     "n": 5,
+     "url": "https://www.theglobeandmail.com/canada/article-canadian-cybersecurity-executive-arrested-by-fbi-in-hacking-case/",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Canadian cybersecurity executive arrested by FBI in hacking case - The Globe and Mail"
+    },
+    {
+     "n": 6,
+     "url": "https://www.canada.ca/fr/affaires-mondiales/nouvelles/2026/10/declaration-commune-sur-liran-12-octobre.html",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Déclaration commune sur l’Iran, 12 octobre - Canada.ca"
+    },
+    {
+     "n": 7,
+     "url": "https://www.theglobeandmail.com/canada/article-belleville-synagogue-shooter-did-not-have-gun-licence-source-says/",
+     "date": "2026-10-12T09:00:00.000Z",
+     "title": "Belleville synagogue shooter did not have gun licence, source says - The Globe and Mail"
+    },
+    {
+     "n": 8,
+     "url": "https://www.canada.ca/fr/affaires-mondiales/nouvelles/2026/10/engagement-en-faveur-du-respect-de-lintegrite-du-droit-international-de-la-mer--pas-de-droits-de-passage-ni-de-peages.html",
+     "date": "2026-10-12T00:00:00.000Z",
+     "title": "Engagement en faveur du respect de l’intégrité du droit international de la mer – Pas de droits de passage ni de péages - Canada.ca"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Canada and more than two dozen countries signed a joint statement Monday condemning Iran's use of violent attacks and lethal plotting.",
+     "status": "confirmed",
+     "attributed_to": "Global Affairs Canada joint statement",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "The joint statement recognizes the UK's attribution of Iran's involvement in the Sept. 27 incident at RAF Fairford.",
+     "status": "confirmed",
+     "attributed_to": "Global Affairs Canada joint statement",
+     "citations": [
+      3,
+      6
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Seven men were arrested in the RAF Fairford investigation; all were released on bail and none charged.",
+     "status": "reported",
+     "attributed_to": "The Canadian Press",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Advance voting opened in Alberta for a 10-question referendum ahead of the Oct. 19 vote.",
+     "status": "confirmed",
+     "attributed_to": "Global News",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Premier Danielle Smith has said she hopes Albertans vote yes to the first nine questions to gain leverage with the federal government.",
+     "status": "reported",
+     "attributed_to": "Global News",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Sean Ward, the Belleville synagogue shooter, did not have a firearms licence at the time of the Sept. 20 attack, per a police source.",
+     "status": "reported",
+     "attributed_to": "police source via The Globe and Mail",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-12",
+     "needs_check": true
+    },
+    {
+     "claim": "A Canadian cybersecurity executive was arrested in the US in connection with the ShinyHunters hacking group, which the FBI says stole data on tens of thousands of employees and applicants.",
+     "status": "reported",
+     "attributed_to": "The Globe and Mail, citing court records and Reuters",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Reuters named the arrested man as Edward Dubrovsky; court documents list charges of conspiracy to extort and interference with commerce by threats.",
+     "status": "reported",
+     "attributed_to": "Reuters via The Globe and Mail",
+     "citations": [
+      5
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Foreign Affairs Minister Anita Anand will travel to India and the UAE Oct. 13-16.",
+     "status": "confirmed",
+     "attributed_to": "Global Affairs Canada",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    },
+    {
+     "claim": "Canada signed a pledge opposing fees or tolls on international straits under the Law of the Sea.",
+     "status": "confirmed",
+     "attributed_to": "Global Affairs Canada",
+     "citations": [
+      4,
+      8
+     ],
+     "date": "2026-10-12",
+     "needs_check": false
+    }
+   ]
+  }
+ ]
+}

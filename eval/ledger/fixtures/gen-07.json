@@ -1,0 +1,746 @@
+{
+ "id": "gen-07",
+ "title": "What do we know about Tropical Storm Rachel",
+ "origin": "generated",
+ "turns": [
+  {
+   "at": 1792081392264,
+   "sources": [
+    {
+     "n": 1,
+     "url": "https://cimss.ssec.wisc.edu/satellite-blog/archives/72623",
+     "date": "2026-10-11T21:33:45.000Z",
+     "title": "Post-tropical Cyclone Rachel Makes Landfall in Baja California, Impacts Southeast US — CIMSS Satellite Blog, CIMSS"
+    },
+    {
+     "n": 2,
+     "url": "https://www.bajacalifornia.gob.mx/coordinaciondegabinete/Prensa/NoticiaCompleta/27935",
+     "date": "2026-10-08T00:00:00.000Z",
+     "title": "Coordinación de Gabinete de Baja California"
+    },
+    {
+     "n": 3,
+     "url": "https://smn.conagua.gob.mx/files/pdfs/comunicados-de-prensa/Aviso%20Meteorologico%20103-26.pdf",
+     "date": "",
+     "title": "El huracán Simon se localiza a 95 km al oeste de Manzanillo ..."
+    },
+    {
+     "n": 4,
+     "url": "https://www.nhc.noaa.gov/mobile/text/refresh/MIATCDEP3+html/110857.shtml",
+     "date": "2026-10-11T00:00:00.000Z",
+     "title": "Post-Tropical Cyclone Rachel Forecast Discussion"
+    },
+    {
+     "n": 5,
+     "url": "https://en.wikipedia.org/wiki/Hurricane_Rachel_(2026)",
+     "date": "",
+     "title": "Hurricane Rachel (2026)"
+    },
+    {
+     "n": 6,
+     "url": "https://www.nhc.noaa.gov/mobile/text/refresh/MIATCPEP3+html/272036.shtml",
+     "date": "",
+     "title": "Post-Tropical Cyclone Rachel Public Advisory"
+    },
+    {
+     "n": 7,
+     "url": "https://www.infobae.com/america/agencias/2026/10/11/rachel-toca-tierra-en-baja-california-noroeste-de-mexico-con-fuertes-lluvias-y-va-a-eeuu/",
+     "date": "2026-10-11T16:31:53.000Z",
+     "title": "Rachel toca tierra en Baja California, noroeste de México, con fuertes lluvias y va a EEUU - Infobae"
+    },
+    {
+     "n": 8,
+     "url": "https://hojaderutadigital.mx/en-las-proximas-horas-rachel-entrara-a-tierra-en-la-costa-occidental-de-baja-california-como-ciclon-post-tropical/",
+     "date": "2026-10-11T00:00:00.000Z",
+     "title": "En las próximas horas, Rachel entrará a tierra en la costa occidental de Baja California como ciclón post-tropical"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Rachel made landfall in far northern Baja California on the evening of Oct 10 as a weakened tropical storm",
+     "status": "reported",
+     "attributed_to": "CIMSS Satellite Blog",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-11",
+     "needs_check": false
+    },
+    {
+     "claim": "Mexico's SMN says Rachel entered Mexican territory in the early hours of Oct 11 about 40 km south-southeast of Ensenada with 95 km/h sustained winds and 110 km/h gusts",
+     "status": "confirmed",
+     "attributed_to": "Servicio Meteorológico Nacional via Infobae/EFE",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-11",
+     "needs_check": false
+    },
+    {
+     "claim": "At 21:00 Mexico City time Oct 11, post-tropical Rachel was 65 km southwest of Cabo San Quintín moving north-northeast at 57 km/h",
+     "status": "confirmed",
+     "attributed_to": "SMN/Conagua via La Hoja de Ruta",
+     "citations": [
+      8
+     ],
+     "date": "2026-10-11",
+     "needs_check": false
+    },
+    {
+     "claim": "The NHC's final advisory at 8 a.m. MST Oct 11 said Rachel had dissipated over the southwestern U.S. with estimated intensity 30 kt",
+     "status": "confirmed",
+     "attributed_to": "NOAA National Hurricane Center",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-11",
+     "needs_check": false
+    },
+    {
+     "claim": "NHC advisory 56A put a tropical storm warning on the west coast of Baja California from Punta Eugenia to the U.S./Mexico border and on the east coast from Isla San Luis to Puerto Peñasco",
+     "status": "confirmed",
+     "attributed_to": "NOAA National Hurricane Center",
+     "citations": [
+      6
+     ],
+     "date": "2026-10-10",
+     "needs_check": false
+    },
+    {
+     "claim": "Baja California's state government forecast winds of 60-80 km/h with gusts 80-140 km/h from Saturday night through Sunday and opened temporary shelters via DIF Baja California",
+     "status": "confirmed",
+     "attributed_to": "Gobierno de Baja California",
+     "citations": [
+      2
+     ],
+     "date": "2026-10-08",
+     "needs_check": false
+    },
+    {
+     "claim": "SMN forecast 25-50 mm of rain in Baja California, gusts to 100 km/h and waves up to 6 m, warning of landslides and flooding in low-lying areas",
+     "status": "confirmed",
+     "attributed_to": "Servicio Meteorológico Nacional via Infobae/EFE",
+     "citations": [
+      7
+     ],
+     "date": "2026-10-11",
+     "needs_check": false
+    },
+    {
+     "claim": "Rachel prompted the second-ever tropical storm watch for California, covering San Diego County",
+     "status": "reported",
+     "attributed_to": "CIMSS Satellite Blog",
+     "citations": [
+      1
+     ],
+     "date": "2026-10-11",
+     "needs_check": false
+    },
+    {
+     "claim": "NHC reported major coastal flooding already occurring with water levels up to 1.5 feet above predictions, expected to worsen at high tide",
+     "status": "confirmed",
+     "attributed_to": "NOAA National Hurricane Center",
+     "citations": [
+      4
+     ],
+     "date": "2026-10-11",
+     "needs_check": false
+    },
+    {
+     "claim": "Rachel produced two deaths in Mexico from heavy rain and flash flooding, per the storm's Wikipedia article",
+     "status": "reported",
+     "attributed_to": "Wikipedia",
+     "citations": [
+      5
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "No official Mexican government fatality or damage figure for Rachel was located; the 5 dead/5 missing tally is Wikipedia's",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      5
+     ],
+     "date": "",
+     "needs_check": true
+    },
+    {
+     "claim": "The Oct 11 SMN advisory was dominated by Hurricane Simon, Category 4, 95 km west of Manzanillo with 240 km/h sustained winds and 295 km/h gusts",
+     "status": "confirmed",
+     "attributed_to": "SMN/Conagua",
+     "citations": [
+      3
+     ],
+     "date": "2026-10-11",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1792081406263,
+   "sources": [
+    {
+     "n": 9,
+     "url": "https://elpais.com/mexico/2026-10-14/baja-california-eleva-a-ocho-el-numero-de-muertos-por-el-ciclon-rachel.html",
+     "date": "2026-10-14T23:59:52.000Z",
+     "title": "Baja California eleva a ocho el número de muertos por el ciclón ‘Rachel’ | EL PAÍS México"
+    },
+    {
+     "n": 11,
+     "url": "https://www.info7.mx/nacional/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/3993305990",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Sube a ocho la cifra de muertos por Rachel en Baja California"
+    },
+    {
+     "n": 12,
+     "url": "https://www.europapress.es/internacional/noticia-ascienden-ocho-muertos-ellos-cuatro-menores-paso-ciclon-rachel-mexico-20261015040228.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ascienden a ocho los muertos, entre ellos cuatro menores, por el paso del ciclón 'Rachel' en México"
+    },
+    {
+     "n": 13,
+     "url": "https://www.thedailystar.net/news/world/news/death-toll-tropical-storm-rachel-rises-8-mexico-4299161",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Mexico Tropical Storm Rachel Death Toll | Death toll from Tropical Storm Rachel rises to 8 in Mexico | The Daily Star"
+    },
+    {
+     "n": 14,
+     "url": "https://www.nst.com.my/world/world/2026/10/1556019/death-toll-tropical-storm-rachel-rises-8-mexico",
+     "date": "",
+     "title": "Death toll from Tropical Storm Rachel rises to 8 in Mexico"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Mexico's death toll from Tropical Storm Rachel rose to eight, all in Ensenada municipality, four of them minors, per General Daniel Gallegos Acevedo, commander of the Second Military Zone",
+     "status": "confirmed",
+     "attributed_to": "Gen. Daniel Gallegos Acevedo, SEDENA, via El País/EFE/Europa Press",
+     "citations": [
+      9,
+      11,
+      12,
+      13
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Four deaths had been reported as of Monday; the toll was raised at a Wednesday press conference",
+     "status": "confirmed",
+     "attributed_to": "Mexican government authorities via AFP",
+     "citations": [
+      13,
+      14
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "The eighth victim was a 17-year-old boy whose body was found in Lomas de Mendoza",
+     "status": "reported",
+     "attributed_to": "EFE via info7",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "The other seven dead include three minors (ages 4, 13, 14), three women (two 30, one 35) and one 51-year-old man",
+     "status": "reported",
+     "attributed_to": "EFE via info7",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Five of the eight dead belong to one family, the Burgos family of Hermosillo, Sonora",
+     "status": "reported",
+     "attributed_to": "Europa Press citing Zócalo",
+     "citations": [
+      12
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "Two people remain unlocated per Gen. Gallegos; El País reports four still missing -- discrepancy unresolved",
+     "status": "reported",
+     "attributed_to": "Gen. Gallegos via info7; El País",
+     "citations": [
+      9,
+      11
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "A 10-year-old boy was found alive; 32 civilians were airlifted from Rancho Génesis (22 foreigners, 10 Mexicans)",
+     "status": "reported",
+     "attributed_to": "El País",
+     "citations": [
+      9
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "Six shelters are active (four San Quintín, two Ensenada) and more than 3,500 troops and personnel are mobilized",
+     "status": "reported",
+     "attributed_to": "El País; Europa Press",
+     "citations": [
+      9,
+      12
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Gov. Marina del Pilar Ávila says the emergency remains active and warned Simon could reach Baja California coasts Sunday",
+     "status": "reported",
+     "attributed_to": "Marina del Pilar Ávila via EFE/info7",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Simon is Category 1, semi-stationary off Jalisco, not currently expected to make landfall; it caused one death in Chilpancingo and one in Mazatlán and closed at least seven ports",
+     "status": "reported",
+     "attributed_to": "AFP; EFE via info7",
+     "citations": [
+      9,
+      11,
+      14
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Tropical Storm Trudy formed Tuesday off southwestern Mexico and could intensify to a major hurricane by Friday",
+     "status": "reported",
+     "attributed_to": "EFE via info7",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "At least 370 homes damaged in Ensenada and 258 in San Quintín; agricultural losses preliminarily estimated at ~US$50 million",
+     "status": "reported",
+     "attributed_to": "State Bienestar via Zócalo/Europa Press",
+     "citations": [
+      12
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "No Mexican federal government death-toll statement located; the eight-death figure comes from SEDENA's Second Military Zone commander and state officials",
+     "status": "unverified",
+     "attributed_to": "",
+     "citations": [
+      9,
+      11,
+      12,
+      13,
+      14
+     ],
+     "date": "",
+     "needs_check": true
+    }
+   ]
+  },
+  {
+   "at": 1792081420784,
+   "sources": [
+    {
+     "n": 9,
+     "url": "https://elpais.com/mexico/2026-10-14/baja-california-eleva-a-ocho-el-numero-de-muertos-por-el-ciclon-rachel.html",
+     "date": "2026-10-14T23:59:52.000Z",
+     "title": "Baja California eleva a ocho el número de muertos por el ciclón ‘Rachel’ | EL PAÍS México"
+    },
+    {
+     "n": 11,
+     "url": "https://www.info7.mx/nacional/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/3993305990",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Sube a ocho la cifra de muertos por Rachel en Baja California"
+    },
+    {
+     "n": 12,
+     "url": "https://www.europapress.es/internacional/noticia-ascienden-ocho-muertos-ellos-cuatro-menores-paso-ciclon-rachel-mexico-20261015040228.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ascienden a ocho los muertos, entre ellos cuatro menores, por el paso del ciclón 'Rachel' en México"
+    },
+    {
+     "n": 13,
+     "url": "https://www.thedailystar.net/news/world/news/death-toll-tropical-storm-rachel-rises-8-mexico-4299161",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Mexico Tropical Storm Rachel Death Toll | Death toll from Tropical Storm Rachel rises to 8 in Mexico | The Daily Star"
+    },
+    {
+     "n": 14,
+     "url": "https://www.nst.com.my/world/world/2026/10/1556019/death-toll-tropical-storm-rachel-rises-8-mexico",
+     "date": "",
+     "title": "Death toll from Tropical Storm Rachel rises to 8 in Mexico"
+    },
+    {
+     "n": 16,
+     "url": "https://www.jornada.com.mx/noticia/2026/10/15/estados/son-nueve-muertos-en-ensenada-por-remanentes-de-rachel",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "La Jornada - Son nueve muertos en Ensenada por remanentes de 'Rachel'"
+    },
+    {
+     "n": 21,
+     "url": "https://grupoanimal.mx/baja-california/sociedad/aumenta-cifra-muertos-rachel-ensenada-buscan-personas",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Sube a 8 cifra de muertos por Rachel en Ensenada; buscan a cuatro personas más | Grupo Animal"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Mexico's death toll from Rachel rose to nine, four of them minors, all in Ensenada municipality, per the Baja California government and federal authorities",
+     "status": "confirmed",
+     "attributed_to": "Baja California government and federal authorities",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-15",
+     "needs_check": false,
+     "supersedes": "0mv9r09vuce218b41c1de7662"
+    },
+    {
+     "claim": "Eight deaths had been announced at a Wednesday press conference by Gen. Daniel Gallegos Acevedo, commander of the Second Military Zone",
+     "status": "confirmed",
+     "attributed_to": "Gen. Daniel Gallegos Acevedo, SEDENA",
+     "citations": [
+      9,
+      11,
+      12,
+      13
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "The ninth victim was Rosa María Olivera Almazán, 44, found Wednesday near the Magaña bridge on the La Bufadora road in Maneadero",
+     "status": "reported",
+     "attributed_to": "La Jornada",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Search continues for Rosalinda Almazán, 24, reported missing",
+     "status": "reported",
+     "attributed_to": "La Jornada",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Two people remain unlocated per Gen. Gallegos; El País reports four still missing -- discrepancy unresolved",
+     "status": "reported",
+     "attributed_to": "Gen. Gallegos via info7; El País",
+     "citations": [
+      9,
+      11
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "Five of the dead are the Burgos Terán family of Hermosillo, Sonora, swept away in the El Pípila arroyo at Maneadero",
+     "status": "reported",
+     "attributed_to": "Europa Press citing Zócalo; Grupo Animal",
+     "citations": [
+      12,
+      21
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Ensenada mayor Claudia Agatón Muñiz requested a disaster declaration",
+     "status": "reported",
+     "attributed_to": "La Jornada",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "At least 370 homes damaged in Ensenada and 258 in San Quintín",
+     "status": "reported",
+     "attributed_to": "State Bienestar secretariat via Europa Press and La Jornada",
+     "citations": [
+      12,
+      16
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "22 per cent of Ensenada's population lacks water after the desalination plant flooded; crops and about 200 cattle lost; 3,560 personnel deployed",
+     "status": "reported",
+     "attributed_to": "La Jornada",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Gov. Marina del Pilar Ávila says the emergency remains active and warned Simon could reach Baja California coasts Sunday",
+     "status": "reported",
+     "attributed_to": "Marina del Pilar Ávila via EFE/info7",
+     "citations": [
+      11
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Simon is Category 1, semi-stationary off Jalisco, not currently expected to make landfall",
+     "status": "reported",
+     "attributed_to": "AFP; EFE via info7",
+     "citations": [
+      11,
+      14
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    }
+   ]
+  },
+  {
+   "at": 1792081432269,
+   "sources": [
+    {
+     "n": 9,
+     "url": "https://elpais.com/mexico/2026-10-14/baja-california-eleva-a-ocho-el-numero-de-muertos-por-el-ciclon-rachel.html",
+     "date": "2026-10-14T23:59:52.000Z",
+     "title": "Baja California eleva a ocho el número de muertos por el ciclón ‘Rachel’ | EL PAÍS México"
+    },
+    {
+     "n": 11,
+     "url": "https://www.info7.mx/nacional/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/3993305990",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Sube a ocho la cifra de muertos por Rachel en Baja California"
+    },
+    {
+     "n": 12,
+     "url": "https://www.europapress.es/internacional/noticia-ascienden-ocho-muertos-ellos-cuatro-menores-paso-ciclon-rachel-mexico-20261015040228.html",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Ascienden a ocho los muertos, entre ellos cuatro menores, por el paso del ciclón 'Rachel' en México"
+    },
+    {
+     "n": 13,
+     "url": "https://www.thedailystar.net/news/world/news/death-toll-tropical-storm-rachel-rises-8-mexico-4299161",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Mexico Tropical Storm Rachel Death Toll | Death toll from Tropical Storm Rachel rises to 8 in Mexico | The Daily Star"
+    },
+    {
+     "n": 14,
+     "url": "https://www.nst.com.my/world/world/2026/10/1556019/death-toll-tropical-storm-rachel-rises-8-mexico",
+     "date": "",
+     "title": "Death toll from Tropical Storm Rachel rises to 8 in Mexico"
+    },
+    {
+     "n": 16,
+     "url": "https://www.jornada.com.mx/noticia/2026/10/15/estados/son-nueve-muertos-en-ensenada-por-remanentes-de-rachel",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "La Jornada - Son nueve muertos en Ensenada por remanentes de 'Rachel'"
+    },
+    {
+     "n": 22,
+     "url": "https://www.pan.senado.gob.mx/2026/10/senador-jose-maximo-garcia-lopez-al-referirse-a-los-danos-causados-en-baja-california-por-el-huracan-rachel/",
+     "date": "2026-10-13T00:00:00.000Z",
+     "title": "Senador José Máximo García López, al referirse a los daños causados en Baja California, por el huracán “Rachel” | PAN SENADO 2026"
+    },
+    {
+     "n": 23,
+     "url": "https://www.elhorizonte.mx/nacional/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/3179278571",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Sube a ocho la cifra de muertos por Rachel en Baja California"
+    },
+    {
+     "n": 25,
+     "url": "https://lanoticiaregional.com.mx/sube-a-ocho-la-cifra-de-muertos-por-rachel-en-baja-california/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Sube a ocho la cifra de muertos por ‘Rachel’ en Baja California - La Noticia"
+    },
+    {
+     "n": 27,
+     "url": "https://www.eluniversal.com.mx/estados/tormenta-rachel-deja-8-muertos-en-baja-california-alcaldesa-de-ensenada-solicita-declaratoria-de-desastre/",
+     "date": "2026-10-15T00:00:00.000Z",
+     "title": "Tormenta Rachel deja 8 muertos en Baja California"
+    },
+    {
+     "n": 28,
+     "url": "https://puntonorte.info/2026/10/14/encuentran-sin-vida-a-rosa-maria-la-novena-victima-mortal-de-rachel-en-ensenada/",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "Encuentran sin vida a Rosa María, la novena víctima mortal de Rachel en Ensenada - Punto Norte"
+    },
+    {
+     "n": 29,
+     "url": "https://www.jornada.com.mx/2026/10/14/estados/026n2est",
+     "date": "2026-10-14T00:00:00.000Z",
+     "title": "La Jornada: Son 8 decesos en Ensenada por Rachel; continúa búsqueda de dos desaparecidos"
+    }
+   ],
+   "claims": [
+    {
+     "claim": "Mexico's death toll from Rachel rose to nine, four of them minors, all in Ensenada municipality, per the Baja California government and federal authorities",
+     "status": "confirmed",
+     "attributed_to": "Baja California government and federal authorities",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-15",
+     "needs_check": false,
+     "supersedes": "0mv9r0ij4273f80cf9a51f5ee"
+    },
+    {
+     "claim": "The ninth victim was Rosa María Olivera Almazán, found Wednesday in Maneadero",
+     "status": "reported",
+     "attributed_to": "La Jornada",
+     "citations": [
+      16
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Olivera Almazán was reported missing after being swept away Saturday night in Lomas de Mendoza",
+     "status": "reported",
+     "attributed_to": "Punto Norte",
+     "citations": [
+      28
+     ],
+     "date": "2026-10-14",
+     "needs_check": false
+    },
+    {
+     "claim": "Eight deaths had been announced at Wednesday's press conference by Gen. Daniel Gallegos Acevedo",
+     "status": "confirmed",
+     "attributed_to": "Gen. Daniel Gallegos Acevedo, SEDENA",
+     "citations": [
+      9,
+      11,
+      12,
+      13
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Europa Press, Daily Star, El Universal, La Noticia Regional and the Oct 14 La Jornada print edition still report eight dead",
+     "status": "reported",
+     "attributed_to": "Europa Press; Daily Star; El Universal; La Noticia Regional; La Jornada",
+     "citations": [
+      12,
+      13,
+      25,
+      27,
+      29
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Search continues for two unlocated per Gallegos; El País reports four still missing",
+     "status": "reported",
+     "attributed_to": "Gen. Gallegos; El País",
+     "citations": [
+      9,
+      11,
+      23,
+      25,
+      27
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "Rosalinda Olivera Almazán remains missing; Punto Norte gives her age as 23, La Jornada as 24",
+     "status": "reported",
+     "attributed_to": "Punto Norte; La Jornada",
+     "citations": [
+      16,
+      28
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "The eighth victim was 17-year-old Luis Fernando López, found in Lomas de Mendoza",
+     "status": "reported",
+     "attributed_to": "info7; El Horizonte; El Universal; La Jornada",
+     "citations": [
+      11,
+      23,
+      27,
+      29
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    },
+    {
+     "claim": "Other identified dead include the Burgos Terán family of Maneadero, Valentín Lozano Gómez and Keila Azalea Sandria González; ages and name spellings vary across outlets",
+     "status": "reported",
+     "attributed_to": "Punto Norte; La Jornada; info7",
+     "citations": [
+      11,
+      28,
+      29
+     ],
+     "date": "2026-10-15",
+     "needs_check": true
+    },
+    {
+     "claim": "Óscar Ulloa, 40, and his nephew Adrián Caro Villares, 12, are missing in San Felipe, last seen fishing near San Luis Gonzaga Saturday",
+     "status": "reported",
+     "attributed_to": "Punto Norte",
+     "citations": [
+      28
+     ],
+     "date": "2026-10-14",
+     "needs_check": true
+    },
+    {
+     "claim": "PAN senator José Máximo García López told the Senate the toll stood at five dead and seven missing",
+     "status": "reported",
+     "attributed_to": "Sen. José Máximo García López, PAN",
+     "citations": [
+      22
+     ],
+     "date": "2026-10-13",
+     "needs_check": false
+    },
+    {
+     "claim": "Four deaths had been reported as of Monday",
+     "status": "confirmed",
+     "attributed_to": "Mexican government authorities via AFP",
+     "citations": [
+      13,
+      14
+     ],
+     "date": "2026-10-15",
+     "needs_check": false
+    }
+   ]
+  }
+ ]
+}
