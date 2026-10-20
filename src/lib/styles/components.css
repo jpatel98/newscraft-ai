@@ -242,6 +242,12 @@ body,
 .sidebar__primary-action--channel:active {
 	background: var(--bg-sunken);
 }
+.sidebar__primary-action--current,
+.sidebar__primary-action--current:visited {
+	background: var(--bg-raised);
+	border-color: var(--border-default);
+	color: var(--fg-1);
+}
 .sidebar__primary-action:focus-visible {
 	outline: none;
 	box-shadow: var(--shadow-focus);

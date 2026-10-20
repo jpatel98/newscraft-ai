@@ -13,6 +13,7 @@
 	import MoreHorizontal from 'lucide-svelte/icons/more-horizontal';
 	import Pin from 'lucide-svelte/icons/pin';
 	import Search from 'lucide-svelte/icons/search';
+	import AudioLines from 'lucide-svelte/icons/audio-lines';
 	import Folder from 'lucide-svelte/icons/folder';
 	import FolderOpen from 'lucide-svelte/icons/folder-open';
 	import FolderPlus from 'lucide-svelte/icons/folder-plus';
@@ -857,6 +858,17 @@
 				>
 					<SquarePen size="14" strokeWidth={1.8} />
 					<span>New chat</span>
+				</a>
+				<a
+					class="sidebar__primary-action sidebar__primary-action--channel {page.url.pathname.startsWith('/transcriptions')
+						? 'sidebar__primary-action--current'
+						: ''}"
+					href="/transcriptions"
+					aria-current={page.url.pathname.startsWith('/transcriptions') ? 'page' : undefined}
+					onclick={onSelectThread}
+				>
+					<AudioLines size="14" strokeWidth={1.8} />
+					<span>Transcriptions</span>
 				</a>
 				</div>
 

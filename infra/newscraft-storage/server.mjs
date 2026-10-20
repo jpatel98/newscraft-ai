@@ -12,9 +12,16 @@ const signingKey = process.env.NEWSCRAFT_STORAGE_SIGNING_KEY || '';
 const corsOrigins = parseCorsOrigins(process.env.NEWSCRAFT_STORAGE_CORS_ORIGIN || '');
 const documentBucket = process.env.NEWSCRAFT_DOCUMENT_BUCKET || 'newsroom-documents';
 const artifactBucket = process.env.NEWSCRAFT_ARTIFACT_BUCKET || 'newsroom-artifacts';
+const audioBucket = process.env.NEWSCRAFT_AUDIO_BUCKET || 'newsroom-audio';
 const maxPdfBytes = 20 * 1024 * 1024;
 const maxArtifactBytes = 20 * 1024 * 1024;
 const artifactMimeTypes = new Set(['image/png', 'image/jpeg', 'text/csv', 'text/markdown', 'application/json']);
+// Interview recordings and press-conference video for transcription.
+const maxAudioBytes = 1024 * 1024 * 1024;
+const audioMimeTypes = [
+	'audio/aac', 'audio/flac', 'audio/mp4', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/x-m4a', 'audio/x-wav',
+	'video/mp4', 'video/quicktime', 'video/webm'
+];
 
 if (!apiKey || signingKey.length < 32 || !publicBaseUrl) {
 	throw new Error('NEWSCRAFT_STORAGE_API_KEY, NEWSCRAFT_STORAGE_SIGNING_KEY (32+ chars), and NEWSCRAFT_STORAGE_PUBLIC_URL are required');
@@ -23,10 +30,12 @@ if (!apiKey || signingKey.length < 32 || !publicBaseUrl) {
 await mkdir(join(root, '.tokens'), { recursive: true, mode: 0o700 });
 await mkdir(join(root, documentBucket), { recursive: true, mode: 0o700 });
 await mkdir(join(root, artifactBucket), { recursive: true, mode: 0o700 });
+await mkdir(join(root, audioBucket), { recursive: true, mode: 0o700 });
 
 const policies = new Map([
 	[documentBucket, { private: true, maxBytes: maxPdfBytes, mimeTypes: ['application/pdf'] }],
-	[artifactBucket, { private: true, maxBytes: maxArtifactBytes, mimeTypes: [...artifactMimeTypes].sort() }]
+	[artifactBucket, { private: true, maxBytes: maxArtifactBytes, mimeTypes: [...artifactMimeTypes].sort() }],
+	[audioBucket, { private: true, maxBytes: maxAudioBytes, mimeTypes: audioMimeTypes }]
 ]);
 
 const server = createServer(async (request, response) => {
@@ -43,7 +52,7 @@ const server = createServer(async (request, response) => {
 		}
 		if (url.pathname.startsWith('/v1/download/')) {
 			if (request.method !== 'GET') return endJson(response, 405, { detail: 'method not allowed' });
-			return await handleSignedDownload(response, url.pathname.slice('/v1/download/'.length));
+			return await handleSignedDownload(request, response, url.pathname.slice('/v1/download/'.length));
 		}
 
 		if (!authorized(request)) return endJson(response, 401, { detail: 'unauthorized' });
@@ -128,10 +137,10 @@ async function handleSignedUpload(request, response, url, encodedToken) {
 	}
 }
 
-async function handleSignedDownload(response, encodedToken) {
+async function handleSignedDownload(request, response, encodedToken) {
 	const payload = verifyToken(encodedToken, 'download');
 	if (!payload || !policies.has(payload.bucket) || !validateKey(payload.bucket, payload.key)) return endJson(response, 404, { detail: 'object not found' });
-	return streamLatest(response, payload.bucket, payload.key);
+	return streamLatest(response, payload.bucket, payload.key, request.headers.range);
 }
 
 async function handleMeta(response, url) {
@@ -225,20 +234,57 @@ async function writeStreamedObject(request, bucket, key, contentType, maxBytes) 
 	}
 }
 
-async function streamLatest(response, bucket, key) {
+async function streamLatest(response, bucket, key, rangeHeader) {
 	const metadata = await readMetadata(bucket, key);
 	if (!metadata) return endJson(response, 404, { detail: 'object not found' });
-	return streamFile(response, objectPath(bucket, key, metadata.version), metadata);
+	return streamFile(response, objectPath(bucket, key, metadata.version), metadata, rangeHeader);
 }
 
-function streamFile(response, path, metadata) {
-	response.writeHead(200, {
+// Browsers seek audio and video with byte ranges; only a single range is served.
+function streamFile(response, path, metadata, rangeHeader) {
+	const headers = {
 		'content-type': metadata.contentType,
-		'content-length': String(metadata.bytes),
+		'accept-ranges': 'bytes',
 		'cache-control': 'private, no-store',
 		'x-content-sha256': metadata.checksumSha256
-	});
+	};
+	const range = parseRange(rangeHeader, metadata.bytes);
+	if (range === 'unsatisfiable') {
+		response.writeHead(416, { 'content-range': `bytes */${metadata.bytes}` });
+		return response.end();
+	}
+	if (range) {
+		response.writeHead(206, {
+			...headers,
+			'content-length': String(range.end - range.start + 1),
+			'content-range': `bytes ${range.start}-${range.end}/${metadata.bytes}`
+		});
+		createReadStream(path, { start: range.start, end: range.end }).on('error', () => response.destroy()).pipe(response);
+		return;
+	}
+	response.writeHead(200, { ...headers, 'content-length': String(metadata.bytes) });
 	createReadStream(path).on('error', () => response.destroy()).pipe(response);
+}
+
+function parseRange(value, size) {
+	if (typeof value !== 'string' || !value.startsWith('bytes=')) return null;
+	const spec = value.slice('bytes='.length).trim();
+	if (spec.includes(',')) return null;
+	const match = /^(\d*)-(\d*)$/u.exec(spec);
+	if (!match || (!match[1] && !match[2])) return null;
+	let start;
+	let end;
+	if (!match[1]) {
+		const suffix = Number(match[2]);
+		if (suffix === 0) return 'unsatisfiable';
+		start = Math.max(0, size - suffix);
+		end = size - 1;
+	} else {
+		start = Number(match[1]);
+		end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+	}
+	if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= size || start > end) return 'unsatisfiable';
+	return { start, end };
 }
 
 async function readMetadata(bucket, key, version) {
@@ -416,7 +462,8 @@ function setCors(request, response) {
 	if (origin && corsOrigins.has(origin)) {
 		response.setHeader('access-control-allow-origin', origin);
 		response.setHeader('access-control-allow-methods', 'GET,PUT,OPTIONS');
-		response.setHeader('access-control-allow-headers', 'content-type,content-length');
+		response.setHeader('access-control-allow-headers', 'content-type,content-length,range');
+		response.setHeader('access-control-expose-headers', 'accept-ranges,content-length,content-range');
 	}
 }
 

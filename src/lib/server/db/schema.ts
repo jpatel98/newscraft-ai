@@ -727,6 +727,36 @@ export const projectConversations = pgTable('project_conversations', {
  projectIdx: index('project_conversations_project_idx').on(t.accountId, t.projectId)
 }));
 
+export const transcripts = pgTable('transcripts', {
+ id: text('id').primaryKey(),
+ accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+ title: text('title').notNull(),
+ status: text('status').notNull().default('uploading'),
+ sourceKind: text('source_kind').notNull(),
+ sourceName: text('source_name'),
+ sourceUrl: text('source_url'),
+ audioKey: text('audio_key'),
+ audioBytes: bigint('audio_bytes', { mode: 'number' }),
+ contentType: text('content_type'),
+ durationMs: integer('duration_ms'),
+ languageCode: text('language_code'),
+ engine: text('engine').notNull(),
+ model: text('model').notNull(),
+ keyterms: jsonb('keyterms').notNull().default([]),
+ text: text('text').notNull().default(''),
+ utterances: jsonb('utterances').notNull().default([]),
+ speakerNames: jsonb('speaker_names').notNull().default({}),
+ errorCode: text('error_code'),
+ errorMessage: text('error_message'),
+ processingStartedAt: timestampMs('processing_started_at'),
+ completedAt: timestampMs('completed_at'),
+ createdAt: timestampMs('created_at').notNull(),
+ updatedAt: timestampMs('updated_at').notNull()
+}, t => ({
+ titleLength: check('transcripts_title_check', schemaSql`length(btrim(${t.title})) BETWEEN 1 AND 200`),
+ accountCreatedIdx: index('transcripts_account_created_idx').on(t.accountId, t.createdAt)
+}));
+
 export const storyClaims = pgTable(
 	'story_claims',
 	{
