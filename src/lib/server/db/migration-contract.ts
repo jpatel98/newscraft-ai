@@ -30,7 +30,8 @@ export const MIGRATION_VERSIONS = [
 	'0020_story_claims',
 	'0021_story_claim_review',
 	'0022_story_claim_events',
-	'0023_story_claim_evidence'
+	'0023_story_claim_evidence',
+	'0024_transcripts'
 ] as const;
 
 /** Versions represented by the legacy runtime-created schema. */
