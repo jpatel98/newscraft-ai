@@ -1284,6 +1284,45 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         events = await self.collect_fast(runner, self.fast_payload("hello", required=False, small_talk=True), exa)
         self.assertEqual(self.final_answer(events), "Hi there.")
 
+    KILAUEA = ("WRITE suvo\n\nINFORMATION PROVIDED BY USGS VOLCANOES: Episode 55 of Kilauea summit lava fountaining began at 3:19 a.m. HST "
+               "this morning. The lava fountain reached an estimated 700 feet. The plume is reaching an estimated 25,000 feet above sea level.\n\n"
+               "SUPER: Hawaii Volcanoes National Park, HIT")
+    SUVO = ("{SUVO}\n[NAT SOUND UP AND UNDER]\n\nHAWAII'S KILAUEA VOLCANO IS ERUPTING AGAIN.\n\n"
+            "Super:\nHawaii Volcanoes National Park, HI\n\nBanner:\nHawaii's Kilauea volcano erupts again")
+
+    async def test_a_script_with_pasted_material_is_one_skill_call_without_research(self):
+        exa, calls = self.fake_exa()
+        runner = self.runner([answer(self.SUVO)])
+        events = await self.collect_fast(runner, self.fast_payload(self.KILAUEA, required=True), exa)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual(calls, [])
+        self.assertEqual(len(self.requests), 1)  # No planner call, one writing call.
+        body = self.requests[0][1]
+        self.assertIn("[NAT SOUND UP AND UNDER]", body.get("instructions", body.get("system", "")))
+        self.assertIn("Write the SUVO now", self.model_prompts()[0])
+        plan = [e for e in events if e.get("name") == "newscraft.plan"][0]["value"]["steps"]
+        self.assertEqual([step["label"] for step in plan], ["Write SUVO"])
+        self.assertEqual(self.final_answer(events), self.SUVO)
+
+    async def test_a_note_on_the_last_script_revises_it(self):
+        exa, calls = self.fake_exa()
+        runner = self.runner([answer(self.SUVO.replace("AGAIN.", "AGAIN... 25-THOUSAND FEET."))])
+        prior = [{"role": "user", "content": self.KILAUEA}, {"role": "assistant", "content": self.SUVO}]
+        events = await self.collect_fast(runner, self.fast_payload("WE WANT THE 25K NUMBER", prior=prior), exa)
+        self.assertEqual(calls, [])
+        self.assertEqual(len(self.requests), 1)
+        self.assertIn("full revised script", self.model_prompts()[0])
+        self.assertIn("25-THOUSAND FEET", self.final_answer(events))
+
+    async def test_a_script_without_material_researches_first(self):
+        plan = {"mode": "research", "assumption": "", "queries": [{"q": "Bank of Canada rate decision", "intent": "news", "days": 7, "domains": []}]}
+        exa, calls = self.fake_exa({"Bank of Canada rate decision": [self.fast_page("https://www.cbc.ca/news/boc-1", "CBC", "The Bank of Canada held its rate.")]})
+        runner = self.runner([answer(json.dumps(plan)), answer("{ON CAM}\nTHE BANK OF CANADA HELD ITS RATE.\n\nBanner:\nBank of Canada holds rate\nSources: [1]")])
+        events = await self.collect_fast(runner, self.fast_payload("/ocvo Bank of Canada rate decision"), exa)
+        self.assertEqual([c["query"] for c in calls], ["Bank of Canada rate decision"])
+        self.assertIn("Keep [n] markers out of the spoken copy", self.model_prompts()[1])
+        self.assertEqual(len(self.snapshot_sources(events)), 1)  # The cited page is recorded.
+
     SOLDIER_TEXT = "The Toronto Police Service said three soldiers were charged on Oct. 9 after the August incident."
 
     async def test_planner_queries_run_verbatim_in_parallel_and_stream_tool_activity_after_the_plan(self):

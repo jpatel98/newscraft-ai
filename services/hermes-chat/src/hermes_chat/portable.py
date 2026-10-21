@@ -17,7 +17,7 @@ import httpx
 
 from .artifact_publish import ArtifactPublishError
 from .input_messages import convert_message_content
-from . import budgets
+from . import broadcast_writing, budgets
 from .model_adapters import ModelError, create_model
 from .product_prompt import append_product_identity
 from . import research_plan
@@ -1346,6 +1346,11 @@ class PortableAgentRunner:
             request = (turn.get("resolvedRequest") or _last_user_text(state["messages"])).strip()
             route = choose_route(fresh, request, has_page_search=self.page_search is not None, small_talk=turn.get("smallTalk") is True)
             fast_instructions = append_product_identity(FAST_INSTRUCTIONS)  # One prefix for planner and writer.
+            # A broadcast script (OCVO, SUVO, ...) or a note on the one just written: the writing skill, one writing call.
+            last_answer = next((research_plan.message_text(m) for m in reversed(state["messages"]) if m["role"] == "assistant"), "")
+            script = broadcast_writing.detect(request, output_action=turn.get("outputAction"), last_answer=last_answer) if fresh else None
+            if script and route != ROUTE_CHAT:
+                route = ROUTE_QUICK
 
             def tool_events(call_id, name, args, result):
                 failed = bool(isinstance(result, dict) and result.get("error"))
@@ -1365,7 +1370,7 @@ class PortableAgentRunner:
                 state["plan"] = [{**step, "status": status.get(step["id"], step["status"])} for step in state["plan"]]
                 return {"type": "CUSTOM", "name": "newscraft.plan", "value": {"source": "model", "steps": state["plan"]}}
 
-            async def planned_research(out, *, final_id, final_label, thread_label="Answer from this conversation", reserve=0):
+            async def planned_research(out, *, final_id, final_label, thread_label="Answer from this conversation", reserve=0, required=None):
                 """Plan, search in parallel and rank pages (streaming the same events everywhere); results land in ``out``."""
                 fast_t0 = time.monotonic()
                 newsroom = _newsroom_context(state["messages"])
@@ -1374,7 +1379,8 @@ class PortableAgentRunner:
                 contract = turn.get("researchContract") if isinstance(turn.get("researchContract"), dict) else {}
                 subject = str(contract.get("subject") or request)[:200]
                 # Tri-state from the app: True/False are decisions, anything else lets the planner decide.
-                required = turn.get("researchRequired") if isinstance(turn.get("researchRequired"), bool) else None
+                if required is None:
+                    required = turn.get("researchRequired") if isinstance(turn.get("researchRequired"), bool) else None
                 thread_sources = dict(sorted(research.recorded_sources.items()))
 
                 plan = None
@@ -1604,24 +1610,40 @@ class PortableAgentRunner:
                 # before then simply reruns it (plan, search and one writing call).
                 state["fast"] = "started"
                 fast_out = {}
-                async for event in planned_research(fast_out, final_id="answer", final_label="Write answer"):
+                writer_instructions = fast_instructions
+                if script:
+                    # Scripts are written from the producer's pasted material (or the thread); research only when there is none.
+                    material = broadcast_writing.has_material(request, prior_answer=bool(last_answer.strip()))
+                    label = "Write " + broadcast_writing.LABELS[script]
+                    steps = planned_research(fast_out, final_id="answer", final_label=label, thread_label=label,
+                                             required=False if material else True)
+                    writer_instructions = fast_instructions + "\n\n" + broadcast_writing.instructions(script)
+                else:
+                    steps = planned_research(fast_out, final_id="answer", final_label="Write answer")
+                async for event in steps:
                     yield event
                 plan, specs, pages, thread_sources, preferred = (fast_out[k] for k in ("plan", "specs", "pages", "thread_sources", "preferred"))
                 research_gap, outlet_gaps, research_mode, fast_t0 = (fast_out[k] for k in ("research_gap", "outlet_gaps", "research_mode", "t0"))
-                if pages or thread_sources or not research_mode or research_gap:
+                if script or pages or thread_sources or not research_mode or research_gap:
                     if specs:
                         yield plan_update(answer="running")
                     ledger = _ledger_context(state["messages"])
                     show = research_plan.writer_context(fast_out["newsroom"], fast_out["now"], rundown=research_plan.is_rundown_request(request))
-                    prompt = _fast_prompt(mode=plan["mode"], thread_listing=_thread_listing(thread_sources, preferred, ledger=ledger), pages=pages,
-                                         assumption=plan["assumption"], gap=research_gap, outlet_gaps=outlet_gaps, show=show, ledger=bool(ledger))
+                    if script:
+                        prompt = broadcast_writing.writer_prompt(
+                            script, revision=broadcast_writing.is_revision(request, script, last_answer), pages=pages,
+                            page_listing=_pages_listing(pages), show=show, sources_line=bool(turn.get("outputAction")), material=material,
+                            previous=last_answer)
+                    else:
+                        prompt = _fast_prompt(mode=plan["mode"], thread_listing=_thread_listing(thread_sources, preferred, ledger=ledger), pages=pages,
+                                             assumption=plan["assumption"], gap=research_gap, outlet_gaps=outlet_gaps, show=show, ledger=bool(ledger))
                     last = state["messages"][-1]
                     if last["role"] == "user":
                         fast_messages = [*state["messages"][:-1], {**last, "content": [*last["content"], {"type": "text", "text": prompt}]}]
                     else:
                         fast_messages = [*state["messages"], {"role": "user", "content": [{"type": "text", "text": prompt}]}]
                     try:
-                        estimate = budgets.input_bound(self.model, messages=fast_messages, private={}, instructions=fast_instructions,
+                        estimate = budgets.input_bound(self.model, messages=fast_messages, private={}, instructions=writer_instructions,
                                                        tools=[], image_tokens=budgets.policy(settings)["image_tokens"])
                         budgets.reserve(state, settings, input_tokens=estimate, output_tokens=settings.max_output_tokens)
                     except ValueError as exc:
@@ -1630,7 +1652,7 @@ class PortableAgentRunner:
                     logger.info("fast path: model dispatch at %.1fs (%d input tokens est)", time.monotonic() - fast_t0, estimate)
                     try:
                         out = {}
-                        async for event in self.streamed(out, 60, model=settings.model, instructions=fast_instructions, messages=fast_messages,
+                        async for event in self.streamed(out, 60, model=settings.model, instructions=writer_instructions, messages=fast_messages,
                                                          tools=[], max_output=settings.max_output_tokens, private={}):
                             yield event
                         reply = out["reply"]

@@ -40,18 +40,23 @@ Follow NewsCraft's OC/VO house style:
 - Do not turn a press release, social post, allegation, or other attributed claim into confirmed fact.
 - Do not speculate, editorialize, exaggerate, use filler, or add unsupported context.
 
-Return only paste-ready copy in uppercase, with no Markdown and this exact structure:
+Return only paste-ready copy with no Markdown, in the house format. Spoken lines are uppercase, one sentence per line, with ellipses (...) for natural pauses; numbers and acronyms are written for speech (25-THOUSAND, U-S, G-T-A) and units are metric for a Canadian audience. Use exactly this structure:
 {ON CAM}
 [ONE STRONG SENTENCE.]
 
 {VO}
 [THREE TO FIVE SHORT SENTENCES.]
 
-SOURCES: [n] [m]
+Super:
+[Location in normal case, only when the story has one]
 
-The SOURCES line lists the citation markers that support the copy, in order, and is the only place markers appear. Keep the spoken copy between 55 and 75 words. Do not add a BANNER, TEASE, SOT, SU, second version, or explanation. Only if a material fact needed for safe copy is genuinely unclear, do not guess; add this block after the SOURCES line:
-NEEDS EDITORIAL CHECK:
-[EXACT MISSING FACT.]`;
+Banner:
+[Sentence-case lower third, about 5 to 7 words]
+
+Sources: [n] [m]
+
+The Sources line lists the citation markers that support the copy, in order, and is the only place markers appear. Keep the spoken copy between 55 and 75 words. Do not add a read time, TEASE, SOT, SU, second version, or explanation. Only if a material fact needed for safe copy is genuinely unclear, do not guess; add one final line:
+CHECK: [EXACT MISSING FACT.]`;
 
 export function resolveConversationSystemPrompt(value: string | null | undefined): string | null {
 	const trimmed = (value || '').trim();
