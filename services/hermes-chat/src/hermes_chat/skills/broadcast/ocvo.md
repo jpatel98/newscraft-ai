@@ -1,6 +1,6 @@
 # OCVO (on camera, then voice-over)
 
-The anchor starts on camera, then reads over pictures. Usually 25 to 35 seconds unless the producer asks otherwise: three to five short VO sentences.
+The anchor starts on camera, then reads over pictures. Usually 25 to 35 seconds unless the producer asks otherwise: three to five short VO sentences, about 60 to 80 spoken words in total (ON CAM plus VO). Count them; if you are over 80, cut the least important line rather than squeezing every fact in.
 
 ## Structure
 - {ON CAM}: one strong sentence (two short ones only if a second fact is essential). It gives the newest or most important development and tells viewers why the story matters now. Do not cram every fact into it. Lead directly with the event.

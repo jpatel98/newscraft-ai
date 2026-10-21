@@ -26,7 +26,8 @@ OC/SOT/VO: {ON CAM}, {SOT}, {VO}.
 
 ## Writing into and out of the SOT
 - The line right before the SOT tees up why viewers are about to hear this person (WORKERS SAY THEY ARE STRUGGLING TO KEEP UP.). Never write HERE'S WHAT THEY HAD TO SAY.
-- Do not state the SOT's main point right before or right after it.
+- Do not state the SOT's main point right before or right after it. Check the line before the SOT: if it paraphrases the clip, replace it with a line that only says who is speaking and why (THE PREMIER SAYS THE BEDS ARE ABOUT GETTING SENIORS OUT OF HOSPITAL is wrong before a clip that says exactly that; PREMIER DOUG FORD MADE THE ANNOUNCEMENT TODAY works).
+- Attribute a quote to the person who said it, not to an institution.
 - The closing VO moves the story forward in one or two sentences: next steps, investigation status, the other side's response, an upcoming vote or date, an unresolved question. Do not summarize the story again or force a clever ending.
 
 ## Example

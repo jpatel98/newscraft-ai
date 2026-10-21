@@ -1,6 +1,6 @@
 # DVE VO (voice-over only, starts on pictures)
 
-A breakout voice-over that begins directly on visuals. There is no ON CAM. Lead with the strongest visual or development, keep it especially tight, include impact or a next step where relevant. Usually 15 to 30 seconds. Then Super (when there is a location) and Banner.
+A breakout voice-over that begins directly on visuals. There is no ON CAM. Lead with the strongest visual or development, keep it especially tight, include impact or a next step where relevant. Usually 15 to 30 seconds: about 40 to 75 spoken words. Then Super (when there is a location) and Banner.
 
 ## Format
 {VO}

@@ -1632,7 +1632,8 @@ class PortableAgentRunner:
                     if script:
                         prompt = broadcast_writing.writer_prompt(
                             script, revision=broadcast_writing.is_revision(request, script, last_answer), pages=pages,
-                            page_listing=_pages_listing(pages), show=show, sources_line=bool(turn.get("outputAction")), material=material)
+                            page_listing=_pages_listing(pages), show=show, sources_line=bool(turn.get("outputAction")), material=material,
+                            previous=last_answer)
                     else:
                         prompt = _fast_prompt(mode=plan["mode"], thread_listing=_thread_listing(thread_sources, preferred, ledger=ledger), pages=pages,
                                              assumption=plan["assumption"], gap=research_gap, outlet_gaps=outlet_gaps, show=show, ledger=bool(ledger))

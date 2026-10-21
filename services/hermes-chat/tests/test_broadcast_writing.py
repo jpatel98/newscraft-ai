@@ -34,6 +34,7 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(bw.detect("give me an ocvo sotvo on the rally"), "sotvo")
         self.assertEqual(bw.detect("DVE VO please: two subway stations renamed"), "dve")
         self.assertEqual(bw.detect("draft a tease for the zoo hippo story"), "tease")
+        self.assertEqual(bw.detect("write a suvo tease\nClip from the fire chief"), "tease")
         self.assertEqual(bw.detect("write me a live throw to Sean in St. Catharines"), "intro")
         self.assertEqual(bw.detect("write a headline for the Crosstown opening"), "headline")
         self.assertEqual(bw.detect("give me three banners for this"), "banner")
@@ -87,11 +88,16 @@ class SkillTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bw.instructions("pkg")
 
+    def test_spoken_words_skip_cues_notes_and_lower_thirds(self):
+        self.assertEqual(bw.spoken_words(SUVO_SCRIPT), 12)
+
     def test_writer_prompt(self):
         prompt = bw.writer_prompt("suvo", revision=False)
         self.assertIn("Write the SUVO now", prompt)
         self.assertNotIn("Sources:", prompt)
         self.assertIn("full revised script", bw.writer_prompt("suvo", revision=True))
+        self.assertIn("at most 80 spoken words", bw.writer_prompt("ocvo", revision=False))
+        self.assertIn("has 12 spoken words", bw.writer_prompt("suvo", revision=True, previous=SUVO_SCRIPT))
         self.assertIn("Sources: [n] [m]", bw.writer_prompt("ocvo", revision=False, sources_line=True))
         self.assertIn("paste the source copy", bw.writer_prompt("ocvo", revision=False, material=False))
         pages = [{"number": 1}]

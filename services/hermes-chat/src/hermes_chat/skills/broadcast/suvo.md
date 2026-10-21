@@ -1,6 +1,6 @@
 # SUVO (sound up, then voice-over)
 
-SU means SOUND UP. The pictures and natural sound do some storytelling before the anchor begins, then the anchor reads over the video. Keep it short and to the point: usually three to five VO sentences. If a shot list is supplied, write to it.
+SU means SOUND UP. The pictures and natural sound do some storytelling before the anchor begins, then the anchor reads over the video. Keep it short and to the point: usually three to five VO sentences, about 35 to 65 spoken words. If a shot list is supplied, write to it.
 
 ## Structure
 - {SUVO} on its own line, then the sound note in square brackets: [NAT SOUND UP AND UNDER] by default, or a specific note when the material names the sound ([WATER BOMBER NAT], [CROWD NAT]).
