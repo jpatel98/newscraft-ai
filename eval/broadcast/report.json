@@ -1,0 +1,204 @@
+{
+ "model": "deepseek-flash",
+ "routing": {
+  "passed": 40,
+  "total": 40,
+  "failures": []
+ },
+ "writing": {
+  "passed": 27,
+  "total": 27,
+  "failures": []
+ },
+ "scripts": [
+  {
+   "story": "ocvo_crime",
+   "step": "new",
+   "format": "ocvo",
+   "problems": [],
+   "text": "{ON CAM}\nA MAN IS IN LIFE-THREATENING CONDITION AFTER A SHOOTING IN BRAMPTON... AND POLICE ARE STILL LOOKING FOR THE SHOOTER.\n\n{VO}\nIT HAPPENED LATE SUNDAY NIGHT... AROUND 11:40... NEAR QUEEN STREET EAST AND KENNEDY ROAD SOUTH.\nPOLICE FOUND A 34-YEAR-OLD MAN WITH GUNSHOT WOUNDS AND PARAMEDICS TOOK HIM TO A TRAUMA CENTRE.\nINVESTIGATORS SAY A SUSPECT TOOK OFF IN A DARK-COLOURED SEDAN BEFORE OFFICERS ARRIVED.\nNO ARRESTS SO FAR... AND POLICE SAY THE INVESTIGATION IS IN ITS EARLY STAGES.\nTHEY HAVE NOT SAID WHETHER THE SHOOTING WAS TARGETED.\n\nSuper:\nBrampton\n\nBanner:\nMan critically hurt in Brampton shooting"
+  },
+  {
+   "story": "ocvo_crime",
+   "step": "make it a DVE",
+   "format": "dve",
+   "problems": [],
+   "text": "{VO}\nA MAN IS IN LIFE-THREATENING CONDITION AFTER A SHOOTING IN BRAMPTON... AND POLICE ARE STILL LOOKING FOR THE SHOOTER.\nIT HAPPENED AROUND 11:40 SUNDAY NIGHT... NEAR QUEEN STREET EAST AND KENNEDY ROAD SOUTH.\nPOLICE FOUND A 34-YEAR-OLD MAN WITH GUNSHOT WOUNDS.\nHE WAS TAKEN TO A TRAUMA CENTRE.\nINVESTIGATORS SAY A SUSPECT LEFT IN A DARK-COLOURED SEDAN BEFORE OFFICERS ARRIVED.\nNO ARRESTS HAVE BEEN MADE... AND POLICE ARE NOT YET SAYING WHETHER THE SHOOTING WAS TARGETED.\n\nSuper:\nBrampton\n\nBanner:\nMan critically hurt in Brampton shooting"
+  },
+  {
+   "story": "ocvo_crime",
+   "step": "why did you leave out the phone number?",
+   "format": "dve",
+   "problems": [],
+   "text": "Phone numbers and tip lines are normally left out of broadcast copy unless you ask for them, and the contact details live in the police release if you want them on screen. Say the word and I'll put the 22 Division number back in."
+  },
+  {
+   "story": "dve_transit",
+   "step": "new",
+   "format": "dve",
+   "problems": [],
+   "text": "{VO}\nLINE 1 SUBWAY SERVICE IS SHUT DOWN BETWEEN ST CLAIR AND UNION STATIONS THIS WEEKEND.\nTHE T-T-C SAYS TRACK WORK AND SIGNAL UPGRADES WILL STOP TRAINS ON THAT STRETCH SATURDAY AND SUNDAY.\nSHUTTLE BUSES WILL RUN... AND RIDERS SHOULD ALLOW UP TO 30 EXTRA MINUTES.\nTHE T-T-C SAYS THIS IS ONE OF 11 PLANNED WEEKEND CLOSURES THIS YEAR.\nSERVICE RESUMES MONDAY AT 6 A-M.\n\nSuper:\nToronto\n\nBanner:\nLine 1 closed between St Clair and Union this weekend"
+  },
+  {
+   "story": "suvo_festival",
+   "step": "new",
+   "format": "suvo",
+   "problems": [],
+   "text": "{SUVO}\n[NAT SOUND UP AND UNDER]\n\nFEATHERS, STEEL PAN AND A SEA OF PEOPLE ALONG LAKE SHORE BOULEVARD WEST...\nTORONTO'S CARIBBEAN CARNIVAL GRAND PARADE DREW AN ESTIMATED ONE MILLION-PLUS SPECTATORS TODAY.\nTHOUSANDS OF MASQUERADERS DANCED THE THREE-POINT-FIVE KILOMETRE ROUTE FROM EXHIBITION PLACE...\nIN THE FESTIVAL'S 58TH YEAR.\nPOLICE SAY NO MAJOR INCIDENTS WERE REPORTED... AND IT ALL WRAPS UP MONDAY.\n\nSuper:\nLake Shore Blvd. W.\n\nBanner:\nCaribbean Carnival Grand Parade draws a million"
+  },
+  {
+   "story": "suvo_festival",
+   "step": "punchier, three lines max",
+   "format": "suvo",
+   "problems": [],
+   "text": "{SUVO}\n[NAT SOUND UP AND UNDER]\n\nFEATHERS AND STEEL PAN ALONG LAKE SHORE BOULEVARD WEST... TORONTO'S CARIBBEAN CARNIVAL GRAND PARADE DREW AN ESTIMATED ONE MILLION-PLUS SPECTATORS TODAY.\nTHOUSANDS OF MASQUERADERS DANCED THE THREE-POINT-FIVE KILOMETRE ROUTE FROM EXHIBITION PLACE... IN THE FESTIVAL'S 58TH YEAR.\nPOLICE SAY NO MAJOR INCIDENTS WERE REPORTED... AND IT WRAPS UP MONDAY.\n\nSuper:\nLake Shore Blvd. W.\n\nBanner:\nCaribbean Carnival Grand Parade draws a million"
+  },
+  {
+   "story": "sotvo_ford",
+   "step": "new",
+   "format": "sotvo",
+   "problems": [],
+   "text": "{ON CAM}\nONTARIO IS ADDING MORE THAN 2-THOUSAND LONG-TERM CARE BEDS... WITH THE PREMIER SAYING THE PROVINCE WILL SPEND 1-POINT-2 BILLION DOLLARS OVER THREE YEARS ON 12 NEW HOMES.\n\n{VO}\nMOST OF THE BEDS ARE HEADED TO THE G-T-A AND OTTAWA.\nCONSTRUCTION ON THE FIRST FOUR HOMES STARTS NEXT SPRING.\nFORD SAYS THE BEDS ARE ABOUT GETTING SENIORS OUT OF HOSPITAL HALLWAYS.\n\n{SOT}\n[00:02:15 -- 00:02:24 | FORD NEWS CONFERENCE]\n\"EVERY SINGLE ONE OF THESE BEDS IS A SENIOR WHO GETS OUT OF A HOSPITAL HALLWAY AND INTO A PROPER HOME, AND THAT'S WHAT MATTERS TO ME. WE'RE NOT GOING TO STOP.\"\n\n{VO}\nTHE N-D-P CALLS IT ANOTHER PHOTO OP... SAYING MORE THAN 47-THOUSAND SENIORS ARE ON THE WAIT LIST.\n\nBanner: Ontario adds 2,400 long-term care beds"
+  },
+  {
+   "story": "live_throw",
+   "step": "new",
+   "format": "intro",
+   "problems": [],
+   "text": "{ON CAM}\nST. CATHARINES IS UNDER A STATE OF EMERGENCY TONIGHT... AFTER THE SECOND MAJOR STORM IN FOUR DAYS SWAMPED THE CITY.\nTHE MAYOR DECLARED IT THIS AFTERNOON... WITH MORE THAN 12-HUNDRED BASEMENT FLOODING CALLS SINCE THURSDAY.\nSEAN O'SHEA JOINS US LIVE FROM GENEVA STREET... SEAN, WHAT ARE RESIDENTS DEALING WITH RIGHT NOW?\n\nSuper:\nGeneva Street, St. Catharines, Ont.\n\nBanner:\nSt. Catharines declares state of emergency"
+  },
+  {
+   "story": "pkg_intro",
+   "step": "new",
+   "format": "intro",
+   "problems": [],
+   "text": "{ON CAM}\nA MISSISSAUGA MAN IS CHARGED WITH DANGEROUS DRIVING CAUSING DEATH... AFTER A 3-VEHICLE CRASH ON HIGHWAY 401 NEAR MILTON.\nPOLICE SAY A 61-YEAR-OLD WOMAN WAS KILLED IN THE CRASH SUNDAY AFTERNOON... AND FOUR OTHER PEOPLE WERE TAKEN TO HOSPITAL.\nINVESTIGATORS ALLEGE ONE DRIVER WAS GOING WELL OVER THE SPEED LIMIT.\nCATHERINE MCDONALD HAS MORE.\n\nSuper: Milton, Ont.\nBanner: Charge laid in fatal Highway 401 crash"
+  },
+  {
+   "story": "tease_zoo",
+   "step": "new",
+   "format": "tease",
+   "problems": [],
+   "text": "{VO}\nSHE'S ALREADY STANDING NEARLY TWO METRES TALL... AND SHE'S ONLY DAYS OLD.\nTHE NAME OF THE ZOO'S NEWEST CALF IS UP TO YOU -- JUST AHEAD."
+  },
+  {
+   "story": "headline_court",
+   "step": "new",
+   "format": "headline",
+   "problems": [],
+   "text": "{ANT VO}\nA JURY HAS FOUND A 31-YEAR-OLD SCARBOROUGH MAN GUILTY OF SECOND-DEGREE MURDER IN THE STABBING DEATH OF A 19-YEAR-OLD OUTSIDE SCARBOROUGH TOWN CENTRE.\nTHE VICTIM'S MOTHER SPOKE OUTSIDE THE COURTHOUSE -- KAMIL KARAMALI IS THERE.\n\nSuper: Toronto, Ont.\nBanner: Guilty verdict in Scarborough bus terminal stabbing"
+  },
+  {
+   "story": "banners",
+   "step": "new",
+   "format": "banner",
+   "problems": [],
+   "text": "Banner: Oakville pauses new data centre approvals\nBanner: Oakville council halts data centre approvals\nBanner: Oakville halts new data centre projects"
+  },
+  {
+   "story": "top_of_show",
+   "step": "new",
+   "format": "intro",
+   "problems": [],
+   "text": "(AR OC)\nGOOD EVENING AND THANKS FOR JOINING US -- I'M ANTONY ROBART.\n(CD OC)\nI'M CANDACE DANIEL.\nTOPPING OUR NEWS AT SIX TONIGHT -- A MAJOR CROSS-BORDER DRUG BUST.\nNEARLY 19-HUNDRED KILOGRAMS OF METHAMPHETAMINE AND COCAINE SEIZED IN WINDSOR AND MISSISSAUGA... WORTH AN ESTIMATED 139-MILLION DOLLARS ON THE STREET.\n(AR OC)\nTHE C-B-S-A AND R-C-M-P SAY THE DRUGS WERE HIDDEN IN SHIPMENTS OF FROZEN VEGETABLES... (unconfirmed)\n3 MEN FROM BRAMPTON, AGED 29 TO 44, ARE CHARGED WITH IMPORTING AND TRAFFICKING.\nSEAN O'SHEA IS LIVE WITH MORE ON THE STORY.\nSEAN -- BREAK THIS DOWN FOR US."
+  },
+  {
+   "story": "ocvo_union",
+   "step": "new",
+   "format": "ocvo",
+   "problems": [],
+   "text": "{ON CAM}\nABOUT 42-HUNDRED WORKERS AT THE OSHAWA ASSEMBLY PLANT COULD WALK OFF THE JOB AT 12:01 A-M FRIDAY.\n\n{VO}\nUNIFOR SAYS PENSIONS AND JOB SECURITY ARE THE STICKING POINTS... AS G-M SHIFTS TO ELECTRIC VEHICLE PRODUCTION.\nG-M CANADA SAYS IT REMAINS COMMITTED TO REACHING A FAIR AGREEMENT AT THE BARGAINING TABLE... AND THAT IT HAS MADE A STRONG OFFER.\nTALKS RESUME TOMORROW MORNING IN TORONTO.\n\nSuper:\nOshawa, Ont.\n\nBanner:\nUnifor sets Friday strike deadline at Oshawa GM plant"
+  },
+  {
+   "story": "dve_wildfire_us",
+   "step": "new",
+   "format": "dve",
+   "problems": [],
+   "text": "{VO}\nFLAMES CROSSED HIGHWAY 70 IN BUTTE COUNTY, CALIFORNIA OVERNIGHT... PUSHED BY WINDS GUSTING TO ABOUT 70 KILOMETRES AN HOUR.\nTHE RIDGE FIRE HAS NOW BURNED NEARLY 20-THOUSAND HECTARES AND IS 12 PER CENT CONTAINED.\nMORE THAN 9-THOUSAND PEOPLE ARE UNDER EVACUATION ORDERS... AND 112 STRUCTURES HAVE BEEN DESTROYED.\nNO DEATHS HAVE BEEN REPORTED.\n\nSuper:\nButte County, Calif.\n\nBanner:\nRidge Fire burns nearly 20,000 hectares in California"
+  },
+  {
+   "story": "dve_wildfire_us",
+   "step": "can you keep the acres?",
+   "format": "dve",
+   "problems": [],
+   "text": "{VO}\nFLAMES CROSSED HIGHWAY 70 IN BUTTE COUNTY, CALIFORNIA OVERNIGHT... PUSHED BY WINDS GUSTING TO ABOUT 70 KILOMETRES AN HOUR.\nTHE RIDGE FIRE HAS NOW BURNED 48-THOUSAND-500 ACRES AND IS 12 PER CENT CONTAINED.\nMORE THAN 9-THOUSAND PEOPLE ARE UNDER EVACUATION ORDERS... AND 112 STRUCTURES HAVE BEEN DESTROYED.\nNO DEATHS HAVE BEEN REPORTED.\n\nSuper:\nButte County, Calif.\n\nBanner:\nRidge Fire burns 48,500 acres in California"
+  },
+  {
+   "story": "affiliate_kingston",
+   "step": "new",
+   "format": "ocvo",
+   "problems": [],
+   "text": "{ON CAM}\nA FAIR EAST OF KINGSTON IS BACK FOR ITS 190TH YEAR... AND PEOPLE ARE LINING UP FOR THE MIDWAY.\n\n{VO}\nTHE FOUR-DAY ODESSA FAIR FEATURES THE DEMOLITION DERBY... THE HEAVY HORSE SHOW... AND THE BLUE-RIBBON PIE CONTEST.\nORGANIZERS EXPECT MORE THAN 20-THOUSAND VISITORS THIS YEAR.\nTHE FAIR WRAPS UP SUNDAY NIGHT.\n\nSuper:\nOdessa, Ont.\n\nBanner:\nOdessa Fair returns for its 190th year"
+  },
+  {
+   "story": "late_rewrite",
+   "step": "new",
+   "format": "ocvo",
+   "problems": [],
+   "text": "{ON CAM}\nA MOTORCYCLIST HAS DIED AFTER A COLLISION IN ETOBICOKE THIS AFTERNOON.\n\n{VO}\nPOLICE SAY THE 42-YEAR-OLD MAN WAS RUSHED TO A TRAUMA CENTRE AFTER THE CRASH... BUT DIED IN HOSPITAL.\nIT HAPPENED AROUND 3:30 NEAR THE QUEENSWAY AND ISLINGTON AVENUE.\nTHE DRIVER OF THE CAR REMAINED AT THE SCENE.\nTRAFFIC SERVICES IS INVESTIGATING.\n\nSuper:\nToronto\n\nBanner:\nMotorcyclist dies after Etobicoke collision"
+  },
+  {
+   "story": "oc_sot_vo_noclip",
+   "step": "new",
+   "format": "sotvo",
+   "problems": [],
+   "text": "{ON CAM}\nTORONTO IS ADDING 200 NEW SHELTER BEDS BEFORE THE END OF NOVEMBER... AS TEMPERATURES DROP.\n\n{VO}\nMAYOR OLIVIA CHOW MADE THE ANNOUNCEMENT AT CITY HALL TODAY... THE PLAN COSTS 14-MILLION DOLLARS.\nCOUNCILLOR BRAD BRADFORD CALLS IT TOO LITTLE, TOO LATE.\n\n{SOT}\n[OLIVIA CHOW CLIP]\n\n{VO}\nTHE BEDS ARE SET TO OPEN AS THE CITY HEADS INTO WINTER.\n\nSuper: Toronto City Hall\nBanner: Toronto adding 200 shelter beds by November"
+  },
+  {
+   "story": "ocvo_alleged",
+   "step": "new",
+   "format": "ocvo",
+   "problems": [],
+   "text": "{ON CAM}\nAN OAKVILLE MAN IS ACCUSED OF TAKING MORE THAN 640-THOUSAND DOLLARS FROM SENIORS IN A FAKE INVESTMENT SCHEME.\n\n{VO}\nHALTON POLICE SAY 52-YEAR-OLD GREGORY LIN TOOK THE MONEY FROM 11 VICTIMS BETWEEN 2023 AND 2025.\nHE'S CHARGED WITH FRAUD OVER 5-THOUSAND DOLLARS.\nPOLICE BELIEVE THERE MAY BE MORE VICTIMS.\nLIN IS DUE IN COURT IN MILTON ON NOVEMBER 14TH.\nNONE OF THE ALLEGATIONS HAVE BEEN PROVEN IN COURT.\n\nBanner:\nOakville man charged in alleged seniors fraud"
+  },
+  {
+   "story": "ocvo_alleged",
+   "step": "he's not charged yet, only arrested -- fix it",
+   "format": "ocvo",
+   "problems": [],
+   "text": "{ON CAM}\nAN OAKVILLE MAN HAS BEEN ARRESTED... ACCUSED OF TAKING MORE THAN 640-THOUSAND DOLLARS FROM SENIORS IN A FAKE INVESTMENT SCHEME.\n\n{VO}\nHALTON POLICE SAY 52-YEAR-OLD GREGORY LIN TOOK THE MONEY FROM 11 VICTIMS BETWEEN 2023 AND 2025.\nPOLICE BELIEVE THERE MAY BE MORE VICTIMS.\nLIN IS DUE IN COURT IN MILTON ON NOVEMBER 14TH.\nNONE OF THE ALLEGATIONS HAVE BEEN PROVEN IN COURT.\n\nBanner:\nOakville man arrested in alleged seniors fraud"
+  },
+  {
+   "story": "suvo_tease_clip",
+   "step": "new",
+   "format": "tease",
+   "problems": [],
+   "text": "[\"THIS IS THE GREATEST EVOLVING FIRE SAFETY RISK IN CANADA'S LARGEST CITY.\"]\n{SU-VO}\nTORONTO'S FIRE CHIEF WITH A BLUNT WARNING... AFTER THREE LITHIUM-ION BATTERY FIRES IN 24 HOURS SENT THREE PEOPLE TO HOSPITAL.\nTHE PUSH FOR TOUGHER RULES ON E-BIKE BATTERIES -- STRAIGHT AHEAD.\n\nBanner: Lithium-ion battery fires prompt safety push"
+  },
+  {
+   "story": "ocvo_no_material",
+   "step": "new",
+   "format": "ocvo",
+   "problems": [],
+   "text": "Paste the source copy for the Bank of Canada rate decision (and a shot list or SUPER if you have one) and I'll write the OCVO."
+  },
+  {
+   "story": "suvo_kilauea",
+   "step": "new",
+   "format": "suvo",
+   "problems": [],
+   "text": "{SUVO}\n[NAT SOUND UP AND UNDER]\n\nHAWAII'S KILAUEA VOLCANO IS ERUPTING AGAIN AFTER NEARLY TWO MONTHS OF QUIET.\nLAVA FOUNTAINS AT THE SUMMIT SHOT MORE THAN 200 METRES INTO THE AIR EARLY THIS MORNING... SENDING AN ASH PLUME ABOUT 76-HUNDRED METRES ABOVE SEA LEVEL.\nTHE U-S GEOLOGICAL SURVEY SAYS THIS IS THE 55TH FOUNTAINING EPISODE SINCE THE SUMMIT ERUPTION BEGAN IN DECEMBER 2024... AND THESE EPISODES USUALLY LAST 12 HOURS OR LESS.\n\nSuper:\nHawaii Volcanoes National Park, HI\n\nBanner:\nKilauea's 55th lava fountaining episode"
+  },
+  {
+   "story": "suvo_kilauea",
+   "step": "WE WANT THE 25K NUMBER",
+   "format": "suvo",
+   "problems": [],
+   "text": "{SUVO}\n[NAT SOUND UP AND UNDER]\n\nHAWAII'S KILAUEA VOLCANO IS ERUPTING AGAIN AFTER NEARLY TWO MONTHS OF QUIET.\nLAVA FOUNTAINS AT THE SUMMIT SHOT MORE THAN 200 METRES INTO THE AIR EARLY THIS MORNING... SENDING AN ASH PLUME 25-THOUSAND FEET ABOVE SEA LEVEL.\nTHE U-S GEOLOGICAL SURVEY SAYS THIS IS THE 55TH FOUNTAINING EPISODE SINCE THE SUMMIT ERUPTION BEGAN IN DECEMBER 2024... AND THESE EPISODES USUALLY LAST 12 HOURS OR LESS.\n\nSuper:\nHawaii Volcanoes National Park, HI\n\nBanner:\nKilauea's 55th lava fountaining episode"
+  },
+  {
+   "story": "ocvo_boc",
+   "step": "new",
+   "format": "ocvo",
+   "problems": [],
+   "text": "{ON CAM}\nSOME ECONOMISTS EXPECT THE BANK OF CANADA TO RAISE ITS KEY INTEREST RATE AS EARLY AS NEXT WEEK... THE FIRST HIKE IN MORE THAN THREE YEARS.\n\n{VO}\nTHE CENTRAL BANK HAS HELD THE RATE STEADY FOR ABOUT A YEAR.\nIT HAS WARNED INFLATION WILL KEEP RISING AS A RIPPLE EFFECT OF THE IRAN WAR AND OTHER FACTORS.\nLAST MONTH THE U-S FEDERAL RESERVE HIKED ITS OWN RATE FOR THE FIRST TIME IN THREE YEARS.\nSCOTIABANK FORECASTS A QUARTER-POINT HIKE NEXT WEEK.\n\nBanner:\nBank of Canada rate hike expected next week"
+  },
+  {
+   "story": "ocvo_boc",
+   "step": "shorter, lose the quote",
+   "format": "ocvo",
+   "problems": [],
+   "text": "{ON CAM}\nTHE BANK OF CANADA COULD RAISE ITS KEY INTEREST RATE AS EARLY AS NEXT WEEK... THE FIRST HIKE IN MORE THAN THREE YEARS.\n\n{VO}\nTHE CENTRAL BANK HAS HELD THE RATE STEADY FOR ABOUT A YEAR... BUT WARNS INFLATION WILL KEEP RISING.\nLAST MONTH THE U-S FEDERAL RESERVE HIKED ITS OWN RATE FOR THE FIRST TIME IN THREE YEARS.\nSCOTIABANK FORECASTS A QUARTER-POINT HIKE NEXT WEEK.\n\nBanner:\nBank of Canada rate hike expected next week"
+  }
+ ]
+}

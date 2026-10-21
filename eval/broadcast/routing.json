@@ -1,0 +1,437 @@
+{
+ "contexts": {
+  "php_ocvo": "{ON CAM}\nOTTAWA IS TAKING DOWN SOME OF ITS OWN WEBSITES TONIGHT... AFTER A MAJOR FLAW WAS FOUND IN THE CODING THAT RUNS MOST OF THE INTERNET.\n\n{VO}\nDEVELOPERS OF PHP SAID TUESDAY THEY FOUND TWO CRITICAL VULNERABILITIES.\nTHE FLAWS COULD LET ATTACKERS STEAL INFORMATION... OR TAKE OVER WEBSITES AND SERVERS.\nAI MINISTER EVAN SOLOMON SAYS THE SITES CAME DOWN ON THE ADVICE OF CANADA'S CYBER SECURITY CENTRE.\nSOLOMON SAYS AFFECTED SITES WILL BE RESTORED ONCE PATCHES ARE APPLIED.\n\nBanner:\nOttawa pulls websites over PHP flaw\n\nCHECK: which government websites are affected",
+  "kilauea_suvo": "{SUVO}\n[NAT SOUND UP AND UNDER]\n\nHAWAII'S KILAUEA VOLCANO IS ERUPTING AGAIN AFTER NEARLY TWO MONTHS OF QUIET.\nLAVA FOUNTAINS AT THE SUMMIT SHOT MORE THAN 200 METRES INTO THE AIR EARLY THIS MORNING... SENDING AN ASH PLUME HIGH INTO THE SKY.\nIT'S THE 55TH FOUNTAINING EPISODE SINCE DECEMBER 2024... WHICH OFFICIALS SAY TYPICALLY LAST LESS THAN 12 HOURS.\n\nSuper:\nHawaii Volcanoes National Park, HIT\n\nBanner:\nHawaii's Kilauea volcano erupts again",
+  "ford_sotvo": "{ON CAM}\nONTARIO IS SPENDING 1-POINT-2 BILLION DOLLARS TO BUILD 12 NEW LONG-TERM CARE HOMES.\n\n{VO}\nTHE PLAN ANNOUNCED TODAY ADDS ABOUT 24-HUNDRED BEDS... MOSTLY IN THE G-T-A AND OTTAWA.\nTHE N-D-P SAYS THE PLAN FALLS SHORT.\n\n{SOT}\n[00:02:15 -- 00:02:24 | PREMIER DOUG FORD]\n\"EVERY SINGLE ONE OF THESE BEDS IS A SENIOR WHO GETS OUT OF A HOSPITAL HALLWAY AND INTO A PROPER HOME.\"\n\n{VO}\nTHE N-D-P CALLS IT ANOTHER PHOTO OP... WHILE 47-THOUSAND SENIORS WAIT.",
+  "boc_research": "The Bank of Canada decides next Wednesday, October 28, at 9:45 a.m. ET, and Scotiabank is calling a quarter-point hike, the first in more than three years [7][8]. Canadian inflation ran 3.1 per cent in September [5].",
+  "none": ""
+ },
+ "cases": [
+  {
+   "id": "r01",
+   "context": "php_ocvo",
+   "request": "should it not be in the code that runs most of the internet?",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r02",
+   "context": "php_ocvo",
+   "request": "isn't it 'the code' not 'the coding'?",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r03",
+   "context": "php_ocvo",
+   "request": "the coding -> the code",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r04",
+   "context": "php_ocvo",
+   "request": "grammar check pls",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r05",
+   "context": "php_ocvo",
+   "request": "typo in line 2",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r06",
+   "context": "php_ocvo",
+   "request": "make it shorter",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r07",
+   "context": "php_ocvo",
+   "request": "can you make it 20 seconds",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r08",
+   "context": "php_ocvo",
+   "request": "make it a DVE",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "dve"
+   ]
+  },
+  {
+   "id": "r09",
+   "context": "php_ocvo",
+   "request": "turn this into a SUVO",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "suvo"
+   ]
+  },
+  {
+   "id": "r10",
+   "context": "php_ocvo",
+   "request": "add that Finland and the Netherlands also pulled sites offline",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r11",
+   "context": "php_ocvo",
+   "request": "lose the CHECK line",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r12",
+   "context": "php_ocvo",
+   "request": "banner is too long",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r13",
+   "context": "php_ocvo",
+   "request": "can u make it punchier",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r14",
+   "context": "php_ocvo",
+   "request": "too many numbers",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r15",
+   "context": "php_ocvo",
+   "request": "give me a tease for this",
+   "intent": [
+    "new_script",
+    "edit"
+   ],
+   "format": [
+    "tease"
+   ]
+  },
+  {
+   "id": "r16",
+   "context": "php_ocvo",
+   "request": "write a headline for this",
+   "intent": [
+    "new_script",
+    "edit"
+   ],
+   "format": [
+    "headline"
+   ]
+  },
+  {
+   "id": "r17",
+   "context": "php_ocvo",
+   "request": "why did you say tonight?",
+   "intent": [
+    "question"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r18",
+   "context": "php_ocvo",
+   "request": "why no super?",
+   "intent": [
+    "question"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r19",
+   "context": "php_ocvo",
+   "request": "what's the latest on the PHP patch?",
+   "intent": [
+    "other"
+   ],
+   "format": null
+  },
+  {
+   "id": "r20",
+   "context": "php_ocvo",
+   "request": "who is evan solomon?",
+   "intent": [
+    "other"
+   ],
+   "format": null
+  },
+  {
+   "id": "r21",
+   "context": "php_ocvo",
+   "request": "now do one on the TTC strike",
+   "intent": [
+    "new_script"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r22",
+   "context": "php_ocvo",
+   "request": "/suvo The Toronto Zoo welcomed a baby giraffe on Oct. 12, the first giraffe birth at the zoo in eight years.",
+   "intent": [
+    "new_script"
+   ],
+   "format": [
+    "suvo"
+   ]
+  },
+  {
+   "id": "r23",
+   "context": "php_ocvo",
+   "request": "Write OCVO\n\nThe Bank of Canada has held its key interest rate unchanged for about a year, but some economists expect rates to begin increasing again as early as next week, which would be the first hike in more than three years.",
+   "intent": [
+    "new_script"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r24",
+   "context": "kilauea_suvo",
+   "request": "U R WRITIN FOR CANADIAN AUDIENCE, KEEP IT SHORT AND TOO THE POINT, VISUALS ARE GREAT",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "suvo"
+   ]
+  },
+  {
+   "id": "r25",
+   "context": "kilauea_suvo",
+   "request": "WE WANT THE 25K NUMBER",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "suvo"
+   ]
+  },
+  {
+   "id": "r26",
+   "context": "kilauea_suvo",
+   "request": "use feet not metres",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "suvo"
+   ]
+  },
+  {
+   "id": "r27",
+   "context": "kilauea_suvo",
+   "request": "Hawaii Volcanoes National Park, HI not HIT",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "suvo"
+   ]
+  },
+  {
+   "id": "r28",
+   "context": "kilauea_suvo",
+   "request": "shouldn't the first line mention the summit?",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "suvo"
+   ]
+  },
+  {
+   "id": "r29",
+   "context": "kilauea_suvo",
+   "request": "what does nat sound up and under mean?",
+   "intent": [
+    "question",
+    "other"
+   ],
+   "format": null
+  },
+  {
+   "id": "r30",
+   "context": "kilauea_suvo",
+   "request": "is the volcano still erupting right now?",
+   "intent": [
+    "other"
+   ],
+   "format": null
+  },
+  {
+   "id": "r31",
+   "context": "ford_sotvo",
+   "request": "use the 02:24 clip instead",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "sotvo"
+   ]
+  },
+  {
+   "id": "r32",
+   "context": "ford_sotvo",
+   "request": "the NDP line repeats, fix",
+   "intent": [
+    "edit"
+   ],
+   "format": [
+    "sotvo"
+   ]
+  },
+  {
+   "id": "r33",
+   "context": "ford_sotvo",
+   "request": "who said the photo op line?",
+   "intent": [
+    "question",
+    "other"
+   ],
+   "format": null
+  },
+  {
+   "id": "r34",
+   "context": "boc_research",
+   "request": "write an ocvo from this",
+   "intent": [
+    "new_script"
+   ],
+   "format": [
+    "ocvo"
+   ]
+  },
+  {
+   "id": "r35",
+   "context": "boc_research",
+   "request": "draft a tease",
+   "intent": [
+    "new_script"
+   ],
+   "format": [
+    "tease"
+   ]
+  },
+  {
+   "id": "r36",
+   "context": "boc_research",
+   "request": "give me banners",
+   "intent": [
+    "new_script"
+   ],
+   "format": [
+    "banner"
+   ]
+  },
+  {
+   "id": "r37",
+   "context": "boc_research",
+   "request": "rewrite the second paragraph",
+   "intent": [
+    "none"
+   ],
+   "format": null
+  },
+  {
+   "id": "r38",
+   "context": "none",
+   "request": "what does OCVO stand for?",
+   "intent": [
+    "other"
+   ],
+   "format": null
+  },
+  {
+   "id": "r39",
+   "context": "none",
+   "request": "What are today's top headlines in Toronto?",
+   "intent": [
+    "none"
+   ],
+   "format": null
+  },
+  {
+   "id": "r40",
+   "context": "none",
+   "request": "Find the latest on the TTC strike",
+   "intent": [
+    "none"
+   ],
+   "format": null
+  }
+ ]
+}

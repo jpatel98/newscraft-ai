@@ -1,0 +1,160 @@
+{
+ "stories": [
+  {
+   "id": "ocvo_crime",
+   "request": "Write OCVO\nPeel Regional Police news release: Officers responded to reports of gunshots in the area of Queen Street East and Kennedy Road South in Brampton at approximately 11:40 p.m. Sunday. A 34-year-old man was located with gunshot wounds and transported to a trauma centre in life-threatening condition. A suspect fled the area in a dark-coloured sedan prior to police arrival. No arrests have been made. The investigation is in its early stages and police are not yet able to say whether the shooting was targeted. Anyone with information is asked to contact the 22 Division Criminal Investigation Bureau at 905-453-2121 ext. 2233 or Crime Stoppers at 1-800-222-8477.\nSHOT LIST: police tape, evidence markers on road, cruisers at scene (night)",
+   "notes": [
+    {
+     "text": "make it a DVE",
+     "intent": "edit",
+     "format": "dve"
+    },
+    {
+     "text": "why did you leave out the phone number?",
+     "intent": "question"
+    }
+   ]
+  },
+  {
+   "id": "dve_transit",
+   "request": "/dve\nThe TTC says Line 1 subway service will be suspended between St Clair and Union stations this Saturday and Sunday for track work and signal upgrades. Shuttle buses will run, and riders are advised to add up to 30 minutes to their trips. The TTC says the closure is one of 11 planned weekend closures this year. Service resumes Monday at 6 a.m. More info at ttc.ca.",
+   "notes": []
+  },
+  {
+   "id": "suvo_festival",
+   "request": "write a SUVO\nToronto Caribbean Carnival Grand Parade took place Saturday along Lake Shore Boulevard West. Organizers estimate more than one million spectators. Thousands of masqueraders in elaborate costumes danced along the 3.5-kilometre route from Exhibition Place. It was the 58th year of the festival, which organizers call \"the largest celebration of Caribbean culture in North America.\" Police say no major incidents were reported. The festival wraps up Monday.\nSHOT LIST: masqueraders in feathered costumes, steel pan band, crowds lining Lake Shore\nSUPER: Lake Shore Blvd. W.",
+   "notes": [
+    {
+     "text": "punchier, three lines max",
+     "intent": "edit",
+     "max_lines": 3
+    }
+   ]
+  },
+  {
+   "id": "sotvo_ford",
+   "request": "OCVO SOTVO\nPremier Doug Ford announced today the province will spend $1.2 billion over three years to build 12 new long-term care homes, creating about 2,400 new beds, mostly in the GTA and Ottawa. Construction on the first four homes begins next spring. Ontario's NDP says the plan falls short, noting the wait list for long-term care in Ontario is more than 47,000 people.\nTRANSCRIPT (Ford, news conference):\n00:02:10 \"Look, folks, we've been building, and we're going to keep building.\"\n00:02:15 \"Every single one of these beds is a senior who gets out of a hospital hallway and into a proper home, and that's what matters to me.\"\n00:02:24 \"We're not going to stop.\"\nNDP statement: \"Another photo op while 47,000 seniors wait.\" ",
+   "notes": []
+  },
+  {
+   "id": "live_throw",
+   "request": "write me a live throw to Sean O'Shea\nNotes: Second major storm in four days hit St. Catharines and Niagara overnight. City says more than 1,200 basement flooding calls since Thursday. State of emergency declared by the mayor this afternoon. Sean is live on Geneva Street. His live hit will cover residents bailing water and what the emergency declaration means for funding.",
+   "notes": []
+  },
+  {
+   "id": "pkg_intro",
+   "request": "write a package intro for Catherine McDonald\nReporter script first line: \"IT WAS SUPPOSED TO BE A ROUTINE SUNDAY DRIVE FOR THE PATEL FAMILY.\"\nStory: Ontario Provincial Police say a 3-vehicle crash on Highway 401 near Milton on Sunday afternoon killed a 61-year-old woman and sent four others to hospital. Police allege one driver, a 28-year-old Mississauga man, was travelling well over the speed limit. He is charged with dangerous driving causing death. The family of the woman who died spoke to Catherine about her work as a nurse for 30 years.",
+   "notes": []
+  },
+  {
+   "id": "tease_zoo",
+   "request": "draft a tease\nStory: The Toronto Zoo welcomed a baby Masai giraffe on Oct. 12, the first giraffe birth at the zoo in eight years. The calf, a female, stood about 1.8 metres tall at birth and was walking within an hour. She hasn't been named; the zoo is running a public naming contest. She'll be on public view starting next week.\nThe ON CAM that follows: \"A TALL NEW ARRIVAL AT THE TORONTO ZOO... THE FIRST GIRAFFE BORN THERE IN EIGHT YEARS.\" ",
+   "notes": []
+  },
+  {
+   "id": "headline_court",
+   "request": "write a headline\nA jury has found a 31-year-old Scarborough man, Darnell Price, guilty of second-degree murder in the 2023 stabbing death of 19-year-old Malik Hassan outside a Scarborough Town Centre bus terminal. The victim's mother addressed reporters outside the courthouse after the verdict. Sentencing is set for January. A second-degree murder conviction carries an automatic life sentence; the judge will set parole eligibility between 10 and 25 years. Reporter Kamil Karamali is at the courthouse.",
+   "notes": []
+  },
+  {
+   "id": "banners",
+   "request": "give me banners for this\nOakville town council voted 9-6 Tuesday night to pause approvals for new data centre projects for 12 months while staff study power and water use. Two proposed sites in north Oakville are affected.",
+   "notes": []
+  },
+  {
+   "id": "top_of_show",
+   "request": "/intro top of show at six. Anchors: AR is Antony Robart, CD is Candace Daniel. Reporter Sean O'Shea is live.\nCBSA and RCMP say they seized nearly 1,900 kilograms of methamphetamine and cocaine at the Ambassador Bridge in Windsor and a warehouse in Mississauga, with an estimated street value of $139 million. Three men from Brampton, aged 29 to 44, are charged with importing and trafficking. Investigators allege the drugs were hidden in shipments of frozen vegetables.",
+   "notes": []
+  },
+  {
+   "id": "ocvo_union",
+   "request": "write an ocvo\nUnifor says about 4,200 workers at the Oshawa assembly plant could walk off the job at 12:01 a.m. Friday if no deal is reached with General Motors. The union says the key issues are pensions and job security as GM shifts to electric vehicle production. In a statement, GM Canada says it \"remains committed to reaching a fair agreement at the bargaining table\" and that it has made \"a strong offer.\" Talks resume tomorrow morning in Toronto.",
+   "notes": []
+  },
+  {
+   "id": "dve_wildfire_us",
+   "request": "DVE VO please\nCAL FIRE: The Ridge Fire in Butte County, California has burned 48,500 acres and is 12% contained as of Monday evening. More than 9,000 residents are under evacuation orders. Winds gusting up to 45 mph pushed the fire across Highway 70 overnight. 112 structures destroyed. 2,300 firefighters assigned. No deaths reported.\nSHOT LIST: flames crossing highway at night, air tanker drops, burned homes",
+   "notes": [
+    {
+     "text": "can you keep the acres?",
+     "intent": "edit",
+     "allow_units": [
+      "ACRES"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "affiliate_kingston",
+   "request": "rewrite this ocvo for Toronto\nKingston affiliate script:\n{ON CAM}\nTHE ODESSA FAIR IS BACK FOR ITS 190TH YEAR... AND HERE AT HOME, FOLKS ARE LINING UP FOR THE MIDWAY.\n{VO}\nTHE FOUR-DAY FAIR FEATURES THE DEMOLITION DERBY, THE HEAVY HORSE SHOW AND THE BLUE-RIBBON PIE CONTEST.\nORGANIZERS EXPECT MORE THAN 20-THOUSAND VISITORS THIS YEAR.\nTHE FAIR WRAPS UP SUNDAY NIGHT.",
+   "notes": []
+  },
+  {
+   "id": "late_rewrite",
+   "request": "rewrite this 6pm OCVO for the 11\n{ON CAM}\nA MOTORCYCLIST IS IN CRITICAL CONDITION AFTER A COLLISION IN ETOBICOKE THIS AFTERNOON.\n{VO}\nIT HAPPENED AROUND 3:30 NEAR THE QUEENSWAY AND ISLINGTON AVENUE.\nPARAMEDICS RUSHED THE MAN TO A TRAUMA CENTRE.\nTHE DRIVER OF THE CAR REMAINED AT THE SCENE.\nUpdate 9:40 pm from Toronto Police: the motorcyclist, a 42-year-old man, has died in hospital. Traffic Services is investigating.",
+   "notes": []
+  },
+  {
+   "id": "oc_sot_vo_noclip",
+   "request": "write an OC/SOT/VO\nToronto Mayor Olivia Chow says the city will add 200 new shelter beds before the end of November as temperatures drop, at a cost of $14 million. Chow made the announcement at city hall. Councillor Brad Bradford says the plan is \"too little, too late.\" We have a clip of Chow but no transcript.",
+   "notes": []
+  },
+  {
+   "id": "ocvo_alleged",
+   "request": "Write OCVO\nHalton police say a 52-year-old Oakville man, Gregory Lin, has been charged with fraud over $5,000 after allegedly taking more than $640,000 from 11 seniors through a fake investment scheme between 2023 and 2025. Police believe there may be more victims. Lin is scheduled to appear in court in Milton on Nov. 14. None of the allegations have been proven in court.",
+   "notes": [
+    {
+     "text": "he's not charged yet, only arrested -- fix it",
+     "intent": "edit",
+     "must_not": [
+      "CHARGED WITH"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "suvo_tease_clip",
+   "request": "write a suvo tease\nClip from Toronto Fire Chief: \"This is the greatest evolving fire safety risk in Canada's largest city.\"\nStory: Toronto Fire Services responded to three lithium-ion battery fires in 24 hours, sending three people to hospital. The chief is calling for tougher regulations on e-bike batteries.",
+   "notes": []
+  },
+  {
+   "id": "ocvo_no_material",
+   "request": "/ocvo Bank of Canada rate decision",
+   "notes": [],
+   "expect": "no_script"
+  },
+  {
+   "id": "suvo_kilauea",
+   "request": "WRITE suvo\n\nNFORMATION PROVIDED BY USGS VOLCANOES: \nAfter nearly two months since episode 54 of lava fountaining (Aug. 25, 2026), episode 55 of Kilauea summit lava fountaining began at 3:19 a.m. HST this morning, October 17, and is ongoing.  \n\nThis is the 55th lava fountaining episode in the Kilauea summit caldera eruption in Hawai‘i Volcanoes National Park that began on December 23, 2024. It occurs following weeks of intermittent spatter, low-dome fountains, and lava flows from the eruptive vent complex. The lava fountain from the north vent reached an estimated 700 feet high above the vent around 5 a.m. Hawaii Standard Time. \n\nThe eruptive plume is reaching an estimated 25,000 feet above sea level. According to the National Weather Service, winds are blowing from the north-northeast direction, which suggests that volcanic gas emissions and volcanic material may be distributed to the south-southwest.  \n\nFountaining episodes typically last 12 hours or less, but ash can remain in the air for longer depending on wind and weather conditions.  \n\nPlease stay aware of hazards and rely on official updates from USGS, National Weather Service, and Hawai’i Volcanoes National Park.  \n\nSUPER: \nHawaii Volcanoes National Park, HIT \n\nSHOT LIST: \nVertical VO - lava fountain c/u, wide angles on lava flow & lava fountain, eruption event at a distance \n",
+   "notes": [
+    {
+     "text": "WE WANT THE 25K NUMBER",
+     "intent": "edit",
+     "allow_units": [
+      "FEET"
+     ],
+     "must": [
+      "25-THOUSAND"
+     ]
+    }
+   ],
+   "allow_units": [
+    "FEET"
+   ]
+  },
+  {
+   "id": "ocvo_boc",
+   "request": "Write OCVO\n\nThe Bank of Canada has held its key interest rate unchanged for about a year, but some economists expect rates to begin increasing again as early as next week — which would be the first hike in more than three years.\n\nThis comes after a recent warning from the central bank that inflation is expected to keep rising as a ripple effect of the Iran war and other factors.\n\nLast month, the U.S. Federal Reserve hiked its key policy rate for the first time in three years, and after U.S. inflation in August topped 3.4 per cent.\n\nTamping down red-hot inflation is key to making life more affordable for Canadians amid the heightened cost of living — along with increasing wages and salaries — but in order to achieve this, it may mean some will end up paying more to borrow money.\n\nCentral banks usually increase their benchmark borrowing rate to help cool down inflation, which can raise costs for Canadians and businesses with products like variable rate mortgages, and some loans for cars, tuition and business.\n\n“The trend continues to provide the BoC [Bank of Canada] with a warning that it needs to get on with tightening next week. We forecast the Bank of Canada will hike 25bps [0.25 per cent] next week,” said Derek Holt, vice president and head of Capital Markets Economics at Scotiabank in a statement on Monday.\n",
+   "notes": [
+    {
+     "text": "shorter, lose the quote",
+     "intent": "edit",
+     "shorter": true,
+     "must_not": [
+      "GET ON WITH TIGHTENING"
+     ]
+    }
+   ]
+  }
+ ]
+}
