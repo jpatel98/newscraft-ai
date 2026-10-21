@@ -959,7 +959,9 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 					return localAssistantResponse(
 						accountId,
 						convoId,
-						`I found ${command.slash}, but it did not produce a usable skill prompt.`,
+						command.category === 'Writing'
+							? `Paste the source copy after ${command.slash} (add a shot list or SUPER if you have one).`
+							: `I found ${command.slash}, but it did not produce a usable skill prompt.`,
 						traceId
 					);
 				}

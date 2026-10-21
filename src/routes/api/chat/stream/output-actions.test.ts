@@ -43,11 +43,11 @@ describe('chat output action prompts', () => {
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('one main thought per sentence');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('publication-ban or youth-identity safeguards');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Spoken lines carry no citation markers');
-		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('SOURCES: [n] [m]');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Sources: [n] [m]');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).not.toContain('Citation markers are not spoken words');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Do not invent pictures, sound, quotes, or facts');
-		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Do not add a BANNER');
-		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('NEEDS EDITORIAL CHECK:');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('Banner:');
+		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).toContain('CHECK: [EXACT MISSING FACT.]');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).not.toContain('**ON CAM**');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).not.toContain('**BANNER**');
 		expect(NEWSCRAFT_OCVO_WRITING_GUIDE).not.toContain('Use only the selected answer');

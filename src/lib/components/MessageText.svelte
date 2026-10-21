@@ -115,7 +115,8 @@
 	function stripCitationNoise(value: string): string {
 		return value
 			.replace(/(?:^|\n)\s*(?:#{1,6}\s*)?(?:sources?|references?|citations?)\b\s*:?\s*[\s\S]*$/i, '')
-			.replace(/\s+\bSOURCES\b\s+[\s\S]*$/i, '')
+			// A trailing sources list, not a spoken line such as POLICE SOURCES SAY.
+			.replace(/\s+\bSOURCES\b\s*:?\s*(?=\[\d|https?:)[\s\S]*$/i, '')
 			.replace(/\bPosted times?:\s*[\s\S]*?(?=\s+(?:Additional confirmations?|AP write[- ]?up|Canadian Press version|Sources?:)\b|$)/gi, '')
 			.replace(/\bAdditional confirmations?:\s*[\s\S]*$/i, '')
 			.replace(/\bAP write[- ]?up carried by\s*[\s\S]*$/i, '')

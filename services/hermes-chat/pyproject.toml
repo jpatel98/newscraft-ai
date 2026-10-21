@@ -19,3 +19,6 @@ newscraft-agent = "hermes_chat.service:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+hermes_chat = ["skills/broadcast/*.md"]
