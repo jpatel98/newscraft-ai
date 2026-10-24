@@ -17,6 +17,8 @@ from functools import cache
 from pathlib import Path
 from typing import Any, Final, Mapping, Sequence
 
+from . import tape
+
 SKILL_DIR: Final = Path(__file__).with_name("skills") / "broadcast"
 FORMATS: Final = ("ocvo", "dve", "suvo", "sotvo", "intro", "tease", "headline", "banner")
 LABELS: Final = {"ocvo": "OCVO", "dve": "DVE VO", "suvo": "SUVO", "sotvo": "SOTVO", "intro": "intro", "tease": "tease",
@@ -198,13 +200,15 @@ _SPELLED = re.compile(r"\b(?:ELEVEN|TWELVE|THIRTEEN|FOURTEEN|FIFTEEN|SIXTEEN|SEV
                       r"FIFTY|SIXTY|SEVENTY|EIGHTY|NINETY)\b")
 
 
-def check(script: str, fmt: str, *, mode: str, request: str = "", previous: str = "") -> list[str]:
+def check(script: str, fmt: str, *, mode: str, request: str = "", previous: str = "",
+          turns: Sequence[Mapping[str, Any]] = ()) -> list[str]:
     """House rules a script can break measurably. An edit follows the producer's note: its length is not checked, and it may
-    keep an imperial unit the last script had or the note names, but it must not bring back others."""
+    keep an imperial unit the last script had or the note names, but it must not bring back others. ``turns`` are the
+    attached tape's speaker turns; with tape attached, every quoted SOT must be word-for-word from one turn."""
     if mode == "question" or not script_format(script):
         return []
     body = re.split(r"\n\s*(?:Super|Banner|Sources|CHECK)\s*:", "\n" + script, maxsplit=1, flags=re.I)[0]
-    problems = []
+    problems = tape.quote_problems(script, turns)
     lower = [line.strip() for line in body.splitlines() if re.search(r"[a-z]", re.sub(r"\[.*?\]|\{.*?\}|\(.*?\)", "", line))]
     if lower:
         problems.append(f"Spoken lines must be entirely upper case: {lower[0][:60]}")
@@ -242,8 +246,10 @@ def repair_prompt(problems: Sequence[str]) -> str:
             "Return only paste-ready copy, with no explanation.")
 
 
-def has_material(request: str, *, prior_answer: bool) -> bool:
-    """True when the turn already carries something to write from: pasted copy, or an earlier answer in the thread."""
+def has_material(request: str, *, prior_answer: bool, tape_attached: bool = False) -> bool:
+    """True when the turn already carries something to write from: pasted copy, an earlier answer in the thread, or attached tape."""
+    if tape_attached:
+        return True
     body = strip_slash(request)
     body = re.sub(r"^\s*(?:please\s+)?(?:write|draft|give me|make|do)\b[^\n]{0,40}\n", "", body, count=1, flags=re.I)
     return prior_answer or len(body.strip()) >= 160
@@ -262,8 +268,9 @@ def instructions(fmt: str) -> str:
 
 
 def writer_prompt(fmt: str, *, mode: str = "new_script", pages: Sequence[Mapping[str, Any]] = (), page_listing: str = "", show: str = "",
-                  sources_line: bool = False, material: bool = True, previous: str = "") -> str:
-    """The instruction appended to the producer's message for the one writing call."""
+                  sources_line: bool = False, material: bool = True, previous: str = "", tape_listing: str = "") -> str:
+    """The instruction appended to the producer's message for the one writing call. ``tape_listing`` is the clip-candidate
+    block from tape.sot_listing when transcripts are attached."""
     label = LABELS[fmt]
     revision = mode == "edit"
     if mode == "question":
@@ -291,9 +298,14 @@ def writer_prompt(fmt: str, *, mode: str = "new_script", pages: Sequence[Mapping
     if not material and not pages:
         lead += (" There is no material to write from and nothing was found: do not write a script. Reply in one line asking the producer "
                  "to paste the source copy (and a shot list or SUPER if they have one).")
+    if tape_listing and not revision:
+        lead += (" The attached transcript turns in this conversation are verbatim tape: use them as the story's material, "
+                 "quote them exactly, and never attribute to the speaker words that are not in a turn.")
     parts = [lead]
     if show:
         parts.append(show.strip())
+    if tape_listing and not revision:
+        parts.append(tape_listing)
     if pages:
         parts.append("There was no pasted material, so these sources were found for the script. Write only facts they support. "
                      "Keep [n] markers out of the spoken copy; after the Banner add one final line: Sources: [n] [m] listing the sources used.\n\n"

@@ -38,3 +38,34 @@ The engine sits behind `TranscriptionEngine` in
 
 Rollback: `drizzle/rollback/0024_transcripts.down.sql`. Audio files stay on the
 gateway disk under `newsroom-audio/` until removed by hand.
+
+## Attaching tape to a chat (migration 0025)
+
+A transcript can be attached to a conversation as a source. Attaching copies
+nothing; on every later turn the chat seeds one citation per speaker turn,
+`transcript://<id>#t=<startMs>,<endMs>`, with the turn's verbatim words as the
+excerpt (`src/lib/server/transcripts/context.ts`, then
+`transcriptCitationContext` in `src/lib/server/agent/transport.ts`). The worker
+treats those citations as private tape: never fetched, only quoted
+(`services/hermes-chat/src/hermes_chat/tape.py`). In a SOTVO turn the worker
+computes clip candidates from the turns and checks that every quoted SOT is
+word-for-word from one turn, repairing the script once if it is not.
+
+- `GET /api/conversations/[id]/transcripts` → attached transcripts.
+- `POST /api/conversations/[id]/transcripts { transcriptId }` → attach (202 while
+  transcription is still running; the tape is seeded once it completes).
+- `DELETE /api/conversations/[id]/transcripts/[transcriptId]` → detach.
+
+Budget: at most 100 turns and 90,000 characters of tape per run across all
+attached transcripts, oldest attachment first; the tail is dropped and logged as
+`chat.transcript_context_truncated`. Consecutive fragments by one speaker are
+merged into a turn (gap under 1.5 s, turn under 20 s and 400 characters) before
+the count, so a 20-minute interview is usually 40 to 80 turns. The worker caps
+seeded citations at 100 numbers in total (documents and prior sources included),
+so a long interview is better attached alone.
+
+Rollback: `drizzle/rollback/0025_conversation_transcripts.down.sql`.
+
+Not yet built (see `docs/source-first-plan-2026-10-24.md`, phase 1): dropping
+audio into the composer, the attach button on the chat, and playing a
+`transcript://` citation at its offset from `EvidencePreview`.

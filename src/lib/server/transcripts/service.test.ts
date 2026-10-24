@@ -8,6 +8,7 @@ const db = vi.hoisted(() => ({
 	failTranscript: vi.fn()
 }));
 vi.mock('$lib/server/db/transcripts', () => db);
+vi.mock('$lib/server/db', () => ({ ensureDefaultOrganizationForAccount: vi.fn(async () => 'org-1') }));
 vi.mock('$env/dynamic/private', () => ({ env: {} }));
 vi.mock('$app/environment', () => ({ dev: false }));
 

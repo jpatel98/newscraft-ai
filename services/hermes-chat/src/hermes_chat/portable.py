@@ -17,7 +17,7 @@ import httpx
 
 from .artifact_publish import ArtifactPublishError
 from .input_messages import convert_message_content
-from . import broadcast_writing, budgets
+from . import broadcast_writing, tape, budgets
 from .model_adapters import ModelError, create_model
 from .product_prompt import append_product_identity
 from . import research_plan
@@ -347,6 +347,8 @@ def _since(days, current):
 def _source_label(url, source_type=None, preferred=()):
     if source_type == "user_document":
         return "attached document"
+    if tape.parse_tape_url(url):
+        return "attached tape, verbatim"
     tier = tier_for_url(url, preferred)
     return {"official": "official source", "aggregator": "aggregator"}.get(tier, "")
 
@@ -1646,11 +1648,13 @@ class PortableAgentRunner:
                 state["fast"] = "started"
                 fast_out = {}
                 writer_instructions = fast_instructions
+                tape_turns = tape.transcript_turns(state["messages"], CONTEXT_HEADER)
                 if script:
-                    # Scripts are written from the producer's pasted material (or the thread); research only when there is none.
+                    # Scripts are written from the producer's pasted material (or the thread, or attached tape); research only when there is none.
                     mode = script_turn["intent"]
                     material = mode != "new_script" or (not script_turn.get("research")
-                                                        and broadcast_writing.has_material(request, prior_answer=bool(last_answer.strip())))
+                                                        and broadcast_writing.has_material(request, prior_answer=bool(last_answer.strip()),
+                                                                                           tape_attached=bool(tape_turns)))
                     label = {"edit": "Revise ", "question": "Answer about the "}.get(mode, "Write ") + broadcast_writing.LABELS[script]
                     steps = planned_research(fast_out, final_id="answer", final_label=label, thread_label=label,
                                              required=False if material else True)
@@ -1667,10 +1671,12 @@ class PortableAgentRunner:
                     ledger = _ledger_context(state["messages"])
                     show = research_plan.writer_context(fast_out["newsroom"], fast_out["now"], rundown=research_plan.is_rundown_request(request))
                     if script:
+                        sots = tape.pick_sots(tape_turns) if tape_turns and script in {"sotvo", "intro", "ocvo", "suvo", "dve"} else []
                         prompt = broadcast_writing.writer_prompt(
                             script, mode=mode, pages=pages,
                             page_listing=_pages_listing(pages), show=show, sources_line=bool(turn.get("outputAction")), material=material,
-                            previous=last_answer)
+                            previous=last_answer, tape_listing=tape.sot_listing(sots) if script == "sotvo" else
+                            ("The attached transcript turns are verbatim tape; quote exactly if you quote at all." if tape_turns else ""))
                     else:
                         prompt = _fast_prompt(mode=plan["mode"], thread_listing=_thread_listing(thread_sources, preferred, ledger=ledger), pages=pages,
                                              assumption=plan["assumption"], gap=research_gap, outlet_gaps=outlet_gaps, show=show, ledger=bool(ledger))
@@ -1697,7 +1703,7 @@ class PortableAgentRunner:
                         raise RunError("The model request did not complete; its uncertain input was not replayed.") from None
                     answer = _user_facing("".join(b["text"] for b in reply.message["content"] if b["type"] == "text")[:64000].strip())
                     logger.info("fast path: model done at %.1fs (%s)", time.monotonic() - fast_t0, reply.usage)
-                    problems = (broadcast_writing.check(answer, script, mode=mode, request=request, previous=last_answer)
+                    problems = (broadcast_writing.check(answer, script, mode=mode, request=request, previous=last_answer, turns=tape_turns)
                                 if script and answer else [])
                     if problems:
                         # One repair call for rules a script breaks measurably (units, numbers, length, case).

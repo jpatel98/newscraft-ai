@@ -30,9 +30,10 @@ function toSummary(row: Row): TranscriptSummary {
 	};
 }
 
-function toDetail(row: Row): TranscriptDetail & { audioKey: string | null } {
+function toDetail(row: Row): TranscriptDetail & { audioKey: string | null; orgId: string | null } {
 	return {
 		...toSummary({ ...row, preview: String(row.text ?? '').slice(0, PREVIEW_CHARS) }),
+		orgId: (row.org_id as string | null) ?? null,
 		sourceUrl: (row.source_url as string | null) ?? null,
 		hasAudio: Boolean(row.audio_key) && row.status !== 'uploading',
 		audioKey: (row.audio_key as string | null) ?? null,
@@ -51,9 +52,9 @@ function toDetail(row: Row): TranscriptDetail & { audioKey: string | null } {
 
 export type StoredTranscript = ReturnType<typeof toDetail>;
 
-/** Strips the storage key before a transcript goes to the browser. */
+/** Strips the storage key and org before a transcript goes to the browser. */
 export function publicTranscript(transcript: StoredTranscript): TranscriptDetail {
-	const { audioKey: _audioKey, ...rest } = transcript;
+	const { audioKey: _audioKey, orgId: _orgId, ...rest } = transcript;
 	return rest;
 }
 
@@ -72,16 +73,18 @@ export async function createTranscript(input: {
 	keyterms: string[];
 	engine: string;
 	model: string;
+	/** Org the transcript belongs to; null keeps it personal (backfilled by 0025 for older rows). */
+	orgId?: string | null;
 }): Promise<StoredTranscript> {
 	const id = newId();
 	const now = Date.now();
 	const hasUpload = input.sourceKind !== 'link';
 	const [row] = await sql`
 		INSERT INTO transcripts (
-			id, account_id, title, status, source_kind, source_name, source_url, audio_key, audio_bytes,
+			id, account_id, org_id, title, status, source_kind, source_name, source_url, audio_key, audio_bytes,
 			content_type, engine, model, keyterms, created_at, updated_at
 		) VALUES (
-			${id}, ${input.accountId}, ${input.title}, ${hasUpload ? 'uploading' : 'queued'}, ${input.sourceKind},
+			${id}, ${input.accountId}, ${input.orgId ?? null}, ${input.title}, ${hasUpload ? 'uploading' : 'queued'}, ${input.sourceKind},
 			${input.sourceName ?? null}, ${input.sourceUrl ?? null}, ${hasUpload ? audioKeyFor(input.accountId, id) : null},
 			${input.audioBytes ?? null}, ${input.contentType ?? null}, ${input.engine}, ${input.model},
 			${JSON.stringify(input.keyterms)}::jsonb, ${now}, ${now}
@@ -184,6 +187,51 @@ export async function updateTranscript(
 export async function deleteTranscript(accountId: string, id: string): Promise<StoredTranscript | null> {
 	const [row] = await sql`DELETE FROM transcripts WHERE id = ${id} AND account_id = ${accountId} RETURNING *`;
 	return row ? toDetail(row) : null;
+}
+
+// --- Attachments: transcripts as sources of a conversation -------------------
+
+export type AttachedTranscript = StoredTranscript & { attachedAt: number };
+
+/** Attaches a transcript the account owns to a conversation it owns. Idempotent. */
+export async function attachTranscript(accountId: string, conversationId: string, transcriptId: string): Promise<AttachedTranscript | null> {
+	const [owned] = await sql`
+		SELECT t.id FROM transcripts t
+		JOIN conversations c ON c.id = ${conversationId} AND c.account_id = ${accountId}
+		WHERE t.id = ${transcriptId} AND t.account_id = ${accountId}`;
+	if (!owned) return null;
+	const now = Date.now();
+	await sql`
+		INSERT INTO conversation_transcripts (conversation_id, transcript_id, account_id, attached_at)
+		VALUES (${conversationId}, ${transcriptId}, ${accountId}, ${now})
+		ON CONFLICT (conversation_id, transcript_id) DO NOTHING`;
+	const [row] = await sql`
+		SELECT t.*, ct.attached_at FROM conversation_transcripts ct
+		JOIN transcripts t ON t.id = ct.transcript_id
+		WHERE ct.conversation_id = ${conversationId} AND ct.transcript_id = ${transcriptId}`;
+	return row ? { ...toDetail(row), attachedAt: Number(row.attached_at) } : null;
+}
+
+export async function detachTranscript(accountId: string, conversationId: string, transcriptId: string): Promise<boolean> {
+	const rows = await sql`
+		DELETE FROM conversation_transcripts
+		WHERE conversation_id = ${conversationId} AND transcript_id = ${transcriptId} AND account_id = ${accountId}
+		RETURNING transcript_id`;
+	return rows.length > 0;
+}
+
+/**
+ * Transcripts attached to a conversation, oldest attachment first, with their
+ * utterances. This is what the chat seeds into the worker as citations; only
+ * complete transcripts are returned because an unfinished one has no turns.
+ */
+export async function listConversationTranscripts(accountId: string, conversationId: string): Promise<AttachedTranscript[]> {
+	const rows = await sql`
+		SELECT t.*, ct.attached_at FROM conversation_transcripts ct
+		JOIN transcripts t ON t.id = ct.transcript_id
+		WHERE ct.conversation_id = ${conversationId} AND ct.account_id = ${accountId} AND t.status = 'complete'
+		ORDER BY ct.attached_at ASC, t.id ASC`;
+	return rows.map((row) => ({ ...toDetail(row), attachedAt: Number(row.attached_at) }));
 }
 
 /** Audio keys for an account, for cleanup when the account goes away. */

@@ -16,7 +16,9 @@ import {
 	type HermesContextEntry,
 	type HermesRunInput,
 	type CitationRecord,
-	type RetrievalProvenance
+	type RetrievalProvenance,
+	transcriptCitationUrl,
+	transcriptClock
 } from '@newscraft/shared';
 import { boundedNetworkError, safeNetworkHostname } from '$lib/server/network/diagnostics';
 import { fetchWithNewsCraftDns } from '$lib/server/network/http';
@@ -91,6 +93,8 @@ const SERVICE_NAME = NEWSCRAFT_AGENT_SERVICE;
 // requests are still well within a short readiness probe budget.
 const HERMES_HEALTH_TIMEOUT_MS = 5_000;
 const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
+/** The worker records citation numbers 1..100 (retrieval.seed_sources); nothing above that resolves. */
+const MAX_CITATION_NUMBER = 100;
 const CITATION_SOURCE_TYPES = new Set([
 	'official',
 	'primary',
@@ -308,6 +312,54 @@ function documentCitationContext(documents: AgentChatRequest['documents'], start
 	return { context, citations: citations.filter((citation) => citation.supportingExcerpt) };
 }
 
+/**
+ * Attached transcripts become one seeded citation per speaker turn, numbered
+ * after the documents. The excerpt is the verbatim words of the turn, which is
+ * what lets `checkCopy` and the eval compare a quoted SOT against the tape.
+ */
+function transcriptCitationContext(transcripts: AgentChatRequest['transcripts'], startNumber = 1): {
+	context: unknown;
+	citations: SeededCitation[];
+} {
+	let citationNumber = startNumber;
+	const citations: SeededCitation[] = [];
+	const context = (transcripts || []).map((transcript) => ({
+		id: transcript.id,
+		title: transcript.title,
+		durationMs: transcript.durationMs,
+		turns: transcript.turns.flatMap((turn) => {
+			// A silent or empty turn consumes no number, so the worker's
+			// citationStartNumber never collides with a seeded one.
+			const excerpt = compactExcerpt(turn.text);
+			if (!excerpt || citationNumber > MAX_CITATION_NUMBER) return [];
+			const current = citationNumber++;
+			citations.push({
+				citationNumber: current,
+				title: `${transcript.title} · ${turn.speaker} at ${transcriptClock(turn.startMs)}`,
+				url: transcriptCitationUrl({ transcriptId: transcript.id, startMs: turn.startMs, endMs: turn.endMs }),
+				domain: 'Attached tape',
+				publicationDate: null,
+				sourceType: 'primary',
+				supportingExcerpt: excerpt,
+				transcriptId: transcript.id,
+				startMs: turn.startMs,
+				endMs: turn.endMs,
+				speaker: turn.speaker
+			});
+			return [{
+				turnId: turn.id,
+				citationNumber: current,
+				speaker: turn.speaker,
+				startMs: turn.startMs,
+				endMs: turn.endMs,
+				timecode: transcriptClock(turn.startMs),
+				text: turn.text
+			}];
+		})
+	}));
+	return { context: context.length ? context : null, citations };
+}
+
 function buildRunInput(
 	body: AgentChatRequest,
 	threadId: string,
@@ -323,14 +375,23 @@ function buildRunInput(
 		0
 	);
 	const documents = documentCitationContext(body.documents, highestSeededNumber + 1);
-	const allSeededCitations = [...seededCitations, ...documents.citations];
+	const highestDocumentNumber = documents.citations.reduce(
+		(highest, citation) => Math.max(highest, citation.citationNumber),
+		highestSeededNumber
+	);
+	const transcripts = transcriptCitationContext(body.transcripts, highestDocumentNumber + 1);
+	const allSeededCitations = [...seededCitations, ...documents.citations, ...transcripts.citations];
 	const context = [
 		body.newsroom_context || body.conversation_context
 			? contextEntry(CONTEXT_HANDLING_DESCRIPTION, CONTEXT_HANDLING_NOTE)
 			: null,
 		contextEntry('Newsroom context', body.newsroom_context),
 		contextEntry('Conversation context', body.conversation_context),
-		contextEntry('Private document excerpts with exact citation numbers', documents.context)
+		contextEntry('Private document excerpts with exact citation numbers', documents.context),
+		contextEntry(
+			'Attached transcript turns with exact citation numbers (quote verbatim; cite the turn for every SOT with its IN/OUT)',
+			transcripts.context
+		)
 	].filter((entry): entry is HermesContextEntry => Boolean(entry));
 	return {
 		input: {

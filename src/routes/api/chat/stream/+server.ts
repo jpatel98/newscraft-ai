@@ -6,6 +6,7 @@ import {
 	type AgentContentPart
 } from '$lib/server/agent/transport';
 import { agentBackend } from '$lib/server/agent/backend';
+import { loadTranscriptContext } from '$lib/server/transcripts/context';
 import {
 	selectCitationInheritanceToolCalls,
 	threadCitations
@@ -53,6 +54,7 @@ import {
 	type CitationRecord,
 	type ConversationContext,
 	type DocumentContext,
+	type TranscriptContext,
 	type NewsroomContext
 } from '@newscraft/shared';
 import { listStoryClaims } from '$lib/server/db/story-claims';
@@ -287,8 +289,26 @@ async function requestResearchContext(input: {
 	documentIds: string[];
 	query: string;
 	traceId: string;
-}): Promise<{ newsroomContext: NewsroomContext; documents: DocumentContext[] }> {
+}): Promise<{ newsroomContext: NewsroomContext; documents: DocumentContext[]; transcripts: TranscriptContext[] }> {
 	let newsroomContext: NewsroomContext = { timezone: 'America/Toronto' };
+	// Attached tape is always seeded; attaching is the opt-in. A transcript
+	// that cannot be loaded is logged and skipped rather than failing the turn.
+	let transcripts: TranscriptContext[] = [];
+	try {
+		const loaded = await loadTranscriptContext(input.accountId, input.conversationId);
+		transcripts = loaded.transcripts;
+		if (Object.keys(loaded.truncated).length) {
+			recordChatDiagnostic(input.conversationId, 'chat.transcript_context_truncated', {
+				trace_id: input.traceId,
+				truncated: loaded.truncated
+			});
+		}
+	} catch (cause) {
+		recordChatDiagnostic(input.conversationId, 'chat.transcript_context_error', {
+			trace_id: input.traceId,
+			errorName: cause instanceof Error ? cause.name : 'Error'
+		});
+	}
 	if (input.orgId) {
 		try {
 			const [profile, recentThreads] = await Promise.all([
@@ -309,7 +329,7 @@ async function requestResearchContext(input: {
 			throw new NewsroomContextUnavailableError();
 		}
 	}
-	if (!input.documentIds.length) return { newsroomContext: withToday(newsroomContext), documents: [] };
+	if (!input.documentIds.length) return { newsroomContext: withToday(newsroomContext), documents: [], transcripts };
 
 	const service = getConversationDocumentService();
 	let available: Awaited<ReturnType<typeof service.listDocuments>>;
@@ -353,7 +373,7 @@ async function requestResearchContext(input: {
 		next.pages.push({ pageNumber: page.pageNumber, text: page.text });
 		grouped.set(page.documentId, next);
 	}
-	return { newsroomContext: withToday(newsroomContext), documents: Array.from(grouped.values()) };
+	return { newsroomContext: withToday(newsroomContext), documents: Array.from(grouped.values()), transcripts };
 }
 
 async function validateRequestedDocuments(
@@ -1188,7 +1208,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			reasoning_effort: reasoningEffort,
 			newsroom_context: researchContext.newsroomContext,
 			conversation_context: conversationContext,
-			documents: researchContext.documents
+			documents: researchContext.documents,
+			transcripts: researchContext.transcripts
 		},
 		sessionId,
 		candidateRunId,

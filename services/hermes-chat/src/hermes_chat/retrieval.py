@@ -34,6 +34,7 @@ from urllib.request import HTTPHandler, HTTPSHandler, HTTPRedirectHandler, Proxy
 
 
 from .browser_evidence import BROWSER_FIXTURE_PROVENANCE, BROWSER_PROVENANCE, BrowserReceipt, _is_authentic_browser_receipt
+from . import tape
 from .browser_network import BrowserNetworkError, _public_ip
 
 
@@ -1459,7 +1460,11 @@ class ResearchTools:
             if not isinstance(url, str) or not isinstance(excerpt, str) or not excerpt.strip():
                 continue
             try:
-                if source.get("sourceType") == "user_document":
+                if tape.is_tape_citation(source):
+                    # Verbatim speaker turns from a transcript the app attached.
+                    # Private audio; never fetched, only quoted.
+                    tape.validate_tape_citation(source)
+                elif source.get("sourceType") == "user_document":
                     # Authenticated document citations may identify a private
                     # attachment or its signed download grant. They are never
                     # sent to the public-page fetcher or added to _fetched.
