@@ -202,22 +202,39 @@ def _norm(text: str) -> str:
     return _WS.sub(" ", _PUNCT.sub(" ", text.replace("’", "'"))).strip().casefold()
 
 
-def quote_problems(script: str, turns: Sequence[Mapping[str, Any]]) -> list[str]:
-    """Quoted SOT lines that do not occur verbatim in the attached tape.
+_SOT_CUE = re.compile(r"\{\s*SOT\s*\}", re.I)
+_ANY_CUE = re.compile(r"\{[^}\n]*\}")
 
-    Only checked when tape is attached. A quote is any double-quoted run of
-    four or more words in the script body; it must appear, word for word
-    (ignoring case and punctuation), inside a single speaker turn.
+
+def sot_segments(script: str) -> list[str]:
+    """The text under each {SOT} cue, up to the next cue. Only these lines are the clip."""
+    body = re.split(r"\n\s*(?:Super|Banner|Sources|CHECK)\s*:", "\n" + (script or ""), maxsplit=1, flags=re.I)[0]
+    segments = []
+    for match in _SOT_CUE.finditer(body):
+        rest = body[match.end():]
+        nxt = _ANY_CUE.search(rest)
+        segments.append(rest[: nxt.start()] if nxt else rest)
+    return segments
+
+
+def quote_problems(script: str, turns: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Quoted lines under a {SOT} cue that do not occur verbatim in the attached tape.
+
+    Only checked when tape is attached, and only inside SOT segments: a quote
+    from a release or a page elsewhere in the script is the writer's business.
+    A quote is a double-quoted run of four or more words; it must appear word
+    for word (ignoring case and punctuation, on word boundaries) inside one
+    speaker turn.
     """
     if not turns:
         return []
-    body = re.split(r"\n\s*(?:Super|Banner|Sources|CHECK)\s*:", "\n" + (script or ""), maxsplit=1, flags=re.I)[0]
-    normalized_turns = [_norm(turn["text"]) for turn in turns]
+    normalized_turns = [f" {_norm(turn['text'])} " for turn in turns]
     problems = []
-    for quote in re.findall(r"[\"“]([^\"”]{12,}?)[\"”]", body):
-        wanted = _norm(quote)
-        if len(wanted.split()) < 4:
-            continue
-        if not any(wanted in turn for turn in normalized_turns):
-            problems.append(f"The quote \"{quote[:60]}\" is not word-for-word in the attached tape; use the exact words of one turn.")
+    for segment in sot_segments(script):
+        for quote in re.findall(r"[\"“]([^\"”]{12,}?)[\"”]", segment):
+            wanted = _norm(quote)
+            if len(wanted.split()) < 4:
+                continue
+            if not any(f" {wanted} " in turn for turn in normalized_turns):
+                problems.append(f"The SOT quote \"{quote[:60]}\" is not word-for-word in the attached tape; use the exact words of one turn.")
     return problems

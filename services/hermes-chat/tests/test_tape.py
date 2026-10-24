@@ -107,6 +107,22 @@ class QuoteCheckTests(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("not word-for-word", problems[0])
 
+    def test_quote_must_match_on_word_boundaries(self):
+        turns = tape.transcript_turns(MESSAGES, CONTEXT_HEADER)
+        clipped = SCRIPT_OK.replace('"THE BRIDGE CLOSES MONDAY', '"HE BRIDGE CLOSES MONDAY')
+        problems = tape.quote_problems(clipped, turns)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("HE BRIDGE CLOSES", problems[0])
+
+    def test_quotes_outside_the_sot_are_not_checked_against_tape(self):
+        turns = tape.transcript_turns(MESSAGES, CONTEXT_HEADER)
+        with_release_quote = SCRIPT_OK.replace("IT SHUTS MONDAY FOR EIGHT MONTHS OF REPAIRS.",
+                                               'THE CITY CALLS THE CLOSURE "AN UNAVOIDABLE SAFETY MEASURE FOR EVERY USER."')
+        self.assertEqual(tape.quote_problems(with_release_quote, turns), [])
+        self.assertEqual(tape.sot_segments(SCRIPT_OK),
+                         ['\n[IN 0:02 -- OUT 0:09 | MAYOR BROWN]\n"THE BRIDGE CLOSES MONDAY AND IT STAYS CLOSED FOR EIGHT MONTHS. WE HAD NO CHOICE."\n'])
+        self.assertEqual(tape.sot_segments("{ON CAM}\nNO CLIP HERE."), [])
+
     def test_no_tape_means_no_quote_check(self):
         self.assertEqual(tape.quote_problems(SCRIPT_BAD, []), [])
         self.assertEqual(bw.check(SCRIPT_BAD, "sotvo", mode="new_script"), [])
