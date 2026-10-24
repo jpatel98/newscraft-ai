@@ -1,8 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql, ensureMigrated } from './index';
+import { createConversation } from './conversations';
 import {
+	attachTranscript,
 	claimForProcessing,
 	completeTranscript,
+	detachTranscript,
+	listConversationTranscripts,
 	createTranscript,
 	deleteTranscript,
 	failTranscript,
@@ -72,5 +76,35 @@ describe.skipIf(!url)('account-owned transcripts', () => {
 		await sql`DELETE FROM accounts WHERE id = ${b}`;
 		expect(await getTranscript(b, kept.id)).toBeNull();
 		await sql`INSERT INTO accounts (id,email,name,role,created_at,updated_at) VALUES (${b},${b + '@example.test'},'Transcripts test','member',1,1)`;
+	});
+
+	it('attaches a complete transcript to a conversation the same account owns, and to nothing else', async () => {
+		const conversation = await createConversation(a);
+		const other = await createConversation(b);
+		const t = await createTranscript({ ...base, accountId: a, title: 'Mayor scrum', sourceName: 'scrum.m4a', contentType: 'audio/mp4', audioBytes: 10 });
+		expect(t.orgId).toBeNull();
+
+		// Attaching before transcription finishes is allowed but the list only carries complete tape.
+		expect(await attachTranscript(a, conversation.id, t.id)).toMatchObject({ id: t.id, status: 'uploading' });
+		expect(await listConversationTranscripts(a, conversation.id)).toEqual([]);
+		expect(await attachTranscript(b, other.id, t.id)).toBeNull();
+		expect(await attachTranscript(a, other.id, t.id)).toBeNull();
+
+		await claimForProcessing(a, t.id, { bytes: 10, contentType: 'audio/mp4' });
+		await completeTranscript(a, t.id, {
+			text: 'The bridge closes Monday.', languageCode: 'eng', durationMs: 9800,
+			utterances: [{ id: 'u1', speaker: 'speaker_0', start: 2500, end: 9800, text: 'The bridge closes Monday.', words: [] }]
+		});
+		const attached = await listConversationTranscripts(a, conversation.id);
+		expect(attached).toHaveLength(1);
+		expect(attached[0]).toMatchObject({ id: t.id, status: 'complete', utterances: [expect.objectContaining({ start: 2500 })] });
+		// Idempotent.
+		await attachTranscript(a, conversation.id, t.id);
+		expect(await listConversationTranscripts(a, conversation.id)).toHaveLength(1);
+
+		expect(await detachTranscript(b, conversation.id, t.id)).toBe(false);
+		expect(await detachTranscript(a, conversation.id, t.id)).toBe(true);
+		expect(await listConversationTranscripts(a, conversation.id)).toEqual([]);
+		await sql`DELETE FROM conversations WHERE id IN (${conversation.id}, ${other.id})`;
 	});
 });

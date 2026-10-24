@@ -730,6 +730,7 @@ export const projectConversations = pgTable('project_conversations', {
 export const transcripts = pgTable('transcripts', {
  id: text('id').primaryKey(),
  accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+ orgId: text('org_id').references(() => organizations.id, { onDelete: 'set null' }),
  title: text('title').notNull(),
  status: text('status').notNull().default('uploading'),
  sourceKind: text('source_kind').notNull(),
@@ -754,7 +755,23 @@ export const transcripts = pgTable('transcripts', {
  updatedAt: timestampMs('updated_at').notNull()
 }, t => ({
  titleLength: check('transcripts_title_check', schemaSql`length(btrim(${t.title})) BETWEEN 1 AND 200`),
- accountCreatedIdx: index('transcripts_account_created_idx').on(t.accountId, t.createdAt)
+ accountCreatedIdx: index('transcripts_account_created_idx').on(t.accountId, t.createdAt),
+ orgCreatedIdx: index('transcripts_org_created_idx').on(t.orgId, t.createdAt)
+}));
+
+/**
+ * Transcripts attached to a conversation as sources. Attaching copies nothing:
+ * the chat seeds one citation per speaker turn (transcript://<id>#t=start,end)
+ * from the transcript's utterances at run time.
+ */
+export const conversationTranscripts = pgTable('conversation_transcripts', {
+ conversationId: text('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
+ transcriptId: text('transcript_id').notNull().references(() => transcripts.id, { onDelete: 'cascade' }),
+ accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+ attachedAt: timestampMs('attached_at').notNull()
+}, t => ({
+ pk: primaryKey({ columns: [t.conversationId, t.transcriptId] }),
+ transcriptIdx: index('conversation_transcripts_transcript_idx').on(t.transcriptId)
 }));
 
 export const storyClaims = pgTable(

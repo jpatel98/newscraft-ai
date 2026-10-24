@@ -192,6 +192,47 @@ export interface CitationRecord {
 	supportingExcerpt: string;
 	documentPage?: number;
 	retrieval?: RetrievalProvenance;
+	/**
+	 * Raw tape. Set together when the citation is one speaker turn of an
+	 * attached transcript; `url` is then `transcript://<transcriptId>#t=<startMs>,<endMs>`
+	 * and `supportingExcerpt` is the verbatim words of that turn.
+	 */
+	transcriptId?: string;
+	startMs?: number;
+	endMs?: number;
+	speaker?: string;
+}
+
+/** Everything a `transcript://` citation URL carries. Times are milliseconds. */
+export interface TranscriptCitationRef {
+	transcriptId: string;
+	startMs: number;
+	endMs: number;
+}
+
+export function transcriptCitationUrl(ref: TranscriptCitationRef): string {
+	const start = Math.max(0, Math.round(ref.startMs));
+	const end = Math.max(start, Math.round(ref.endMs));
+	return `transcript://${encodeURIComponent(ref.transcriptId)}#t=${start},${end}`;
+}
+
+/** Parses `transcript://<id>#t=<startMs>,<endMs>`; null for anything else. */
+export function parseTranscriptCitationUrl(value: string): TranscriptCitationRef | null {
+	const match = /^transcript:\/\/([^#?/]+)#t=(\d+),(\d+)$/i.exec(value.trim());
+	if (!match) return null;
+	const startMs = Number(match[2]);
+	const endMs = Number(match[3]);
+	if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+	return { transcriptId: decodeURIComponent(match[1]), startMs, endMs };
+}
+
+/** `[2:14]` for the start of a tape citation, the way a producer reads a timecode. */
+export function transcriptClock(ms: number): string {
+	const total = Math.max(0, Math.floor(ms / 1000));
+	const h = Math.floor(total / 3600);
+	const m = Math.floor((total % 3600) / 60);
+	const s = String(total % 60).padStart(2, '0');
+	return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
 }
 
 /**
@@ -200,7 +241,7 @@ export interface CitationRecord {
  * citation cannot be visible in one boundary and unresolved in another.
  */
 export function isCitationUrl(value: string): boolean {
-	return /^(?:https?:\/\/|newsroom:\/\/|document:\/\/|attachment:\/\/)/i.test(value) || value.startsWith('/api/');
+	return /^(?:https?:\/\/|newsroom:\/\/|document:\/\/|attachment:\/\/|transcript:\/\/)/i.test(value) || value.startsWith('/api/');
 }
 
 export interface NewsroomContext {
@@ -360,6 +401,27 @@ export interface DocumentContext {
 	pages: DocumentContextPage[];
 }
 
+/** One speaker turn of an attached transcript. Times are milliseconds into the audio. */
+export interface TranscriptContextTurn {
+	id: string;
+	/** Display name when the producer has named the speaker, else "Speaker 1". */
+	speaker: string;
+	startMs: number;
+	endMs: number;
+	text: string;
+}
+
+/**
+ * An attached transcript, seeded into the worker as one citation per turn so
+ * a script line can point at the exact seconds of tape it came from.
+ */
+export interface TranscriptContext {
+	id: string;
+	title: string;
+	durationMs: number | null;
+	turns: TranscriptContextTurn[];
+}
+
 export type GatewayContentPart =
 	| { type: 'text'; text: string }
 	| { type: 'image_url'; image_url: { url: string } };
@@ -387,6 +449,8 @@ export interface GatewayChatCompletionRequest {
 	conversation_context?: ConversationContext;
 	/** Bounded page excerpts from private conversation documents. */
 	documents?: DocumentContext[];
+	/** Speaker turns from transcripts attached to the conversation. */
+	transcripts?: TranscriptContext[];
 }
 
 export interface GatewayChatCompletionChunk {

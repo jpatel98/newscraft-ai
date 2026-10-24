@@ -7,6 +7,7 @@ import {
 	citationRecordsUsedInAnswer,
 	mergeToolMetadata,
 	parseToolMetadata,
+	resolvableCitationRecordForNumber,
 	resolvedCitationNumbersForAnswer,
 	serializeAnswerProvenance,
 	serializeToolMetadata,
@@ -115,6 +116,34 @@ describe('tool metadata', () => {
 		});
 		expect(parsed.citations[0]?.url).toBe(retrieval.originalUrl);
 		expect(parsed.citations[0]?.retrieval?.archivedUrl).toBe(retrieval.archivedUrl);
+	});
+
+	it('keeps tape citations resolvable and canonical through persistence', () => {
+		const tape = {
+			citationNumber: 7,
+			title: 'Mayor scrum · Mayor Brown at 0:02',
+			url: 'TRANSCRIPT://tr_mayor#t=2500,9800',
+			domain: 'Attached tape',
+			publicationDate: null,
+			sourceType: 'primary' as const,
+			supportingExcerpt: 'The bridge closes Monday.',
+			transcriptId: 'tr_mayor',
+			startMs: 2500,
+			endMs: 9800,
+			speaker: 'Mayor Brown'
+		};
+		const raw = JSON.stringify({ version: 1, tools: [], sources: [], citations: [tape] });
+		const parsed = parseToolMetadata(raw).citations;
+		expect(parsed).toHaveLength(1);
+		expect(parsed[0]).toMatchObject({
+			citationNumber: 7, url: 'transcript://tr_mayor#t=2500,9800', domain: 'Attached tape',
+			transcriptId: 'tr_mayor', startMs: 2500, endMs: 9800, speaker: 'Mayor Brown'
+		});
+		expect(resolvableCitationRecordForNumber([tape], 7)?.url).toBe('transcript://tr_mayor#t=2500,9800');
+		expect(resolvedCitationNumbersForAnswer('The mayor said it closes Monday. [7]', [tape])).toEqual([7]);
+		// A malformed tape reference is dropped, not kept as an opaque URL.
+		const broken = JSON.stringify({ version: 1, tools: [], sources: [], citations: [{ ...tape, url: 'transcript://tr_mayor' }] });
+		expect(parseToolMetadata(broken).citations).toEqual([]);
 	});
 
 	it('sanitizes persisted source urls and infers used receipts from source status', () => {

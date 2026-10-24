@@ -6,7 +6,9 @@ import {
 	type PublicAgentDecision,
 	type CitationRecord,
 	type CitationSourceType,
-	type RetrievalProvenance
+	type RetrievalProvenance,
+	parseTranscriptCitationUrl,
+	transcriptCitationUrl
 } from '@newscraft/shared';
 import { sortNewestFirst } from './source-labels';
 import type { PersistedSource, StreamToolCall } from './stream-events';
@@ -274,6 +276,11 @@ function sanitizeSourceUrl(value: string): string | null {
 	if (/^(?:newsroom|document|attachment):\/\//i.test(trimmed)) {
 		return isCitationUrl(trimmed) ? trimmed : null;
 	}
+	// Tape: only the canonical transcript://<id>#t=<startMs>,<endMs> form survives.
+	if (/^transcript:\/\//i.test(trimmed)) {
+		const ref = parseTranscriptCitationUrl(trimmed);
+		return ref ? transcriptCitationUrl(ref) : null;
+	}
 	if (trimmed.startsWith('/api/') && !trimmed.startsWith('//')) {
 		try {
 			const url = new URL(trimmed, 'https://newscraft.local');
@@ -413,13 +420,17 @@ function normalizeCitation(value: unknown): CitationRecord | null {
 	const sourceType = rawSourceType && CITATION_SOURCE_TYPES.has(rawSourceType) ? rawSourceType : 'unknown';
 	const documentPage = numberValue(o.documentPage ?? o.document_page ?? o.page);
 	const retrieval = normalizeRetrieval(o.retrieval);
+	const tape = parseTranscriptCitationUrl(url);
 	const rawDomain = stringValue(o.domain)?.trim();
 	const domain =
 		rawDomain && !/^unknown source$/i.test(rawDomain)
 			? rawDomain
-			: url.startsWith('/api/')
-				? 'Attached document'
-				: domainOf(url);
+			: tape
+				? 'Attached tape'
+				: url.startsWith('/api/')
+					? 'Attached document'
+					: domainOf(url);
+	const speaker = stringValue(o.speaker)?.trim();
 	return {
 		citationNumber,
 		title: compactProvenanceString(redactSensitiveText(stringValue(o.title) ?? url)),
@@ -431,6 +442,9 @@ function normalizeCitation(value: unknown): CitationRecord | null {
 			redactSensitiveText(stringValue(o.supportingExcerpt ?? o.supporting_excerpt ?? o.excerpt) ?? '')
 		),
 		...(documentPage && documentPage > 0 ? { documentPage: Math.floor(documentPage) } : {}),
+		...(tape
+			? { transcriptId: tape.transcriptId, startMs: tape.startMs, endMs: tape.endMs, ...(speaker ? { speaker } : {}) }
+			: {}),
 		...(retrieval ? { retrieval } : {})
 	};
 }

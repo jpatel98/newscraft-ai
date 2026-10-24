@@ -201,6 +201,84 @@ describe('Hermes chat transport', () => {
 		expect(built.input.forwardedProps?.citationStartNumber).toBe(5);
 	});
 
+	it('seeds one verbatim citation per transcript turn, numbered after documents', () => {
+		const built = buildHermesRunInput(
+			{
+				messages: [{ role: 'user', content: 'Write a SOTVO from the mayor tape.' }],
+				documents: [
+					{
+						id: 'document-a',
+						filename: 'budget.pdf',
+						pageCount: 1,
+						pages: [{ pageNumber: 1, text: 'Page one of the budget.' }]
+					}
+				],
+				transcripts: [
+					{
+						id: 'tr_mayor',
+						title: 'Mayor scrum',
+						durationMs: 90_000,
+						turns: [
+							{ id: 'u1', speaker: 'Reporter', startMs: 0, endMs: 2_400, text: 'Mayor, is the bridge closing?' },
+							{ id: 'u2', speaker: 'Mayor Brown', startMs: 2_500, endMs: 9_800, text: 'The bridge closes Monday and stays closed for eight months.' },
+							{ id: 'u3', speaker: 'Mayor Brown', startMs: 10_000, endMs: 10_400, text: '   ' }
+						]
+					}
+				]
+			},
+			'thread-t',
+			'run-t'
+		);
+
+		expect(built.seededCitations.map((citation) => citation.citationNumber)).toEqual([1, 2, 3]);
+		expect(built.seededCitations[1]).toEqual(
+			expect.objectContaining({ citationNumber: 2, title: 'Mayor scrum · Reporter at 0:00', sourceType: 'primary' })
+		);
+		expect(built.seededCitations[2]).toEqual({
+			citationNumber: 3,
+			title: 'Mayor scrum · Mayor Brown at 0:02',
+			url: 'transcript://tr_mayor#t=2500,9800',
+			domain: 'Attached tape',
+			publicationDate: null,
+			sourceType: 'primary',
+			supportingExcerpt: 'The bridge closes Monday and stays closed for eight months.',
+			transcriptId: 'tr_mayor',
+			startMs: 2_500,
+			endMs: 9_800,
+			speaker: 'Mayor Brown'
+		});
+		// The blank turn consumes no citation number.
+		expect(built.input.forwardedProps?.citationStartNumber).toBe(4);
+		const entry = built.input.context.find((item) => item.description.startsWith('Attached transcript turns'));
+		expect(entry).toBeDefined();
+		const context = JSON.parse(entry!.value);
+		expect(context[0].turns).toHaveLength(2);
+		expect(context[0].turns[1]).toEqual(
+			expect.objectContaining({ citationNumber: 3, timecode: '0:02', speaker: 'Mayor Brown' })
+		);
+	});
+
+	it('never seeds a transcript turn past citation number 100', () => {
+		const turns = Array.from({ length: 120 }, (_, i) => ({
+			id: `u${i}`, speaker: 'S', startMs: i * 1000, endMs: i * 1000 + 900, text: `turn ${i}`
+		}));
+		const built = buildHermesRunInput(
+			{ messages: [{ role: 'user', content: 'Hi' }], transcripts: [{ id: 't', title: 'Long', durationMs: 120_000, turns }] },
+			'thread-cap',
+			'run-cap'
+		);
+		expect(built.seededCitations).toHaveLength(100);
+		expect(built.seededCitations.at(-1)?.citationNumber).toBe(100);
+		const entry = built.input.context.find((item) => item.description.startsWith('Attached transcript turns'));
+		expect(JSON.parse(entry!.value)[0].turns).toHaveLength(100);
+		expect(built.input.forwardedProps?.citationStartNumber).toBe(101);
+	});
+
+	it('adds no transcript context entry when nothing is attached', () => {
+		const built = buildHermesRunInput({ messages: [{ role: 'user', content: 'Hi' }] }, 'thread-n', 'run-n');
+		expect(built.input.context.some((item) => item.description.startsWith('Attached transcript turns'))).toBe(false);
+	});
+
 	it('carries corrections and prior evidence once without a compatibility prompt', () => {
 		const context: ConversationContext = {
 			version: 1,

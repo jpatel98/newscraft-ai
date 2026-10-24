@@ -809,6 +809,28 @@ class ResearchToolsTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(self.tools.recorded_sources[1], seed)
         self.assertEqual(self.fetcher.calls, [])
 
+    async def test_seeded_tape_citations_are_kept_and_never_fetched(self):
+        self.tools = ResearchTools(provider=self.provider)
+        seed = {**self.source, "sourceType": "primary", "url": "transcript://tr_mayor#t=2500,9800",
+                "supportingExcerpt": "The bridge closes Monday and stays closed for eight months.",
+                "transcriptId": "tr_mayor", "startMs": 2500, "endMs": 9800, "speaker": "Mayor Brown"}
+        self.tools.seed_sources([seed])
+        self.assertEqual(self.tools.recorded_sources[1], seed)
+        # The model cannot re-record tape with different words.
+        result = await self.invoke("record_newscraft_source", {"source": {**seed, "supportingExcerpt": "Invented words."}})
+        self.assertIn("error", result)
+        self.assertEqual(self.tools.recorded_sources[1], seed)
+        self.assertEqual(self.fetcher.calls, [])
+        # Malformed tape references are dropped, not fetched.
+        self.tools = ResearchTools(provider=self.provider)
+        self.tools.seed_sources([
+            {**seed, "url": "transcript://tr_mayor#t=9800,2500"},
+            {**seed, "url": "transcript://tr_mayor", "citationNumber": 2},
+            {**seed, "url": "transcript://other#t=1,2", "transcriptId": "tr_mayor", "citationNumber": 3},
+        ])
+        self.assertEqual(self.tools.recorded_sources, {})
+        self.assertEqual(self.fetcher.calls, [])
+
     async def test_bad_tool_arguments_and_disabled_tools_do_not_make_requests(self):
         for name, args in (("web_search", {"query": "x", "max_results": True}),
                            ("web_search", {"query": "x", "credential": "fake"}),

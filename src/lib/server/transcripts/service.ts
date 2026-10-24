@@ -1,3 +1,4 @@
+import { ensureDefaultOrganizationForAccount } from '$lib/server/db';
 import {
 	claimForProcessing,
 	completeTranscript,
@@ -74,10 +75,12 @@ export function createTranscriptService(deps: {
 		async create(accountId: string, input: NewTranscriptInput): Promise<{ transcript: StoredTranscript; upload: { url: string; contentType: string } | null }> {
 			const keyterms = cleanKeyterms(input.keyterms);
 			const current = engine();
+			const orgId = await ensureDefaultOrganizationForAccount(accountId);
 			if (input.kind === 'link') {
 				const host = new URL(input.url).hostname.replace(/^www\./, '');
 				const transcript = await createTranscript({
 					accountId,
+					orgId,
 					title: input.title || `Link from ${host}`,
 					sourceKind: 'link',
 					sourceUrl: input.url,
@@ -94,6 +97,7 @@ export function createTranscriptService(deps: {
 			const sourceKind: TranscriptSourceKind = input.kind;
 			const transcript = await createTranscript({
 				accountId,
+				orgId,
 				title: input.title || titleFromFileName(input.fileName),
 				sourceKind,
 				sourceName: input.fileName,
