@@ -860,6 +860,27 @@ class PortableAgentRunner:
             return self.research_factory(self.settings.retrieval)
         return ResearchTools(self.settings.retrieval, searcher=lead_search_from_settings(self.settings))
 
+    async def _classify_script(self, state, *, instructions, request, last_answer, fallback, settings=None):
+        """One bounded, tool-free call that reads a message in a script context; None on any failure (keyword fallback)."""
+        settings = settings or self.settings
+        messages = [{"role": "user", "content": [{"type": "text", "text": broadcast_writing.classifier_prompt(request, last_answer)}]}]
+        try:
+            estimate = budgets.input_bound(self.model, messages=messages, private={}, instructions=instructions, tools=[],
+                                           image_tokens=budgets.policy(settings)["image_tokens"])
+            budgets.reserve(state, settings, input_tokens=estimate, output_tokens=broadcast_writing.CLASSIFIER_MAX_OUTPUT)
+        except ValueError:
+            return None
+        state["steps"] += 1
+        try:
+            async with asyncio.timeout(broadcast_writing.CLASSIFIER_SECONDS):
+                reply = await self.model.complete(model=settings.model, instructions=instructions, messages=messages,
+                                                  tools=[], max_output=broadcast_writing.CLASSIFIER_MAX_OUTPUT, private={})
+        except Exception:  # Best-effort like the planner: an uncertain call is never replayed.
+            logger.warning("script: classifier call failed")
+            return None
+        return broadcast_writing.parse_intent("".join(b["text"] for b in reply.message["content"] if b["type"] == "text"), fallback,
+                                              request=request, previous=broadcast_writing.script_format(last_answer))
+
     async def _plan_research(self, state, *, instructions, request, newsroom, now, required, sources, settings=None):
         """One bounded, tool-free planner call; None on any failure (the caller falls back to a plain search)."""
         settings = settings or self.settings
@@ -1348,9 +1369,23 @@ class PortableAgentRunner:
             fast_instructions = append_product_identity(FAST_INSTRUCTIONS)  # One prefix for planner and writer.
             # A broadcast script (OCVO, SUVO, ...) or a note on the one just written: the writing skill, one writing call.
             last_answer = next((research_plan.message_text(m) for m in reversed(state["messages"]) if m["role"] == "assistant"), "")
-            script = broadcast_writing.detect(request, output_action=turn.get("outputAction"), last_answer=last_answer) if fresh else None
-            if script and route != ROUTE_CHAT:
+            script_turn = None  # {"intent": edit|question|new_script, "format", "research"} when the skill answers this turn.
+            decision = (broadcast_writing.route(request, output_action=turn.get("outputAction"), last_answer=last_answer)
+                        if fresh and route != ROUTE_CHAT else None)
+            if decision and decision["intent"] == "classify":
+                script_turn = await self._classify_script(state, settings=settings, instructions=fast_instructions,
+                                                          request=request, last_answer=last_answer, fallback=decision["format"])
+                if script_turn is None:
+                    script_turn = broadcast_writing.fallback_intent(request, decision)
+                    logger.info("script: classifier unavailable; keyword fallback chose %s", (script_turn or {}).get("intent"))
+                elif script_turn["intent"] == "other":
+                    script_turn = None
+            elif decision:
+                script_turn = {**decision, "research": False}
+            script = script_turn["format"] if script_turn else None
+            if script:
                 route = ROUTE_QUICK
+                logger.info("script: %s %s", script_turn["intent"], script)
 
             def tool_events(call_id, name, args, result):
                 failed = bool(isinstance(result, dict) and result.get("error"))
@@ -1613,8 +1648,10 @@ class PortableAgentRunner:
                 writer_instructions = fast_instructions
                 if script:
                     # Scripts are written from the producer's pasted material (or the thread); research only when there is none.
-                    material = broadcast_writing.has_material(request, prior_answer=bool(last_answer.strip()))
-                    label = "Write " + broadcast_writing.LABELS[script]
+                    mode = script_turn["intent"]
+                    material = mode != "new_script" or (not script_turn.get("research")
+                                                        and broadcast_writing.has_material(request, prior_answer=bool(last_answer.strip())))
+                    label = {"edit": "Revise ", "question": "Answer about the "}.get(mode, "Write ") + broadcast_writing.LABELS[script]
                     steps = planned_research(fast_out, final_id="answer", final_label=label, thread_label=label,
                                              required=False if material else True)
                     writer_instructions = fast_instructions + "\n\n" + broadcast_writing.instructions(script)
@@ -1631,7 +1668,7 @@ class PortableAgentRunner:
                     show = research_plan.writer_context(fast_out["newsroom"], fast_out["now"], rundown=research_plan.is_rundown_request(request))
                     if script:
                         prompt = broadcast_writing.writer_prompt(
-                            script, revision=broadcast_writing.is_revision(request, script, last_answer), pages=pages,
+                            script, mode=mode, pages=pages,
                             page_listing=_pages_listing(pages), show=show, sources_line=bool(turn.get("outputAction")), material=material,
                             previous=last_answer)
                     else:
@@ -1660,6 +1697,26 @@ class PortableAgentRunner:
                         raise RunError("The model request did not complete; its uncertain input was not replayed.") from None
                     answer = _user_facing("".join(b["text"] for b in reply.message["content"] if b["type"] == "text")[:64000].strip())
                     logger.info("fast path: model done at %.1fs (%s)", time.monotonic() - fast_t0, reply.usage)
+                    problems = (broadcast_writing.check(answer, script, mode=mode, request=request, previous=last_answer)
+                                if script and answer else [])
+                    if problems:
+                        # One repair call for rules a script breaks measurably (units, numbers, length, case).
+                        logger.info("script: repairing %d problem(s): %s", len(problems), "; ".join(problems)[:300])
+                        repair_messages = [*fast_messages, {"role": "assistant", "content": [{"type": "text", "text": answer}]},
+                                           {"role": "user", "content": [{"type": "text", "text": broadcast_writing.repair_prompt(problems)}]}]
+                        try:
+                            estimate = budgets.input_bound(self.model, messages=repair_messages, private={}, instructions=writer_instructions,
+                                                           tools=[], image_tokens=budgets.policy(settings)["image_tokens"])
+                            budgets.reserve(state, settings, input_tokens=estimate, output_tokens=settings.max_output_tokens)
+                            state["steps"] += 1
+                            async with asyncio.timeout(45):
+                                fixed = await self.model.complete(model=settings.model, instructions=writer_instructions, messages=repair_messages,
+                                                                  tools=[], max_output=settings.max_output_tokens, private={})
+                            repaired = _user_facing("".join(b["text"] for b in fixed.message["content"] if b["type"] == "text")[:64000].strip())
+                            if broadcast_writing.script_format(repaired):
+                                answer = repaired
+                        except Exception:  # The first draft stands when the repair cannot run.
+                            logger.warning("script: repair call failed; keeping the first draft")
                     if answer:
                         answer_body = _split_ledger(answer)[0]  # Markers inside the ledger block are not citations of the text.
                         by_number = {p["number"]: p for p in pages}

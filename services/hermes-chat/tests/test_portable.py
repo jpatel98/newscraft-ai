@@ -1304,15 +1304,56 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([step["label"] for step in plan], ["Write SUVO"])
         self.assertEqual(self.final_answer(events), self.SUVO)
 
-    async def test_a_note_on_the_last_script_revises_it(self):
+    async def test_a_script_breaking_a_measurable_rule_gets_one_repair(self):
         exa, calls = self.fake_exa()
-        runner = self.runner([answer(self.SUVO.replace("AGAIN.", "AGAIN... 25-THOUSAND FEET."))])
+        runner = self.runner([answer(self.SUVO.replace("AGAIN.", "AGAIN... 700 FEET HIGH.")),
+                              answer(self.SUVO.replace("AGAIN.", "AGAIN... 200 METRES HIGH."))])
+        events = await self.collect_fast(runner, self.fast_payload(self.KILAUEA), exa)
+        self.assertEqual(len(self.requests), 2)
+        self.assertIn("Convert FEET to metric", self.model_prompts()[1])
+        self.assertIn("200 METRES", self.final_answer(events))
+
+    async def test_a_note_on_the_last_script_is_classified_then_applied(self):
+        exa, calls = self.fake_exa()
+        note = "should it not be in the code that runs most of the internet?"
+        runner = self.runner([answer('{"intent": "edit", "format": "suvo", "research": false}'),
+                              answer(self.SUVO.replace("AGAIN.", "AGAIN... IN THE CODE."))])
         prior = [{"role": "user", "content": self.KILAUEA}, {"role": "assistant", "content": self.SUVO}]
-        events = await self.collect_fast(runner, self.fast_payload("WE WANT THE 25K NUMBER", prior=prior), exa)
+        events = await self.collect_fast(runner, self.fast_payload(note, prior=prior, required=True), exa)
+        self.assertEqual(calls, [])  # No research, even though the app asked for it.
+        self.assertEqual(len(self.requests), 2)  # Classifier, then the writer.
+        self.assertIn("You route a message", self.model_prompts()[0])
+        self.assertIn("full revised script", self.model_prompts()[1])
+        self.assertIn("IN THE CODE", self.final_answer(events))
+        plan = [e for e in events if e.get("name") == "newscraft.plan"][0]["value"]["steps"]
+        self.assertEqual([step["label"] for step in plan], ["Revise SUVO"])
+
+    async def test_a_question_about_the_script_gets_a_short_answer(self):
+        exa, calls = self.fake_exa()
+        runner = self.runner([answer('{"intent": "question", "format": "suvo"}'), answer("House style leaves phone numbers out.")])
+        prior = [{"role": "user", "content": self.KILAUEA}, {"role": "assistant", "content": self.SUVO}]
+        events = await self.collect_fast(runner, self.fast_payload("why no phone number?", prior=prior), exa)
         self.assertEqual(calls, [])
-        self.assertEqual(len(self.requests), 1)
-        self.assertIn("full revised script", self.model_prompts()[0])
-        self.assertIn("25-THOUSAND FEET", self.final_answer(events))
+        self.assertIn("Do not rewrite or repeat the script", self.model_prompts()[1])
+        self.assertEqual(self.final_answer(events), "House style leaves phone numbers out.")
+
+    async def test_a_research_question_after_a_script_leaves_the_skill(self):
+        plan = {"mode": "research", "assumption": "", "queries": [{"q": "TTC strike", "intent": "news", "days": 7, "domains": []}]}
+        exa, calls = self.fake_exa({"TTC strike": [self.fast_page("https://www.cbc.ca/news/ttc-1", "CBC", "TTC workers walked off the job.")]})
+        runner = self.runner([answer('{"intent": "other", "format": null}'), answer(json.dumps(plan)), answer("Workers walked out. [1]")])
+        prior = [{"role": "user", "content": self.KILAUEA}, {"role": "assistant", "content": self.SUVO}]
+        events = await self.collect_fast(runner, self.fast_payload("What's the latest on the TTC strike?", prior=prior), exa)
+        self.assertEqual([c["query"] for c in calls], ["TTC strike"])
+        self.assertNotIn("Accuracy comes first", json.dumps(self.requests[-1][1]))  # The skill is not attached.
+        self.assertIn("Workers walked out.", self.final_answer(events))
+
+    async def test_a_failed_classifier_falls_back_to_editing_the_script(self):
+        exa, calls = self.fake_exa()
+        runner = self.runner([answer("I cannot decide."), answer(self.SUVO)])
+        prior = [{"role": "user", "content": self.KILAUEA}, {"role": "assistant", "content": self.SUVO}]
+        await self.collect_fast(runner, self.fast_payload("tighten line two", prior=prior), exa)
+        self.assertEqual(calls, [])
+        self.assertIn("full revised script", self.model_prompts()[1])
 
     async def test_a_script_without_material_researches_first(self):
         plan = {"mode": "research", "assumption": "", "queries": [{"q": "Bank of Canada rate decision", "intent": "news", "days": 7, "domains": []}]}
