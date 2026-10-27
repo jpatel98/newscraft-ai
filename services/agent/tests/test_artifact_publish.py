@@ -1,0 +1,319 @@
+from __future__ import annotations
+
+import hashlib
+import asyncio
+import base64
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+
+import httpx
+
+from newscraft_agent.artifact_publish import (
+    ArtifactPublishError,
+    complete_staged_upload,
+    publish_workspace_file,
+    stage_backend_file,
+    stage_workspace_file,
+    upload_staged_file,
+)
+from newscraft_agent.isolation import TenantRuntime
+
+
+class ArtifactPublishTests(unittest.TestCase):
+    def make_runtime(self, root: Path) -> TenantRuntime:
+        workspace = root / "workspace"
+        workspace.mkdir(mode=0o700)
+        return TenantRuntime(
+            key="tenant-test",
+            state_home=root / "home",
+            workspace=workspace,
+            browser_profile=root / "profile",
+            profile_name="newscraft-tenant-test",
+            task_key="newscraft-tenant-test",
+        )
+
+    def test_stages_only_workspace_relative_regular_files(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            runtime = self.make_runtime(Path(raw))
+            target = runtime.workspace / "report.csv"
+            payload = b"period,value\n2026-09-01,4.2\n"
+            target.write_bytes(payload)
+            staged, size, checksum = stage_workspace_file("/workspace/report.csv", runtime)
+            self.assertEqual(size, len(payload))
+            self.assertEqual(checksum, hashlib.sha256(payload).hexdigest())
+            self.assertEqual(staged.read_bytes(), payload)
+            self.assertTrue(staged.is_relative_to(runtime.state_home))
+            self.assertFalse(staged.is_relative_to(runtime.workspace))
+            staged.unlink(missing_ok=True)
+            with self.assertRaises(ArtifactPublishError):
+                stage_workspace_file("/workspace/../report.csv", runtime)
+
+    def test_rejects_symlink_components(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            runtime = self.make_runtime(Path(raw))
+            (runtime.workspace / "outside").mkdir()
+            (runtime.workspace / "link").symlink_to(runtime.workspace / "outside", target_is_directory=True)
+            with self.assertRaises(ArtifactPublishError):
+                stage_workspace_file("/workspace/link/file.txt", runtime)
+
+    def test_rejects_fifo_without_blocking_and_accepts_virtual_relative_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            runtime = self.make_runtime(Path(raw))
+            fifo = runtime.workspace / "pipe"
+            os.mkfifo(fifo, 0o600)
+            with self.assertRaises(ArtifactPublishError):
+                stage_workspace_file("/workspace/pipe", runtime)
+            target = runtime.workspace / "nested.txt"
+            target.write_bytes(b"ok")
+            staged, size, _ = stage_workspace_file("nested.txt", runtime)
+            self.assertEqual((size, staged.read_bytes()), (2, b"ok"))
+            staged.unlink(missing_ok=True)
+
+    def test_can_stage_from_a_non_host_backend_byte_reader(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            runtime = self.make_runtime(Path(raw))
+            payload = b"backend bytes"
+
+            class BackendFileOps:
+                def read_file_bytes(self, path, *, max_bytes):
+                    self.request = (path, max_bytes)
+                    return SimpleNamespace(
+                        file_size=len(payload),
+                        base64_content=base64.b64encode(payload).decode("ascii"),
+                        error=None,
+                    )
+
+            file_ops = BackendFileOps()
+            staged, size, checksum = stage_backend_file(
+                file_ops,
+                "/workspace/chart.png",
+                runtime,
+                max_bytes=1024,
+            )
+            self.assertEqual(file_ops.request, ("/workspace/chart.png", 1024))
+            self.assertEqual((staged.read_bytes(), size), (payload, len(payload)))
+            self.assertEqual(checksum, hashlib.sha256(payload).hexdigest())
+            self.assertTrue(staged.is_relative_to(runtime.state_home))
+            self.assertFalse(staged.is_relative_to(runtime.workspace))
+            staged.unlink(missing_ok=True)
+
+    def test_can_stage_from_a_persistent_backend_workspace_mount(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            runtime = self.make_runtime(root)
+            mounted_workspace = root / "docker" / "workspace"
+            mounted_workspace.mkdir(parents=True, mode=0o700)
+            payload = b"mounted bytes"
+            (mounted_workspace / "chart.png").write_bytes(payload)
+            staged, size, checksum = stage_workspace_file(
+                "/workspace/chart.png",
+                runtime,
+                workspace_root=mounted_workspace,
+            )
+            self.assertEqual((staged.read_bytes(), size), (payload, len(payload)))
+            self.assertEqual(checksum, hashlib.sha256(payload).hexdigest())
+            staged.unlink(missing_ok=True)
+
+    def test_publish_reads_only_the_authenticated_conversation_workspace(self) -> None:
+        payload = b"conversation-owned upload"
+        checksum = hashlib.sha256(payload).hexdigest()
+
+        class Response:
+            status_code = 200
+            def json(self):
+                return {"object_version": "version-owned-1234"}
+
+        class Client:
+            async def put(self, _url, *, headers, content):
+                self.request = (headers, content)
+                return Response()
+
+        with tempfile.TemporaryDirectory() as raw:
+            runtime = self.make_runtime(Path(raw))
+            (runtime.workspace / "data.csv").write_bytes(payload)
+            client = Client()
+            result = asyncio.run(publish_workspace_file(
+                client=client, runtime=runtime, path="/workspace/data.csv",
+                grant={"upload_url": "http://newscraft.test/upload", "max_bytes": len(payload)},
+                mime_type="text/csv", size=len(payload), checksum_sha256=checksum,
+                task_id="model-cannot-select-a-different-tenant",
+            ))
+            self.assertEqual(result["object_version"], "version-owned-1234")
+            self.assertEqual(client.request[1], payload)
+            other = Path(raw) / "other-tenant"
+            other.mkdir()
+            (other / "data.csv").write_bytes(payload)
+            with self.assertRaises(ArtifactPublishError):
+                asyncio.run(publish_workspace_file(
+                    client=client, runtime=runtime, path=str(other / "data.csv"),
+                    grant={"upload_url": "http://newscraft.test/upload", "max_bytes": len(payload)},
+                    mime_type="text/csv", size=len(payload), checksum_sha256=checksum,
+                    task_id="other-tenant",
+                ))
+
+    def test_async_upload_sends_bytes_not_a_sync_file_handle(self) -> None:
+        class Response:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"object_version": "version-1234567890"}
+
+        class Client:
+            def __init__(self):
+                self.payload = None
+
+            async def put(self, _url, *, headers, content):
+                self.payload = (headers, content)
+                return Response()
+
+        with tempfile.TemporaryDirectory() as raw:
+            staged = Path(raw) / "staged.bin"
+            staged.write_bytes(b"bytes")
+            client = Client()
+            result = asyncio.run(upload_staged_file(
+                client,
+                staged,
+                "http://newscraft.test/upload",
+                mime_type="text/csv",
+                size=5,
+                checksum_sha256=hashlib.sha256(b"bytes").hexdigest(),
+            ))
+            self.assertEqual(result["object_version"], "version-1234567890")
+            self.assertEqual(client.payload[1], b"bytes")
+            self.assertFalse(staged.exists())
+
+    def test_signed_upload_uses_server_completion_callback_for_object_version(self) -> None:
+        payload = b"period,value\n2026-09-01,4.2\n"
+        checksum = hashlib.sha256(payload).hexdigest()
+
+        class Response:
+            def __init__(self, value):
+                self.status_code = 200
+                self._value = value
+
+            def json(self):
+                return self._value
+
+        class Client:
+            def __init__(self):
+                self.put_payload = None
+                self.post_url = None
+
+            async def put(self, _url, *, headers, content):
+                self.put_payload = (headers, content)
+                return Response({"path": "staging/a"})
+
+            async def post(self, url, *, headers, content):
+                self.post_url = (url, headers, content)
+                return Response({"object_version": "version-signed-1234"})
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            runtime = self.make_runtime(root)
+            target = runtime.workspace / "report.csv"
+            target.write_bytes(payload)
+            client = Client()
+            result = asyncio.run(publish_workspace_file(
+                client=client,
+                runtime=runtime,
+                path="/workspace/report.csv",
+                grant={
+                    "upload_url": "https://project.supabase.co/storage/v1/object/upload/sign/staging/a?token=signed",
+                    "upload_mode": "signed",
+                    "upload_complete_url": "https://newscraft.test/api/internal/artifacts/upload/grant?token=grant-token",
+                    "max_bytes": len(payload),
+                },
+                mime_type="text/csv",
+                size=len(payload),
+                checksum_sha256=checksum,
+            ))
+            self.assertEqual(result["object_version"], "version-signed-1234")
+            self.assertEqual(client.put_payload[1], payload)
+            self.assertEqual(client.post_url[0], "https://newscraft.test/api/internal/artifacts/upload/grant?token=grant-token")
+
+    def test_rejects_boolean_upload_bounds(self) -> None:
+        class Client:
+            async def put(self, *_args, **_kwargs):
+                raise AssertionError("the client must not receive an invalid upload")
+
+        with tempfile.TemporaryDirectory() as raw:
+            staged = Path(raw) / "staged.bin"
+            staged.write_bytes(b"bytes")
+            with self.assertRaises(ArtifactPublishError):
+                asyncio.run(upload_staged_file(
+                    Client(),
+                    staged,
+                    "http://newscraft.test/upload",
+                    mime_type="text/csv",
+                    size=True,
+                    checksum_sha256=hashlib.sha256(b"bytes").hexdigest(),
+                ))
+            self.assertTrue(staged.exists())
+
+    def upload_failure(self, handler, *, complete=False):
+        async def attempt():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                if complete:
+                    return await complete_staged_upload(client, "http://127.0.0.1:9100/complete")
+                with tempfile.TemporaryDirectory() as raw:
+                    staged = Path(raw) / "staged.bin"
+                    staged.write_bytes(b"bytes")
+                    try:
+                        return await upload_staged_file(client, staged, "http://127.0.0.1:9100/upload", mime_type="text/markdown",
+                                                        size=5, checksum_sha256=hashlib.sha256(b"bytes").hexdigest())
+                    finally:
+                        self.assertFalse(staged.exists())
+        with self.assertRaises(ArtifactPublishError) as caught:
+            asyncio.run(attempt())
+        return caught.exception
+
+    def test_connection_failures_and_4xx_are_final_but_timeouts_and_5xx_are_retryable(self) -> None:
+        def refuse(request):
+            raise httpx.ConnectError("[Errno 61] Connection refused", request=request)
+
+        def timeout(request):
+            raise httpx.ReadTimeout("slow", request=request)
+
+        for complete in (False, True):
+            with self.subTest(complete=complete):
+                self.assertFalse(self.upload_failure(refuse, complete=complete).retryable)
+                self.assertFalse(self.upload_failure(lambda request: httpx.Response(404), complete=complete).retryable)
+                self.assertFalse(self.upload_failure(lambda request: httpx.Response(403), complete=complete).retryable)
+                self.assertTrue(self.upload_failure(lambda request: httpx.Response(503), complete=complete).retryable)
+                self.assertTrue(self.upload_failure(timeout, complete=complete).retryable)
+        error = self.upload_failure(refuse)
+        self.assertNotIn("Connection refused", str(error))  # Transport detail is not carried into user-visible text.
+        self.assertNotIn("127.0.0.1", str(error))
+
+    def test_durable_grant_and_completion_steps_classify_failures_the_same_way(self) -> None:
+        from newscraft_agent.durable import DurableRunError, DurableRunWorker
+        from newscraft_agent.isolation import TenantIsolation
+
+        async def step(failure):
+            with tempfile.TemporaryDirectory() as raw:
+                base = Path(raw).resolve()
+                worker = DurableRunWorker(SimpleNamespace(run_api_url="https://app.example.test/api", run_api_token="t"),
+                                          TenantIsolation(base / "state", base / "files"))
+                async def fail(*_args, **_kwargs):
+                    raise failure
+                worker._newscraft = fail
+                try:
+                    await worker._artifact_step("POST", "/grant", {})
+                except ArtifactPublishError as exc:
+                    return exc
+                self.fail("the step must raise ArtifactPublishError")
+
+        request = httpx.Request("POST", "http://127.0.0.1:9100/grant")
+        self.assertFalse(asyncio.run(step(httpx.ConnectError("refused", request=request))).retryable)
+        self.assertFalse(asyncio.run(step(DurableRunError("rejected", 403, "forbidden"))).retryable)
+        self.assertFalse(asyncio.run(step(DurableRunError("rejected", 409, "stale_lease"))).retryable)
+        self.assertTrue(asyncio.run(step(DurableRunError("down", 503, "network"))).retryable)
+        self.assertTrue(asyncio.run(step(httpx.ReadTimeout("slow", request=request))).retryable)
+
+
+if __name__ == "__main__":
+    unittest.main()

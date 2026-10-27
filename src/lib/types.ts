@@ -30,7 +30,7 @@ export interface ChatMessage {
 	streaming?: boolean;
 	/** Ephemeral client-side send failure metadata. Not persisted. */
 	failure?: ChatFailureState;
-	/** Authoritative persisted Hermes run state for this assistant message. */
+	/** Authoritative persisted agent run state for this assistant message. */
 	durableState?: string | null;
 	/** Safe persisted failure text. The UI does not render raw technical details. */
 	durableError?: string | null;

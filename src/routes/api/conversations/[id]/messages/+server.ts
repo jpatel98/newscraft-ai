@@ -11,7 +11,7 @@ import {
 	type MessagePageCursor,
 	type MessageRow
 } from '$lib/server/db/conversations';
-import { listHermesRunStatesForMessages } from '$lib/server/db/hermes-runs';
+import { listAgentRunStatesForMessages } from '$lib/server/db/agent-runs';
 import { listArtifactSummariesForMessages } from '$lib/server/db/artifacts';
 import {
 	MESSAGE_PAGE_MAX_BYTES,
@@ -75,13 +75,13 @@ async function requireOwnedMessage(
 	return row;
 }
 
-function mapRuns(rows: MessageRow[], runs: Awaited<ReturnType<typeof listHermesRunStatesForMessages>>) {
+function mapRuns(rows: MessageRow[], runs: Awaited<ReturnType<typeof listAgentRunStatesForMessages>>) {
 	return new Map(runs.map((run) => [run.assistantMessageId, run]));
 }
 
 function serializeRows(
 	rows: MessageRow[],
-	runs: Awaited<ReturnType<typeof listHermesRunStatesForMessages>>
+	runs: Awaited<ReturnType<typeof listAgentRunStatesForMessages>>
 ): ThreadMessageView[] {
 	const byMessage = mapRuns(rows, runs);
 	return rows.map((row) => toThreadMessage(row, byMessage.get(row.id)));
@@ -149,7 +149,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 			getLatestMessagesPage(conversation.id, limit),
 			getMessageCount(conversation.id)
 		]);
-		const runs = await listHermesRunStatesForMessages(
+		const runs = await listAgentRunStatesForMessages(
 			locals.user.id,
 			conversation.id,
 			candidateRows.map((row) => row.id)
@@ -174,7 +174,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 		const cursor = decodeCursor(query.get('before'), 'before');
 		await requireOwnedMessage(conversation.id, cursor, 'before');
 		const candidateRows = await getMessagesBefore(conversation.id, cursor, limit);
-		const runs = await listHermesRunStatesForMessages(
+		const runs = await listAgentRunStatesForMessages(
 			locals.user.id,
 			conversation.id,
 			candidateRows.map((row) => row.id)
@@ -208,7 +208,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 			throw error(400, 'range boundaries are invalid');
 		}
 		const candidateRows = await getMessagesBetween(conversation.id, after, before, limit);
-		const runs = await listHermesRunStatesForMessages(
+		const runs = await listAgentRunStatesForMessages(
 			locals.user.id,
 			conversation.id,
 			candidateRows.map((row) => row.id)
@@ -246,7 +246,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 			afterLimit
 		);
 		const rows = [...window.before, targetRow, ...window.after];
-		const runs = await listHermesRunStatesForMessages(
+		const runs = await listAgentRunStatesForMessages(
 			locals.user.id,
 			conversation.id,
 			rows.map((row) => row.id)
@@ -288,7 +288,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 		throw error(400, 'ids are invalid');
 	}
 	const rows = await getMessagesByIds(conversation.id, ids);
-	const runs = await listHermesRunStatesForMessages(locals.user.id, conversation.id, ids);
+	const runs = await listAgentRunStatesForMessages(locals.user.id, conversation.id, ids);
 	const messages = await attachArtifactSummaries(locals.user.id, conversation.id, serializeRows(rows, runs));
 	return json(
 		{

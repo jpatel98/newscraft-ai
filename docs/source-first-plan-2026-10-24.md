@@ -40,7 +40,7 @@ Data
 - Citation type for tape. `CitationRecord` (`packages/shared/src/gateway.ts`) gains `transcriptId?`, `startMs?`, `endMs?`, `speaker?`. URL form `transcript://<id>#t=<startMs>,<endMs>`; add the scheme to `isCitationUrl`. `sourceType: "primary"` for on-record interview tape.
 - `story_claims.attributed_to` is already free text; a tape-derived claim sets it to the speaker name and `source_tier = "official"` only when the speaker is the official (otherwise `local`/`other` as today). Add `source_kind: "transcript"` to `EvidenceSource` so the ledger can show a play chip instead of a host.
 
-Worker (`services/hermes-chat`)
+Worker (`services/agent`)
 
 - Seed utterance citations the way PDF pages are seeded: one citation per speaker turn, excerpt = verbatim text, `startMs/endMs` from `utterances`. Cap by duration, not characters (today the paste is cut at 60,000 chars with no warning).
 - New tool `pick_sots(transcript_id, n=3, max_seconds=12)` → `{in, out, speaker, verbatim, why}`. Verbatim is the utterance words, never a paraphrase. `sotvo.md` already asks for IN/OUT; make it read real values.
@@ -48,7 +48,7 @@ Worker (`services/hermes-chat`)
 
 App
 
-- Composer: accept audio/video (`transcript-media.ts` list) alongside PDF. Upload → existing transcript pipeline → auto-attach to the chat. The 270 s synchronous cutoff must become a job: reuse `hermes_runs` durable-run plumbing or `agent-jobs`, poll from the composer.
+- Composer: accept audio/video (`transcript-media.ts` list) alongside PDF. Upload → existing transcript pipeline → auto-attach to the chat. The 270 s synchronous cutoff must become a job: reuse `agent_runs` durable-run plumbing or `agent-jobs`, poll from the composer.
 - `EvidencePreview`: when the citation is `transcript://`, render speaker, timecode, verbatim, and a play button seeking the `/api/transcriptions/[id]/audio` stream to `startMs` (Range request).
 - `StoryLedgerPane`: evidence chip for tape shows `▶ 02:14 Mayor Brown` instead of a host.
 

@@ -3,7 +3,7 @@ export * from './gateway.js';
 export * from './research-contract.js';
 export * from './gates.js';
 export * from './health.js';
-export * from './hermes.js';
+export * from './agent.js';
 export * from './jobs.js';
 export * from './sse.js';
 export * from './agent-contract.js';

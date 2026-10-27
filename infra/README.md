@@ -1,7 +1,7 @@
 # NewsCraft Contabo staging
 
 These files define isolated NewsCraft services. They do not reuse the existing
-Honcho database, Redis, Hermes, DeepSeek Harness proxy, or Tailscale Funnel
+Honcho database, Redis, agent, DeepSeek Harness proxy, or Tailscale Funnel
 configuration on the personal VPS.
 
 ## Services

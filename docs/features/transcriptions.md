@@ -47,7 +47,7 @@ nothing; on every later turn the chat seeds one citation per speaker turn,
 excerpt (`src/lib/server/transcripts/context.ts`, then
 `transcriptCitationContext` in `src/lib/server/agent/transport.ts`). The worker
 treats those citations as private tape: never fetched, only quoted
-(`services/hermes-chat/src/hermes_chat/tape.py`). In a SOTVO turn the worker
+(`services/agent/src/newscraft_agent/tape.py`). In a SOTVO turn the worker
 computes clip candidates from the turns and checks that every quoted SOT is
 word-for-word from one turn, repairing the script once if it is not.
 

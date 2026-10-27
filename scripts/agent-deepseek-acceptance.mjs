@@ -10,8 +10,8 @@ if (Number(process.versions.node.split('.')[0]) !== 24) {
 }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const python = path.join(root, 'services/hermes-chat/.venv-owned/bin/python');
-const child = spawn(python, ['-m', 'hermes_chat.deepseek_acceptance', ...process.argv.slice(2)], {
+const python = path.join(root, 'services/agent/.venv-owned/bin/python');
+const child = spawn(python, ['-m', 'newscraft_agent.deepseek_acceptance', ...process.argv.slice(2)], {
 	cwd: root,
 	stdio: 'inherit'
 });

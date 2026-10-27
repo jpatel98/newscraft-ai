@@ -1,0 +1,328 @@
+from __future__ import annotations
+
+import copy
+import json
+import unittest
+from decimal import Decimal
+from math import ceil
+from types import SimpleNamespace
+
+import httpx
+
+from newscraft_agent import budgets
+from newscraft_agent.model_adapters import DeepSeekMessages, ModelError, create_model
+from test_input_messages import data_url, png
+
+
+class DeepSeekAdapterTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.settings = SimpleNamespace(
+            model_provider="deepseek", model="deepseek-flash", model_api_key="synthetic-deepseek-key",
+            model_base_url="https://api.deepseek.com/anthropic", max_seconds=180, max_iterations=8,
+            max_input_tokens=120000, max_output_tokens=2048, max_cost_usd=0.06,
+            input_cost_per_million=0.30, output_cost_per_million=1.20, web_provider="public",
+        )
+        self.requests = []
+        self.clients = []
+        self.messages = [{"role": "user", "content": [{"type": "text", "text": "Check a source."}]}]
+        self.tools = [{"name": "read", "description": "Read public evidence",
+                       "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}]
+
+    async def asyncTearDown(self):
+        for client in self.clients:
+            await client.aclose()
+
+    def adapter(self, replies):
+        queue = list(replies)
+
+        def respond(request):
+            self.requests.append(request)
+            reply = queue.pop(0)
+            if isinstance(reply, BaseException):
+                raise reply
+            return reply if isinstance(reply, httpx.Response) else httpx.Response(200, json=reply)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        self.clients.append(client)
+        return DeepSeekMessages(self.settings, client=client)
+
+    async def complete(self, adapter, **overrides):
+        arguments = dict(model=self.settings.model, instructions="Owned system policy", messages=self.messages,
+                         tools=self.tools, max_output=2048, private={})
+        return await adapter.complete(**(arguments | overrides))
+
+    async def test_messages_wire_round_trip_preserves_tools_and_omits_foreign_fields(self):
+        adapter = self.adapter([
+            {"stop_reason": "tool_use", "content": [
+                {"type": "thinking", "thinking": "PRIVATE_REASONING", "signature": "PRIVATE_SIGNATURE"},
+                {"type": "tool_use", "id": "read-1", "name": "read", "input": {"url": "https://example.test/source"}},
+            ], "usage": {"input_tokens": 8, "output_tokens": 12, "cache_read_input_tokens": 900}},
+            {"stop_reason": "end_turn", "content": [{"type": "text", "text": "A sourced answer. [1]"}]},
+        ])
+        reply = await self.complete(adapter)
+        self.assertEqual(reply.usage, {"input_tokens": 8, "output_tokens": 12})
+        self.assertEqual(reply.private, {})
+        self.assertEqual(reply.message["content"], [{"type": "tool_call", "id": "read-1", "name": "read",
+                                                   "arguments": {"url": "https://example.test/source"}}])
+        messages = self.messages + [reply.message, {"role": "tool", "content": [
+            {"type": "tool_result", "id": "read-1", "output": "untrusted source text", "failed": False}]}]
+        final = await self.complete(adapter, messages=messages, private=reply.private)
+        self.assertEqual(final.message["content"], [{"type": "text", "text": "A sourced answer. [1]"}])
+        for request in self.requests:
+            self.assertEqual(str(request.url), "https://api.deepseek.com/anthropic/v1/messages")
+            self.assertEqual(request.headers["x-api-key"], "synthetic-deepseek-key")
+            self.assertNotIn("authorization", request.headers)
+            body = json.loads(request.content)
+            self.assertEqual(set(body), {"model", "max_tokens", "thinking", "system", "messages", "tools"})
+            self.assertEqual(body["model"], "deepseek-flash")
+            self.assertEqual(body["thinking"], {"type": "disabled"})
+            self.assertEqual(body["max_tokens"], 2048)
+            self.assertEqual(body["tools"][0]["input_schema"], self.tools[0]["parameters"])
+            self.assertNotIn("PRIVATE_", request.content.decode())
+        continuation = json.loads(self.requests[-1].content)["messages"]
+        self.assertEqual(continuation[-2]["content"][0]["id"], "read-1")
+        self.assertEqual(continuation[-1]["content"][0]["tool_use_id"], "read-1")
+        self.assertEqual(continuation[-1]["content"][0]["content"], "untrusted source text")
+
+    async def test_retired_or_unknown_names_never_reach_silent_provider_mapping(self):
+        adapter = self.adapter([])
+        for model in ("deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash", "claude-opus", "unknown"):
+            with self.subTest(model=model), self.assertRaisesRegex(ModelError, "supported DeepSeek model"):
+                await self.complete(adapter, model=model)
+        self.assertEqual(self.requests, [])
+
+    async def test_flash_images_preserve_wire_input_and_have_a_conservative_reservation(self):
+        encoded = data_url("png", png()).split(",", 1)[1]
+        messages = [{"role": "user", "content": [
+            {"type": "text", "text": "Read this screenshot."},
+            {"type": "image", "media_type": "image/png", "data": encoded}]}]
+        adapter = self.adapter([{"stop_reason": "end_turn", "content": [{"type": "text", "text": "An image."}]}])
+        private = {"replay": {"0": "PRIVATE_OTHER_PROVIDER_STATE"}}
+        bound = budgets.input_bound(adapter, messages=messages, private=private,
+                                    instructions="Owned system policy", tools=self.tools, image_tokens=32768)
+        self.assertGreater(bound, 32768)
+        state = {}
+        budgets.reserve(state, self.settings, input_tokens=bound, output_tokens=2048)
+        await self.complete(adapter, messages=messages, private=private)
+        body = json.loads(self.requests[0].content)
+        self.assertEqual(body["messages"][0]["content"][1], {
+            "type": "image", "source": {"type": "base64", "media_type": "image/png", "data": encoded}})
+        self.assertNotIn("PRIVATE_OTHER_PROVIDER_STATE", self.requests[0].content.decode())
+        expected_micros = ceil(Decimal(bound) * Decimal("0.30") + Decimal(2048) * Decimal("1.20"))
+        self.assertEqual(state["budget"]["cost_microusd"], expected_micros)
+
+    async def test_pro_images_fail_before_reservation_or_dispatch(self):
+        self.settings.model = "deepseek-v4-pro"
+        self.settings.input_cost_per_million = 1.32
+        self.settings.output_cost_per_million = 3.96
+        self.assertTrue(budgets.configured(self.settings))
+        image = {"type": "image", "media_type": "image/png", "data": data_url("png", png()).split(",", 1)[1]}
+        messages = [{"role": "user", "content": [image]}]
+        adapter = self.adapter([])
+        with self.assertRaisesRegex(ValueError, "does not support images"):
+            budgets.input_bound(adapter, messages=messages, private={},
+                                instructions="Owned system policy", tools=self.tools, image_tokens=32768)
+        with self.assertRaisesRegex(ModelError, "does not support images"):
+            await self.complete(adapter, messages=messages)
+        self.assertEqual(self.requests, [])
+
+    async def test_flash_rejects_images_in_non_user_messages_before_dispatch(self):
+        adapter = self.adapter([])
+        image = {"type": "image", "media_type": "image/png", "data": data_url("png", png()).split(",", 1)[1]}
+        for role in ("assistant", "system", "tool"):
+            messages = [{"role": role, "content": [image]}]
+            with self.subTest(role=role), self.assertRaisesRegex(ModelError, "must be user messages"):
+                await self.complete(adapter, messages=messages)
+        self.assertEqual(self.requests, [])
+
+    async def test_explicit_model_cannot_bypass_the_configured_model_price_policy(self):
+        adapter = self.adapter([])
+        with self.assertRaisesRegex(ModelError, "does not match its configured budget policy"):
+            await self.complete(adapter, model="deepseek-v4-pro")
+        self.assertEqual(self.requests, [])
+
+    async def test_incomplete_responses_and_malformed_tool_calls_fail_closed(self):
+        invalid = [
+            {"stop_reason": "refusal", "content": [{"type": "text", "text": "declined"}]},
+            {"stop_reason": "end_turn", "content": {}},
+            {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "read", "id": "id", "input": "{}"}]},
+            {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "read", "id": "", "input": {}}]},
+        ]
+        adapter = self.adapter(invalid)
+        for response in invalid:
+            with self.subTest(response=response), self.assertRaises(ModelError):
+                await self.complete(adapter)
+        self.assertEqual(len(self.requests), len(invalid))
+
+    async def test_max_tokens_returns_generated_text_flagged_truncated_and_drops_cut_tool_calls(self):
+        adapter = self.adapter([
+            {"stop_reason": "max_tokens", "content": [{"type": "text", "text": "partial answer"}]},
+            {"stop_reason": "max_tokens", "content": [{"type": "text", "text": "so far"},
+                {"type": "tool_use", "id": "cut", "name": "read", "input": {"url": "https://exam"}}]},
+            {"stop_reason": "end_turn", "content": [{"type": "text", "text": "whole"}]},
+        ])
+        first, second, third = [await self.complete(adapter) for _ in range(3)]
+        self.assertTrue(first.truncated)
+        self.assertEqual(first.message["content"], [{"type": "text", "text": "partial answer"}])
+        self.assertTrue(second.truncated)
+        self.assertEqual(second.message["content"], [{"type": "text", "text": "so far"}])
+        self.assertFalse(third.truncated)
+
+    async def test_openai_incomplete_output_limit_is_truncated_but_other_incomplete_reasons_fail(self):
+        from newscraft_agent.model_adapters import OpenAIResponses
+        replies = [
+            {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": [
+                {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "partial"}]},
+                {"type": "function_call", "call_id": "cut", "name": "read", "arguments": "{\"url\": \"https://exam"}]},
+            {"status": "incomplete", "incomplete_details": {"reason": "content_filter"}, "output": []},
+        ]
+        queue = list(replies)
+        client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=queue.pop(0))))
+        self.clients.append(client)
+        adapter = OpenAIResponses(self.settings, client=client)
+        reply = await self.complete(adapter)
+        self.assertTrue(reply.truncated)
+        self.assertEqual(reply.message["content"], [{"type": "text", "text": "partial"}])
+        with self.assertRaises(ModelError):
+            await self.complete(adapter)
+
+    async def test_truncated_publish_calls_expose_their_partial_arguments(self):
+        from newscraft_agent.model_adapters import OpenAIResponses
+        raw = '{"title": "Brief", "markdown": "# Brief\\n\\nThe ne'
+        adapter = self.adapter([
+            {"stop_reason": "max_tokens", "content": [{"type": "tool_use", "id": "cut", "name": "publish_markdown", "input": {"title": "Brief", "markdown": "# Brief"}}]},
+            {"stop_reason": "max_tokens", "content": [{"type": "tool_use", "id": "cut", "name": "read", "input": {"url": "https://exam"}}]},
+        ])
+        first, second = [await self.complete(adapter) for _ in range(2)]
+        self.assertTrue(first.truncated)
+        self.assertEqual(first.message["content"], [])
+        self.assertEqual(first.partial_tool_call["name"], "publish_markdown")
+        self.assertEqual(first.partial_tool_call["arguments"], {"title": "Brief", "markdown": "# Brief"})
+        self.assertIsNone(second.partial_tool_call)
+        queue = [{"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": [
+            {"type": "function_call", "call_id": "cut", "name": "publish_markdown", "arguments": raw}]}]
+        client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=queue.pop(0))))
+        self.clients.append(client)
+        reply = await self.complete(OpenAIResponses(self.settings, client=client))
+        self.assertTrue(reply.truncated)
+        self.assertEqual(reply.message["content"], [])
+        self.assertEqual(reply.partial_tool_call, {"name": "publish_markdown", "arguments_text": raw, "arguments": None})
+
+    async def test_provider_failures_never_retry_or_echo_private_details(self):
+        for failure in (httpx.ReadTimeout("PRIVATE_PROVIDER_DETAIL"),
+                        httpx.Response(429, text="PRIVATE_PROVIDER_DETAIL"),
+                        httpx.Response(200, text="PRIVATE_PROVIDER_DETAIL")):
+            with self.subTest(failure=type(failure).__name__):
+                before = len(self.requests)
+                adapter = self.adapter([failure])
+                with self.assertRaises(ModelError) as raised:
+                    await self.complete(adapter)
+                self.assertNotIn("PRIVATE_PROVIDER_DETAIL", str(raised.exception))
+                self.assertEqual(len(self.requests), before + 1)
+
+    @staticmethod
+    def sse(*events):
+        body = "".join(f"event: {name}\ndata: {json.dumps({'type': name, **value})}\n\n" for name, value in events)
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=body)
+
+    START = ("message_start", {"message": {"id": "msg_1", "role": "assistant", "content": [], "usage": {"input_tokens": 8, "output_tokens": 1}}})
+
+    async def test_streamed_reply_reports_text_as_it_arrives_and_assembles_the_same_reply(self):
+        adapter = self.adapter([self.sse(
+            self.START,
+            ("content_block_start", {"index": 0, "content_block": {"type": "thinking", "thinking": ""}}),
+            ("content_block_delta", {"index": 0, "delta": {"type": "thinking_delta", "thinking": "PRIVATE_REASONING"}}),
+            ("content_block_stop", {"index": 0}),
+            ("content_block_start", {"index": 1, "content_block": {"type": "text", "text": ""}}),
+            ("content_block_delta", {"index": 1, "delta": {"type": "text_delta", "text": "Checking "}}),
+            ("content_block_delta", {"index": 1, "delta": {"type": "text_delta", "text": "the source. [1]"}}),
+            ("content_block_stop", {"index": 1}),
+            ("content_block_start", {"index": 2, "content_block": {"type": "tool_use", "id": "read-1", "name": "read", "input": {}}}),
+            ("content_block_delta", {"index": 2, "delta": {"type": "input_json_delta", "partial_json": '{"url": "https://exa'}}),
+            ("content_block_delta", {"index": 2, "delta": {"type": "input_json_delta", "partial_json": 'mple.test/source"}'}}),
+            ("content_block_stop", {"index": 2}),
+            ("message_delta", {"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 12}}),
+            ("message_stop", {}))])
+        seen = []
+        reply = await self.complete(adapter, on_text=seen.append)
+        self.assertEqual(seen, ["Checking ", "the source. [1]"])
+        self.assertEqual(reply.message["content"], [
+            {"type": "text", "text": "Checking the source. [1]"},
+            {"type": "tool_call", "id": "read-1", "name": "read", "arguments": {"url": "https://example.test/source"}}])
+        self.assertEqual(reply.usage, {"input_tokens": 8, "output_tokens": 12})
+        self.assertFalse(reply.truncated)
+        self.assertIs(json.loads(self.requests[0].content)["stream"], True)
+        self.assertNotIn("PRIVATE_REASONING", json.dumps(reply.message))
+
+    async def test_streamed_output_limit_keeps_text_and_the_partial_publish_call(self):
+        adapter = self.adapter([self.sse(
+            self.START,
+            ("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}}),
+            ("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": "Brief follows."}}),
+            ("content_block_stop", {"index": 0}),
+            ("content_block_start", {"index": 1, "content_block": {"type": "tool_use", "id": "pub-1", "name": "publish_markdown", "input": {}}}),
+            ("content_block_delta", {"index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"title": "Brief", "markdown": "# Bri'}}),
+            ("message_delta", {"delta": {"stop_reason": "max_tokens"}}),
+            ("message_stop", {}))])
+        reply = await self.complete(adapter, on_text=lambda text: None)
+        self.assertTrue(reply.truncated)
+        self.assertEqual(reply.message["content"], [{"type": "text", "text": "Brief follows."}])
+        self.assertEqual(reply.partial_tool_call, {"name": "publish_markdown", "arguments_text": '{"title": "Brief", "markdown": "# Bri', "arguments": None})
+
+    async def test_broken_streams_fail_closed_without_retry(self):
+        text = ("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}})
+        for case, response in {
+            "no final event": self.sse(self.START, text),
+            "provider error event": self.sse(self.START, ("error", {"error": {"type": "overloaded_error", "message": "PRIVATE_PROVIDER_DETAIL"}})),
+            "delta before start": self.sse(("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": "x"}})),
+            "malformed data": httpx.Response(200, headers={"content-type": "text/event-stream"}, text="event: message_start\ndata: {nope\n\n"),
+        }.items():
+            with self.subTest(case=case):
+                before = len(self.requests)
+                with self.assertRaises(ModelError) as raised:
+                    await self.complete(self.adapter([response]), on_text=lambda text: None)
+                self.assertNotIn("PRIVATE_PROVIDER_DETAIL", str(raised.exception))
+                self.assertEqual(len(self.requests), before + 1)
+
+    async def test_a_plain_json_reply_to_a_streaming_request_is_still_accepted(self):
+        adapter = self.adapter([{"stop_reason": "end_turn", "content": [{"type": "text", "text": "Whole answer."}]}])
+        seen = []
+        reply = await self.complete(adapter, on_text=seen.append)
+        self.assertEqual(reply.message["content"], [{"type": "text", "text": "Whole answer."}])
+        self.assertEqual(seen, [])  # The final replace still delivers it; nothing was streamed.
+
+    def test_factory_selects_dedicated_adapter(self):
+        self.assertIsInstance(create_model(self.settings), DeepSeekMessages)
+        self.assertEqual(create_model(self.settings).name, "deepseek")
+
+    def test_peak_reservations_fit_six_cent_acceptance_cap_without_refunds(self):
+        self.assertTrue(budgets.configured(self.settings))
+        state = {}
+        for _ in range(8):
+            budgets.reserve(state, self.settings, input_tokens=15000, output_tokens=2048)
+        # Round each admitted request UP to microdollars, not the total down.
+        self.assertEqual(state["budget"], {"input_tokens": 120000, "output_tokens": 16384, "cost_microusd": 55664})
+        self.assertLess(Decimal(state["budget"]["cost_microusd"]) / 1_000_000, Decimal("0.06"))
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ValueError, "input-token"):
+            budgets.reserve(state, self.settings, input_tokens=1, output_tokens=2048)
+        self.assertEqual(state, before)
+
+    def test_pro_uses_its_own_peak_floors_and_unknown_models_fail_closed(self):
+        self.settings.model = "deepseek-v4-pro"
+        self.assertFalse(budgets.configured(self.settings))
+        self.settings.input_cost_per_million = 1.32
+        self.settings.output_cost_per_million = 3.96
+        self.assertTrue(budgets.configured(self.settings))
+        self.settings.model = "deepseek-reasoner"
+        self.assertFalse(budgets.configured(self.settings))
+
+    def test_nonfinite_or_discounted_prices_cannot_enable_dispatch(self):
+        for name, value in (("input_cost_per_million", 0.006), ("input_cost_per_million", 0.15),
+                            ("output_cost_per_million", 0.6), ("input_cost_per_million", float("inf")),
+                            ("output_cost_per_million", float("nan"))):
+            with self.subTest(setting=name, value=value):
+                previous = getattr(self.settings, name)
+                setattr(self.settings, name, value)
+                self.assertFalse(budgets.configured(self.settings))
+                setattr(self.settings, name, previous)

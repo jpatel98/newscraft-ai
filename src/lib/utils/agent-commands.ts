@@ -34,7 +34,7 @@ export const LOCAL_AGENT_COMMANDS: readonly AgentCommand[] = Object.freeze([
 	{
 		name: 'Status',
 		slash: '/status',
-		description: 'Check the configured Hermes runtime health.',
+		description: 'Check the configured agent runtime health.',
 		category: 'Chat',
 		kind: 'builtin',
 		enabled: true

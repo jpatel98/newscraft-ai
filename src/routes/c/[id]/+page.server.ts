@@ -2,7 +2,7 @@ import { getConversationProject } from '$lib/server/db/projects';
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getConversationLoad } from '$lib/server/db/conversation-load';
-import { snapshotFromRun } from '$lib/server/db/hermes-runs';
+import { snapshotFromRun } from '$lib/server/db/agent-runs';
 import { listArtifactSummariesForMessages } from '$lib/server/db/artifacts';
 import { measureRequest } from '$lib/server/request-timing';
 import {

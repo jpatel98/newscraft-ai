@@ -35,7 +35,7 @@ describe('classifySource', () => {
 	});
 
 	it('agrees with the worker on every domain both lists name', () => {
-		const python = readFileSync(new URL('../../../services/hermes-chat/src/hermes_chat/source_tiers.py', import.meta.url), 'utf8');
+		const python = readFileSync(new URL('../../../services/agent/src/newscraft_agent/source_tiers.py', import.meta.url), 'utf8');
 		const tuple = (name: string) =>
 			[...(python.match(new RegExp(`${name} = \\(([\\s\\S]*?)\\n\\)`))?.[1] ?? '').matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 		const expectTier = (domains: string[], tier: string) => {

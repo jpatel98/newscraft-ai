@@ -8,8 +8,8 @@ import {
 	artifactUploadGrants,
 	artifactVerifications,
 	conversations,
-	hermesRuns,
-	hermesRunArtifactRefs,
+	agentRuns,
+	agentRunArtifactRefs,
 	messages
 } from './schema';
 import { newId } from '$lib/utils/id';
@@ -171,7 +171,7 @@ function summaryFromRow(row: any): ArtifactSummary {
 	};
 }
 
-const HERMES_RUN_ACTIVE_STATES = new Set(['queued', 'researching', 'writing', 'reconnecting']);
+const AGENT_RUN_ACTIVE_STATES = new Set(['queued', 'researching', 'writing', 'reconnecting']);
 
 /** Lock and validate the run lease before an artifact mutation.  Artifact
  * publication is a capability of the currently leased run, not of a bearer
@@ -185,7 +185,7 @@ async function lockArtifactRunLease(
 	const [run] = await tx.execute(sql`
 		SELECT id, account_id, tenant_key, conversation_id, assistant_message_id,
 			state, lease_owner, lease_token, lease_expires_at
-		FROM hermes_runs
+		FROM agent_runs
 		WHERE id = ${input.runId} AND account_id = ${input.accountId}
 		FOR UPDATE
 	`);
@@ -194,7 +194,7 @@ async function lockArtifactRunLease(
 		throw new ArtifactRepositoryError('conflict', 'run tenant binding does not match');
 	}
 	if (
-		!HERMES_RUN_ACTIVE_STATES.has(String(run.state)) ||
+		!AGENT_RUN_ACTIVE_STATES.has(String(run.state)) ||
 		run.lease_owner !== input.leaseOwner ||
 		run.lease_token !== input.leaseToken ||
 		run.lease_expires_at === null ||
@@ -317,7 +317,7 @@ export async function createArtifactRevisionForRun(input: {
 	const spec = parseArtifactSpec(input.spec);
 	if (spec.fixture === true) {
 		// Synthetic fixtures are reserved for the explicit local demo endpoint;
-		// a real Hermes run must never be able to label model output as a demo.
+		// a real agent run must never be able to label model output as a demo.
 		throw new ArtifactRepositoryError('invalid_input', 'synthetic fixture artifacts are not allowed for runtime publication');
 	}
 	const title = safeText(input.title || spec.title, 'title', MAX_TITLE);
@@ -927,8 +927,8 @@ export async function attachArtifactReferencesToEvent(accountId: string, runId: 
 		// later reader mistake an unrelated event for the publication point.
 		const [event] = await tx.execute(sql`
 			SELECT e.event_type, e.data_json, h.account_id, h.conversation_id, h.assistant_message_id
-			FROM hermes_run_events e
-			JOIN hermes_runs h ON h.id = e.run_id
+			FROM agent_run_events e
+			JOIN agent_runs h ON h.id = e.run_id
 			WHERE e.run_id = ${runId}
 				AND e.account_id = ${accountId}
 				AND h.account_id = ${accountId}
@@ -966,9 +966,9 @@ export async function attachArtifactReferencesToEvent(accountId: string, runId: 
 			FOR UPDATE OF r, f
 		`);
 		if (!owned) throw new ArtifactRepositoryError('not_found', 'artifact or run not found');
-		await tx.insert(hermesRunArtifactRefs).values({ runId, revisionId, cursor, createdAt: now }).onConflictDoUpdate({
-			target: [hermesRunArtifactRefs.runId, hermesRunArtifactRefs.revisionId],
-			set: { cursor: sql`GREATEST(${hermesRunArtifactRefs.cursor}, EXCLUDED.cursor)`, createdAt: now }
+		await tx.insert(agentRunArtifactRefs).values({ runId, revisionId, cursor, createdAt: now }).onConflictDoUpdate({
+			target: [agentRunArtifactRefs.runId, agentRunArtifactRefs.revisionId],
+			set: { cursor: sql`GREATEST(${agentRunArtifactRefs.cursor}, EXCLUDED.cursor)`, createdAt: now }
 		});
 	});
 }

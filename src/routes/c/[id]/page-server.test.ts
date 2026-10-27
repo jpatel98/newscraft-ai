@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const loadMocks = vi.hoisted(() => ({ getConversationLoad: vi.fn() }));
 const artifactMocks = vi.hoisted(() => ({ listArtifactSummariesForMessages: vi.fn() }));
 const runMocks = vi.hoisted(() => ({
-	getActiveHermesRun: vi.fn(),
-	listHermesRunsForConversation: vi.fn(),
-	listHermesRunStatesForMessages: vi.fn(),
+	getActiveAgentRun: vi.fn(),
+	listAgentRunsForConversation: vi.fn(),
+	listAgentRunStatesForMessages: vi.fn(),
 	snapshotFromRun: vi.fn(() => ({
 		state: 'writing',
 		answerText: 'Saved answer',
@@ -20,7 +20,7 @@ vi.mock('$lib/server/db/projects', () => ({ getConversationProject: vi.fn().mock
 
 vi.mock('$lib/server/db/conversation-load', () => loadMocks);
 vi.mock('$lib/server/db/artifacts', () => artifactMocks);
-vi.mock('$lib/server/db/hermes-runs', () => runMocks);
+vi.mock('$lib/server/db/agent-runs', () => runMocks);
 
 import { load } from './+page.server';
 

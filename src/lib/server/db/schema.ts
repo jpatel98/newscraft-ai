@@ -233,8 +233,8 @@ export const messageProvenance = pgTable(
 	})
 );
 
-export const hermesRuns = pgTable(
-	'hermes_runs',
+export const agentRuns = pgTable(
+	'agent_runs',
 	{
 		id: text('id').primaryKey(),
 		accountId: text('account_id')
@@ -271,27 +271,27 @@ export const hermesRuns = pgTable(
 		completedAt: timestampMs('completed_at')
 	},
 	(t) => ({
-		accountIdempotencyUnique: uniqueIndex('hermes_runs_account_idempotency_unique').on(
+		accountIdempotencyUnique: uniqueIndex('agent_runs_account_idempotency_unique').on(
 			t.accountId,
 			t.idempotencyKey
 		),
-		conversationStateIdx: index('hermes_runs_conversation_state_idx').on(
+		conversationStateIdx: index('agent_runs_conversation_state_idx').on(
 			t.accountId,
 			t.conversationId,
 			t.state,
 			t.updatedAt
 		),
-		leaseIdx: index('hermes_runs_lease_idx').on(t.state, t.leaseExpiresAt),
-		accountUpdatedIdx: index('hermes_runs_account_updated_idx').on(t.accountId, t.updatedAt)
+		leaseIdx: index('agent_runs_lease_idx').on(t.state, t.leaseExpiresAt),
+		accountUpdatedIdx: index('agent_runs_account_updated_idx').on(t.accountId, t.updatedAt)
 	})
 );
 
-export const hermesRunEvents = pgTable(
-	'hermes_run_events',
+export const agentRunEvents = pgTable(
+	'agent_run_events',
 	{
 		runId: text('run_id')
 			.notNull()
-			.references(() => hermesRuns.id, { onDelete: 'cascade' }),
+			.references(() => agentRuns.id, { onDelete: 'cascade' }),
 		accountId: text('account_id')
 			.notNull()
 			.references(() => accounts.id, { onDelete: 'cascade' }),
@@ -302,7 +302,7 @@ export const hermesRunEvents = pgTable(
 	},
 	(t) => ({
 		primary: primaryKey({ columns: [t.runId, t.cursor] }),
-		accountCursorIdx: index('hermes_run_events_account_cursor_idx').on(
+		accountCursorIdx: index('agent_run_events_account_cursor_idx').on(
 			t.accountId,
 			t.runId,
 			t.cursor
@@ -406,7 +406,7 @@ export const artifactUploadGrants = pgTable(
 		revisionId: text('revision_id')
 			.notNull()
 			.references(() => artifactRevisions.id, { onDelete: 'cascade' }),
-		runId: text('run_id').references(() => hermesRuns.id, { onDelete: 'set null' }),
+		runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
 		role: text('role', { enum: ['source', 'preview', 'data'] }).notNull(),
 		producerKey: text('producer_key').notNull(),
 		tokenHash: text('token_hash').notNull(),
@@ -459,12 +459,12 @@ export const artifactVerifications = pgTable(
 	})
 );
 
-export const hermesRunArtifactRefs = pgTable(
-	'hermes_run_artifact_refs',
+export const agentRunArtifactRefs = pgTable(
+	'agent_run_artifact_refs',
 	{
 		runId: text('run_id')
 			.notNull()
-			.references(() => hermesRuns.id, { onDelete: 'cascade' }),
+			.references(() => agentRuns.id, { onDelete: 'cascade' }),
 		revisionId: text('revision_id')
 			.notNull()
 			.references(() => artifactRevisions.id, { onDelete: 'cascade' }),
@@ -473,7 +473,7 @@ export const hermesRunArtifactRefs = pgTable(
 	},
 	(t) => ({
 		primary: primaryKey({ columns: [t.runId, t.revisionId] }),
-		cursorIdx: index('hermes_run_artifact_refs_cursor_idx').on(t.runId, t.cursor)
+		cursorIdx: index('agent_run_artifact_refs_cursor_idx').on(t.runId, t.cursor)
 	})
 );
 

@@ -3,13 +3,13 @@ import { createHash } from 'node:crypto';
 import { ensureMigrated, sql } from './index';
 import { createConversation, addMessage } from './conversations';
 import {
-	claimHermesRunLease,
-	createOrGetHermesRun,
-	finalizeHermesRunCancellation,
-	getHermesRun,
-	requestHermesRunCancellation,
-	releaseHermesRunLease
-} from './hermes-runs';
+	claimAgentRunLease,
+	createOrGetAgentRun,
+	finalizeAgentRunCancellation,
+	getAgentRun,
+	requestAgentRunCancellation,
+	releaseAgentRunLease
+} from './agent-runs';
 import {
 	attachArtifactReferencesToEvent,
 	createArtifactRevision,
@@ -24,7 +24,7 @@ import { createLocalArtifactStorage, verifyArtifactObject } from '$lib/server/ar
 
 const databaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
 
-// A real 1x1 PNG keeps these tests on the same verifier path as the Hermes
+// A real 1x1 PNG keeps these tests on the same verifier path as the agent
 // publisher without seeding an artifact row or bypassing object verification.
 const PNG_BYTES = new Uint8Array(Buffer.from(
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -61,7 +61,7 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 		const conversation = await createConversation(accountId);
 		const user = await addMessage({ conversationId: conversation.id, role: 'user', content: `Publish ${label}.` });
 		const assistant = await addMessage({ conversationId: conversation.id, role: 'assistant', content: '', partial: true });
-		const result = await createOrGetHermesRun({
+		const result = await createOrGetAgentRun({
 			accountId,
 			orgId: conversation.orgId,
 			conversationId: conversation.id,
@@ -73,7 +73,7 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 			inputJson: JSON.stringify({ messages: [{ role: 'user', content: `Publish ${label}.` }] }),
 			seededCitationsJson: '[]'
 		});
-		const claimed = await claimHermesRunLease(accountId, result.run.id, `worker-${label}`);
+		const claimed = await claimAgentRunLease(accountId, result.run.id, `worker-${label}`);
 		if (!claimed?.leaseOwner || !claimed.leaseToken) throw new Error('test run was not leased');
 		return { conversation, user, assistant, run: claimed };
 	}
@@ -102,7 +102,7 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 			runId: runData.run.id,
 			lease: lease(runData.run),
 			role: 'source',
-			producerKey: 'hermes-publish-artifact',
+			producerKey: 'agent-publish-artifact',
 			allowedMime: 'image/png',
 			maxBytes: PNG_BYTES.byteLength,
 			exactBytes: PNG_BYTES.byteLength,
@@ -147,7 +147,7 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 	it('rejects finalization after cancellation during object verification', async () => {
 		const runData = await createRun('cancel-during-verify');
 		const publication = await createImageGrant(runData, 'cancelled image');
-		await requestHermesRunCancellation(accountId, runData.run.id, 'integration test');
+		await requestAgentRunCancellation(accountId, runData.run.id, 'integration test');
 
 		await expect(finalizeArtifactReady({
 			accountId,
@@ -157,7 +157,7 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 			verified: publication.verified,
 			lease: lease(runData.run)
 		})).rejects.toMatchObject({ code: 'stale' });
-		const cancelled = await finalizeHermesRunCancellation(accountId, runData.run.id, 'integration test');
+		const cancelled = await finalizeAgentRunCancellation(accountId, runData.run.id, 'integration test');
 		expect(cancelled.state).toBe('cancelled');
 	});
 
@@ -165,8 +165,8 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 		const runData = await createRun('lease-turnover');
 		const publication = await createImageGrant(runData, 'lease image');
 		const oldLease = lease(runData.run);
-		await releaseHermesRunLease(accountId, runData.run.id, oldLease.leaseOwner, oldLease.leaseToken);
-		const renewed = await claimHermesRunLease(accountId, runData.run.id, 'worker-lease-turnover-new');
+		await releaseAgentRunLease(accountId, runData.run.id, oldLease.leaseOwner, oldLease.leaseToken);
+		const renewed = await claimAgentRunLease(accountId, runData.run.id, 'worker-lease-turnover-new');
 		if (!renewed) throw new Error('test run could not be reclaimed');
 
 		await expect(finalizeArtifactReady({
@@ -209,11 +209,11 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 		});
 		expect(second).toMatchObject({ id: first.id, revisionId: first.revisionId, status: 'ready' });
 
-		const runBeforeEvent = await getHermesRun(accountId, runData.run.id);
+		const runBeforeEvent = await getAgentRun(accountId, runData.run.id);
 		if (!runBeforeEvent) throw new Error('test run disappeared');
 		const cursor = runBeforeEvent.cursor + 1;
-		const { appendHermesRunEvent } = await import('./hermes-runs');
-		await appendHermesRunEvent(accountId, runData.run.id, runData.run.leaseOwner!, runData.run.leaseToken!, {
+		const { appendAgentRunEvent } = await import('./agent-runs');
+		await appendAgentRunEvent(accountId, runData.run.id, runData.run.leaseOwner!, runData.run.leaseToken!, {
 			eventType: 'artifact.ready',
 			dataJson: JSON.stringify({ artifact_revision_id: publication.revision.id, artifact: first }),
 			workerCursor: runBeforeEvent.workerCursor + 1,
@@ -221,7 +221,7 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 		});
 		await attachArtifactReferencesToEvent(accountId, runData.run.id, publication.revision.id, cursor);
 		const refs = await sql`
-			SELECT run_id, revision_id, cursor FROM hermes_run_artifact_refs
+			SELECT run_id, revision_id, cursor FROM agent_run_artifact_refs
 			WHERE run_id = ${runData.run.id} AND revision_id = ${publication.revision.id}
 		`;
 		expect(refs).toHaveLength(1);
@@ -239,7 +239,7 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 			runId: runData.run.id,
 			lease: lease(runData.run),
 			role: 'source',
-			producerKey: 'hermes-publish-artifact',
+			producerKey: 'agent-publish-artifact',
 			allowedMime: 'image/png',
 			maxBytes: PNG_BYTES.byteLength,
 			exactBytes: PNG_BYTES.byteLength,
@@ -283,7 +283,7 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 				runId: runData.run.id,
 				lease: lease(runData.run),
 				role: 'source',
-				producerKey: `hermes-publish-artifact-${revisionId}`,
+				producerKey: `agent-publish-artifact-${revisionId}`,
 				allowedMime: 'image/png',
 				maxBytes: PNG_BYTES.byteLength,
 				exactBytes: PNG_BYTES.byteLength,
@@ -330,14 +330,14 @@ const PNG_BYTES = new Uint8Array(Buffer.from(
 			runId: firstRun.run.id,
 			lease: lease(firstRun.run),
 			role: 'source',
-			producerKey: 'hermes-publish-artifact-cross-conversation',
+			producerKey: 'agent-publish-artifact-cross-conversation',
 			allowedMime: 'image/png',
 			maxBytes: PNG_BYTES.byteLength,
 			exactBytes: PNG_BYTES.byteLength,
 			expectedSha256: createHash('sha256').update(PNG_BYTES).digest('hex')
 		})).rejects.toMatchObject({ code: 'conflict' });
 
-		const run = await getHermesRun(accountId, firstRun.run.id);
+		const run = await getAgentRun(accountId, firstRun.run.id);
 		expect(run?.conversationId).toBe(firstRun.conversation.id);
 	});
 

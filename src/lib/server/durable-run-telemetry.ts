@@ -1,4 +1,4 @@
-import type { HermesRunEventRecord, HermesRunRecord } from '$lib/server/db/hermes-runs';
+import type { AgentRunEventRecord, AgentRunRecord } from '$lib/server/db/agent-runs';
 
 export const MATERIAL_STREAM_GAP_MS = 2_000;
 export const MAX_DURABLE_TELEMETRY_EVENTS = 10_000;
@@ -28,7 +28,7 @@ const FAILURE_CLASSES = new Set([
 ]);
 
 type DurableRunLike = Pick<
-	HermesRunRecord,
+	AgentRunRecord,
 	| 'state'
 	| 'inputJson'
 	| 'createdAt'
@@ -37,7 +37,7 @@ type DurableRunLike = Pick<
 	| 'cancelRequestedAt'
 >;
 
-type DurableEventLike = Pick<HermesRunEventRecord, 'eventType' | 'dataJson' | 'createdAt' | 'cursor'>;
+type DurableEventLike = Pick<AgentRunEventRecord, 'eventType' | 'dataJson' | 'createdAt' | 'cursor'>;
 
 export interface DurableTelemetryContext {
 	requestAcceptanceMs?: number;
@@ -88,7 +88,7 @@ export type DurableTraceBinding =
 	| { kind: 'invalid' };
 
 /** Distinguish an old run with no trace from a malformed persisted binding. */
-export function traceBindingFromHermesInput(inputJson: string | undefined): DurableTraceBinding {
+export function traceBindingFromAgentInput(inputJson: string | undefined): DurableTraceBinding {
 	const input = parseObject(inputJson);
 	if (!input) return { kind: 'invalid' };
 	if (!Object.prototype.hasOwnProperty.call(input, 'trace_id')) return { kind: 'legacy' };
@@ -108,7 +108,7 @@ export function validateDurableTraceBinding(
 	if (suppliedTraceId !== undefined && !isValidTraceId(suppliedTraceId)) {
 		return { ok: false, reason: 'invalid' };
 	}
-	const persisted = traceBindingFromHermesInput(inputJson);
+	const persisted = traceBindingFromAgentInput(inputJson);
 	if (persisted.kind === 'invalid') return { ok: false, reason: 'persisted_invalid' };
 	if (persisted.kind === 'legacy') {
 		return suppliedTraceId === undefined
@@ -123,8 +123,8 @@ export function validateDurableTraceBinding(
 }
 
 /** Read only the server-persisted correlation id from a durable run input. */
-export function traceIdFromHermesInput(inputJson: string | undefined): string | null {
-	const binding = traceBindingFromHermesInput(inputJson);
+export function traceIdFromAgentInput(inputJson: string | undefined): string | null {
+	const binding = traceBindingFromAgentInput(inputJson);
 	return binding.kind === 'bound' ? binding.traceId : null;
 }
 
@@ -159,7 +159,7 @@ function failureClass(
 
 function usageMetadata(run: DurableRunLike, events: DurableEventLike[]): Record<string, unknown> {
 	const usage = {
-		provider: 'hermes-chat',
+		provider: 'newscraft-agent',
 		provider_calls: run.startedAt == null ? 0 : 1,
 		retrieval_backend: 'unknown',
 		archive_provider: 'unknown',
@@ -276,7 +276,7 @@ export function summarizeDurableRunTelemetry(
 	];
 
 	return {
-		...(traceIdFromHermesInput(run.inputJson) ? { trace_id: traceIdFromHermesInput(run.inputJson) } : {}),
+		...(traceIdFromAgentInput(run.inputJson) ? { trace_id: traceIdFromAgentInput(run.inputJson) } : {}),
 		terminal_state: terminalState,
 		request_acceptance_ms: boundedDuration(context.requestAcceptanceMs),
 		queue_wait_ms: run.startedAt == null ? null : boundedDuration(run.startedAt - run.createdAt),

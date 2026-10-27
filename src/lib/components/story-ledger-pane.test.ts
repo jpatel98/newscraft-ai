@@ -51,10 +51,10 @@ describe('Story ledger pane', () => {
 	});
 
 	it('hides the machine block everywhere the answer is persisted and replayed', () => {
-		const runs = source('../server/db/hermes-runs.ts');
+		const runs = source('../server/db/agent-runs.ts');
 		expect(runs).toContain('stripLedgerFromAnswerEvent(dataJson)');
 		expect(runs).toContain('upsertStoryClaims(conversationId, messageId, claims, Date.now(), workerClaimJudge, citationSources(citations))');
-		expect(source('../server/hermes-subscription.ts')).toContain('stripLedgerForDisplay(snapshot.answerText)');
+		expect(source('../server/agent-subscription.ts')).toContain('stripLedgerForDisplay(snapshot.answerText)');
 	});
 });
 

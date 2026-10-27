@@ -1,0 +1,446 @@
+"""Bounded, tenant-scoped artifact acquisition for the durable NewsCraft worker.
+
+The model supplies only a workspace-relative path and a server-issued revision
+identity.  This helper resolves the path beneath the active runtime root with
+openat/O_NOFOLLOW, hashes a private staging copy, and sends those bytes to the
+server-issued direct-upload grant.  The NewsCraft verifier remains the source
+of truth for readiness.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import fcntl
+import hashlib
+import os
+import secrets
+import stat
+from pathlib import Path, PurePosixPath
+from typing import Any, Mapping
+
+import httpx
+
+from .isolation import TenantRuntime
+
+MAX_ARTIFACT_BYTES = 20 * 1024 * 1024
+CHUNK_BYTES = 1024 * 1024
+_SAFE_COMPONENT = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+
+class ArtifactPublishError(RuntimeError):
+    """A publication attempt was rejected before it could become ready.
+
+    ``retryable`` is true only when a repeat of the same immutable publication
+    can succeed: a timeout or a 5xx from storage. Connection failures (refused,
+    unreachable, DNS), 4xx rejections and local validation failures are final.
+    """
+
+    def __init__(self, message: str = "", *, retryable: bool = False):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+def transport_error(exc: BaseException, label: str = "artifact storage") -> ArtifactPublishError:
+    """Map an HTTP client failure to a publish error; only timeouts may be retried."""
+    if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
+        return ArtifactPublishError(f"{label} timed out", retryable=True)
+    return ArtifactPublishError(f"{label} is unreachable", retryable=False)
+
+
+def status_error(label: str, status: int) -> ArtifactPublishError:
+    return ArtifactPublishError(f"{label} ({status})", retryable=status >= 500)
+
+
+def _write_all(fd: int, chunk: bytes) -> None:
+    offset = 0
+    while offset < len(chunk):
+        written = os.write(fd, chunk[offset:])
+        if written <= 0:
+            raise ArtifactPublishError("artifact staging write failed")
+        offset += written
+
+
+def _components(path: str, runtime: TenantRuntime) -> list[str]:
+    raw = str(path or "").strip()
+    if not raw or "\x00" in raw:
+        raise ArtifactPublishError("artifact path is invalid")
+    # The model sees the active container workspace (normally /workspace),
+    # while the worker resolves that virtual path against the tenant's host
+    # runtime.workspace. Never accept the host path itself: it is an
+    # implementation detail and could name a sibling tenant in a shared host.
+    virtual_root = str(runtime.container_workspace or "/workspace").rstrip("/") or "/"
+    if raw == virtual_root:
+        raise ArtifactPublishError("artifact path must name a file")
+    prefix = f"{virtual_root}/" if virtual_root != "/" else "/"
+    if raw.startswith(prefix):
+        relative = raw[len(prefix):]
+    elif not raw.startswith("/"):
+        # Relative paths are interpreted by the active runtime, not by the
+        # host process cwd. This keeps the tool useful when a backend exposes
+        # a different virtual workspace root without exposing host paths.
+        relative = raw
+    else:
+        raise ArtifactPublishError(f"artifact path must be beneath {virtual_root}")
+    parts = PurePosixPath(relative).parts
+    if not parts or any(part in {"", ".", ".."} or not set(part) <= _SAFE_COMPONENT for part in parts):
+        raise ArtifactPublishError("artifact path is invalid")
+    return list(parts)
+
+
+def _open_workspace_file(
+    path: str,
+    runtime: TenantRuntime,
+    *,
+    workspace_root: Path | None = None,
+) -> tuple[int, os.stat_result]:
+    parts = _components(path, runtime)
+    root = Path(workspace_root) if workspace_root is not None else runtime.workspace
+    if not root.is_absolute() or root.is_symlink():
+        raise ArtifactPublishError("artifact workspace root is not private")
+    try:
+        root_fd = os.open(
+            root,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+    except OSError as exc:
+        raise ArtifactPublishError("artifact workspace root is unavailable") from exc
+    fd = root_fd
+    try:
+        for index, part in enumerate(parts):
+            # O_NONBLOCK makes a hostile FIFO fail at the fstat check instead
+            # of blocking the worker before it can reject the non-regular
+            # file. It is harmless for regular files and is preserved on the
+            # descriptor used for the bounded copy.
+            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+            if index < len(parts) - 1:
+                flags |= os.O_DIRECTORY
+            try:
+                next_fd = os.open(part, flags, dir_fd=fd)
+            except OSError as exc:
+                raise ArtifactPublishError("artifact path could not be opened safely") from exc
+            if fd != root_fd:
+                os.close(fd)
+            fd = next_fd
+        descriptor = os.fstat(fd)
+        if not stat.S_ISREG(descriptor.st_mode):
+            raise ArtifactPublishError("artifact path is not a regular file")
+        if fd != root_fd:
+            os.close(root_fd)
+        return fd, descriptor
+    except BaseException:
+        if fd != root_fd:
+            os.close(fd)
+        os.close(root_fd)
+        raise
+
+
+def stage_workspace_file(
+    path: str,
+    runtime: TenantRuntime,
+    max_bytes: int = MAX_ARTIFACT_BYTES,
+    *,
+    workspace_root: Path | None = None,
+) -> tuple[Path, int, str]:
+    """Copy a stable file into a private staging path and return size/hash."""
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1 or max_bytes > MAX_ARTIFACT_BYTES:
+        raise ArtifactPublishError("artifact byte bound is invalid")
+    fd, before = _open_workspace_file(path, runtime, workspace_root=workspace_root)
+    staged_fd: int | None = None
+    staging_dir_fd: int | None = None
+    staged_path: Path | None = None
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except OSError:
+            # A cooperative lock is useful, but a file that does not support
+            # flock is still protected by the post-copy fingerprint check.
+            pass
+        if before.st_size > max_bytes:
+            raise ArtifactPublishError("artifact file is too large")
+        # Staging must not be visible to the model's workspace. The tenant
+        # service home is private to this account and is outside the mounted
+        # model workspace, so a model cannot read or replace a staged upload.
+        staging_dir = runtime.state_home / "artifact-staging"
+        if runtime.state_home.is_symlink() or (staging_dir.exists() and staging_dir.is_symlink()):
+            raise ArtifactPublishError("artifact staging root is not private")
+        staging_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        staging_dir.chmod(0o700)
+        staging_dir_fd = os.open(
+            staging_dir,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        for _ in range(8):
+            name = f"publish-{secrets.token_hex(12)}"
+            try:
+                staged_fd = os.open(
+                    name,
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    0o600,
+                    dir_fd=staging_dir_fd,
+                )
+                staged_path = staging_dir / name
+                break
+            except FileExistsError:
+                continue
+        if staged_fd is None or staged_path is None:
+            raise ArtifactPublishError("could not allocate a private staging file")
+        os.fchmod(staged_fd, 0o600)
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            chunk = os.read(fd, CHUNK_BYTES)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise ArtifactPublishError("artifact file changed beyond its bound")
+            digest.update(chunk)
+            _write_all(staged_fd, chunk)
+        after = os.fstat(fd)
+        # The descriptor pins the original inode, while the full fingerprint
+        # catches in-place writes (including writes that preserve byte length)
+        # and metadata churn during the copy.
+        if (
+            after.st_dev != before.st_dev
+            or after.st_ino != before.st_ino
+            or after.st_size != before.st_size
+            or after.st_mtime_ns != before.st_mtime_ns
+            or after.st_ctime_ns != before.st_ctime_ns
+            or total != before.st_size
+        ):
+            raise ArtifactPublishError("artifact file changed during publication")
+        os.fsync(staged_fd)
+        return staged_path, total, digest.hexdigest()
+    except BaseException:
+        if staged_path is not None:
+            try:
+                staged_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+    finally:
+        if staged_fd is not None:
+            os.close(staged_fd)
+        if staging_dir_fd is not None:
+            os.close(staging_dir_fd)
+        os.close(fd)
+
+
+def _stage_backend_bytes(payload: bytes, runtime: TenantRuntime, max_bytes: int) -> tuple[Path, int, str]:
+    """Stage bytes read through a non-host sandbox backend.
+
+    Docker tmpfs, SSH, and other remote backends do not expose a trustworthy
+    host path.  The backend's binary file API is therefore the source of
+    bytes, while the same private staging directory and immutable upload
+    checks used by host-mounted workspaces remain the source of the grant
+    payload.
+    """
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1 or max_bytes > MAX_ARTIFACT_BYTES:
+        raise ArtifactPublishError("artifact byte bound is invalid")
+    if len(payload) < 1 or len(payload) > max_bytes:
+        raise ArtifactPublishError("artifact file is too large")
+    staging_dir = runtime.state_home / "artifact-staging"
+    if runtime.state_home.is_symlink() or (staging_dir.exists() and staging_dir.is_symlink()):
+        raise ArtifactPublishError("artifact staging root is not private")
+    staging_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    staging_dir.chmod(0o700)
+    staging_dir_fd = os.open(
+        staging_dir,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    staged_fd: int | None = None
+    staged_path: Path | None = None
+    try:
+        for _ in range(8):
+            name = f"publish-{secrets.token_hex(12)}"
+            try:
+                staged_fd = os.open(
+                    name,
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    0o600,
+                    dir_fd=staging_dir_fd,
+                )
+                staged_path = staging_dir / name
+                break
+            except FileExistsError:
+                continue
+        if staged_fd is None or staged_path is None:
+            raise ArtifactPublishError("could not allocate a private staging file")
+        os.fchmod(staged_fd, 0o600)
+        _write_all(staged_fd, payload)
+        os.fsync(staged_fd)
+        return staged_path, len(payload), hashlib.sha256(payload).hexdigest()
+    except BaseException:
+        if staged_path is not None:
+            try:
+                staged_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+    finally:
+        if staged_fd is not None:
+            os.close(staged_fd)
+        os.close(staging_dir_fd)
+
+
+def stage_backend_file(
+    file_ops: Any,
+    path: str,
+    runtime: TenantRuntime,
+    max_bytes: int = MAX_ARTIFACT_BYTES,
+) -> tuple[Path, int, str]:
+    """Read a virtual workspace file through a sandbox byte reader and stage exact bytes."""
+    if not hasattr(file_ops, "read_file_bytes"):
+        raise ArtifactPublishError("artifact runtime backend cannot read binary files")
+    try:
+        result = file_ops.read_file_bytes(path, max_bytes=max_bytes)
+    except Exception as exc:  # noqa: BLE001 - backend-specific errors are opaque
+        raise ArtifactPublishError("artifact runtime file could not be read") from exc
+    error = result.get("error") if isinstance(result, Mapping) else getattr(result, "error", None)
+    if error:
+        raise ArtifactPublishError("artifact runtime file could not be read")
+    raw_size = result.get("file_size") if isinstance(result, Mapping) else getattr(result, "file_size", None)
+    encoded = result.get("base64_content") if isinstance(result, Mapping) else getattr(result, "base64_content", None)
+    if isinstance(raw_size, bool) or not isinstance(raw_size, int) or raw_size < 1 or raw_size > max_bytes:
+        raise ArtifactPublishError("artifact runtime file size is invalid")
+    if not isinstance(encoded, str) or not encoded:
+        raise ArtifactPublishError("artifact runtime file bytes are unavailable")
+    try:
+        payload = base64.b64decode("".join(encoded.split()), validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise ArtifactPublishError("artifact runtime file bytes are invalid") from exc
+    if len(payload) != raw_size:
+        raise ArtifactPublishError("artifact runtime file changed during publication")
+    return _stage_backend_bytes(payload, runtime, max_bytes)
+
+
+async def upload_staged_file(
+    client: httpx.AsyncClient,
+    staged_path: Path,
+    upload_url: str,
+    *,
+    mime_type: str,
+    size: int,
+    checksum_sha256: str,
+    require_object_version: bool = True,
+) -> Mapping[str, Any]:
+    """PUT exact bytes to the server-issued grant without exposing local paths."""
+    if isinstance(size, bool) or not isinstance(size, int) or size < 1 or size > MAX_ARTIFACT_BYTES:
+        raise ArtifactPublishError("staged artifact size is invalid")
+    if not isinstance(checksum_sha256, str):
+        raise ArtifactPublishError("staged artifact checksum is invalid")
+    if len(checksum_sha256) != 64 or any(char not in "0123456789abcdefABCDEF" for char in checksum_sha256):
+        raise ArtifactPublishError("staged artifact checksum is invalid")
+    try:
+        # httpx.AsyncClient requires an async byte stream (or bytes); passing
+        # a synchronous file object makes the transport attempt async reads
+        # and fails at runtime. The staged file is bounded to 20 MiB, so a
+        # thread-offloaded read keeps the event loop responsive while giving
+        # httpx an explicit immutable byte payload.
+        payload = await asyncio.to_thread(staged_path.read_bytes)
+        if len(payload) != size:
+            raise ArtifactPublishError("staged artifact length changed before upload")
+        if hashlib.sha256(payload).hexdigest().lower() != checksum_sha256.lower():
+            raise ArtifactPublishError("staged artifact checksum changed before upload")
+        try:
+            response = await client.put(
+                upload_url,
+                headers={
+                    "content-type": mime_type,
+                    "content-length": str(size),
+                    "x-content-sha256": checksum_sha256,
+                },
+                content=payload,
+            )
+        except (httpx.TransportError, OSError) as exc:
+            raise transport_error(exc, "artifact upload") from exc
+    finally:
+        staged_path.unlink(missing_ok=True)
+    if response.status_code >= 400:
+        raise status_error("artifact upload rejected", response.status_code)
+    if not require_object_version:
+        # Supabase signed-upload responses are storage-provider responses and
+        # intentionally do not become the durable object identity. The
+        # completion callback obtains and verifies the server-side version.
+        return {}
+    try:
+        value = response.json()
+    except ValueError as exc:
+        raise ArtifactPublishError("artifact upload response is invalid") from exc
+    if not isinstance(value, dict) or not isinstance(value.get("object_version"), str):
+        raise ArtifactPublishError("artifact upload response is invalid")
+    return value
+
+
+async def complete_staged_upload(
+    client: httpx.AsyncClient,
+    completion_url: str,
+) -> Mapping[str, Any]:
+    """Ask NewsCraft to verify and bind a direct storage upload generation."""
+    if not isinstance(completion_url, str) or not completion_url.startswith(("http://", "https://")):
+        raise ArtifactPublishError("artifact upload completion grant is invalid")
+    try:
+        response = await client.post(completion_url, headers={"content-type": "application/json"}, content=b"{}")
+    except (httpx.TransportError, OSError) as exc:
+        raise transport_error(exc, "artifact upload completion") from exc
+    if response.status_code >= 400:
+        raise status_error("artifact upload completion rejected", response.status_code)
+    try:
+        value = response.json()
+    except ValueError as exc:
+        raise ArtifactPublishError("artifact upload completion response is invalid") from exc
+    if not isinstance(value, dict) or not isinstance(value.get("object_version"), str):
+        raise ArtifactPublishError("artifact upload completion response is invalid")
+    return value
+
+
+async def publish_workspace_file(
+    *,
+    client: httpx.AsyncClient,
+    runtime: TenantRuntime,
+    path: str,
+    grant: Mapping[str, Any],
+    mime_type: str,
+    size: int,
+    checksum_sha256: str,
+    task_id: str | None = None,
+) -> Mapping[str, Any]:
+    """Validate a staged grant response and upload one exact file."""
+    upload_url = grant.get("upload_url")
+    upload_mode = grant.get("upload_mode", "proxy")
+    if upload_mode not in {"proxy", "signed"}:
+        raise ArtifactPublishError("artifact upload grant mode is invalid")
+    grant_max = grant.get("max_bytes")
+    if not isinstance(upload_url, str) or not upload_url.startswith(("http://", "https://")):
+        raise ArtifactPublishError("artifact upload grant is invalid")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 1 or size > MAX_ARTIFACT_BYTES:
+        raise ArtifactPublishError("artifact size is invalid")
+    if not isinstance(checksum_sha256, str) or len(checksum_sha256) != 64 or any(char not in "0123456789abcdefABCDEF" for char in checksum_sha256):
+        raise ArtifactPublishError("artifact checksum is invalid")
+    if isinstance(grant_max, bool) or not isinstance(grant_max, int) or grant_max < 1 or grant_max > MAX_ARTIFACT_BYTES or size > grant_max:
+        raise ArtifactPublishError("artifact exceeds its upload grant")
+    # The owned sandbox mounts this conversation's workspace. Its runtime is
+    # resolved by the leased job, never by a model-provided task or host path.
+    # ``task_id`` remains a wire-call compatibility parameter only.
+    staged_path, staged_size, staged_hash = await asyncio.to_thread(
+        stage_workspace_file, path, runtime, grant_max,
+    )
+    if staged_size != size or staged_hash != checksum_sha256:
+        staged_path.unlink(missing_ok=True)
+        raise ArtifactPublishError("artifact fingerprint changed before upload")
+    result = await upload_staged_file(
+        client,
+        staged_path,
+        upload_url,
+        mime_type=mime_type,
+        size=size,
+        checksum_sha256=checksum_sha256,
+        require_object_version=upload_mode == "proxy",
+    )
+    if upload_mode == "signed":
+        completion_url = grant.get("upload_complete_url")
+        if not isinstance(completion_url, str) or not completion_url.startswith(("http://", "https://")):
+            raise ArtifactPublishError("artifact upload completion grant is invalid")
+        return await complete_staged_upload(client, completion_url)
+    return result

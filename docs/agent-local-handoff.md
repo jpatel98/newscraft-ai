@@ -206,7 +206,7 @@ chat or terminal commands. See [public CA details](../config/certs/README.md).
 ## Earlier replacement-review verification (2026-10-07)
 
 Run with Node **24.21.0**, pnpm **9.15.9**, and the locked **CPython 3.11**
-`services/hermes-chat/.venv-owned`. Final counts below are updated after review
+`services/agent/.venv-owned`. Final counts below are updated after review
 fixes. This is the earlier complete matrix, not a claim that the narrow startup
 follow-up reran every suite; its fresh results are recorded above.
 
@@ -226,7 +226,7 @@ follow-up reran every suite; its fresh results are recorded above.
 The sandbox initially denied Postgres shared memory and loopback sockets. Scoped
 local-test execution then passed. Python uses `TMPDIR=/private/tmp` to avoid
 macOS `/var` symlink rejection by the real private-path guard. No assertions were
-relaxed and no upstream `hermes-agent` package or upgraded dependency was installed.
+relaxed and no third-party agent package or upgraded dependency was installed.
 Session command output is under `/tmp/newscraft-review-20261007/`; only aggregate
 results belong in commits and memory.
 
@@ -269,7 +269,7 @@ own authorization. The narrow platform auto-RLS function execution revoke was
 also previously applied and verified. The follow-up verified connectivity and
 account/conversation operations, but did not repeat the migration/RLS/grant audit.
 
-The preserved [initial schema artifact](../services/hermes-chat/deploy/newscraft-new-project-schema.sql)
+The preserved [initial schema artifact](../services/agent/deploy/newscraft-new-project-schema.sql)
 has SHA256 `ee09d4123aa040bcdae115694220852e20a892a4666aa3c05f5410945358e1be`.
 Do not rerun it, initialize another project, or touch the old project. The local
 Postgres fixture is separate and supplies no runtime cloud credential.
@@ -319,7 +319,7 @@ images and a hash-pinned deny-by-default Chromium seccomp policy. Private snapsh
 browser storage and receipts require a retained worker volume independently of
 Postgres. Synthetic fixtures do not prove the kernel/container boundary.
 
-See [executor commands](../services/hermes-chat/deploy/executor.md) and the
+See [executor commands](../services/agent/deploy/executor.md) and the
 [dated deployment decision](agent-deployment-decision.md). No host is selected by
 this session. Do not reinstall Docker/Colima/Lima on this Mac, SSH into Contabo,
 touch personal Hydra, create cloud resources, change DNS or deploy production.

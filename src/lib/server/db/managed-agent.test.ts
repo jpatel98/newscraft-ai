@@ -8,7 +8,7 @@ function transaction({ owner = true, account = 'account-one', phase = 'finished'
     const queries: Array<{ sql: string; params: unknown[] }> = [];
     const execute = vi.fn(async (statement: any) => {
         const query = new PgDialect().sqlToQuery(statement); queries.push(query);
-        if (query.sql.includes('SELECT * FROM hermes_runs')) return [{ tenant_key: 'tenant-one', lease_owner: 'worker-one', lease_token: lease, lease_expires_at: expires, conversation_id: 'conversation-one' }];
+        if (query.sql.includes('SELECT * FROM agent_runs')) return [{ tenant_key: 'tenant-one', lease_owner: 'worker-one', lease_token: lease, lease_expires_at: expires, conversation_id: 'conversation-one' }];
         if (query.sql.includes('SELECT id FROM conversations')) return owner ? [{ id: 'conversation-one' }] : [];
         if (query.sql.includes('SELECT * FROM managed_agent_sessions')) return [{ account_id: account, active_run_id: active, session_id: 'sess_one', state_json: JSON.stringify({ session_id: 'sess_one', phase }), version: 3 }];
         return [];

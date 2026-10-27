@@ -34,8 +34,8 @@ The existing Contabo route is the lower-infrastructure alternative. A managed sa
 
 Public, unauthenticated metadata was read in memory; nothing was pulled or installed:
 
-- Terminal recipe: [executor.Dockerfile](../services/hermes-chat/deploy/executor.Dockerfile), label `newscraft.executor.contract=v1`.
-- Browser recipe: [browser.Dockerfile](../services/hermes-chat/deploy/browser.Dockerfile), Playwright **1.63.0** and its matching Chromium, label `newscraft.browser.contract=v1`.
+- Terminal recipe: [executor.Dockerfile](../services/agent/deploy/executor.Dockerfile), label `newscraft.executor.contract=v1`.
+- Browser recipe: [browser.Dockerfile](../services/agent/deploy/browser.Dockerfile), Playwright **1.63.0** and its matching Chromium, label `newscraft.browser.contract=v1`.
 - Immutable Linux amd64 Python base: `python:3.12-bookworm@sha256:edd0b3ec946cc68bd20e39480bd03929016d0fb6254cbf870cd3bc55ea25116d`. Docker Hub's tag metadata also reported multi-platform manifest `sha256:5560e9ab8709f459489e5b8aa696eda8a07ef821e14bb122be62d91234bfa98b`, updated 2026-10-06. [Official tag metadata](https://hub.docker.com/v2/repositories/library/python/tags/3.12-bookworm/).
 - Proposed policy bytes: [Playwright v1.63.0 seccomp profile](https://raw.githubusercontent.com/microsoft/playwright/v1.63.0/utils/docker/seccomp_profile.json), **12,997 bytes**, SHA256 **`cc3e61cabda6bbc1e53e54d27ba4d55a9d3be829b6dd1a596f4a7b31b1cc7849`**. Read-back found `SCMP_ACT_ERRNO` by default and unconditional `clone`, `setns`, `unshare` allowances. The upstream profile has additional default-Docker rules; reviewing its full bytes is part of the security approval, not just checking these three names.
 
@@ -97,22 +97,22 @@ chmod 0600 "$NEWSCRAFT_ACCEPTANCE_ROOT/chromium-seccomp.json"
   --config "$NEWSCRAFT_ACCEPTANCE_ROOT/docker-config" build \
   --build-arg "BASE_IMAGE=$NEWSCRAFT_BASE" \
   --iidfile "$NEWSCRAFT_ACCEPTANCE_ROOT/terminal-image.id" \
-  --file services/hermes-chat/deploy/executor.Dockerfile services/hermes-chat/deploy
+  --file services/agent/deploy/executor.Dockerfile services/agent/deploy
 /usr/bin/docker --host "unix://$NEWSCRAFT_SOCKET" \
   --config "$NEWSCRAFT_ACCEPTANCE_ROOT/docker-config" build \
   --build-arg "BASE_IMAGE=$NEWSCRAFT_BASE" \
   --iidfile "$NEWSCRAFT_ACCEPTANCE_ROOT/browser-image.id" \
-  --file services/hermes-chat/deploy/browser.Dockerfile services/hermes-chat/deploy
+  --file services/agent/deploy/browser.Dockerfile services/agent/deploy
 
-services/hermes-chat/scripts/install-runtime.sh "$NEWSCRAFT_ACCEPTANCE_ROOT/venv"
+services/agent/scripts/install-runtime.sh "$NEWSCRAFT_ACCEPTANCE_ROOT/venv"
 NEWSCRAFT_TERMINAL_IMAGE=$(cat "$NEWSCRAFT_ACCEPTANCE_ROOT/terminal-image.id")
 NEWSCRAFT_BROWSER_IMAGE=$(cat "$NEWSCRAFT_ACCEPTANCE_ROOT/browser-image.id")
 
-PYTHONPATH=services/hermes-chat/src "$NEWSCRAFT_ACCEPTANCE_ROOT/venv/bin/python" \
-  services/hermes-chat/scripts/validate-oci-executor.py \
+PYTHONPATH=services/agent/src "$NEWSCRAFT_ACCEPTANCE_ROOT/venv/bin/python" \
+  services/agent/scripts/validate-oci-executor.py \
   --image "$NEWSCRAFT_TERMINAL_IMAGE" --socket "$NEWSCRAFT_SOCKET"
-PYTHONPATH=services/hermes-chat/src "$NEWSCRAFT_ACCEPTANCE_ROOT/venv/bin/python" \
-  services/hermes-chat/scripts/validate-oci-browser.py \
+PYTHONPATH=services/agent/src "$NEWSCRAFT_ACCEPTANCE_ROOT/venv/bin/python" \
+  services/agent/scripts/validate-oci-browser.py \
   --image "$NEWSCRAFT_TERMINAL_IMAGE" --socket "$NEWSCRAFT_SOCKET" \
   --browser-image "$NEWSCRAFT_BROWSER_IMAGE" \
   --seccomp-profile "$NEWSCRAFT_ACCEPTANCE_ROOT/chromium-seccomp.json" \

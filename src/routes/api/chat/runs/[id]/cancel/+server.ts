@@ -1,28 +1,28 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import {
-	finalizeHermesRunCancellation,
-	getHermesRun,
-	requestHermesRunCancellation,
+	finalizeAgentRunCancellation,
+	getAgentRun,
+	requestAgentRunCancellation,
 	snapshotFromRun,
-	listHermesRunEvents
-} from '$lib/server/db/hermes-runs';
+	listAgentRunEvents
+} from '$lib/server/db/agent-runs';
 import { agentBackend } from '$lib/server/agent/backend';
 import { recordChatDiagnostic } from '$lib/server/chat-diagnostics';
 import {
 	collectDurableRunEvents,
 	summarizeDurableRunTelemetry,
-	traceIdFromHermesInput
+	traceIdFromAgentInput
 } from '$lib/server/durable-run-telemetry';
 
 export const POST: RequestHandler = async ({ locals, params }) => {
 	if (!locals.user) return json({ detail: 'unauthorized' }, { status: 401 });
 	const runId = params.id?.trim();
 	if (!runId) return json({ detail: 'run id required' }, { status: 400 });
-	const existing = await getHermesRun(locals.user.id, runId);
+	const existing = await getAgentRun(locals.user.id, runId);
 	if (!existing) return json({ detail: 'run not found' }, { status: 404 });
 	const wasTerminal = ['cancelled', 'failed', 'complete'].includes(existing.state);
-	const traceId = traceIdFromHermesInput(existing.inputJson);
-	let run = await requestHermesRunCancellation(locals.user.id, runId);
+	const traceId = traceIdFromAgentInput(existing.inputJson);
+	let run = await requestAgentRunCancellation(locals.user.id, runId);
 	if (!wasTerminal && run.state === 'cancel_requested') {
 		recordChatDiagnostic(existing.conversationId, 'chat.durable.cancel_requested', {
 			...(traceId ? { trace_id: traceId } : {})
@@ -32,7 +32,7 @@ export const POST: RequestHandler = async ({ locals, params }) => {
 		try {
 			const result = await agentBackend().cancelRun(locals.user.id, runId, traceId || undefined);
 			if (result.state === 'not_running') {
-				run = await finalizeHermesRunCancellation(locals.user.id, runId);
+				run = await finalizeAgentRunCancellation(locals.user.id, runId);
 			}
 		} catch {
 			// The durable state remains cancel_requested. A recovering worker can
@@ -41,7 +41,7 @@ export const POST: RequestHandler = async ({ locals, params }) => {
 	}
 	if (!wasTerminal && run.state === 'cancelled') {
 		try {
-			const collection = await collectDurableRunEvents(locals.user.id, runId, listHermesRunEvents);
+			const collection = await collectDurableRunEvents(locals.user.id, runId, listAgentRunEvents);
 			recordChatDiagnostic(
 				run.conversationId,
 				'chat.durable.terminal',

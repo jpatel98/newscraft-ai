@@ -7,7 +7,7 @@
  * governments, police services, courts, regulators, Crown agencies and
  * election bodies. Outlets are grouped by owner, because CTV and CP24 (Bell)
  * or two Postmedia papers are not independent corroboration of each other.
- * The worker keeps its own ranking list (hermes_chat/source_tiers.py); a test
+ * The worker keeps its own ranking list (newscraft_agent/source_tiers.py); a test
  * keeps the two from disagreeing on the domains both name.
  */
 

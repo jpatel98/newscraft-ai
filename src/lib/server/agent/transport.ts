@@ -2,7 +2,7 @@ import { env } from '$env/dynamic/private';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import {
-	HERMES_TOOLSET,
+	AGENT_TOOLSET,
 	NEWSCRAFT_AGENT_SERVICE,
 	isAgentContractCompatible,
 	NEWSCRAFT_PUBLIC_ACTIVITY,
@@ -12,9 +12,9 @@ import {
 	type GatewayChatMessage,
 	type GatewayContent,
 	type GatewayContentPart,
-	type HermesAguiMessage,
-	type HermesContextEntry,
-	type HermesRunInput,
+	type AgentAguiMessage,
+	type AgentContextEntry,
+	type AgentRunInput,
 	type CitationRecord,
 	type RetrievalProvenance,
 	transcriptCitationUrl,
@@ -49,7 +49,7 @@ export interface GatewayHealth {
 	service: string | null;
 }
 
-export interface HermesRequestOptions {
+export interface AgentRequestOptions {
 	signal?: AbortSignal;
 	/** Authenticated NewsCraft account id. Never comes from the browser. */
 	accountId?: string;
@@ -65,7 +65,7 @@ interface RawSseFrame {
 	data: string;
 }
 
-interface HermesNormalizationState {
+interface AgentNormalizationState {
 	toolArguments: Map<string, string>;
 	toolNames: Map<string, string>;
 	toolStatuses: Map<string, 'ok' | 'failed'>;
@@ -83,7 +83,7 @@ interface HermesNormalizationState {
 type SeededCitation = CitationRecord;
 
 interface BuiltRunInput {
-	input: HermesRunInput;
+	input: AgentRunInput;
 	seededCitations: SeededCitation[];
 }
 
@@ -91,7 +91,7 @@ const DEFAULT_MODEL = NEWSCRAFT_AGENT_SERVICE;
 const SERVICE_NAME = NEWSCRAFT_AGENT_SERVICE;
 // A cold HTTPS/Tailscale Funnel hop can exceed two seconds while healthy
 // requests are still well within a short readiness probe budget.
-const HERMES_HEALTH_TIMEOUT_MS = 5_000;
+const AGENT_HEALTH_TIMEOUT_MS = 5_000;
 const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
 /** The worker records citation numbers 1..100 (retrieval.seed_sources); nothing above that resolves. */
 const MAX_CITATION_NUMBER = 100;
@@ -171,22 +171,22 @@ const NEWSCRAFT_SOURCE_WRITER = {
 	}
 } as const;
 
-function hermesUrl(): string {
-	const value = (env.NEWSCRAFT_AGENT_URL || env.NEWSCRAFT_HERMES_URL || '').trim().replace(/\/$/, '');
+function agentUrl(): string {
+	const value = (env.NEWSCRAFT_AGENT_URL || '').trim().replace(/\/$/, '');
 	if (!value) throw new Error('NewsCraft agent is not configured. Set NEWSCRAFT_AGENT_URL.');
 	return value;
 }
 
-function hermesToken(): string {
-	const value = (env.NEWSCRAFT_AGENT_API_TOKEN || env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
+function agentToken(): string {
+	const value = (env.NEWSCRAFT_AGENT_API_TOKEN || '').trim();
 	if (!value) {
 		throw new Error('NewsCraft agent authentication is not configured. Set NEWSCRAFT_AGENT_API_TOKEN.');
 	}
 	return value;
 }
 
-function hermesTenantSecret(): string {
-	const value = (env.NEWSCRAFT_AGENT_TENANT_SECRET || env.NEWSCRAFT_HERMES_TENANT_SECRET || '').trim();
+function agentTenantSecret(): string {
+	const value = (env.NEWSCRAFT_AGENT_TENANT_SECRET || '').trim();
 	if (!value) {
 		throw new Error(
 			'NewsCraft agent tenant isolation is not configured. Set NEWSCRAFT_AGENT_TENANT_SECRET.'
@@ -253,8 +253,8 @@ function flattenContent(content: AgentContent | undefined): string {
 		.join('\n');
 }
 
-function toAguiMessage(message: GatewayChatMessage, index: number, runId: string): HermesAguiMessage {
-	const converted: HermesAguiMessage = {
+function toAguiMessage(message: GatewayChatMessage, index: number, runId: string): AgentAguiMessage {
+	const converted: AgentAguiMessage = {
 		id: `${runId}-message-${index + 1}`,
 		role: message.role,
 		content: message.content
@@ -267,7 +267,7 @@ function toAguiMessage(message: GatewayChatMessage, index: number, runId: string
 	return converted;
 }
 
-function contextEntry(description: string, value: unknown): HermesContextEntry | null {
+function contextEntry(description: string, value: unknown): AgentContextEntry | null {
 	if (value === undefined || value === null) return null;
 	try {
 		const serialized = typeof value === 'string' ? value : JSON.stringify(value);
@@ -392,7 +392,7 @@ function buildRunInput(
 			'Attached transcript turns with exact citation numbers (quote verbatim; cite the turn for every SOT with its IN/OUT)',
 			transcripts.context
 		)
-	].filter((entry): entry is HermesContextEntry => Boolean(entry));
+	].filter((entry): entry is AgentContextEntry => Boolean(entry));
 	return {
 		input: {
 			threadId,
@@ -422,7 +422,7 @@ function buildRunInput(
 	};
 }
 
-/** The browser cannot choose or share a Hermes session key. */
+/** The browser cannot choose or share an agent session key. */
 export function deriveSessionId(messages: AgentMessage[], scope = ''): string {
 	// The active worker uses this identity for persisted conversation files and
 	// browser state. Prompt edits, regenerated history and output transforms must
@@ -440,12 +440,12 @@ export function deriveSessionId(messages: AgentMessage[], scope = ''): string {
 		.slice(0, 32);
 }
 
-/** Derive the opaque tenant namespace sent to the isolated Hermes service. */
-export function deriveHermesTenantKey(accountId: string): string {
+/** Derive the opaque tenant namespace sent to the isolated agent service. */
+export function deriveAgentTenantKey(accountId: string): string {
 	const normalized = accountId.trim();
 	if (!normalized) throw new Error('NewsCraft agent requires an authenticated account scope.');
-	return createHmac('sha256', hermesTenantSecret())
-		.update('newscraft-hermes-tenant:v1\0')
+	return createHmac('sha256', agentTenantSecret())
+		.update('newscraft-agent-tenant:v2\0')
 		.update(normalized)
 	.digest('base64url');
 }
@@ -456,15 +456,15 @@ function traceHeader(value: string | undefined): string | undefined {
 	return TRACE_ID_RE.test(cleaned) ? cleaned : undefined;
 }
 
-function requestHeaders(options: HermesRequestOptions): Record<string, string> {
-	const token = hermesToken();
+function requestHeaders(options: AgentRequestOptions): Record<string, string> {
+	const token = agentToken();
 	const traceId = traceHeader(options.traceId);
-	const tenantKey = deriveHermesTenantKey(options.accountId || '');
+	const tenantKey = deriveAgentTenantKey(options.accountId || '');
 	return {
 		'content-type': 'application/json',
 		accept: 'text/event-stream',
 		authorization: `Bearer ${token}`,
-		'x-hermes-session-token': token,
+		'x-agent-session-token': token,
 		'x-newscraft-tenant-key': tenantKey,
 		...(traceId ? { 'x-request-id': traceId, 'x-trace-id': traceId } : {})
 	};
@@ -553,7 +553,7 @@ function retrievalFromContent(value: unknown): RetrievalProvenance | undefined {
 }
 
 function rememberRetrieval(
-	state: HermesNormalizationState,
+	state: AgentNormalizationState,
 	url: string,
 	retrieval: RetrievalProvenance
 ): void {
@@ -565,7 +565,7 @@ function rememberRetrieval(
 function assignCitationNumber(
 	url: string,
 	requested: unknown,
-	state: HermesNormalizationState
+	state: AgentNormalizationState
 ): number {
 	const canonical = canonicalUrl(url);
 	const existing = state.citationNumbers.get(canonical);
@@ -579,7 +579,7 @@ function assignCitationNumber(
 	return number;
 }
 
-function extractedSourceFrames(result: unknown, state: HermesNormalizationState): string[] {
+function extractedSourceFrames(result: unknown, state: AgentNormalizationState): string[] {
 	const parsed = parseMaybeJson(result);
 	const root = objectValue(parsed);
 	const rawResults = Array.isArray(root?.results) ? root.results : [];
@@ -636,7 +636,7 @@ function isRetrievalTool(name: string): boolean {
 function browserSourceFrames(
 	name: string,
 	result: unknown,
-	state: HermesNormalizationState,
+	state: AgentNormalizationState,
 	toolCallArguments = ''
 ): string[] {
 	if (name !== 'browser_navigate' && name !== 'browser_snapshot') return [];
@@ -678,7 +678,7 @@ function browserSourceFrames(
 	];
 }
 
-function recordedSourceFrames(payload: Record<string, unknown>, state: HermesNormalizationState): string[] {
+function recordedSourceFrames(payload: Record<string, unknown>, state: AgentNormalizationState): string[] {
 	const snapshot = objectValue(payload.snapshot);
 	const sources = Array.isArray(snapshot?.newscraftSources) ? snapshot.newscraftSources : [];
 	const frames: string[] = [];
@@ -690,7 +690,7 @@ function recordedSourceFrames(payload: Record<string, unknown>, state: HermesNor
 		const candidateRetrieval = recordedUrl
 			? state.retrievalByUrl.get(canonicalUrl(recordedUrl))
 			: undefined;
-		// A state writer must not promote a candidate after Hermes rejected its
+		// A state writer must not promote a candidate after agent rejected its
 		// retrieval. Keep rejected and unreadable candidates out of citations.
 		if (candidateRetrieval && candidateRetrieval.evidenceStatus !== 'accepted') continue;
 		const retrieval = candidateRetrieval?.evidenceStatus === 'accepted' ? candidateRetrieval : undefined;
@@ -800,7 +800,7 @@ function compactToolResult(name: string, result: unknown): unknown {
 	return parsed;
 }
 
-function normalizeAguiFrame(frame: RawSseFrame, state: HermesNormalizationState): string[] {
+function normalizeAguiFrame(frame: RawSseFrame, state: AgentNormalizationState): string[] {
 	if (frame.data === '[DONE]') return [sseFrame('message', '[DONE]')];
 	const payload = objectValue(parseJson(frame.data));
 	if (!payload) return [];
@@ -906,8 +906,8 @@ function normalizeAguiFrame(frame: RawSseFrame, state: HermesNormalizationState)
 	return [];
 }
 
-/** Convert Hermes AG-UI events to NewsCraft's existing internal stream contract. */
-export function normalizeHermesSse(
+/** Convert agent AG-UI events to NewsCraft's existing internal stream contract. */
+export function normalizeAgentSse(
 	body: ReadableStream<Uint8Array>,
 	seededCitations: SeededCitation[] = []
 ): ReadableStream<Uint8Array> {
@@ -916,7 +916,7 @@ export function normalizeHermesSse(
 	const encoder = new TextEncoder();
 	let buffer = '';
 	let stopped = false;
-	const state: HermesNormalizationState = {
+	const state: AgentNormalizationState = {
 		toolArguments: new Map(),
 		toolNames: new Map(),
 		toolStatuses: new Map(),
@@ -999,7 +999,7 @@ export function normalizeHermesSse(
 export function describeGatewayError(err: unknown): string {
 	const message = err instanceof Error ? err.message : String(err);
 	if (message === 'fetch failed' || message === 'Failed to fetch' || message === 'Load failed') {
-		return `NewsCraft agent is not reachable. Check NEWSCRAFT_AGENT_URL (${env.NEWSCRAFT_AGENT_URL || env.NEWSCRAFT_HERMES_URL || 'unset'}).`;
+		return `NewsCraft agent is not reachable. Check NEWSCRAFT_AGENT_URL (${env.NEWSCRAFT_AGENT_URL || 'unset'}).`;
 	}
 	if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
 		return 'NewsCraft agent did not respond in time.';
@@ -1007,13 +1007,13 @@ export function describeGatewayError(err: unknown): string {
 	return message;
 }
 
-/** Legacy agent-job HTTP access is intentionally not available through Hermes chat. */
+/** Legacy agent-job HTTP access is intentionally not available through agent chat. */
 export async function agentFetch(_path: string, _init: RequestInit = {}): Promise<Response> {
 	throw new Error('Legacy agent-job transport is disabled. NewsCraft uses its cloud research agent.');
 }
 
-/** Build the authenticated Hermes input without opening a browser-owned stream. */
-export function buildHermesRunInput(
+/** Build the authenticated agent input without opening a browser-owned stream. */
+export function buildAgentRunInput(
 	body: AgentChatRequest,
 	threadId: string,
 	runId: string,
@@ -1035,33 +1035,33 @@ export function buildHermesRunInput(
 	);
 }
 
-export interface DurableHermesRunStartRequest {
+export interface DurableAgentRunStartRequest {
 	runId: string;
 	accountId: string;
 	tenantKey: string;
-	input: HermesRunInput;
+	input: AgentRunInput;
 	seededCitations: SeededCitation[];
 	/** Required for new runs; absent only for legacy saved runs without a trace. */
 	traceId?: string;
 }
 
-export class HermesDurableOverloadError extends Error {
+export class AgentDurableOverloadError extends Error {
 	readonly code = 'overloaded';
 
 	constructor() {
 		super('Research service is temporarily at capacity. Try again shortly.');
-		this.name = 'HermesDurableOverloadError';
+		this.name = 'AgentDurableOverloadError';
 	}
 }
 
-/** Start a durable worker owned by the NewsCraft Hermes service. */
-export async function startDurableHermesRun(input: DurableHermesRunStartRequest): Promise<void> {
+/** Start a durable worker owned by the NewsCraft agent service. */
+export async function startDurableAgentRun(input: DurableAgentRunStartRequest): Promise<void> {
 	const traceId = traceHeader(input.traceId);
 	const inputTraceId = traceHeader(input.input.trace_id);
 	if (input.input.trace_id !== undefined && (!inputTraceId || !traceId || inputTraceId !== traceId)) {
 		throw new Error('Agent durable trace binding does not match.');
 	}
-	const response = await fetchWithNewsCraftDns(`${hermesUrl()}/v1/runs/start`, {
+	const response = await fetchWithNewsCraftDns(`${agentUrl()}/v1/runs/start`, {
 		method: 'POST',
 		headers: { ...requestHeaders({ accountId: input.accountId, traceId }), 'content-type': 'application/json' },
 		body: JSON.stringify({
@@ -1082,27 +1082,27 @@ export async function startDurableHermesRun(input: DurableHermesRunStartRequest)
 			/* Keep the existing generic transport error for non-JSON failures. */
 		}
 		if (response.status === 429 && body?.code === 'overloaded') {
-			throw new HermesDurableOverloadError();
+			throw new AgentDurableOverloadError();
 		}
 		const detail = typeof body?.detail === 'string' ? body.detail : text;
 		throw new Error(`Agent durable start failed (${response.status}): ${detail || response.statusText}`);
 	}
 }
 
-/** Request cancellation for the same durable Hermes run. */
-export async function cancelDurableHermesRun(
+/** Request cancellation for the same durable agent run. */
+export async function cancelDurableAgentRun(
 	accountId: string,
 	runId: string,
 	traceId?: string
 ): Promise<{ state: string }> {
 	const normalizedTraceId = traceHeader(traceId);
-	const response = await fetchWithNewsCraftDns(`${hermesUrl()}/v1/runs/${encodeURIComponent(runId)}/cancel`, {
+	const response = await fetchWithNewsCraftDns(`${agentUrl()}/v1/runs/${encodeURIComponent(runId)}/cancel`, {
 		method: 'POST',
 		headers: requestHeaders({ accountId, traceId: normalizedTraceId }),
 		body: JSON.stringify({
 			run_id: runId,
 			account_id: accountId,
-			tenant_key: deriveHermesTenantKey(accountId),
+			tenant_key: deriveAgentTenantKey(accountId),
 			...(normalizedTraceId ? { trace_id: normalizedTraceId } : {})
 		})
 	});
@@ -1141,7 +1141,7 @@ function processInstanceId(value: unknown): string | null {
 }
 
 export async function gatewayHealth(): Promise<GatewayHealth> {
-	const configuredUrl = (env.NEWSCRAFT_AGENT_URL || env.NEWSCRAFT_HERMES_URL || '').trim().replace(/\/$/, '');
+	const configuredUrl = (env.NEWSCRAFT_AGENT_URL || '').trim().replace(/\/$/, '');
 	if (!configuredUrl) {
 		return {
 			ok: false,
@@ -1156,7 +1156,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 			url: ''
 		};
 	}
-	const token = (env.NEWSCRAFT_AGENT_API_TOKEN || env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
+	const token = (env.NEWSCRAFT_AGENT_API_TOKEN || '').trim();
 	if (!token) {
 		return {
 			ok: false,
@@ -1173,8 +1173,8 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 	}
 	try {
 		const response = await fetchWithNewsCraftDns(`${configuredUrl}/ready`, {
-			headers: { authorization: `Bearer ${token}`, 'x-hermes-session-token': token },
-			signal: AbortSignal.timeout(HERMES_HEALTH_TIMEOUT_MS)
+			headers: { authorization: `Bearer ${token}`, 'x-agent-session-token': token },
+			signal: AbortSignal.timeout(AGENT_HEALTH_TIMEOUT_MS)
 		});
 		const body = await response.text();
 		const parsed = parseJson(body);
@@ -1198,7 +1198,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 		const legacyOk =
 			value?.ok === true &&
 			value.service === SERVICE_NAME &&
-			value.toolset === HERMES_TOOLSET &&
+			value.toolset === AGENT_TOOLSET &&
 			Boolean(stringValue(runtime?.provider)) &&
 			Boolean(stringValue(runtime?.model)) &&
 			runtime?.endpointMode === 'explicit' &&
@@ -1259,7 +1259,7 @@ export async function gatewayHealth(): Promise<GatewayHealth> {
 		} catch {
 			/* Keep malformed configuration out of diagnostics. */
 		}
-		console.warn('[newscraft] Hermes health check failed', boundedNetworkError(error, configuredHostname));
+		console.warn('[newscraft] agent health check failed', boundedNetworkError(error, configuredHostname));
 		return {
 			ok: false,
 			requiredReady: false,

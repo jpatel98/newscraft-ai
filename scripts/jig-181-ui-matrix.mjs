@@ -626,7 +626,7 @@ export function buildPlaywrightEnvironment({
 		DATABASE_URL: databaseUrl,
 		NEWSCRAFT_TEST_DATABASE_URL: databaseUrl,
 		AGENT_GATEWAY_URL: 'http://127.0.0.1:9',
-		NEWSCRAFT_HERMES_URL: 'http://127.0.0.1:9',
+		NEWSCRAFT_AGENT_URL: 'http://127.0.0.1:9',
 		E2E_SECRET: 'newscraft-jig181-local-secret',
 		JIG181_DATABASE_NAME: authority.database_name
 	};

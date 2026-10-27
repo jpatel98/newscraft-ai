@@ -4,7 +4,7 @@ import { createChatIdleWatchdog, linkChatAbort, withChatTimeout } from './chat-t
 describe('interactive chat safety bounds', () => {
 	afterEach(() => vi.useRealTimers());
 
-	it('does not count an active Hermes tool call as stream idle time', async () => {
+	it('does not count an active agent tool call as stream idle time', async () => {
 		vi.useFakeTimers();
 		const controller = new AbortController();
 		const watchdog = createChatIdleWatchdog(controller, 100);
@@ -26,7 +26,7 @@ describe('interactive chat safety bounds', () => {
 		watchdog.cleanup();
 	});
 
-	it('keeps the idle timer paused until every concurrent Hermes tool finishes', async () => {
+	it('keeps the idle timer paused until every concurrent agent tool finishes', async () => {
 		vi.useFakeTimers();
 		const controller = new AbortController();
 		const watchdog = createChatIdleWatchdog(controller, 100);

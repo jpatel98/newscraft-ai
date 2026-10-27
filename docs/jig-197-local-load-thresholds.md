@@ -12,7 +12,7 @@ Run it from a clean, candidate-bound checkout:
 
 The locked equivalent is:
 
-    uv run --locked --project services/hermes-chat python services/hermes-chat/tests/jig_197_load.py --source-sha <full-clean-candidate-sha> --candidate-sha <full-clean-candidate-sha>
+    uv run --locked --project services/agent python services/agent/tests/jig_197_load.py --source-sha <full-clean-candidate-sha> --candidate-sha <full-clean-candidate-sha>
 
 The command writes one redacted JSON record below .tmp/jig-197/. The
 directory is mode 0700 and each record is mode 0600. The versioned schema

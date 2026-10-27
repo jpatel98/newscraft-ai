@@ -1,8 +1,8 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import {
-	hermesSubscriptionResponse,
-	parseHermesSubscriptionCursor
-} from '$lib/server/hermes-subscription';
+	agentSubscriptionResponse,
+	parseAgentSubscriptionCursor
+} from '$lib/server/agent-subscription';
 
 export const GET: RequestHandler = async ({ request, locals, params, url }) => {
 	if (!locals.user) return json({ detail: 'unauthorized' }, { status: 401 });
@@ -10,9 +10,9 @@ export const GET: RequestHandler = async ({ request, locals, params, url }) => {
 	if (!runId) return json({ detail: 'run id required' }, { status: 400 });
 	let afterCursor: number;
 	try {
-		afterCursor = parseHermesSubscriptionCursor(request, url);
+		afterCursor = parseAgentSubscriptionCursor(request, url);
 	} catch {
 		return json({ detail: 'cursor must be a non-negative integer' }, { status: 400 });
 	}
-	return hermesSubscriptionResponse({ request, accountId: locals.user.id, runId, afterCursor });
+	return agentSubscriptionResponse({ request, accountId: locals.user.id, runId, afterCursor });
 };

@@ -9,8 +9,8 @@ const VERDICTS: ReadonlySet<string> = new Set(['same', 'contradicts', 'different
  * failure: the matcher then merges only near-identical wordings.
  */
 export const workerClaimJudge: ClaimJudge = async (pairs) => {
-	const base = (env.NEWSCRAFT_AGENT_URL || env.NEWSCRAFT_HERMES_URL || '').trim().replace(/\/$/, '');
-	const token = (env.NEWSCRAFT_AGENT_API_TOKEN || env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
+	const base = (env.NEWSCRAFT_AGENT_URL || '').trim().replace(/\/$/, '');
+	const token = (env.NEWSCRAFT_AGENT_API_TOKEN || '').trim();
 	if (!base || !token || !pairs.length) return null;
 	try {
 		const response = await fetch(`${base}/v1/ledger/judge`, {

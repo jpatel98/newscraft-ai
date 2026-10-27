@@ -1,0 +1,60 @@
+import { json, type RequestHandler } from '@sveltejs/kit';
+import { getAgentRun, claimAgentRunLease, AGENT_TERMINAL_STATES } from '$lib/server/db/agent-runs';
+import { verifyAgentRunCallback } from '$lib/server/agent-durable';
+import { validateDurableTraceBinding } from '$lib/server/durable-run-telemetry';
+
+export const POST: RequestHandler = async ({ request }) => {
+	if (!verifyAgentRunCallback(request)) return json({ detail: 'unauthorized' }, { status: 401 });
+	let body: { run_id?: string; account_id?: string; tenant_key?: string; lease_owner?: string; trace_id?: unknown };
+	try {
+		body = (await request.json()) as typeof body;
+	} catch {
+		return json({ detail: 'invalid json' }, { status: 400 });
+	}
+	const accountId = body.account_id?.trim();
+	const runId = body.run_id?.trim();
+	const tenantKey = body.tenant_key?.trim();
+	const leaseOwner = body.lease_owner?.trim();
+	if (!accountId || !runId || !tenantKey || !leaseOwner) return json({ detail: 'run, tenant and lease fields are required' }, { status: 400 });
+	const existing = await getAgentRun(accountId, runId);
+	if (!existing) return json({ detail: 'run not found' }, { status: 404 });
+	if (existing.tenantKey !== tenantKey) return json({ detail: 'tenant binding does not match' }, { status: 404 });
+	const traceBinding = validateDurableTraceBinding(existing.inputJson, body.trace_id);
+	if (!traceBinding.ok) {
+		return json(
+			{
+				code: 'trace_binding',
+				detail:
+					traceBinding.reason === 'invalid' || traceBinding.reason === 'persisted_invalid'
+						? 'trace_id is invalid'
+						: 'trace binding does not match'
+			},
+			{ status: 409 }
+		);
+	}
+	if (AGENT_TERMINAL_STATES.includes(existing.state as (typeof AGENT_TERMINAL_STATES)[number])) {
+		return json({ terminal: true, state: existing.state, worker_cursor: existing.workerCursor });
+	}
+	if (existing.leaseOwner === leaseOwner && existing.leaseToken && existing.leaseExpiresAt && existing.leaseExpiresAt > Date.now()) {
+		return json({
+			terminal: false,
+		callback_batch_version: 1,
+			lease_owner: existing.leaseOwner,
+			lease_token: existing.leaseToken,
+			worker_cursor: existing.workerCursor,
+			state: existing.state
+		});
+	}
+	const claimed = await claimAgentRunLease(accountId, runId, leaseOwner);
+	if (!claimed || !claimed.leaseToken || !claimed.leaseOwner) {
+		return json({ code: 'lease_conflict', detail: 'run lease is held by another worker' }, { status: 409 });
+	}
+	return json({
+		terminal: false,
+		callback_batch_version: 1,
+		lease_owner: claimed.leaseOwner,
+		lease_token: claimed.leaseToken,
+		worker_cursor: claimed.workerCursor,
+		state: claimed.state
+	});
+};

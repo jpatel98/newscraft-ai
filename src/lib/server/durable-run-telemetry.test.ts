@@ -4,7 +4,7 @@ import {
 	MAX_DURABLE_TELEMETRY_EVENTS,
 	MATERIAL_STREAM_GAP_MS,
 	summarizeDurableRunTelemetry,
-	traceIdFromHermesInput
+	traceIdFromAgentInput
 } from './durable-run-telemetry';
 
 function run(overrides: Record<string, unknown> = {}) {
@@ -66,7 +66,7 @@ describe('durable run telemetry', () => {
 			events_truncated: false,
 			missing_stages: [],
 			usage: {
-				provider: 'hermes-chat',
+				provider: 'newscraft-agent',
 				retrieval_backend: 'newscraft-local',
 				archive_provider: 'wayback',
 				search_calls: 1,
@@ -186,7 +186,7 @@ describe('durable run telemetry', () => {
 		);
 		const encoded = JSON.stringify(summary);
 
-		expect(traceIdFromHermesInput(inputJson)).toBe('trace_12345678');
+		expect(traceIdFromAgentInput(inputJson)).toBe('trace_12345678');
 		expect(encoded).toContain('trace_12345678');
 		expect(encoded).not.toContain('account-secret');
 		expect(encoded).not.toContain('tenant-secret');

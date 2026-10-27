@@ -5,7 +5,7 @@ import {
 	type MessageRow,
 	type Role
 } from '$lib/server/db/conversations';
-import type { HermesRunMessageState } from '$lib/server/db/hermes-runs';
+import type { AgentRunMessageState } from '$lib/server/db/agent-runs';
 import type { ArtifactSummary } from '$lib/server/artifacts/contracts';
 
 /** The UI requests at most this many persisted rows in one history page. */
@@ -43,7 +43,7 @@ export function compareCursors(a: MessagePageCursor, b: MessagePageCursor): numb
 
 export function toThreadMessage(
 	message: MessageRow,
-	run?: HermesRunMessageState | null,
+	run?: AgentRunMessageState | null,
 	artifacts?: ArtifactSummary[]
 ): ThreadMessageView {
 	return {
@@ -116,7 +116,7 @@ export function trimTargetWindow<T extends MessageEnvelope>(
 
 export function rowsToThreadMessages(
 	rows: MessageRow[],
-	runs: ReadonlyMap<string, HermesRunMessageState>
+	runs: ReadonlyMap<string, AgentRunMessageState>
 ): ThreadMessageView[] {
 	return rows.map((row) => toThreadMessage(row, runs.get(row.id)));
 }

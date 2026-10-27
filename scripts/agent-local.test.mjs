@@ -27,20 +27,20 @@ function fixture(t) {
         const target = join(root, path); mkdirSync(dirname(target), { recursive: true });
         writeFileSync(target, value, { mode });
     };
-    put('.env.local', `DATABASE_URL=${OLD_DB}\nNEWSCRAFT_TEST_DATABASE_URL=${TEST_DB}\nNEWSCRAFT_HERMES_API_TOKEN=${TOKEN}\nNEWSCRAFT_HERMES_RUN_API_TOKEN=${CALLBACK}\nNEWSCRAFT_HERMES_TENANT_SECRET=${TENANT}\nAPP_SESSION_SECRET=${SESSION}\nNEWSCRAFT_STORAGE_BASE_URL=https://storage.example.test\nNEWSCRAFT_STORAGE_API_KEY=${STORAGE_KEY}\nOPENAI_API_KEY=sk-unapproved-root-value-which-must-not-propagate\n`);
-    put('services/hermes-chat/.env', `HERMES_AGUI_SESSION_TOKEN=${TOKEN}\nNEWSCRAFT_AGENT_RUN_API_TOKEN=${CALLBACK}\n`);
+    put('.env.local', `DATABASE_URL=${OLD_DB}\nNEWSCRAFT_TEST_DATABASE_URL=${TEST_DB}\nNEWSCRAFT_AGENT_API_TOKEN=${TOKEN}\nNEWSCRAFT_AGENT_RUN_API_TOKEN=${CALLBACK}\nNEWSCRAFT_AGENT_TENANT_SECRET=${TENANT}\nAPP_SESSION_SECRET=${SESSION}\nNEWSCRAFT_STORAGE_BASE_URL=https://storage.example.test\nNEWSCRAFT_STORAGE_API_KEY=${STORAGE_KEY}\nOPENAI_API_KEY=sk-unapproved-root-value-which-must-not-propagate\n`);
+    put('services/agent/.env', `AGENT_AGUI_SESSION_TOKEN=${TOKEN}\nNEWSCRAFT_AGENT_RUN_API_TOKEN=${CALLBACK}\n`);
     put('services/newsroom-harness/.env.local', `OPENAI_API_KEY=${KEY}\nUNRELATED_SECRET=never-load-me\n`);
-    put('services/hermes-chat/.venv-owned/bin/python', '# synthetic interpreter fixture, never executed\n', 0o700);
-    put('services/hermes-chat/.venv-owned/pyvenv.cfg', 'include-system-site-packages = false\n');
-    for (const name of ['fastapi', 'httpx', 'ddgs', 'uvicorn']) put(`services/hermes-chat/.venv-owned/lib/python3.11/site-packages/${name}/__init__.py`, '');
-    put('services/hermes-chat/.venv-owned/lib/python3.11/site-packages/newscraft_agent-0.1.0.dist-info/METADATA', 'synthetic');
+    put('services/agent/.venv-owned/bin/python', '# synthetic interpreter fixture, never executed\n', 0o700);
+    put('services/agent/.venv-owned/pyvenv.cfg', 'include-system-site-packages = false\n');
+    for (const name of ['fastapi', 'httpx', 'ddgs', 'uvicorn']) put(`services/agent/.venv-owned/lib/python3.11/site-packages/${name}/__init__.py`, '');
+    put('services/agent/.venv-owned/lib/python3.11/site-packages/newscraft_agent-0.1.0.dist-info/METADATA', 'synthetic');
     put('node_modules/.bin/vite', 'synthetic');
     prepareLocal({ root });
     return { root, put, env: { NEWSCRAFT_SETUP_DATABASE_URL: NEW_DB } };
 }
 
 function existingFiles(root) {
-    return ['.env.local', 'services/hermes-chat/.env', 'services/newsroom-harness/.env.local'].map(path => readFileSync(join(root, path), 'utf8'));
+    return ['.env.local', 'services/agent/.env', 'services/newsroom-harness/.env.local'].map(path => readFileSync(join(root, path), 'utf8'));
 }
 
 test('prepare writes only nonsecret defaults and never replaces an existing profile', t => {
@@ -172,12 +172,12 @@ test('private resolver environment cannot leak through JSON serialization', t =>
 
 test('mismatched or missing tokens block start without spawning', async t => {
     const { root, env, put } = fixture(t);
-    put('services/hermes-chat/.env', `HERMES_AGUI_SESSION_TOKEN=different-synthetic-listener-123456\n`);
+    put('services/agent/.env', `AGENT_AGUI_SESSION_TOKEN=different-synthetic-listener-123456\n`);
     let spawned = false;
     assert.equal(await runLocal('start', { root, env, write() {}, spawn() { spawned = true; } }), 1);
     assert.equal(spawned, false);
     put('.env.local', `DATABASE_URL=${OLD_DB}\n`);
-    put('services/hermes-chat/.env', '');
+    put('services/agent/.env', '');
     assert.equal(await runLocal('start', { root, env, write() {}, spawn() { spawned = true; } }), 1);
     assert.equal(spawned, false);
 });
@@ -216,7 +216,7 @@ test('check fails closed for unexpected secret fields, invalid budgets and absen
         assert.equal(checkLocal({ root, env }).ok, false);
     }
     writeFileSync(path, original);
-    rmSync(join(root, 'services/hermes-chat/.venv-owned/bin/python'));
+    rmSync(join(root, 'services/agent/.venv-owned/bin/python'));
     assert.equal(checkLocal({ root, env }).checks.find(item => item.name === 'dependency files').ok, false);
 });
 
@@ -233,9 +233,9 @@ test('duplicate or malformed approved credentials fail shape checks without prin
 
 test('a different Python library version cannot pass the passive owned-runtime check', t => {
     const { root, env, put } = fixture(t);
-    rmSync(join(root, 'services/hermes-chat/.venv-owned/lib/python3.11'), { recursive: true });
-    for (const name of ['fastapi', 'httpx', 'ddgs', 'uvicorn']) put(`services/hermes-chat/.venv-owned/lib/python3.12/site-packages/${name}/__init__.py`, '');
-    put('services/hermes-chat/.venv-owned/lib/python3.12/site-packages/newscraft_agent-0.1.0.dist-info/METADATA', 'synthetic');
+    rmSync(join(root, 'services/agent/.venv-owned/lib/python3.11'), { recursive: true });
+    for (const name of ['fastapi', 'httpx', 'ddgs', 'uvicorn']) put(`services/agent/.venv-owned/lib/python3.12/site-packages/${name}/__init__.py`, '');
+    put('services/agent/.venv-owned/lib/python3.12/site-packages/newscraft_agent-0.1.0.dist-info/METADATA', 'synthetic');
     assert.equal(checkLocal({ root, env }).checks.find(item => item.name === 'dependency files').ok, false);
 });
 

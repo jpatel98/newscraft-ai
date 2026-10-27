@@ -19,7 +19,7 @@ function health(observedAt: number, httpStatus: number, ok: boolean, processInst
 		httpStatus,
 		ok,
 		state: ok ? 'ready' : 'unavailable',
-		components: { hermes: { processInstanceId } }
+		components: { agent: { processInstanceId } }
 	};
 }
 

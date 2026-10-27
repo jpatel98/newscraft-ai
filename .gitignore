@@ -38,7 +38,6 @@ services/newsroom-harness/api/vercel-entry.js
 # Local browser and retired prototype artifacts
 /.playwright-cli/
 /output/playwright/
-/services/hermes-newsroom/
 
 # Vite
 vite.config.js.timestamp-*

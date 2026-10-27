@@ -38,7 +38,7 @@ No token streaming exists anywhere in the stack (`portable.py` emits one
 
 ## 2. Root causes, ranked by producer damage
 
-1. **One search, raw prompt, no plan** (`services/hermes-chat/src/hermes_chat/portable.py:302-425`).
+1. **One search, raw prompt, no plan** (`services/agent/src/newscraft_agent/portable.py:302-425`).
    Every ordinary turn: `exa_pages(query=request[:300], results=6)` → one model call with
    `tools=[]` and "use only the numbered sources below". The model cannot choose a query,
    cannot search twice, cannot visit a named primary source. A conversational follow-up
@@ -185,10 +185,10 @@ later be built on. The pitch is not "it researches", it is "it never loses the s
 - Threads on the test account: `0mv379i257f737d89fce00727` (shift), `0mv37l0i69c214f1dffd80177`
   (spliced OTT prompt), `0mv37nhtgcdd0581d7643434b` (coverage comparison, no research),
   `0mv37pjc431a26cd87d4a68df` (failed Markdown brief).
-- Fast path: `services/hermes-chat/src/hermes_chat/portable.py:96-139, 302-425`;
+- Fast path: `services/agent/src/newscraft_agent/portable.py:96-139, 302-425`;
   Exa call `search_adapters.py:57-79`; classifier `src/lib/server/conversation-context.ts:690-722`;
   draft bug `src/lib/components/Composer.svelte:473-498`; budget failure
-  `services/hermes-chat/src/hermes_chat/budgets.py:47-61`, `model_adapters.py:194-195`.
+  `services/agent/src/newscraft_agent/budgets.py:47-61`, `model_adapters.py:194-195`.
 
 ---
 
