@@ -39,12 +39,12 @@ jobs:
         run: corepack pnpm eval:fixture
 
   worker:
-    # The Python research worker (services/hermes-chat) ships to Contabo separately;
+    # The Python research worker (services/agent) ships to Contabo separately;
     # its unit tests run here so worker regressions don't land on main green.
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: services/hermes-chat
+        working-directory: services/agent
 
     steps:
       - uses: actions/checkout@v4
