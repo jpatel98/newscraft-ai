@@ -585,9 +585,18 @@
 		color: var(--fg-2);
 	}
 	.story-group__title span { color: var(--fg-3); font-weight: 500; }
-	.story-group__title--check,
+	.story-group__title::before {
+		content: '';
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: currentColor;
+	}
+	/* Same colours as the Story button's meter: green airs, blue airs with attribution, red holds, amber needs a look. */
+	.story-group__title--safe { color: var(--signal-700); }
 	.story-group__title--careful { color: var(--cobalt-700); }
-	.story-group__title--hold { color: var(--fg-3); }
+	.story-group__title--hold { color: var(--flag-700); }
+	.story-group__title--check { color: var(--caution-700); }
 	.story-claim__say {
 		margin: 4px 0 0;
 		font-size: 12.5px;
@@ -650,8 +659,8 @@
 	.story-claim__check {
 		padding: 1px 6px;
 		border-radius: var(--radius-1);
-		background: color-mix(in srgb, var(--cobalt-100) 55%, var(--bg-surface));
-		color: var(--cobalt-700);
+		background: var(--caution-50);
+		color: var(--caution-700);
 		font-weight: 650;
 	}
 	.story-claim__reviewed {
@@ -780,8 +789,8 @@
 		font-weight: 650;
 	}
 	.story-claim__swipe-hint--flag { justify-content: flex-end; }
-	.story-claim__swipe-hint--ready.story-claim__swipe-hint--check { background: var(--cobalt-600); color: #fff; }
-	.story-claim__swipe-hint--ready.story-claim__swipe-hint--flag { background: var(--cobalt-100); color: var(--cobalt-800); }
+	.story-claim__swipe-hint--ready.story-claim__swipe-hint--check { background: var(--signal-500); color: #fff; }
+	.story-claim__swipe-hint--ready.story-claim__swipe-hint--flag { background: var(--caution-50); color: var(--caution-700); }
 	.story-pane__icon:focus-visible,
 	.story-pane__button:focus-visible,
 	.story-claim__chip:focus-visible { outline: none; box-shadow: var(--shadow-focus); }

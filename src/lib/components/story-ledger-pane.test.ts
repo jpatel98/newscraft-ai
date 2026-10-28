@@ -40,7 +40,8 @@ describe('Story ledger pane', () => {
 		const menuIndex = page.indexOf('aria-label="Move to folder"');
 		expect(storyIndex).toBeGreaterThan(0);
 		expect(menuIndex).toBeGreaterThan(storyIndex);
-		expect(page).toContain("{' to check'}</span></span>{/if}</button>");
+		expect(page).toContain("<span class=\"story-btn__note-label\">{' to check'}</span>");
+		expect(page).toContain('ledgerMeter(storyClaims)');
 		expect(page).toContain("import StoryLedgerPane from '$lib/components/StoryLedgerPane.svelte'");
 		expect(page).toContain('<StoryLedgerPane');
 		expect(page).toContain('title={conversationTitle}');

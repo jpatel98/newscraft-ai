@@ -9,7 +9,7 @@
 	import Thread from '$lib/components/Thread.svelte';
 	import { artifactPaneMode } from '$lib/components/artifact-layout';
 	import { stripLedgerForDisplay } from '$lib/utils/story-ledger';
-	import type { StoryClaimReviewInput, StoryLedgerChangeView, StoryLedgerClaimView } from '$lib/utils/story-ledger-view';
+	import { ledgerMeter, type StoryClaimReviewInput, type StoryLedgerChangeView, type StoryLedgerClaimView } from '$lib/utils/story-ledger-view';
 	import { parseToolMetadata } from '$lib/utils/tool-metadata';
 	import { isSmallTalk, type CitationRecord } from '@newscraft/shared';
 	import type {
@@ -78,6 +78,7 @@ import X from 'lucide-svelte/icons/x';
 import Send from 'lucide-svelte/icons/send-horizontal';
 import Folder from 'lucide-svelte/icons/folder';
 import MoreHorizontal from 'lucide-svelte/icons/more-horizontal';
+import ListChecks from 'lucide-svelte/icons/list-checks';
 import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 
 	type ThreadMessage = PersistedThreadMessage & { createdAt: number };
@@ -140,6 +141,14 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	let storyError = $state<string | null>(null);
 	let storyRequestSeq = 0;
 	const storyOpenChecks = $derived(storyClaims.filter((claim) => claim.needs_check).length);
+	const storyMeter = $derived(ledgerMeter(storyClaims));
+	const storyButtonLabel = $derived(
+		!storyClaims.length
+			? 'Story, no facts yet'
+			: storyOpenChecks > 0
+				? `Story, ${storyOpenChecks} to check`
+				: `Story, ${storyClaims.length} fact${storyClaims.length === 1 ? '' : 's'}, all checked`
+	);
 	// Header folder menu. A move saves in place, so the chat stays open; the
 	// override shows the new folder until the next page load agrees.
 	type HeaderFolder = { id: string; name: string };
@@ -1676,9 +1685,25 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 			class="thread-header__btn conversation-story-button"
 			data-testid="story-ledger-button"
 			aria-pressed={storyOpen}
-			aria-label={storyOpenChecks > 0 ? `Story, ${storyOpenChecks} to check` : undefined}
+			aria-label={storyButtonLabel}
+			title={storyButtonLabel}
 			onclick={toggleStory}
-		>Story{#if storyOpenChecks > 0}<span class="thread-header__count">· {storyOpenChecks}<span class="thread-header__count-label">{' to check'}</span></span>{/if}</button>
+		>
+			<ListChecks size="15" strokeWidth={1.8} aria-hidden="true" />
+			<span>Story</span>
+			{#if storyMeter.length}
+				<span class="story-meter" aria-hidden="true">
+					{#each storyMeter as bucket, i (i)}<i class="story-meter__block story-meter__block--{bucket}"></i>{/each}
+				</span>
+			{/if}
+			{#if !storyClaims.length}
+				<span class="story-btn__note">no facts yet</span>
+			{:else if storyOpenChecks > 0}
+				<span class="story-btn__note story-btn__note--check">{storyOpenChecks}<span class="story-btn__note-label">{' to check'}</span></span>
+			{:else}
+				<span class="story-btn__note story-btn__note--done">all checked</span>
+			{/if}
+		</button>
 		<div class="thread-header__menu-wrap" data-thread-menu>
 			<button
 				type="button"
@@ -2013,7 +2038,26 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		border-color: var(--border-default);
 		color: var(--fg-1);
 	}
-	.thread-header__count { margin-left: 0.3em; color: var(--accent-fg); white-space: pre; }
+	.conversation-story-button {
+		gap: 7px;
+		height: 32px;
+		padding: 0 10px 0 9px;
+		border-color: var(--border-default);
+		background: var(--bg-surface);
+		color: var(--fg-1);
+		font-weight: 500;
+	}
+	.conversation-story-button:hover { border-color: var(--border-strong); }
+	.conversation-story-button[aria-pressed='true'] { border-color: var(--fg-2); }
+	.story-meter { display: inline-flex; gap: 2px; }
+	.story-meter__block { display: block; width: 6px; height: 10px; border-radius: 1px; }
+	.story-meter__block--safe { background: var(--signal-500); }
+	.story-meter__block--careful { background: var(--cobalt-500); }
+	.story-meter__block--hold { background: var(--flag-500); }
+	.story-meter__block--check { background: var(--caution-500); }
+	.story-btn__note { color: var(--fg-3); font-family: var(--font-mono); font-size: 12px; font-weight: 400; white-space: pre; }
+	.story-btn__note--check { color: var(--caution-700); font-weight: 500; }
+	.story-btn__note--done { color: var(--signal-700); }
 	.thread-header__menu-wrap { position: relative; }
 	.thread-header__menu { right: 0; min-width: 200px; max-width: min(280px, calc(100vw - 32px)); }
 	.thread-header__menu-label {
@@ -2048,7 +2092,11 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 			line-height: 1.2;
 		}
 		.thread-header__folder,
-		.thread-header__count-label { display: none; }
+		.story-btn__note-label,
+		.conversation-story-button .story-meter,
+		.conversation-story-button > :global(svg),
+		.conversation-story-button > .story-btn__note:not(.story-btn__note--check) { display: none; }
+		.conversation-story-button { height: auto; }
 		.thread-header__btn,
 		.thread-header__icon-btn { min-height: 44px; }
 		.thread-header__icon-btn { min-width: 44px; }
@@ -2071,7 +2119,7 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 	}
 	.story-peek__label { color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
 	.story-peek__count { flex: 1; text-align: left; }
-	.story-peek__count--open { color: var(--cobalt-700); font-weight: 650; }
+	.story-peek__count--open { color: var(--caution-700); font-weight: 650; }
 	.story-peek:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
 	.conversation-workspace {
 		flex: 1;
