@@ -53,7 +53,7 @@ async function appHealth(): Promise<{ ok: boolean; database: 'postgres' }> {
 }
 
 /**
- * Check the app-owned document capability. This does not depend on Hermes:
+ * Check the app-owned document capability. This does not depend on agent:
  * document storage is an app database capability, not a required gateway
  * readiness signal.
  */
@@ -89,7 +89,7 @@ function gatewayDetails(gateway: GatewayHealth): HealthComponent {
 export const GET: RequestHandler = async ({ locals, url }) => {
 	// The document client only needs the optional app capability. Keep this
 	// authenticated probe deliberately narrow: the full health contract also
-	// checks Hermes and all providers, which makes opening a conversation pay for
+	// checks agent and all providers, which makes opening a conversation pay for
 	// an unrelated gateway round trip.
 	if (locals.user && url.searchParams.get('capabilities') === '1') {
 		const documents = await documentsReady();
@@ -133,7 +133,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 				backend: app.database,
 				...(!app.ok ? { error: 'database_unavailable' } : {})
 			},
-			hermes: gatewayDetails(gateway),
+			agent: gatewayDetails(gateway),
 			documents: {
 				required: false,
 				ok: documents,

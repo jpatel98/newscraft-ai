@@ -7,7 +7,7 @@ import * as agentTransport from '../agent/transport';
 import { ensureMigrated, sql } from './index';
 import { claimPartialAssistantMessage, finalizeResumedAssistantMessage, getMessages, getMessageById, parseContent } from './conversations';
 import { getMessageProvenance } from './message-provenance';
-import { appendHermesRunEvents, claimHermesRunLease, getHermesRun, listHermesRunEvents, type HermesRunEventInput } from './hermes-runs';
+import { appendAgentRunEvents, claimAgentRunLease, getAgentRun, listAgentRunEvents, type AgentRunEventInput } from './agent-runs';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 const databaseUrl = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
@@ -19,8 +19,8 @@ describe.skipIf(!databaseUrl)('durable assistant replacement and SQL claim integ
 		token: process.env.NEWSCRAFT_AGENT_API_TOKEN,
 		tenant: process.env.NEWSCRAFT_AGENT_TENANT_SECRET
 	};
-	const startDurableRunSpy = vi.spyOn(agentTransport, 'startDurableHermesRun');
-	let callbackEvents: Array<Omit<HermesRunEventInput, 'workerCursor'>> = [];
+	const startDurableRunSpy = vi.spyOn(agentTransport, 'startDurableAgentRun');
+	let callbackEvents: Array<Omit<AgentRunEventInput, 'workerCursor'>> = [];
 	let lastRunId = '';
 
 	beforeAll(async () => {
@@ -29,13 +29,13 @@ describe.skipIf(!databaseUrl)('durable assistant replacement and SQL claim integ
 		process.env.NEWSCRAFT_AGENT_TENANT_SECRET = 'test-tenant-secret-0123456789012345';
 		startDurableRunSpy.mockImplementation(async request => {
 			lastRunId = request.runId;
-			const saved = await getHermesRun(request.accountId, request.runId);
+			const saved = await getAgentRun(request.accountId, request.runId);
 			if (!saved || saved.tenantKey !== request.tenantKey) throw new Error('fixture tenant binding mismatch');
-			const lease = await claimHermesRunLease(request.accountId, request.runId, 'fixture-worker');
+			const lease = await claimAgentRunLease(request.accountId, request.runId, 'fixture-worker');
 			if (!lease?.leaseToken || !lease.leaseOwner) throw new Error('fixture could not claim the run');
 			const events = [{ eventType: 'run.started', dataJson: '{}' }, ...callbackEvents]
 				.map((event, index) => ({ ...event, workerCursor: lease.workerCursor + index + 1 }));
-			await appendHermesRunEvents(request.accountId, request.runId, lease.leaseOwner, lease.leaseToken, events);
+			await appendAgentRunEvents(request.accountId, request.runId, lease.leaseOwner, lease.leaseToken, events);
 		});
 		vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('durable database fixtures never call external APIs'); }));
 		await ensureMigrated();
@@ -102,11 +102,11 @@ describe.skipIf(!databaseUrl)('durable assistant replacement and SQL claim integ
 		workerEvents([['agent.citations', citations], ['agent.answer.replace', { content: authoritative }],
 			['response.output_text.delta', { delta: ' Tail one.' }], ['response.output_text.delta', { delta: ' Tail two.' }]]);
 		await (await invokeResume(scenario)).text();
-		const saved = (await getHermesRun(accountId, lastRunId))!;
+		const saved = (await getAgentRun(accountId, lastRunId))!;
 		const events = [{ eventType: 'run.started', dataJson: '{}' }, ...callbackEvents]
 			.map((event, index) => ({ ...event, workerCursor: index + 1 }));
-		await appendHermesRunEvents(accountId, saved.id, saved.leaseOwner!, saved.leaseToken!, events);
-		expect(await listHermesRunEvents(accountId, saved.id)).toHaveLength(events.length);
+		await appendAgentRunEvents(accountId, saved.id, saved.leaseOwner!, saved.leaseToken!, events);
+		expect(await listAgentRunEvents(accountId, saved.id)).toHaveLength(events.length);
 		await assertAuthoritative(scenario.conversationId, scenario.messageId, `${authoritative} Tail one. Tail two.`);
 		await expectExport(scenario.conversationId, `${authoritative} Tail one. Tail two.`);
 	});

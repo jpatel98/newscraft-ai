@@ -7,17 +7,17 @@ release, a deployment, a rollback, or live-system state.
 
 The active product runtime is the NewsCraft SvelteKit app, NewsCraft durable
 state, and the isolated NewsCraft-owned portable worker (under the compatible
-`services/hermes-chat` path). The browser calls NewsCraft. It does
-not call Hermes directly. The repository evidence for this boundary is in the
+`services/agent` path). The browser calls NewsCraft. It does
+not call agent directly. The repository evidence for this boundary is in the
 [source of truth](../SOURCE_OF_TRUTH.md#L18-L22) and the [durable streaming
-release gates](durable-hermes-streaming.md#L71-L74).
+release gates](durable-agent-streaming.md#L71-L74).
 
-Hydra is outside scope. It is a separate personal Hermes process, user, home,
+Hydra is outside scope. It is a separate personal agent process, user, home,
 and state. This checklist does not verify, change, restart, deploy, or roll
 back Hydra.
 
 Local and static checks prove repository behavior only. Remote NewsCraft,
-Vercel, Hermes, database, provider, traffic, service-PID, and browser checks
+Vercel, agent, database, provider, traffic, service-PID, and browser checks
 need separate authorization and current evidence. Do not put secret values in
 this record. Record only non-secret metadata, hashes, statuses, timestamps,
 and evidence identifiers.
@@ -72,18 +72,18 @@ tests, skipped tests, and the candidate hash.
      'src/routes/c/[id]/chat-failure-retry.test.ts' \
      'src/routes/c/[id]/page-server.test.ts' \
      src/lib/client/stream.test.ts \
-     src/routes/api/internal/hermes/runs/runs-routes.test.ts \
-     src/lib/server/db/hermes-runs.integration.test.ts \
+     src/routes/api/internal/agent/runs/runs-routes.test.ts \
+     src/lib/server/db/agent-runs.integration.test.ts \
      src/lib/server/agent/transport.test.ts
    ```
 
    The focused sources cover refresh recovery, cursor replay, duplicate
-   submission, cancellation, account and tenant binding, and Hermes readiness.
+   submission, cancellation, account and tenant binding, and agent readiness.
    The refresh and retry assertions are in the [conversation route tests](<../src/routes/c/[id]/chat-failure-retry.test.ts#L8-L42>)
    and [conversation load tests](<../src/routes/c/[id]/page-server.test.ts#L1-L68>).
    The durable repository and callback assertions are in the [run repository
-   tests](../src/lib/server/db/hermes-runs.integration.test.ts#L75-L115) and
-   [run route tests](../src/routes/api/internal/hermes/runs/runs-routes.test.ts#L141-L169).
+   tests](../src/lib/server/db/agent-runs.integration.test.ts#L75-L115) and
+   [run route tests](../src/routes/api/internal/agent/runs/runs-routes.test.ts#L141-L169).
 
    `NEWSCRAFT_TEST_DATABASE_URL` is required for the durable repository
    integration group. If that variable is absent, the test file uses
@@ -93,11 +93,11 @@ tests, skipped tests, and the candidate hash.
 
    ```text
    corepack pnpm test
-   TMPDIR=/private/tmp PYTHONPATH=services/hermes-chat/src services/hermes-chat/.venv-owned/bin/python -m unittest discover -s services/hermes-chat/tests -p 'test_*.py'
+   TMPDIR=/private/tmp PYTHONPATH=services/agent/src services/agent/.venv-owned/bin/python -m unittest discover -s services/agent/tests -p 'test_*.py'
    ```
 
    The first command runs the root Vitest suite, shared package tests, and the
-   newsroom-harness test package. The second command covers the Hermes Python
+   newsroom-harness test package. The second command covers the agent Python
    test files already named `test_*.py`. Record separate counts for each
    command. A missing Python runner or missing import is `BLOCKED`; it is not an
    unrelated failure.
@@ -124,13 +124,13 @@ tests, skipped tests, and the candidate hash.
 
 5. **Packaging for the active candidate**
 
-   The required packaging gate covers only the active NewsCraft/Hermes
+   The required packaging gate covers only the active NewsCraft/agent
    candidate:
 
    - **NewsCraft/Vercel artifact:** record the exact Vercel deployment or
      artifact identifier, deployed source hash, build-output manifest, and
      non-secret checksum.
-   - **Hermes source or service artifact:** record the exact clean source
+   - **agent source or service artifact:** record the exact clean source
      checkout hash or service-artifact identifier, locked dependency/runtime identity, and
      non-secret checksum.
 
@@ -141,7 +141,7 @@ tests, skipped tests, and the candidate hash.
    local build or a Git hash.
 
    The quarantined `@newscraft/newsroom-harness` build and its Vercel files are
-   not required for a normal NewsCraft/Hermes release. They may be recorded as
+   not required for a normal NewsCraft/agent release. They may be recorded as
    an optional compatibility artifact only when a separately approved release
    explicitly includes that legacy surface. In that case, record it in a
    separate optional row and do not use it to satisfy this active packaging
@@ -177,7 +177,7 @@ tests, skipped tests, and the candidate hash.
    export DATABASE_URL="$isolated_e2e_database_url"
    export JIG181_E2E_DATABASE_URL="$isolated_e2e_database_url"
    export JIG181_CANDIDATE_SHA="$(git rev-parse HEAD)"
-   export NEWSCRAFT_HERMES_URL='http://127.0.0.1:9'
+   export NEWSCRAFT_AGENT_URL='http://127.0.0.1:9'
    export AGENT_GATEWAY_URL='http://127.0.0.1:9'
    test "$E2E_DATABASE_URL" = "$DATABASE_URL" && test "$E2E_DATABASE_URL" = "$JIG181_E2E_DATABASE_URL"
    corepack pnpm ui:matrix:jig181 \
@@ -213,7 +213,7 @@ tests, skipped tests, and the candidate hash.
 
    The value assigned to `isolated_e2e_database_url` must be an approved
    isolated test database value. Do not record that value. The explicit
-   `NEWSCRAFT_HERMES_URL` and `AGENT_GATEWAY_URL` assignments prevent a
+   `NEWSCRAFT_AGENT_URL` and `AGENT_GATEWAY_URL` assignments prevent a
    `.env.local` remote endpoint from controlling the browser run. If either
    database variable is absent, differs, or points outside the isolated test
    scope, or either endpoint is remote, this gate is `BLOCKED`.
@@ -225,7 +225,7 @@ tests, skipped tests, and the candidate hash.
    duplicate requests. Its machine-readable record is redacted and written below
    `.tmp/jig-181`; it contains only aggregate evidence identifiers and counts. A
    browser-side stream fixture is still a browser UI test, but it is not proof of
-   a live Hermes request. Mark the live request check separately.
+   a live agent request. Mark the live request check separately.
 
    Evidence schema version 2 records `layout_shift` as the gated metric. For
    `keyboard_open_close` and `zoom_200_reduced_motion`, it also records the raw
@@ -267,7 +267,7 @@ tests, skipped tests, and the candidate hash.
    with two separate accounts and confirm that neither tab can read, cancel,
    or receive the other account's events. Record both account scopes, tab
    identifiers, run IDs, and cursors. The repository has a concurrent browser
-   key assertion in the [durable repository test](../src/lib/server/db/hermes-runs.integration.test.ts#L99-L115)
+   key assertion in the [durable repository test](../src/lib/server/db/agent-runs.integration.test.ts#L99-L115)
    and a second-browser settings example in
    [`tests/e2e/settings.spec.ts#L82-L115`](../tests/e2e/settings.spec.ts#L82-L115).
 
@@ -277,42 +277,42 @@ tests, skipped tests, and the candidate hash.
     idempotency key. Confirm one durable user turn, one assistant message, one
     run, and no duplicated answer text. Record the idempotency key, run ID,
     assistant message ID, and persisted event count. The repository evidence is
-    in [`src/lib/server/db/hermes-runs.integration.test.ts#L75-L115`](../src/lib/server/db/hermes-runs.integration.test.ts#L75-L115).
+    in [`src/lib/server/db/agent-runs.integration.test.ts#L75-L115`](../src/lib/server/db/agent-runs.integration.test.ts#L75-L115).
 
 11. **Cancellation**
 
     Cancel an active run from the browser. Confirm NewsCraft records
-    `cancel_requested`, Hermes receives cancellation for the same run, the
+    `cancel_requested`, agent receives cancellation for the same run, the
     terminal state becomes `cancelled`, and a late callback cannot append an
     event. Record run ID, cancel request time, terminal event cursor, and
     browser result. The server contract is tested in
-    [`runs-routes.test.ts#L155-L169`](../src/routes/api/internal/hermes/runs/runs-routes.test.ts#L155-L169)
+    [`runs-routes.test.ts#L155-L169`](../src/routes/api/internal/agent/runs/runs-routes.test.ts#L155-L169)
     and the durable repository state is tested in
-    [`hermes-runs.integration.test.ts#L370-L383`](../src/lib/server/db/hermes-runs.integration.test.ts#L370-L383).
+    [`agent-runs.integration.test.ts#L370-L383`](../src/lib/server/db/agent-runs.integration.test.ts#L370-L383).
 
 12. **Tenant isolation**
 
     Confirm that account A cannot read, cancel, callback into, or receive the
-    events of account B. Confirm that Hermes state roots, browser profiles,
+    events of account B. Confirm that agent state roots, browser profiles,
     process handles, memory, and scheduled state remain tenant-scoped. Record
     the test account labels, tenant-key fingerprints only, denied operations,
     and evidence IDs. Never record the tenant key itself. The NewsCraft
     cross-account assertions are in
-    [`hermes-runs.integration.test.ts#L316-L340`](../src/lib/server/db/hermes-runs.integration.test.ts#L316-L340),
-    and Hermes isolation evidence is in
-    [`test_isolation.py#L81-L124`](../services/hermes-chat/tests/test_isolation.py#L81-L124)
-    and [`test_isolation.py#L695-L715`](../services/hermes-chat/tests/test_isolation.py#L695-L715).
+    [`agent-runs.integration.test.ts#L316-L340`](../src/lib/server/db/agent-runs.integration.test.ts#L316-L340),
+    and agent isolation evidence is in
+    [`test_isolation.py#L81-L124`](../services/agent/tests/test_isolation.py#L81-L124)
+    and [`test_isolation.py#L695-L715`](../services/agent/tests/test_isolation.py#L695-L715).
 
 13. **Service restart**
 
     Test the repository recovery path, then perform a separately authorized
-    restart of the candidate Hermes service. Confirm that queued or expired
+    restart of the candidate agent service. Confirm that queued or expired
     runs recover with the same run ID and saved input, that no tenant state
     crosses accounts, and that a new readiness check passes. Record the old and
     new PID, service unit, run ID, lease transition, readiness response, and
     browser result. The repository recovery assertions are in
-    [`hermes-runs.integration.test.ts#L401-L415`](../src/lib/server/db/hermes-runs.integration.test.ts#L401-L415)
-    and [`test_service.py#L989-L1013`](../services/hermes-chat/tests/test_service.py#L989-L1013).
+    [`agent-runs.integration.test.ts#L401-L415`](../src/lib/server/db/agent-runs.integration.test.ts#L401-L415)
+    and [`test_service.py#L989-L1013`](../services/agent/tests/test_service.py#L989-L1013).
 
 ### Required live evidence gates
 
@@ -330,18 +330,18 @@ uses a remote deployment. They need separate authorization.
     Authorized remote form:
 
     ```text
-    node scripts/check-health.mjs --url <authorized-https-hermes-ready-url> --expect agent
+    node scripts/check-health.mjs --url <authorized-https-agent-ready-url> --expect agent
     ```
 
     Record HTTP status, response time, service name, toolset, endpoint mode,
     capability flags, reported runtime/source commit, and provider names. Store
-    only a redacted response. The checker validates the Hermes response shape in
+    only a redacted response. The checker validates the agent response shape in
     [`scripts/check-health.mjs#L85-L119`](../scripts/check-health.mjs#L85-L119).
 
 15. **Service PID and unit**
 
     For the Contabo systemd unit, record the unit name from
-    [`newscraft-agent.service`](../services/hermes-chat/deploy/newscraft-agent.service#L1-L19),
+    [`newscraft-agent.service`](../services/agent/deploy/newscraft-agent.service#L1-L19),
     the active PID, active state, restart count, and the artifact or source
     hash used by that process. A separately authorized operator may use:
 
@@ -368,12 +368,12 @@ uses a remote deployment. They need separate authorization.
 
     Record the exact clean NewsCraft source hash, the `pyproject.toml` and `uv.lock`
     digests, CPython 3.11 identity and the built worker artifact. The selected
-    runner is `PortableAgentRunner`; no upstream Hermes commit is installed or
+    runner is `PortableAgentRunner`; no the original third-party agent commit is installed or
     required. Validate `uv lock --check --offline --no-cache --no-python-downloads`
-    from `services/hermes-chat`. The installer uses locked dependencies and an
+    from `services/agent`. The installer uses locked dependencies and an
     existing interpreter. For computer deployments, additionally record reviewed
     OCI image digests, original daemon identity and browser seccomp hash; run the
-    synthetic Linux acceptance commands in [the executor runbook](../services/hermes-chat/deploy/executor.md).
+    synthetic Linux acceptance commands in [the executor runbook](../services/agent/deploy/executor.md).
     A mismatch or absent required acceptance is `BLOCKED`.
 
 18. **Database migration boundary**
@@ -421,11 +421,11 @@ Vercel deployment identifier:
 
 Vercel rollback identifier:
 
-Hermes source hash:
+Agent source hash:
 
 Locked dependency/runtime identity:
 
-Hermes artifact or runtime identifier:
+Agent artifact or runtime identifier:
 
 Service PID:
 
@@ -469,7 +469,7 @@ Rollback result:
 
 Previous known-good NewsCraft hash:
 
-Previous known-good Hermes source hash:
+Previous known-good agent source hash:
 
 Previous known-good locked dependency/runtime identity:
 
@@ -490,16 +490,16 @@ result:
 2. Preserve the candidate hashes, deployment identifiers, logs, screenshots,
    traces, test counts, and redacted readiness response.
 3. Select a known-good NewsCraft deployment and source hash. Select the paired
-   known-good Hermes source hash, locked dependency/runtime identity, artifact, unit, and
+   known-good agent source hash, locked dependency/runtime identity, artifact, unit, and
    environment metadata. Do not copy secret values into this record.
 4. Roll back the Vercel deployment through the separately authorized release
-   operator. Roll back the Hermes artifact and unit together. Record both
+   operator. Roll back the agent artifact and unit together. Record both
    identifiers before the change.
 5. Treat the database migration boundary as a compatibility boundary. Do not
    reverse or delete migrations as an emergency action. If the candidate
    changed schema or data compatibility, use the approved forward-compatible
    recovery plan and record it as `BLOCKED` until verified.
-6. Restart or verify the Hermes unit only under the approved live procedure.
+6. Restart or verify the agent unit only under the approved live procedure.
    Record the new PID and the redacted readiness response.
 7. Re-run the focused checks and the authorized browser, replay, duplicate,
    cancellation, tenant-isolation, and restart checks. Record the result.
@@ -514,7 +514,7 @@ request path, database boundary, provider, or service unit, and names an owner
 and follow-up. For example, a separate historical harness-only check can be
 unrelated only when no active product request or release artifact uses it.
 
-A failure in NewsCraft, Hermes, the Vercel candidate, durable state, migrations,
+A failure in NewsCraft, agent, the Vercel candidate, durable state, migrations,
 readiness, browser behavior, console output, replay, duplicate handling,
 cancellation, tenant isolation, or restart recovery is release-related. A
 failure with uncertain ownership is `BLOCKED`. Never use `UNRELATED-FAILURE` to
@@ -524,7 +524,7 @@ failed.
 ## Current limits
 
 - No live or external check is performed by this checklist task.
-- No current Vercel deployment, remote NewsCraft hash, Hermes PID, remote unit,
+- No current Vercel deployment, remote NewsCraft hash, agent PID, remote unit,
   readiness response, traffic state, provider selection, database state, or
   rollback identifier is asserted here.
 - The CI workflow and root package scripts both define `eval:fixture`. Each

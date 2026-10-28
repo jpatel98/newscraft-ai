@@ -16,7 +16,7 @@ function lookupResult(lookup: NewsCraftLookup, options: Parameters<NewsCraftLook
 	family?: number;
 }> {
 	return new Promise((resolve) => {
-		lookup('hermes.example.test', options, (error, address, family) => resolve({ error, address, family }));
+		lookup('agent.example.test', options, (error, address, family) => resolve({ error, address, family }));
 	});
 }
 
@@ -62,7 +62,7 @@ describe('NewsCraft HTTP DNS fallback', () => {
 			address: '203.0.113.10',
 			family: 4
 		});
-		expect(resolve4).toHaveBeenCalledWith('hermes.example.test');
+		expect(resolve4).toHaveBeenCalledWith('agent.example.test');
 	});
 
 	it('does not replace a non-DNS error or an IPv6-only lookup', async () => {
@@ -87,7 +87,7 @@ describe('NewsCraft HTTP DNS fallback', () => {
 		const controller = new AbortController();
 		const body = JSON.stringify({ hello: 'world' });
 
-		await fetchWithNewsCraftDns('https://hermes.example.test/', {
+		await fetchWithNewsCraftDns('https://agent.example.test/', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body,

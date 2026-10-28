@@ -5,7 +5,7 @@
 - Checkout: `/Users/jigar/Development/newscraft-ai`, `main`, commit `59f409bb60767090e6737db3c4b4852bc216ec29`.
 - Browser: Codex In-app Browser, local UI at `http://127.0.0.1:4174`.
 - Data: isolated local PostgreSQL database `newscraft_ui_audit_20260819`.
-- Stream test: localhost-only Hermes mock. The real Hermes service was not changed or contacted.
+- Stream test: localhost-only agent mock. The real agent service was not changed or contacted.
 - Screenshots: `output/playwright/ui-reliability-audit-20260819/`.
 
 ## Findings before edits
@@ -45,7 +45,7 @@ Evidence: screenshot `25-stream-cadence-final-390x844.png` and the in-app Browse
 | Empty chat and composer | Pass | `04-empty-chat-320x700.png`, `05-composer-multiline-320x700.png` |
 | Signup mismatch validation | Pass | `19-signup-320x700.png`, `20-signup-mismatch-320x700.png` |
 | Drawer open/close and focus restore | Pass | `06-drawer-open-320x700.png`; focus returned to Toggle sidebar |
-| Hermes-unavailable error state | Pass | `07-chat-failure-320x700.png` |
+| agent-unavailable error state | Pass | `07-chat-failure-320x700.png` |
 | Back, forward, reload | Pass | browser route and DOM checks; `08-thread-reload-320x700.png` |
 | Thread layout at 390, 430, tablet, desktop | Pass | `09`–`12` screenshots; no document overflow |
 | Long thread scroll and anchoring | Pass | `15-long-thread-top-fresh-390x844.png`, `13-long-thread-bottom-390x844.png` |
@@ -56,7 +56,7 @@ Evidence: screenshot `25-stream-cadence-final-390x844.png` and the in-app Browse
 ## Limitations and not-run gates
 
 - No physical iPhone or iOS Safari validation. The 320/390/430 checks are desktop in-app Browser viewport emulation.
-- The real Hermes service, production data, providers, credentials, and infrastructure were not used.
+- The real agent service, production data, providers, credentials, and infrastructure were not used.
 - Durable reconnect/replay after a dropped subscription, two independent browser tabs, network throttling, 200% browser zoom, and orientation rotation in a physical browser need a later release check. The local visual-viewport behavior was checked through the existing automated viewport path and the in-app Browser bounds.
 - The transient screenshot `14-long-thread-top-390x844.png` and the first stream captures missed the fixed lower controls while the DOM bounds were already correct. Stable recaptures are `15`, `17`, and `25`; no layout fix is based on the transient repaint.
 

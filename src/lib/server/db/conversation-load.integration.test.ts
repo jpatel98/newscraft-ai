@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getConversationLoad } from './conversation-load';
 import { createConversation, getConversationActionSummary, getLatestMessagesPage, getMessageCount } from './conversations';
-import { getActiveHermesRun, listHermesRunStatesForMessages } from './hermes-runs';
+import { getActiveAgentRun, listAgentRunStatesForMessages } from './agent-runs';
 import { ensureMigrated, sql } from './index';
 
 const url = process.env.NEWSCRAFT_TEST_DATABASE_URL || '';
@@ -34,7 +34,7 @@ describe.skipIf(!url)('combined conversation snapshot', () => {
 		}
 		const assistantId = `${c.id}-55`;
 		for (const [id, state, createdAt] of [['old', 'failed', 1], ['new-a', 'cancelled', 2], ['new-b', 'writing', 2]] as const) {
-			await sql`INSERT INTO hermes_runs (id, account_id, conversation_id, assistant_message_id,
+			await sql`INSERT INTO agent_runs (id, account_id, conversation_id, assistant_message_id,
 				idempotency_key, tenant_key, session_id, input_json, state, answer_text, created_at, updated_at)
 				VALUES (${`${c.id}-${id}`}, ${account}, ${c.id}, ${assistantId}, ${`${c.id}-${id}`}, 'test', 'test', '{}', ${state}, 'Saved answer', ${createdAt}, ${createdAt})`;
 		}
@@ -44,8 +44,8 @@ describe.skipIf(!url)('combined conversation snapshot', () => {
 		expect(snapshot?.messages).toHaveLength(51);
 		expect(snapshot?.totalCount).toEqual(await getMessageCount(c.id));
 		expect(snapshot?.actionSummary).toEqual(await getConversationActionSummary(c.id));
-		expect(snapshot?.activeRun).toEqual(await getActiveHermesRun(account, c.id));
-		expect(snapshot?.durableRuns).toEqual(await listHermesRunStatesForMessages(account, c.id, page.map(m => m.id)));
+		expect(snapshot?.activeRun).toEqual(await getActiveAgentRun(account, c.id));
+		expect(snapshot?.durableRuns).toEqual(await listAgentRunStatesForMessages(account, c.id, page.map(m => m.id)));
 		expect(snapshot?.durableRuns[0]).toMatchObject({ state: 'writing' });
 		expect(snapshot?.actionSummary.latestUser?.id).toBe(`${c.id}-00`);
 	});

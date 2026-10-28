@@ -11,10 +11,10 @@ const conversationMocks = vi.hoisted(() => ({
 	getMessagesByIds: vi.fn(),
 	parseContent: vi.fn((value: string) => value)
 }));
-const runMocks = vi.hoisted(() => ({ listHermesRunStatesForMessages: vi.fn() }));
+const runMocks = vi.hoisted(() => ({ listAgentRunStatesForMessages: vi.fn() }));
 
 vi.mock('$lib/server/db/conversations', () => conversationMocks);
-vi.mock('$lib/server/db/hermes-runs', () => runMocks);
+vi.mock('$lib/server/db/agent-runs', () => runMocks);
 
 import { GET } from './+server';
 
@@ -47,7 +47,7 @@ describe('conversation history route', () => {
 		vi.clearAllMocks();
 		conversationMocks.getConversation.mockResolvedValue(conversation);
 		conversationMocks.getMessageCount.mockResolvedValue(3);
-		runMocks.listHermesRunStatesForMessages.mockResolvedValue([]);
+		runMocks.listAgentRunStatesForMessages.mockResolvedValue([]);
 	});
 
 	it('checks ownership before malformed query details', async () => {
@@ -67,14 +67,14 @@ describe('conversation history route', () => {
 
 	it('returns a bounded newest page and exact durable states', async () => {
 		conversationMocks.getLatestMessagesPage.mockResolvedValue([row('m-1'), row('m-2'), row('m-3')]);
-		runMocks.listHermesRunStatesForMessages.mockResolvedValue([
+		runMocks.listAgentRunStatesForMessages.mockResolvedValue([
 			{ assistantMessageId: 'm-3', state: 'complete', errorMessage: null }
 		]);
 		const response = await GET(event('/api/conversations/conversation-1/messages?limit=2'));
 		const body = await response.json();
 		expect(body.messages.map((message: { id: string }) => message.id)).toEqual(['m-2', 'm-3']);
 		expect(body.hasOlder).toBe(true);
-		expect(runMocks.listHermesRunStatesForMessages).toHaveBeenCalledWith('account-1', 'conversation-1', ['m-1', 'm-2', 'm-3']);
+		expect(runMocks.listAgentRunStatesForMessages).toHaveBeenCalledWith('account-1', 'conversation-1', ['m-1', 'm-2', 'm-3']);
 	});
 
 	it('uses exclusive equal-timestamp older boundaries and preserves the nearer rows', async () => {

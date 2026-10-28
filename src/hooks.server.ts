@@ -10,7 +10,7 @@ const PUBLIC_PATHS = new Set(['/login', '/signup', '/setup', '/auth/callback']);
 const PUBLIC_PREFIXES = [
 	'/api/health',
 	'/api/agent/channel-posts',
-	'/api/internal/hermes/runs',
+	'/api/internal/agent/runs',
 	'/api/internal/artifacts/upload',
 	'/account-setup',
 	'/api/e2e'

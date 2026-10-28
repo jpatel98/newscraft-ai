@@ -16,7 +16,7 @@ export function isLatestUnfinishedAssistant(
 
 export function resumeContinuationInstruction(partialAnswer: string): string {
 	return [
-		'The previous Hermes run disconnected before it finished.',
+		'The previous agent run disconnected before it finished.',
 		'Continue the same request without repeating research that is already represented in the conversation context and source history.',
 		'Return one complete final answer. Do not repeat planning or tool narration from the partial draft.',
 		partialAnswer.trim() ? `Partial draft to replace, not append:\n\n${partialAnswer.trim()}` : ''

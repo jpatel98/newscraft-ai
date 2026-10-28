@@ -1,7 +1,7 @@
 import { env } from '$env/dynamic/private';
 import * as transport from './transport';
-import * as durable from '$lib/server/hermes-durable';
-import type { DurableHermesRunStartRequest, GatewayHealth } from './transport';
+import * as durable from '$lib/server/agent-durable';
+import type { DurableAgentRunStartRequest, GatewayHealth } from './transport';
 
 /**
  * Everything the app needs from an agent backend. Routes depend on this
@@ -17,24 +17,24 @@ export interface AgentBackend {
 	sessionId(messages: Parameters<typeof transport.deriveSessionId>[0], scope: string): string;
 	/** Server-owned tenant key for an account. */
 	tenantKey(accountId: string): string;
-	buildRunInput: typeof transport.buildHermesRunInput;
-	/** Admit a durable run; the backend reports events through the run callback API. Throws HermesDurableOverloadError when full. */
-	startRun(input: DurableHermesRunStartRequest): Promise<void>;
+	buildRunInput: typeof transport.buildAgentRunInput;
+	/** Admit a durable run; the backend reports events through the run callback API. Throws AgentDurableOverloadError when full. */
+	startRun(input: DurableAgentRunStartRequest): Promise<void>;
 	cancelRun(accountId: string, runId: string, traceId?: string): Promise<{ state: string }>;
 }
 
 /**
- * The NewsCraft-owned worker (services/hermes-chat) reached over NEWSCRAFT_AGENT_URL.
+ * The NewsCraft-owned worker (services/agent) reached over NEWSCRAFT_AGENT_URL.
  * Functions resolve at call time so a backend module can be partially mocked in tests.
  */
 const ownedWorker: AgentBackend = {
 	id: 'owned',
 	health: () => transport.gatewayHealth(),
 	sessionId: (messages, scope) => transport.deriveSessionId(messages, scope),
-	tenantKey: (accountId) => transport.deriveHermesTenantKey(accountId),
-	buildRunInput: (...args) => transport.buildHermesRunInput(...args),
-	startRun: (input) => durable.startDurableHermesRun(input),
-	cancelRun: (accountId, runId, traceId) => durable.cancelDurableHermesRun(accountId, runId, traceId)
+	tenantKey: (accountId) => transport.deriveAgentTenantKey(accountId),
+	buildRunInput: (...args) => transport.buildAgentRunInput(...args),
+	startRun: (input) => durable.startDurableAgentRun(input),
+	cancelRun: (accountId, runId, traceId) => durable.cancelDurableAgentRun(accountId, runId, traceId)
 };
 
 const BACKENDS: Record<string, AgentBackend> = { owned: ownedWorker };

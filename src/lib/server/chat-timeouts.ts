@@ -1,5 +1,5 @@
 // End the stream before Vercel's 300-second function limit so NewsCraft can
-// persist a clear Hermes timeout instead of losing the response at the edge.
+// persist a clear agent timeout instead of losing the response at the edge.
 const DEFAULT_STREAM_MAX_MS = 290_000;
 const DEFAULT_STREAM_IDLE_MS = 90_000;
 const DEFAULT_CONTEXT_MS = 10_000;

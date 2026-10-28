@@ -47,7 +47,7 @@ export interface Jig186RedactedHealthSample {
 	httpStatus: number;
 	ok: boolean;
 	state?: string;
-	components?: { hermes?: { processInstanceId?: string | null } };
+	components?: { agent?: { processInstanceId?: string | null } };
 	gateway?: { processInstanceId?: string | null };
 }
 
@@ -171,9 +171,9 @@ function normalizeHealth(value: unknown): NormalizedHealthSample | null {
 		return null;
 	}
 	const components = objectValue(record.components);
-	const hermes = objectValue(components?.hermes);
+	const agent = objectValue(components?.agent);
 	const gateway = objectValue(record.gateway);
-	const marker = processInstanceId(hermes?.processInstanceId) || processInstanceId(gateway?.processInstanceId);
+	const marker = processInstanceId(agent?.processInstanceId) || processInstanceId(gateway?.processInstanceId);
 	const bodyReady = record.ok === true;
 	const httpReady = httpStatus === 200;
 	return {

@@ -57,7 +57,7 @@ describe('reply operations', () => {
 		expect(isLatestUnfinishedAssistant(messages, 'm4')).toBe(true);
 	});
 
-	it('tells Hermes to replace an interrupted draft without repeating it', () => {
+	it('tells agent to replace an interrupted draft without repeating it', () => {
 		const instruction = resumeContinuationInstruction('  Partial research text.  ');
 
 		expect(instruction).toContain('Continue the same request');

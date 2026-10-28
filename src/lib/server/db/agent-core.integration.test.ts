@@ -6,9 +6,9 @@ import { ensureMigrated, sql } from './index';
 import { createConversation, addMessage, getConversation } from './conversations';
 import { runtimeCheckpoint, type RuntimeBinding } from './agent-runtime';
 import {
-  createOrGetHermesRun, claimHermesRunLease, releaseHermesRunLease,
-  requestHermesRunCancellation, appendHermesRunEvent, listHermesRunEvents
-} from './hermes-runs';
+  createOrGetAgentRun, claimAgentRunLease, releaseAgentRunLease,
+  requestAgentRunCancellation, appendAgentRunEvent, listAgentRunEvents
+} from './agent-runs';
 
 function cookieJar() {
   const values = new Map<string, string>();
@@ -48,10 +48,10 @@ describe.skipIf(!process.env.NEWSCRAFT_TEST_DATABASE_URL)('owned agent core agai
     const conversation = await createConversation(accountA);
     const user = await addMessage({ conversationId: conversation.id, role: 'user', content: 'Synthetic research.' });
     const assistant = await addMessage({ conversationId: conversation.id, role: 'assistant', content: '', partial: true });
-    const { run } = await createOrGetHermesRun({ accountId: accountA, orgId: conversation.orgId,
+    const { run } = await createOrGetAgentRun({ accountId: accountA, orgId: conversation.orgId,
       conversationId: conversation.id, userMessageId: user.id, assistantMessageId: assistant.id,
       idempotencyKey: conversation.id, tenantKey: `tenant-${accountA}`, sessionId: 'synthetic-session', inputJson: '{}' });
-    const lease = (await claimHermesRunLease(accountA, run.id, 'fixture-worker'))!;
+    const lease = (await claimAgentRunLease(accountA, run.id, 'fixture-worker'))!;
     const binding: RuntimeBinding = { accountId: accountA, runId: run.id, tenantKey: run.tenantKey,
       leaseOwner: lease.leaseOwner!, leaseToken: lease.leaseToken! };
     return { run, binding };
@@ -88,9 +88,9 @@ describe.skipIf(!process.env.NEWSCRAFT_TEST_DATABASE_URL)('owned agent core agai
     ]);
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
     expect(results.find(result => result.status === 'rejected')).toMatchObject({ reason: { code: 'stale_callback' } });
-    await appendHermesRunEvent(accountA, run.id, binding.leaseOwner, binding.leaseToken,
+    await appendAgentRunEvent(accountA, run.id, binding.leaseOwner, binding.leaseToken,
       { workerCursor: 1, eventType: 'agent.decision', dataJson: JSON.stringify({ id: 'check', summary: 'I checked the source.' }) });
-    expect(JSON.stringify(await listHermesRunEvents(accountA, run.id))).not.toContain('PRIVATE_SYNTHETIC_CIPHER');
+    expect(JSON.stringify(await listAgentRunEvents(accountA, run.id))).not.toContain('PRIVATE_SYNTHETIC_CIPHER');
     await expect(runtimeCheckpoint({ ...binding, accountId: accountB })).rejects.toMatchObject({ code: 'not_found' });
     await expect(runtimeCheckpoint({ ...binding, tenantKey: 'other-tenant' })).rejects.toMatchObject({ code: 'not_found' });
   });
@@ -98,12 +98,12 @@ describe.skipIf(!process.env.NEWSCRAFT_TEST_DATABASE_URL)('owned agent core agai
   it('fences expired owners and cancellation while retaining checkpoint access for cleanup', async () => {
     const { run, binding } = await running();
     await runtimeCheckpoint(binding, { version: 0, state: { intent: 'synthetic-tool' } }, true);
-    await releaseHermesRunLease(accountA, run.id, binding.leaseOwner, binding.leaseToken);
-    const lease = (await claimHermesRunLease(accountA, run.id, 'replacement-worker'))!;
+    await releaseAgentRunLease(accountA, run.id, binding.leaseOwner, binding.leaseToken);
+    const lease = (await claimAgentRunLease(accountA, run.id, 'replacement-worker'))!;
     const current = { ...binding, leaseOwner: lease.leaseOwner!, leaseToken: lease.leaseToken! };
     await expect(runtimeCheckpoint(binding)).rejects.toMatchObject({ code: 'stale_lease' });
     expect(await runtimeCheckpoint(current)).toMatchObject({ version: 1, state: { intent: 'synthetic-tool' } });
-    await requestHermesRunCancellation(accountA, run.id);
+    await requestAgentRunCancellation(accountA, run.id);
     await expect(runtimeCheckpoint(current, { version: 1, state: { intent: 'new-tool' } }, true)).rejects.toMatchObject({ code: 'cancel_requested' });
     expect(await runtimeCheckpoint(current, { version: 1, state: { phase: 'cancelled' } })).toMatchObject({ version: 2 });
   });

@@ -10,7 +10,7 @@ import { parse } from 'dotenv';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PROFILE = '.env.agent-local';
 const CREDENTIAL = 'services/newsroom-harness/.env.local';
-const PYTHON = 'services/hermes-chat/.venv-owned/bin/python';
+const PYTHON = 'services/agent/.venv-owned/bin/python';
 
 const MODEL_PROFILES = {
     openai: {
@@ -39,7 +39,7 @@ export function localDefaults(root = ROOT, provider = 'openai') {
         NEWSCRAFT_AGENT_MAX_ACTIVE_RUNS: '1', NEWSCRAFT_AGENT_MAX_ACTIVE_RUNS_PER_TENANT: '1',
         NEWSCRAFT_AGENT_MAX_QUEUED_RUNS: '1', NEWSCRAFT_AGENT_MAX_QUEUED_RUNS_PER_TENANT: '1',
         NEWSCRAFT_AGENT_HOST: '127.0.0.1', NEWSCRAFT_AGENT_PORT: '8000', NEWSCRAFT_AGENT_PUBLIC_HOST: '',
-        NEWSCRAFT_AGENT_URL: 'http://127.0.0.1:8000', NEWSCRAFT_AGENT_RUN_API_URL: 'http://127.0.0.1:3001/api/internal/hermes/runs',
+        NEWSCRAFT_AGENT_URL: 'http://127.0.0.1:8000', NEWSCRAFT_AGENT_RUN_API_URL: 'http://127.0.0.1:3001/api/internal/agent/runs',
         NEWSCRAFT_AGENT_STATE_HOME: resolve(root, '.data/agent-local/state'),
         NEWSCRAFT_AGENT_WORKSPACE: resolve(root, '.data/agent-local/workspace'),
         NEWSCRAFT_AGENT_BIN: resolve(root, PYTHON), NEWSCRAFT_AGENT_CREDENTIAL_FILE: resolve(root, CREDENTIAL)
@@ -138,7 +138,7 @@ function dependencyFilesReady(root) {
     try {
         const python = resolve(root, PYTHON);
         accessSync(python, constants.X_OK);
-        const home = resolve(root, 'services/hermes-chat/.venv-owned');
+        const home = resolve(root, 'services/agent/.venv-owned');
         if (!/include-system-site-packages\s*=\s*false/i.test(readFileSync(join(home, 'pyvenv.cfg'), 'utf8'))) return false;
         const versions = readdirSync(join(home, 'lib')).filter(name => /^python3\.\d+$/.test(name));
         // Package files for a different interpreter do not satisfy the locked
@@ -170,7 +170,7 @@ export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion 
     let app, service, profile;
     try {
         app = readEnvironment(resolve(root, '.env.local'));
-        service = readEnvironment(resolve(root, 'services/hermes-chat/.env'));
+        service = readEnvironment(resolve(root, 'services/agent/.env'));
         profile = readEnvironment(resolve(root, PROFILE), true);
     } catch {
         check('files', false, 'Required configuration files are missing, unreadable or invalid; values were not logged.');
@@ -227,9 +227,9 @@ export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion 
         check(name, Boolean(value && value.length >= minimum && !/\s/.test(value)), 'Existing token aliases must be present and match; values are redacted.');
         return value;
     }
-    const listener = token('listener token', ['NEWSCRAFT_AGENT_API_TOKEN', 'NEWSCRAFT_HERMES_API_TOKEN', 'NEWSCRAFT_AGENT_SESSION_TOKEN', 'HERMES_AGUI_SESSION_TOKEN'], 24);
-    const callback = token('callback token', ['NEWSCRAFT_AGENT_RUN_API_TOKEN', 'NEWSCRAFT_HERMES_RUN_API_TOKEN'], 1);
-    const tenant = token('tenant token', ['NEWSCRAFT_AGENT_TENANT_SECRET', 'NEWSCRAFT_HERMES_TENANT_SECRET'], 32);
+    const listener = token('listener token', ['NEWSCRAFT_AGENT_API_TOKEN', 'NEWSCRAFT_AGENT_SESSION_TOKEN'], 24);
+    const callback = token('callback token', ['NEWSCRAFT_AGENT_RUN_API_TOKEN'], 1);
+    const tenant = token('tenant token', ['NEWSCRAFT_AGENT_TENANT_SECRET'], 32);
     const session = token('app session secret', ['APP_SESSION_SECRET'], 1);
     check('session shape', /^[A-Za-z0-9+/]+={0,2}$/.test(session) && Buffer.from(session, 'base64').length >= 32, 'Session signing secret must decode to at least 32 bytes.');
     let credentialReady = false;
@@ -241,10 +241,10 @@ export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion 
     check('dependency files', dependencyFilesReady(root), 'Owned interpreter and required package files must exist; import execution is not performed.');
     const environment = { ...inherited, ...config, DATABASE_URL: supplied,
         NEWSCRAFT_TEST_DATABASE_URL: '', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '', DEEPSEEK_API_KEY: '', NEWSCRAFT_SETUP_DATABASE_URL: '',
-        NEWSCRAFT_AGENT_API_TOKEN: listener, NEWSCRAFT_HERMES_API_TOKEN: listener,
-        NEWSCRAFT_AGENT_SESSION_TOKEN: listener, HERMES_AGUI_SESSION_TOKEN: listener,
-        NEWSCRAFT_AGENT_RUN_API_TOKEN: callback, NEWSCRAFT_HERMES_RUN_API_TOKEN: callback,
-        NEWSCRAFT_AGENT_TENANT_SECRET: tenant, NEWSCRAFT_HERMES_TENANT_SECRET: tenant, APP_SESSION_SECRET: session };
+        NEWSCRAFT_AGENT_API_TOKEN: listener,
+        NEWSCRAFT_AGENT_SESSION_TOKEN: listener,
+        NEWSCRAFT_AGENT_RUN_API_TOKEN: callback,
+        NEWSCRAFT_AGENT_TENANT_SECRET: tenant, APP_SESSION_SECRET: session };
     return result(environment);
 }
 

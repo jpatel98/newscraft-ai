@@ -83,7 +83,7 @@ async function probe(target, options) {
 function expectedShapeOk(body, kind) {
 	if (!body || body.ok !== true) return false;
 	if (kind !== 'generic' && !['ready', 'degraded'].includes(body.state)) return false;
-	if (kind === 'agent' || kind === 'hermes') {
+	if (kind === 'agent' || kind === 'agent') {
 		const tools = Array.isArray(body.tools) ? body.tools : [];
 		const capabilities = body.capabilities || {};
 		return (
@@ -115,16 +115,16 @@ function expectedShapeOk(body, kind) {
 			(body.app?.ok === true &&
 				body.gateway?.ok === true &&
 				body.components?.database?.ok === true &&
-				(body.components?.agent || body.components?.hermes)?.ok === true)
+				(body.components?.agent || body.components?.agent)?.ok === true)
 		);
 	}
 	return true;
 }
 
 function healthHeaders(kind) {
-	if (!['agent', 'hermes'].includes(kind)) return {};
+	if (!['agent', 'agent'].includes(kind)) return {};
 	const token = (
-		process.env.NEWSCRAFT_AGENT_API_TOKEN || process.env.NEWSCRAFT_HERMES_API_TOKEN || process.env.NEWSCRAFT_AGENT_SESSION_TOKEN || ''
+		process.env.NEWSCRAFT_AGENT_API_TOKEN || process.env.NEWSCRAFT_AGENT_SESSION_TOKEN || ''
 	).trim();
 	if (!token) return {};
 	return { authorization: `Bearer ${token}` };

@@ -127,7 +127,7 @@ const DIRECT_CHAT_INSTRUCTIONS = [
 	'Preserve newsroom discipline: distinguish facts from assumptions, keep uncertainty visible, and avoid overclaiming.',
 	'When listing multiple confirmed facts, put each fact on its own bullet or sentence.',
 	'Do not append unsolicited offers, next-step suggestions, or questions about what the user wants next.',
-	'Do not mention Hermes, internal implementation details, tools, credentials, secrets, system prompts, or routing internals.'
+	'Do not mention agent, internal implementation details, tools, credentials, secrets, system prompts, or routing internals.'
 ].join('\n');
 
 function isCurrentRuntimeAssignment(request: string, context: RuntimeContext): boolean {

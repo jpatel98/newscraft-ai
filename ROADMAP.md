@@ -53,8 +53,7 @@ explicitly rejected a speculative list of automation tools.
 portable Python worker → direct model and tool adapters**. Ordinary Postgres
 owns authenticated conversations, durable runs/events, citations, artifacts and
 private versioned runtime checkpoints. `service.py` selects `PortableAgentRunner`
-directly. The `services/hermes-chat` directory and internal `/hermes/runs` routes
-remain compatibility names; the upstream Hermes agent is not a dependency.
+directly. The original third-party agent is not a dependency.
 
 **Working in local fixtures:** OpenAI Responses, Anthropic Messages and dedicated
 DeepSeek Messages adapters (with explicit non-thinking mode and peak-rate floors),
@@ -76,9 +75,9 @@ passive checker; the new database has the complete 20-version migration contract
 DeepSeek loopback readiness and empty-conversation auth checks passed on 2026-10-08.
 Readiness describes configuration, not provider or deployment success.
 
-See [the worker README](services/hermes-chat/README.md),
+See [the worker README](services/agent/README.md),
 [source of truth](SOURCE_OF_TRUTH.md), and [measured local handoff](docs/agent-local-handoff.md).
-**Historical:** upstream Hermes, managed Agents, and the legacy newsroom harness
+**Historical:** the original third-party agent, managed Agents, and the legacy newsroom harness
 remain unselected source/fixtures. Their tests do not prove the owned worker is
 deployed. The [legacy removal gates](docs/legacy-runtime-disposition.md) still apply.
 There is no promise of scheduled delivery, notifications, delegation, or tenant

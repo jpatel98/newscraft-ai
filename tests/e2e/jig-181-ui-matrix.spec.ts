@@ -603,7 +603,7 @@ test.beforeAll(async ({ request }) => {
 
 test.beforeEach(async ({ context }) => {
 	// Keep browser evidence local and deterministic. These app-owned requests
-	// otherwise probe the intentionally unreachable Hermes endpoint during a
+	// otherwise probe the intentionally unreachable agent endpoint during a
 	// fixture conversation and produce browser-level 5xx console entries.
 	await context.route('**/api/health**', async (route) => {
 		await route.fulfill({

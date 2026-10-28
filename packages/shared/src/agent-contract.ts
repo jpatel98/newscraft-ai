@@ -1,7 +1,7 @@
 // The contract between the app and any agent backend. Backends report the
 // contract version they speak and emit only the public events below; the app
 // and browser depend on these names and tool kinds, never on internal tool
-// names. services/hermes-chat/src/hermes_chat/public_events.py mirrors this
+// names. services/agent/src/newscraft_agent/public_events.py mirrors this
 // file and a worker test fails if the two drift.
 
 export const AGENT_CONTRACT_VERSION = 2;

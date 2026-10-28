@@ -73,7 +73,7 @@ transport. Use only the non-superuser `newscraft_app` login at runtime.
 
 Preview's server-only variables are the existing names
 `DATABASE_URL`, `NEWSCRAFT_STORAGE_MODE`, `NEWSCRAFT_STORAGE_BASE_URL`,
-`NEWSCRAFT_STORAGE_API_KEY`, and the existing app/Hermes secrets. Do not add
+`NEWSCRAFT_STORAGE_API_KEY`, and the existing app/agent secrets. Do not add
 browser/public variants for any of them, and do not put an administrator DSN or
 the Supabase service-role key in Preview runtime configuration.
 

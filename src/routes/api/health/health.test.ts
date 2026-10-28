@@ -14,10 +14,10 @@ import { GET } from './+server';
 
 const user = { id: 'account-a', email: 'editor@example.test', name: 'Editor', role: 'member' as const };
 
-function hermesJson(overrides: Record<string, unknown> = {}) {
+function agentJson(overrides: Record<string, unknown> = {}) {
 	return {
 		ok: true,
-		service: 'newscraft-hermes-chat',
+		service: 'newscraft-agent',
 		capabilities: {
 			browser: true,
 			webResearch: true,
@@ -28,7 +28,7 @@ function hermesJson(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-function hermesHealth(json: unknown = hermesJson(), overrides: Record<string, unknown> = {}) {
+function agentHealth(json: unknown = agentJson(), overrides: Record<string, unknown> = {}) {
 	return {
 		ok: true,
 		requiredReady: true,
@@ -44,7 +44,7 @@ function hermesHealth(json: unknown = hermesJson(), overrides: Record<string, un
 		body: 'sensitive upstream body',
 		url: 'https://user:password@example.test',
 		json,
-		service: 'newscraft-hermes-chat',
+		service: 'newscraft-agent',
 		...overrides
 	};
 }
@@ -65,7 +65,7 @@ describe('NewsCraft health contract', () => {
 		documentMocks.getConversationDocumentService.mockReturnValue({
 			verifyCapability: vi.fn().mockResolvedValue(undefined)
 		});
-		gatewayMocks.gatewayHealth.mockResolvedValue(hermesHealth());
+		gatewayMocks.gatewayHealth.mockResolvedValue(agentHealth());
 	});
 
 	it('returns ready with separated authenticated component details', async () => {
@@ -75,18 +75,18 @@ describe('NewsCraft health contract', () => {
 		expect(response.status).toBe(200);
 		expect(body).toMatchObject({ ok: true, state: 'ready', service: 'newscraft-ui' });
 		expect(body.components.database).toMatchObject({ required: true, ok: true, state: 'ready' });
-		expect(body.components.hermes).toMatchObject({ required: true, ok: true, state: 'ready', status: 200 });
-		expect(body.components.hermes.processInstanceId).toMatch(/^[a-f0-9]{32}$/);
+		expect(body.components.agent).toMatchObject({ required: true, ok: true, state: 'ready', status: 200 });
+		expect(body.components.agent.processInstanceId).toMatch(/^[a-f0-9]{32}$/);
 		expect(body.components.documents).toMatchObject({ required: false, ok: true, state: 'ready' });
 		expect(body.components.providers.browser).toMatchObject({ required: false, ok: true, state: 'ready' });
 		expect(body.app).toMatchObject({ ok: true, capabilities: { documents: true } });
-		expect(body.gateway).toMatchObject({ ok: true, status: 200, service: 'newscraft-hermes-chat' });
+		expect(body.gateway).toMatchObject({ ok: true, status: 200, service: 'newscraft-agent' });
 		expect(body.gateway).not.toHaveProperty('body');
 		expect(body.gateway).not.toHaveProperty('url');
 		expect(body.gateway).not.toHaveProperty('json');
 	});
 
-	it('serves the authenticated capability probe without checking Hermes', async () => {
+	it('serves the authenticated capability probe without checking agent', async () => {
 		const response = await GET(request(user, '?capabilities=1'));
 		const body = await response.json();
 
@@ -111,7 +111,7 @@ describe('NewsCraft health contract', () => {
 
 	it('reports optional documents and provider failures as degraded without failing required readiness', async () => {
 		gatewayMocks.gatewayHealth.mockResolvedValue(
-			hermesHealth(hermesJson(), {
+			agentHealth(agentJson(), {
 			providers: {
 				browser: false,
 				webResearch: true,
@@ -130,15 +130,15 @@ describe('NewsCraft health contract', () => {
 		expect(response.status).toBe(200);
 		expect(body).toMatchObject({ ok: true, state: 'degraded' });
 		expect(body.components.database).toMatchObject({ required: true, ok: true });
-		expect(body.components.hermes).toMatchObject({ required: true, ok: true });
+		expect(body.components.agent).toMatchObject({ required: true, ok: true });
 		expect(body.components.documents).toMatchObject({ required: false, ok: false, state: 'unavailable' });
 		expect(body.components.providers.browser).toMatchObject({ required: false, ok: false, state: 'unavailable' });
 		expect(body.components.providers.webExtraction).toMatchObject({ ok: false, state: 'unavailable' });
 	});
 
-	it('uses authoritative Hermes provider status when capability flags are stale', async () => {
+	it('uses authoritative agent provider status when capability flags are stale', async () => {
 		gatewayMocks.gatewayHealth.mockResolvedValue(
-			hermesHealth(hermesJson({ browser: true, webResearch: true }), {
+			agentHealth(agentJson({ browser: true, webResearch: true }), {
 				providers: {
 					browser: false,
 					webResearch: false,
@@ -153,7 +153,7 @@ describe('NewsCraft health contract', () => {
 
 		expect(response.status).toBe(200);
 		expect(body).toMatchObject({ ok: true, state: 'degraded' });
-		expect(body.components.hermes).toMatchObject({ ok: true, required: true });
+		expect(body.components.agent).toMatchObject({ ok: true, required: true });
 		expect(body.components.providers.browser).toMatchObject({ ok: false, state: 'unavailable' });
 		expect(body.components.providers.webResearch).toMatchObject({ ok: false, state: 'unavailable' });
 	});
@@ -161,7 +161,7 @@ describe('NewsCraft health contract', () => {
 	it('returns unavailable with a matching 503 when a required component fails', async () => {
 		dbMocks.sql.mockRejectedValueOnce(new Error('postgres://user:secret@example.test/db'));
 		gatewayMocks.gatewayHealth.mockResolvedValue(
-			hermesHealth(null, {
+			agentHealth(null, {
 				ok: false,
 				requiredReady: false,
 				status: 503,

@@ -4,7 +4,7 @@ import {
 	resolveConversationSystemPrompt
 } from './prompts';
 
-describe('NewsCraft Hermes prompt composition', () => {
+describe('NewsCraft agent prompt composition', () => {
 	it('keeps retrieval mechanics without creating a second product identity', () => {
 		expect(NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL).toContain('verify_this_lead');
 		expect(NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL).toContain(
@@ -14,7 +14,7 @@ describe('NewsCraft Hermes prompt composition', () => {
 		expect(NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL).toContain(
 			'citation marker at the end of a clear claim group or paragraph'
 		);
-		expect(NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL).not.toContain('You are Hermes');
+		expect(NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL).not.toContain('You are agent');
 		expect(NEWSCRAFT_INTERACTIVE_TOOL_PROTOCOL).not.toContain(
 			'next to every factual claim'
 		);

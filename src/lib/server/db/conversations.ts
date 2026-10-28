@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { db, ensureDefaultOrganizationForAccount } from './index';
-import { conversations, hermesRuns, messageProvenance, messages } from './schema';
+import { conversations, agentRuns, messageProvenance, messages } from './schema';
 import { retryRead } from './read-retry';
 import { newId } from '$lib/utils/id';
 import type { ContentPart, MessageContent } from '$lib/types';
@@ -442,16 +442,16 @@ export async function prepareDurableUserTurn(input: {
 			now - user.createdAt <= DURABLE_DUPLICATE_WINDOW_MS
 		) {
 			const [run] = await tx
-				.select({ state: hermesRuns.state })
-				.from(hermesRuns)
+				.select({ state: agentRuns.state })
+				.from(agentRuns)
 				.where(
 					and(
-						eq(hermesRuns.accountId, input.accountId),
-						eq(hermesRuns.conversationId, input.conversationId),
-						eq(hermesRuns.assistantMessageId, assistant.id)
+						eq(agentRuns.accountId, input.accountId),
+						eq(agentRuns.conversationId, input.conversationId),
+						eq(agentRuns.assistantMessageId, assistant.id)
 					)
 				)
-				.orderBy(desc(hermesRuns.createdAt))
+				.orderBy(desc(agentRuns.createdAt))
 				.limit(1);
 			if (!run || ['queued', 'researching', 'writing', 'reconnecting', 'cancel_requested'].includes(run.state)) {
 				return { user, assistant, created: false, claimToken: assistant.resumeClaimedAt ?? assistant.createdAt };
@@ -505,13 +505,13 @@ export async function takeOverPreparedDurableTurn(input: {
 				FOR UPDATE OF messages`
 		);
 		const [activeRun] = await tx
-			.select({ id: hermesRuns.id })
-			.from(hermesRuns)
+			.select({ id: agentRuns.id })
+			.from(agentRuns)
 			.where(
 				and(
-					eq(hermesRuns.accountId, input.accountId),
-					eq(hermesRuns.conversationId, input.conversationId),
-					eq(hermesRuns.assistantMessageId, input.messageId)
+					eq(agentRuns.accountId, input.accountId),
+					eq(agentRuns.conversationId, input.conversationId),
+					eq(agentRuns.assistantMessageId, input.messageId)
 				)
 			)
 			.limit(1);
@@ -554,18 +554,18 @@ export async function getPreparedDurableTurnStatus(
 ): Promise<{ runId: string | null; partial: number; content: string } | null> {
 	const [row] = await db
 		.select({
-			runId: hermesRuns.id,
+			runId: agentRuns.id,
 			partial: messages.partial,
 			content: messages.content
 		})
 		.from(messages)
 		.innerJoin(conversations, eq(conversations.id, messages.conversationId))
 		.leftJoin(
-			hermesRuns,
+			agentRuns,
 			and(
-				eq(hermesRuns.accountId, accountId),
-				eq(hermesRuns.conversationId, conversationId),
-				eq(hermesRuns.assistantMessageId, messageId)
+				eq(agentRuns.accountId, accountId),
+				eq(agentRuns.conversationId, conversationId),
+				eq(agentRuns.assistantMessageId, messageId)
 			)
 		)
 		.where(
@@ -575,7 +575,7 @@ export async function getPreparedDurableTurnStatus(
 				eq(conversations.accountId, accountId)
 			)
 		)
-		.orderBy(desc(hermesRuns.createdAt))
+		.orderBy(desc(agentRuns.createdAt))
 		.limit(1);
 	return row ?? null;
 }

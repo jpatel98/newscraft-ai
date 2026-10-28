@@ -409,7 +409,7 @@ describe('streamChat error contract', () => {
 			vi.fn().mockResolvedValue(
 				sseResponse(
 					'event: run.snapshot\n' +
-						'data: {"run_id":"run_failed","conversation_id":"convo_1","assistant_message_id":"assistant_1","cursor":5,"status":"failed","state":"failed","answerText":"Partial","sources":[],"citations":[],"tools":[],"errorMessage":"Hermes stopped before synthesis"}\n\n'
+						'data: {"run_id":"run_failed","conversation_id":"convo_1","assistant_message_id":"assistant_1","cursor":5,"status":"failed","state":"failed","answerText":"Partial","sources":[],"citations":[],"tools":[],"errorMessage":"Agent stopped before synthesis"}\n\n'
 				)
 			)
 		);
@@ -418,7 +418,7 @@ describe('streamChat error contract', () => {
 			subscribeDurableRun('run_failed', 5, { onDelta: vi.fn() })
 		).rejects.toMatchObject({
 			name: 'ChatStreamError',
-			diagnosticMessage: 'durable run failed: Hermes stopped before synthesis'
+			diagnosticMessage: 'durable run failed: Agent stopped before synthesis'
 		});
 	});
 });

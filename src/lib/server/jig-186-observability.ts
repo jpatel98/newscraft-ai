@@ -86,11 +86,11 @@ export const JIG186_DASHBOARD_DEFINITIONS: readonly DashboardDefinition[] = [
 	},
 	{
 		metric: 'service_restarts',
-		telemetryField: 'health.components.hermes.processInstanceId',
+		telemetryField: 'health.components.agent.processInstanceId',
 		unit: 'count',
 		aggregation: 'count transitions between distinct markers in time order',
 		missingData: 'missing or invalid markers are unknown; do not infer a restart',
-		semantics: 'one Hermes process restart when an authenticated readiness sample changes its opaque per-process marker'
+		semantics: 'one agent process restart when an authenticated readiness sample changes its opaque per-process marker'
 	},
 	{
 		metric: 'reconnects',

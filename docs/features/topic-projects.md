@@ -20,7 +20,7 @@ Implemented from `cb3dec9` on `codex/topic-projects`. The separate Paper redesig
 
 All tests use temporary local PostgreSQL data, never real user conversations. Repository integration tests cover account isolation, database foreign-key rejection, atomic creation rollback, moving between projects and ungrouping, message/conversation preservation, and applying the migration to a populated schema. Browser tests cover desktop/mobile creation, rename, membership removal, project chat creation, reload, ownership rejection, validation, failed requests and retry input preservation.
 
-Browser agent calls use fixtures/offline responses. Live Hermes generation and physical iPhone verification are not release evidence from this task. The chat streaming/cancellation implementation is unchanged.
+Browser agent calls use fixtures/offline responses. Live agent generation and physical iPhone verification are not release evidence from this task. The chat streaming/cancellation implementation is unchanged.
 
 ### Review fixes
 
@@ -35,4 +35,4 @@ The existing `POST /api/conversations` empty-body contract is preserved; malform
 - `pnpm exec playwright test tests/e2e/topic-projects.spec.ts`: five scenarios covering desktop/mobile workflows, current `/api/chat/runs` SSE snapshot contract and persisted fixture answer reload, account isolation/API validation, failure/retry, and stale-route guards. Repeated stability run passed 10/10 before the final draft-clearing assertion was added.
 - Wider `app.spec.ts`: 12 passed; three failed. All three failures were independently reproduced on an untouched `cb3dec9` archive: plan timeline, jump-to-latest during streaming, and four answer-format actions. Those tests mock retired `/api/chat/stream`; current code uses `/api/chat/runs`. They are baseline failures, not passed checks. No production rate limit was changed; a combined-run login limit was avoided by rerunning feature checks in their own server process.
 
-Project browser screenshots are in `output/playwright/projects-desktop.png` and `output/playwright/projects-mobile.png` (local ignored artifacts). Live Hermes execution, deployment, production migration, and physical-device checks were not performed.
+Project browser screenshots are in `output/playwright/projects-desktop.png` and `output/playwright/projects-mobile.png` (local ignored artifacts). Live agent execution, deployment, production migration, and physical-device checks were not performed.

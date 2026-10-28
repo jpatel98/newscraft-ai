@@ -33,7 +33,7 @@ export function durableFailureReason(raw: string | null | undefined): string | n
 	) {
 		return 'An interrupted step could not be safely retried.';
 	}
-	if (/^(?:hermes run failed|newscraft agent returned an error)\.?$/i.test(text)) {
+	if (/^(?:agent run failed|newscraft agent returned an error)\.?$/i.test(text)) {
 		return 'The run stopped before an answer was written.';
 	}
 	if (

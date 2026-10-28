@@ -8,7 +8,7 @@ function transaction(options: { owner?: boolean; run?: boolean; tenant?: string;
     const queries: Array<{ sql: string; params: unknown[] }> = [];
     const execute = vi.fn(async (statement: any) => {
         const query = new PgDialect().sqlToQuery(statement); queries.push(query);
-        if (query.sql.includes('SELECT * FROM hermes_runs')) return options.run === false ? [] : [{ state: options.runState ?? 'researching', cancel_requested_at: options.cancelledAt ?? null, tenant_key: options.tenant ?? 'tenant-one', lease_owner: 'worker-one', lease_token: options.lease ?? 'lease-one', lease_expires_at: options.expires ?? Date.now() + 60000, conversation_id: 'conversation-one' }];
+        if (query.sql.includes('SELECT * FROM agent_runs')) return options.run === false ? [] : [{ state: options.runState ?? 'researching', cancel_requested_at: options.cancelledAt ?? null, tenant_key: options.tenant ?? 'tenant-one', lease_owner: 'worker-one', lease_token: options.lease ?? 'lease-one', lease_expires_at: options.expires ?? Date.now() + 60000, conversation_id: 'conversation-one' }];
         if (query.sql.includes('SELECT id FROM conversations')) return options.owner === false ? [] : [{ id: 'conversation-one' }];
         if (query.sql.includes('SELECT state_json')) return [{ version: options.version ?? 3, state_json: JSON.stringify(options.state ?? { private: 'opaque continuation' }) }];
         return [];

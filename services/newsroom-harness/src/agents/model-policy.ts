@@ -232,7 +232,7 @@ function denied(
 function concreteModel(value: string | undefined): string | null {
 	const model = value?.trim();
 	if (!model) return null;
-	if (['newsroom-agent', 'newsroom-harness', 'hermes-agent'].includes(model)) return null;
+	if (['newsroom-agent', 'newsroom-harness'].includes(model)) return null;
 	return model;
 }
 

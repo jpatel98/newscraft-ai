@@ -1,6 +1,6 @@
 import { error, isHttpError, type RequestHandler } from '@sveltejs/kit';
 import {
-	HermesDurableOverloadError,
+	AgentDurableOverloadError,
 	type AgentMessage,
 	type AgentContent,
 	type AgentContentPart
@@ -87,18 +87,18 @@ import {
 	resolveConversationSystemPrompt
 } from '$lib/server/agent/prompts';
 import {
-	createOrGetHermesRun,
-	ensureHermesAssistantMessage,
-	failQueuedHermesRun,
-	getHermesRun,
-	getHermesRunForAssistant,
-	HermesRunRepositoryError
-} from '$lib/server/db/hermes-runs';
-import { hermesSubscriptionResponse } from '$lib/server/hermes-subscription';
+	createOrGetAgentRun,
+	ensureAgentAssistantMessage,
+	failQueuedAgentRun,
+	getAgentRun,
+	getAgentRunForAssistant,
+	AgentRunRepositoryError
+} from '$lib/server/db/agent-runs';
+import { agentSubscriptionResponse } from '$lib/server/agent-subscription';
 import { formatNewsroomToday } from '$lib/server/newsroom-today';
 import {
 	summarizeDurableRunTelemetry,
-	traceIdFromHermesInput
+	traceIdFromAgentInput
 } from '$lib/server/durable-run-telemetry';
 
 interface Body {
@@ -513,7 +513,7 @@ function localTextStream(convoId: string, text: string, traceId: string): Respon
 	});
 }
 
-async function waitForPreparedHermesRun(
+async function waitForPreparedAgentRun(
 	accountId: string,
 	conversationId: string,
 	assistantMessageId: string,
@@ -524,7 +524,7 @@ async function waitForPreparedHermesRun(
 	while (!signal.aborted && Date.now() < deadline) {
 		const status = await getPreparedDurableTurnStatus(accountId, conversationId, assistantMessageId);
 		if (status?.runId) {
-			const run = await getHermesRun(accountId, status.runId);
+			const run = await getAgentRun(accountId, status.runId);
 			if (run) return { run, finalizedText: null };
 		}
 		if (status?.partial === 0) return { run: null, finalizedText: status.content };
@@ -759,10 +759,10 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	const suppliedDurableKey = body.idempotency_key?.trim();
 	if (suppliedDurableKey) {
 		if (suppliedDurableKey.length > 256) throw error(400, 'idempotency key is too long');
-		const existing = await getHermesRun(accountId, suppliedDurableKey, 'idempotency');
+		const existing = await getAgentRun(accountId, suppliedDurableKey, 'idempotency');
 		if (existing) {
 			if (existing.conversationId !== convoId) throw error(409, 'idempotency key belongs to another conversation');
-			return hermesSubscriptionResponse({
+			return agentSubscriptionResponse({
 				request,
 				accountId,
 				runId: existing.id,
@@ -840,9 +840,9 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		if (!isLatestUnfinishedAssistant(existingMessages, target.id)) {
 			throw error(409, 'only the latest unfinished answer can be resumed');
 		}
-		const activeRun = await getHermesRunForAssistant(accountId, convoId, messageId);
+		const activeRun = await getAgentRunForAssistant(accountId, convoId, messageId);
 		if (activeRun) {
-			return hermesSubscriptionResponse({ request, accountId, runId: activeRun.id, afterCursor: 0 });
+			return agentSubscriptionResponse({ request, accountId, runId: activeRun.id, afterCursor: 0 });
 		}
 		resumeClaimToken = await claimPartialAssistantMessage(messageId, convoId);
 		if (!resumeClaimToken) throw error(409, 'already resuming');
@@ -897,14 +897,14 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		preparedClaimToken = preparedTurn?.claimToken ?? null;
 		ownsPreparedTurn = preparedTurn?.created === true;
 		if (preparedTurn && !preparedTurn.created) {
-			const existingRun = await waitForPreparedHermesRun(
+			const existingRun = await waitForPreparedAgentRun(
 				accountId,
 				convoId,
 				preparedTurn.assistant.id,
 				request.signal
 			);
 			if (existingRun?.run) {
-				return hermesSubscriptionResponse({
+				return agentSubscriptionResponse({
 					request,
 					accountId,
 					runId: existingRun.run.id,
@@ -1192,13 +1192,13 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	const idempotencyKey =
 		suppliedDurableKey ||
 		(preparedAssistantMessageId
-			? `hermes:${convoId}:${preparedAssistantMessageId}:send`
+			? `agent:${convoId}:${preparedAssistantMessageId}:send`
 			: undefined) ||
-		`hermes:${convoId}:${resumeMessageId || visibleUserMessageId || latestUserMessage?.id || 'turn'}:${body.output_action || (isResume ? `resume-${resumeClaimToken}` : isRetry ? 'retry' : isRegenerate ? 'regenerate' : 'send')}`;
+		`agent:${convoId}:${resumeMessageId || visibleUserMessageId || latestUserMessage?.id || 'turn'}:${body.output_action || (isResume ? `resume-${resumeClaimToken}` : isRetry ? 'retry' : isRegenerate ? 'regenerate' : 'send')}`;
 	if (idempotencyKey.length > 256) throw error(400, 'idempotency key is too long');
 	let assistantMessageId = resumeMessageId || preparedAssistantMessageId;
 	if (!assistantMessageId) {
-		assistantMessageId = await ensureHermesAssistantMessage(accountId, convoId, idempotencyKey);
+		assistantMessageId = await ensureAgentAssistantMessage(accountId, convoId, idempotencyKey);
 	}
 	const candidateRunId = newId();
 	const built = agentBackend().buildRunInput(
@@ -1220,10 +1220,10 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			traceId
 		}
 	);
-	let durableRun: Awaited<ReturnType<typeof createOrGetHermesRun>>['run'];
+	let durableRun: Awaited<ReturnType<typeof createOrGetAgentRun>>['run'];
 	let created = false;
 	try {
-		({ run: durableRun, created } = await createOrGetHermesRun({
+		({ run: durableRun, created } = await createOrGetAgentRun({
 			id: candidateRunId,
 			accountId,
 			orgId: convo.orgId,
@@ -1248,13 +1248,13 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			});
 		}
 	} catch (cause) {
-		if (cause instanceof HermesRunRepositoryError && cause.code === 'cross_account') {
+		if (cause instanceof AgentRunRepositoryError && cause.code === 'cross_account') {
 			throw error(404, 'conversation not found');
 		}
 		throw cause;
 	}
 	if (created || durableRun.state === 'queued') {
-		const durableTraceId = traceIdFromHermesInput(durableRun.inputJson) || undefined;
+		const durableTraceId = traceIdFromAgentInput(durableRun.inputJson) || undefined;
 		try {
 			let durableInput = built.input;
 			let durableSeededCitations = built.seededCitations;
@@ -1277,8 +1277,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 				traceId: durableTraceId
 			});
 		} catch (cause) {
-			const overloaded = cause instanceof HermesDurableOverloadError;
-			durableRun = await failQueuedHermesRun(
+			const overloaded = cause instanceof AgentDurableOverloadError;
+			durableRun = await failQueuedAgentRun(
 				accountId,
 				durableRun.id,
 				overloaded ? 'Research service is temporarily at capacity. Try again shortly.' : undefined,
@@ -1300,7 +1300,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		prestream_ms: Math.max(0, Date.now() - requestAcceptedAt),
 		state: durableRun.state
 	});
-	return hermesSubscriptionResponse({
+	return agentSubscriptionResponse({
 		request,
 		accountId,
 		runId: durableRun.id,

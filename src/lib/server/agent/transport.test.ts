@@ -7,15 +7,15 @@ vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 
 import {
 	agentFetch,
-	buildHermesRunInput,
-	cancelDurableHermesRun,
+	buildAgentRunInput,
+	cancelDurableAgentRun,
 	describeGatewayError,
-	deriveHermesTenantKey,
+	deriveAgentTenantKey,
 	deriveSessionId,
 	gatewayHealth,
-	HermesDurableOverloadError,
-	normalizeHermesSse,
-	startDurableHermesRun,
+	AgentDurableOverloadError,
+	normalizeAgentSse,
+	startDurableAgentRun,
 	type AgentMessage
 } from './transport';
 
@@ -114,29 +114,29 @@ function retrievalMarker(overrides: Record<string, unknown> = {}): string {
 	return `<!-- newscraft-retrieval:v1:${Buffer.from(JSON.stringify(value)).toString('base64url')} -->`;
 }
 
-describe('Hermes chat transport', () => {
-	const originalUrl = process.env.NEWSCRAFT_HERMES_URL;
-	const originalToken = process.env.NEWSCRAFT_HERMES_API_TOKEN;
-	const originalTenantSecret = process.env.NEWSCRAFT_HERMES_TENANT_SECRET;
+describe('Agent chat transport', () => {
+	const originalUrl = process.env.NEWSCRAFT_AGENT_URL;
+	const originalToken = process.env.NEWSCRAFT_AGENT_API_TOKEN;
+	const originalTenantSecret = process.env.NEWSCRAFT_AGENT_TENANT_SECRET;
 
 	beforeEach(() => {
 		vi.stubEnv('NEWSCRAFT_AGENT_URL', '');
 		vi.stubEnv('NEWSCRAFT_AGENT_API_TOKEN', '');
 		vi.stubEnv('NEWSCRAFT_AGENT_TENANT_SECRET', '');
-		process.env.NEWSCRAFT_HERMES_URL = 'https://hermes.test/';
-		process.env.NEWSCRAFT_HERMES_API_TOKEN = 'test-hermes-token';
-		process.env.NEWSCRAFT_HERMES_TENANT_SECRET = 'test-tenant-secret-0123456789012345';
+		process.env.NEWSCRAFT_AGENT_URL = 'https://agent.test/';
+		process.env.NEWSCRAFT_AGENT_API_TOKEN = 'test-agent-token';
+		process.env.NEWSCRAFT_AGENT_TENANT_SECRET = 'test-tenant-secret-0123456789012345';
 	});
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
 		vi.unstubAllEnvs();
-		if (originalUrl === undefined) delete process.env.NEWSCRAFT_HERMES_URL;
-		else process.env.NEWSCRAFT_HERMES_URL = originalUrl;
-		if (originalToken === undefined) delete process.env.NEWSCRAFT_HERMES_API_TOKEN;
-		else process.env.NEWSCRAFT_HERMES_API_TOKEN = originalToken;
-		if (originalTenantSecret === undefined) delete process.env.NEWSCRAFT_HERMES_TENANT_SECRET;
-		else process.env.NEWSCRAFT_HERMES_TENANT_SECRET = originalTenantSecret;
+		if (originalUrl === undefined) delete process.env.NEWSCRAFT_AGENT_URL;
+		else process.env.NEWSCRAFT_AGENT_URL = originalUrl;
+		if (originalToken === undefined) delete process.env.NEWSCRAFT_AGENT_API_TOKEN;
+		else process.env.NEWSCRAFT_AGENT_API_TOKEN = originalToken;
+		if (originalTenantSecret === undefined) delete process.env.NEWSCRAFT_AGENT_TENANT_SECRET;
+		else process.env.NEWSCRAFT_AGENT_TENANT_SECRET = originalTenantSecret;
 	});
 
 	it('keeps the private conversation workspace across prompt edits and output transforms', () => {
@@ -173,7 +173,7 @@ describe('Hermes chat transport', () => {
 			sourceType: 'primary' as const,
 			supportingExcerpt: 'A verified statement from the prior answer.'
 		};
-		const built = buildHermesRunInput(
+		const built = buildAgentRunInput(
 			{
 				messages: [
 					{ role: 'assistant', content: 'The prior finding is supported by [3].' },
@@ -202,7 +202,7 @@ describe('Hermes chat transport', () => {
 	});
 
 	it('seeds one verbatim citation per transcript turn, numbered after documents', () => {
-		const built = buildHermesRunInput(
+		const built = buildAgentRunInput(
 			{
 				messages: [{ role: 'user', content: 'Write a SOTVO from the mayor tape.' }],
 				documents: [
@@ -262,7 +262,7 @@ describe('Hermes chat transport', () => {
 		const turns = Array.from({ length: 120 }, (_, i) => ({
 			id: `u${i}`, speaker: 'S', startMs: i * 1000, endMs: i * 1000 + 900, text: `turn ${i}`
 		}));
-		const built = buildHermesRunInput(
+		const built = buildAgentRunInput(
 			{ messages: [{ role: 'user', content: 'Hi' }], transcripts: [{ id: 't', title: 'Long', durationMs: 120_000, turns }] },
 			'thread-cap',
 			'run-cap'
@@ -275,7 +275,7 @@ describe('Hermes chat transport', () => {
 	});
 
 	it('adds no transcript context entry when nothing is attached', () => {
-		const built = buildHermesRunInput({ messages: [{ role: 'user', content: 'Hi' }] }, 'thread-n', 'run-n');
+		const built = buildAgentRunInput({ messages: [{ role: 'user', content: 'Hi' }] }, 'thread-n', 'run-n');
 		expect(built.input.context.some((item) => item.description.startsWith('Attached transcript turns'))).toBe(false);
 	});
 
@@ -298,7 +298,7 @@ describe('Hermes chat transport', () => {
 					supportingExcerpt: 'The pilot begins Monday.' }]
 			}
 		};
-		const built = buildHermesRunInput({
+		const built = buildAgentRunInput({
 			messages: [{ role: 'user', content: context.currentTurn!.content }],
 			conversation_context: context
 		}, 'thread-context', 'run-context');
@@ -315,7 +315,7 @@ describe('Hermes chat transport', () => {
 		expect(JSON.stringify(built.input.messages)).not.toContain('compatibility');
 	});
 
-	it('returns the Hermes cancellation result for durable recovery decisions', async () => {
+	it('returns the agent cancellation result for durable recovery decisions', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockResolvedValue(
@@ -326,7 +326,7 @@ describe('Hermes chat transport', () => {
 			)
 		);
 
-		await expect(cancelDurableHermesRun('account-a', 'run-1')).resolves.toEqual({
+		await expect(cancelDurableAgentRun('account-a', 'run-1')).resolves.toEqual({
 			state: 'not_running'
 		});
 	});
@@ -334,14 +334,14 @@ describe('Hermes chat transport', () => {
 	it('carries one server trace through the durable start request and input', async () => {
 		const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
 		vi.stubGlobal('fetch', fetchMock);
-		const built = buildHermesRunInput(
+		const built = buildAgentRunInput(
 			{ messages: [{ role: 'user', content: 'A local test request.' }] },
 			'thread-a',
 			'run-a',
 			{ traceId: 'trace_12345678' }
 		);
 
-		await startDurableHermesRun({
+		await startDurableAgentRun({
 			runId: 'run-a',
 			accountId: 'account-a',
 			tenantKey: 'tenant-key-a',
@@ -373,7 +373,7 @@ describe('Hermes chat transport', () => {
 			forwardedProps: {}
 		} as any;
 
-		await startDurableHermesRun({
+		await startDurableAgentRun({
 			runId: 'run-a',
 			accountId: 'account-a',
 			tenantKey: 'tenant-key-a',
@@ -391,7 +391,7 @@ describe('Hermes chat transport', () => {
 	it('rejects a durable trace that does not match the saved input', async () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal('fetch', fetchMock);
-		const built = buildHermesRunInput(
+		const built = buildAgentRunInput(
 			{ messages: [{ role: 'user', content: 'A local test request.' }] },
 			'thread-a',
 			'run-a',
@@ -399,7 +399,7 @@ describe('Hermes chat transport', () => {
 		);
 
 		await expect(
-			startDurableHermesRun({
+			startDurableAgentRun({
 				runId: 'run-a',
 				accountId: 'account-a',
 				tenantKey: 'tenant-key-a',
@@ -416,14 +416,14 @@ describe('Hermes chat transport', () => {
 			() => new Response(JSON.stringify({ code: 'overloaded', detail: 'safe capacity message' }), { status: 429 })
 		);
 		vi.stubGlobal('fetch', fetchMock);
-		const built = buildHermesRunInput(
+		const built = buildAgentRunInput(
 			{ messages: [{ role: 'user', content: 'A local test request.' }] },
 			'thread-a',
 			'run-a'
 		);
 
 		await expect(
-			startDurableHermesRun({
+			startDurableAgentRun({
 				runId: 'run-a',
 				accountId: 'account-a',
 				tenantKey: 'tenant-key-a',
@@ -431,9 +431,9 @@ describe('Hermes chat transport', () => {
 				seededCitations: built.seededCitations,
 				traceId: built.input.trace_id
 			})
-		).rejects.toBeInstanceOf(HermesDurableOverloadError);
+		).rejects.toBeInstanceOf(AgentDurableOverloadError);
 		await expect(
-			startDurableHermesRun({
+			startDurableAgentRun({
 				runId: 'run-a',
 				accountId: 'account-a',
 				tenantKey: 'tenant-key-a',
@@ -458,7 +458,7 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		expect(text).toContain('event: agent.tool.progress');
 		expect(text).toContain('event: agent.source.read');
 		expect(text).toContain('"verified":true');
@@ -494,7 +494,7 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		expect(text).toContain('event: agent.source.read');
 		expect(text).toContain('"publishedAt":"2026-08-10T12:00:00Z"');
 	});
@@ -529,14 +529,14 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		const sourceFrame = text.slice(text.indexOf('event: agent.source.read'));
 		expect(sourceFrame).toContain('"publishedAt":"2026-05-30T13:00:00Z"');
 		expect(sourceFrame).toContain('"retrievalTime":"2026-05-31T21:00:00Z"');
 		expect(sourceFrame).not.toContain('"publishedAt":"2026-05-31T21:00:00Z"');
 	});
 
-	it('does not promote an Aomori-style recorded source after Hermes rejects its retrieval', async () => {
+	it('does not promote an Aomori-style recorded source after agent rejects its retrieval', async () => {
 		const rejectedUrl = 'https://example.test/japan-earthquake';
 		const officialUrl = 'https://www.jma.go.jp/bosai/map.html#contents=earthquake_map';
 		const source = new ReadableStream<Uint8Array>({
@@ -596,7 +596,7 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		expect(text.match(/event: agent\.source\.read/g)).toHaveLength(1);
 		expect(text).toContain(`"url":"${officialUrl}"`);
 		expect(text).toContain('"citationNumber":1');
@@ -656,7 +656,7 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		expect(text).toContain('NewsCraft read the Wayback copy after the live page was blocked.');
 		expect(text).toContain('"url":"https://cbc.ca/news/story"');
 		expect(text).toContain('"archivedUrl":"https://web.archive.org/web/20260812120000/https://cbc.ca/news/story"');
@@ -694,14 +694,14 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		const match = text.match(/"supportingExcerpt":"([^"]*)"/);
 		expect(match?.[1]).toBeDefined();
 		expect(match?.[1]).toContain('The city confirmed the closure');
 		expect(match?.[1]?.length).toBeLessThanOrEqual(1_200);
 	});
 
-	it('treats a standard Hermes browser read as a source but not as numbered citation authority', async () => {
+	it('treats a standard agent browser read as a source but not as numbered citation authority', async () => {
 		const source = new ReadableStream<Uint8Array>({
 			start(controller) {
 				controller.enqueue(
@@ -715,13 +715,13 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		expect(text).toContain('event: agent.source.read');
 		expect(text).toContain('NewsCraft read this page with its browser.');
 		expect(text).not.toContain('event: agent.citations');
 	});
 
-	it('uses Hermes state records as the exact citation number-to-source map', async () => {
+	it('uses agent state records as the exact citation number-to-source map', async () => {
 		const cbc = {
 			citationNumber: 1,
 			title: 'CBC story',
@@ -767,7 +767,7 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		expect(text.match(/event: agent\.citations/g)).toHaveLength(2);
 		expect(text).toContain('"citationNumber":1');
 		expect(text).toContain('"url":"https://www.cbc.ca/news/canada/story"');
@@ -792,7 +792,7 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		expect(text).toContain('https://cbc.ca/one');
 		expect(text).not.toContain('https://ctvnews.ca/two');
 	});
@@ -815,7 +815,7 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		expect(text).toContain('event: agent.source.read');
 		expect(text).toContain('"url":"https://apnews.com/article/story"');
 		expect(text).not.toContain('event: agent.citations');
@@ -845,25 +845,25 @@ describe('Hermes chat transport', () => {
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		expect(text).toContain('event: agent.answer.replace');
 		expect(text).toContain('Here is the result.');
 		expect(text).not.toContain('I will search now.');
 	});
 
-	it('preserves a clear Hermes stream failure', async () => {
+	it('preserves a clear agent stream failure', async () => {
 		const source = new ReadableStream<Uint8Array>({
 			start(controller) {
 				controller.enqueue(
-					new TextEncoder().encode('data: {"type":"RUN_ERROR","message":"Hermes job failed."}\n\n')
+					new TextEncoder().encode('data: {"type":"RUN_ERROR","message":"Agent job failed."}\n\n')
 				);
 				controller.close();
 			}
 		});
 
-		const text = await new Response(normalizeHermesSse(source)).text();
+		const text = await new Response(normalizeAgentSse(source)).text();
 		expect(text).toContain('event: response.failed');
-		expect(text).toContain('Hermes job failed.');
+		expect(text).toContain('Agent job failed.');
 	});
 
 	it('accepts the actual owned-service research-only readiness contract', async () => {
@@ -887,7 +887,7 @@ describe('Hermes chat transport', () => {
 		await expect(gatewayHealth()).resolves.toMatchObject({ ok: false, requiredReady: false });
 	});
 
-	it('reports ready for the standard Hermes capability set', async () => {
+	it('reports ready for the standard agent capability set', async () => {
 		const fetchMock = vi.fn().mockResolvedValue(
 			new Response(
 				JSON.stringify({
@@ -939,17 +939,17 @@ describe('Hermes chat transport', () => {
 			ok: true,
 			status: 200,
 			service: 'newscraft-agent',
-			url: 'https://hermes.test'
+			url: 'https://agent.test'
 		});
 		expect(fetchMock).toHaveBeenCalledWith(
-			'https://hermes.test/ready',
+			'https://agent.test/ready',
 			expect.objectContaining({
-				headers: expect.objectContaining({ 'x-hermes-session-token': 'test-hermes-token' })
+				headers: expect.objectContaining({ 'x-agent-session-token': 'test-agent-token' })
 			})
 		);
 	});
 
-	it('keeps optional provider failures separate from required Hermes readiness', async () => {
+	it('keeps optional provider failures separate from required agent readiness', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockResolvedValue(
@@ -975,7 +975,7 @@ describe('Hermes chat transport', () => {
 		});
 	});
 
-	it('uses authoritative Hermes provider readiness when capabilities disagree', async () => {
+	it('uses authoritative agent provider readiness when capabilities disagree', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockResolvedValue(
@@ -998,7 +998,7 @@ describe('Hermes chat transport', () => {
 		});
 	});
 
-	it('does not report an older Hermes service as isolation-ready', async () => {
+	it('does not report an older agent service as isolation-ready', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockResolvedValue(
@@ -1038,7 +1038,7 @@ describe('Hermes chat transport', () => {
 		 await expect(gatewayHealth()).resolves.toMatchObject({ ok: false, status: 200 });
 	 });
 
-	it('accepts extra Hermes tools without a NewsCraft allowlist', async () => {
+	it('accepts extra agent tools without a NewsCraft allowlist', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockResolvedValue(
@@ -1053,7 +1053,7 @@ describe('Hermes chat transport', () => {
 							'browser_snapshot',
 							'terminal',
 							'verify_this_lead',
-							'future_hermes_tool'
+							'future_agent_tool'
 						],
 						runtime: {
 							provider: 'openai',
@@ -1109,8 +1109,8 @@ describe('Hermes chat transport', () => {
 		timeout.mockRestore();
 	});
 
-	it('fails closed when Hermes configuration is missing', async () => {
-		delete process.env.NEWSCRAFT_HERMES_URL;
+	it('fails closed when agent configuration is missing', async () => {
+		delete process.env.NEWSCRAFT_AGENT_URL;
 		const fetchMock = vi.fn();
 		vi.stubGlobal('fetch', fetchMock);
 
@@ -1119,7 +1119,7 @@ describe('Hermes chat transport', () => {
 	});
 
 	it('uses the canonical agent configuration with stable migrated tenant identity', async () => {
-		const stableTenant = deriveHermesTenantKey('account-a');
+		const stableTenant = deriveAgentTenantKey('account-a');
 		vi.stubEnv('NEWSCRAFT_AGENT_URL', 'https://agent.test/');
 		vi.stubEnv('NEWSCRAFT_AGENT_API_TOKEN', 'test-agent-token');
 		vi.stubEnv('NEWSCRAFT_AGENT_TENANT_SECRET', 'test-tenant-secret-0123456789012345');
@@ -1129,13 +1129,13 @@ describe('Hermes chat transport', () => {
 		expect(fetchMock).toHaveBeenCalledWith('https://agent.test/ready', expect.objectContaining({
 			headers: expect.objectContaining({ authorization: 'Bearer test-agent-token' })
 		}));
-		expect(deriveHermesTenantKey('account-a')).toBe(stableTenant);
+		expect(deriveAgentTenantKey('account-a')).toBe(stableTenant);
 	});
 
 	it('rejects the retired runtime identity and incomplete bounded-loop guarantees', async () => {
 		const old = await isolationReadyResponse().json();
-		old.service = 'newscraft-hermes-chat';
-		old.toolset = 'hermes-acp';
+		old.service = 'newscraft-agent';
+		old.toolset = 'agent-acp';
 		const fetchMock = vi.fn()
 			.mockResolvedValueOnce(new Response(JSON.stringify(old)))
 			.mockResolvedValueOnce(isolationReadyResponse({ boundedLoop: { configured: true, cancellation: true } }));
@@ -1152,7 +1152,7 @@ describe('Hermes chat transport', () => {
 			{ type: 'REASONING_MESSAGE_CONTENT', delta: 'private deliberation' },
 			{ type: 'RUN_FINISHED' }
 		);
-		const output = await new Response(normalizeHermesSse(response.body!)).text();
+		const output = await new Response(normalizeAgentSse(response.body!)).text();
 		expect(output).toContain('event: agent.plan');
 		expect(output).toContain('event: agent.decision');
 		expect(output).toContain('The release provides the baseline.');
@@ -1166,12 +1166,12 @@ describe('Hermes chat transport', () => {
 			{ type: 'TOOL_CALL_RESULT', toolCallId: 't1', result: { error: 'Command is unavailable.' } },
 			{ type: 'TOOL_CALL_END', toolCallId: 't1' }
 		);
-		const output = await new Response(normalizeHermesSse(response.body!)).text();
+		const output = await new Response(normalizeAgentSse(response.body!)).text();
 		expect(output).toContain('"status":"failed","done":true');
 		expect(output).not.toContain('"status":"ok"');
 	});
 
-	it('describes network failures as Hermes failures', () => {
+	it('describes network failures as agent failures', () => {
 		expect(describeGatewayError(new Error('fetch failed'))).toContain('NewsCraft agent is not reachable');
 	});
 });

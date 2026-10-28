@@ -8,8 +8,8 @@ const COPY_TIMEOUT_MS = 45_000;
  * line. Returns null when the worker cannot be reached or answers badly.
  */
 export async function workerLedgerCopy(format: CopyFormat, title: string, claims: CopyRequestClaim[]): Promise<CopyLine[] | null> {
-	const base = (env.NEWSCRAFT_AGENT_URL || env.NEWSCRAFT_HERMES_URL || '').trim().replace(/\/$/, '');
-	const token = (env.NEWSCRAFT_AGENT_API_TOKEN || env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
+	const base = (env.NEWSCRAFT_AGENT_URL || '').trim().replace(/\/$/, '');
+	const token = (env.NEWSCRAFT_AGENT_API_TOKEN || '').trim();
 	if (!base || !token) return null;
 	try {
 		const response = await fetch(`${base}/v1/ledger/copy`, {

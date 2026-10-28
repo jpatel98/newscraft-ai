@@ -6,7 +6,7 @@ Date: 2026-09-05. Local positioning update; no publication or deployment.
 
 Reviewed the signed-in NewsCraft interface in Jigar's main Chrome profile, the 50 conversation rows exposed in its sidebar, and eight selected conversations in full (46 displayed messages, including a failed reply). The sampled work spans Aug. 17–Sept. 1, based on the UI's date labels. The sidebar reaches July 27. This is a purposive sample, not an account-wide statistical analysis: the application loads at most 50 sidebar conversations. Greetings, connection checks, and test-like titles are mixed with producer work.
 
-Also inspected the live public homepage, account settings, answer actions, current local app source, Hermes service README and product identity, and the separate landing checkout. Historical answer text is evidence of product use, not independent confirmation of the news claims it contains. No new research prompt was submitted, no failed run was retried, and no account setting was changed. No production correctness or deployment gate was run.
+Also inspected the live public homepage, account settings, answer actions, current local app source, agent service README and product identity, and the separate landing checkout. Historical answer text is evidence of product use, not independent confirmation of the news claims it contains. No new research prompt was submitted, no failed run was retried, and no account setting was changed. No production correctness or deployment gate was run.
 
 Private pasted newsroom plans, staff details, contact information, and raw transcripts are deliberately excluded from this note and public copy. The examples below summarize workflows. They are not a customer endorsement or evidence that anything aired.
 
@@ -50,7 +50,7 @@ The Aug. 30 conversation matters to product strategy: Jigar explicitly rejected 
 | Image attachment | Live Attach image control and Composer source | No upload or image-answer test performed |
 | Newsroom timezone, home market and preferred domains | Live settings controls | No setting changed; cross-session adherence not measured |
 | PDF document processing | Conditional code paths exist | Not exposed in the inspected composer; do not promise general PDF availability |
-| Browser, code, file tools, skills, tenant memory and delegation | Current Hermes service documentation | Runtime capabilities; not each proven as a supported customer workflow here |
+| Browser, code, file tools, skills, tenant memory and delegation | Current agent service documentation | Runtime capabilities; not each proven as a supported customer workflow here |
 | Scheduled-job management | Runtime documentation | Automatic execution requires a separate gate; do not market scheduled delivery or alerts as available |
 
 ## Limits the language must preserve
@@ -86,7 +86,7 @@ The Aug. 30 conversation matters to product strategy: Jigar explicitly rejected 
 - `ROADMAP.md`: new current product summary, capability boundaries and evidence-led priorities; July implementation material retained as explicitly historical reference.
 - `src/routes/+page.svelte`: marketing-host copy and metadata updated; signed-in chat flow kept intact.
 - `src/routes/signup/+page.svelte` and `static/manifest.webmanifest`: concise product descriptions aligned.
-- `services/hermes-chat/src/hermes_chat/product_prompt.py`: general producer-oriented identity and capability limits; no private usage details or account-specific assumptions added.
+- `services/agent/src/newscraft_agent/product_prompt.py`: general producer-oriented identity and capability limits; no private usage details or account-specific assumptions added.
 - Separate `newscraft-ai-landing/index.html`: local copy and illustrative previews updated, replacing obsolete queue, schedule, and blanket verification language. Its README records the deployment mismatch.
 - The Aug. 29 market research note and unrelated `IDEA.md` are pre-existing untracked work and are preserved. This current usage-based positioning supersedes the old note as the description of the product; its external research remains historical.
 
@@ -99,7 +99,7 @@ Use the real workflow as the acceptance unit: show context understood; covered i
 ## Validation of this update
 
 - `pnpm check`: passed, zero errors and warnings.
-- Existing Hermes product-identity suite: 10 tests passed. This checks identity integration and contracts, not live-model adherence to the new wording.
+- Existing agent product-identity suite: 10 tests passed. This checks identity integration and contracts, not live-model adherence to the new wording.
 - Both repositories: `git diff --check` passed.
 - Static landing page: rendered in Chrome through a loopback-only preview; full page accessibility content and desktop hero screenshot inspected. No responsive redesign was made or mobile acceptance claimed.
 - Production prompts, uploads, exports, source correctness, notification delivery and end-to-end live-model behavior were not exercised. No commit, push, deployment, provider change or database mutation performed.

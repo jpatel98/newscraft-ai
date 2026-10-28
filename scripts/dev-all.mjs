@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const serviceRoot = resolve(root, 'services/hermes-chat');
+const serviceRoot = resolve(root, 'services/agent');
 const uiUrl = 'http://127.0.0.1:3001';
 let agentOnly, agentEndpoint, agentUrl;
 
@@ -19,8 +19,8 @@ async function main() {
 	loadEnv({ path: resolve(serviceRoot, '.env'), override: false, quiet: true });
 
 	const args = new Set(process.argv.slice(2));
-	agentOnly = args.has('--agent-only') || args.has('--hermes-only');
-	const configuredAgentUrl = (process.env.NEWSCRAFT_AGENT_URL || process.env.NEWSCRAFT_HERMES_URL || 'http://127.0.0.1:8000').replace(
+	agentOnly = args.has('--agent-only') || args.has('--agent-only');
+	const configuredAgentUrl = (process.env.NEWSCRAFT_AGENT_URL || 'http://127.0.0.1:8000').replace(
 		/\/$/,
 		''
 	);
@@ -88,8 +88,8 @@ function parseLocalAgentUrl(value) {
 }
 
 function configureAgentEnvironment() {
-	const appToken = (process.env.NEWSCRAFT_AGENT_API_TOKEN || process.env.NEWSCRAFT_HERMES_API_TOKEN || '').trim();
-	const serviceToken = (process.env.NEWSCRAFT_AGENT_SESSION_TOKEN || process.env.HERMES_AGUI_SESSION_TOKEN || '').trim();
+	const appToken = (process.env.NEWSCRAFT_AGENT_API_TOKEN || '').trim();
+	const serviceToken = (process.env.NEWSCRAFT_AGENT_SESSION_TOKEN || '').trim();
 	const token = appToken || serviceToken;
 	if (!token || token.length < 24) {
 		throw new Error('Set matching NEWSCRAFT_AGENT_API_TOKEN and NEWSCRAFT_AGENT_SESSION_TOKEN with at least 24 characters.');
@@ -98,19 +98,16 @@ function configureAgentEnvironment() {
 		throw new Error('The NewsCraft and agent session tokens do not match.');
 	}
 	process.env.NEWSCRAFT_AGENT_URL = agentUrl;
-	process.env.NEWSCRAFT_HERMES_URL = agentUrl;
 	process.env.NEWSCRAFT_AGENT_API_TOKEN = token;
-	process.env.NEWSCRAFT_HERMES_API_TOKEN = token;
 	process.env.NEWSCRAFT_AGENT_SESSION_TOKEN = token;
-	process.env.NEWSCRAFT_AGENT_HOST ||= process.env.HERMES_AGUI_HOST || '127.0.0.1';
-	process.env.NEWSCRAFT_AGENT_PORT ||= process.env.HERMES_AGUI_PORT || String(agentEndpoint.port);
+	process.env.NEWSCRAFT_AGENT_HOST ||= '127.0.0.1';
+	process.env.NEWSCRAFT_AGENT_PORT ||= String(agentEndpoint.port);
 	if (Number(process.env.NEWSCRAFT_AGENT_PORT) !== agentEndpoint.port) {
 		throw new Error('NEWSCRAFT_AGENT_PORT must match NEWSCRAFT_AGENT_URL.');
 	}
-	process.env.NEWSCRAFT_AGENT_TENANT_SECRET ||= process.env.NEWSCRAFT_HERMES_TENANT_SECRET || '';
-	process.env.NEWSCRAFT_HERMES_TENANT_SECRET ||= process.env.NEWSCRAFT_AGENT_TENANT_SECRET;
-	process.env.NEWSCRAFT_AGENT_STATE_HOME ||= process.env.NEWSCRAFT_HERMES_HOME || '';
-	process.env.NEWSCRAFT_AGENT_WORKSPACE ||= process.env.NEWSCRAFT_HERMES_WORKSPACE || '';
+	process.env.NEWSCRAFT_AGENT_TENANT_SECRET ||= '';
+	process.env.NEWSCRAFT_AGENT_STATE_HOME ||= '';
+	process.env.NEWSCRAFT_AGENT_WORKSPACE ||= '';
 	configureAgentProviderCredentials(process.env);
 	const required = ['NEWSCRAFT_AGENT_TENANT_SECRET', 'NEWSCRAFT_AGENT_STATE_HOME', 'NEWSCRAFT_AGENT_WORKSPACE']
 		.filter((name) => !(process.env[name] || '').trim());
@@ -150,11 +147,11 @@ async function startDevServers() {
 	const agentBinary = isAbsolute(rawBinary) ? rawBinary : resolve(root, rawBinary);
 	if (!existsSync(agentBinary)) {
 		throw new Error(
-			`Agent Python runtime was not found at ${agentBinary}. Use services/hermes-chat/scripts/install-runtime.sh with the intended owned environment path.`
+			`Agent Python runtime was not found at ${agentBinary}. Use services/agent/scripts/install-runtime.sh with the intended owned environment path.`
 		);
 	}
 
-	const children = [startProcess('agent', agentBinary, ['-m', 'hermes_chat.service'], root)];
+	const children = [startProcess('agent', agentBinary, ['-m', 'newscraft_agent.service'], root)];
 	if (!agentOnly) {
 		children.unshift(
 			startProcess(
@@ -312,7 +309,7 @@ function run(command, commandArgs) {
 async function isHealthy(service) {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 1_500);
-	const token = (process.env.NEWSCRAFT_AGENT_API_TOKEN || process.env.NEWSCRAFT_HERMES_API_TOKEN || process.env.NEWSCRAFT_AGENT_SESSION_TOKEN || '').trim();
+	const token = (process.env.NEWSCRAFT_AGENT_API_TOKEN || process.env.NEWSCRAFT_AGENT_SESSION_TOKEN || '').trim();
 	try {
 		const response = await fetch(service.healthUrl, {
 			headers:

@@ -34,7 +34,7 @@ describe('durableFailureReason', () => {
 		expect(durableFailureReason('The model request outcome is uncertain; it was not retried.')).toBe(
 			'An interrupted step could not be safely retried.'
 		);
-		expect(durableFailureReason('Hermes run failed.')).toBe('The run stopped before an answer was written.');
+		expect(durableFailureReason('Agent run failed.')).toBe('The run stopped before an answer was written.');
 	});
 
 	it('falls back to short raw text and never exposes paths, tool ids or traces', () => {

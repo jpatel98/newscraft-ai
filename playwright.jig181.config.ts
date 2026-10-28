@@ -44,7 +44,7 @@ export default defineConfig({
 			APP_SESSION_SECRET: 'aGVybWVzLXVpLWUyZS1zZXNzaW9uLXNlY3JldC0wMDAwMDAwMDAwMDAwMDAw',
 			AGENT_GATEWAY_URL: 'http://127.0.0.1:9',
 			AGENT_GATEWAY_API_KEY: 'jig181-local-fixture',
-			NEWSCRAFT_HERMES_URL: 'http://127.0.0.1:9',
+			NEWSCRAFT_AGENT_URL: 'http://127.0.0.1:9',
 			E2E_SECRET: 'newscraft-jig181-local-secret'
 		}
 	},

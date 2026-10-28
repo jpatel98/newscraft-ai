@@ -48,7 +48,7 @@ describe('JIG-186 observability definitions', () => {
 			'failure_class'
 		]);
 		expect(JIG186_DASHBOARD_DEFINITIONS.find((definition) => definition.metric === 'service_restarts')).toMatchObject({
-			telemetryField: 'health.components.hermes.processInstanceId',
+			telemetryField: 'health.components.agent.processInstanceId',
 			semantics: expect.stringContaining('process restart')
 		});
 		expect(JIG186_DASHBOARD_DEFINITIONS.find((definition) => definition.metric === 'reconnects')).toMatchObject({
