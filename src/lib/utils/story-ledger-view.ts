@@ -79,6 +79,30 @@ export function groupLedgerClaims(
 	})).filter((group) => group.claims.length > 0);
 }
 
+/** Order of the Story button's meter blocks: what can air first, open checks last. */
+const METER_ORDER: readonly AirBucket[] = ['safe', 'careful', 'hold', 'check'];
+
+/**
+ * Splits `slots` meter blocks across air buckets in proportion to their claims
+ * (largest remainder), so every non-empty bucket gets at least one block when
+ * there are enough to go round. Returns [] for an empty ledger.
+ */
+export function ledgerMeter(claims: readonly StoryLedgerClaimView[], slots = 5): AirBucket[] {
+	if (!claims.length) return [];
+	const counts = METER_ORDER.map((bucket) => claims.filter((claim) => airBucket(claim) === bucket).length);
+	const total = Math.min(slots, claims.length);
+	const exact = counts.map((n) => (n * total) / claims.length);
+	const blocks = exact.map(Math.floor);
+	// Hand a block to any non-empty bucket that rounded to zero, then by largest remainder.
+	const order = counts
+		.map((n, i) => ({ i, empty: blocks[i] === 0 && n > 0, rest: exact[i] - blocks[i] }))
+		.sort((a, b) => Number(b.empty) - Number(a.empty) || b.rest - a.rest);
+	for (let k = 0, left = total - blocks.reduce((a, b) => a + b, 0); left > 0; k++, left--) {
+		blocks[order[k % order.length].i]++;
+	}
+	return METER_ORDER.flatMap((bucket, i) => Array<AirBucket>(blocks[i]).fill(bucket));
+}
+
 /** Plain-text brief grouped by air readiness, with the attribution to use for each claim. */
 export function ledgerBrief(claims: readonly StoryLedgerClaimView[]): string {
 	const groups = groupLedgerClaims(claims);
