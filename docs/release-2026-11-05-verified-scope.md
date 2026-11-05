@@ -7,7 +7,7 @@ This release is intentionally narrower than the preserved newsroom-writing exper
 - Tape candidates group reporter identity by transcript and exclude unplayable candidates.
 - SOT quote/cue checks reject malformed clocks, invalid ranges and unsupported partial-turn timing.
 - The selected final copy is rechecked after repair and output trimming; unresolved tape problems receive a producer-visible `TAPE CHECK: NOT VERIFIED` note.
-- OCVO drafts retaining measurable house-rule failures after repair receive a bounded `CHECK` note. These checks add no model calls and never declare factual verification.
+- OCVO drafts retaining measurable house-rule failures after repair receive a bounded `CHECK` note. Final rechecks dispatch no model calls and never declare factual verification. Stricter initial tape validation can invoke the existing one-shot repair more often.
 - Existing tests are consolidated without removing distinct failure scenarios. The root test command now runs the worker and builds shared dependencies before JS tests, with CI command parity and fail-closed Python selection.
 
 ## Excluded and preserved
