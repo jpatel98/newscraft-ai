@@ -60,6 +60,13 @@ def article_html(
     ).encode()
 
 
+PAYWALL_BODY = (
+    "Please subscribe to continue reading this article. "
+    "This article is available only to subscribers. "
+    + "Access to the remaining report requires an active subscription. " * 12
+)
+
+
 def response(
     url: str,
     *,
@@ -152,14 +159,7 @@ class RetrievalTests(unittest.TestCase):
                 "name": "paywall",
                 "live": response(
                     SOURCE_URL,
-                    body=article_html(
-                        title="Subscriber access",
-                        body=(
-                            "Please subscribe to continue reading this article. "
-                            "This article is available only to subscribers. "
-                            + "Access to the remaining report requires an active subscription. " * 12
-                        ),
-                    ),
+                    body=article_html(title="Subscriber access", body=PAYWALL_BODY),
                 ),
                 "archive_fallback": False,
                 "expected_error": "live_paywall",
@@ -271,6 +271,7 @@ class RetrievalTests(unittest.TestCase):
                 metadata = result["metadata"]
                 self.assertEqual(metadata["originalUrl"], SOURCE_URL)
                 self.assertEqual(metadata["requestCount"], case["request_count"])
+                self.assertEqual(len(fetcher.calls), case["request_count"])
                 self.assertEqual(metadata["evidenceStatus"], case["expected_status"])
                 if case["expected_error"] is None:
                     self.assertNotIn("error", result)
@@ -318,14 +319,7 @@ class RetrievalTests(unittest.TestCase):
         fetcher = FakeFetcher()
         fetcher.live = response(
             SOURCE_URL,
-            body=article_html(
-                title="Subscriber access",
-                body=(
-                    "Please subscribe to continue reading this article. "
-                    "This article is available only to subscribers. "
-                    + "Access to the remaining report requires an active subscription. " * 12
-                ),
-            ),
+            body=article_html(title="Subscriber access", body=PAYWALL_BODY),
         )
 
         self.assertEqual(_challenge_reason(fetcher.live), "live_paywall")
@@ -334,15 +328,6 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(result["error"], "live_paywall")
         self.assertEqual(result["metadata"]["evidenceStatus"], "unreadable")
         self.assertEqual(result["metadata"]["retrievedStatus"], 200)
-        self.assertEqual(result["metadata"]["requestCount"], 1)
-        self.assertEqual(len(fetcher.calls), 1)
-
-    def test_returns_a_bounded_timeout_failure(self) -> None:
-        fetcher = FakeFetcher()
-        fetcher.live = response(SOURCE_URL, error="timeout")
-        result = self.provider(fetcher, archive_fallback=False).verify_lead(SOURCE_URL)
-
-        self.assertEqual(result["error"], "live_timeout")
         self.assertEqual(result["metadata"]["requestCount"], 1)
         self.assertEqual(len(fetcher.calls), 1)
 
@@ -379,21 +364,6 @@ class RetrievalTests(unittest.TestCase):
         result = self.provider(fetcher).verify_lead(SOURCE_URL)
         self.assertEqual(result["error"], "archive_miss")
         self.assertEqual(result["metadata"]["evidenceStatus"], "unreadable")
-        self.assertEqual(len(fetcher.calls), 2)
-
-    def test_reports_an_archive_miss(self) -> None:
-        fetcher = FakeFetcher()
-        fetcher.live = response(SOURCE_URL, status=403, body=b"Access denied")
-        fetcher.cdx = response(
-            "https://web.archive.org/cdx/search/cdx",
-            body=b"[]",
-            content_type="application/json",
-        )
-        result = self.provider(fetcher).verify_lead(SOURCE_URL)
-
-        self.assertEqual(result["error"], "archive_miss")
-        self.assertEqual(result["metadata"]["fallbackReason"], "live_blocked_http_403")
-        self.assertEqual(result["metadata"]["requestCount"], 2)
         self.assertEqual(len(fetcher.calls), 2)
 
     def test_rejects_a_timestamp_mismatch(self) -> None:
@@ -482,13 +452,6 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(result["error"], "snippet_only")
         self.assertIn("newscraft-retrieval:v1:", result["content"])
         self.assertNotIn("A search lead.", result["content"])
-
-    def test_deduplicates_duplicate_urls_without_a_second_request(self) -> None:
-        fetcher = FakeFetcher()
-        result = self.provider(fetcher).extract([SOURCE_URL, SOURCE_URL])
-
-        self.assertEqual(len(result), 1)
-        self.assertEqual(len(fetcher.calls), 1)
 
     def test_returns_provider_results_without_an_extra_envelope(self) -> None:
         fetcher = FakeFetcher()
@@ -844,15 +807,9 @@ class ResearchToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fetcher.calls, [])
         self.assertEqual(self.search_calls, [])
 
-    def test_dns_that_resolves_to_private_addresses_is_rejected_before_connect(self):
-        answers = [(2, 1, 6, "", ("127.0.0.1", 443))]
-        with patch("newscraft_agent.retrieval.socket.getaddrinfo", return_value=answers), patch("newscraft_agent.retrieval.socket.socket") as create:
-            with self.assertRaises(ValueError):
-                _public_socket("public-looking.test", 443, 1)
-            create.assert_not_called()
-
-    def test_extraction_rejects_non_global_and_ipv6_transition_destinations(self):
-        for address in ("100.64.0.1", "100.127.255.254", "fec0::1", "64:ff9b::7f00:1", "2002:7f00:1::1"):
+    def test_extraction_rejects_private_non_global_and_ipv6_transition_destinations(self):
+        # Literal URLs and hostnames whose DNS answer is the address are both refused before any socket exists.
+        for address in ("127.0.0.1", "100.64.0.1", "100.127.255.254", "fec0::1", "64:ff9b::7f00:1", "2002:7f00:1::1"):
             with self.subTest(address=address):
                 host = "[" + address + "]" if ":" in address else address
                 with self.assertRaises(ValueError):

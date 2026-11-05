@@ -32,8 +32,9 @@ jobs:
 
       # No secrets needed: app tests mock $env/dynamic/private and the db layer;
       # harness tests and eval:fixture run without API keys by design.
+      # JS only here; the Python worker has its own job below (`pnpm test` runs both).
       - name: Unit tests
-        run: corepack pnpm test
+        run: corepack pnpm test:js
 
       - name: Golden-prompt eval (fixture mode)
         run: corepack pnpm eval:fixture

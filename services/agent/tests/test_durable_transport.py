@@ -64,6 +64,31 @@ class RecordingClient:
         self.closed = True
 
 
+def claiming_responder(_client: RecordingClient, _method: str, url: str, _headers: dict[str, str], _body: Any) -> FakeResponse:
+    """Grant the claim, acknowledge every other control request."""
+    if url.endswith("/claim"):
+        return FakeResponse(200, {
+            "terminal": False,
+            "lease_owner": "owner-1",
+            "lease_token": "lease-1",
+            "worker_cursor": 0,
+        })
+    return FakeResponse(200, {})
+
+
+def recording_factory(
+    clients: list[RecordingClient],
+    responder: Callable[..., Any],
+    name: str,
+) -> Callable[..., RecordingClient]:
+    """An httpx.AsyncClient stand-in that records each client it hands out; `{n}` in name is its 1-based index."""
+    def factory(**_kwargs: Any) -> RecordingClient:
+        client = RecordingClient(name.format(n=len(clients) + 1), responder)
+        clients.append(client)
+        return client
+    return factory
+
+
 class KeepAliveServer:
     def __init__(self) -> None:
         self.server: asyncio.AbstractServer | None = None
@@ -506,21 +531,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as root:
             worker = self._worker(root)
             clients: list[RecordingClient] = []
-
-            def responder(_client: RecordingClient, _method: str, url: str, _headers: dict[str, str], _body: Any):
-                if url.endswith("/claim"):
-                    return FakeResponse(200, {
-                        "terminal": False,
-                        "lease_owner": "owner-1",
-                        "lease_token": "lease-1",
-                        "worker_cursor": 0,
-                    })
-                return FakeResponse(200, {})
-
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient(f"client-{len(clients) + 1}", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, claiming_responder, "client-{n}")
 
             job_a = self._job("run-a", "tenant_a", "trace_a12345678")
             job_b = self._job("run-b", "tenant_b", "trace_b12345678")
@@ -627,10 +638,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             def responder(_client: RecordingClient, _method: str, _url: str, _headers: dict[str, str], _body: Any):
                 raise httpx.ReadTimeout("synthetic timeout")
 
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient("timeout", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, responder, "timeout")
 
             with patch.object(durable_module.httpx, "AsyncClient", side_effect=factory):
                 with self.assertRaises(httpx.TimeoutException):
@@ -644,21 +652,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as root:
             worker = self._worker(root)
             clients: list[RecordingClient] = []
-
-            def responder(_client: RecordingClient, _method: str, url: str, _headers: dict[str, str], _body: Any):
-                if url.endswith("/claim"):
-                    return FakeResponse(200, {
-                        "terminal": False,
-                        "lease_owner": "owner-1",
-                        "lease_token": "lease-1",
-                        "worker_cursor": 0,
-                    })
-                return FakeResponse(200, {})
-
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient(f"run-{len(clients) + 1}", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, claiming_responder, "run-{n}")
 
             async def finish(job: DurableJob) -> None:
                 await worker._callback(job, "run.started", {"status": "researching"})
@@ -685,10 +679,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
                     return FakeResponse(503, {"code": "network"})
                 return FakeResponse(200, {"state": "failed"})
 
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient("admission", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, responder, "admission")
 
             job = DurableJob(
                 run_id="run-admission",
@@ -720,21 +711,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             worker = self._worker(root)
             clients: list[RecordingClient] = []
             gate = asyncio.Event()
-
-            def responder(_client: RecordingClient, _method: str, url: str, _headers: dict[str, str], _body: Any):
-                if url.endswith("/claim"):
-                    return FakeResponse(200, {
-                        "terminal": False,
-                        "lease_owner": "owner-1",
-                        "lease_token": "lease-1",
-                        "worker_cursor": 0,
-                    })
-                return FakeResponse(200, {})
-
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient("cancel", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, claiming_responder, "cancel")
 
             async def wait_for_cancel(job: DurableJob) -> None:
                 try:
@@ -761,21 +738,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             worker = self._worker(root)
             clients: list[RecordingClient] = []
             gate = asyncio.Event()
-
-            def responder(_client: RecordingClient, _method: str, url: str, _headers: dict[str, str], _body: Any):
-                if url.endswith("/claim"):
-                    return FakeResponse(200, {
-                        "terminal": False,
-                        "lease_owner": "owner-1",
-                        "lease_token": "lease-1",
-                        "worker_cursor": 0,
-                    })
-                return FakeResponse(200, {})
-
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient("shutdown", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, claiming_responder, "shutdown")
 
             async def wait_for_shutdown(_job: DurableJob) -> None:
                 await gate.wait()
@@ -796,10 +759,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             def responder(_client: RecordingClient, _method: str, _url: str, _headers: dict[str, str], _body: Any):
                 raise httpx.ReadTimeout("synthetic recovery timeout")
 
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient("recovery", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, responder, "recovery")
 
             with patch.object(durable_module.httpx, "AsyncClient", side_effect=factory):
                 with self.assertLogs("newscraft_agent.durable", level="ERROR"):
@@ -847,21 +807,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as root:
             worker = self._worker(root)
             clients: list[RecordingClient] = []
-
-            def responder(_client: RecordingClient, _method: str, url: str, _headers: dict[str, str], _body: Any):
-                if url.endswith("/claim"):
-                    return FakeResponse(200, {
-                        "terminal": False,
-                        "lease_owner": "owner-1",
-                        "lease_token": "lease-1",
-                        "worker_cursor": 0,
-                    })
-                return FakeResponse(200, {})
-
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient(f"queued-{len(clients) + 1}", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, claiming_responder, "queued-{n}")
 
             async def finish(job: DurableJob) -> None:
                 await worker._callback(job, "response.completed", {"model": "fixture"})
@@ -908,10 +854,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             def responder(_client: RecordingClient, _method: str, _url: str, _headers: dict[str, str], _body: Any):
                 return FakeResponse(200, {})
 
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient("recovered", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, responder, "recovered")
 
             async def finish(job: DurableJob) -> None:
                 await worker._callback(job, "run.started", {"status": "researching"})
@@ -937,10 +880,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             def responder(_client: RecordingClient, _method: str, _url: str, _headers: dict[str, str], _body: Any):
                 return FakeResponse(200, {})
 
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient("recovered-cancel", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, responder, "recovered-cancel")
 
             async def wait_for_cancel(_job: DurableJob) -> None:
                 await gate.wait()
@@ -964,20 +904,7 @@ class DurableTransportTests(unittest.IsolatedAsyncioTestCase):
             clients: list[RecordingClient] = []
             gate = asyncio.Event()
 
-            def responder(_client: RecordingClient, _method: str, url: str, _headers: dict[str, str], body: Any):
-                if url.endswith("/claim"):
-                    return FakeResponse(200, {
-                        "terminal": False,
-                        "lease_owner": "owner-1",
-                        "lease_token": "lease-1",
-                        "worker_cursor": 0,
-                    })
-                return FakeResponse(200, {})
-
-            def factory(**_kwargs: Any) -> RecordingClient:
-                client = RecordingClient("late-flush", responder)
-                clients.append(client)
-                return client
+            factory = recording_factory(clients, claiming_responder, "late-flush")
 
             async def wait_for_shutdown(job: DurableJob) -> None:
                 await worker._callback(job, durable_module.TEXT_EVENT_TYPE, {"delta": "late text"})

@@ -190,7 +190,7 @@ def fallback_intent(request: str, decision: Mapping[str, Any]) -> dict[str, Any]
 
 def spoken_words(script: str) -> int:
     """Words the anchor reads: everything before Super/Banner/Sources/CHECK, minus cue and bracketed note lines."""
-    body = re.split(r"\n\s*(?:Super|Banner|Sources|CHECK)\s*:", "\n" + (script or ""), maxsplit=1, flags=re.I)[0]
+    body = re.split(r"\n\s*(?:Super|Banner|Sources|CHECK|TAPE CHECK)\s*:", "\n" + (script or ""), maxsplit=1, flags=re.I)[0]
     lines = [line for line in body.splitlines() if line.strip() and not re.match(r"^\s*[\[{(].*[\]})]\s*$", line)]
     return len(" ".join(lines).split())
 
@@ -207,7 +207,7 @@ def check(script: str, fmt: str, *, mode: str, request: str = "", previous: str 
     attached tape's speaker turns; with tape attached, every quoted SOT must be word-for-word from one turn."""
     if mode == "question" or not script_format(script):
         return []
-    body = re.split(r"\n\s*(?:Super|Banner|Sources|CHECK)\s*:", "\n" + script, maxsplit=1, flags=re.I)[0]
+    body = re.split(r"\n\s*(?:Super|Banner|Sources|CHECK|TAPE CHECK)\s*:", "\n" + script, maxsplit=1, flags=re.I)[0]
     problems = tape.quote_problems(script, turns)
     lower = [line.strip() for line in body.splitlines() if re.search(r"[a-z]", re.sub(r"\[.*?\]|\{.*?\}|\(.*?\)", "", line))]
     if lower:
