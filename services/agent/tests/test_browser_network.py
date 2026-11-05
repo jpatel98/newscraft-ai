@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from asyncio import selector_events, sslproto
+import contextlib
 import gzip
 import hashlib
 import os
@@ -35,6 +36,14 @@ def response(body=b"hello", headers=None, status="200 OK", framing=True):
             + b"\r\n" + body)
 
 
+@contextlib.contextmanager
+def pinned_network(reader, writer, *addresses):
+    """Resolve to the given public addresses and hand the fetch this one fake connection."""
+    with patch("newscraft_agent.browser_network._dns_lookup", return_value=records(*(addresses or (PUBLIC_IP,)))) as lookup, \
+         patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)) as connect:
+        yield lookup, connect
+
+
 class Writer:
     def __init__(self, peer=(PUBLIC_IP, 443), *, close_hangs=False):
         self.peer = peer
@@ -66,8 +75,7 @@ class BrowserNetworkTests(unittest.IsolatedAsyncioTestCase):
 
     async def fetch(self, data, *, url="https://public.example/", headers=None, method="GET", peer=(PUBLIC_IP, 443)):
         reader, writer = self.connection(data, peer=peer)
-        with patch("newscraft_agent.browser_network._dns_lookup", return_value=records(PUBLIC_IP)) as lookup, \
-             patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)) as connect:
+        with pinned_network(reader, writer) as (lookup, connect):
             result = await fetch_public_resource(url, method, headers)
         return result, writer, lookup, connect
 
@@ -142,9 +150,7 @@ class BrowserNetworkTests(unittest.IsolatedAsyncioTestCase):
     async def test_dns_rebinding_cannot_replace_pinned_connection_peer(self):
         for peer in (("127.0.0.1", 443), ("1.1.1.1", 443), (PUBLIC_IP, 80), None, (), (None, 443)):
             reader, writer = self.connection(response(), peer=peer)
-            with self.subTest(peer=peer), \
-                 patch("newscraft_agent.browser_network._dns_lookup", return_value=records(PUBLIC_IP)), \
-                 patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)):
+            with self.subTest(peer=peer), pinned_network(reader, writer):
                 with self.assertRaises(BrowserNetworkError):
                     await fetch_public_resource("https://public.example/")
                 self.assertEqual(writer.data, b"")
@@ -153,8 +159,7 @@ class BrowserNetworkTests(unittest.IsolatedAsyncioTestCase):
     async def test_public_ipv6_connection_is_pinned(self):
         address = "2606:4700:4700::1111"
         reader, writer = self.connection(response(), peer=(address, 443, 0, 0))
-        with patch("newscraft_agent.browser_network._dns_lookup", return_value=records(address)), \
-             patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)) as connect:
+        with pinned_network(reader, writer, address) as (_, connect):
             result = await fetch_public_resource(f"https://[{address}]/")
         self.assertEqual(connect.await_args.kwargs["family"], socket.AF_INET6)
         self.assertIn(f"Host: [{address}]\r\n".encode(), writer.data)
@@ -178,8 +183,7 @@ class BrowserNetworkTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_redirect_is_single_hop_with_validated_absolute_location(self):
         reader, writer = self.connection(response(b"redirect", {"Location": "../final?x=1#part"}, status="302 Found"))
-        with patch("newscraft_agent.browser_network._dns_lookup", return_value=records(PUBLIC_IP)) as lookup, \
-             patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)) as connect:
+        with pinned_network(reader, writer) as (lookup, connect):
             result = await fetch_public_resource("https://public.example/start/page")
         self.assertEqual(result.url, "https://public.example/start/page")
         self.assertEqual(result.status, 302)
@@ -361,8 +365,7 @@ class BrowserNetworkTests(unittest.IsolatedAsyncioTestCase):
             reader.feed_data(b"late-unread-junk")
             reader.feed_eof()
         writer.wait_closed = close_with_more_data
-        with patch("newscraft_agent.browser_network._dns_lookup", return_value=records(PUBLIC_IP)), \
-             patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)):
+        with pinned_network(reader, writer):
             result = await fetch_public_resource("https://public.example/")
         self.assertEqual(result.wire_bytes, len(data) + len(b"late-unread-junk"))
 
@@ -375,8 +378,7 @@ class BrowserNetworkTests(unittest.IsolatedAsyncioTestCase):
                     break
             reader.feed_eof()
         writer.wait_closed = close_with_excess_data
-        with patch("newscraft_agent.browser_network._dns_lookup", return_value=records(PUBLIC_IP)), \
-             patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)):
+        with pinned_network(reader, writer):
             with self.assertRaisesRegex(BrowserNetworkError, "received HTTP"):
                 await fetch_public_resource("https://public.example/")
         self.assertLessEqual(reader.received_bytes, MAX_RESOURCE_WIRE_BYTES)
@@ -460,8 +462,7 @@ class BrowserNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(tls._app_reading_paused)
         self.assertGreater(tls._incoming.pending, 0)
         self.assertLess(reader.received_bytes, len(payload))
-        with patch("newscraft_agent.browser_network._dns_lookup", return_value=records(PUBLIC_IP)), \
-             patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)):
+        with pinned_network(reader, writer):
             with self.assertRaisesRegex(BrowserNetworkError, "shutdown could not be confirmed"):
                 await fetch_public_resource("https://public.example/")
         self.assertTrue(discarded)
@@ -474,8 +475,7 @@ class BrowserNetworkTests(unittest.IsolatedAsyncioTestCase):
         async def close_timeout():
             raise TimeoutError()
         writer.wait_closed = close_timeout
-        with patch("newscraft_agent.browser_network._dns_lookup", return_value=records(PUBLIC_IP)), \
-             patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)):
+        with pinned_network(reader, writer):
             with self.assertRaisesRegex(BrowserNetworkError, "shutdown could not be confirmed"):
                 await fetch_public_resource("https://public.example/")
         writer.transport.abort.assert_called_once()
@@ -530,14 +530,12 @@ class BrowserNetworkTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_timeout_and_cancellation_close_connection(self):
         reader, writer = self.connection(b"", eof=False)
-        with patch("newscraft_agent.browser_network._dns_lookup", return_value=records(PUBLIC_IP)), \
-             patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)):
+        with pinned_network(reader, writer):
             with self.assertRaisesRegex(BrowserNetworkError, "timed out"):
                 await fetch_public_resource("https://public.example/", timeout_seconds=0.01)
         self.assertTrue(writer.closed)
         reader, writer = self.connection(b"", eof=False)
-        with patch("newscraft_agent.browser_network._dns_lookup", return_value=records(PUBLIC_IP)), \
-             patch("newscraft_agent.browser_network._open_connection", return_value=(reader, writer)):
+        with pinned_network(reader, writer):
             task = asyncio.create_task(fetch_public_resource("https://public.example/"))
             await asyncio.sleep(0)
             task.cancel()

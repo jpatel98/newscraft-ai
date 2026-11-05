@@ -28,7 +28,7 @@ function fixture(t) {
         writeFileSync(target, value, { mode });
     };
     put('.env.local', `DATABASE_URL=${OLD_DB}\nNEWSCRAFT_TEST_DATABASE_URL=${TEST_DB}\nNEWSCRAFT_AGENT_API_TOKEN=${TOKEN}\nNEWSCRAFT_AGENT_RUN_API_TOKEN=${CALLBACK}\nNEWSCRAFT_AGENT_TENANT_SECRET=${TENANT}\nAPP_SESSION_SECRET=${SESSION}\nNEWSCRAFT_STORAGE_BASE_URL=https://storage.example.test\nNEWSCRAFT_STORAGE_API_KEY=${STORAGE_KEY}\nOPENAI_API_KEY=sk-unapproved-root-value-which-must-not-propagate\n`);
-    put('services/agent/.env', `AGENT_AGUI_SESSION_TOKEN=${TOKEN}\nNEWSCRAFT_AGENT_RUN_API_TOKEN=${CALLBACK}\n`);
+    put('services/agent/.env', `NEWSCRAFT_AGENT_SESSION_TOKEN=${TOKEN}\nNEWSCRAFT_AGENT_RUN_API_TOKEN=${CALLBACK}\n`);
     put('services/newsroom-harness/.env.local', `OPENAI_API_KEY=${KEY}\nUNRELATED_SECRET=never-load-me\n`);
     put('services/agent/.venv-owned/bin/python', '# synthetic interpreter fixture, never executed\n', 0o700);
     put('services/agent/.venv-owned/pyvenv.cfg', 'include-system-site-packages = false\n');
@@ -172,7 +172,7 @@ test('private resolver environment cannot leak through JSON serialization', t =>
 
 test('mismatched or missing tokens block start without spawning', async t => {
     const { root, env, put } = fixture(t);
-    put('services/agent/.env', `AGENT_AGUI_SESSION_TOKEN=different-synthetic-listener-123456\n`);
+    put('services/agent/.env', `NEWSCRAFT_AGENT_SESSION_TOKEN=different-synthetic-listener-123456\n`);
     let spawned = false;
     assert.equal(await runLocal('start', { root, env, write() {}, spawn() { spawned = true; } }), 1);
     assert.equal(spawned, false);

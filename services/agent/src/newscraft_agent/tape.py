@@ -14,7 +14,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Final
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 TRANSCRIPT_CONTEXT_PREFIX: Final = "Attached transcript turns"
 TRANSCRIPT_SCHEME: Final = "transcript"
@@ -143,27 +143,45 @@ def _score(turn: Mapping[str, Any], *, min_seconds: float, max_seconds: float, r
     return score
 
 
+def _reporters(turns: Sequence[Mapping[str, Any]]) -> set[tuple[str, str]]:
+    """``(transcriptId, speaker)`` of each tape's reporter: whoever asks the most questions.
+
+    Decided per transcript, so a second interview on the same conversation
+    cannot make its own interviewee look like the reporter, or the reverse.
+    """
+    by_tape: dict[str, dict[str, int]] = {}
+    speakers: dict[str, set[str]] = {}
+    for turn in turns:
+        speakers.setdefault(turn["transcriptId"], set()).add(turn["speaker"])
+        if turn["text"].rstrip().endswith("?"):
+            counts = by_tape.setdefault(turn["transcriptId"], {})
+            counts[turn["speaker"]] = counts.get(turn["speaker"], 0) + 1
+    return {(tape_id, max(counts, key=counts.get)) for tape_id, counts in by_tape.items() if len(speakers[tape_id]) > 1}
+
+
 def pick_sots(turns: Sequence[Mapping[str, Any]], *, n: int = 3, min_seconds: float = 4.0, max_seconds: float = 12.0,
-              speaker: str | None = None) -> list[dict[str, Any]]:
+              speaker: str | None = None, transcript_id: str | None = None) -> list[dict[str, Any]]:
     """The ``n`` best clip candidates: in/out timecodes, speaker, verbatim words, citation number.
 
-    The reporter is taken to be the speaker who asks the most questions; their
-    turns are never clips. Candidates come back strongest first and carry the
-    one-line ``why`` the producer sees.
+    The reporter of each transcript is taken to be the speaker who asks the
+    most questions; their turns are never clips. ``transcript_id`` limits the
+    search to one tape. Every candidate is one whole turn: ``verbatim`` is that
+    turn's text untouched and in/out are its own times, with the
+    ``transcript://`` citation URL that plays exactly that span. Candidates
+    come back strongest first and carry the one-line ``why`` the producer sees.
     """
-    questions: dict[str, int] = {}
-    for turn in turns:
-        if turn["text"].rstrip().endswith("?"):
-            questions[turn["speaker"]] = questions.get(turn["speaker"], 0) + 1
-    reporter = max(questions, key=questions.get) if questions and len({t["speaker"] for t in turns}) > 1 else None
+    reporters = _reporters(turns)
     scored = []
     for turn in turns:
         if speaker and turn["speaker"] != speaker:
             continue
+        if transcript_id and turn["transcriptId"] != transcript_id:
+            continue
+        reporter = turn["speaker"] if (turn["transcriptId"], turn["speaker"]) in reporters else None
         value = _score(turn, min_seconds=min_seconds, max_seconds=max_seconds, reporter=reporter)
         if value > 0:
             scored.append((value, turn))
-    scored.sort(key=lambda pair: (-pair[0], pair[1]["startMs"]))
+    scored.sort(key=lambda pair: (-pair[0], pair[1]["transcriptId"], pair[1]["startMs"]))
     picks = []
     for value, turn in scored[: max(0, n)]:
         seconds = (turn["endMs"] - turn["startMs"]) / 1000
@@ -182,6 +200,7 @@ def pick_sots(turns: Sequence[Mapping[str, Any]], *, n: int = 3, min_seconds: fl
             "endMs": turn["endMs"],
             "seconds": round(seconds, 1),
             "verbatim": turn["text"],
+            "url": f"{TRANSCRIPT_SCHEME}://{quote(turn['transcriptId'], safe='')}#t={turn['startMs']},{turn['endMs']}",
             "why": ", ".join(why) or "clean, usable length",
         })
     return picks
@@ -208,7 +227,7 @@ _ANY_CUE = re.compile(r"\{[^}\n]*\}")
 
 def sot_segments(script: str) -> list[str]:
     """The text under each {SOT} cue, up to the next cue. Only these lines are the clip."""
-    body = re.split(r"\n\s*(?:Super|Banner|Sources|CHECK)\s*:", "\n" + (script or ""), maxsplit=1, flags=re.I)[0]
+    body = re.split(r"\n\s*(?:Super|Banner|Sources|CHECK|TAPE CHECK)\s*:", "\n" + (script or ""), maxsplit=1, flags=re.I)[0]
     segments = []
     for match in _SOT_CUE.finditer(body):
         rest = body[match.end():]
@@ -217,24 +236,59 @@ def sot_segments(script: str) -> list[str]:
     return segments
 
 
+# The whole header: each clock runs to its end (no digit, dot or letter glued on), and OUT is followed by ``|`` or ``]``.
+_SOT_HEADER = re.compile(r"\[\s*IN\s+(\d+(?::\d+)+)\s*(?:--|–|—|-)\s*OUT\s+(\d+(?::\d+)+)(?=\s*[|\]])", re.I)
+
+
+def _clock_seconds(value: str) -> int | None:
+    """Seconds in ``m:ss`` or ``h:mm:ss``; ``None`` if minutes or seconds are not two digits under 60, or there are too many parts."""
+    fields = value.split(":")
+    if len(fields) > 3 or len(fields[0]) > 9 or any(len(field) != 2 or int(field) >= 60 for field in fields[1:]):
+        return None
+    seconds = 0
+    for part in map(int, fields):
+        seconds = seconds * 60 + part
+    return seconds
+
+
 def quote_problems(script: str, turns: Sequence[Mapping[str, Any]]) -> list[str]:
-    """Quoted lines under a {SOT} cue that do not occur verbatim in the attached tape.
+    """Quoted lines under a {SOT} cue that are not on the attached tape, or carry timecodes that do not play them.
 
     Only checked when tape is attached, and only inside SOT segments: a quote
     from a release or a page elsewhere in the script is the writer's business.
     A quote is a double-quoted run of four or more words; it must appear word
     for word (ignoring case and punctuation, on word boundaries) inside one
-    speaker turn.
+    speaker turn. The segment's ``[IN m:ss -- OUT m:ss | ...]`` cue (the whole
+    header, ended by ``|`` or ``]``; trailing digits, dots or text are not a cue) must then
+    equal that whole turn's start and end (to the second). There is no word
+    timing, so a trimmed sub-clip cannot be verified and is rejected; so is a
+    malformed (minutes or seconds of 60+), reversed or zero-length cue.
+    The speaker name in the cue is not checked.
     """
     if not turns:
         return []
     normalized_turns = [f" {_norm(turn['text'])} " for turn in turns]
     problems = []
     for segment in sot_segments(script):
-        for quote in re.findall(r"[\"“]([^\"”]{12,}?)[\"”]", segment):
-            wanted = _norm(quote)
+        header = _SOT_HEADER.search(segment)
+        for quoted in re.findall(r"[\"“]([^\"”]{12,}?)[\"”]", segment):
+            wanted = _norm(quoted)
             if len(wanted.split()) < 4:
                 continue
-            if not any(f" {wanted} " in turn for turn in normalized_turns):
-                problems.append(f"The SOT quote \"{quote[:60]}\" is not word-for-word in the attached tape; use the exact words of one turn.")
+            holders = [turn for turn, text in zip(turns, normalized_turns) if f" {wanted} " in text]
+            if not holders:
+                problems.append(f"The SOT quote \"{quoted[:60]}\" is not word-for-word in the attached tape; use the exact words of one turn.")
+                continue
+            if header is None:
+                problems.append(f"The SOT quote \"{quoted[:60]}\" has no [IN m:ss -- OUT m:ss | NAME, TITLE] cue.")
+                continue
+            start, end = _clock_seconds(header.group(1)), _clock_seconds(header.group(2))
+            cue = f"{header.group(1)}--{header.group(2)}"
+            if start is None or end is None:
+                problems.append(f"The SOT quote \"{quoted[:60]}\" has a malformed cue {cue}; minutes and seconds must be under 60.")
+            elif end <= start:
+                problems.append(f"The SOT quote \"{quoted[:60]}\" has a zero-length or reversed cue {cue}; OUT must come after IN.")
+            elif not any(start == turn["startMs"] // 1000 and end == turn["endMs"] // 1000 for turn in holders):
+                spans = " or ".join(f"IN {clock(t['startMs'])} OUT {clock(t['endMs'])}" for t in holders[:2])
+                problems.append(f"The SOT quote \"{quoted[:60]}\" is cued {cue}, but those words play at {spans}; cue the whole turn.")
     return problems

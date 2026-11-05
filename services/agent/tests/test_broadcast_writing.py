@@ -122,6 +122,12 @@ class SkillTests(unittest.TestCase):
     def test_spoken_words_skip_cues_notes_and_lower_thirds(self):
         self.assertEqual(bw.spoken_words(SUVO_SCRIPT), 12)
 
+    def test_tape_warning_is_not_spoken_copy(self):
+        bare = SUVO_SCRIPT.split("Super:")[0].strip()
+        warning = '\n\nTAPE CHECK: NOT VERIFIED.\n- "These words are not in the tape."'
+        self.assertEqual(bw.spoken_words(bare + warning), 12)
+        self.assertEqual(bw.check(bare + warning, "suvo", mode="new_script"), [])
+
     def test_writer_prompt(self):
         prompt = bw.writer_prompt("suvo")
         self.assertIn("Write the SUVO now", prompt)

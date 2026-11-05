@@ -43,3 +43,9 @@ services/newsroom-harness/api/vercel-entry.js
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .env*.local
+
+# Generated ledger evaluation reports (fixtures and cassettes remain tracked)
+/eval/ledger/report.json
+/eval/ledger/copy-report.json
+/eval/broadcast/.record-budget.json
+/eval/broadcast/.record-budget.lock

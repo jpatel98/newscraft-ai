@@ -49,7 +49,25 @@ excerpt (`src/lib/server/transcripts/context.ts`, then
 treats those citations as private tape: never fetched, only quoted
 (`services/agent/src/newscraft_agent/tape.py`). In a SOTVO turn the worker
 computes clip candidates from the turns and checks that every quoted SOT is
-word-for-word from one turn, repairing the script once if it is not.
+word-for-word from one turn, repairing the script once if it is not. The
+repair is not trusted: the script that finally stands (the repair, or the first
+draft when the repair fails, is not a script, or still breaks a rule) is
+checked against the tape again with no extra model call. If tape quote or
+cue issues remain, the answer still goes out but ends with a `TAPE CHECK: NOT
+VERIFIED` note listing them for the producer. It is a warning, not a gate: a
+clean script is not proof that the audio matches, only that the checks below
+passed.
+
+SOT cue check (`quote_problems`): a tape quote must sit inside one turn, and its
+`[IN m:ss -- OUT m:ss | ...]` cue must equal that whole turn's start and end,
+to the second. Known limits: the tape has no word-level timing, so a trimmed
+sub-clip cannot be verified and is rejected rather than trusted (cue the whole
+turn, or trim in the editor). Cues with minutes or seconds that are not two
+digits under 60, with more than three parts, or with OUT not after IN, are
+rejected. The header must be complete: OUT is followed by `|` or `]`, so
+`OUT 0:090`, `OUT 0:09.9` and `OUT 0:09garbage` are not read as `0:09`. The speaker name in
+the cue is not checked against the turn's speaker. A quote that appears in
+several turns passes if the cue matches any one of them.
 
 - `GET /api/conversations/[id]/transcripts` → attached transcripts.
 - `POST /api/conversations/[id]/transcripts { transcriptId }` → attach (202 while

@@ -164,6 +164,20 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         factory.policy = {"kind": "synthetic-oci-fixture"}
         return factory, engine
 
+    def browser_runner(self, *replies, navigate=True):
+        """A fresh runner on a fresh fake browser; with navigate, its first reply opens the fixture page."""
+        from test_browser_controller import browser_factory, URL
+        factory, _, browser, fetch = browser_factory(Path(self.directory.name).resolve())
+        first = [call("browser", {"action": "navigate", "url": URL})] if navigate else []
+        runner = self.runner([*first, *replies])
+        runner.sandbox_factory = factory
+        return runner, factory, browser, fetch
+
+    def resumed_runner(self, factory, *replies):
+        runner = self.runner(list(replies))
+        runner.sandbox_factory = factory
+        return runner
+
     async def test_research_computer_files_and_cited_artifacts_replay_through_one_owned_loop(self):
         factory, engine = self.computer_factory()
         runner = self.runner([
@@ -257,10 +271,8 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         await self.browser_flow("deepseek")
 
     async def test_browser_receipt_recovers_lost_postgres_ack_with_citations_and_no_repeat(self):
-        from test_browser_controller import browser_factory, URL
-        factory, _, browser, fetch = browser_factory(Path(self.directory.name).resolve())
-        runner = self.runner([call("browser", {"action": "navigate", "url": URL})])
-        runner.sandbox_factory = factory
+        from test_browser_controller import URL
+        runner, factory, browser, fetch = self.browser_runner()
         async def lose_completion(run, update=None):
             if update and "browser" in update["state"]["receipts"]:
                 raise RuntimeError("synthetic lost database acknowledgement")
@@ -268,11 +280,10 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         runner.checkpoint = lose_completion
         with self.assertRaisesRegex(RuntimeError, "lost database"):
             await self.collect(runner)
-        resumed = self.runner([
+        resumed = self.resumed_runner(factory,
             call("record_newscraft_source", {"source": {"citationNumber": 1, "title": "Research fixture", "url": URL,
                 "publicationDate": "", "sourceType": "official", "supportingExcerpt": "The source reports a confirmed event"}}),
-            answer("A confirmed event. [1]")])
-        resumed.sandbox_factory = factory
+            answer("A confirmed event. [1]"))
         events = await self.collect(resumed)
         self.assertEqual(events[-1]["type"], "RUN_FINISHED")
         self.assertEqual(browser.creates, 1)
@@ -281,10 +292,8 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.store.data["state"]["sources"]), 1)
 
     async def test_terminal_event_already_has_confirmed_browser_cleanup(self):
-        from test_browser_controller import browser_factory, URL
-        factory, _, browser, _ = browser_factory(Path(self.directory.name).resolve())
-        runner = self.runner([call("browser", {"action": "navigate", "url": URL}), answer()])
-        runner.sandbox_factory = factory
+        from test_browser_controller import URL
+        runner, factory, browser, _ = self.browser_runner(answer())
         stream = runner.run(self.payload, self.runtime, "run-one")
         async for event in stream:
             if event["type"] == "RUN_FINISHED":
@@ -308,10 +317,7 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(browser.creates, 2)
 
     async def test_failed_final_cleanup_preserves_answer_for_recovery_without_new_dispatch(self):
-        from test_browser_controller import browser_factory, URL
-        factory, _, browser, fetch = browser_factory(Path(self.directory.name).resolve())
-        runner = self.runner([call("browser", {"action": "navigate", "url": URL}), answer()])
-        runner.sandbox_factory = factory
+        runner, factory, browser, fetch = self.browser_runner(answer())
         browser.fail_remove = True
         events = []
         with self.assertRaises(RecoveryPending):
@@ -324,18 +330,14 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(browser.items)
         browser.fail_remove = False
         self.store.data["state"]["started"] = 0  # Recovery dispatches no new work beyond the budget.
-        resumed = self.runner([])
-        resumed.sandbox_factory = factory
+        resumed = self.resumed_runner(factory)
         self.assertEqual((await self.collect(resumed))[-1]["type"], "RUN_FINISHED")
         self.assertEqual(self.store.data["state"]["phase"], "finished")
         self.assertFalse(browser.items)
         self.assertEqual((len(self.requests), browser.creates, fetch.await_count), (2, 1, 1))
 
     async def test_crash_after_cleanup_before_final_checkpoint_replays_saved_answer(self):
-        from test_browser_controller import browser_factory, URL
-        factory, _, browser, fetch = browser_factory(Path(self.directory.name).resolve())
-        runner = self.runner([call("browser", {"action": "navigate", "url": URL}), answer()])
-        runner.sandbox_factory = factory
+        runner, factory, browser, fetch = self.browser_runner(answer())
         async def crash_before_final_checkpoint(run, update=None):
             if update and update["state"]["phase"] == "finished":
                 raise RuntimeError("synthetic crash before final checkpoint")
@@ -345,24 +347,19 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
             await self.collect(runner)
         self.assertEqual(self.store.data["state"]["phase"], "finishing")
         self.assertFalse(browser.items)
-        resumed = self.runner([])
-        resumed.sandbox_factory = factory
+        resumed = self.resumed_runner(factory)
         self.assertEqual((await self.collect(resumed))[-1]["type"], "RUN_FINISHED")
         self.assertEqual((len(self.requests), browser.creates, fetch.await_count), (2, 1, 1))
 
     async def test_cancellation_of_pending_final_cleanup_cannot_replay_answer(self):
-        from test_browser_controller import browser_factory, URL
-        factory, _, browser, _ = browser_factory(Path(self.directory.name).resolve())
-        runner = self.runner([call("browser", {"action": "navigate", "url": URL}), answer()])
-        runner.sandbox_factory = factory
+        runner, factory, browser, _ = self.browser_runner(answer())
         browser.fail_remove = True
         with self.assertRaises(RecoveryPending):
             await self.collect(runner)
         browser.fail_remove = False
         await runner.cancel_run("run-one")
         self.assertEqual(self.store.data["state"]["phase"], "cancelled")
-        resumed = self.runner([])
-        resumed.sandbox_factory = factory
+        resumed = self.resumed_runner(factory)
         with self.assertRaisesRegex(RunError, "already ended"):
             await self.collect(resumed)
         self.assertEqual(self.store.data["state"]["phase"], "cancelled")
@@ -1312,6 +1309,85 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.requests), 2)
         self.assertIn("Convert FEET to metric", self.model_prompts()[1])
         self.assertIn("200 METRES", self.final_answer(events))
+
+    async def test_ocvo_final_house_check_marks_failed_or_incomplete_repairs_without_another_call(self):
+        draft = "{ON CAM}\n" + "ONE " * 101 + ".\n{VO}\nANOTHER LINE."
+        good = "{ON CAM}\nTHE COUNCIL APPROVED A BUDGET.\n{VO}\nTHE VOTE WAS TUESDAY."
+        for label, repaired, fail, warning in (("still long", draft, False, True),
+                                               ("not a script", "I cannot repair that.", False, True),
+                                               ("unavailable", None, True, True),
+                                               ("fixed", good, False, False)):
+            with self.subTest(label):
+                self.store, self.requests = Store(), []
+                runner = self.runner([answer(draft), *([answer(repaired)] if repaired else [])])
+                if fail:
+                    original = runner.model.complete
+                    async def complete(**arguments):
+                        if "on_text" not in arguments:
+                            raise RuntimeError("repair unavailable")
+                        return await original(**arguments)
+                    runner.model.complete = complete
+                exa, _ = self.fake_exa()
+                events = await self.collect_fast(runner, self.fast_payload("/ocvo " + "Source material about the council budget. " * 5), exa)
+                final = self.final_answer(events)
+                self.assertEqual("CHECK: Draft still needs editing before air:" in final, warning)
+                self.assertEqual(len(self.requests), 1 if fail else 2)
+                self.assertTrue(final.startswith(draft if warning else good))
+                self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+
+    def tape_payload(self):
+        from test_tape import CONTEXT
+        payload = self.fast_payload("/sotvo bridge closure")
+        payload["context"] = [*payload["context"], CONTEXT[1]]
+        return payload
+
+    async def run_tape_script(self, replies, *, fail_repair=False):
+        from test_tape import SCRIPT_OK
+        exa, _ = self.fake_exa()
+        runner = self.runner([answer(SCRIPT_OK.replace("IN 0:02", "IN 0:03")), *replies])  # A trimmed cue: the draft needs repair.
+        if fail_repair:
+            real = runner.model.complete
+            async def complete(**arguments):
+                if "on_text" not in arguments:
+                    raise RuntimeError("repair unavailable")
+                return await real(**arguments)
+            runner.model.complete = complete
+        events = await self.collect_fast(runner, self.tape_payload(), exa)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        return self.final_answer(events)
+
+    async def test_tape_cue_problems_left_after_repair_are_flagged_to_the_producer(self):
+        from test_tape import SCRIPT_OK
+        draft = SCRIPT_OK.replace("IN 0:02", "IN 0:03")
+        for label, replies, fail in (("still invalid", [answer(draft.replace("OUT 0:09", "OUT 0:08"))], False),
+                                     ("not a script", [answer("Sorry, I cannot fix that.")], False),
+                                     ("repair fails", [], True)):
+            with self.subTest(label):
+                self.store, self.requests = Store(), []
+                final = await self.run_tape_script(replies, fail_repair=fail)
+                self.assertEqual(len(self.requests), 1 if fail else 2)
+                self.assertIn("TAPE CHECK: NOT VERIFIED", final)
+                self.assertIn("cue the whole turn", final)
+                self.assertNotIn("PRIVATE", final)
+                self.assertIn("WE HAD NO CHOICE", final)  # A draft the repair could not replace stays, marked.
+
+    async def test_tape_warning_checks_the_final_selected_copy_after_trimming(self):
+        from test_tape import SCRIPT_OK
+        bad = SCRIPT_OK.replace("IN 0:02", "IN 0:03")
+        for selected, warning in ((SCRIPT_OK, False), (bad, True)):
+            with self.subTest(warning):
+                self.store, self.requests = Store(), []
+                with patch("newscraft_agent.portable._trim_output_action", return_value=selected):
+                    final = await self.run_tape_script([answer(bad)])
+                self.assertEqual("TAPE CHECK: NOT VERIFIED" in final, warning)
+                self.assertEqual(len(self.requests), 2)
+
+    async def test_a_successful_tape_repair_carries_no_warning(self):
+        from test_tape import SCRIPT_OK
+        final = await self.run_tape_script([answer(SCRIPT_OK)])
+        self.assertEqual(len(self.requests), 2)
+        self.assertIn("IN 0:02 -- OUT 0:09", final)
+        self.assertNotIn("TAPE CHECK", final)
 
     async def test_a_note_on_the_last_script_is_classified_then_applied(self):
         exa, calls = self.fake_exa()
