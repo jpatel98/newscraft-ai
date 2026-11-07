@@ -1,9 +1,10 @@
 # NewsCraft AI source of truth
 
-Verification date: 2026-10-08 (America/Toronto). Scope: the Mac mini checkout,
-offline fixtures, disposable loopback Postgres and the recorded local startup
-follow-up against the authorized new database. No production deployment, paid
-provider call or Linux executor acceptance was run.
+Verification date: 2026-11-07 (America/Toronto). Scope: local main starting at
+`1b36d21`, offline fixtures and disposable loopback Postgres. Current measurements
+and the bounded health-only startup result are in the local handoff. No production
+deployment, paid provider call or Linux executor acceptance was run this session.
+Older dated observations below are historical, not refreshed cloud evidence.
 
 Use these evidence labels:
 
@@ -44,7 +45,7 @@ Browser -> SvelteKit app -> Postgres conversations/runs/events/checkpoints
 | Component | Repository evidence | Status and limit |
 | --- | --- | --- |
 | Selected orchestration | [portable.py](services/hermes-chat/src/hermes_chat/portable.py), [service.py](services/hermes-chat/src/hermes_chat/service.py) | **Repository verified / Working:** canonical owned loop, saved intent/receipts, recovery, budgets and cleanup fixtures. |
-| Model protocols | [model_adapters.py](services/hermes-chat/src/hermes_chat/model_adapters.py) | **Working:** mocked OpenAI Responses, Anthropic Messages and dedicated DeepSeek Messages flows. **Working:** dedicated key configuration and local DeepSeek readiness. **Blocked:** paid approval. **Unverified:** provider access and answer quality. |
+| Model protocols | [model_adapters.py](services/hermes-chat/src/hermes_chat/model_adapters.py) | **Working:** mocked OpenAI Responses, Anthropic Messages and dedicated DeepSeek Messages flows. **Historical:** one synthetic DeepSeek acceptance on October 8, with its approval consumed. **Blocked:** new paid acceptance approval. **Unverified this session:** provider access and answer quality. |
 | Durable state | [hermes-runs.ts](src/lib/server/db/hermes-runs.ts), [agent-runtime.ts](src/lib/server/db/agent-runtime.ts), [0018](drizzle/0018_portable_agent_core.sql) | **Working:** Postgres lease, cursor, idempotency, cancellation and checkpoint CAS tests. Private state is not public replay. |
 | Authentication | [auth/backend.ts](src/lib/server/auth/backend.ts), [auth/postgres.ts](src/lib/server/auth/postgres.ts), [auth/supabase.ts](src/lib/server/auth/supabase.ts) | **Working:** Postgres password accounts and signed revocable sessions by default; explicit optional Supabase adapter tested with doubles. Cloud auth is **Unverified**. |
 | Retrieval | [search_adapters.py](services/hermes-chat/src/hermes_chat/search_adapters.py), [retrieval.py](services/hermes-chat/src/hermes_chat/retrieval.py) | **Working:** independent public DDGS discovery, bounded public fetch/archive and exact excerpt checks in fixtures. Optional OpenAI search is a separately reserved paid request. |
@@ -101,7 +102,7 @@ CPython 3.11 in `.venv-owned` are the verified local tools. The full JavaScript
 matrix retains the historical harness as a compatibility check; its fixture eval
 is not acceptance of the owned runtime's live answer quality.
 
-**Working / measured 2026-10-08:** owned orchestration and DeepSeek support are
+**Historical / measured 2026-10-08:** owned orchestration and DeepSeek support were
 merged on `main` (`4df5b3e`). The guarded runner applied only the missing
 `0017_topic_projects` to the authorized new project `ygsiifvjzdazfxflmpjq`.
 The exact migration ledger is **20/20**, schema status is complete, and all
@@ -110,15 +111,19 @@ PUBLIC/anon/authenticated table grants; older grants were not re-audited.
 Initialization was not repeated. Separate disposable Postgres tests exercise
 migration, tenancy and durable-state behavior without contacting this project.
 
-**Working:** Jigar's database and dedicated DeepSeek key pass the passive checker.
+**Historical (2026-10-08):** Jigar's database and dedicated DeepSeek key passed the passive checker.
 With full TLS verification and the documented public CA, both loopback health
 endpoints returned 200/ready; private readiness named DeepSeek Messages with
 `accessVerified: false`. Signup, fresh sign-in and an empty saved conversation
 passed with zero chat requests. Both listeners stopped and ports were free.
-**Blocked:** separate approval for the prepared **$0.06** synthetic DeepSeek
-acceptance, which uses only local checkpoints/artifacts and no app storage;
-see [the measured handoff and command](docs/agent-local-handoff.md#status-as-of-2026-10-08).
-The earlier $4.23 OpenAI proposal was not run. Actual computer/browser acceptance needs an approved
+The handoff also records one approved **$0.06** synthetic DeepSeek acceptance
+(five requests, **$0.043958** reserved); its one-shot approval is consumed.
+See [the historical receipt](docs/agent-local-handoff.md#status-as-of-2026-10-08).
+**Working (2026-11-07):** the passive default-profile checker passes; the database
+entry is no longer blank. Disposable Postgres verifies the current 26-migration,
+39-table contract without inspecting or altering the hosted schema.
+**Blocked:** the separate $4.23 OpenAI proposal was not run and needs fresh explicit
+approval. Actual computer/browser acceptance needs an approved
 Linux executor host. No Docker/Colima/Lima reinstall or new cloud resource is
 part of this work. See [deployment decision](docs/agent-deployment-decision.md).
 
@@ -140,9 +145,11 @@ presence is intentional, not authorization to enable or delete them. Legacy
 `/api/agent/*` compatibility and report/job tables remain subject to
 [removal gates](docs/legacy-runtime-disposition.md). Personal Hydra is separate.
 
-This work begins at `cb3dec98f442cc8d7de7be626edb5cf24bf50921` on `main` and is
-committed locally in reviewed slices. No push/deployment/DNS/production change was
-made. Local build/test success does not satisfy the full
+The historical replacement began at `cb3dec98f442cc8d7de7be626edb5cf24bf50921` and
+already landed in six reviewed slices. This follow-up reviews local main at
+`1b36d21`, preserving the newer `claude/script-intent-router` branch and all four
+pre-existing untracked files. Follow-up fixes are committed locally; no push,
+deployment, DNS or production change is authorized. Local build/test success does not satisfy the full
 [release and rollback checklist](docs/release-and-rollback-checklist.md).
 
 ## Historical source-of-truth audit — 2026-08-24

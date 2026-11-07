@@ -1,4 +1,83 @@
-# Status as of 2026-10-08
+# Status as of 2026-11-07
+
+**Working / measured this session:** reviewed existing local main starting at
+`1b36d21`; the original replacement already landed. The newer
+`claude/script-intent-router` branch and four pre-existing untracked files remain
+outside these local commits. No push, deployment, production mutation or paid
+provider call occurred. Product remains chat-first; tracker remains frozen.
+
+| Check | Fresh result |
+| --- | --- |
+| Node / pnpm / owned Python | 24.21.0 / 9.15.9 / CPython 3.11.16; existing locked environment, no reinstall/upgrade |
+| `pnpm check` | **0 errors / 0 warnings** |
+| `pnpm test` | **948 app + 31 shared + 343 historical harness + 32 ledger eval passed**; 63 DB-gated app and 2 opt-in harness skips |
+| Full owned Python suite | **803 passed**, including real synthetic localhost HTTP |
+| Local setup / launcher / production-helper safety tests | **30 / 9 / 6 passed**; production-helper tests use synthetic injected dependencies only |
+| Editor launch tests | **3 passed** |
+| Additional infra suite | **3 shell fixtures + 10 Node tests passed**, including the 3 editor tests; synthetic bootstrap, backup/restore and storage only |
+| Disposable PostgreSQL fixture | **73 passed / 11 files**, current **26 migrations / 39 public tables**; its own process and directory stopped/removed |
+| `pnpm build` | Passed; existing optional-platform dependency tracing/chunk warnings, no deploy |
+| `pnpm eval:fixture` | **25/25 prompts, 17/17 trust traps**; historical harness fixture, not live owned-model acceptance |
+| Offline `uv lock --check --offline --no-cache --no-python-downloads` | Passed, 30 packages, no sync/install |
+| `node scripts/agent-local.mjs check` | Passed, **18/18** passive checks; credentials not shown or copied |
+| Authorized health-only startup | Worker `/ready` **200**; app `/api/health` **503** due to database connectivity failure (gateway failure false); execution endpoint **503** as intended |
+| Shutdown | SIGINT launcher exit **0**; ports **3001/8000 free** |
+| Playwright | Skipped: config requires explicit `E2E_DATABASE_URL`, auth/seed setup and a database; not database-free |
+
+All counts come from commands run on November 7, not prior `/tmp` receipts.
+Restricted socket/shared-memory tests were rerun with permission for their own
+loopback fixtures. Assertions were not relaxed. Ledger replay now uses the same
+12-claim extraction bound as production; three missing judge verdicts derive from
+existing reviewed golden labels and two copy cases preserve original recorded
+responses with unused input tails removed. Provenance tests verify those offline
+updates; they are not new model recordings. Normal evals no longer overwrite the
+pre-existing untracked reports; use `LEDGER_EVAL_REPORT_DIR=/private/tmp/<directory>`
+only when fresh reports are wanted.
+
+**Changed:** account-scoped title context; transcript processing fences and safe
+logs; conservative ledger cursors; bounded paid search/auxiliary calls and byte-based
+token reservations; checkpointed fast-path dispatch and no uncertain replay;
+OCI preflight cancellation and retryable browser cleanup; citation/source/date
+integrity, replay and microphone cleanup; safe health-only launch and eval guards.
+The full file:line findings and limits are in [the review](agent-review-2026-11-07.md).
+Public `.env.example` changes intentionally remain uncommitted under the `.env*`
+exclusion. Existing migration SQL and initial Supabase artifact are unchanged.
+
+**Blocked / human-owned next steps:**
+
+- **Database:** the former blank `DATABASE_URL` entry is resolved—the passive
+  checker passes. Connectivity is not: app health reports unavailable. Jigar must
+  verify the authorized new project's availability and private connection entry
+  without posting/copying credentials. No cloud schema or grants were re-audited,
+  no migrations were run remotely, and the old project was not contacted.
+- **Paid acceptance:** Jigar must explicitly approve the separate **$4.23 OpenAI**
+  run after current provider pricing is reviewed. None was attempted. The historical
+  October 8 synthetic DeepSeek one-shot is already consumed, not reusable approval.
+- **Linux executor:** Jigar must choose/authorize the host, immutable images and
+  reviewed seccomp policy. No Docker/Colima/Lima reinstall, Contabo SSH, new cloud
+  resource or Linux/Chromium acceptance was performed.
+
+Exact safe next commands (after privately resolving database connectivity):
+
+```sh
+cd /Users/macserver/Development/newscraft-ai
+export PATH="/Users/macserver/.local/share/fnm/node-versions/v24.21.0/installation/bin:$PATH"
+export TMPDIR=/private/tmp
+export NODE_EXTRA_CA_CERTS="$PWD/config/certs/supabase-prod-ca-2021.crt"
+node scripts/agent-local.mjs check
+node scripts/agent-local.mjs start --health-only
+```
+
+In another terminal, run `curl -fsS http://127.0.0.1:3001/api/health` and
+`curl -fsS http://127.0.0.1:8000/ready`; then Ctrl-C the launcher. Health-only mode
+disables worker recovery and denies all execution endpoints. Do **not** replace
+it with ordinary startup under a no-paid-call restriction: ordinary startup can
+claim saved work. Do not use the production helper or rerun initialization.
+
+## Status as of 2026-10-08
+
+**Historical receipt:** retained unchanged below; the November 7 status supersedes
+its configuration, counts and next steps.
 
 **Working locally:** owned orchestration and DeepSeek support are merged on
 `main` via PR #7, merge `4df5b3e`. Jigar saved the dedicated key privately;

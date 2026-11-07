@@ -1,6 +1,6 @@
 # NewsCraft AI — Current Product & Roadmap
 
-Architecture reviewed: 2026-10-08. Product/usage review: 2026-09-05.
+Architecture reviewed: 2026-11-07 (local main). Product/usage review: 2026-09-05.
 
 ## Current product
 
@@ -68,13 +68,20 @@ sessions; Supabase Auth/Storage are explicitly selected optional adapters.
 The optional rootless OCI adapter supplies terminal/files and interactive
 Chromium on an approved Linux worker. Private conversation files, browser storage
 and operation receipts live on its retained SQLite volume; this persistence is
-separate from Postgres. **Working locally:** new-project database connectivity,
-signup/sign-in and an empty saved conversation. **Blocked:** actual Linux/Chromium
-acceptance and separately approved paid-model acceptance. The owned runtime and
-DeepSeek support are merged on `main` (`4df5b3e`). The dedicated key passes the
-passive checker; the new database has the complete 20-version migration contract.
-DeepSeek loopback readiness and empty-conversation auth checks passed on 2026-10-08.
-Readiness describes configuration, not provider or deployment success.
+separate from Postgres. **Repository verified:** the reviewed local main starts
+at `1b36d21`; the original replacement already landed in six reviewed commits.
+The current local schema contract contains 26 migrations and 39 public tables.
+That is a disposable-fixture result, not a statement about any hosted schema.
+**Working:** the guarded local configuration check passes. **Historical:**
+October 8 records cover new-project connectivity/auth and one approved synthetic
+DeepSeek run; that one-shot approval is consumed, not permission to repeat it.
+**Blocked:** the separate $4.23 OpenAI acceptance needs Jigar's explicit approval;
+Linux/Chromium acceptance needs an approved host/image/seccomp decision.
+The current health-only startup reached worker readiness (200), but app health
+returned 503 for database connectivity; that private configuration/availability
+gate remains with Jigar despite the passing passive checker.
+Health-only startup disables recovery and execution so readiness can be checked
+without claiming saved runs. Readiness does not prove provider or deployment success.
 
 See [the worker README](services/hermes-chat/README.md),
 [source of truth](SOURCE_OF_TRUTH.md), and [measured local handoff](docs/agent-local-handoff.md).

@@ -1,16 +1,30 @@
-# Owned runtime live acceptance — not run
+# Owned runtime live acceptance boundaries
 
-## DeepSeek update — 2026-10-08
+## Current gate — 2026-11-07
+
+**Blocked:** the $4.23 OpenAI public/synthetic acceptance still requires Jigar's
+separate explicit approval. No paid calls were made in this review. Linux executor
+acceptance needs a separately approved host/image/seccomp decision. The passive
+local checker now passes; use `node scripts/agent-local.mjs start --health-only`
+for no-dispatch health checks. Ordinary startup can recover saved runs and is not
+a safe substitute when inference is prohibited. See the
+[current measured handoff](agent-local-handoff.md#status-as-of-2026-11-07).
+
+**Historical:** the October 8 handoff records one approved synthetic DeepSeek run,
+five requests and $0.043958 reserved of $0.06. The admission is consumed. Do not
+rerun the command below; another paid run needs a new identity and new approval.
+
+## Historical DeepSeek proposal — 2026-10-08 (superseded by receipt)
 
 The DeepSeek Messages adapter and owned runtime are merged on main (`4df5b3e`).
-The dedicated key check passes; paid approval is still pending. Use the
+At proposal time the dedicated key check passed and paid approval was pending. Use the
 [current DeepSeek setup and $0.06 approval text](managed-agent-setup.md#deepseek-setup-and-proposed-acceptance)
 and [local handoff Status](agent-local-handoff.md#status-as-of-2026-10-08).
 Earlier OpenAI pricing/approval proposals below are historical alternatives,
 not approval to spend. All infrastructure, storage, deployment and host boundaries
-remain in force; no paid provider call has been made during this validation.
+remain in force. The historical receipt above supersedes this proposal's unrun status.
 
-Prepared command after the exact approval in the handoff:
+Historical one-shot command (already consumed, not a next step):
 
 ```sh
 node scripts/agent-deepseek-acceptance.mjs --execute --approved-usd 0.06
@@ -35,7 +49,7 @@ Acceptance after separate authorization:
 3. Verify actual private object upload/finalize/download, bytes, SHA-256, MIME and immutable revision identity. Refresh and reconnect to the saved answer/files.
 4. Disconnect the UI, then perform an authorized disposable-worker interruption test. Completed receipts and answers should replay; a saved uncertain model or tool request must fail safely instead of repeating paid input/effects. Verify callback outage and lease replacement cannot give a stale worker publication authority.
 5. Cancel active work and confirm no further owned model/tool requests are dispatched. Closing the HTTP request does not prove the provider cancelled billing. Commit cancellation while best-effort worker delivery is unavailable and verify the next dispatch checkpoint rejects it, including citation repair and after lease renewal. Block a retrieval fetch, cancel, then release it: confirm no subsequent URL/archive/CDX request starts and capacity is retained until drain. Test deadline, cumulative input reservations, cost/search ceilings and an interrupted request retaining its charge.
-6. Cause a transient artifact storage failure. Allow a full 60-second first attempt and a 91-second renewed-lease wait before reclaim. Retry the same immutable publication inside its fixed 240-second recovery window without repeating model inference; verify at most four persisted attempt admissions. Expire the original run budget during recovery and confirm only the saved publication can finalize, with no fresh model/research call. Check expired-deadline and wrong-account/lease rejection.
+6. Cause a transient artifact storage failure. Current code bounds each attempt at 20 seconds and publication waiting per worker pass at 45 seconds. After a renewed-lease wait, retry the same immutable publication inside its fixed 240-second recovery window without repeating model inference; verify at most four persisted attempt admissions. Expire the original run budget during recovery and confirm only the saved publication can finalize, with no fresh model/research call. Check expired-deadline and wrong-account/lease rejection.
 7. After the first adapter's clean turn, select the second adapter with its own approved credential/model/prices and repeat the source/file flow. Do not switch a run that is in progress.
 
 Record redacted provider request IDs, local budget reservations, public saved events and verified object checksums. Never collect credentials or private reasoning. Mocked fixtures are not evidence of live provider, storage, email, DB or RLS success.
