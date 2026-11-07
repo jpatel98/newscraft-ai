@@ -11,7 +11,8 @@ const serviceMocks = vi.hoisted(() => ({
 }));
 const privateEnv = vi.hoisted(() => ({
 	SUPABASE_URL: 'https://storage.example',
-	NEWSCRAFT_STORAGE_MODE: undefined as string | undefined,
+	NEWSCRAFT_STORAGE_PROVIDER: undefined as string | undefined,
+	NEWSCRAFT_STORAGE_MODE: 'supabase' as string | undefined,
 	NEWSCRAFT_STORAGE_BASE_URL: undefined as string | undefined
 }));
 
@@ -58,7 +59,8 @@ function event(options: { authenticated?: boolean; body?: unknown } = {}) {
 describe('conversation document routes', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		privateEnv.NEWSCRAFT_STORAGE_MODE = undefined;
+		privateEnv.NEWSCRAFT_STORAGE_PROVIDER = undefined;
+		privateEnv.NEWSCRAFT_STORAGE_MODE = 'supabase';
 		privateEnv.NEWSCRAFT_STORAGE_BASE_URL = undefined;
 		conversationMocks.getConversation.mockResolvedValue(conversation);
 		serviceMocks.listDocuments.mockResolvedValue([]);
@@ -129,6 +131,21 @@ describe('conversation document routes', () => {
 		privateEnv.NEWSCRAFT_STORAGE_MODE = 'vps';
 		serviceMocks.createDownloadUrl.mockResolvedValueOnce('https://files.example/v1/download/vps-document');
 		await expect(downloadDocument(event())).resolves.toMatchObject({ status: 303 });
+	});
+
+	it('validates against the provider that issued the URL, so a mismatched selection cannot pass', async () => {
+		// PROVIDER wins over MODE for both issuing and validating. With the VPS
+		// provider active, a Supabase-origin link is no longer acceptable even
+		// though MODE still says supabase.
+		privateEnv.NEWSCRAFT_STORAGE_PROVIDER = 'vps';
+		privateEnv.NEWSCRAFT_STORAGE_BASE_URL = 'https://files.example';
+		serviceMocks.createDownloadUrl.mockResolvedValueOnce('https://storage.example/supabase-document');
+		await expect(downloadDocument(event())).rejects.toMatchObject({ status: 503 });
+		serviceMocks.createDownloadUrl.mockResolvedValueOnce('https://files.example/v1/download/vps-document');
+		await expect(downloadDocument(event())).resolves.toMatchObject({ status: 303 });
+		// An unknown provider never redirects anywhere.
+		privateEnv.NEWSCRAFT_STORAGE_PROVIDER = 'dropbox';
+		await expect(downloadDocument(event())).rejects.toMatchObject({ status: 503 });
 	});
 
 	it('rejects signed download URLs outside the configured HTTPS storage origin', async () => {

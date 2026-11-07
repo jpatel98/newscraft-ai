@@ -24,3 +24,47 @@
 .projects-page button { background: var(--bg-surface); color: var(--fg-1); }
 .projects-page :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .project-list .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+/* Evidence library and leads */
+.project-scope { color: var(--fg-2); font-size: 14px; }
+.evidence-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.evidence-meta { color: var(--fg-2); font-size: 13px; }
+.evidence-hash { display: block; color: var(--fg-2); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.evidence-list { list-style: none; padding: 0; margin: 12px 0; }
+.evidence-row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; border-bottom: 1px solid var(--border-soft); padding: 12px 0; }
+.evidence-name { min-width: 0; overflow-wrap: anywhere; }
+.evidence-name strong { display: block; }
+.evidence-state { font-size: 13px; white-space: nowrap; }
+.evidence-state-ready { color: var(--fg-2); }
+.evidence-state-failed { color: #b42318; white-space: normal; max-width: 260px; }
+.evidence-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.projects-page button.evidence-link, .evidence-link { background: none; border: 0; padding: 4px 0; min-height: 0; color: var(--fg-1); text-decoration: underline; text-underline-offset: 4px; cursor: pointer; font-size: 14px; }
+.projects-page button.evidence-link:disabled { cursor: wait; }
+.evidence-danger { color: #b42318; }
+.evidence-inspector { margin: 16px 0; padding: 16px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--bg-surface); }
+.evidence-inspector-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.evidence-pager { display: flex; gap: 8px; margin: 12px 0; }
+.evidence-page { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; font-size: 13px; line-height: 1.5; padding: 12px; background: var(--bg-page); border-radius: 8px; }
+.evidence-table-wrap { overflow-x: auto; margin: 8px 0; }
+.evidence-table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.evidence-table th, .evidence-table td { border: 1px solid var(--border-soft); padding: 6px 8px; text-align: left; vertical-align: top; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.evidence-table thead th { background: var(--bg-page); position: sticky; top: 0; }
+.evidence-table tbody th { font-weight: normal; color: var(--fg-2); }
+.finding-list { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 16px; }
+.finding-card { border: 1px solid var(--border-default); border-radius: 12px; padding: 16px 18px; background: var(--bg-surface); }
+.finding-card h3 { font-size: 17px; margin: 6px 0 10px; }
+.finding-card h4 { font-size: 15px; margin: 0 0 6px; }
+.finding-card p { margin: 8px 0; font-size: 14px; }
+.finding-head { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--fg-2); }
+.finding-kind { text-transform: uppercase; letter-spacing: .04em; font-size: 12px; }
+.finding-saved, .finding-reviewed { border-color: var(--accent); }
+.finding-stale { opacity: .8; }
+.finding-summary, .finding-dismissed { padding: 12px 14px; }
+.finding-evidence { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 10px; }
+.finding-ref { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 14px; }
+.finding-excerpt { margin: 6px 0; padding: 8px 12px; border-left: 3px solid var(--border-default); color: var(--fg-2); font-size: 13px; }
+.finding-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.finding-form { margin-top: 12px; display: grid; gap: 8px; }
+.finding-form textarea, .finding-form input, .finding-form select { padding: 10px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-page); color: inherit; font: inherit; }
+.finding-form > div { display: flex; gap: 8px; }
+.finding-group { font-size: 16px; margin: 24px 0 8px; }
+@media(max-width: 760px) { .evidence-row { grid-template-columns: 1fr; } .finding-head { flex-direction: column; gap: 4px; } }
