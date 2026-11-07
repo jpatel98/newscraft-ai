@@ -295,6 +295,7 @@ async function requestResearchContext(input: {
 				getNewsroomProfile(input.orgId),
 				// Thread subjects only enrich the context; never fail the request on them.
 				listRecentConversationSubjects(
+					input.accountId,
 					input.orgId,
 					Date.now() - RECENT_THREAD_WINDOW_MS,
 					input.conversationId

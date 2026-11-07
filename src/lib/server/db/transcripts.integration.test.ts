@@ -31,6 +31,7 @@ describe.skipIf(!url)('account-owned transcripts', () => {
 		const t = await createTranscript({ ...base, accountId: a, title: 'Council presser', sourceName: 'presser.m4a', contentType: 'audio/mp4', audioBytes: 10 });
 		expect(t).toMatchObject({ status: 'uploading', audioKey: `${a}/${t.id}/audio`, keyterms: ['TTC'], hasAudio: false });
 		expect(publicTranscript(t)).not.toHaveProperty('audioKey');
+		expect(publicTranscript(t)).not.toHaveProperty('processingStartedAt');
 		expect(await getTranscript(b, t.id)).toBeNull();
 		expect(await claimForProcessing(b, t.id)).toBeNull();
 
@@ -39,9 +40,9 @@ describe.skipIf(!url)('account-owned transcripts', () => {
 		expect(await claimForProcessing(a, t.id)).toBeNull();
 
 		const utterances = [{ id: 'u1', speaker: 'speaker_0', start: 0, end: 900, text: 'The subway budget passes.', words: [{ text: 'The', start: 0, end: 100 }] }];
-		const done = await completeTranscript(a, t.id, { text: 'The subway budget passes.', languageCode: 'eng', durationMs: 900, utterances });
+		const done = await completeTranscript(a, t.id, { text: 'The subway budget passes.', languageCode: 'eng', durationMs: 900, utterances }, claimed!.processingStartedAt!);
 		expect(done).toMatchObject({ status: 'complete', durationMs: 900, hasAudio: true, utterances });
-		expect(await completeTranscript(a, t.id, { text: 'again', languageCode: null, durationMs: 1, utterances: [] })).toBeNull();
+		expect(await completeTranscript(a, t.id, { text: 'again', languageCode: null, durationMs: 1, utterances: [] }, claimed!.processingStartedAt!)).toBeNull();
 
 		expect((await listTranscripts(a, 'subway')).map((x) => x.id)).toEqual([t.id]);
 		expect(await listTranscripts(a, 'zzz')).toEqual([]);
@@ -59,9 +60,18 @@ describe.skipIf(!url)('account-owned transcripts', () => {
 		await claimForProcessing(a, t.id);
 		expect(await claimForProcessing(a, t.id)).toBeNull();
 		await sql`UPDATE transcripts SET processing_started_at = ${Date.now() - STALE_PROCESSING_MS - 1000} WHERE id = ${t.id}`;
-		expect(await claimForProcessing(a, t.id)).toMatchObject({ status: 'processing' });
-		expect(await failTranscript(a, t.id, 'engine_busy', 'Busy')).toMatchObject({ status: 'failed', errorCode: 'engine_busy' });
-		expect(await claimForProcessing(a, t.id)).toMatchObject({ status: 'processing', errorCode: null });
+		const original = await getTranscript(a, t.id);
+		const reclaimed = await claimForProcessing(a, t.id);
+		expect(reclaimed).toMatchObject({ status: 'processing' });
+		expect(await failTranscript(a, t.id, 'engine_busy', 'Busy', null)).toBeNull();
+		expect(await failTranscript(a, t.id, 'engine_busy', 'Busy', original!.processingStartedAt!)).toBeNull();
+		expect(await completeTranscript(a, t.id, { text: 'stale', languageCode: null, durationMs: 1, utterances: [] }, original!.processingStartedAt!)).toBeNull();
+		expect(await failTranscript(a, t.id, 'engine_busy', 'Busy', reclaimed!.processingStartedAt!)).toMatchObject({ status: 'failed', errorCode: 'engine_busy' });
+		const retry = await claimForProcessing(a, t.id);
+		expect(retry).toMatchObject({ status: 'processing', errorCode: null });
+		expect(retry!.processingStartedAt).toBeGreaterThan(reclaimed!.processingStartedAt!);
+		expect(await completeTranscript(a, t.id, { text: 'new', languageCode: null, durationMs: 1, utterances: [] }, retry!.processingStartedAt!)).toMatchObject({ status: 'complete' });
+		expect(await failTranscript(a, t.id, 'engine_busy', 'Busy', retry!.processingStartedAt!)).toBeNull();
 	});
 
 	it('deletes for the owner and with the account', async () => {

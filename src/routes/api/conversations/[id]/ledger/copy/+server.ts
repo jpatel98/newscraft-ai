@@ -4,6 +4,7 @@ import { listStoryClaims } from '$lib/server/db/story-claims';
 import { workerLedgerCopy } from '$lib/server/ledger-copy';
 import { toStoryLedgerClaimView } from '$lib/server/story-ledger-view';
 import { checkCopy, COPY_FORMATS, copyRequest, renderCopy, type CopyFormat } from '$lib/utils/ledger-copy';
+import { checkRateLimit } from '$lib/server/rate-limit';
 
 /**
  * Anchor intro, VO or reader written from the chat's ledger. Only air-ready
@@ -24,6 +25,8 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 	}
 	const conversation = await getConversation(locals.user.id, conversationId);
 	if (!conversation) throw error(404, 'not found');
+	const rate = checkRateLimit(`ledger-copy:${locals.user.id}`, { limit: 30, windowMs: 60 * 60 * 1000 });
+	if (!rate.allowed) throw error(429, 'too many copy requests; try again later');
 	const claims = (await listStoryClaims(conversationId)).map(toStoryLedgerClaimView);
 	const { request: offered, byRef, withheld } = copyRequest(claims);
 	if (!offered.length) throw error(409, 'Nothing in this story is ready for air yet.');
