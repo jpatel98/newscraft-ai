@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { ChatSession } from './chat.svelte';
 
 describe('ChatSession cancellation', () => {
+	it('keeps the public tool kind when completing an action', () => {
+		const session = new ChatSession();
+		session.startStream('conversation-1');
+		session.pushTool({ id: 'read-1', name: 'web_extract', kind: 'read' });
+		session.clearTool('read-1');
+		expect(session.toolHistory[0]).toMatchObject({ kind: 'read', status: 'ok' });
+	});
+
 	it('keeps public explanations after completion, upserts duplicates and resets the next turn', () => {
 		const session = new ChatSession();
 		session.startStream('conversation-1');

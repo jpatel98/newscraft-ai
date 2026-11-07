@@ -38,4 +38,34 @@ describe('backfill dedupe plan', () => {
 		const plan = await planDedupe([row('r1', "O'Toole's cost claim"), row('r2', "O'Toole's dollar claim")], judge, 1, () => 'x');
 		expect(plan.statements.join('\n')).toContain("'O''Toole''s");
 	});
+
+	it.each([false, true])('keeps conflict checks open after a duplicate with an initial model flag of %s', async (needsCheck) => {
+		let sequence = 0;
+		const plan = await planDedupe([
+			row('r1', 'The City says 222,550 advance votes were cast', { needs_check: needsCheck }),
+			row('r2', 'CP24 reports 225,550 advance voters'),
+			row('r3', 'The City says 222,550 advance votes were cast')
+		], judge, 100, () => `event${++sequence}`);
+		const sql = plan.statements.join('\n');
+		expect(plan.conflicts).toHaveLength(1);
+		expect(plan.merges.map((merge) => [merge.from, merge.into])).toEqual([['r3', 'r1']]);
+		for (const claimId of ['r1', 'r2']) {
+			expect(sql).toContain(`'${claimId}', 'check_opened'`);
+			expect(sql).toContain(`UPDATE story_claims SET needs_check = true, check_reason = 'contradicted', updated_at = 100 WHERE id = '${claimId}'`);
+		}
+		expect(sql).not.toContain("'check_closed'");
+		expect(sql).not.toContain('needs_check = false');
+	});
+
+	it('does not reopen a person-reviewed row when backfilling a conflict', async () => {
+		const plan = await planDedupe([
+			row('r1', 'The City says 222,550 advance votes were cast', { reviewed_at: 9, reviewed_by: 'Jigar' }),
+			row('r2', 'CP24 reports 225,550 advance voters')
+		], judge, 100, () => 'event');
+		const sql = plan.statements.join('\n');
+		expect(sql).toContain("'r1', 'contradicted'");
+		expect(sql).not.toContain("'r1', 'check_opened'");
+		expect(sql).not.toContain("WHERE id = 'r1'");
+		expect(sql).toContain("'r2', 'check_opened'");
+	});
 });

@@ -29,7 +29,7 @@
 		"storage:provision": "node scripts/provision-newsroom-documents.mjs",
 		"hash-password": "node scripts/hash-password.mjs",
 		"eval:ledger": "vitest run --config vitest.eval.config.ts",
-		"eval:ledger:record": "test -n \"$LEDGER_EVAL_JUDGE_URL\" && vitest run --config vitest.eval.config.ts"
+		"eval:ledger:record": "test -n \"$LEDGER_EVAL_JUDGE_URL\" && LEDGER_EVAL_RECORD=1 vitest run --config vitest.eval.config.ts"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.59.1",

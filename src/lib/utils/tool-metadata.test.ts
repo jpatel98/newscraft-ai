@@ -16,6 +16,16 @@ import {
 } from './tool-metadata';
 
 describe('tool metadata', () => {
+	it('preserves public tool kinds through persistence and provenance exports', () => {
+		const tool = { id: 'read-1', name: 'web_extract', kind: 'read', status: 'ok' };
+		expect(parseToolMetadata(serializeToolMetadata([tool], [])).tools[0].kind).toBe('read');
+		const exported = serializeAnswerProvenance({
+			messageId: 'message-1', conversationId: 'conversation-1', startedAt: 1, endedAt: 2,
+			assistantChars: 1, done: true, tools: [tool], sources: []
+		});
+		expect(parseToolMetadata(exported).tools[0].kind).toBe('read');
+	});
+
 	it('persists public activity for page reload even when a reply did not use other tools', () => {
 		const plan = { source: 'model' as const, steps: [{ id: 'read', label: 'Check the release', status: 'ok' as const }] };
 		const decisions = [{ id: 'official', summary: 'The release provides the baseline.', stepId: 'read' }];

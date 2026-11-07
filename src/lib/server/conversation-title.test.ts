@@ -29,6 +29,12 @@ beforeEach(() => {
 });
 
 describe('local conversation titles', () => {
+	it.each(['Highway closures today', 'History of city hall', 'Human rights report', 'Umbrella policy changes'])(
+		'preserves topic words starting with greeting-like letters: %s', (text) => {
+			expect(fallbackConversationTitle(text)).toBe(text);
+		}
+	);
+
 	it('keeps useful task subjects, removes request filler and bounds the title', () => {
 		expect(fallbackConversationTitle('What is the latest verified development in Canada-US trade today? Use sources.'))
 			.toBe('Latest verified development in Canada-US trade today');

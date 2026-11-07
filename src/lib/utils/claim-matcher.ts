@@ -128,7 +128,8 @@ export async function matchIncoming(
 				return { kind: 'same', claimId: candidate.entry.ref, how: 'judge' };
 			}
 			if (verdict === 'contradicts' && !conflict) conflict = candidate.entry.ref;
-			if (verdict === null && candidate.score >= MATCH_AUTO_SCORE && sameNumbers(candidate.entry.text, claim.claim)) {
+			if (verdict === null && candidate.score >= MATCH_AUTO_SCORE &&
+				allowMerge(candidate.entry.text, claim.claim, candidate.score) && sameNumbers(candidate.entry.text, claim.claim)) {
 				return { kind: 'same', claimId: candidate.entry.ref, how: 'similar' };
 			}
 		}

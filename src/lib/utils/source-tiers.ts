@@ -30,7 +30,7 @@ export const OFFICIAL_DOMAINS = [
 	// Courts and legal records
 	'canlii.org', 'courts.ca', 'scc-csc.lexum.com', 'bccourts.ca', 'albertacourts.ca', 'courtsofnl.ca',
 	// Police services
-	'tps.ca', 'torontopolice.on.ca', 'opp.ca', 'peelpolice.ca', 'yrp.ca', 'drps.ca', 'durhampolice.ca', 'haltonpolice.ca',
+	'tps.ca', 'torontopolice.on.ca', 'opp.ca', 'peelpolice.ca', 'peelregionalpolice.ca', 'yrp.ca', 'drps.ca', 'durhampolice.ca', 'haltonpolice.ca',
 	'hamiltonpolice.on.ca', 'ottawapolice.ca', 'londonpolice.ca', 'wrps.on.ca', 'niagarapolice.ca', 'spvm.qc.ca',
 	'sq.gouv.qc.ca', 'vpd.ca', 'calgary.ca', 'edmontonpolice.ca', 'winnipeg.ca', 'halifax.ca',
 	// Municipalities (GTA and major cities)
@@ -60,7 +60,6 @@ export const FIRST_PARTY_DOMAINS = [
 	'canadasoccer.com', 'hockeycanada.ca', 'liaison.ca', 'mainstreetresearch.ca', 'angusreid.org', 'abacusdata.ca',
 	'nanos.co', 'leger360.com', 'ipsos.com', 'cma.ca', 'cna-aiic.ca', 'oma.org', 'rnao.ca', 'redcross.ca', 'redcross.org'
 ] as const;
-const OFFICIAL_LABEL = /^(?:[a-z0-9-]*police(?:services?)?|[a-z0-9-]*courts?)$/;
 
 /** Wire services and major national/international outlets, with their owner for independence. */
 export const WIRE_MAJOR: Record<string, string> = {
@@ -99,7 +98,9 @@ export const AGGREGATOR_DOMAINS = [
 
 export function hostOf(url: string): string {
 	try {
-		const host = new URL(url).hostname.toLowerCase().replace(/\.$/, '');
+		const parsed = new URL(url);
+		if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return '';
+		const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
 		return host.startsWith('www.') ? host.slice(4) : host;
 	} catch {
 		return '';
@@ -113,12 +114,6 @@ function within(host: string, domain: string): boolean {
 function lookup(host: string, table: Record<string, string>): [string, string] | null {
 	for (const [domain, owner] of Object.entries(table)) if (within(host, domain)) return [domain, owner];
 	return null;
-}
-
-function secondLevel(host: string): string {
-	const labels = host.split('.');
-	if (labels.length >= 3 && ['co', 'com', 'on', 'gc', 'gov', 'gob', 'org', 'qc', 'bc', 'ab'].includes(labels.at(-2)!)) return labels.at(-3)!;
-	return labels.length >= 2 ? labels.at(-2)! : host;
 }
 
 export interface SourceClass {
@@ -136,8 +131,7 @@ export function classifySource(url: string): SourceClass {
 	if (
 		official ||
 		OFFICIAL_SUFFIXES.some((suffix) => host.endsWith(suffix)) ||
-		FOREIGN_GOVERNMENT.test(host) ||
-		OFFICIAL_LABEL.test(secondLevel(host))
+		FOREIGN_GOVERNMENT.test(host)
 	) {
 		return { host, tier: 'official', publisher: official ?? host };
 	}

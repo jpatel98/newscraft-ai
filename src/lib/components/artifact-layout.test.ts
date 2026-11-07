@@ -22,6 +22,16 @@ describe('artifact pane layout mode', () => {
 });
 
 describe('artifact pane layout source', () => {
+	it('keeps the mobile folder action at 44px after desktop defaults', () => {
+		const css = source('../styles/components.css');
+		const rules = [...css.matchAll(/\.sidebar__section-btn\s*\{([^}]*)\}/g)];
+		const finalRule = rules.at(-1);
+		expect(rules.some((rule) => /width: 22px;/.test(rule[1]))).toBe(true);
+		expect(finalRule?.[1]).toMatch(/width: 44px;/);
+		expect(finalRule?.[1]).toMatch(/height: 44px;/);
+		expect(css.slice(0, finalRule?.index)).toMatch(/@media \(max-width: 760px\) \{\s*$/);
+	});
+
 	it('protects the thread width and wraps long tokens', () => {
 		const thread = source('./Thread.svelte');
 		const css = readFileSync(new URL('../styles/components.css', import.meta.url), 'utf8');

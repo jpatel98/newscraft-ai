@@ -78,10 +78,9 @@ export function keepsAttribution(sentence: string, claim: AirClaim): boolean {
 /** An untagged sentence this close to a claim is treated as stating it. */
 export const RESTATES_SCORE = 0.5;
 
-/** Claims each line states: its tags, or for an untagged line, any attribution-bound claim it closely restates. */
+/** Claims each line states: its tags plus any attribution-bound claim it closely restates. */
 export function claimsStated(line: CopyLine, byRef: ReadonlyMap<string, CopyClaim>): CopyClaim[] {
 	const out = line.claims.map((ref) => byRef.get(ref)).filter((claim): claim is CopyClaim => Boolean(claim));
-	if (out.length) return out;
 	const vector = embedClaim(line.text);
 	for (const claim of byRef.values()) {
 		if (out.includes(claim) || !attributionFor(claim).required) continue;
@@ -149,7 +148,7 @@ export function checkCopy(
 	const out: CopyLine[] = [];
 	for (const line of lines) {
 		const stated = claimsStated(line, byRef);
-		if (!stated.length || (!line.claims.length && restatesWithheld(line, withheld))) {
+		if (!stated.length || restatesWithheld(line, withheld)) {
 			dropped += 1;
 			continue;
 		}

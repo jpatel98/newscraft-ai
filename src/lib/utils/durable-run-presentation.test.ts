@@ -21,6 +21,16 @@ describe('durable run presentation', () => {
 });
 
 describe('durableFailureReason', () => {
+	it.each([
+		'Failed with Bearer test-credential',
+		'Failed using sk-fakecredential123456',
+		'Cannot read /private/tmp/task.txt',
+		'Cannot open C:\\workspace\\task.txt',
+		'Failed receipt:abc123'
+	])('hides internal diagnostics: %s', (message) => {
+		expect(durableFailureReason(message)).toBeNull();
+	});
+
 	it('maps known worker messages to producer-friendly text', () => {
 		expect(durableFailureReason('The cumulative input-token reservation budget was reached.')).toBe(
 			'Research budget reached before an answer was written.'

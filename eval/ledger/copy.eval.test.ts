@@ -3,12 +3,14 @@
  *
  * 100 scripts: ledger states from the recorded threads (after each turn,
  * evidence on) times the three formats, written by the worker's copy model and
- * replayed from a cassette. Every sentence that states a reported or alleged
+ * replayed from a cassette, including documented offline projections of two
+ * recordings after production extraction caps unused request-tail claims.
+ * Every sentence that states a reported or alleged
  * claim must carry one of that claim's allowed wordings after the app's check.
  * The raw model output is reported too, so a prompt regression shows up even
  * though the check repairs it.
  *
- * Record: LEDGER_EVAL_COPY_URL=<worker> LEDGER_EVAL_COPY_TOKEN=<token> pnpm eval:ledger
+ * Record: LEDGER_EVAL_RECORD=1 LEDGER_EVAL_COPY_URL=<worker> LEDGER_EVAL_COPY_TOKEN=<token> pnpm eval:ledger
  */
 import { createHash } from 'node:crypto';
 import { existsSync, writeFileSync } from 'node:fs';
@@ -25,7 +27,8 @@ import {
 	type CopyLine,
 	type CopyRequestClaim
 } from '../../src/lib/utils/ledger-copy';
-import { Cassette, EVAL_DIR, loadJson, loadThreads, replayThread } from './replay';
+import { Cassette, EVAL_DIR, loadJson, loadThreads, recordingUrl, replayThread } from './replay';
+import { writeEvalReport } from './report';
 
 const SCRIPTS = 100;
 const CASSETTE = join(EVAL_DIR, 'copy-cassette.json');
@@ -47,7 +50,7 @@ const requestKey = (format: CopyFormat, title: string, claims: CopyRequestClaim[
 describe('copy from the ledger', () => {
 	it(`loses no attribution across ${SCRIPTS} scripts`, async () => {
 		const recorded: Record<string, CopyLine[]> = existsSync(CASSETTE) ? loadJson(CASSETTE) : {};
-		const recordUrl = process.env.LEDGER_EVAL_COPY_URL;
+		const recordUrl = recordingUrl('COPY');
 		const judge = new Cassette(join(EVAL_DIR, 'judge-cassette.json')).judge;
 
 		// Ledger states after each turn, latest turns first, then formats, until there are enough scripts.
@@ -68,7 +71,6 @@ describe('copy from the ledger', () => {
 		}
 		expect(jobs.length).toBe(SCRIPTS);
 
-		const used = new Set<string>();
 		let missing = 0;
 		let rawLost = 0;
 		let repaired = 0;
@@ -79,7 +81,6 @@ describe('copy from the ledger', () => {
 		for (const job of jobs) {
 			const { request, byRef, withheld } = copyRequest(job.claims);
 			const key = requestKey(job.format, job.title, request);
-			used.add(key);
 			if (!recorded[key] && recordUrl) {
 				const response = await fetch(`${recordUrl.replace(/\/$/, '')}/v1/ledger/copy`, {
 					method: 'POST',
@@ -112,13 +113,12 @@ describe('copy from the ledger', () => {
 			).size;
 		}
 		if (recordUrl) {
-			const kept = Object.fromEntries(Object.entries(recorded).filter(([key]) => used.has(key)));
-			writeFileSync(CASSETTE, JSON.stringify(kept, null, 1) + '\n');
+			writeFileSync(CASSETTE, JSON.stringify(recorded, null, 1) + '\n');
 		}
 		const report = { scripts: jobs.length, unrecorded: missing, attributedClaimsUsed: requiredClaimsUsed, rawLost, repaired, dropped, lostAfterCheck: lostAfter, examples };
-		writeFileSync(join(EVAL_DIR, 'copy-report.json'), JSON.stringify(report, null, 1) + '\n');
+		writeEvalReport('copy-report.json', report);
 		console.log(JSON.stringify(report));
-		expect(missing, 'record the copy cassette (LEDGER_EVAL_COPY_URL)').toBe(0);
+		expect(missing, 'record the copy cassette (LEDGER_EVAL_RECORD=1 LEDGER_EVAL_COPY_URL)').toBe(0);
 		expect(lostAfter).toBe(0);
 	}, 900_000);
 });

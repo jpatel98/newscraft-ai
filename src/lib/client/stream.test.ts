@@ -28,6 +28,34 @@ describe('streamChat error contract', () => {
 		vi.unstubAllGlobals();
 	});
 
+	it.each(['run.cancelled', 'cancelled'])('settles %s without requiring an extra DONE frame', async (event) => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(`event: ${event}\ndata: {}\n\n`)));
+		const onRunState = vi.fn();
+		await expect(subscribeDurableRun('run-1', 0, { onDelta: vi.fn(), onRunState })).resolves.toBeUndefined();
+		expect(onRunState).toHaveBeenCalledWith('cancelled');
+	});
+
+	it('reports a failed durable event as terminal rather than reconnectable transport loss', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse('event: run.failed\ndata: {"message":"Step failed"}\n\n')));
+		await expect(subscribeDurableRun('run-1', 0, { onDelta: vi.fn() })).rejects.toMatchObject({
+			diagnosticMessage: 'durable run failed: Step failed'
+		});
+	});
+
+	it('ignores repeated cursors within one subscription without duplicating answer text', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(
+			'id: 2\nevent: response.output_text.delta\ndata: {"delta":"Hello"}\n\n' +
+			'id: 2\nevent: response.output_text.delta\ndata: {"delta":"Hello"}\n\n' +
+			'id: 1\nevent: response.output_text.delta\ndata: {"delta":"Old"}\n\n' +
+			'id: 3\nevent: response.completed\ndata: {}\n\n'
+		)));
+		const onDelta = vi.fn();
+		const onRunCursor = vi.fn();
+		await subscribeDurableRun('run-1', 0, { onDelta, onRunCursor });
+		expect(onDelta).toHaveBeenCalledExactlyOnceWith('Hello');
+		expect(onRunCursor.mock.calls).toEqual([[2], [3]]);
+	});
+
 	it('keeps HTTP status and body details out of the public error message', async () => {
 		vi.stubGlobal(
 			'fetch',
@@ -339,6 +367,21 @@ describe('streamChat error contract', () => {
 		expect(onRunCursor).toHaveBeenCalledWith(3);
 		expect(onRunState).toHaveBeenNthCalledWith(1, 'writing', null);
 		expect(onRunState).toHaveBeenLastCalledWith('complete');
+	});
+
+	it('does not append completed response text already restored by a snapshot', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(
+			'event: run.snapshot\n' +
+			'data: {"run_id":"run_1","conversation_id":"convo_1","assistant_message_id":"assistant_1","cursor":2,"status":"writing","state":"writing","answerText":"Saved answer","sources":[],"citations":[],"tools":[],"errorMessage":null}\n\n' +
+			'id: 3\nevent: response.completed\n' +
+			'data: {"response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Saved answer"}]}]}}\n\n'
+		)));
+		let answer = '';
+		await subscribeDurableRun('run_1', 0, {
+			onRunSnapshot: snapshot => { answer = snapshot.answerText; },
+			onDelta: delta => { answer += delta; }
+		});
+		expect(answer).toBe('Saved answer');
 	});
 
 	it('replays an artifact.ready event covered by the run snapshot', async () => {

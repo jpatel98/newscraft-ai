@@ -19,6 +19,21 @@ const claim = (overrides: Partial<StoryLedgerClaimView>): StoryLedgerClaimView =
 });
 
 describe('Story ledger pane', () => {
+	it('keeps live citations scoped to this chat and refuses ambiguous evidence', () => {
+		const page = source('../../routes/c/[id]/+page.svelte');
+		expect(page).toContain('if (chat.activityConversationId === data.conversation.id) records.push(...chat.citations)');
+		expect(page).toContain('mergeToolMetadata(null, [], [], records).citations');
+		const pane = source('./StoryLedgerPane.svelte');
+		expect(pane).toContain('resolvableCitationRecordForNumber(citations, citation.citationNumber)');
+		expect(pane).toContain('resolvableCitationRecordForNumber(citations.filter((citation) => citation.url === source.url), source.n)');
+		expect(pane).toContain('if (!isCitationUrl(source.url)) return null');
+	});
+
+	it('strips machine ledger text at both final overlay and artifact update boundaries', () => {
+		const page = source('../../routes/c/[id]/+page.svelte');
+		expect(page.match(/content: stripLedgerForDisplay\(patch.content\)/g)).toHaveLength(2);
+	});
+
 	it('groups by status, offers open checks, citation chips, empty state and copy-as-brief', () => {
 		const pane = source('./StoryLedgerPane.svelte');
 		expect(pane).toContain('data-testid="story-ledger-pane"');

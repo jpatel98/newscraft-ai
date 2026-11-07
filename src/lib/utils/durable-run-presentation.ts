@@ -1,3 +1,5 @@
+import { publicActivityText } from './tool-labels';
+
 export type DurableRunPresentation = {
 	label: string;
 	terminal: boolean;
@@ -38,6 +40,7 @@ export function durableFailureReason(raw: string | null | undefined): string | n
 	}
 	if (
 		text.length > RAW_REASON_LIMIT ||
+		!publicActivityText(text) ||
 		/traceback|stack trace|\bat\s+\S+:\d+|\bat\s+\S+\s*\(|(?:^|[\s("'])\/(?:Users|home|srv|var|opt|tmp|etc|usr)\//i.test(text) ||
 		/\b(?:call|toolu|tool|run|msg)_[A-Za-z0-9]{6,}/.test(text) ||
 		/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i.test(text)

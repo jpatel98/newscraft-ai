@@ -9,6 +9,7 @@
 	import Upload from 'lucide-svelte/icons/upload';
 	import '$lib/styles/transcriptions.css';
 	import { parseKeyterms, submitLink, submitMedia, TranscriptionClientError } from '$lib/client/transcription-jobs';
+	import { startAudioRecording } from '$lib/client/recording';
 	import { MEDIA_ACCEPT } from '$lib/utils/transcript-media';
 	import { formatClock, type TranscriptSummary } from '$lib/utils/transcripts';
 	import { formatRelativeTime } from '$lib/utils/time';
@@ -26,9 +27,9 @@
 	let dragging = $state(false);
 	let fileInput = $state<HTMLInputElement | null>(null);
 
-	let recorder: MediaRecorder | null = null;
-	let recordStream: MediaStream | null = null;
-	let recordChunks: Blob[] = [];
+	let recorder: { finish: () => void } | null = null;
+	const recordingAbort = new AbortController();
+	let startingRecording = $state(false);
 	let recordStartedAt = 0;
 	let recordTimer: ReturnType<typeof setInterval> | null = null;
 	let recording = $state(false);
@@ -58,7 +59,8 @@
 	onDestroy(() => {
 		active = false;
 		if (poll) clearInterval(poll);
-		stopTracks();
+		recordingAbort.abort();
+		if (recordTimer) clearInterval(recordTimer);
 	});
 
 	function errorText(cause: unknown): string {
@@ -66,7 +68,7 @@
 	}
 
 	async function sendFile(file: Blob, fileName: string, kind: 'upload' | 'recording') {
-		if (busy) return;
+		if (!active || busy || startingRecording || recording) return;
 		busy = true;
 		failure = '';
 		progress = 0;
@@ -100,7 +102,7 @@
 
 	async function sendLink(event: SubmitEvent) {
 		event.preventDefault();
-		if (busy || !link.trim()) return;
+		if (!active || busy || recording || startingRecording || !link.trim()) return;
 		busy = true;
 		failure = '';
 		try {
@@ -115,53 +117,38 @@
 		}
 	}
 
-	function stopTracks() {
-		recordStream?.getTracks().forEach((track) => track.stop());
-		recordStream = null;
-		if (recordTimer) clearInterval(recordTimer);
-		recordTimer = null;
-	}
-
-	function recorderType(): string | undefined {
-		for (const type of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']) {
-			if (MediaRecorder.isTypeSupported?.(type)) return type;
-		}
-		return undefined;
-	}
-
 	async function startRecording() {
-		if (busy || recording) return;
+		if (!active || busy || recording || startingRecording) return;
+		startingRecording = true;
 		failure = '';
 		try {
-			recordStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			recorder = await startAudioRecording(recordingAbort.signal, blob => {
+				if (recordTimer) clearInterval(recordTimer);
+				recordTimer = null;
+				recording = false;
+				if (!active) return;
+				if (!blob) {
+					failure = 'Recording stopped before it could be saved. Try again.';
+					return;
+				}
+				const ext = blob.type === 'audio/mp4' ? 'm4a' : 'webm';
+				const stamp = new Date().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+				void sendFile(blob, `Recording ${stamp}.${ext}`, 'recording');
+			});
+			if (!active) return;
+			recordStartedAt = Date.now();
+			recordElapsed = 0;
+			recordTimer = setInterval(() => (recordElapsed = Date.now() - recordStartedAt), 500);
+			recording = true;
 		} catch {
-			failure = 'Microphone access was blocked. Allow it in your browser settings to record.';
-			return;
+			if (active) failure = 'Recording could not start. Check microphone access in your browser settings.';
+		} finally {
+			startingRecording = false;
 		}
-		const mimeType = recorderType();
-		recorder = new MediaRecorder(recordStream, mimeType ? { mimeType } : undefined);
-		recordChunks = [];
-		recorder.ondataavailable = (event) => {
-			if (event.data.size > 0) recordChunks.push(event.data);
-		};
-		recorder.onstop = () => {
-			const type = (recorder?.mimeType || mimeType || 'audio/webm').split(';', 1)[0];
-			const blob = new Blob(recordChunks, { type });
-			stopTracks();
-			recording = false;
-			const ext = type === 'audio/mp4' ? 'm4a' : 'webm';
-			const stamp = new Date().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-			if (blob.size > 0) void sendFile(blob, `Recording ${stamp}.${ext}`, 'recording');
-		};
-		recorder.start(1000);
-		recordStartedAt = Date.now();
-		recordElapsed = 0;
-		recordTimer = setInterval(() => (recordElapsed = Date.now() - recordStartedAt), 500);
-		recording = true;
 	}
 
 	function stopRecording() {
-		if (recorder && recorder.state !== 'inactive') recorder.stop();
+		recorder?.finish();
 	}
 
 	function statusLabel(t: TranscriptSummary): string {
@@ -211,10 +198,10 @@
 				</div>
 			{:else}
 				<div class="tx-actions">
-					<button type="button" class="tx-btn tx-btn--primary" disabled={!ready || busy} onclick={() => fileInput?.click()}>
+					<button type="button" class="tx-btn tx-btn--primary" disabled={!ready || busy || startingRecording} onclick={() => fileInput?.click()}>
 						<Upload size="15" strokeWidth={1.8} /> Upload a file
 					</button>
-					<button type="button" class="tx-btn" disabled={!canRecord || busy} onclick={startRecording}>
+					<button type="button" class="tx-btn" disabled={!canRecord || busy || startingRecording} onclick={startRecording}>
 						<Mic size="15" strokeWidth={1.8} /> Record
 					</button>
 				</div>
@@ -232,9 +219,9 @@
 					inputmode="url"
 					bind:value={link}
 					placeholder="https:// a YouTube video, a press conference stream, an MP3"
-					disabled={!ready || busy || recording}
+					disabled={!ready || busy || recording || startingRecording}
 				/>
-				<button class="tx-btn" disabled={!ready || busy || recording || !link.trim()}>Transcribe</button>
+				<button class="tx-btn" disabled={!ready || busy || recording || startingRecording || !link.trim()}>Transcribe</button>
 			</div>
 		</form>
 

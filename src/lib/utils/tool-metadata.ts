@@ -236,6 +236,7 @@ function sanitizeTool(tool: StreamToolCall): StreamToolCall {
 	const sanitized: StreamToolCall = {
 		id: tool.id,
 		name: tool.name,
+		kind: tool.kind,
 		status: tool.status,
 		startedAt: tool.startedAt,
 		endedAt: tool.endedAt,
@@ -360,6 +361,7 @@ function normalizeTool(value: unknown, fallbackId: string): StreamToolCall | nul
 	return {
 		id,
 		name,
+		kind: stringValue(o.kind),
 		status: stringValue(o.status) ?? 'unknown',
 		startedAt: numberValue(o.startedAt),
 		endedAt: numberValue(o.endedAt),

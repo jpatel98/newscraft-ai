@@ -47,6 +47,7 @@ export interface ActivePlan {
 interface ToolProgress {
 	id: string;
 	name: string;
+	kind?: string;
 	emoji?: string;
 	startedAt: number;
 	endedAt?: number;
@@ -62,6 +63,7 @@ interface ToolProgress {
 interface ToolHistoryEntry {
 	id: string;
 	name: string;
+	kind?: string;
 	startedAt: number;
 	finishedAt: number;
 	endedAt?: number;
@@ -269,6 +271,7 @@ export class ChatSession {
 		const entry: ToolHistoryEntry = {
 			id: merged.id,
 			name: merged.name,
+			kind: merged.kind,
 			startedAt: merged.startedAt,
 			finishedAt,
 			endedAt: finishedAt,
