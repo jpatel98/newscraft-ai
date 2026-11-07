@@ -423,9 +423,20 @@ async def publish_workspace_file(
     # The owned sandbox mounts this conversation's workspace. Its runtime is
     # resolved by the leased job, never by a model-provided task or host path.
     # ``task_id`` remains a wire-call compatibility parameter only.
-    staged_path, staged_size, staged_hash = await asyncio.to_thread(
-        stage_workspace_file, path, runtime, grant_max,
-    )
+    staging = asyncio.create_task(asyncio.to_thread(stage_workspace_file, path, runtime, grant_max))
+    try:
+        staged_path, staged_size, staged_hash = await asyncio.shield(staging)
+    except asyncio.CancelledError:
+        while not staging.done():
+            try:
+                await asyncio.shield(staging)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not staging.cancelled() and staging.exception() is None:
+            staging.result()[0].unlink(missing_ok=True)
+        raise
     if staged_size != size or staged_hash != checksum_sha256:
         staged_path.unlink(missing_ok=True)
         raise ArtifactPublishError("artifact fingerprint changed before upload")

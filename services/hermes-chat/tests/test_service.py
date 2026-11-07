@@ -126,6 +126,59 @@ class OwnedAgentServiceTests(unittest.TestCase):
         self.assertEqual(settings.max_output_tokens, 4096)
         self.assertEqual(settings.max_cost_usd, 2)
         self.assertEqual(settings.browser_provider, "disabled")
+        self.assertFalse(settings.health_only)
+
+    def test_health_only_startup_and_endpoints_never_execute_or_recover(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, runner, settings = self._app(root, NEWSCRAFT_AGENT_HEALTH_ONLY="1")
+            runner.model = SimpleNamespace(complete=AsyncMock(side_effect=AssertionError("model must not run")))
+            self.assertTrue(settings.health_only)
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                for path in ("/v1/runs/start", "/v1/runs/run-1/cancel", "/v1/ledger/judge", "/v1/ledger/copy", "/"):
+                    with self.subTest(path=path):
+                        response = client.post(path, headers=self._headers(), json={})
+                        self.assertEqual(response.status_code, 503)
+                response = client.get("/ready", headers=self._headers())
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.json()["healthOnly"])
+                self.assertNotIn("healthOnly", client.get("/ready").json())
+                self.assertFalse(hasattr(app.state, "recovery_task"))
+            worker.recover.assert_not_awaited()
+            worker.start.assert_not_awaited()
+            worker.cancel.assert_not_awaited()
+            worker.runtime_checkpoint.assert_not_awaited()
+            worker.publish_artifact_from_tool.assert_not_awaited()
+            runner.model.complete.assert_not_awaited()
+            runner.readiness.assert_awaited()
+
+    def test_health_only_does_not_turn_unconfigured_readiness_green(self):
+        with tempfile.TemporaryDirectory() as root:
+            app, worker, _, _ = self._app(root, capability_ready=False, NEWSCRAFT_AGENT_HEALTH_ONLY="1")
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                response = client.get("/ready", headers=self._headers())
+            self.assertEqual(response.status_code, 503)
+            self.assertFalse(response.json()["ok"])
+            self.assertTrue(response.json()["healthOnly"])
+            worker.recover.assert_not_awaited()
+
+    def test_health_only_flag_rejects_ambiguous_values(self):
+        with tempfile.TemporaryDirectory() as root:
+            for value in ("true", "false", "2", "-1"):
+                with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, "NEWSCRAFT_AGENT_HEALTH_ONLY"):
+                    self._settings(root, NEWSCRAFT_AGENT_HEALTH_ONLY=value)
+
+    def test_ledger_routes_reserve_their_model_cost_before_dispatch(self):
+        from hermes_chat.model_adapters import OpenAIResponses
+        with tempfile.TemporaryDirectory() as root:
+            app, _, runner, settings = self._app(root, NEWSCRAFT_AGENT_MAX_COST_USD="0.001")
+            runner.model = OpenAIResponses(settings)
+            runner.model.complete = AsyncMock(side_effect=AssertionError("model must not run"))
+            with TestClient(app, base_url="http://127.0.0.1:8768") as client:
+                judge = client.post("/v1/ledger/judge", headers=self._headers(), json={"pairs": [{"id": "a", "a": "first", "b": "second"}]})
+                copy = client.post("/v1/ledger/copy", headers=self._headers(), json={"claims": [{"id": "a", "claim": "first"}], "format": "vo"})
+            self.assertEqual(judge.status_code, 503)
+            self.assertEqual(copy.status_code, 503)
+            runner.model.complete.assert_not_awaited()
 
     def test_secret_fields_are_not_in_settings_repr(self):
         with tempfile.TemporaryDirectory() as root:

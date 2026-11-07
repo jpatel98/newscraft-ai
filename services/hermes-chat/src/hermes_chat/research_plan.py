@@ -279,7 +279,7 @@ def parse_plan(text: Any) -> dict[str, Any] | None:
         return None
     queries = _clean_queries(raw.get("queries"))
     mode = raw.get("mode")
-    if mode not in {"thread", "research"}:
+    if mode not in ("thread", "research"):
         if not queries:
             return None
         mode = "research"

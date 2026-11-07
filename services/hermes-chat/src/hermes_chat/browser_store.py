@@ -97,7 +97,7 @@ class BrowserStore:
             if owner and owner[0] != run:
                 raise ExecutorUncertain("A different run still owns this conversation browser.")
             if (db.execute("SELECT 1 FROM browser_actions WHERE scope=? AND phase='pending'", (scope,)).fetchone()
-                    or db.execute("SELECT 1 FROM operations WHERE scope=? AND phase IN ('creating','running')", (scope,)).fetchone()):
+                    or db.execute("SELECT 1 FROM operations WHERE scope=? AND phase IN ('preparing','creating','running')", (scope,)).fetchone()):
                 raise ExecutorUncertain("A previous conversation action still requires confirmed cleanup.")
             self.store.capacity(db, BROWSER_RESERVATION)
             self.store.ensure_scope(db, scope)
@@ -120,7 +120,7 @@ class BrowserStore:
             if not row or row[0] != "pending":
                 raise ExecutorUncertain("Browser completion lost ownership to cancellation.")
             if screenshot:
-                if db.execute("SELECT 1 FROM operations WHERE scope=? AND phase IN ('creating','running')", (scope,)).fetchone():
+                if db.execute("SELECT 1 FROM operations WHERE scope=? AND phase IN ('preparing','creating','running')", (scope,)).fetchone():
                     raise ExecutorUncertain("A terminal action owns the conversation files.")
                 old = db.execute("SELECT snapshot FROM workspaces WHERE scope=?", (scope,)).fetchone()
                 merged = with_screenshot(bytes(old[0]) if old else b"", *screenshot)

@@ -6,6 +6,8 @@ from typing import Any, Protocol
 import httpx
 from .retrieval import _default_search, validate_public_url
 
+MAX_SEARCH_BYTES = 512_000
+
 
 class SearchAdapter(Protocol):
     def __call__(self, query: str, max_results: int, timeout_seconds: float) -> list[dict[str, Any]]: ...
@@ -76,20 +78,30 @@ async def exa_pages(api_key: str, query: str, *, results: int = 6, since: str | 
     """One Exa request returning ranked pages with their text (fast-path research)."""
     body = exa_body(query, results=results, since=since, max_characters=max_characters, include_domains=include_domains,
                     exclude_domains=exclude_domains)
-    async with httpx.AsyncClient(timeout=timeout_seconds, trust_env=False, transport=transport) as client:
-        response = await client.post("https://api.exa.ai/search", json=body,
-                                     headers={"x-api-key": api_key, "content-type": "application/json"})
-    response.raise_for_status()
+    async with httpx.AsyncClient(timeout=timeout_seconds, trust_env=False, follow_redirects=False, transport=transport) as client:
+        async with client.stream("POST", "https://api.exa.ai/search", json=body,
+                                 headers={"x-api-key": api_key, "content-type": "application/json"}) as response:
+            response.raise_for_status()
+            raw = bytearray()
+            async for chunk in response.aiter_bytes():
+                raw.extend(chunk)
+                if len(raw) > MAX_SEARCH_BYTES:
+                    raise ValueError("Search response exceeded its bound.")
+    value = json.loads(raw)
+    if not isinstance(value, dict) or not isinstance(value.get("results"), list):
+        raise ValueError("Search response is invalid.")
     pages = []
-    for item in response.json().get("results", []):
+    for item in value["results"][:results]:
+        if not isinstance(item, dict):
+            continue
         url, text = item.get("url"), item.get("text")
-        if not isinstance(url, str) or not isinstance(text, str) or len(text.strip()) < 200:
+        if not isinstance(url, str) or len(url) > 2000 or not isinstance(text, str) or len(text.strip()) < 200:
             continue
         try:
             validate_public_url(url)
         except ValueError:
             continue
-        pages.append({"url": url, "title": str(item.get("title") or url)[:400], "text": text,
+        pages.append({"url": url, "title": str(item.get("title") or url)[:400], "text": text[:max_characters],
                       "publishedAt": item.get("publishedDate")})
     return pages
 

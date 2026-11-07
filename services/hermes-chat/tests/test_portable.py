@@ -748,11 +748,11 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
     async def test_model_step_limit_stops_next_request(self):
         self.settings.max_iterations = 1
         runner = self.runner([call("plan", {"steps": [{"id": "a", "label": "Check", "status": "running"}]}), answer("Wrapped up.")])
-        events = await self.collect(runner)  # The step cap ends in one tool-free wrap-up call, not a failure.
-        self.assertEqual(len(self.requests), 2)
-        self.assertEqual(self.requests[1][1]["tools"], [])
+        events = await self.collect(runner)
+        self.assertEqual(len(self.requests), 1)
         self.assertEqual(events[-1]["type"], "RUN_FINISHED")
-        self.assertEqual(next(e for e in events if e.get("name") == "newscraft.answer")["value"]["content"], "Wrapped up.")
+        self.assertIn("no verified sources were recorded", next(e for e in events if e.get("name") == "newscraft.answer")["value"]["content"])
+        self.assertEqual(self.store.data["state"]["steps"], self.settings.max_iterations)
 
     def research_steps(self):
         return [call("web_extract", {"urls": [SOURCE_URL]}),
@@ -838,8 +838,10 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_uncertain_wrap_up_model_failure_still_finishes_with_listing(self):
         runner = self.runner([*self.research_steps(), httpx.ReadTimeout("lost")])
-        self.settings.max_iterations = 3  # Three steps used; the fourth is the wrap-up.
-        events = await self.collect(runner)
+        self.settings.max_iterations = 4
+        with self.exhaust_input_budget_from(4, only_once=True):
+            events = await self.collect(runner)
+        self.assertEqual(len(self.requests), 4)
         self.assertEqual(events[-1]["type"], "RUN_FINISHED")
         final = next(e for e in events if e.get("name") == "newscraft.answer")["value"]["content"]
         self.assertIn("Sources found so far", final)
@@ -1194,19 +1196,19 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         args["private"] = {"replay": {"0": [{"type": "reasoning", "encrypted_content": "x" * 60000}]}}
         self.assertGreater(budgets.input_bound(model, **args), 30000)  # Opaque ciphertext: ~2 characters per token.
 
-    def test_input_estimate_tracks_four_characters_per_token_with_a_margin(self):
+    def test_input_bound_covers_utf8_bytes_instead_of_a_prose_average(self):
         model = OpenAIResponses(self.settings)
         text = "The council voted on the budget after a long debate on Thursday evening. " * 600
         args = {"private": {}, "instructions": "policy", "tools": [], "image_tokens": 32768}
         one = budgets.input_bound(model, messages=[{"role": "user", "content": [{"type": "text", "text": text}]}], **args)
-        baseline = len(text) / 4
-        self.assertGreaterEqual(one, baseline)  # Conservative.
-        self.assertLessEqual(one, baseline * 1.3)  # And realistic: within 1.3x of chars/4.
+        baseline = len(text.encode("utf-8"))
+        self.assertGreaterEqual(one, baseline)
+        self.assertLessEqual(one, baseline + 1024)
         two = budgets.input_bound(model, messages=[{"role": "user", "content": [{"type": "text", "text": text}]},
                                                    {"role": "assistant", "content": [{"type": "text", "text": text}]}], **args)
         self.assertLessEqual(two, 2.05 * one)  # Each message is counted once.
         cjk = budgets.input_bound(model, messages=[{"role": "user", "content": [{"type": "text", "text": "新闻" * 500}]}], **args)
-        self.assertGreaterEqual(cjk, 1000)  # Non-ASCII text is not priced like English.
+        self.assertGreaterEqual(cjk, len(("新闻" * 500).encode("utf-8")))
 
     def test_rendered_utf8_file_bytes_are_bounded(self):
         with self.assertRaisesRegex(ValueError, "byte"):
@@ -1283,6 +1285,136 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         runner = self.runner([answer("Hi there. [1]\n\n```newscraft-ledger\n[]\n```")])
         events = await self.collect_fast(runner, self.fast_payload("hello", required=False, small_talk=True), exa)
         self.assertEqual(self.final_answer(events), "Hi there.")
+
+    async def test_fast_dispatch_crash_keeps_reservation_and_never_replays(self):
+        for small_talk, required in ((True, False), (False, False), (False, True)):
+            with self.subTest(small_talk=small_talk, required=required):
+                self.store, self.requests = Store(), []
+                payload = self.fast_payload("the case", required=required, small_talk=small_talk)
+                runner = self.runner([])
+                entered = asyncio.Event()
+                async def interrupted(**kwargs):
+                    entered.set()
+                    await asyncio.Event().wait()
+                runner.model.complete = interrupted
+                task = asyncio.create_task(self.collect_fast(runner, payload, self.fake_exa()[0]))
+                await asyncio.wait_for(entered.wait(), 2)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                state = self.store.data["state"]
+                self.assertTrue(state["intent"])
+                self.assertGreater(state["budget"]["cost_microusd"], 0)
+                self.assertEqual(state["steps"], 1)
+                replacement = self.runner([answer("Must not dispatch")])
+                with self.assertRaisesRegex(RunError, "uncertain"):
+                    await self.collect_fast(replacement, payload, self.fake_exa()[0])
+                self.assertEqual(self.requests, [])
+
+    async def test_fast_model_dispatch_checks_durable_cancellation(self):
+        for small_talk, required in ((True, False), (False, False), (False, True)):
+            with self.subTest(small_talk=small_talk, required=required):
+                self.store, self.requests = Store(), []
+                runner = self.runner([answer("Must not dispatch")])
+                async def cancelled(run, update=None):
+                    if update and update.get("dispatch"):
+                        raise asyncio.CancelledError
+                    return await self.store(run, update)
+                runner.checkpoint = cancelled
+                with self.assertRaises(asyncio.CancelledError):
+                    await self.collect_fast(runner, self.fast_payload("the case", required=required, small_talk=small_talk), self.fake_exa()[0])
+                self.assertEqual(self.requests, [])
+
+    async def test_fast_search_admission_is_charged_saved_and_cancellation_fenced(self):
+        self.settings.web_provider = "openai"
+        self.settings.search_model = "fixture-search"
+        self.settings.search_base_url = "https://search.example.test/v1"
+        runner = self.runner([answer('{"mode":"research","queries":[{"q":"the case"}]}')])
+        called = []
+        async def search(api_key, query, **kwargs):
+            called.append(query)
+            self.assertTrue(self.store.data["state"]["intent"])
+            self.assertEqual(self.store.data["state"]["search_reserved"], 1)
+            self.assertGreaterEqual(self.store.data["state"]["budget"]["cost_microusd"], 100_000)
+            raise asyncio.CancelledError
+        with self.assertRaises(asyncio.CancelledError):
+            await self.collect_fast(runner, self.fast_payload("the case"), search)
+        self.assertEqual(called, ["the case"])
+        self.assertEqual(self.store.data["state"]["search_reserved"], 1)
+
+    async def test_fast_writer_saves_answer_before_cleanup(self):
+        runner = self.runner([answer("Finished answer")])
+        original_factory = runner.sandbox_factory
+        def factory(*args):
+            sandbox = original_factory(*args)
+            sandbox.close = AsyncMock(side_effect=TimeoutError)
+            return sandbox
+        factory.policy = original_factory.policy
+        runner.sandbox_factory = factory
+        payload = self.fast_payload("the case", required=False)
+        with self.assertRaises(RecoveryPending):
+            await self.collect_fast(runner, payload, self.fake_exa()[0])
+        self.assertEqual(self.store.data["state"]["phase"], "finishing")
+        self.assertEqual(self.store.data["state"]["answer"], "Finished answer")
+        resumed = self.runner([])
+        resumed.sandbox_factory = original_factory
+        events = await self.collect_fast(resumed, payload, self.fake_exa()[0])
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual(len(self.requests), 1)
+
+    async def test_fast_dispatch_does_not_exceed_run_deadline_after_checkpoint(self):
+        runner = self.runner([answer("Must not dispatch")])
+        async def expired(run, update=None):
+            value = await self.store(run, update)
+            if update:
+                update["state"]["started"] -= self.settings.max_seconds + 1
+            return value
+        runner.checkpoint = expired
+        with self.assertRaisesRegex(RunError, "time budget"):
+            await self.collect_fast(runner, self.fast_payload("hello", required=False, small_talk=True), self.fake_exa()[0])
+        self.assertEqual(self.requests, [])
+
+    async def test_page_search_without_a_reviewed_ceiling_is_not_ready_or_dispatched(self):
+        self.settings.search_cost_ceiling_usd = 0
+        runner = self.runner([answer("Must not dispatch")])
+        exa, calls = self.fake_exa()
+        runner.page_search = ExaPageSearch("fixture", fetch=exa)
+        self.assertFalse((await runner.readiness())["configured"])
+        with self.assertRaisesRegex(RunError, "price ceilings"):
+            await self.collect_fast(runner, self.fast_payload("the case"), exa)
+        self.assertEqual(self.requests, [])
+        self.assertEqual(calls, [])
+
+    async def test_planner_leaves_the_last_allowed_model_step_for_the_writer(self):
+        self.settings.max_iterations = 1
+        exa, _ = self.fake_exa(default=[self.fast_page("https://www.cbc.ca/a", "CBC report", self.SOLDIER_TEXT)])
+        events = await self.collect_fast(self.runner([answer("Charged. [1]")]), self.fast_payload("the case"), exa)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual(len(self.requests), 1)
+        self.assertEqual(self.store.data["state"]["steps"], 1)
+
+    async def test_disabling_retrieval_also_disables_planned_paid_page_search(self):
+        self.settings.retrieval = RetrievalConfig(enabled=False)
+        exa, calls = self.fake_exa()
+        runner = self.runner([answer('{"mode":"research","queries":[{"q":"the case"}]}'), answer("No sources found.")])
+        await self.collect_fast(runner, self.fast_payload("the case"), exa)
+        self.assertEqual(calls, [])
+        self.assertEqual(self.store.data["state"]["search_reserved"], 0)
+
+    def test_malformed_ledger_citations_and_dates_are_untrusted_data(self):
+        from hermes_chat.portable import _normalize_ledger, _ledger_context, canonical_input
+        for citations in (1, True, "1", {}, [True, -1, 101]):
+            with self.subTest(citations=citations):
+                data = {"claims": [{"claim": "Claim", "citations": citations, "date": "2026-02-30"}]}
+                block = "```newscraft-ledger\n" + json.dumps(data) + "\n```"
+                normalized = json.loads(_normalize_ledger(block).split("\n")[1])["claims"][0]
+                self.assertEqual(normalized["citations"], [])
+                self.assertEqual(normalized["date"], "")
+                payload = self.fast_payload("the case", required=False)
+                payload["context"].append({"description": "Story ledger", "value": json.dumps(data)})
+                prior = _ledger_context(canonical_input(payload))[0]
+                self.assertEqual(prior["citations"], [])
+                self.assertEqual(prior["date"], "")
 
     KILAUEA = ("WRITE suvo\n\nINFORMATION PROVIDED BY USGS VOLCANOES: Episode 55 of Kilauea summit lava fountaining began at 3:19 a.m. HST "
                "this morning. The lava fountain reached an estimated 700 feet. The plume is reaching an estimated 25,000 feet above sea level.\n\n"
@@ -1363,7 +1495,7 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         # Planner call: tool-free, capped, and given the newsroom context; writer call: the numbered listing.
         planner_body, writer_body = self.requests[0][1], self.requests[1][1]
         self.assertEqual(planner_body["tools"], [])
-        self.assertEqual(planner_body["max_output_tokens"], 400)
+        self.assertEqual(planner_body["max_output_tokens"], min(400, self.settings.max_output_tokens))
         self.assertIn("Home market: Toronto", self.model_prompts()[0])
         self.assertIn(user_sentence, self.model_prompts()[0])
         self.assertIn("[1] TPS release", self.model_prompts()[1])
@@ -1638,6 +1770,75 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(step["status"] == "ok" for step in plans[-1]))
         self.assertEqual([s["citationNumber"] for s in self.snapshot_sources(events)], [1, 2])
         self.assertEqual(self.store.data["state"]["phase"], "finished")
+
+    async def test_dual_format_final_attempt_only_publishes_the_missing_successful_type(self):
+        formats = [call("publish_markdown", {"title": "Brief", "markdown": "User supplied material."}),
+                   call("publish_csv", {"title": "Data", "columns": ["Total"], "rows": [["3"]], "row_citations": None})]
+        for first, second in (formats, list(reversed(formats))):
+            with self.subTest(first=first["name"]):
+                self.store, self.requests, self.published = Store(), [], []
+                repeated = {**first, "id": first["id"] + "-duplicate"}
+                runner = self.runner([first, answer("The files are ready."), [repeated, second]])
+                payload = self.fast_payload("Create a Markdown file and CSV from this material", required=False)
+                exa, searches = self.fake_exa()
+                events = await self.collect_fast(runner, payload, exa)
+                self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+                self.assertEqual([request["publication_key"] for request, _ in self.published], [first["id"], second["id"]])
+                self.assertEqual(len(self.requests), 3)
+                self.assertEqual(self.tool_names(self.requests[-1][1]), [second["name"]])
+                self.assertEqual(searches, [])
+                replay = await self.collect_fast(runner, payload, exa)
+                self.assertEqual(replay[-1]["type"], "RUN_FINISHED")
+                self.assertEqual(len(self.requests), 3)
+                self.assertEqual(len(self.published), 2)
+
+    async def test_dual_format_final_batch_resumes_without_republishing_a_successful_type(self):
+        markdown = call("publish_markdown", {"title": "Brief", "markdown": "User supplied material."})
+        csv = call("publish_csv", {"title": "Data", "columns": ["Total"], "rows": [["3"]], "row_citations": None})
+        runner = self.runner([answer("The files are ready."), [markdown, csv, {**markdown, "id": "duplicate"}]])
+        self.payload = self.fast_payload("Create a Markdown file and CSV from this material", required=False)
+        exa, searches = self.fake_exa()
+        runner.page_search = ExaPageSearch("test-key", fetch=exa)
+        stream = runner.run(self.payload, self.runtime, "run-one")
+        while (await anext(stream)).get("toolCallId") != markdown["id"] or not self.published:
+            pass
+        await stream.aclose()
+        self.assertEqual([item["name"] for item in self.store.data["state"]["pending"]], ["publish_csv"])
+        self.assertEqual(self.store.data["state"]["plan"][-1]["status"], "running")
+        events = await self.collect(runner)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual([request["publication_key"] for request, _ in self.published], ["publish_markdown", "publish_csv"])
+        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(searches, [])
+        self.assertEqual(self.store.data["state"]["plan"][-1]["status"], "ok")
+        await self.collect(runner)
+        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(len(self.published), 2)
+
+    async def test_dual_format_inline_markdown_still_requests_the_missing_csv(self):
+        document = "# Brief\n\n## Summary\nThe supplied material contains three measured results."
+        runner = self.runner([answer(document), call("publish_csv", {"title": "Data", "columns": ["Total"], "rows": [["3"]], "row_citations": None})])
+        payload = self.fast_payload("Create a Markdown file and CSV from this material", required=False)
+        exa, searches = self.fake_exa()
+        events = await self.collect_fast(runner, payload, exa)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual([request["mime_type"] for request, _ in self.published], ["text/markdown", "text/csv"])
+        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(self.tool_names(self.requests[-1][1]), ["publish_csv"])
+        self.assertEqual(searches, [])
+
+    async def test_dual_format_failed_receipt_does_not_satisfy_a_requested_type(self):
+        runner = self.runner([call("publish_markdown", {"title": "Rejected", "markdown": "Unsupported. [99]"}, "rejected"),
+                              answer("The files are ready."),
+                              [call("publish_markdown", {"title": "Brief", "markdown": "User supplied material."}),
+                               call("publish_csv", {"title": "Data", "columns": ["Total"], "rows": [["3"]], "row_citations": None})]])
+        exa, searches = self.fake_exa()
+        events = await self.collect_fast(runner, self.fast_payload("Create a Markdown file and CSV from this material", required=False), exa)
+        self.assertEqual(events[-1]["type"], "RUN_FINISHED")
+        self.assertEqual([request["publication_key"] for request, _ in self.published], ["publish_markdown", "publish_csv"])
+        self.assertEqual(self.tool_names(self.requests[-1][1]), ["publish_markdown", "publish_csv"])
+        self.assertEqual(len(self.requests), 3)
+        self.assertEqual(searches, [])
 
     async def test_loop_web_search_returns_read_pages_through_exa_records_them_and_falls_back_to_public_leads(self):
         plan = {"mode": "thread", "assumption": "", "queries": []}
@@ -2080,7 +2281,7 @@ class PortableTests(unittest.IsolatedAsyncioTestCase):
         runner = self.runner([answer('{"mode": "research", "queries": [{"q": "case"}]}'), answer("Charged. [1]")])
         await self.collect_fast(runner, self.fast_payload("the case"), exa)
         budget = self.store.data["state"]["budget"]
-        self.assertEqual(budget["output_tokens"], 400 + self.settings.max_output_tokens)
+        self.assertEqual(budget["output_tokens"], min(400, self.settings.max_output_tokens) + self.settings.max_output_tokens)
         self.assertEqual(self.store.data["state"]["steps"], 2)
 
     async def test_empty_publisher_restricted_official_query_is_rerun_once_unrestricted_and_counted(self):

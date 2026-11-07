@@ -17,7 +17,7 @@ TIER_RANK = {name: index for index, name in enumerate(TIERS)}
 SOURCE_TYPE_FOR_TIER = {"official": "official", "major": "news_report", "local": "news_report",
                         "other": "news_report", "aggregator": "aggregator"}
 
-OFFICIAL_SUFFIXES = (".gc.ca", ".gov", ".gouv.qc.ca", ".gov.on.ca", ".on.ca", ".gov.uk", ".gov.au", ".gov.bc.ca", ".gov.ab.ca", ".mil")
+OFFICIAL_SUFFIXES = (".gc.ca", ".gov", ".gouv.qc.ca", ".gov.on.ca", ".gov.uk", ".gov.au", ".gov.bc.ca", ".gov.ab.ca", ".mil")
 OFFICIAL_DOMAINS = (
     "canada.ca", "ontario.ca", "toronto.ca", "tps.ca", "ttc.ca", "metrolinx.com", "gotransit.com", "cpso.on.ca", "siu.on.ca",
     "opp.ca", "rcmp-grc.gc.ca", "yrp.ca", "peelpolice.ca", "haltonpolice.ca", "durhampolice.ca", "hamiltonpolice.on.ca",
@@ -60,8 +60,6 @@ OFFICIAL_HINTS = (
 
 _TRACKING = re.compile(r"^(?:utm_.*|fbclid|gclid|mc_cid|mc_eid|ref|ref_src|cmpid|taid)$", re.I)
 _DOMAIN = re.compile(r"^(?=.{4,100}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
-_POLICE = re.compile(r"[a-z0-9-]*police(?:services?)?")
-_COURTS = re.compile(r"[a-z0-9-]*courts?")
 
 
 def host_of(url: str) -> str:
@@ -112,9 +110,6 @@ def tier_for_url(url: str, preferred_domains: Sequence[str] = ()) -> str:
     if not host:
         return "other"
     if _within(host, OFFICIAL_DOMAINS) or any(host.endswith(suffix) for suffix in OFFICIAL_SUFFIXES):
-        return "official"
-    sld = _second_level(host)
-    if _POLICE.fullmatch(sld) or _COURTS.fullmatch(sld):
         return "official"
     if _within(host, normalize_domains(list(preferred_domains), limit=50)):
         return "major"

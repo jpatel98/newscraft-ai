@@ -587,14 +587,17 @@ def _parse_timestamp(value: str | None) -> tuple[str, datetime] | None:
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=timezone.utc)
             parsed = parsed.astimezone(timezone.utc)
-    except ValueError:
+    except (ValueError, OverflowError):
         try:
             parsed = parsedate_to_datetime(candidate)
         except (TypeError, ValueError, IndexError, OverflowError):
             return None
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        parsed = parsed.astimezone(timezone.utc)
+        try:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed = parsed.astimezone(timezone.utc)
+        except (ValueError, OverflowError):
+            return None
     return parsed.strftime("%Y-%m-%dT%H:%M:%SZ"), parsed
 
 
@@ -1300,9 +1303,10 @@ class ResearchTools:
         """Accept page text returned by the configured search provider as a direct read."""
         url = validate_public_url(url)
         text = text[:MAX_EXTRACT_CHARS]
+        published = _parse_timestamp(published_at) if isinstance(published_at, str) else None
         metadata = {"originalUrl": url, "backend": PROVIDER_NAME, "evidenceStatus": "accepted",
                     "contentHash": hashlib.sha256(text.encode()).hexdigest(),
-                    "publishedAt": published_at if isinstance(published_at, str) else None,
+                    "publishedAt": published[0] if published else None,
                     "extractionMethod": "search_provider_text"}
         self._retain_evidence(url, {"url": url, "title": title, "evidence_text": text, "metadata": metadata})
         return url

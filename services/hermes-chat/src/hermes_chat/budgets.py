@@ -4,8 +4,9 @@ Reservations are never refunded: missing responses and usage records cannot
 make a crashed request free. Operators supply reviewed price/image ceilings.
 """
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
+import asyncio
 import json
-import re
+import time
 
 from .provider_policy import DEEPSEEK_PRICE_FLOORS
 
@@ -20,7 +21,7 @@ def policy(settings):
             "image_tokens": getattr(settings, "image_token_ceiling", 32768)}
 
 
-def configured(settings):
+def configured(settings, *, paid_search=False):
     try:
         prices = [Decimal(str(settings.input_cost_per_million)), Decimal(str(settings.output_cost_per_million))]
         if not all(price.is_finite() and price > 0 for price in prices):
@@ -29,7 +30,7 @@ def configured(settings):
             floors = DEEPSEEK_PRICE_FLOORS.get(settings.model)
             if floors is None or any(price < Decimal(floor) for price, floor in zip(prices, floors)):
                 return False
-        if settings.web_provider == "openai":
+        if settings.web_provider == "openai" or paid_search:
             search = Decimal(str(getattr(settings, "search_cost_ceiling_usd", 0)))
             return search.is_finite() and search > 0
         return True
@@ -37,29 +38,18 @@ def configured(settings):
         return False
 
 
-CHARS_PER_TOKEN = 4  # English prose; non-ASCII characters are counted at one token each (see input_bound).
-SAFETY_MARGIN = Decimal("1.15")
 FRAMING_TOKENS = 32  # Fixed request framing.
 MESSAGE_FRAMING_TOKENS = 16  # Role/delimiter overhead per message.
 
 
-_DENSE_RUN = re.compile(r"[A-Za-z0-9+/=_-]{200,}")  # Base64-like ciphertext tokenizes at ~2 characters per token.
-
-
 def input_bound(adapter, *, messages, private, instructions, tools, image_tokens):
-    # Count the actual translated input once, including strict schemas and encrypted
-    # continuation: ~4 characters per token for text, 2 for long opaque runs, one per
-    # non-ASCII character, plus a 15% margin. Image bytes are priced by ``image_tokens``.
+    """Reserve translated UTF-8 bytes, not an English-prose token average."""
     wire = adapter.budget_input(messages=messages, private=private, instructions=instructions, tools=tools)
     text = json.dumps(wire, ensure_ascii=False)
     images = [block for message in messages for block in message["content"] if block["type"] == "image"]
     for block in images:
         text = text.replace(block.get("data") or "\0", "", 1)
-    dense = sum(len(run) for run in _DENSE_RUN.findall(text))
-    ascii_chars = sum(c < "\x80" for c in text)
-    plain, other_chars = ascii_chars - dense, len(text) - ascii_chars
-    tokens = (Decimal(plain) / CHARS_PER_TOKEN + Decimal(dense) / 2 + other_chars) * SAFETY_MARGIN
-    return (int(tokens.to_integral_value(rounding=ROUND_CEILING)) + FRAMING_TOKENS + MESSAGE_FRAMING_TOKENS * len(messages)
+    return (len(text.encode("utf-8")) + FRAMING_TOKENS + MESSAGE_FRAMING_TOKENS * len(messages)
             + len(images) * image_tokens)
 
 
@@ -90,3 +80,27 @@ def calls_left(state, settings, *, input_tokens, output_tokens):
     by_input = (limits["input_limit"] - budget["input_tokens"]) // max(1, input_tokens)
     by_cost = int((Decimal(limits["usd_limit"]) * 1_000_000 - budget["cost_microusd"]) // micros)
     return max(0, min(by_input, by_cost))
+
+
+class BudgetedModel:
+    """One auxiliary request's cumulative model budget, with no automatic replay."""
+
+    def __init__(self, model, settings):
+        self.model, self.settings = model, settings
+        self.state, self.steps = {}, 0
+        self.deadline = time.monotonic() + settings.max_seconds
+
+    async def complete(self, **arguments):
+        if not configured(self.settings) or arguments.get("model") != self.settings.model:
+            raise ValueError("Reviewed model price ceilings are required.")
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0 or self.steps >= self.settings.max_iterations:
+            raise ValueError("The auxiliary model request budget was reached.")
+        arguments["max_output"] = min(arguments["max_output"], self.settings.max_output_tokens)
+        bound = input_bound(self.model, messages=arguments["messages"], private=arguments["private"],
+                            instructions=arguments["instructions"], tools=arguments["tools"],
+                            image_tokens=policy(self.settings)["image_tokens"])
+        reserve(self.state, self.settings, input_tokens=bound, output_tokens=arguments["max_output"])
+        self.steps += 1
+        async with asyncio.timeout(remaining):
+            return await self.model.complete(**arguments)

@@ -109,22 +109,27 @@ class HTTPModel:
     @staticmethod
     async def read_events(response, on_event):
         size, name, data = 0, None, []
-        async for line in response.aiter_lines():
-            size += len(line) + 1
+        pending = b""
+        async for chunk in response.aiter_bytes():
+            size += len(chunk)
             if size > MAX_RESPONSE_BYTES:
                 raise ModelError("The model response exceeded its size limit.")
-            if line.startswith("event:"):
-                name = line[6:].strip()
-            elif line.startswith("data:"):
-                data.append(line[5:].removeprefix(" "))
-            elif not line and data:
-                value = json.loads("\n".join(data))
-                if not isinstance(value, dict):
-                    raise ValueError()
-                result = on_event(name or value.get("type"), value)
-                if result is not None:
-                    return result
-                name, data = None, []
+            pending += chunk
+            while b"\n" in pending:
+                raw, pending = pending.split(b"\n", 1)
+                line = raw.rstrip(b"\r").decode("utf-8")
+                if line.startswith("event:"):
+                    name = line[6:].strip()
+                elif line.startswith("data:"):
+                    data.append(line[5:].removeprefix(" "))
+                elif not line and data:
+                    value = json.loads("\n".join(data))
+                    if not isinstance(value, dict):
+                        raise ValueError()
+                    result = on_event(name or value.get("type"), value)
+                    if result is not None:
+                        return result
+                    name, data = None, []
         raise ValueError()  # The stream ended before its final event.
 
 

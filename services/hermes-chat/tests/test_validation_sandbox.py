@@ -77,6 +77,17 @@ class ValidationSandboxTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.computer,'_process',new_callable=AsyncMock) as process:
             await self.computer.prepare()
             process.assert_not_awaited()
+
+    async def test_failed_browser_close_retains_pipe_until_retry_completes(self):
+        browser = AsyncMock()
+        browser.close.side_effect = [OSError("synthetic interrupted close"), None]
+        self.computer._browser = browser
+        with self.assertRaises(OSError):
+            await self.computer.close()
+        self.assertIs(self.computer._browser, browser)
+        await self.computer.close()
+        self.assertIsNone(self.computer._browser)
+        self.assertEqual(browser.close.await_count, 2)
         browser=self.computer._make_browser({'storage':{},'input_tainted':False,'last_url':''})
         self.assertEqual(browser._docker_argv_builder,self.computer._argv)
         self.assertEqual(browser.browser_uid,os.getuid()+65536)

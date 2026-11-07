@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+from datetime import date
 import hashlib
 import io
 import json
@@ -52,7 +53,7 @@ FALLBACK_DECISION = "File storage was unavailable; delivering the brief inline."
 # The saved policy identity: who is paid, which model and endpoints, which computer. Budget ceilings (token, step, time,
 # cost and search limits) are operator settings that may be retuned between a run and its recovery; prices stay because
 # the reservations already saved were computed from them.
-POLICY_KEYS = ("provider", "model", "model_endpoint", "search", "computer")
+POLICY_KEYS = ("provider", "model", "model_endpoint", "search", "page_search", "computer")
 POLICY_PRICE_KEYS = ("input_price", "output_price", "search_price")
 
 
@@ -228,6 +229,20 @@ _LEDGER_OPEN = re.compile(r"(?:^|\n)[ \t]*```[ \t]*newscraft-ledger\b")
 _LEDGER_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+def _ledger_date(value):
+    if isinstance(value, str) and _LEDGER_DATE.fullmatch(value):
+        try:
+            return date.fromisoformat(value).isoformat()
+        except ValueError:
+            pass
+    return ""
+
+
+def _ledger_citations(value):
+    return [number for number in value if isinstance(number, int) and not isinstance(number, bool)
+            and 1 <= number <= MAX_CITATION_NUMBER] if isinstance(value, list) else []
+
+
 def _split_ledger(text):
     """(body, block): the answer without its newscraft-ledger block(s), and the last complete block as written ('' when none).
 
@@ -268,10 +283,9 @@ def _normalize_ledger(block, valid=None):
         if not claim:
             continue
         status = item.get("status") if item.get("status") in LEDGER_STATUSES else "unverified"
-        numbers = [n for n in item.get("citations") or [] if isinstance(n, int) and not isinstance(n, bool) and (valid is None or n in valid)]
-        date = item.get("date") if isinstance(item.get("date"), str) and _LEDGER_DATE.match(item["date"]) else ""
+        numbers = [number for number in _ledger_citations(item.get("citations")) if valid is None or number in valid]
         entry = {"claim": claim, "status": status, "attributed_to": " ".join(str(item.get("attributed_to") or "").split())[:120],
-                 "citations": list(dict.fromkeys(numbers)), "date": date, "needs_check": bool(item.get("needs_check"))}
+                 "citations": list(dict.fromkeys(numbers)), "date": _ledger_date(item.get("date")), "needs_check": bool(item.get("needs_check"))}
         if isinstance(item.get("supersedes"), str) and item["supersedes"].strip():
             entry["supersedes"] = item["supersedes"].strip()[:64]
         claims.append(entry)
@@ -320,8 +334,8 @@ def _ledger_context(messages):
             "id": " ".join(str(item.get("id") or "").split())[:64], "claim": claim,
             "status": item.get("status") if item.get("status") in LEDGER_STATUSES else "unverified",
             "attributed_to": " ".join(str(item.get("attributed_to") or "").split())[:120],
-            "citations": [n for n in item.get("citations") or [] if isinstance(n, int) and not isinstance(n, bool)][:8],
-            "date": item["date"] if isinstance(item.get("date"), str) and _LEDGER_DATE.match(item["date"]) else "",
+            "citations": _ledger_citations(item.get("citations"))[:8],
+            "date": _ledger_date(item.get("date")),
             "needs_check": bool(item.get("needs_check"))})
     return claims[-MAX_LEDGER_CLAIMS_IN:]
 
@@ -851,7 +865,7 @@ class PortableAgentRunner:
         if hasattr(self.sandbox_factory, "readiness"):
             computer = await self.sandbox_factory.readiness()
         return {**computer,
-                "configured": bool(computer["configured"] and self.settings.model_api_key and self.settings.model and self.checkpoint and self.publisher and budgets.configured(self.settings)),
+                "configured": bool(computer["configured"] and self.settings.model_api_key and self.settings.model and self.checkpoint and self.publisher and budgets.configured(self.settings, paid_search=self.page_search is not None)),
                 "tools": [t["name"] for t in PUBLIC_TOOLS[:4]] + [t["name"] for t in self._research().tool_definitions] + computer["tools"],
                 "files": True, "accessVerified": False}
 
@@ -860,23 +874,27 @@ class PortableAgentRunner:
             return self.research_factory(self.settings.retrieval)
         return ResearchTools(self.settings.retrieval, searcher=lead_search_from_settings(self.settings))
 
-    async def _plan_research(self, state, *, instructions, request, newsroom, now, required, sources, settings=None):
+    async def _plan_research(self, state, *, instructions, request, newsroom, now, required, sources, dispatch, settings=None):
         """One bounded, tool-free planner call; None on any failure (the caller falls back to a plain search)."""
         settings = settings or self.settings
+        if state["steps"] >= settings.max_iterations - 1:
+            return None
         prompt = research_plan.planner_prompt(request=request, newsroom=newsroom, now=now, sources=sources, required=required,
                                               dialogue=research_plan.recent_dialogue(state["messages"]))
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+        max_output = min(PLANNER_MAX_OUTPUT, settings.max_output_tokens)
         try:
             estimate = budgets.input_bound(self.model, messages=messages, private={}, instructions=instructions, tools=[],
                                            image_tokens=budgets.policy(settings)["image_tokens"])
-            budgets.reserve(state, settings, input_tokens=estimate, output_tokens=PLANNER_MAX_OUTPUT)
+            budgets.reserve(state, settings, input_tokens=estimate, output_tokens=max_output)
         except ValueError:
             return None  # No budget for a planning call; the plain search still runs.
         state["steps"] += 1
+        remaining = await dispatch()
         try:
-            async with asyncio.timeout(PLANNER_SECONDS):
+            async with asyncio.timeout(min(PLANNER_SECONDS, remaining)):
                 reply = await self.model.complete(model=settings.model, instructions=instructions, messages=messages,
-                                                  tools=[], max_output=PLANNER_MAX_OUTPUT, private={})
+                                                  tools=[], max_output=max_output, private={})
         except Exception:  # Planning is best-effort: an uncertain call is never replayed, the fallback plan is used.
             logger.warning("fast path: planner call failed")
             return None
@@ -890,6 +908,7 @@ class PortableAgentRunner:
         says whether any draft text was shown. A failed request clears its draft before it raises."""
         deltas = asyncio.Queue()
         task = asyncio.create_task(asyncio.wait_for(self.model.complete(**arguments, on_text=deltas.put_nowait), timeout))
+        getter = None
         try:
             while not task.done() or not deltas.empty():
                 if deltas.empty():
@@ -911,6 +930,9 @@ class PortableAgentRunner:
                 yield clear_draft()
             raise
         finally:
+            if getter is not None:
+                getter.cancel()
+                await asyncio.gather(getter, return_exceptions=True)
             if not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
@@ -938,7 +960,7 @@ class PortableAgentRunner:
         messages = canonical_input(payload)  # Always before model/search/executor work.
         if not self.checkpoint or not self.publisher:
             raise RunError("Durable research state and artifact publication are not configured.")
-        if not budgets.configured(self.settings):
+        if not budgets.configured(self.settings, paid_search=self.page_search is not None):
             raise RunError("Reviewed model and paid-search price ceilings must be configured before research can run.")
         thread = str(payload.get("threadId") or payload.get("thread_id") or "")
         if not thread:
@@ -948,6 +970,7 @@ class PortableAgentRunner:
         state = saved["state"]
         adapter = {"provider": self.settings.model_provider, "model": self.settings.model,
                    "model_endpoint": self.settings.model_base_url,
+                   "page_search": getattr(self.page_search, "name", None),
                    "search": {"provider": self.settings.web_provider,
                               "model": getattr(self.settings, "search_model", None) if self.settings.web_provider == "openai" else None,
                               "endpoint": getattr(self.settings, "search_base_url", None) if self.settings.web_provider == "openai" else None},
@@ -998,13 +1021,42 @@ class PortableAgentRunner:
             "Use publish_markdown/publish_csv for requested deliverables. Do not claim independent semantic verification. "
             "Only tools actually listed are available. Code execution and interactive browsing are unavailable unless explicitly listed.")
 
+        save_lock = asyncio.Lock()
+
         async def save(*, dispatch=False):
             nonlocal saved
-            state["sources"] = list(research.recorded_sources.values())
-            state["evidence"] = research.export_evidence(binding)
-            if len(json.dumps(state).encode()) > MAX_STATE_BYTES:
-                raise RunError("The research recovery state limit was reached.")
-            saved = await self.checkpoint(run_id, {"version": saved["version"], "state": state, "dispatch": dispatch})
+            async with save_lock:
+                state["sources"] = list(research.recorded_sources.values())
+                state["evidence"] = research.export_evidence(binding)
+                if len(json.dumps(state).encode()) > MAX_STATE_BYTES:
+                    raise RunError("The research recovery state limit was reached.")
+                saved = await self.checkpoint(run_id, {"version": saved["version"], "state": state, "dispatch": dispatch})
+
+        def time_left():
+            remaining = state["started"] + settings.max_seconds - time.time()
+            if remaining <= 0:
+                raise RunError("The research time budget was reached before dispatch.")
+            return remaining
+
+        async def fast_dispatch():
+            time_left()
+            if state["steps"] > settings.max_iterations:
+                raise RunError("The research step budget was reached before dispatch.")
+            state["intent"] = {"kind": "fast"}
+            await save(dispatch=True)
+            return time_left()
+
+        async def admit_search(limit, *, paid):
+            time_left()
+            if state["search_reserved"] >= limit:
+                return False
+            try:
+                budgets.reserve(state, settings, search=paid)
+            except ValueError:
+                return False
+            state["search_reserved"] += 1
+            await fast_dispatch()
+            return True
 
         computer_closed = False
 
@@ -1080,16 +1132,17 @@ class PortableAgentRunner:
             return cap
 
         def unpublished_tools():
-            """Publish tools a deliverable run still owes (none once one succeeded or the final attempt was made)."""
+            """Requested publication types without a successful durable receipt."""
             wanted = (state.get("deliverable") or {}).get("tools") or []
-            done = any(r["call"]["name"] in PUBLISH_TOOLS and any(e.get("type") == "TOOL_CALL_END" and e.get("status") == "ok" for e in r["events"])
-                       for r in state["receipts"].values())
-            return [] if done else list(wanted)
+            done = {receipt["call"]["name"] for receipt in state["receipts"].values()
+                    if receipt["call"]["name"] in PUBLISH_TOOLS
+                    and any(event.get("type") == "TOOL_CALL_END" and event.get("status") == "ok" for event in receipt["events"])}
+            return [name for name in wanted if name not in done]
 
         async def final_publication(reason, final_text="", cut=False):
             """The file is still unpublished (out of steps, or the model answered without it): one last call offering only the publish tools."""
             wanted = unpublished_tools()
-            if reason not in {"steps", "budget", "final"} or not wanted or state.get("publish_attempted"):
+            if reason not in {"steps", "budget", "final"} or not wanted or state.get("publish_attempted") or state["steps"] >= settings.max_iterations:
                 return False
             state["publish_attempted"] = True
             offered = [t for t in tools if t["name"] in wanted]
@@ -1128,25 +1181,32 @@ class PortableAgentRunner:
                 await save()
                 return False
             used = {b["id"] for m in state["messages"] for b in m["content"] if b["type"] == "tool_call"}
-            chosen = next((b for b in reply.message["content"] if b["type"] == "tool_call" and b["name"] in wanted and b["id"] not in used), None)
+            chosen, chosen_types = [], set()
+            for block in reply.message["content"]:
+                if block["type"] == "tool_call" and block["name"] in wanted and block["name"] not in chosen_types and block["id"] not in used:
+                    chosen.append(block)
+                    chosen_types.add(block["name"])
+                    used.add(block["id"])
             state["usage"] = reply.usage
             partial = getattr(reply, "partial_tool_call", None)
-            if chosen is None and reply.truncated and partial and partial.get("name") in wanted:
+            if not chosen and reply.truncated and partial and partial.get("name") in wanted:
                 recovered = await recover_publication(partial, plain)  # The model began the file and ran out of output: finish it.
                 if recovered:
-                    chosen, final_text, cut = recovered[0], recovered[1], False
-            if chosen is None:
+                    chosen, final_text, cut = [recovered[0]], recovered[1], False
+            if not chosen:
                 await save()
                 return False
-            state["messages"].append({**reply.message, "content": [*(b for b in reply.message["content"] if b["type"] == "text"), chosen]})
-            state["pending"] = [chosen]
+            state["messages"].append({**reply.message, "content": [*(b for b in reply.message["content"] if b["type"] == "text"), *chosen]})
+            state["pending"] = chosen
             if reason == "final":
-                state["direct_publish"] = direct_record(chosen, final_text, cut)
+                state["direct_publish"] = direct_record(chosen[-1], final_text, cut)
             await save()
             return True
 
         async def continue_document(base, content):
             """One tool-free model call that continues a cut-off document; (text, still_cut) or (None, False) when it cannot run."""
+            if state["steps"] >= settings.max_iterations:
+                return None, False
             note = {"type": "text", "text": CONTINUE_PROMPT + content[-CONTINUE_TAIL_CHARS:]}
             messages = [*base, {"role": "assistant", "content": [{"type": "text", "text": content}]}, {"role": "user", "content": [note]}]
             try:
@@ -1261,7 +1321,7 @@ class PortableAgentRunner:
             sources = research.recorded_sources
             state["wrap_reason"] = reason
             text, truncated = "", False
-            if not no_model and not (state["research_used"] and not sources):
+            if not no_model and state["steps"] < settings.max_iterations and not (state["research_used"] and not sources):
                 note = {"type": "text", "text": WRAP_UP_NOTE}
                 full = _plain_messages(state["messages"])
                 if full and full[-1]["role"] == "user":
@@ -1386,11 +1446,13 @@ class PortableAgentRunner:
                 plan = None
                 if required is not False:
                     plan = await self._plan_research(state, settings=settings, instructions=fast_instructions, request=request, newsroom=newsroom, now=now,
-                                                     required=required, sources=thread_sources)
+                                                     required=required, sources=thread_sources, dispatch=fast_dispatch)
                     logger.info("fast path: plan %s at %.1fs", (plan or {}).get("source", "unavailable"), time.monotonic() - fast_t0)
                 plan = research_plan.apply_requirement(plan, required, subject, now, request=request, market=newsroom.get("homeMarket") or "")
                 research_mode = plan["mode"] == "research"
                 search_limit = max(0, getattr(settings, "max_search_calls", 5) - reserve)  # `reserve` keeps searches for the loop.
+                if not research.config.enabled:
+                    search_limit = 0
                 allowance = max(0, search_limit - state["search_reserved"])
                 specs = [dict(spec) for spec in plan["queries"][:allowance]] if research_mode else []
                 for spec in specs:
@@ -1416,23 +1478,25 @@ class PortableAgentRunner:
                 candidates = []
                 page_search = self.page_search
                 if specs and page_search:
-                    state["search_reserved"] += len(specs)
-
                     async def search(spec):
                         since = _since(spec["days"], turn.get("freshness") == "current" and spec["intent"] in {"news", "local"})
+                        if not await admit_search(search_limit, paid=True):
+                            return spec, [], True
                         try:
-                            found = await page_search.pages(spec["q"], results=FAST_RESULTS_PER_QUERY, since=since,
-                                                    max_characters=FAST_PAGE_CHARS, include_domains=spec["domains"] or None)
-                            if (not found and spec["intent"] == "official" and spec["domains"] and not spec.get("preferred")
-                                    and state["search_reserved"] < search_limit):
-                                # A publisher-restricted query that finds nothing is re-run once, unrestricted, and counted.
-                                state["search_reserved"] += 1
-                                logger.info("fast path: official query %r empty on %s; retrying unrestricted", spec["q"][:60], spec["domains"])
+                            async with asyncio.timeout(time_left()):
                                 found = await page_search.pages(spec["q"], results=FAST_RESULTS_PER_QUERY, since=since,
-                                                        max_characters=FAST_PAGE_CHARS, include_domains=None)
-                            return spec, found, False
+                                                        max_characters=FAST_PAGE_CHARS, include_domains=spec["domains"] or None)
                         except Exception:
                             return spec, [], True
+                        if (not found and spec["intent"] == "official" and spec["domains"] and not spec.get("preferred")
+                                and await admit_search(search_limit, paid=True)):
+                            try:
+                                async with asyncio.timeout(time_left()):
+                                    found = await page_search.pages(spec["q"], results=FAST_RESULTS_PER_QUERY, since=since,
+                                                            max_characters=FAST_PAGE_CHARS, include_domains=None)
+                            except Exception:
+                                return spec, [], True
+                        return spec, found, False
 
                     for spec in specs:
                         for event in tool_start_events(spec["id"], "web_search", {"query": spec["q"]}):
@@ -1453,17 +1517,18 @@ class PortableAgentRunner:
                     finally:
                         for job in jobs:
                             job.cancel()
+                        await asyncio.gather(*jobs, return_exceptions=True)
                 seeded_keys = {url_key(src["url"]) for src in thread_sources.values()}
                 candidates = [page for page in candidates if url_key(page["url"]) not in seeded_keys]
                 if research_mode and len(candidates) < 2:
                     left = max(0, search_limit - state["search_reserved"])
                     queries = [spec["q"] for spec in (specs or plan["queries"])[:2] if not spec.get("preferred")][:left]
                     if queries:
-                        state["search_reserved"] += len(queries)
-
                         async def ddgs(index, query):
+                            if not await admit_search(search_limit, paid=settings.web_provider == "openai"):
+                                return index, query, {"operation": "web_search", "error": "Search budget reached."}
                             try:
-                                return index, query, json.loads(await research.execute("web_search", {"query": query}, deadline=time.monotonic() + 15))
+                                return index, query, json.loads(await research.execute("web_search", {"query": query}, deadline=time.monotonic() + min(15, time_left())))
                             except (TimeoutError, ValueError):
                                 return index, query, {"operation": "web_search", "error": "Search was unavailable."}
 
@@ -1481,6 +1546,7 @@ class PortableAgentRunner:
                         finally:
                             for job in jobs:
                                 job.cancel()
+                            await asyncio.gather(*jobs, return_exceptions=True)
                         groups = [ranked.get(index, []) for index in range(len(queries))]
                         # Interleave so each query contributes its top results.
                         leads, seen = [], set()
@@ -1493,9 +1559,10 @@ class PortableAgentRunner:
 
                         async def verify(lead):
                             lead_args = {"url": lead["url"], "expected_title": lead.get("title") or "", "expected_snippet": lead.get("snippet") or ""}
+                            remaining = await fast_dispatch()
                             try:
-                                async with asyncio.timeout(FAST_FETCH_SECONDS + 2):
-                                    raw = await research.execute("verify_this_lead", lead_args, deadline=time.monotonic() + FAST_FETCH_SECONDS)
+                                async with asyncio.timeout(min(FAST_FETCH_SECONDS + 2, remaining)):
+                                    raw = await research.execute("verify_this_lead", lead_args, deadline=time.monotonic() + min(FAST_FETCH_SECONDS, remaining))
                                 return lead_args, json.loads(raw)
                             except (TimeoutError, ValueError):
                                 return lead_args, {"error": "The page did not load in time."}
@@ -1526,16 +1593,16 @@ class PortableAgentRunner:
                 # An aggregator repost that is dropped may be the only trace of a newer story: look for its original once.
                 kept_keys = {url_key(page["url"]) for page in ranked}
                 lead = aggregator_lead([page for page in candidates if url_key(page["url"]) not in kept_keys], terms) if page_search and research_mode else None
-                if lead is not None and state["search_reserved"] < search_limit:
+                if lead is not None and await admit_search(search_limit, paid=True):
                     headline = headline_query(lead.get("title") or "", lead["url"])
                     recover_id, recover_args = f"{run_id}-fast-exa-recover", {"query": headline}
-                    state["search_reserved"] += 1
                     state["plan"] = [*state["plan"][:-1], {"id": "recover", "label": ("Search: " + headline)[:160], "status": "running"}, state["plan"][-1]]
                     yield {"type": "CUSTOM", "name": "newscraft.plan", "value": {"source": "model", "steps": state["plan"]}}
                     for event in tool_start_events(recover_id, "web_search", recover_args):
                         yield event
                     try:
-                        found = await page_search.pages(headline, results=FAST_RESULTS_PER_QUERY, since=_since(RECOVERY_DAYS, False),
+                        async with asyncio.timeout(time_left()):
+                            found = await page_search.pages(headline, results=FAST_RESULTS_PER_QUERY, since=_since(RECOVERY_DAYS, False),
                                                 max_characters=FAST_PAGE_CHARS, exclude_domains=list(AGGREGATOR_DOMAINS))
                         failed = False
                     except Exception:
@@ -1586,14 +1653,15 @@ class PortableAgentRunner:
                 try:
                     estimate = budgets.input_bound(self.model, messages=chat_messages, private={}, instructions=fast_instructions,
                                                    tools=[], image_tokens=budgets.policy(settings)["image_tokens"])
-                    budgets.reserve(state, settings, input_tokens=estimate, output_tokens=CHAT_MAX_OUTPUT)
+                    budgets.reserve(state, settings, input_tokens=estimate, output_tokens=min(CHAT_MAX_OUTPUT, settings.max_output_tokens))
                 except ValueError as exc:
                     raise RunError(str(exc)) from None
                 state["steps"] += 1
+                remaining = await fast_dispatch()
                 try:
                     out = {}
-                    async for event in self.streamed(out, 30, model=settings.model, instructions=fast_instructions, messages=chat_messages,
-                                                     tools=[], max_output=CHAT_MAX_OUTPUT, private={}):
+                    async for event in self.streamed(out, min(30, remaining), model=settings.model, instructions=fast_instructions, messages=chat_messages,
+                                                     tools=[], max_output=min(CHAT_MAX_OUTPUT, settings.max_output_tokens), private={}):
                         yield event
                     reply = out["reply"]
                 except (ModelError, TimeoutError):
@@ -1601,13 +1669,13 @@ class PortableAgentRunner:
                 text = _user_facing("".join(b["text"] for b in reply.message["content"] if b["type"] == "text")[:4000].strip())
                 answer = _finalize_answer(_split_ledger(text)[0], set(), strip=True)  # Small talk never carries a ledger or citations.
                 state["answer"] = answer or "Hi. Tell me the story you're working on and I'll start researching."
+                state["intent"], state["phase"] = None, "finishing"
+                await save()
                 await finish()
                 yield {"type": "CUSTOM", "name": "newscraft.answer", "value": {"content": state["answer"]}}
                 yield {"type": "RUN_FINISHED", "model": settings.model}
                 return
             if route == ROUTE_QUICK:
-                # Speed over replay: the fast path saves once, at the end. A crash
-                # before then simply reruns it (plan, search and one writing call).
                 state["fast"] = "started"
                 fast_out = {}
                 writer_instructions = fast_instructions
@@ -1649,10 +1717,11 @@ class PortableAgentRunner:
                     except ValueError as exc:
                         raise RunError(str(exc)) from None
                     state["steps"] += 1
+                    remaining = await fast_dispatch()
                     logger.info("fast path: model dispatch at %.1fs (%d input tokens est)", time.monotonic() - fast_t0, estimate)
                     try:
                         out = {}
-                        async for event in self.streamed(out, 60, model=settings.model, instructions=writer_instructions, messages=fast_messages,
+                        async for event in self.streamed(out, min(60, remaining), model=settings.model, instructions=writer_instructions, messages=fast_messages,
                                                          tools=[], max_output=settings.max_output_tokens, private={}):
                             yield event
                         reply = out["reply"]
@@ -1675,7 +1744,9 @@ class PortableAgentRunner:
                         answer = _trim_output_action(answer, turn.get("outputAction"), source_answer, set(research.recorded_sources))
                         answer = _finalize_answer(answer, set(research.recorded_sources), CUT_SHORT_NOTE if reply.truncated else "")
                         state["answer"] = answer
+                        state["intent"], state["phase"] = None, "finishing"
                         yield plan_update(answer="ok")
+                        await save()
                         await finish()
                         yield {"type": "STATE_SNAPSHOT", "snapshot": {"newscraftSources": state["sources"]}}
                         logger.info("fast path: finished at %.1fs", time.monotonic() - fast_t0)
@@ -1686,6 +1757,8 @@ class PortableAgentRunner:
                         yield clear_draft()
                 for event in plan_close_events():  # Nothing usable: the full loop takes over with an honest plan.
                     yield event
+                state["intent"] = None
+                await save()
             elif route == ROUTE_DELIVERABLE:
                 # A deliverable (file, chart, ...): plan and read the sources first, exactly as the fast path does, then let the
                 # bounded loop write and publish from them instead of discovering them one tool call at a time.
@@ -1715,6 +1788,7 @@ class PortableAgentRunner:
                     state["messages"].append({"role": "user", "content": [brief]})
                 logger.info("deliverable: %d sources recorded before the loop, at %.1fs", len(recorded), time.monotonic() - pre["t0"])
                 yield plan_update(**{final_id: "running"})
+                state["intent"] = None
                 await save()
                 yield {"type": "STATE_SNAPSHOT", "snapshot": {"newscraftSources": state["sources"]}}
             draft = False  # Text streamed by the last step; anything but its own conclusion clears it.
@@ -1731,8 +1805,9 @@ class PortableAgentRunner:
                         yield event
                     return
                 if not state["pending"] and state.get("direct_publish"):
-                    # The file was published straight from the model's final reply: answer briefly, no further model call.
                     direct = state["direct_publish"]
+                    if unpublished_tools() and await final_publication("final", direct["answer"], direct["cut"]):
+                        continue
                     receipt = state["receipts"].get(direct["call_id"])
                     if receipt and any(e.get("type") == "TOOL_CALL_END" and e.get("status") == "ok" for e in receipt["events"]):
                         text = _published_answer(direct["kind"], direct["title"], direct["body"] or inline_answer(direct["answer"], False))
@@ -1975,7 +2050,7 @@ class PortableAgentRunner:
                                     raise RunError("The search-call budget was reached.")
                                 state["search_reserved"] += 1
                                 try:
-                                    budgets.reserve(state, settings, search=settings.web_provider == "openai")
+                                    budgets.reserve(state, settings, search=settings.web_provider == "openai" or self.page_search is not None)
                                 except ValueError as exc:
                                     if not research.recorded_sources:
                                         raise RunError(str(exc)) from None
@@ -1990,6 +2065,18 @@ class PortableAgentRunner:
                                 async with asyncio.timeout(remaining):
                                     if name == "web_search":
                                         result = await exa_loop_search(args)  # Pages with text already read; None falls back to DDGS leads.
+                                        if result is None and self.page_search is not None:
+                                            if state["search_reserved"] >= settings.max_search_calls:
+                                                result = {"error": "Search limit reached."}
+                                            else:
+                                                try:
+                                                    budgets.reserve(state, settings, search=settings.web_provider == "openai")
+                                                except ValueError:
+                                                    result = {"error": "Search budget reached."}
+                                                else:
+                                                    state["search_reserved"] += 1
+                                                    await save(dispatch=True)
+                                                    remaining = time_left()
                                     if result is None:
                                         result = await research.execute(name, {k: v for k, v in args.items() if v is not None},
                                                                         deadline=time.monotonic() + remaining)
@@ -2020,9 +2107,9 @@ class PortableAgentRunner:
                         output = json.dumps({"kind": "untrusted_tool_data", "data": result})
                     events.extend([{"type": "TOOL_CALL_RESULT", "toolCallId": call_id, "toolCallName": name, "result": result, "status": "failed" if failed else "ok"},
                                    {"type": "TOOL_CALL_END", "toolCallId": call_id, "toolCallName": name, "status": "failed" if failed else "ok"}])
-                    if is_publish and any(step["id"] == "publish" for step in state.get("plan") or []):
-                        events.append(plan_update(publish="failed" if failed else "ok"))
                     state["receipts"][call_id] = {"call": item, "events": events}
+                    if is_publish and any(step["id"] == "publish" for step in state.get("plan") or []):
+                        events.append(plan_update(publish="failed" if failed else "running" if unpublished_tools() else "ok"))
                     state["messages"].append({"role": "user", "content": [{"type": "tool_result", "id": call_id, "name": name, "output": output, "failed": failed}]})
                     state["intent"] = None
                     state["pending"].remove(item)
