@@ -32,7 +32,7 @@ export function localDefaults(root = ROOT, provider = 'openai') {
         NEWSCRAFT_SETUP_PROJECT_REF: 'ygsiifvjzdazfxflmpjq',
         OPENAI_BASE_URL: 'https://api.openai.com/v1',
         DEEPSEEK_BASE_URL: 'https://api.deepseek.com/anthropic',
-        NEWSCRAFT_AGENT_WEB_PROVIDER: 'public', NEWSCRAFT_AGENT_BROWSER_PROVIDER: 'disabled',
+        NEWSCRAFT_AGENT_WEB_PROVIDER: 'public', NEWSCRAFT_AGENT_PAGE_SEARCH: 'none', NEWSCRAFT_AGENT_BROWSER_PROVIDER: 'disabled',
         NEWSCRAFT_AGENT_MAX_STEPS: '8', NEWSCRAFT_AGENT_MAX_INPUT_TOKENS: '120000',
         NEWSCRAFT_AGENT_MAX_OUTPUT_TOKENS: '2048', NEWSCRAFT_AGENT_MAX_SECONDS: '180',
         ...MODEL_PROFILES[provider],
@@ -187,7 +187,7 @@ export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion 
     // Database, credential-file and local-listener guards still inspect the profile.
     const config = { ...defaults, ...profile, ...(provider !== undefined && supportedProvider ? MODEL_PROFILES[provider] : {}) };
     const fixed = ['NEWSCRAFT_SETUP_PROJECT_REF', 'NEWSCRAFT_AUTH_PROVIDER', 'NEWSCRAFT_STORAGE_PROVIDER', 'NEWSCRAFT_AGENT_MODEL_PROVIDER', 'NEWSCRAFT_AGENT_MODEL', 'OPENAI_BASE_URL', 'DEEPSEEK_BASE_URL',
-        'NEWSCRAFT_AGENT_WEB_PROVIDER', 'NEWSCRAFT_AGENT_BROWSER_PROVIDER', 'NEWSCRAFT_AGENT_HOST', 'NEWSCRAFT_AGENT_PORT',
+        'NEWSCRAFT_AGENT_WEB_PROVIDER', 'NEWSCRAFT_AGENT_PAGE_SEARCH', 'NEWSCRAFT_AGENT_BROWSER_PROVIDER', 'NEWSCRAFT_AGENT_HOST', 'NEWSCRAFT_AGENT_PORT',
         'NEWSCRAFT_AGENT_PUBLIC_HOST', 'NEWSCRAFT_AGENT_URL', 'NEWSCRAFT_AGENT_RUN_API_URL',
         'NEWSCRAFT_AGENT_MAX_ACTIVE_RUNS', 'NEWSCRAFT_AGENT_MAX_ACTIVE_RUNS_PER_TENANT',
         'NEWSCRAFT_AGENT_MAX_QUEUED_RUNS', 'NEWSCRAFT_AGENT_MAX_QUEUED_RUNS_PER_TENANT',
@@ -240,7 +240,7 @@ export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion 
     check('approved credential', credentialReady, `Approved ${credentialName} reference must have one usable key shape; no key is copied or printed.`);
     check('dependency files', dependencyFilesReady(root), 'Owned interpreter and required package files must exist; import execution is not performed.');
     const environment = { ...inherited, ...config, DATABASE_URL: supplied,
-        NEWSCRAFT_TEST_DATABASE_URL: '', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '', DEEPSEEK_API_KEY: '', NEWSCRAFT_SETUP_DATABASE_URL: '',
+        NEWSCRAFT_TEST_DATABASE_URL: '', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '', DEEPSEEK_API_KEY: '', EXA_API_KEY: '', NEWSCRAFT_SETUP_DATABASE_URL: '',
         NEWSCRAFT_AGENT_API_TOKEN: listener, NEWSCRAFT_HERMES_API_TOKEN: listener,
         NEWSCRAFT_AGENT_SESSION_TOKEN: listener, HERMES_AGUI_SESSION_TOKEN: listener,
         NEWSCRAFT_AGENT_RUN_API_TOKEN: callback, NEWSCRAFT_HERMES_RUN_API_TOKEN: callback,
@@ -251,23 +251,36 @@ export function resolveLocalSetup({ root = ROOT, env = process.env, nodeVersion 
 export function checkLocal(options) { return resolveLocalSetup(options).report; }
 
 export function parseLocalArguments(args) {
-    if (args.length === 1) return { command: args[0], provider: undefined };
-    if (args.length === 3 && args[1] === '--provider') return { command: args[0], provider: args[2] };
-    return { command: '', provider: undefined };
+    const invalid = { command: '', provider: undefined };
+    const [command, ...options] = args;
+    if (!command) return invalid;
+    let provider, healthOnly = false;
+    while (options.length) {
+        const option = options.shift();
+        if (option === '--provider' && provider === undefined && options[0] && !options[0].startsWith('--')) {
+            provider = options.shift();
+        } else if (option === '--health-only' && command === 'start' && !healthOnly) {
+            healthOnly = true;
+        } else return invalid;
+    }
+    return { command, provider, ...(healthOnly ? { healthOnly: true } : {}) };
 }
 
-export async function runLocal(command, { root = ROOT, env = process.env, nodeVersion = process.versions.node, provider, spawn = spawnProcess, write = line => console.log(line) } = {}) {
+export async function runLocal(command, { root = ROOT, env = process.env, nodeVersion = process.versions.node, provider, healthOnly = false, spawn = spawnProcess, write = line => console.log(line) } = {}) {
+    if (healthOnly && command !== 'start') { write('Health-only mode is supported only for start.'); return 2; }
     if (command === 'prepare') {
         if (provider !== undefined) { write('Provider selection is supported only for check or start.'); return 2; }
         const status = prepareLocal({ root }); write(status.message); return status.ok ? 0 : 1;
     }
-    if (!['check', 'start'].includes(command)) { write('Usage: node scripts/agent-local.mjs prepare|check|start [--provider openai|deepseek]'); return 2; }
+    if (!['check', 'start'].includes(command)) { write('Usage: node scripts/agent-local.mjs prepare|check|start [--provider openai|deepseek] [--health-only (start only)]'); return 2; }
     const { report, environment } = resolveLocalSetup({ root, env, nodeVersion, provider });
     for (const item of report.checks) write(`${item.ok ? 'OK' : 'BLOCKED'}: ${item.name}. ${item.detail}`);
     for (const limitation of report.limitations) write(`NOTE: ${limitation}`);
     if (!report.ok || command === 'check') return report.ok ? 0 : 1;
     try {
-        const child = spawn(process.execPath, [resolve(root, 'scripts/dev-all.mjs')], { cwd: root, env: environment, stdio: 'inherit' });
+        const child = spawn(process.execPath, [resolve(root, 'scripts/dev-all.mjs')], {
+            cwd: root, env: { ...environment, ...(healthOnly ? { NEWSCRAFT_AGENT_HEALTH_ONLY: '1' } : {}) }, stdio: 'inherit'
+        });
         const stop = signal => { try { child.kill(signal); } catch { /* No exception values in output. */ } };
         const interrupt = () => stop('SIGINT'), terminate = () => stop('SIGTERM');
         process.on('SIGINT', interrupt); process.on('SIGTERM', terminate);
@@ -277,6 +290,6 @@ export async function runLocal(command, { root = ROOT, env = process.env, nodeVe
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-    const { command, provider } = parseLocalArguments(process.argv.slice(2));
-    process.exitCode = await runLocal(command, { provider });
+    const { command, provider, healthOnly } = parseLocalArguments(process.argv.slice(2));
+    process.exitCode = await runLocal(command, { provider, healthOnly });
 }

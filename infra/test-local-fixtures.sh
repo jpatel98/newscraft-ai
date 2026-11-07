@@ -9,5 +9,6 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 node "$script_dir/sync-storage-files.test.mjs"
 node "$script_dir/newscraft-storage/cors.test.mjs"
 node "$script_dir/newscraft-storage/audio.test.mjs"
+node "$script_dir/editor-launch.test.mjs"
 
 echo 'All local migration fixtures passed.'

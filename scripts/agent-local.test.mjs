@@ -454,3 +454,38 @@ test('provider CLI parsing is strict and unsupported selection is redacted', asy
     assert.match(output.join('\n'), /BLOCKED: model provider/);
     assert.equal(await runLocal('prepare', { root, env, provider: 'deepseek', write() {} }), 2);
 });
+
+test('guarded public search cannot inherit a paid page-search provider or key', t => {
+    const { root, env } = fixture(t);
+    const resolved = resolveLocalSetup({ root, env: { ...env, NEWSCRAFT_AGENT_PAGE_SEARCH: 'exa', EXA_API_KEY: KEY } });
+    assert.equal(resolved.report.ok, true);
+    assert.equal(resolved.environment.NEWSCRAFT_AGENT_PAGE_SEARCH, 'none');
+    assert.equal(resolved.environment.EXA_API_KEY, '');
+    const profile = join(root, '.env.agent-local');
+    writeFileSync(profile, readFileSync(profile, 'utf8').replace('NEWSCRAFT_AGENT_PAGE_SEARCH="none"', 'NEWSCRAFT_AGENT_PAGE_SEARCH="exa"'));
+    assert.equal(resolveLocalSetup({ root, env }).report.ok, false);
+});
+
+test('health-only startup is explicit, forwarded and never rewrites configuration', async t => {
+    const { root, env } = fixture(t), before = existingFiles(root);
+    const profile = readFileSync(join(root, '.env.agent-local'), 'utf8');
+    for (const args of [['start', '--health-only', '--provider', 'openai'], ['start', '--provider', 'openai', '--health-only']]) {
+        assert.deepEqual(parseLocalArguments(args), { command: 'start', provider: 'openai', healthOnly: true });
+    }
+    assert.deepEqual(parseLocalArguments(['start', '--health-only']), { command: 'start', provider: undefined, healthOnly: true });
+    for (const args of [['check', '--health-only'], ['prepare', '--health-only'], ['start', '--health-only', '--health-only'], ['start', '--provider', '--health-only']]) {
+        assert.deepEqual(parseLocalArguments(args), { command: '', provider: undefined });
+    }
+    let calls = 0;
+    assert.equal(await runLocal('start', { root, env, healthOnly: true, write() {}, spawn(command, args, options) {
+        calls++;
+        assert.equal(options.env.NEWSCRAFT_AGENT_HEALTH_ONLY, '1');
+        assert.equal(options.env.DATABASE_URL, NEW_DB);
+        const child = new EventEmitter(); child.kill = () => {};
+        queueMicrotask(() => child.emit('exit', 0)); return child;
+    } }), 0);
+    assert.equal(calls, 1);
+    assert.equal(await runLocal('check', { root, env, healthOnly: true, write() {}, spawn() { assert.fail('must not start'); } }), 2);
+    assert.deepEqual(existingFiles(root), before);
+    assert.equal(readFileSync(join(root, '.env.agent-local'), 'utf8'), profile);
+});

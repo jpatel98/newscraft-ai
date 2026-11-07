@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { configureAgentProviderCredentials } from './dev-all.mjs';
+import { configureAgentProviderCredentials, listenerConflictMessage, parseLocalAgentUrl } from './dev-all.mjs';
 
 const REFERENCE = '/synthetic/repo/services/newsroom-harness/.env.local';
 const KEY = 'sk-public-synthetic-fixture-not-a-real-key';
@@ -66,4 +66,24 @@ test('explicit credential references are preserved and unsupported providers fai
     assert.throws(() => configureAgentProviderCredentials({ NEWSCRAFT_AGENT_MODEL_PROVIDER: 'unsupported-secret-value' }), error => {
         assert.equal(error.message, 'Unsupported agent model provider.'); return true;
     });
+});
+
+test('occupied-port diagnostics never print another process command or credentials', () => {
+    const message = listenerConflictMessage({ name: 'Agent', port: 8000 }, {
+        pid: 1234, command: `python --api-key=${KEY} --database=postgres://fixture:private@localhost/db`
+    });
+    assert.equal(message, '- Agent port 8000: PID 1234');
+    assert.ok(!message.includes(KEY));
+    assert.ok(!message.includes('postgres://'));
+});
+
+test('local worker URLs reject credentials and remote destinations without reflecting input', () => {
+    assert.deepEqual(parseLocalAgentUrl('http://127.0.0.1:8000'), { origin: 'http://127.0.0.1:8000', port: 8000 });
+    for (const value of [`http://fixture:${KEY}@127.0.0.1:8000`, 'https://remote.example.test', `http://127.0.0.1:8000/?key=${KEY}`]) {
+        assert.throws(() => parseLocalAgentUrl(value), error => {
+            assert.ok(!error.message.includes(KEY));
+            assert.ok(!error.message.includes(value));
+            return true;
+        });
+    }
 });
