@@ -65,6 +65,8 @@ import {
 } from '$lib/server/documents/newsroom-context';
 import { getConversationDocumentService } from '$lib/server/documents/runtime';
 import type { ConversationDocumentService } from '$lib/server/documents/service';
+import { getConversationProject } from '$lib/server/db/projects';
+import { getProjectEvidenceService, isMissingEvidenceTablesError } from '$lib/server/evidence/runtime';
 import {
 	buildConversationContext,
 	conversationContextProvenanceMessageIds
@@ -315,6 +317,7 @@ async function requestResearchContext(input: {
 				getNewsroomProfile(input.orgId),
 				// Thread subjects only enrich the context; never fail the request on them.
 				listRecentConversationSubjects(
+					input.accountId,
 					input.orgId,
 					Date.now() - RECENT_THREAD_WINDOW_MS,
 					input.conversationId
@@ -329,7 +332,11 @@ async function requestResearchContext(input: {
 			throw new NewsroomContextUnavailableError();
 		}
 	}
-	if (!input.documentIds.length) return { newsroomContext: withToday(newsroomContext), documents: [], transcripts };
+	// A chat filed in a project sees that project's sealed evidence and nothing
+	// else: the lookup is bound to this account and this project, and it is
+	// skipped entirely (never widened) when the chat is unfiled.
+	const projectEvidence = await loadProjectEvidenceContext(input);
+	if (!input.documentIds.length) return { newsroomContext: withToday(newsroomContext), documents: projectEvidence, transcripts };
 
 	const service = getConversationDocumentService();
 	let available: Awaited<ReturnType<typeof service.listDocuments>>;
@@ -373,7 +380,37 @@ async function requestResearchContext(input: {
 		next.pages.push({ pageNumber: page.pageNumber, text: page.text });
 		grouped.set(page.documentId, next);
 	}
-	return { newsroomContext: withToday(newsroomContext), documents: Array.from(grouped.values()), transcripts };
+	const attached = Array.from(grouped.values());
+	const attachedIds = new Set(attached.map((document) => document.id));
+	return {
+		newsroomContext: withToday(newsroomContext),
+		documents: [...attached, ...projectEvidence.filter((document) => !attachedIds.has(document.id))],
+		transcripts
+	};
+}
+
+async function loadProjectEvidenceContext(input: {
+	conversationId: string;
+	accountId: string;
+	query: string;
+	traceId: string;
+}): Promise<DocumentContext[]> {
+	try {
+		const project = await getConversationProject(input.accountId, input.conversationId);
+		if (!project) return [];
+		return await getProjectEvidenceService().buildChatContext({
+			accountId: input.accountId,
+			projectId: project.id,
+			query: input.query
+		});
+	} catch (cause) {
+		if (isMissingEvidenceTablesError(cause)) return [];
+		recordChatDiagnostic(input.conversationId, 'chat.evidence_context_error', {
+			trace_id: input.traceId,
+			errorName: cause instanceof Error ? cause.name : 'Error'
+		});
+		return [];
+	}
 }
 
 async function validateRequestedDocuments(

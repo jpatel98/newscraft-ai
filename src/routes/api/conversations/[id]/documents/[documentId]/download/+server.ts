@@ -6,6 +6,7 @@ import { DocumentError } from '$lib/server/documents/errors';
 import { throwDocumentHttpError } from '$lib/server/documents/http';
 import { getConversationDocumentService } from '$lib/server/documents/runtime';
 import { isAllowedSignedStorageUrl } from '$lib/server/documents/signed-url';
+import { documentStorageProvider } from '$lib/server/documents/storage';
 
 export const GET: RequestHandler = async ({ params, locals }) => {
 	if (!locals.user) throw error(401, 'unauthorized');
@@ -23,7 +24,12 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 		// Validate the signed URL against the backend that actually issued it.
 		// Keep the Supabase origin authoritative during rollback even if an old
 		// VPS base URL is still present in the environment.
-		const storageMode = env.NEWSCRAFT_STORAGE_MODE?.trim().toLowerCase();
+		// Issue and validate against the same backend: the provider that signed
+		// the URL is the one whose origin the redirect must match.
+		const storageMode = documentStorageProvider();
+		if (storageMode !== 'vps' && storageMode !== 'supabase') {
+			throw new DocumentError(503, 'document_storage_unavailable', 'PDF storage is unavailable right now.');
+		}
 		const storageBaseUrl = storageMode === 'vps'
 			? env.NEWSCRAFT_STORAGE_BASE_URL?.trim() || ''
 			: env.SUPABASE_URL?.trim() || '';

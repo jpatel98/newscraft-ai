@@ -17,7 +17,8 @@ const mocks = vi.hoisted(() => ({
 	},
 	listAgentCommands: vi.fn(), expandAgentSkill: vi.fn(), subscription: vi.fn(), diagnostics: vi.fn(),
 	getProvenance: vi.fn(), saveProvenance: vi.fn(), reasoning: vi.fn(), buildContext: vi.fn(),
-	listDocuments: vi.fn(), buildDocumentContext: vi.fn()
+	listDocuments: vi.fn(), buildDocumentContext: vi.fn(),
+	getConversationProject: vi.fn(), buildEvidenceContext: vi.fn()
 }));
 vi.mock('$lib/server/agent/transport', () => ({ ...mocks.transport, AgentDurableOverloadError: class extends Error {} }));
 vi.mock('$lib/server/agent/bridge', () => ({ listAgentCommands: mocks.listAgentCommands, expandAgentSkill: mocks.expandAgentSkill }));
@@ -35,6 +36,14 @@ vi.mock('$lib/server/db/story-claims', () => ({ listStoryClaims: async () => [] 
 vi.mock('$lib/server/documents/profiles', () => ({ getNewsroomProfile: vi.fn() }));
 vi.mock('$lib/server/documents/runtime', () => ({ getConversationDocumentService: () => ({ listDocuments: mocks.listDocuments, buildContext: mocks.buildDocumentContext }) }));
 vi.mock('$lib/server/conversation-context', () => ({ buildConversationContext: mocks.buildContext, conversationContextProvenanceMessageIds: () => [] }));
+vi.mock('$lib/server/db/projects', () => ({ getConversationProject: mocks.getConversationProject }));
+// Attached tape is covered by its own tests; without this mock the route reaches
+// the real database client, whose reconnect backoff grows with every test here.
+vi.mock('$lib/server/transcripts/context', () => ({ loadTranscriptContext: async () => ({ transcripts: [], truncated: {} }) }));
+vi.mock('$lib/server/evidence/runtime', () => ({
+	getProjectEvidenceService: () => ({ buildChatContext: mocks.buildEvidenceContext }),
+	isMissingEvidenceTablesError: (error: unknown) => (error as { code?: string })?.code === '42P01'
+}));
 
 import { POST } from './+server';
 import { POST as createRunAlias } from '../runs/+server';
@@ -71,6 +80,8 @@ beforeEach(() => {
 	mocks.reasoning.mockResolvedValue('high');
 	mocks.getProvenance.mockResolvedValue([]);
 	mocks.listDocuments.mockResolvedValue([]);
+	mocks.getConversationProject.mockResolvedValue(undefined);
+	mocks.buildEvidenceContext.mockResolvedValue([]);
 	mocks.buildContext.mockReturnValue({ recentTurns: [], currentTurn: { researchRequired: true, researchAllowed: true, messageId: user.id, operation: 'send' } });
 	mocks.subscription.mockImplementation(async () => new Response('durable-saved-events', { headers: { 'content-type': 'text/event-stream' } }));
 });
@@ -200,6 +211,28 @@ describe('one durable chat path', () => {
 			accountId: 'account-1', conversationId: conversation.id, messageId: assistant.id, claimToken: 1234
 		}));
 		expect(mocks.runs.createOrGetAgentRun).not.toHaveBeenCalled();
+	});
+
+	it('never looks up evidence for an unfiled chat', async () => {
+		await POST(event());
+		expect(mocks.getConversationProject).toHaveBeenCalledWith('account-1', conversation.id);
+		expect(mocks.buildEvidenceContext).not.toHaveBeenCalled();
+	});
+
+	it('seeds a project chat with that project’s evidence only', async () => {
+		mocks.getConversationProject.mockResolvedValue({ id: 'project-1', name: 'Budget' });
+		const evidence = [{ id: 'evidence-1', filename: 'vendors.csv', downloadUrl: '/api/projects/project-1/evidence/evidence-1/download', pageCount: 1, pages: [{ pageNumber: 1, text: 'row 1: vendor_id="V-1"' }] }];
+		mocks.buildEvidenceContext.mockResolvedValue(evidence);
+		await POST(event());
+		expect(mocks.buildEvidenceContext).toHaveBeenCalledWith({ accountId: 'account-1', projectId: 'project-1', query: user.content });
+		expect(mocks.transport.buildAgentRunInput).toHaveBeenCalledWith(expect.objectContaining({ documents: evidence }), expect.anything(), expect.anything(), expect.anything());
+	});
+
+	it('degrades to no evidence when the evidence tables are not installed yet', async () => {
+		mocks.getConversationProject.mockResolvedValue({ id: 'project-1', name: 'Budget' });
+		mocks.buildEvidenceContext.mockRejectedValue(Object.assign(new Error('relation "project_documents" does not exist'), { code: '42P01' }));
+		await expect(POST(event())).resolves.toBeInstanceOf(Response);
+		expect(mocks.transport.buildAgentRunInput).toHaveBeenCalledWith(expect.objectContaining({ documents: [] }), expect.anything(), expect.anything(), expect.anything());
 	});
 
 	it('rejects foreign document attachments before preparing or starting a run', async () => {
