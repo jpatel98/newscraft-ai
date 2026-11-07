@@ -130,20 +130,28 @@ automation, the storage spike and provider evaluation from the plan.
    The app tolerates the missing tables: evidence controls are hidden and
    chats skip evidence until the migration lands.
 2. Apply migration `0027_project_evidence` to the production database
-   (Contabo `newscraft-postgres`, database `newscraft`) with the repository
+   (Contabo `newscraft-postgres`, database `newscraft`) with the guarded
    runner and the administrator credential, from the Mac through an SSH
-   tunnel:
+   tunnel. Back up first; the runner refuses if anything other than 0027 is
+   pending.
 
    ```sh
-   ssh -N -L 55432:127.0.0.1:55432 contabo &
-   cd /Users/macserver/Development/newscraft-ai
-   DATABASE_URL='postgres://<admin>:<password>@127.0.0.1:55432/newscraft' \
-     corepack pnpm db:migrate
+   # 1. backup on the box (admin user from the compose .env)
+   ssh contabo 'U=$(grep -oE "^POSTGRES_USER=.*" ~/services/newscraft-infra/newscraft-postgres/.env | cut -d= -f2);
+     D=~/backups/newscraft-pre-evidence-$(date +%Y%m%d); mkdir -p "$D"; chmod 700 "$D";
+     docker exec newscraft-postgres pg_dump -U "$U" -Fc newscraft > "$D/newscraft.dump"; ls -la "$D"'
+   # 2. tunnel + guarded migration (enter PGUSER/PGPASSWORD privately; nothing is printed)
+   ssh -f -N -o ExitOnForwardFailure=yes -L 55433:127.0.0.1:55432 contabo
+   cd /Users/macserver/Development/newscraft-ai   # a checkout at or after this change
+   PGPORT=55433 PGDATABASE=newscraft PGUSER=… PGPASSWORD=… \
+     corepack pnpm --filter @newscraft/newsroom-harness exec tsx \
+     ../../scripts/apply-expected-migrations.ts --expect 0027_project_evidence
    ```
 
-   Take a `pg_dump` first (`infra/newscraft-postgres/backup-and-restore.sh`).
-   The `newscraft_app` role receives CRUD on the new tables through the
-   database's default privileges. Rollback: `drizzle/rollback/0027_project_evidence.down.sql`.
+   The script prints the ledger count before/after, the six `project_*`
+   tables, the `newscraft_app` grants (CRUD arrives through the database's
+   default privileges) and RLS state. Rollback:
+   `drizzle/rollback/0027_project_evidence.down.sql`.
 3. No worker change is required for this slice. No gateway change is
    required.
 4. Smoke: open a folder, add a small CSV and a text PDF, confirm Ready with a
@@ -152,4 +160,14 @@ automation, the storage spike and provider evaluation from the plan.
 
 ## Receipts
 
-Filled in by the session that performs each step.
+- 2026-11-07: branch `claude/cloud-evidence-workspace` pushed; PR #17 opened
+  against `main`. CI (`ci`, `worker`) and the Vercel preview build passed.
+  Local: `pnpm check` 0/0, vitest 934 passed, shared 37, harness 343, ledger
+  eval 9, disposable Postgres fixture 81 passed (46 public tables), build ok.
+  The `test:agent` step fails on this Mac for lack of a Python venv at the
+  renamed worker path, identically on untouched `main`; the worker is unchanged
+  and its CI job passed.
+- 2026-11-07: merge to `main` and the production migration were **not**
+  performed by the automated session (its permission mode blocks merges and
+  production writes). Both remain for Jigar: merge PR #17 (Vercel deploys
+  `main` automatically), then run step 2 above, then the smoke test in step 4.
