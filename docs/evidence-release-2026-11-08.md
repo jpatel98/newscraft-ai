@@ -209,7 +209,11 @@ packet, not the original evidence worktree or old main.
 | Project deletion could race with evidence reservation or discard incomplete cleanup tracking. | **Implemented:** project deletion takes the same project lock and refuses any remaining evidence row, including `deleting`; the route uses that repository operation. | `src/lib/server/evidence/repository.ts:38`; `src/routes/api/projects/[id]/+server.ts:13` |
 | Migration/rollback object resolution could depend on a caller's shadowing search path. | **Corrected and disposable regression measured:** helper pins `search_path = public`, requires the reviewed migration SHA, exact prior ledger and expected database/role/grants; rollback pins the path, takes the schema advisory lock, and qualifies locked/dropped tables and the ledger as `public`. Shadow-schema isolation and populated rollback refusal passed; the retained row and ledger were preserved. Seven helper guard unit tests also passed, per parent. | `scripts/prepare-evidence-migration.mjs:10`; `scripts/prepare-evidence-migration.mjs:20`; `scripts/prepare-evidence-migration.mjs:29`; `scripts/prepare-evidence-migration.mjs:55`; `drizzle/rollback/0027_project_evidence.down.sql:5`; `drizzle/rollback/0027_project_evidence.down.sql:22` |
 
-## Production state and remaining gates
+## Historical pre-approval production state
+
+The observations and pending approvals in this section describe the earlier
+pre-cutover snapshot, not the current deployment. The verified cutover at the
+top of this document supersedes them; do not repeat the completed operations.
 
 **Production is unchanged.** The parent reports the existing read-only target as
 `7a39b01`, with Vercel login and `/api/health` returning HTTP 200; Contabo worker,
@@ -229,7 +233,7 @@ guarded 0027 migration and NewsCraft-only backend deployment. Paid-provider,
 executor and physical-device live behavior remain unverified. A passing local
 matrix, passive checker or browser fixture is not a production deployment claim.
 
-## Staged artifact
+## Historical staging receipt (subsequently promoted)
 
 - **Vercel build READY, not promoted:**
   `dpl_BXpTc8C3mV2x3VAsCeSbiYqxZK7i`,
@@ -265,11 +269,11 @@ matrix, passive checker or browser fixture is not a production deployment claim.
   The selected pyproject and lock match the deployed dependency inputs:
   `cb8140efaf693ebe6d292c0bc1bd4b66f237ffca31109f0d5759da4c0d63a6b6`
   and `acf2756feca3a1a9802b68550ebc20ac4543ff3b8ba5e68bfdcadafade16e47b`.
-- Existing storage image:
+- Retained prior storage image (rollback only):
   `sha256:54cd9e93b1af5e99e71947352ddcb3b3c9227ed8fac45a734f8d1ccd39c143fc`.
   Keep it and the prior public source available before rebuilding the existing
   `storage` compose service; do not replace private environment files or volumes.
-- Only authorized pending schema version: `0027_project_evidence`; reviewed SQL
+- Approved schema input (now applied): `0027_project_evidence`; reviewed SQL
   SHA-256 `239d7ad3302cc87970abe4af52b65dbd1b21458716dcb2261e40259f2d05db54`.
   The helper requires that digest, the exact 28-version baseline and the expected
   `newscraft` database, and verifies RLS and each application CRUD grant before
@@ -282,7 +286,8 @@ matrix, passive checker or browser fixture is not a production deployment claim.
   checks alone do not prove schema compatibility. Keep revocation-aware storage
   while revoked upload grants may still exist.
 
-Safe preparation (no database connection or migration):
+Historical preparation command (no database connection or migration). The schema
+is already applied; this is not an instruction to apply it again:
 
 ```sh
 node scripts/prepare-evidence-migration.mjs --expect-sha256 \
