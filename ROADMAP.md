@@ -98,7 +98,7 @@ memory as independently accepted product features. The tracker remains frozen.
 External model/tool services may process requests; account isolation does not
 mean local-only processing. Personal Hydra remains separate and untouched.
 
-**Unverified:** this candidate's deployment, live provider access and answer
+**Unverified:** this candidate's production cutover, live provider access and answer
 latency. The pre-release production identity and health above do not establish
 those properties. Check the dated release receipt for subsequent rollout state.
 

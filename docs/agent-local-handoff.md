@@ -1,63 +1,58 @@
 # Status as of 2026-11-08
 
-The current task is a corrected evidence-workspace implementation and authorized
-production release. The isolated candidate combines production `7a39b01` with
-our November 7 fixes; it does not overwrite either original worktree or merge
-PR #17 as-is. Runtime paths use `services/agent` and `newscraft_agent`.
+**Staged, not released.** The corrected candidate reconciles production
+`7a39b01` and the five local review commits; PR #17 was not merged unchanged.
+See [the release receipt](evidence-release-2026-11-08.md) for findings and artifacts.
 
-See [the release receipt](evidence-release-2026-11-08.md) for fresh candidate
-measurements, rollout state and remaining gates. Do not reuse the earlier local
-Supabase profile for the Contabo production target. No credentials should be
-displayed, copied into commands or committed. Paid acceptance remains separate.
+- **Green:** check **0 errors / 0 warnings**; **1074 app, 37 shared, 343 historical
+  harness, 32 ledger, 71 script and 797 Python tests**. Default DB-gated skips run
+  separately: **94 Postgres tests / 12 files / 46 tables**. Desktop/mobile
+  evidence flows pass **21 checks**, with no page errors or provider calls.
+  Build, **25/25** fixture prompts, **17/17** trust traps, offline lock and infra
+  fixtures pass. Fixtures stop and remove their own services/directories.
+- **Changed:** transactional evidence lifecycle and cleanup; durable upload
+  revocation; bounded parsing/analysis; abort-safe inspectors; accurate CSV rows
+  and shared citation capacity; honest evidence-load failure; development-only
+  account seeding. Product remains chat-first; tracker remains frozen.
+- **Staged:** source `ca2053d`, Vercel `dpl_BXpTc8C3mV2x3VAsCeSbiYqxZK7i`,
+  **READY**, no aliases, protected health **200 / ready**. Production still uses
+  `7a39b01`; later public health checks return **503** or time out with database
+  `ETIMEDOUT`. Host containers, worker readiness and verified database TLS are
+  healthy. No source push, backup, migration, Contabo update or promotion occurred.
+- **Blocked on Jigar:** specifically approve the private server-side NewsCraft
+  database backup before migration/cutover. The safety layer refused it before
+  execution. Revalidate public health after promotion. Paid acceptance (separate
+  **$4.23** proposal) and Linux executor host/image/seccomp selection remain
+  separate human gates, not live-verified capabilities.
+- **Preserved:** original main/Claude worktrees and branches, two public-template
+  edits and four unrelated untracked files. The original passive local checker
+  passes **18/18**; a blank `DATABASE_URL` is no longer the entry gate. Do not
+  copy that old local Supabase profile into the Contabo production candidate.
 
-**Working / measured this session:** `pnpm check` has **0 errors / 0 warnings**;
-the full suite passes **1074 app, 37 shared, 343 historical harness, 32 ledger,
-71 script and 797 Python tests**. The app's 84 DB-gated cases run separately in
-the disposable Postgres fixture (**94 passed / 12 files**, 46 public tables).
-The historical harness has two opt-in live skips. Build, 25/25 fixture prompts,
-17/17 trust traps, offline 30-package lock verification and synthetic infra
-fixtures pass. Desktop/mobile evidence flows pass **21 checks**, with no page
-errors or provider calls; both browser confirmations stop and remove their own
-fixtures. Final release gates remain in the receipt.
-
-**Changed:** preserved the renamed production runtime and existing review fixes;
-corrected evidence quota/processing/analysis/deletion races, upload revocation,
-parser/analysis bounds, inspector request ownership, CSV citation semantics and
-shared citation capacity. Failed folder-context loading now stops honestly
-instead of silently answering without its evidence. The tracker remains frozen.
-
-**Blocked / owner:** Jigar must explicitly approve the private, server-side
-NewsCraft database backup required before the production migration; the safety
-layer refused the backup before execution. Production is unchanged at this point.
-The old local `DATABASE_URL` entry is not the production blocker: its November 7
-passive check passed but connectivity failed, and no private profile is copied
-into this candidate. New paid acceptance (the separate **$4.23** proposal) and
-Linux executor host/image/seccomp selection still belong to Jigar. The existing
-Contabo worker/storage/database do not themselves validate an OCI sandbox host.
-
-Exact safe verification commands for this isolated checkout:
+**Next:** answer the explicit backup-approval question, then continue the guarded
+release. No credential should be pasted, displayed or guessed. These exact safe
+commands only prepare reviewed SQL and probe readiness; they do not migrate:
 
 ```sh
 cd /Users/macserver/Development/newscraft-ai/.tmp/release-20261108
 export PATH="/Users/macserver/.local/share/fnm/node-versions/v24.21.0/installation/bin:$PATH"
 export TMPDIR=/private/tmp
-export NEWSCRAFT_AGENT_PYTHON=/Users/macserver/Development/newscraft-ai/services/hermes-chat/.venv-owned/bin/python
-pnpm check
-pnpm test
-NEWSCRAFT_FIXTURE_EVIDENCE_BROWSER=1 node scripts/test-agent-postgres-fixture.mjs
-pnpm build
-pnpm eval:fixture
-(cd services/agent && uv lock --check --offline --no-cache --no-python-downloads)
+node scripts/prepare-evidence-migration.mjs --expect-sha256 \
+  239d7ad3302cc87970abe4af52b65dbd1b21458716dcb2261e40259f2d05db54 \
+  > /private/tmp/newscraft-reviewed-evidence.sql
+VERCEL_PROJECT_ID=prj_pywLQLbNvNjJQObIjfs2XZIyaT9D \
+VERCEL_ORG_ID=team_51SGoYrM9iWXGMMLmzaumD2c \
+vercel curl /api/health --deployment dpl_BXpTc8C3mV2x3VAsCeSbiYqxZK7i \
+  -- --max-time 30 --fail --silent --show-error
+curl -fsS --max-time 30 https://agent.newscraftai.com/api/health
 ```
 
-The generic `pnpm test:e2e` needs an explicitly supplied test database; never
-point it at production. The dedicated evidence fixture creates its own database,
-storage and browser accounts and blocks provider/external browser requests.
-Do not run ordinary worker startup as a health probe: it can claim saved runs.
-
-The prior local main and Claude worktrees, public-template edits and four original
-untracked files are preserved. Their old test counts and local startup result
-below are historical, not current candidate/deployment evidence.
+The final command currently may fail on the old build; do not count it as green.
+Generic `pnpm test:e2e` requires explicit database-backed setup; the evidence
+fixture instead creates its own loopback database. Physical Safari and paid model
+quality remain unverified. Do not use ordinary worker startup as a health probe:
+it can recover saved paid work; use `--health-only` for passive local startup.
+Earlier dated sections below are historical, not current deployment receipts.
 
 ## Status as of 2026-11-07
 

@@ -2,7 +2,9 @@
 
 Status: corrected implementation and final local matrix pass, including repeated
 desktop/mobile confirmation and guarded migration/rollback regressions.
-Production remains unchanged; the explicit private-backup approval is pending.
+Production source/traffic remain unchanged; the explicit private-backup approval
+is pending. The staged build is READY and its protected health check passes, but
+the existing public build has a subsequently observed database timeout.
 This is not a completed production deployment receipt.
 
 ## Candidate
@@ -149,6 +151,32 @@ guarded 0027 migration and NewsCraft-only backend deployment. Paid-provider,
 executor and physical-device live behavior remain unverified. A passing local
 matrix, passive checker or browser fixture is not a production deployment claim.
 
+## Staged artifact
+
+- **Vercel build READY, not promoted:**
+  `dpl_BXpTc8C3mV2x3VAsCeSbiYqxZK7i`,
+  [protected deployment](https://newscraft-k5bcha9fu-jigar-patels-projects.vercel.app).
+  It targets the existing production environment with `--skip-domain`; the
+  management API reports no aliases. Authenticated `vercel curl /api/health`
+  against this exact deployment returns **200**, `ok: true`, `state: ready`.
+- Source: `ca2053d37cae9b0f244c637dd9d0fe4e49331330`. The source archive contains
+  only committed files, excluding environment files, logs, state and virtual
+  environments; the Vercel dry-run lists 904 files. Archive SHA-256:
+  `a25e6ba7ce749a5cd9b6454a64f7ab47cd899d8cc01a817684f7e87a5c12fbfe`.
+  Source/hash metadata was supplied to the CLI; the normalized deployment
+  inspection does not expose those custom fields, so no independent remote
+  source-hash comparison is claimed.
+- The public app alias still resolves to
+  `dpl_F9BCUpszwhQwcQW6UN4LWQXKT4Br` (`7a39b01`), verified after staging.
+  No source push, alias promotion, backup, migration or Contabo update occurred.
+- **Observed live issue:** subsequent public health checks returned 503 and
+  timed out; bounded Vercel diagnostics identify database `ETIMEDOUT`. The
+  existing worker is active with loopback readiness 200, both NewsCraft
+  containers are healthy, and the dedicated database TLS route verifies from
+  system DNS and both public IPv4 answers without authentication. The new
+  staged runtime is ready; the latest old-production recheck still returns 503.
+  No shared Funnel routing or personal service was changed.
+
 ## Reviewed deployment and rollback inputs
 
 - Existing Vercel project: `prj_pywLQLbNvNjJQObIjfs2XZIyaT9D`, team
@@ -168,11 +196,13 @@ matrix, passive checker or browser fixture is not a production deployment claim.
   The helper requires that digest, the exact 28-version baseline and the expected
   `newscraft` database, and verifies RLS and each application CRUD grant before
   recording the new version atomically. It does not initialize a database.
-- **Rollback limitation:** old app health expects 28 versions. After 0027, an
-  app-only rollback is not sufficient. The tested down migration refuses any
-  retained evidence data and only reverses an empty schema. If evidence exists,
-  preserve it and choose an explicit recovery plan; never drop it automatically.
-  Keep revocation-aware storage while revoked upload grants may still exist.
+- **Rollback limitation:** old code does not manage the new evidence-cleanup
+  contract. Do not assume an app-only rollback preserves evidence through older
+  project-deletion routes. The tested down migration refuses any retained
+  evidence data and only reverses an empty schema. If evidence exists, preserve
+  it and choose an explicit recovery plan; never drop it automatically. Health
+  checks alone do not prove schema compatibility. Keep revocation-aware storage
+  while revoked upload grants may still exist.
 
 Safe preparation (no database connection or migration):
 
