@@ -1,9 +1,10 @@
 # Evidence workspace release — 2026-11-08
 
-## Approved rollout progress
+## Production cutover verified
 
-Jigar explicitly approved the private server-side backup on November 8. This
-section supersedes the pre-approval snapshot below; no paid acceptance was approved.
+Jigar explicitly approved the private server-side backup and, separately, keeping
+Exa with a $0.02 bounded-call reservation on November 8. This section supersedes
+the pre-approval snapshot below; no paid acceptance was approved or attempted.
 
 - **Backup complete:** private directory
   `/home/jigar/services/newscraft-infra/newscraft-postgres/backups/release-20261108-XZUIt1`
@@ -26,35 +27,52 @@ section supersedes the pre-approval snapshot below; no paid acceptance was appro
   only reviewed server code on the retained immutable image, keeping Node 22.23.3
   and all dependencies. The legacy builder required preserving mode 0444 in the
   build context instead of using BuildKit's unsupported `COPY --chmod` flag.
-- **Worker held safely:** 52 deployed source files verified and Python syntax
-  passed under the unchanged remote 3.11.15 environment. Readiness rejected the
-  first new-worker attempt; the previous `7a39b01` source was restored and is
-  active/ready. Working directory, private state, unit environment and venv were
-  retained. No unfinished runs existed before cutover.
-- **Confirmed configuration gate:** Exa was already selected, but had no paid
-  search reservation ceiling. The new fail-closed guard correctly refuses this
-  combination. The proposed non-secret override reserves **$0.02 per bounded
-  call** inside existing run limits, without changing credentials or making a
+- **Worker complete:** 52 deployed source files verified and Python syntax
+  passed under the unchanged remote 3.11.15 environment. The successful retry
+  runs reviewed source `c9e6e26`; the user service is active and loopback `/ready`
+  returns **200**. Working directory, private state, private environment and venv
+  were retained. No unfinished runs existed before or immediately after stopping
+  the old worker. Prior source remains in a private release rollback directory.
+- **Configuration gate preserved:** Exa was already selected, but had no paid
+  search reservation ceiling. The first attempt correctly failed readiness and
+  restored prior source. The separately approved non-secret override now reserves
+  **$0.02 per bounded call** inside existing run limits, without changing
+  credentials or making a
   paid validation request. [Exa's current pricing](https://exa.ai/pricing), checked
   November 8, lists Auto at $7 per 1,000 searches with up to ten results; this
   adapter requests six results and no summaries. The chosen reserve is
   conservative, not a provider billing guarantee.
-- **Approval pending:** auto-review rejected installing that persistent public
-  budget override before execution as a cost-bearing provider configuration.
-  Neither policy nor drop-in was installed. The user has been asked to approve
-  retaining Exa with the reserve or explicitly choose free public search instead.
-  Do not bypass this gate by altering code defaults, injecting the value through
-  another path or disabling the guard. No source push or app promotion has run.
-- Protected staged app health remains **200 / ready** against the updated schema
-  and gateway. The latest public health recheck also returned **200**, without
-  changing the original app alias; earlier database timeouts remain recorded
-  below rather than assigned an unproved root cause. The public alias remains on
-  the original deployment until the worker gate is resolved. No model or Exa API
-  request was made by validation.
+- **Approved policy installed:** a separate mode-0600 public policy file and
+  user-unit drop-in append the reservation after the existing private environment
+  file. The original private file was not inspected, copied or edited. Pure
+  configuration validation confirms existing Exa selection and budget readiness,
+  with **zero provider requests**. No readiness guard or default was weakened.
+- **App promoted:** the already READY production-environment artifact
+  `dpl_BXpTc8C3mV2x3VAsCeSbiYqxZK7i` (source `ca2053d`) was promoted without
+  rebuilding. The `agent.newscraftai.com` alias was independently confirmed on
+  that deployment. Public `/api/health` is **200 / ready**, `/login` is **200**,
+  and unauthenticated project/file requests produce the exact expected **303**
+  login redirect. Health exposes no private component/gateway details.
+- **Live browser smoke:** isolated desktop 1440px and mobile 390px contexts
+  render the login form, follow the protected-project redirect and report **zero
+  page errors**. External browser requests were blocked; no form was submitted,
+  user data read or paid request made. Authenticated evidence behavior remains
+  proven by the disposable fixture, not a production-account acceptance run.
+- Initial app (`ca2053d`) and worker (`c9e6e26`) runtime source is identical to
+  the final reviewed source; intervening commits change documentation and budget
+  regression coverage only. A later Git-triggered deployment may replace this
+  initial cutover artifact; inspect the current alias and Git commit separately.
+  Earlier database timeouts remain historical, without an unproved root cause.
+- **Source-publication gate:** auto-review rejected a proposed main push before
+  execution because the original explicit no-push instruction was not separately
+  revoked. The source remains in local reviewed commits; remote main and its CI
+  have not been updated. Jigar has been asked to authorize a fast-forward push
+  explicitly. This does not undo the independently approved, verified production
+  cutover. Do not force-push or work around the gate.
 - The complete matrix passed again after extending the exact $0.02 reservation
   regression: two calls reserve 40,000 microusd, a third is blocked at that budget
   without dispatch or refund. Fresh log:
-  `/private/tmp/newscraft-release-post-approval-matrix.log`; counts remain
+  `/private/tmp/newscraft-final-release-matrix.log`; counts remain
   1,074 app, 37 shared, 343 harness, 32 ledger, 71 scripts, 797 Python,
   94 Postgres and 21 desktop/mobile checks, with check 0 errors/warnings.
 

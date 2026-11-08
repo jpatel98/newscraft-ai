@@ -85,8 +85,13 @@ even when lead search is `public`; a missing/zero
 `NEWSCRAFT_AGENT_SEARCH_CALL_PRICE_CEILING` intentionally fails readiness and
 dispatch. Preserve that check, validate any separately approved public budget
 override without provider requests, and retain the original private environment
-and state. The November 8 worker attempt safely restored prior source at this
-gate; the receipt records the separate cost-policy decision and current status.
+and state. The November 8 first attempt safely restored prior source at this
+gate. After Jigar separately approved retaining Exa with a $0.02 bounded-call
+reservation, a public policy override and user-unit drop-in were installed
+without inspecting or changing the private environment. The reviewed worker
+then passed its 52-file source manifest and loopback readiness HTTP 200 under
+the retained remote Python 3.11.15 environment. No provider request was made by
+validation; readiness is not paid acceptance or browser-executor verification.
 
 ## Historical verification — 2026-11-07
 

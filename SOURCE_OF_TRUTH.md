@@ -1,11 +1,13 @@
 # NewsCraft AI source of truth
 
-Verification date: 2026-11-08 (America/Toronto). Scope: integrated release candidate
+Verification date: 2026-11-08 (America/Toronto). Scope: integrated release and cutover
 preserving production `7a39b01` and the five November 7 local review commits.
 Implementation, fresh tests and production gates are recorded in
-[the release receipt](docs/evidence-release-2026-11-08.md); an in-progress receipt
-is not proof of deployment. A read-only pre-release check identified production
-`7a39b01` and login/app health HTTP 200. No paid provider call was made.
+[the release receipt](docs/evidence-release-2026-11-08.md). Initial cutover promotes
+app source `ca2053d` and runs worker source `c9e6e26`; intervening final review
+commits change only documentation and budget regression coverage. Public app
+health and loopback worker readiness return HTTP 200. No paid provider call was
+made by validation.
 Older dated observations below remain historical unless explicitly refreshed.
 
 **Working (approved backend scope, November 8):** the private server-side backup
@@ -16,13 +18,16 @@ and no PUBLIC grants. The runtime role uses BYPASSRLS: tenant isolation still
 depends on the reviewed server-side scopes, not a claim that RLS filters that
 role. The additional pre-existing `mission_crawl_plans` table remains untouched.
 
-**Blocked:** the new worker correctly refused existing Exa search without a
-reviewed search-cost ceiling and restored the prior source. The separate public
-budget override is awaiting explicit approval after auto-review blocked it;
-neither private credentials nor cost-policy files were changed. The staged app
-and latest public health both return 200, but the app alias remains on `7a39b01`:
-this is not the completed corrected-runtime/evidence release. Paid acceptance
-and Linux executor selection remain separate. See the receipt for exact scope.
+**Working (worker/app cutover, November 8):** after a safe initial rollback,
+Jigar separately approved preserving Exa with a $0.02 bounded-call reservation.
+A public policy override and user-unit drop-in retain the original private
+environment and state; the worker passes its 52-file manifest and readiness.
+The tested production-environment app is promoted to `agent.newscraftai.com`.
+Desktop/mobile login renders without page errors; unauthenticated project/file
+requests produce the exact expected login redirects. No production account was
+seeded, signed in or exercised. **Blocked:** paid acceptance and Linux executor
+host/image/seccomp approval remain separate. Live model access, answer quality
+and browser execution are **Unverified**. See the receipt for exact scope.
 
 Use these evidence labels:
 
@@ -71,9 +76,9 @@ Browser -> SvelteKit app -> Postgres conversations/runs/events/checkpoints
 | Project evidence | [service.ts](src/lib/server/evidence/service.ts), [0027](drizzle/0027_project_evidence.sql) | **Repository verified / Working:** sealed PDFs/CSVs, bounded deterministic leads, human review, source withdrawal and scoped chat context. Requires the VPS revocation/acknowledgement contract; the project-evidence Supabase adapter fails closed. This does not publish content or unfreeze the tracker. |
 | Authentication | [auth/backend.ts](src/lib/server/auth/backend.ts), [auth/postgres.ts](src/lib/server/auth/postgres.ts), [auth/supabase.ts](src/lib/server/auth/supabase.ts) | **Working:** Postgres password accounts and signed revocable sessions by default; explicit optional Supabase adapter tested with doubles. Cloud auth is **Unverified**. |
 | Retrieval | [search_adapters.py](services/agent/src/newscraft_agent/search_adapters.py), [retrieval.py](services/agent/src/newscraft_agent/retrieval.py) | **Working:** independent public DDGS discovery, bounded public fetch/archive and exact excerpt checks in fixtures. Optional OpenAI search is a separately reserved paid request. |
-| Artifacts/storage | [artifact_publish.py](services/agent/src/newscraft_agent/artifact_publish.py), [artifacts/storage.ts](src/lib/server/artifacts/storage.ts) | **Working:** scoped immutable revision/grant/upload/finalize, checksum and ownership tests. VPS default, Supabase explicit, local artifacts development-only. Remote access **Unverified**. |
+| Artifacts/storage | [artifact_publish.py](services/agent/src/newscraft_agent/artifact_publish.py), [artifacts/storage.ts](src/lib/server/artifacts/storage.ts) | **Working:** scoped immutable revision/grant/upload/finalize, checksum and ownership tests. VPS default, Supabase explicit, local artifacts development-only. Production gateway health/revocation policies verified November 8; a fresh production upload/finalize roundtrip is **Unverified**. |
 | Computer/browser | [oci_executor.py](services/agent/src/newscraft_agent/oci_executor.py), [executor runbook](services/agent/deploy/executor.md) | **Working:** synthetic daemon/process/RPC/receipt tests. **Blocked:** actual rootless Linux/Chromium acceptance and approved host/image/seccomp selection. |
-| Deployment | [svelte.config.js](svelte.config.js), [vercel.json](vercel.json) | **Repository verified:** Vercel app plus existing Contabo Postgres, private storage and Python worker. **Working / read-only pre-release:** production `7a39b01`, login/app health and loopback worker readiness HTTP 200. Candidate rollout is recorded separately in the dated receipt. |
+| Deployment | [svelte.config.js](svelte.config.js), [vercel.json](vercel.json) | **Repository verified:** Vercel app plus existing Contabo Postgres, private storage and Python worker. **Working / November 8 cutover:** reviewed app promoted, worker source manifest verified, public app health and loopback worker readiness HTTP 200, desktop/mobile login smoke passed. Initial deployment identities and acceptance limits are in the dated receipt. |
 
 ## Ownership and recovery rules
 

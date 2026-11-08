@@ -1,6 +1,6 @@
 # Status as of 2026-11-08
 
-**Staged, not released.** The corrected candidate reconciles production
+**Production cutover verified.** The corrected release reconciles production
 `7a39b01` and the five local review commits; PR #17 was not merged unchanged.
 See [the release receipt](evidence-release-2026-11-08.md) for findings and artifacts.
 
@@ -14,49 +14,51 @@ See [the release receipt](evidence-release-2026-11-08.md) for findings and artif
   revocation; bounded parsing/analysis; abort-safe inspectors; accurate CSV rows
   and shared citation capacity; honest evidence-load failure; development-only
   account seeding. Product remains chat-first; tracker remains frozen.
-- **Staged:** source `ca2053d`, Vercel `dpl_BXpTc8C3mV2x3VAsCeSbiYqxZK7i`,
-  **READY**, no aliases, protected health **200 / ready**. Production still uses
-  `7a39b01`; earlier health checks returned **503**/database `ETIMEDOUT`, but
-  the latest public recheck is **200** without an app cutover. Host containers,
-  worker readiness and verified database TLS are
-  healthy. App promotion and source push have not run; approved backend changes
-  are listed next.
+- **Released:** initial app source `ca2053d`, Vercel
+  `dpl_BXpTc8C3mV2x3VAsCeSbiYqxZK7i`, promoted to
+  `https://agent.newscraftai.com`; public health **200 / ready**, login **200**.
+  Worker source `c9e6e26` passes its 52-file manifest and loopback readiness
+  **200** under the retained remote Python 3.11.15 environment. Subsequent
+  documentation/test-only source synchronization does not change runtime code.
+  Exact unauthenticated project/file redirects and isolated desktop/mobile login
+  rendering pass, with no page errors, form submissions or provider calls.
 - **Approved and completed:** the private server-side database backup, guarded
   0027 migration (29 versions) and revocation-aware storage update. The new six
   tables pass RLS/application-grant checks; production has 47 public tables.
-- **Worker gate:** the first new-worker attempt correctly refused existing Exa
-  search without a reviewed search-cost ceiling, and restored the prior worker.
-  Auto-review blocked installing a non-secret **$0.02/call reservation** override
-  before execution. Jigar must approve preserving Exa with that reserve or choose
-  free public search. No credential change or paid validation call is proposed.
-  The separate **$4.23** paid acceptance and Linux executor host/image/seccomp
-  decision remain independent gates, not live-verified capabilities.
+- **Exa policy resolved:** Jigar separately approved retaining existing Exa with
+  a non-secret **$0.02/call reservation** inside unchanged run/search limits.
+  The mode-0600 override and user-unit drop-in preserve the private environment,
+  fail-closed guard and retained worker state. Pure configuration validation and
+  the worker retry pass without provider requests. This is an app reservation,
+  not Exa's fee or a provider-enforced billing limit.
+- **Still blocked / human-owned:** Jigar must separately approve the **$4.23**
+  paid acceptance and select/approve the Linux executor host, immutable image and
+  seccomp policy. Ordinary app/worker hosting already uses the existing Contabo
+  services; no additional server was provisioned. Live model quality, browser
+  execution and physical Safari remain unverified.
+- **Source-publication approval:** production is already cut over, but the
+  original no-push instruction caused auto-review to reject the proposed GitHub
+  main push before execution. The reviewed commits are retained locally; Jigar
+  must explicitly authorize their fast-forward publication before remote CI or
+  Git-triggered app synchronization can run. No force push is proposed.
 - **Preserved:** original main/Claude worktrees and branches, two public-template
   edits and four unrelated untracked files. The original passive local checker
   passes **18/18**; a blank `DATABASE_URL` is no longer the entry gate. Do not
   copy that old local Supabase profile into the Contabo production candidate.
 
-**Next:** answer the explicit search-budget decision, then finish the guarded
-worker retry and app promotion. No credential should be pasted, displayed or
-guessed. These exact safe
-commands only prepare reviewed SQL and probe readiness; they do not migrate:
+**Next:** use these read-only checks, then obtain the separate paid acceptance
+and executor decisions if needed. No credential should be pasted, displayed or
+guessed. Do not reapply migration 0027 or repeat the backup/cutover:
 
 ```sh
 cd /Users/macserver/Development/newscraft-ai/.tmp/release-20261108
 export PATH="/Users/macserver/.local/share/fnm/node-versions/v24.21.0/installation/bin:$PATH"
-export TMPDIR=/private/tmp
-node scripts/prepare-evidence-migration.mjs --expect-sha256 \
-  239d7ad3302cc87970abe4af52b65dbd1b21458716dcb2261e40259f2d05db54 \
-  > /private/tmp/newscraft-reviewed-evidence.sql
-VERCEL_PROJECT_ID=prj_pywLQLbNvNjJQObIjfs2XZIyaT9D \
-VERCEL_ORG_ID=team_51SGoYrM9iWXGMMLmzaumD2c \
-vercel curl /api/health --deployment dpl_BXpTc8C3mV2x3VAsCeSbiYqxZK7i \
-  -- --max-time 30 --fail --silent --show-error
 curl -fsS --max-time 30 https://agent.newscraftai.com/api/health
+ssh contabo 'systemctl --user is-active newscraft-agent.service && curl -fsS --max-time 10 http://127.0.0.1:8000/ready'
+gh run list --repo jpatel98/newscraft-ai --branch main --limit 3
+vercel inspect https://agent.newscraftai.com --scope jigar-patels-projects
 ```
 
-The SQL is already applied; do not execute it again. The final health command
-currently may fail on the old app build; do not count it as green.
 Generic `pnpm test:e2e` requires explicit database-backed setup; the evidence
 fixture instead creates its own loopback database. Physical Safari and paid model
 quality remain unverified. Do not use ordinary worker startup as a health probe:

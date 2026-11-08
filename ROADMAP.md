@@ -76,12 +76,14 @@ worker is now under `services/agent/src/newscraft_agent` and callbacks use
 bounded deterministic leads, explicit human review and folder-scoped chat context;
 it does not unfreeze the tracker. Candidate measurements and release state are in
 [the November 8 receipt](docs/evidence-release-2026-11-08.md).
-**Working (approved backend scope):** the validated private backup, guarded 0027
-migration and revocation-aware gateway update are complete. **Blocked:** final
-worker/app cutover awaits the explicit Exa search-reservation policy decision;
-the failed worker attempt restored prior source without weakening the guard.
-The public app remains on `7a39b01`, currently healthy; no paid validation call
-or tracker change follows from these operations.
+**Working (November 8 production cutover):** the validated private backup,
+guarded 0027 migration, revocation-aware gateway and reviewed worker are deployed.
+Jigar separately approved retaining Exa with a $0.02 bounded-call reservation
+inside unchanged run limits; private credentials and the fail-closed guard remain
+unchanged. The tested production-environment app was promoted to
+`agent.newscraftai.com`; public health and worker readiness return HTTP 200.
+Desktop/mobile login and exact unauthenticated redirects pass. These checks make
+no paid validation call and do not unfreeze the tracker.
 **Historical:**
 October 8 records cover new-project connectivity/auth and one approved synthetic
 DeepSeek run; that one-shot approval is consumed, not permission to repeat it.
@@ -104,9 +106,10 @@ memory as independently accepted product features. The tracker remains frozen.
 External model/tool services may process requests; account isolation does not
 mean local-only processing. Personal Hydra remains separate and untouched.
 
-**Unverified:** this candidate's production cutover, live provider access and answer
-latency. The pre-release production identity and health above do not establish
-those properties. Check the dated release receipt for subsequent rollout state.
+**Unverified:** live provider access, authenticated production evidence acceptance,
+answer quality and latency, and Linux browser execution. The verified cutover and
+readiness do not establish those properties. Check the dated release receipt for
+deployment identities and the limits of the production smoke tests.
 
 ## Product rules
 
