@@ -15,7 +15,7 @@ Supabase documents CA trust and full verification in its
 From the repository root, start the local app with:
 
 ```sh
-NODE_EXTRA_CA_CERTS="$PWD/config/certs/supabase-prod-ca-2021.crt" node scripts/agent-local.mjs start
+NODE_EXTRA_CA_CERTS="$PWD/config/certs/supabase-prod-ca-2021.crt" node scripts/agent-local.mjs start --health-only
 ```
 
 Use the documented Node 24 installation first. Keep `sslmode=verify-full` in the
@@ -24,6 +24,9 @@ verification; this setting adds CA trust for the launched Node processes without
 changing the system trust store. Node reads `NODE_EXTRA_CA_CERTS` at process
 startup, so setting it only in a subsequently loaded dotenv file is insufficient
 for that process. The Python worker does not connect directly to Postgres.
+
+Health-only mode prevents saved-run recovery or new worker execution. Remove it
+only when dispatch is explicitly authorized; ordinary startup is not passive.
 
 To inspect this public certificate:
 

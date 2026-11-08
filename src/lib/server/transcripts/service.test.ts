@@ -17,7 +17,7 @@ import { createTranscriptService, parseNewTranscript } from './service';
 import { AudioStorageUnavailableError, type AudioStorage } from './storage';
 
 const stored = (over: Record<string, unknown> = {}) => ({
-	id: 't1', status: 'uploading', sourceKind: 'upload', sourceUrl: null, audioKey: 'acct/t1/audio', keyterms: ['TTC'], ...over
+	id: 't1', status: 'uploading', sourceKind: 'upload', sourceUrl: null, audioKey: 'acct/t1/audio', keyterms: ['TTC'], processingStartedAt: 1234, ...over
 });
 
 function fakes() {
@@ -75,7 +75,7 @@ describe('transcript service', () => {
 		db.createTranscript.mockResolvedValue(stored());
 		vi.mocked(storage.signUpload).mockRejectedValue(new AudioStorageUnavailableError());
 		await expect(service.create('acct', { kind: 'upload', fileName: 'a.mp3', bytes: 10 })).rejects.toBeInstanceOf(AudioStorageUnavailableError);
-		expect(db.failTranscript).toHaveBeenCalledWith('acct', 't1', 'storage_unavailable', expect.any(String));
+		expect(db.failTranscript).toHaveBeenCalledWith('acct', 't1', 'storage_unavailable', expect.any(String), null);
 	});
 
 	it('transcribes an uploaded file from a signed download link', async () => {
@@ -87,6 +87,30 @@ describe('transcript service', () => {
 		expect(storage.signDownload).toHaveBeenCalledWith('acct/t1/audio', 900);
 		expect(engine.transcribe).toHaveBeenCalledWith(expect.objectContaining({ sourceUrl: 'https://files.test/v1/download/tok', keyterms: ['TTC'] }));
 		expect(out.status).toBe('complete');
+		expect(db.completeTranscript).toHaveBeenCalledWith('acct', 't1', expect.objectContaining({ text: 'Hi.' }), 1234);
+	});
+
+	it('does not release another processing claim when storage preflight fails', async () => {
+		const { service, storage, engine } = fakes();
+		db.getTranscript.mockResolvedValue(stored({ status: 'processing' }));
+		vi.mocked(storage.stat).mockRejectedValue(new AudioStorageUnavailableError());
+		await expect(service.process('acct', 't1')).rejects.toBeInstanceOf(AudioStorageUnavailableError);
+		expect(db.failTranscript).not.toHaveBeenCalled();
+		expect(db.claimForProcessing).not.toHaveBeenCalled();
+		expect(engine.transcribe).not.toHaveBeenCalled();
+	});
+
+	it.each(['success', 'failure', 'no_speech'])('returns the latest row when a stale %s loses its claim', async (outcome) => {
+		const { service, engine } = fakes();
+		const latest = stored({ status: 'complete', processingStartedAt: 5678, text: 'New result' });
+		db.getTranscript.mockResolvedValueOnce(stored()).mockResolvedValue(latest);
+		db.claimForProcessing.mockResolvedValue(stored({ status: 'processing' }));
+		db.completeTranscript.mockResolvedValue(null);
+		db.failTranscript.mockResolvedValue(null);
+		if (outcome === 'failure') vi.mocked(engine.transcribe).mockRejectedValue(new TranscriptionEngineError('engine_busy', 'Busy'));
+		if (outcome === 'no_speech') vi.mocked(engine.transcribe).mockResolvedValue({ text: '', utterances: [], durationMs: null, languageCode: null });
+		expect(await service.process('acct', 't1')).toEqual(latest);
+		if (outcome !== 'success') expect(db.failTranscript).toHaveBeenCalledWith('acct', 't1', expect.any(String), expect.any(String), 1234);
 	});
 
 	it('waits for an unfinished upload and leaves a run another request holds', async () => {
@@ -108,6 +132,31 @@ describe('transcript service', () => {
 		const out = await service.process('acct', 't1');
 		expect(engine.transcribe).toHaveBeenCalledWith(expect.objectContaining({ sourceUrl: 'https://youtu.be/x' }));
 		expect(out).toMatchObject({ status: 'failed', errorCode: 'engine_busy', errorMessage: 'Busy, try again.' });
+	});
+
+	it.each(['storage', 'network'])('logs only a fixed category for %s errors', async (source) => {
+		const { service, engine, storage } = fakes();
+		const secret = 'synthetic-private-credential';
+		const signedUrl = `https://files.test/audio?signature=${secret}`;
+		const failure = source === 'storage' ? new AudioStorageUnavailableError() : new Error(signedUrl);
+		failure.message = `Failed request ${signedUrl}`;
+		failure.cause = { authorization: secret, url: signedUrl };
+		const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			db.getTranscript.mockResolvedValue(stored());
+			db.claimForProcessing.mockResolvedValue(stored({ status: 'processing' }));
+			if (source === 'storage') vi.mocked(storage.signDownload).mockRejectedValue(failure);
+			else vi.mocked(engine.transcribe).mockRejectedValue(failure);
+			const category = source === 'storage' ? 'storage_unavailable' : 'transcription_failed';
+			const result = await service.process('acct', 't1');
+			expect(result).toMatchObject({ status: 'failed', errorCode: category });
+			expect(errorLog.mock.calls).toEqual([['[newscraft] transcription failed', category]]);
+			expect(JSON.stringify(errorLog.mock.calls)).not.toContain(secret);
+			expect(JSON.stringify(errorLog.mock.calls)).not.toContain(signedUrl);
+			expect(JSON.stringify(result)).not.toContain(secret);
+		} finally {
+			errorLog.mockRestore();
+		}
 	});
 
 	it('fails a recording with no speech', async () => {

@@ -147,7 +147,7 @@ class SnapshotStore:
         finally:
             db.close()
 
-    def admit(self, scope, run, operation, name, daemon, request):
+    def admit(self, scope, run, operation, name, daemon, request, *, preparing=False):
         with self.connect() as db:
             old = db.execute("SELECT * FROM operations WHERE scope=? AND operation=?", (scope, operation)).fetchone()
             if old:
@@ -156,15 +156,29 @@ class SnapshotStore:
                 if old["phase"] == "done":
                     return {"receipt": json.loads(old["result"])}
                 raise ExecutorUncertain("This computer action has an uncertain or cancelled outcome and cannot be repeated.")
-            if db.execute("SELECT 1 FROM operations WHERE scope=? AND phase IN ('creating','running')", (scope,)).fetchone():
+            if db.execute("SELECT 1 FROM operations WHERE scope=? AND phase IN ('preparing','creating','running')", (scope,)).fetchone():
                 raise ExecutorUncertain("A previous computer action still needs confirmed cleanup.")
             if db.execute("SELECT 1 FROM browser_actions WHERE scope=? AND phase='pending'", (scope,)).fetchone():
                 raise ExecutorUncertain("A browser action still owns this conversation workspace.")
             self.capacity(db, MAX_ARCHIVE + MAX_RESULT)
             existing = db.execute("SELECT snapshot FROM workspaces WHERE scope=?", (scope,)).fetchone()
             self.ensure_scope(db, scope)
-            db.execute("INSERT INTO operations VALUES (?,?,?,?,?,?,NULL,'creating',NULL)", (scope, operation, run, name, daemon, request))
+            db.execute("INSERT INTO operations VALUES (?,?,?,?,?,?,NULL,?,NULL)",
+                       (scope, operation, run, name, daemon, request, "preparing" if preparing else "creating"))
             return {"snapshot": bytes(existing[0]) if existing else b""}
+
+    def prepared(self, scope, run, operation, daemon):
+        with self.connect() as db:
+            changed = db.execute("UPDATE operations SET daemon=?,phase='creating' WHERE scope=? AND run=? AND operation=? AND phase='preparing'",
+                                 (daemon, scope, run, operation))
+            if changed.rowcount != 1:
+                raise ExecutorUncertain("Computer admission was cancelled during preflight.")
+
+    def cancel_preparing(self, scope, run, operation):
+        with self.connect() as db:
+            changed = db.execute("UPDATE operations SET phase='cancelled' WHERE scope=? AND run=? AND operation=? AND phase='preparing'",
+                                 (scope, run, operation))
+            return changed.rowcount == 1
 
     @staticmethod
     def ensure_scope(db, scope):
@@ -180,7 +194,7 @@ class SnapshotStore:
         used += db.execute("SELECT coalesce(sum(length(CAST(result AS BLOB))),0) FROM operations").fetchone()[0]
         used += db.execute("SELECT coalesce(sum(length(CAST(state AS BLOB))),0) FROM browser_profiles").fetchone()[0]
         used += db.execute("SELECT coalesce(sum(length(CAST(result AS BLOB))),0)+coalesce(sum(length(CAST(evidence AS BLOB))),0) FROM browser_actions").fetchone()[0]
-        pending = db.execute("SELECT count(*) FROM operations WHERE phase IN ('creating','running')").fetchone()[0]
+        pending = db.execute("SELECT count(*) FROM operations WHERE phase IN ('preparing','creating','running')").fetchone()[0]
         browser_pending = db.execute("SELECT count(*) FROM browser_actions WHERE phase='pending'").fetchone()[0]
         if count >= MAX_OPERATIONS or used + pending * (MAX_ARCHIVE + MAX_RESULT) + browser_pending * BROWSER_RESERVATION + reserve > MAX_STORE:
             raise ExecutorError("The computer store has reached its capacity; operator retention is required.")
@@ -203,7 +217,7 @@ class SnapshotStore:
 
     def pending(self, scope, run):
         with self.connect() as db:
-            return [dict(row) for row in db.execute("SELECT * FROM operations WHERE scope=? AND run=? AND phase IN ('creating','running')", (scope, run))]
+            return [dict(row) for row in db.execute("SELECT * FROM operations WHERE scope=? AND run=? AND phase IN ('preparing','creating','running')", (scope, run))]
 
     def finish(self, scope, operation, result, snapshot=None):
         encoded = json.dumps(result, ensure_ascii=False)

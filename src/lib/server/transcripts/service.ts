@@ -111,7 +111,7 @@ export function createTranscriptService(deps: {
 				const url = await storage().signUpload(transcript.audioKey!, contentType, input.bytes);
 				return { transcript, upload: { url, contentType } };
 			} catch (cause) {
-				await failTranscript(accountId, transcript.id, 'storage_unavailable', 'Audio storage is unavailable right now.');
+				await failTranscript(accountId, transcript.id, 'storage_unavailable', 'Audio storage is unavailable right now.', null);
 				throw cause;
 			}
 		},
@@ -128,19 +128,20 @@ export function createTranscriptService(deps: {
 			let upload: { bytes: number; contentType: string } | undefined;
 			if (existing.sourceKind !== 'link') {
 				if (!existing.audioKey) throw new TranscriptRequestError(409, 'no_audio', 'This transcript has no audio.');
-				const meta = await storage().stat(existing.audioKey).catch((cause) => {
-					if (cause instanceof AudioStorageUnavailableError) return 'unavailable' as const;
-					throw cause;
-				});
-				if (meta === 'unavailable') {
-					return (await failTranscript(accountId, id, 'storage_unavailable', 'Audio storage is unavailable right now. Try again.')) ?? existing;
-				}
+				const meta = await storage().stat(existing.audioKey);
 				if (!meta) throw new TranscriptRequestError(409, 'upload_not_ready', 'The upload hasn’t finished yet.');
 				upload = meta;
 			}
 
 			const claimed = await claimForProcessing(accountId, id, upload);
 			if (!claimed) return (await getTranscript(accountId, id)) ?? existing;
+			const processingStartedAt = claimed.processingStartedAt;
+			if (processingStartedAt === null) throw new Error('Transcript claim is missing its processing identity');
+			const latest = async () => {
+				const transcript = await getTranscript(accountId, id);
+				if (!transcript) throw new TranscriptRequestError(404, 'not_found', 'Transcript not found.');
+				return transcript;
+			};
 
 			try {
 				const sourceUrl = claimed.sourceKind === 'link'
@@ -152,17 +153,17 @@ export function createTranscriptService(deps: {
 					signal: AbortSignal.timeout(ENGINE_TIMEOUT_MS)
 				});
 				if (result.utterances.length === 0) {
-					return (await failTranscript(accountId, id, 'no_speech', 'No speech was found in this recording.')) ?? claimed;
+					return (await failTranscript(accountId, id, 'no_speech', 'No speech was found in this recording.', processingStartedAt)) ?? await latest();
 				}
-				return (await completeTranscript(accountId, id, result)) ?? claimed;
+				return (await completeTranscript(accountId, id, result, processingStartedAt)) ?? await latest();
 			} catch (cause) {
 				const failure = cause instanceof TranscriptionEngineError
 					? { code: cause.code, message: cause.message }
 					: cause instanceof AudioStorageUnavailableError
 						? { code: 'storage_unavailable', message: 'Audio storage is unavailable right now. Try again.' }
 						: { code: 'transcription_failed', message: 'Transcription failed. Try again.' };
-				if (!(cause instanceof TranscriptionEngineError)) console.error('[newscraft] transcription failed', cause);
-				return (await failTranscript(accountId, id, failure.code, failure.message)) ?? claimed;
+				if (!(cause instanceof TranscriptionEngineError)) console.error('[newscraft] transcription failed', failure.code);
+				return (await failTranscript(accountId, id, failure.code, failure.message, processingStartedAt)) ?? await latest();
 			}
 		}
 	};

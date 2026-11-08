@@ -5,7 +5,9 @@ import asyncio
 import base64
 import os
 import tempfile
+import threading
 import unittest
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +25,35 @@ from newscraft_agent.isolation import TenantRuntime
 
 
 class ArtifactPublishTests(unittest.TestCase):
+    def test_cancelled_staging_is_joined_and_removed_before_returning(self):
+        async def scenario(runtime):
+            entered, released = threading.Event(), threading.Event()
+            def slow_stage(*args):
+                entered.set()
+                released.wait(2)
+                return stage_workspace_file(*args)
+            client = SimpleNamespace(put=AsyncMock())
+            payload = b"fixture"
+            (runtime.workspace / "report.md").write_bytes(payload)
+            with patch("newscraft_agent.artifact_publish.stage_workspace_file", slow_stage):
+                task = asyncio.create_task(publish_workspace_file(client=client, runtime=runtime, path="report.md",
+                    grant={"upload_url": "https://fixture.example/upload", "max_bytes": 1024}, mime_type="text/markdown",
+                    size=len(payload), checksum_sha256=hashlib.sha256(payload).hexdigest()))
+                try:
+                    while not entered.is_set():
+                        await asyncio.sleep(0)
+                    task.cancel()
+                    await asyncio.sleep(0)
+                    self.assertFalse(task.done())
+                finally:
+                    released.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+            self.assertEqual(list((runtime.state_home / "artifact-staging").iterdir()), [])
+            client.put.assert_not_awaited()
+        with tempfile.TemporaryDirectory() as root:
+            asyncio.run(scenario(self.make_runtime(Path(root))))
+
     def make_runtime(self, root: Path) -> TenantRuntime:
         workspace = root / "workspace"
         workspace.mkdir(mode=0o700)

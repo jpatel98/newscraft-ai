@@ -16,6 +16,7 @@ test('stores audio in the audio bucket and serves byte ranges for seeking', asyn
 		env: {
 			...process.env,
 			PORT: String(port),
+			NEWSCRAFT_STORAGE_HOST: '127.0.0.1',
 			NEWSCRAFT_STORAGE_ROOT: root,
 			NEWSCRAFT_STORAGE_API_KEY: apiKey,
 			NEWSCRAFT_STORAGE_SIGNING_KEY: 'test-signing-key-that-is-at-least-32-bytes',

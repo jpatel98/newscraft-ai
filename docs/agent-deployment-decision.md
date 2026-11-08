@@ -1,5 +1,13 @@
 # Deployment/acceptance decision — 2026-10-07
 
+**Current gate (2026-11-07):** the guarded local checker passes, so the historical
+blank-database entry below is resolved. No hosted schema or production state was
+re-audited. Use health-only startup for no-paid checks: ordinary worker startup
+can recover saved work. The $4.23 OpenAI acceptance still needs Jigar's separate
+approval and refreshed provider-price review. The Linux host/image/seccomp choice
+remains Jigar's decision; none of the historical provisioning/SSH commands below
+is authorized by this follow-up. See the [fresh handoff](agent-local-handoff.md#status-as-of-2026-11-07).
+
 **Historical assessment and proposals:** the subsequent repository review did not repeat the remote metadata, SSH, storage-health, pricing or image checks below. They are not current acceptance evidence or authorization. The current task prohibits SSH into Contabo, cloud creation, Docker/Colima/Lima reinstallation, production changes and paid calls. See [current local status](agent-local-handoff.md).
 
 This is a read-only readiness assessment and proposed commands, not deployment authorization. No application code changed during this assessment. No credentials were retrieved, host trust changed, image built, daemon installed/started, infrastructure created, or paid inference run.

@@ -102,4 +102,11 @@ required gate has evidence. Do not change Hydra.
 
 ## Owned portable runtime update — 2026-10-07
 
-The active runner additionally saves lease-fenced private canonical checkpoints, request reservations, intent and receipts in Postgres. Uncertain model/tool effects are not automatically repeated. `finishing` remains recoverable until cleanup is confirmed; only then is `finished` saved and emitted. Immutable publication alone can retry within its fixed 240-second window. See the [worker README](../services/agent/README.md) and [current measured handoff](agent-local-handoff.md). The original transport coalescing contract above does not claim token streaming from the current non-streaming HTTP model adapters; public activity and the completed answer still stream as durable events.
+The active runner additionally saves lease-fenced private canonical checkpoints, request reservations, intent and receipts in Postgres. Uncertain model/tool effects are not automatically repeated. `finishing` remains recoverable until cleanup is confirmed; only then is `finished` saved and emitted. Immutable publication alone can retry within its fixed 240-second window. See the [worker README](../services/agent/README.md) and [current measured handoff](agent-local-handoff.md).
+
+**Repository verified update — 2026-11-07:** Anthropic/DeepSeek support bounded
+streaming responses; OpenAI Responses remains nonstreaming. The owned runner
+emits answer deltas/replacements through the durable event path. Its callback persistence and browser cursor replay remain
+separate from provider transport. The prior October 7 non-streaming description
+is historical. Interrupted provider requests are still uncertain and never
+automatically resubmitted merely to reconstruct a missing tail.

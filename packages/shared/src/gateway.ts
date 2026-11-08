@@ -390,6 +390,7 @@ export interface ConversationContext {
 export interface DocumentContextPage {
 	pageNumber: number;
 	text: string;
+	label?: string;
 }
 
 export interface DocumentContext {

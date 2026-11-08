@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 /** Disposable LOCAL Postgres tests. Never accepts or reads an existing DB URL. */
 import { spawn } from 'node:child_process';
-import { randomInt, randomUUID } from 'node:crypto';
+import assert from 'node:assert/strict';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MIGRATION_VERSIONS } from '../src/lib/server/db/migration-contract.ts';
+import { prepareEvidenceMigration } from './prepare-evidence-migration.mjs';
 
 if (process.argv.length !== 2) throw new Error('This fixture accepts no database URL or test command.');
 if (Number(process.versions.node.split('.')[0]) !== 24) throw new Error('Use the project Node 24 runtime.');
@@ -93,6 +96,61 @@ try {
   const counts = await command(path.join(pgBin, 'psql'), ['-X', '-h', socket, '-p', String(port), '-U', 'fixture', '-d', database, '-Atc',
     "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'"]);
   console.log(`Fixture verification completed; public tables: ${counts.output.trim()}.`);
+  const migrationDatabase = database + '_migration';
+  await command(path.join(pgBin, 'createdb'), ['-h', socket, '-p', String(port), '-U', 'fixture', migrationDatabase]);
+  const psqlArguments = ['-X', '-v', 'ON_ERROR_STOP=1', '-h', socket, '-p', String(port), '-U', 'fixture', '-d', migrationDatabase];
+  const baseline = ["BEGIN;", "DO $roles$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF; IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'newscraft_app') THEN CREATE ROLE newscraft_app LOGIN BYPASSRLS; END IF; END $roles$;",
+    "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO newscraft_app;",
+    "CREATE TABLE newscraft_schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());"];
+  for (const version of MIGRATION_VERSIONS.filter(item => item !== '0027_project_evidence')) {
+    baseline.push(await readFile(path.join(root, 'drizzle', version + '.sql'), 'utf8'));
+    baseline.push("INSERT INTO newscraft_schema_migrations (version) VALUES ('" + version + "');");
+  }
+  baseline.push('COMMIT;');
+  const baselineFile = path.join(directory, 'baseline.sql');
+  await writeFile(baselineFile, baseline.join('\n'), { mode: 0o600 });
+  await command(path.join(pgBin, 'psql'), [...psqlArguments, '-f', baselineFile]);
+  const migrationContents = await readFile(path.join(root, 'drizzle/0027_project_evidence.sql'), 'utf8');
+  const migrationDigest = createHash('sha256').update(migrationContents).digest('hex');
+  const guardedFile = path.join(directory, 'guarded-evidence.sql');
+  await writeFile(guardedFile, prepareEvidenceMigration(migrationContents, migrationDigest, migrationDatabase), { mode: 0o600 });
+  const evidenceRelations = ['project_documents', 'project_document_pages', 'project_datasets', 'project_dataset_rows', 'project_analysis_runs', 'project_findings'];
+  const shadowFile = path.join(directory, 'shadow-schema.sql');
+  await writeFile(shadowFile, ['CREATE SCHEMA migration_shadow;',
+    ...[...evidenceRelations, 'newscraft_schema_migrations'].map(relation => `CREATE TABLE migration_shadow.${relation} (sentinel text NOT NULL); INSERT INTO migration_shadow.${relation} VALUES ('synthetic-shadow-row');`)].join('\n'), { mode: 0o600 });
+  await command(path.join(pgBin, 'psql'), [...psqlArguments, '-f', shadowFile]);
+  const shadowArguments = [...psqlArguments, '-c', 'SET search_path = migration_shadow, public'];
+  await command(path.join(pgBin, 'psql'), [...shadowArguments, '-f', guardedFile]);
+  const reapplied = await command(path.join(pgBin, 'psql'), [...psqlArguments, '-f', guardedFile], { allowFailure: true });
+  if (reapplied.code === 0) throw new Error('Guarded evidence migration unexpectedly allowed reapplication.');
+  const rollbackFile = path.join(root, 'drizzle/rollback/0027_project_evidence.down.sql');
+  await command(path.join(pgBin, 'psql'), [...shadowArguments, '-f', rollbackFile]);
+  for (const relation of [...evidenceRelations, 'newscraft_schema_migrations']) {
+    const retained = await command(path.join(pgBin, 'psql'), [...psqlArguments, '-Atc', `SELECT count(*) FROM migration_shadow.${relation} WHERE sentinel = 'synthetic-shadow-row'`]);
+    assert.equal(retained.output.trim(), '1');
+  }
+  const rolledBack = await command(path.join(pgBin, 'psql'), [...psqlArguments, '-Atc', "SELECT count(*) FROM public.newscraft_schema_migrations WHERE version = '0027_project_evidence'"]);
+  assert.equal(rolledBack.output.trim(), '0');
+  await command(path.join(pgBin, 'psql'), [...shadowArguments, '-f', guardedFile]);
+  const retainedDataFile = path.join(directory, 'retained-data.sql');
+  await writeFile(retainedDataFile, `INSERT INTO public.accounts (id, email, created_at, updated_at) VALUES ('migration-fixture', 'migration-fixture@example.invalid', 1, 1);
+INSERT INTO public.projects (id, account_id, name, created_at, updated_at) VALUES ('migration-project', 'migration-fixture', 'Synthetic retained evidence', 1, 1);
+INSERT INTO public.project_analysis_runs (id, account_id, project_id, status, trigger, analyzer_version, input_documents, started_at) VALUES ('migration-run', 'migration-fixture', 'migration-project', 'running', 'manual', 'fixture', '[]', 1);\n`, { mode: 0o600 });
+  await command(path.join(pgBin, 'psql'), [...psqlArguments, '-f', retainedDataFile]);
+  const refusedRollback = await command(path.join(pgBin, 'psql'), [...shadowArguments, '-f', rollbackFile], { allowFailure: true });
+  assert.notEqual(refusedRollback.code, 0);
+  assert.match(refusedRollback.output, /Refusing evidence rollback with retained data/);
+  const retainedState = await command(path.join(pgBin, 'psql'), [...psqlArguments, '-Atc', "SELECT (SELECT count(*) FROM public.newscraft_schema_migrations WHERE version = '0027_project_evidence') || '|' || (SELECT count(*) FROM public.project_analysis_runs WHERE id = 'migration-run')"]);
+  assert.equal(retainedState.output.trim(), '1|1');
+  console.log('Guarded evidence migration, refused reapplication, shadow-schema isolation, empty rollback/reapply and populated rollback refusal passed on a second disposable database.');
+  if (process.env.NEWSCRAFT_FIXTURE_EVIDENCE_BROWSER === '1') {
+    const authority = path.join(directory, 'browser-authority.json');
+    const nonce = randomUUID();
+    await writeFile(authority, JSON.stringify({ nonce, database, data }), { mode: 0o600 });
+    env.NEWSCRAFT_EVIDENCE_FIXTURE_AUTHORITY = authority;
+    env.NEWSCRAFT_EVIDENCE_FIXTURE_NONCE = nonce;
+    await command(process.execPath, [path.join(root, 'scripts/test-evidence-browser.mjs')], { inherit: true, seconds: 240 });
+  }
 } catch (error) {
   console.error(error.message);
   try { console.error((await readFile(path.join(directory, 'postgres.log'), 'utf8')).slice(-4000)); } catch {}

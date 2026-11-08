@@ -10,9 +10,13 @@ import { mergeEvidence, resolveEvidence, summarizeEvidence, type CitedPage, type
 import { planTurn, type ClaimEvent, type ClaimMatch, type ClaimState } from '../../src/lib/utils/claim-events';
 import { matchIncoming, type ClaimJudge, type JudgePair, type JudgeVerdict } from '../../src/lib/utils/claim-matcher';
 import { normalizeClaimText } from '../../src/lib/utils/claim-similarity';
-import { normalizeLedgerClaim, type LedgerClaim, type LedgerStatus } from '../../src/lib/utils/story-ledger';
+import { LEDGER_FENCE_OPEN, normalizeLedgerClaim, splitLedgerBlock, type LedgerClaim, type LedgerStatus } from '../../src/lib/utils/story-ledger';
 
 export const EVAL_DIR = new URL('.', import.meta.url).pathname;
+
+export function recordingUrl(kind: 'JUDGE' | 'COPY'): string | undefined {
+	return process.env.LEDGER_EVAL_RECORD === '1' ? process.env[`LEDGER_EVAL_${kind}_URL`] : undefined;
+}
 
 export interface FixtureSource {
 	n: number;
@@ -57,7 +61,7 @@ export function turnSources(thread: FixtureThread, turn: number): FixtureSource[
 }
 
 export function turnClaims(turn: FixtureThread['turns'][number]): LedgerClaim[] {
-	return turn.claims.map(normalizeLedgerClaim).filter((claim): claim is LedgerClaim => claim !== null);
+	return splitLedgerBlock(`${LEDGER_FENCE_OPEN}\n${JSON.stringify({ claims: turn.claims })}\n\`\`\``).claims ?? [];
 }
 
 // ---- judge cassette -------------------------------------------------------
@@ -86,6 +90,7 @@ export class Cassette {
 	 * (the worker's /v1/ledger/judge) and stored, then replayed as usual.
 	 */
 	recording(url: string, token: string): ClaimJudge {
+		if (process.env.LEDGER_EVAL_RECORD !== '1') throw new Error('Live ledger recording requires LEDGER_EVAL_RECORD=1');
 		return async (pairs) => {
 			const unknown = pairs.filter((pair) => !this.verdicts[pairKey(pair.a, pair.b)]);
 			for (let i = 0; i < unknown.length; i += 30) {
@@ -152,6 +157,7 @@ export async function replayThread(
 	let n = 0;
 	for (const [t, turn] of thread.turns.entries()) {
 		const incoming = turnClaims(turn);
+		const originalIndices = turn.claims.flatMap((claim, index) => normalizeLedgerClaim(claim) ? [index] : []).slice(0, incoming.length);
 		const active = [...states.values()];
 		let matches: ClaimMatch[];
 		if (matcher === 'exact') {
@@ -179,7 +185,7 @@ export async function replayThread(
 		events.push(...plan.events);
 		plan.resolved.forEach((id, i) => {
 			if (!id) return;
-			landedOn.set(`${t}:${i}`, id);
+			landedOn.set(`${t}:${originalIndices[i]}`, id);
 			cited.set(id, mergeEvidence(cited.get(id) ?? [], resolveEvidence(incoming[i].citations, pages)));
 		});
 	}

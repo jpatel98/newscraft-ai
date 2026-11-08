@@ -4,10 +4,22 @@
  let ready = $state(false); onMount(() => { ready = true; });
  import { invalidateAll } from '$app/navigation';
  import Composer from '$lib/components/Composer.svelte';
+ import ProjectEvidencePanel from '$lib/components/ProjectEvidencePanel.svelte';
+ import ProjectFindingsPanel from '$lib/components/ProjectFindingsPanel.svelte';
+ import type { EvidenceDocumentSummary } from '$lib/client/evidence';
+ import type { ProjectFindingView, AnalysisRunView } from '$lib/components/project-findings';
  import { formatRelativeTime } from '$lib/utils/time';
  import '$lib/styles/projects.css';
- let { data }: { data: { project: { id: string; name: string }; projectConversations: { id: string; title: string; updatedAt: number }[] } } = $props();
+ let { data }: { data: {
+  project: { id: string; name: string };
+  projectConversations: { id: string; title: string; updatedAt: number }[];
+  evidenceEnabled: boolean;
+  evidence: EvidenceDocumentSummary[];
+  findings: ProjectFindingView[];
+  latestRun: AnalysisRunView | null;
+ } } = $props();
  let editing = $state(false); let name = $state(''); let busy = $state(false); let failure = $state('');
+ let inspect = $state<{ documentId: string; page?: number; ordinals?: number[] } | null>(null);
  async function rename(event: SubmitEvent) {
   event.preventDefault(); if (busy) return; busy = true; failure = '';
   try {
@@ -27,8 +39,13 @@
  </form>{/if}
  {#if failure}<p role="alert">{failure}</p>{/if}
  <section aria-label="New conversation in folder"><h2>New conversation</h2>
+ <p class="project-scope">Chats in this folder can see its processed evidence. Chats outside it cannot.</p>
  {#key data.project.id}<Composer projectId={data.project.id} draftKey={`project:${data.project.id}`} placeholder={`Ask about ${data.project.name}…`} />{/key}
  </section>
+ {#key data.project.id}
+ <ProjectEvidencePanel projectId={data.project.id} enabled={data.evidenceEnabled} documents={data.evidence} bind:inspect />
+ <ProjectFindingsPanel projectId={data.project.id} projectName={data.project.name} enabled={data.evidenceEnabled} documents={data.evidence} findings={data.findings} latestRun={data.latestRun} onInspect={(target) => inspect = target} />
+ {/key}
  <h2>Conversations</h2>
  <p>Add existing chats using “Move to folder” in a chat’s menu, or drag a chat onto the folder in the sidebar.</p>
  {#if data.projectConversations.length}

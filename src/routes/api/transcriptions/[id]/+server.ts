@@ -16,7 +16,9 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	const accountId = requireUser(locals);
 	let body: Record<string, unknown>;
 	try {
-		body = (await request.json()) as Record<string, unknown>;
+		const parsed = await request.json();
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+		body = parsed as Record<string, unknown>;
 	} catch {
 		throw error(400, 'invalid json');
 	}

@@ -186,16 +186,14 @@ class DeepSeekAcceptanceTests(unittest.IsolatedAsyncioTestCase):
         replies = [reply(tool("plan", {"steps": [{"id": f"step-{index}-{n}", "label": "Synthetic planning", "status": "running"} for n in range(4)]}, f"plan-{index}"))
                    for index in range(8)]
         real = budgets.input_bound
-        # The calibrated estimate is realistic, so this small fixture would never reach the 120000-token
-        # boundary; a 4x-pessimistic bound exercises the same stop.
         with patch.object(budgets, "input_bound", lambda *a, **k: real(*a, **k) * 4):
             report = await acceptance.execute(self.root, "0.06", transport=self.transport(replies))
         self.assertFalse(report["passed"])
         # This fixture's growing history reaches the cumulative input boundary
         # before its eighth request. Neither unused steps nor cheap cache usage
         # permits one extra paid request after that bound.
-        self.assertEqual(report["model_requests_admitted"], 7)
-        self.assertEqual(len(self.requests), 7)
+        self.assertEqual(report["model_requests_admitted"], 2)
+        self.assertEqual(len(self.requests), 2)
         self.assertLessEqual(report["budget"]["input_tokens"], 120000)
         self.assertLessEqual(report["budget"]["cost_microusd"], 60000)
 

@@ -14,6 +14,8 @@ The final answer is checkpointed as `finishing` while cleanup is pending. Confir
 
 Each operation binds its run, exact request, image, scope, daemon identity and container ID. A duplicate completed operation replays its result. A saved Postgres tool intent can reconcile a matching completed SQLite receipt without repeating the action or charging another step. Failed terminal exits/file errors preserve the previous snapshot. An uncertain operation is never rerun. Cleanup verifies identity and labels, removes only that container, and confirms absence before reporting success. A timed-out create with no observed container stays quarantined: a current absence cannot prove the daemon will not finish creating it later. Keep the original endpoint/state/image policy available until all runs have drained; changing policy cannot confirm cancellation of work on the old endpoint.
 
+Terminal/filesystem admission reserves a durable `preparing` record before daemon preflight. Cancellation can atomically fence this record without contacting Docker, and a late probe cannot advance it to container creation. Once it advances to `creating`, normal daemon identity and confirmed-cleanup requirements apply. Preflight reservations also block competing conversation actions and count toward the shared capacity limit.
+
 ## Terminal/filesystem enforced bounds
 
 | Resource | Bound |

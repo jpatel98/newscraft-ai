@@ -119,19 +119,24 @@ export class VpsStorageClient {
 		return metadata;
 	}
 
-	async remove(input: { bucket: string; key: string; version?: string }): Promise<void> {
-		const response = await this.request('/v1/object', { method: 'DELETE', query: input });
+	async remove(input: { bucket: string; key: string; version?: string; revokeUploads?: true }): Promise<void> {
+		const response = await this.request('/v1/object', { method: 'DELETE', query: {
+			bucket: input.bucket, key: input.key, version: input.version, revokeUploads: input.revokeUploads ? 'true' : undefined
+		} });
 		if (!response.ok && response.status !== 404) throw new VpsStorageError('storage object could not be removed', response.status);
+		if (input.revokeUploads && (response.status !== 204 || response.headers.get('x-newscraft-upload-revoked') !== '1')) {
+			throw new VpsStorageError('storage upload revocation was not acknowledged');
+		}
 	}
 
-	async verifyPolicy(bucket: string): Promise<{ private: boolean; maxBytes: number; mimeTypes: string[] }> {
+	async verifyPolicy(bucket: string): Promise<{ private: boolean; maxBytes: number; mimeTypes: string[]; supportsUploadRevocation: boolean }> {
 		const response = await this.request('/v1/policy', { method: 'GET', query: { bucket } });
 		if (!response.ok) throw new VpsStorageError('storage policy verification failed', response.status);
-		const body = await response.json() as { private?: unknown; maxBytes?: unknown; mimeTypes?: unknown };
+		const body = await response.json() as { private?: unknown; maxBytes?: unknown; mimeTypes?: unknown; supportsUploadRevocation?: unknown };
 		if (body.private !== true || !Number.isSafeInteger(body.maxBytes) || !Array.isArray(body.mimeTypes) || !body.mimeTypes.every((value) => typeof value === 'string')) {
 			throw new VpsStorageError('storage gateway policy is invalid');
 		}
-		return { private: true, maxBytes: body.maxBytes as number, mimeTypes: body.mimeTypes as string[] };
+		return { private: true, maxBytes: body.maxBytes as number, mimeTypes: body.mimeTypes as string[], supportsUploadRevocation: body.supportsUploadRevocation === true };
 	}
 
 	private signedUrl(value: unknown): string | null {

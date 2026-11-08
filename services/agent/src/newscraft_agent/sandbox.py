@@ -255,8 +255,9 @@ class ComputerSandbox:
 
     async def _remove(self) -> None:
         if self._browser is not None:
-            browser, self._browser = self._browser, None
+            browser = self._browser
             await browser.close()
+            self._browser = None
         if self._started:
             for _ in range(2):
                 try:

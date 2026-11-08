@@ -54,7 +54,7 @@ async function main() {
 		console.error('Cannot start NewsCraft dev because a required local port is occupied.');
 		for (const service of activePorts) {
 			for (const processInfo of listeners.get(service.port) ?? []) {
-				console.error(`- ${service.name} port ${service.port}: PID ${processInfo.pid}, ${processInfo.command}`);
+				console.error(listenerConflictMessage(service, processInfo));
 			}
 		}
 		process.exit(1);
@@ -71,7 +71,7 @@ async function main() {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
 
-function parseLocalAgentUrl(value) {
+export function parseLocalAgentUrl(value) {
 	let parsed;
 	try {
 		parsed = new URL(value);
@@ -81,10 +81,14 @@ function parseLocalAgentUrl(value) {
 	if (parsed.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname)) {
 		throw new Error('dev:all starts only a loopback agent service. Use HTTPS for a remote VPS service.');
 	}
-	if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
-		throw new Error('NEWSCRAFT_AGENT_URL must not include a path, query, or fragment.');
+	if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+		throw new Error('NEWSCRAFT_AGENT_URL must not include credentials, a path, query, or fragment.');
 	}
 	return { origin: parsed.origin, port: Number(parsed.port || 80) };
+}
+
+export function listenerConflictMessage(service, processInfo) {
+	return `- ${service.name} port ${service.port}: PID ${processInfo.pid}`;
 }
 
 function configureAgentEnvironment() {

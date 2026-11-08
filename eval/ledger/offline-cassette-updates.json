@@ -1,0 +1,94 @@
+{
+ "provenance": {
+  "judge": "Offline different-fact judgments derived from existing reviewed golden labels, not live model recordings.",
+  "copy": "Offline capped-input projections of existing recordings: only unreferenced request-tail claims were removed; every recorded response line and reference is unchanged."
+ },
+ "judge": [
+  {
+   "key": "a1cdfccaa3f9abe9|d5d036643b285272",
+   "verdict": "different",
+   "thread": "gen-15",
+   "claims": [
+    {
+     "turn": 0,
+     "index": 7,
+     "fact": "k8"
+    },
+    {
+     "turn": 1,
+     "index": 0,
+     "fact": "k7"
+    }
+   ]
+  },
+  {
+   "key": "b6afca022bf342d6|d5d036643b285272",
+   "verdict": "different",
+   "thread": "gen-15",
+   "claims": [
+    {
+     "turn": 1,
+     "index": 0,
+     "fact": "k7"
+    },
+    {
+     "turn": 1,
+     "index": 1,
+     "fact": "k2"
+    }
+   ]
+  },
+  {
+   "key": "07a3c28442ba2922|fb25fcaf69ea7693",
+   "verdict": "different",
+   "thread": "gen-15",
+   "claims": [
+    {
+     "turn": 2,
+     "index": 0,
+     "fact": "k1"
+    },
+    {
+     "turn": 2,
+     "index": 2,
+     "fact": "k2"
+    }
+   ]
+  }
+ ],
+ "copy": [
+  {
+   "thread": "prod-04",
+   "turns": 7,
+   "format": "reader",
+   "from": "cf2c6ed280661a0fef68",
+   "to": "b27d517b276111a63c79",
+   "removed": [
+    {
+     "id": "c30",
+     "claim": "Canada Pulse Insights poll for CityNews found 35 per cent of Torontonians say they don't feel safe walking their neighbourhood after dark",
+     "say": "according to Canada Pulse Insights"
+    }
+   ]
+  },
+  {
+   "thread": "prod-05",
+   "turns": 1,
+   "format": "intro",
+   "from": "2ca12759af36c90a42fa",
+   "to": "f47dc826609f85c3bb0b",
+   "removed": [
+    {
+     "id": "c10",
+     "claim": "Bradford says he wants to build hundreds of kilometres of high quality cycling infrastructure; his campaign says Chow has no plan to improve bike lanes.",
+     "say": "according to CP24"
+    },
+    {
+     "id": "c11",
+     "claim": "Geddy Lee endorsed Brad Bradford and Jim Cuddy endorsed Olivia Chow in the mayoral race.",
+     "say": "according to CBC News"
+    }
+   ]
+  }
+ ]
+}

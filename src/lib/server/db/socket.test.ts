@@ -561,14 +561,36 @@ describe('database socket fallback', () => {
 });
 
 describe('direct TLS handshake in the socket hook', () => {
-	async function listen(onSocket: (socket: net.Socket) => void): Promise<net.Server> {
-		const server = net.createServer(onSocket);
-		await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+	async function listen(server: net.Server): Promise<net.Server> {
+		await new Promise<void>((resolve, reject) => {
+			const onError = (cause: Error) => {
+				server.removeListener('listening', onListening);
+				reject(cause);
+			};
+			const onListening = () => {
+				server.removeListener('error', onError);
+				resolve();
+			};
+			server.once('error', onError);
+			server.once('listening', onListening);
+			server.listen(0, '127.0.0.1');
+		});
 		return server;
 	}
 
+	it('rejects a denied listener promptly instead of timing out', async () => {
+		const server = net.createServer();
+		vi.spyOn(server, 'listen').mockImplementation(() => {
+			queueMicrotask(() => server.emit('error', codedError('EPERM')));
+			return server;
+		});
+		await expect(listen(server)).rejects.toMatchObject({ code: 'EPERM' });
+		expect(server.listenerCount('listening')).toBe(0);
+		expect(server.listenerCount('error')).toBe(0);
+	});
+
 	it('rejects a dropped handshake as a retryable reset carrying the address', async () => {
-		const server = await listen((socket) => socket.once('data', () => socket.end()));
+		const server = await listen(net.createServer((socket) => socket.once('data', () => socket.end())));
 		const { port } = server.address() as net.AddressInfo;
 		try {
 			await expect(connectWithDirectTls('db.example.test', '127.0.0.1', port, 2_000)).rejects.toMatchObject({
@@ -598,7 +620,7 @@ describe('direct TLS handshake in the socket hook', () => {
 		}
 		const server = tls.createServer({ key, cert, ALPNProtocols: ['postgresql'] }, (socket) => socket.end());
 		server.on('tlsClientError', () => {});
-		await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+		await listen(server);
 		const { port } = server.address() as net.AddressInfo;
 		try {
 			const error = await connectWithDirectTls('db.example.test', '127.0.0.1', port, 2_000).then(

@@ -1,7 +1,7 @@
 /**
  * E2E test-account provisioning endpoint.
  *
- * Only active when `E2E_SECRET` is set in the environment (i.e. during
+ * Only active in development when `E2E_SECRET` is set (i.e. during
  * Playwright runs). Returns the test account's email so the suite can sign in
  * with email + password without knowing whether this is a fresh or
  * pre-seeded database.
@@ -10,10 +10,12 @@
  * `createPasswordOnlyAccount` helper that the `/setup` page uses.
  */
 import { error, json, type RequestHandler } from '@sveltejs/kit';
+import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
 import { createPasswordOnlyAccount, findAccountByPassword } from '$lib/server/db/accounts';
 
 export const POST: RequestHandler = async ({ request }) => {
+	if (!dev) throw error(404, 'not found');
 	const secret = env.E2E_SECRET ?? '';
 	if (!secret) throw error(404, 'not found');
 

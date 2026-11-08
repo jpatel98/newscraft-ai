@@ -4,7 +4,7 @@
  * rows and a judge, and emits reviewable SQL to run inside the database
  * container, so nothing connects to production from here.
  */
-import { foldClaim, planTurn, type ClaimEvent, type ClaimState } from '../../src/lib/utils/claim-events';
+import { applyClaimEvent, foldClaim, planTurn, type ClaimEvent, type ClaimState } from '../../src/lib/utils/claim-events';
 import { matchIncoming, type ClaimJudge } from '../../src/lib/utils/claim-matcher';
 import type { LedgerClaim, LedgerStatus } from '../../src/lib/utils/story-ledger';
 
@@ -94,7 +94,7 @@ export async function planDedupe(rows: readonly ExportedClaimRow[], judge: Claim
 				plan.statements.push(
 					`INSERT INTO story_claim_variants (id, conversation_id, claim_id, text, message_id, created_at) VALUES (${q(newId())}, ${q(conversationId)}, ${q(target.id)}, ${q(row.claim)}, ${q(row.first_seen_message_id)}, ${now}) ON CONFLICT DO NOTHING;`,
 					`UPDATE story_claims SET superseded_by = ${q(target.id)}, updated_at = ${now} WHERE id = ${q(row.id)} AND superseded_by IS NULL;`,
-					`UPDATE story_claims SET claim = ${q(next.claim)}, status = ${q(next.status)}, attributed_to = ${q(next.attributedTo)}, citation_numbers = ${j(next.citations)}, publication_date = ${q(next.date)}, needs_check = ${next.needsCheck}, updated_at = ${now} WHERE id = ${q(target.id)};`
+					`UPDATE story_claims SET claim = ${q(next.claim)}, status = ${q(next.status)}, attributed_to = ${q(next.attributedTo)}, citation_numbers = ${j(next.citations)}, publication_date = ${q(next.date)}, needs_check = ${next.needsCheck}, check_reason = ${q(next.checkReason)}, updated_at = ${now} WHERE id = ${q(target.id)};`
 				);
 				continue;
 			}
@@ -104,9 +104,18 @@ export async function planDedupe(rows: readonly ExportedClaimRow[], judge: Claim
 				const other = canonical.get(match.claimId)!;
 				plan.conflicts.push({ a: other.id, b: row.id, aText: other.claim, bText: row.claim });
 				for (const [claimId, by] of [[row.id, other.id], [other.id, row.id]]) {
-					plan.statements.push(
-						`INSERT INTO story_claim_events (id, conversation_id, claim_id, kind, actor, actor_name, message_id, data, created_at) VALUES (${q(newId())}, ${q(conversationId)}, ${q(claimId)}, 'contradicted', 'system', '', NULL, ${j({ by, backfill: true })}, ${now});`
-					);
+					const current = canonical.get(claimId)!;
+					const events: ClaimEvent[] = [{ claimId, kind: 'contradicted', actor: 'system', actorName: '', messageId: null, data: { by, backfill: true }, at: now }];
+					if (current.reviewedAt == null && (!current.needsCheck || current.checkReason === 'model')) {
+						events.push({ ...events[0], kind: 'check_opened', data: { reason: 'contradicted', backfill: true } });
+						plan.statements.push(`UPDATE story_claims SET needs_check = true, check_reason = 'contradicted', updated_at = ${now} WHERE id = ${q(claimId)};`);
+					}
+					canonical.set(claimId, events.reduce(applyClaimEvent, current));
+					for (const event of events) {
+						plan.statements.push(
+							`INSERT INTO story_claim_events (id, conversation_id, claim_id, kind, actor, actor_name, message_id, data, created_at) VALUES (${q(newId())}, ${q(conversationId)}, ${q(claimId)}, ${q(event.kind)}, 'system', '', NULL, ${j(event.data)}, ${now});`
+						);
+					}
 				}
 			}
 		}

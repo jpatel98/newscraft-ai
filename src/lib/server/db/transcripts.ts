@@ -30,13 +30,14 @@ function toSummary(row: Row): TranscriptSummary {
 	};
 }
 
-function toDetail(row: Row): TranscriptDetail & { audioKey: string | null; orgId: string | null } {
+function toDetail(row: Row): TranscriptDetail & { audioKey: string | null; orgId: string | null; processingStartedAt: number | null } {
 	return {
 		...toSummary({ ...row, preview: String(row.text ?? '').slice(0, PREVIEW_CHARS) }),
 		orgId: (row.org_id as string | null) ?? null,
 		sourceUrl: (row.source_url as string | null) ?? null,
 		hasAudio: Boolean(row.audio_key) && row.status !== 'uploading',
 		audioKey: (row.audio_key as string | null) ?? null,
+		processingStartedAt: num(row.processing_started_at),
 		languageCode: (row.language_code as string | null) ?? null,
 		engine: String(row.engine),
 		model: String(row.model),
@@ -54,7 +55,7 @@ export type StoredTranscript = ReturnType<typeof toDetail>;
 
 /** Strips the storage key and org before a transcript goes to the browser. */
 export function publicTranscript(transcript: StoredTranscript): TranscriptDetail {
-	const { audioKey: _audioKey, orgId: _orgId, ...rest } = transcript;
+	const { audioKey: _audioKey, orgId: _orgId, processingStartedAt: _processingStartedAt, ...rest } = transcript;
 	return rest;
 }
 
@@ -128,7 +129,7 @@ export async function claimForProcessing(
 	const [row] = await sql`
 		UPDATE transcripts SET
 			status = 'processing',
-			processing_started_at = ${now},
+			processing_started_at = GREATEST(${now}, COALESCE(processing_started_at + 1, ${now})),
 			error_code = NULL,
 			error_message = NULL,
 			audio_bytes = COALESCE(${upload?.bytes ?? null}, audio_bytes),
@@ -145,7 +146,8 @@ export async function claimForProcessing(
 export async function completeTranscript(
 	accountId: string,
 	id: string,
-	result: { text: string; languageCode: string | null; durationMs: number | null; utterances: TranscriptUtterance[] }
+	result: { text: string; languageCode: string | null; durationMs: number | null; utterances: TranscriptUtterance[] },
+	processingStartedAt: number
 ): Promise<StoredTranscript | null> {
 	const now = Date.now();
 	const [row] = await sql`
@@ -154,14 +156,17 @@ export async function completeTranscript(
 			duration_ms = ${result.durationMs}, utterances = ${JSON.stringify(result.utterances)}::jsonb,
 			completed_at = ${now}, updated_at = ${now}
 		WHERE id = ${id} AND account_id = ${accountId} AND status = 'processing'
+			AND processing_started_at = ${processingStartedAt}
 		RETURNING *`;
 	return row ? toDetail(row) : null;
 }
 
-export async function failTranscript(accountId: string, id: string, code: string, message: string): Promise<StoredTranscript | null> {
+export async function failTranscript(accountId: string, id: string, code: string, message: string, processingStartedAt: number | null): Promise<StoredTranscript | null> {
 	const [row] = await sql`
 		UPDATE transcripts SET status = 'failed', error_code = ${code}, error_message = ${message}, updated_at = ${Date.now()}
 		WHERE id = ${id} AND account_id = ${accountId}
+			AND ((status = 'processing' AND processing_started_at = ${processingStartedAt})
+				OR (status = 'uploading' AND processing_started_at IS NULL AND ${processingStartedAt}::bigint IS NULL))
 		RETURNING *`;
 	return row ? toDetail(row) : null;
 }

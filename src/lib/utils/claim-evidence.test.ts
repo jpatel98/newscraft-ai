@@ -1,12 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { deriveStatus, isStale, resolveEvidence, summarizeEvidence, type CitedPage } from './claim-evidence';
+import { citationSources, deriveStatus, isStale, resolveEvidence, summarizeEvidence, type CitedPage } from './claim-evidence';
 import { AGGREGATOR_DOMAINS, classifySource, LOCAL, OFFICIAL_DOMAINS, WIRE_MAJOR } from './source-tiers';
 
 const pages = (...urls: string[]) => new Map<number, CitedPage>(urls.map((url, i) => [i + 1, { url, date: '2026-10-14' }]));
 const evidence = (...urls: string[]) => resolveEvidence(urls.map((_, i) => i + 1), pages(...urls));
 
 describe('classifySource', () => {
+	it.each(['https://madeuppolice.example/story', 'https://courts.example/story', 'ftp://www.tps.ca/story'])(
+		'does not infer official authority from an untrusted name or scheme: %s', (url) => {
+			expect(classifySource(url).tier).not.toBe('official');
+		}
+	);
 	it.each([
 		['https://www.tps.ca/media-centre/news-releases/1', 'official'],
 		['https://news.ontario.ca/en/release/1', 'official'],
@@ -55,6 +60,16 @@ describe('classifySource', () => {
 });
 
 describe('status from evidence', () => {
+	it('does not resolve ambiguous citation numbers to whichever source was listed last', () => {
+		const citations = [
+			{ citationNumber: 1, url: 'https://example.test/rumour' },
+			{ citationNumber: 1, url: 'https://www.tps.ca/1' }
+		];
+		expect(citationSources(citations).has(1)).toBe(false);
+		expect(citationSources([...citations].reverse()).has(1)).toBe(false);
+		expect(citationSources([citations[1], citations[1]]).get(1)?.url).toBe(citations[1].url);
+	});
+
 	it('confirms on an official source', () => {
 		expect(deriveStatus('reported', evidence('https://www.tps.ca/1'), false)).toBe('confirmed');
 	});

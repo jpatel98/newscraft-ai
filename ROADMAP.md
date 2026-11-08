@@ -1,6 +1,6 @@
 # NewsCraft AI — Current Product & Roadmap
 
-Architecture reviewed: 2026-10-08. Product/usage review: 2026-09-05.
+Architecture reviewed: 2026-11-08 (integrated release candidate). Product/usage review: 2026-09-05.
 
 ## Current product
 
@@ -54,6 +54,8 @@ portable Python worker → direct model and tool adapters**. Ordinary Postgres
 owns authenticated conversations, durable runs/events, citations, artifacts and
 private versioned runtime checkpoints. `service.py` selects `PortableAgentRunner`
 directly. The original third-party agent is not a dependency.
+The app authorizes short-lived private storage grants; file bytes then travel
+directly between the browser and storage, never with server credentials.
 
 **Working in local fixtures:** OpenAI Responses, Anthropic Messages and dedicated
 DeepSeek Messages adapters (with explicit non-thinking mode and peak-rate floors),
@@ -67,13 +69,24 @@ sessions; Supabase Auth/Storage are explicitly selected optional adapters.
 The optional rootless OCI adapter supplies terminal/files and interactive
 Chromium on an approved Linux worker. Private conversation files, browser storage
 and operation receipts live on its retained SQLite volume; this persistence is
-separate from Postgres. **Working locally:** new-project database connectivity,
-signup/sign-in and an empty saved conversation. **Blocked:** actual Linux/Chromium
-acceptance and separately approved paid-model acceptance. The owned runtime and
-DeepSeek support are merged on `main` (`4df5b3e`). The dedicated key passes the
-passive checker; the new database has the complete 20-version migration contract.
-DeepSeek loopback readiness and empty-conversation auth checks passed on 2026-10-08.
-Readiness describes configuration, not provider or deployment success.
+separate from Postgres. **Repository verified:** the release candidate reconciles
+production main `7a39b01` with the five November 7 local review commits. The owned
+worker is now under `services/agent/src/newscraft_agent` and callbacks use
+`/api/internal/agent/runs`. Project evidence adds private sealed PDF/CSV sources,
+bounded deterministic leads, explicit human review and folder-scoped chat context;
+it does not unfreeze the tracker. Candidate measurements and release state are in
+[the November 8 receipt](docs/evidence-release-2026-11-08.md).
+**Historical:**
+October 8 records cover new-project connectivity/auth and one approved synthetic
+DeepSeek run; that one-shot approval is consumed, not permission to repeat it.
+**Blocked:** the separate $4.23 OpenAI acceptance needs Jigar's explicit approval;
+Linux/Chromium acceptance needs an approved host/image/seccomp decision.
+The November 7 local Supabase-profile startup had a database-connectivity failure;
+that is not the current production target. The November 8 pre-release inspection
+identified production source `7a39b01` and login/app health HTTP 200, without
+calling a model. It does not verify this candidate or the evidence migration.
+Health-only startup disables recovery and execution so readiness can be checked
+without claiming saved runs. Readiness does not prove provider or deployment success.
 
 See [the worker README](services/agent/README.md),
 [source of truth](SOURCE_OF_TRUTH.md), and [measured local handoff](docs/agent-local-handoff.md).
@@ -85,8 +98,9 @@ memory as independently accepted product features. The tracker remains frozen.
 External model/tool services may process requests; account isolation does not
 mean local-only processing. Personal Hydra remains separate and untouched.
 
-**Unverified:** current production source, traffic, provider access and latency.
-This architecture review and its tests made no deployment or production change.
+**Unverified:** this candidate's deployment, live provider access and answer
+latency. The pre-release production identity and health above do not establish
+those properties. Check the dated release receipt for subsequent rollout state.
 
 ## Product rules
 

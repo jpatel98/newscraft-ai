@@ -10,7 +10,7 @@
 	import { artifactPaneMode } from '$lib/components/artifact-layout';
 	import { stripLedgerForDisplay } from '$lib/utils/story-ledger';
 	import { ledgerMeter, type StoryClaimReviewInput, type StoryLedgerChangeView, type StoryLedgerClaimView } from '$lib/utils/story-ledger-view';
-	import { parseToolMetadata } from '$lib/utils/tool-metadata';
+	import { mergeToolMetadata, parseToolMetadata } from '$lib/utils/tool-metadata';
 	import { isSmallTalk, type CitationRecord } from '@newscraft/shared';
 	import type {
 		PersistedSource,
@@ -218,17 +218,14 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 
 	const persisted = $derived(persistedThreadMessages(historyMessages, hiddenIds));
 	const messages = $derived([...persisted, ...overlay]);
-	// Ledger citation chips resolve against the thread's citation map; newer answers win.
 	const storyCitations = $derived.by(() => {
-		const byNumber = new Map<number, CitationRecord>();
+		const records: CitationRecord[] = [];
 		for (const message of messages) {
 			if (message.role !== 'assistant' || !message.toolCalls) continue;
-			for (const citation of parseToolMetadata(message.toolCalls).citations) {
-				byNumber.set(citation.citationNumber, citation);
-			}
+			records.push(...parseToolMetadata(message.toolCalls).citations);
 		}
-		for (const citation of chat.citations) byNumber.set(citation.citationNumber, citation);
-		return [...byNumber.values()];
+		if (chat.activityConversationId === data.conversation.id) records.push(...chat.citations);
+		return mergeToolMetadata(null, [], [], records).citations;
 	});
 	const historyGaps = $derived(deriveHistoryGaps(historySegments));
 	const sidebarConversationTitle = $derived(
@@ -782,7 +779,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 		let cancelInFlight = false;
 		let cancelRetryTimer: ReturnType<typeof setTimeout> | null = null;
 		const updateAssistantOverlay = (patch: Partial<ThreadMessage>) => {
-			asstMsg = { ...asstMsg, ...patch };
+			asstMsg = { ...asstMsg, ...patch,
+				...(typeof patch.content === 'string' ? { content: stripLedgerForDisplay(patch.content) } : {}) };
 			overlay = overlay.map((message) => (message.id === asstMsg.id ? asstMsg : message));
 		};
 		const clearCancelRetry = () => {
@@ -846,7 +844,8 @@ import type { ArtifactDetail, ArtifactSummary } from '$lib/types/artifacts';
 				activeArtifact.sourceMessageId !== artifact.sourceMessageId
 			)
 				return;
-			activeArtifact = { ...activeArtifact, ...patch };
+			activeArtifact = { ...activeArtifact, ...patch,
+				...(typeof patch.content === 'string' ? { content: stripLedgerForDisplay(patch.content) } : {}) };
 		};
 		const noteStreamEstablished = () => {
 			streamEstablished = true;

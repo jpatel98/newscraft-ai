@@ -1,10 +1,12 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { constants, createReadStream } from 'node:fs';
+import { lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { isIP } from 'node:net';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 
 const port = Number.parseInt(process.env.PORT || '9100', 10);
+const host = process.env.NEWSCRAFT_STORAGE_HOST ?? '0.0.0.0';
 const root = resolve(process.env.NEWSCRAFT_STORAGE_ROOT || '/srv/newscraft-storage');
 const publicBaseUrl = (process.env.NEWSCRAFT_STORAGE_PUBLIC_URL || '').replace(/\/+$/u, '');
 const apiKey = process.env.NEWSCRAFT_STORAGE_API_KEY || '';
@@ -13,6 +15,8 @@ const corsOrigins = parseCorsOrigins(process.env.NEWSCRAFT_STORAGE_CORS_ORIGIN |
 const documentBucket = process.env.NEWSCRAFT_DOCUMENT_BUCKET || 'newsroom-documents';
 const artifactBucket = process.env.NEWSCRAFT_ARTIFACT_BUCKET || 'newsroom-artifacts';
 const audioBucket = process.env.NEWSCRAFT_AUDIO_BUCKET || 'newsroom-audio';
+const revocationRoot = join(root, '.revoked-uploads');
+const keyMutations = new Map();
 const maxPdfBytes = 20 * 1024 * 1024;
 const maxArtifactBytes = 20 * 1024 * 1024;
 const artifactMimeTypes = new Set(['image/png', 'image/jpeg', 'text/csv', 'text/markdown', 'application/json']);
@@ -23,6 +27,8 @@ const audioMimeTypes = [
 	'video/mp4', 'video/quicktime', 'video/webm'
 ];
 
+if (!isIP(host)) throw new Error('NEWSCRAFT_STORAGE_HOST must be an IP address');
+
 if (!apiKey || signingKey.length < 32 || !publicBaseUrl) {
 	throw new Error('NEWSCRAFT_STORAGE_API_KEY, NEWSCRAFT_STORAGE_SIGNING_KEY (32+ chars), and NEWSCRAFT_STORAGE_PUBLIC_URL are required');
 }
@@ -31,6 +37,13 @@ await mkdir(join(root, '.tokens'), { recursive: true, mode: 0o700 });
 await mkdir(join(root, documentBucket), { recursive: true, mode: 0o700 });
 await mkdir(join(root, artifactBucket), { recursive: true, mode: 0o700 });
 await mkdir(join(root, audioBucket), { recursive: true, mode: 0o700 });
+await mkdir(revocationRoot, { recursive: true, mode: 0o700 });
+const revocationDirectory = await lstat(revocationRoot);
+if (!revocationDirectory.isDirectory() || (revocationDirectory.mode & 0o077) !== 0 ||
+	(typeof process.getuid === 'function' && revocationDirectory.uid !== process.getuid())) {
+	throw new Error('Upload revocation directory must be private and service-owned');
+}
+await syncDirectory(root);
 
 const policies = new Map([
 	[documentBucket, { private: true, maxBytes: maxPdfBytes, mimeTypes: ['application/pdf'] }],
@@ -43,8 +56,8 @@ const server = createServer(async (request, response) => {
 		setCors(request, response);
 		if (request.method === 'OPTIONS') return endJson(response, 204, null);
 		const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
-		if (request.method === 'GET' && url.pathname === '/health') return endJson(response, 200, { ok: true });
-		if (request.method === 'GET' && url.pathname === '/v1/health') return endJson(response, 200, { ok: true });
+		if (request.method === 'GET' && url.pathname === '/health') return endJson(response, 200, { ok: true, supportsUploadRevocation: true });
+		if (request.method === 'GET' && url.pathname === '/v1/health') return endJson(response, 200, { ok: true, supportsUploadRevocation: true });
 
 		if (url.pathname.startsWith('/v1/upload/')) {
 			if (request.method !== 'PUT') return endJson(response, 405, { detail: 'method not allowed' });
@@ -76,7 +89,7 @@ const server = createServer(async (request, response) => {
 	}
 });
 
-server.listen(port, '0.0.0.0', () => console.log(`newscraft storage listening on ${port}`));
+server.listen(port, host, () => console.log(`newscraft storage listening on ${server.address().port}`));
 
 function authorized(request) {
 	const candidate = request.headers['x-storage-key'];
@@ -92,8 +105,11 @@ async function handleSignUpload(request, response) {
 	if (contentType && !policy.mimeTypes.includes(contentType)) return endJson(response, 415, { detail: 'content type is not allowed' });
 	const requestedMax = Number(body.maxBytes);
 	const maxBytes = Number.isSafeInteger(requestedMax) && requestedMax > 0 ? Math.min(requestedMax, policy.maxBytes) : policy.maxBytes;
-	const token = signToken({ op: 'upload', bucket: body.bucket, key, contentType, maxBytes, exp: nowSeconds() + 900, nonce: randomUUID().replaceAll('-', '') });
-	return endJson(response, 200, { path: key, token, signedUrl: `${publicBaseUrl}/v1/upload/${encodeURIComponent(token)}` });
+	return withKeyMutation(body.bucket, key, async () => {
+		await requireUploadAllowed(body.bucket, key);
+		const token = signToken({ op: 'upload', bucket: body.bucket, key, contentType, maxBytes, exp: nowSeconds() + 900, nonce: randomUUID().replaceAll('-', '') });
+		return endJson(response, 200, { path: key, token, signedUrl: `${publicBaseUrl}/v1/upload/${encodeURIComponent(token)}` });
+	});
 }
 
 async function handleSignDownload(request, response) {
@@ -109,7 +125,7 @@ async function handleSignDownload(request, response) {
 function handlePolicy(response, url) {
 	const policy = policies.get(url.searchParams.get('bucket') || '');
 	if (!policy) return endJson(response, 404, { detail: 'bucket not found' });
-	return endJson(response, 200, policy);
+	return endJson(response, 200, { ...policy, supportsUploadRevocation: true });
 }
 
 async function handleSignedUpload(request, response, url, encodedToken) {
@@ -122,6 +138,7 @@ async function handleSignedUpload(request, response, url, encodedToken) {
 	if (!payload.contentType && !policy.mimeTypes.includes(contentType)) return endJson(response, 415, { detail: 'content type is not allowed' });
 	const declared = request.headers['content-length'] === undefined ? null : Number(request.headers['content-length']);
 	if (declared !== null && (!Number.isSafeInteger(declared) || declared < 0 || declared > payload.maxBytes)) return endJson(response, 413, { detail: 'content length exceeds token bound' });
+	await requireUploadAllowed(payload.bucket, payload.key);
 	const marker = join(root, '.tokens', payload.nonce);
 	try {
 		const markerHandle = await open(marker, 'wx', 0o600);
@@ -133,7 +150,7 @@ async function handleSignedUpload(request, response, url, encodedToken) {
 		const metadata = await writeStreamedObject(request, payload.bucket, payload.key, contentType, payload.maxBytes);
 		return endJson(response, 200, metadata);
 	} catch (error) {
-		return endJson(response, error?.status === 413 ? 413 : 422, { detail: error instanceof Error ? error.message : 'upload failed' });
+		return endJson(response, [409, 413, 503].includes(error?.status) ? error.status : 422, { detail: error instanceof Error ? error.message : 'upload failed' });
 	}
 }
 
@@ -171,7 +188,7 @@ async function handleObjectPut(request, response, url) {
 	try {
 		return endJson(response, 200, await writeStreamedObject(request, bucket, key, contentType, policy.maxBytes));
 	} catch (error) {
-		return endJson(response, error?.status === 413 ? 413 : 422, { detail: error instanceof Error ? error.message : 'object write failed' });
+		return endJson(response, [409, 413, 503].includes(error?.status) ? error.status : 422, { detail: error instanceof Error ? error.message : 'object write failed' });
 	}
 }
 
@@ -179,23 +196,28 @@ async function handleObjectDelete(response, url) {
 	const bucket = url.searchParams.get('bucket') || '';
 	const key = validateKey(bucket, url.searchParams.get('key') || '');
 	const version = url.searchParams.get('version') || undefined;
+	const shouldRevokeUploads = url.searchParams.get('revokeUploads') === 'true';
 	if (!policies.has(bucket) || !key) return endJson(response, 400, { detail: 'bucket and key are required' });
 	if (version && !/^[a-f0-9]{32,80}$/u.test(version)) return endJson(response, 400, { detail: 'invalid object version' });
-	if (!version) {
-		await rm(keyDir(bucket, key), { recursive: true, force: true });
-	} else {
-		await rm(objectPath(bucket, key, version), { force: true });
-		await rm(metadataPath(bucket, key, version), { force: true });
-		await repairLatestAfterVersionDelete(bucket, key, version);
-	}
+	await withKeyMutation(bucket, key, async () => {
+		if (shouldRevokeUploads) await revokeUploads(bucket, key);
+		if (!version) {
+			await rm(keyDir(bucket, key), { recursive: true, force: true });
+		} else {
+			await rm(objectPath(bucket, key, version), { force: true });
+			await rm(metadataPath(bucket, key, version), { force: true });
+			await repairLatestAfterVersionDelete(bucket, key, version);
+		}
+	});
+	if (shouldRevokeUploads) response.setHeader('X-NewsCraft-Upload-Revoked', '1');
 	return endJson(response, 204, null);
 }
 
 async function writeStreamedObject(request, bucket, key, contentType, maxBytes) {
+	await requireUploadAllowed(bucket, key);
 	const version = randomUUID().replaceAll('-', '');
 	const destination = objectPath(bucket, key, version);
 	const temp = join(root, '.tokens', `${randomUUID().replaceAll('-', '')}.part`);
-	await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
 	let total = 0;
 	const hash = createHash('sha256');
 	const handle = await open(temp, 'wx', 0o600);
@@ -216,21 +238,91 @@ async function writeStreamedObject(request, bucket, key, contentType, maxBytes) 
 		if (total < 1) throw new Error('empty objects are not allowed');
 		await handle.close();
 		closed = true;
-		await rename(temp, destination);
-		renamed = true;
-		const metadata = { key, version, bytes: total, checksumSha256: hash.digest('hex'), contentType, path: key };
-		try {
-			await writeMetadata(bucket, key, version, metadata);
-			await writeLatest(bucket, key, metadata);
-		} catch (error) {
-			await rm(destination, { force: true });
-			await rm(metadataPath(bucket, key, version), { force: true });
-			throw error;
-		}
-		return metadata;
+		return await withKeyMutation(bucket, key, async () => {
+			await requireUploadAllowed(bucket, key);
+			await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
+			await rename(temp, destination);
+			renamed = true;
+			const metadata = { key, version, bytes: total, checksumSha256: hash.digest('hex'), contentType, path: key };
+			try {
+				await writeMetadata(bucket, key, version, metadata);
+				await writeLatest(bucket, key, metadata);
+			} catch (error) {
+				await rm(destination, { force: true });
+				await rm(metadataPath(bucket, key, version), { force: true });
+				throw error;
+			}
+			return metadata;
+		});
 	} finally {
 		if (!closed) await handle.close().catch(() => undefined);
 		if (!renamed) await rm(temp, { force: true });
+	}
+}
+
+function keyIdentity(bucket, key) {
+	const canonicalKey = relative(resolve(root, bucket), keyDir(bucket, key));
+	return createHash('sha256').update(JSON.stringify([bucket, canonicalKey])).digest('hex');
+}
+
+async function withKeyMutation(bucket, key, operation) {
+	const identity = keyIdentity(bucket, key);
+	const previous = keyMutations.get(identity);
+	let release;
+	const current = new Promise((resolve) => { release = resolve; });
+	keyMutations.set(identity, current);
+	try {
+		await previous;
+		return await operation();
+	} finally {
+		release();
+		if (keyMutations.get(identity) === current) keyMutations.delete(identity);
+	}
+}
+
+async function requireUploadAllowed(bucket, key) {
+	await requireRevocationDirectory();
+	try {
+		await lstat(join(revocationRoot, keyIdentity(bucket, key)));
+	} catch (error) {
+		if (error?.code === 'ENOENT') return;
+		throw Object.assign(new Error('Upload revocation state is unavailable'), { status: 503 });
+	}
+	throw Object.assign(new Error('Uploads to this object have been revoked'), { status: 409 });
+}
+
+async function revokeUploads(bucket, key) {
+	await requireRevocationDirectory();
+	let handle;
+	try {
+		handle = await open(join(revocationRoot, keyIdentity(bucket, key)), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+	} catch (error) {
+		if (error?.code !== 'EEXIST') throw Object.assign(new Error('Upload revocation could not be persisted'), { status: 503 });
+	}
+	try {
+		if (handle) await handle.sync();
+	} finally {
+		if (handle) await handle.close();
+	}
+	await syncDirectory(revocationRoot);
+}
+
+async function requireRevocationDirectory() {
+	try {
+		const current = await lstat(revocationRoot);
+		if (!current.isDirectory() || (current.mode & 0o077) !== 0 || current.uid !== revocationDirectory.uid ||
+			current.dev !== revocationDirectory.dev || current.ino !== revocationDirectory.ino) throw new Error();
+	} catch {
+		throw Object.assign(new Error('Upload revocation state is unavailable'), { status: 503 });
+	}
+}
+
+async function syncDirectory(path) {
+	const directory = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+	try {
+		await directory.sync();
+	} finally {
+		await directory.close();
 	}
 }
 

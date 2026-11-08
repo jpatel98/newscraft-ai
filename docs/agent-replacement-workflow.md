@@ -1,8 +1,27 @@
 # NewsCraft owned orchestration implementation
 
+## Current follow-up — 2026-11-07
+
+**Repository verified:** the original replacement already landed in six commits;
+this review starts at local main `1b36d21`, preserving the newer branch and four
+pre-existing untracked files. The active runner also has a dedicated DeepSeek
+Messages adapter, streaming answer events and the current 26-migration/39-table
+local schema. Publication attempts now use 20 seconds, at most 45 seconds waiting
+per worker pass, within the unchanged fixed 240-second recovery window.
+`start --health-only` disables recovery/dispatch for no-paid health checks.
+
+The [current handoff](agent-local-handoff.md#status-as-of-2026-11-07) and
+[follow-up review](agent-review-2026-11-07.md) contain new measurements and fixes.
+The remaining text is the **historical October 7 implementation receipt**: its
+19-version schema, missing credential, two-adapter inventory and 60-second attempt
+limit are not current configuration. No production or paid-provider validation
+was repeated; the October 8 synthetic DeepSeek approval is already consumed.
+
+## Historical replacement receipt — 2026-10-07
+
 The latest approved architecture owns canonical messages, runs, events, citations and artifacts in ordinary Postgres. It uses replaceable direct model/search/auth/object-storage adapters, with no managed agent harness dependency. Earlier managed Agents and mandatory Docker/XFS broker designs are superseded. The replacement was reviewed from base `cb3dec98f442cc8d7de7be626edb5cf24bf50921` on 2026-10-07 and is recorded in local reviewed commits; no push or deployment is authorized. Public `.env.example` template edits stay outside those commits under the explicit `.env*` exclusion.
 
-## Active implementation
+## Historical active implementation
 
 - `portable.py` is the only runner selected by `service.py`. `model_adapters.py` translates canonical tool conversations into OpenAI Responses and Anthropic Messages. OpenAI encrypted continuation remains private and run-bound; private reasoning is excluded from canonical/public history. Provider changes occur at clean new turns.
 - Run-scoped Postgres checkpoints use versioned writes fenced by tenant/account/conversation/lease. Model/tool intent and conservative token/cost reservations precede dispatch. Receipts persist before callbacks. Saved uncertain requests are never automatically repeated; completed answers/events replay. Artifact-only retries reuse immutable call identities inside a fixed 240-second recovery window, with 60-second attempts and at most four admissions persisted before I/O. This covers a complete first timeout plus the renewed 90-second lease and polling; the original deadline still blocks new model/research/publication work. Dispatch admission locks the run row and rejects durable cancellation, while owned cleanup checkpoints remain accessible.
@@ -12,7 +31,7 @@ The latest approved architecture owns canonical messages, runs, events, citation
 - Postgres password accounts and signed revocable sessions are the concrete default auth implementation. Signup creates members/private organizations. Supabase Auth is optional, mapped by provider/verified issuer/subject to independent internal account IDs without email auto-linking or metadata roles. Optional Storage and existing VPS/local artifact adapters stay behind owned contracts.
 - Generic migration `0018_portable_agent_core.sql` has no Supabase schema dependency. The prepared new-project Supabase artifact atomically applies all 19 migrations and database-only RLS/browser-grant restrictions. Optional `deploy/supabase-adapter.sql` additionally creates private buckets; app routes own authorization and signed grants. The prior unused `0017` table is retained without selecting its runtime.
 
-## Isolated execution and interactive browsing
+## Historical isolated execution and interactive browsing
 
 `OCIComputerFactory` supplies terminal/read/write/list through fresh rootless Linux containers and interactive Chromium through a separate bounded container. Browser pages stay interactive during a run; private storage/last URL and conversation files survive later turns on the retained volume. Public GET/HEAD egress passes through an authenticated bounded gateway; typed input taints citation evidence until reset. Admission precedes daemon effects; cancellation/recovery verifies exact daemon/container ownership and confirmed removal. Unknown creates remain quarantined. Failed commands retain the previous file snapshot, and completed SQLite receipts reconcile lost Postgres acknowledgements without repeating actions. Each helper verifies actual process, cgroup and tmpfs limits. A suitable approved Linux host, reviewed browser image/seccomp policy and live acceptance remain outstanding. The preserved historical ComputerSandbox is unselected. See [executor setup, persistence and acceptance](../services/agent/deploy/executor.md). Basic cited research and persistent Markdown/CSV work without computer configuration.
 
@@ -20,7 +39,7 @@ No production credentials were copied or created. This worker made no paid calls
 
 The final correctness fixtures additionally drive the real worker through a 60-second upload failure followed by a 91-second lease wait, then recover the same publication. They check cancellation immediately before first/citation-repair dispatch despite a live renewed lease, and verify blocked live/CDX/archive fetch cancellation/timeouts cannot start the next URL. The worker retains capacity until the active thread drains; socket/DNS calls already in progress cannot necessarily be forcibly interrupted.
 
-## Current verification
+## Historical verification — 2026-10-07
 
 The final browser review fixes close the completion/cleanup crash window: an answer stays `finishing` until scoped cleanup is confirmed, before either the `finished` checkpoint or public terminal event. Recovery reuses the saved answer and exact action receipts; late generator finalization cannot touch a subsequent run. A new turn can repair only confirmed missing/exited legacy ownership on the original daemon, with exact saved ID/labels and no takeover of live/creating/unknown work. Pending-answer cancellation remains terminal. The package/lock/installer now pin the host to CPython 3.11, the service selects stdlib asyncio, and readiness plus dispatch reject unsupported workers before model/browser admission. Guest image Python 3.12 remains separate. Offline lock validation passed without upgrading dependencies or installing a runtime.
 

@@ -145,6 +145,7 @@ async function consumeDurableResponse(response: Response, cb: StreamCallbacks): 
 		if (ev.event === 'run.snapshot') {
 			try {
 				const snapshot = JSON.parse(ev.data) as DurableRunSnapshot;
+				if (Number.isSafeInteger(snapshot.cursor) && snapshot.cursor < snapshotCursor) continue;
 				if (Number.isSafeInteger(snapshot.cursor)) snapshotCursor = Math.max(snapshotCursor, snapshot.cursor);
 				const terminalState = snapshot.status || snapshot.state;
 				if (['cancelled', 'failed', 'complete'].includes(terminalState)) completed = true;
@@ -152,6 +153,8 @@ async function consumeDurableResponse(response: Response, cb: StreamCallbacks): 
 					failureMessage = snapshot.errorMessage || 'durable agent run failed';
 				}
 				cb.onRunSnapshot?.(snapshot);
+				if (snapshot.answerText) streamState.apply('agent.answer.replace', JSON.stringify({ content: snapshot.answerText }));
+				streamState.apply('agent.citations', JSON.stringify({ citations: snapshot.citations }));
 				// Activity is also included in snapshots so a nonzero-cursor reconnect
 				// restores the plan and brief explanations emitted before disconnect.
 				if (snapshot.plan) {
@@ -185,12 +188,28 @@ async function consumeDurableResponse(response: Response, cb: StreamCallbacks): 
 		// A replayed artifact event may be older than the snapshot cursor. Deliver
 		// its card, but never move the resume cursor backwards.
 		if (typeof eventCursor === 'number' && Number.isSafeInteger(eventCursor) && eventCursor > snapshotCursor) {
+			snapshotCursor = eventCursor;
 			cb.onRunCursor?.(eventCursor);
 		}
 		if (ev.event === 'run.cancel_requested') cb.onRunState?.('cancel_requested');
-		if (ev.event === 'run.cancelled' || ev.event === 'cancelled') cb.onRunState?.('cancelled');
+		if (ev.event === 'run.cancelled' || ev.event === 'cancelled') {
+			completed = true;
+			cb.onRunState?.('cancelled');
+		}
+		if (ev.event === 'run.failed') {
+			completed = true;
+			failureMessage = 'durable agent run failed';
+			try {
+				const payload = JSON.parse(ev.data) as { message?: unknown; error?: { message?: unknown } };
+				const message = payload.message ?? payload.error?.message;
+				if (typeof message === 'string' && message.trim()) failureMessage = message;
+			} catch {}
+		}
 		if (ev.event === 'run.failed' || ev.event === 'response.failed') cb.onRunState?.('failed');
-		if (ev.event === 'response.completed' || ev.event === 'run.complete' || ev.event === 'run.finished') cb.onRunState?.('complete');
+		if (ev.event === 'response.completed' || ev.event === 'run.complete' || ev.event === 'run.finished') {
+			completed = true;
+			cb.onRunState?.('complete');
+		}
 		for (const update of streamState.apply(ev.event, ev.data)) {
 			if (update.done || update.partial) completed = true;
 			if (update.partial) cb.onPartial?.();

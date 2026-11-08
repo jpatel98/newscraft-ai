@@ -360,7 +360,50 @@ class BrowserControllerTests(unittest.IsolatedAsyncioTestCase):
         session.close = failed
         self.assertFalse(await self.computer.cancel())
         self.assertFalse(self.engine.items)
+        self.assertIs(self.computer.browser.session, session)
+        session.close = original
         self.assertTrue(await self.computer.cancel())
+
+    async def test_interrupted_cleanup_retains_browser_pipe_for_confirmed_retry(self):
+        await self.action("navigate", url=URL)
+        session = self.computer.browser.session
+        process = session.process
+        original_drain = process.drain
+        closing, relaying, drained = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        async def interrupted():
+            closing.set()
+            await asyncio.Event().wait()
+        async def relay():
+            relaying.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                drained.set()
+        request = asyncio.create_task(relay())
+        session.request_tasks.add(request)
+        process.drain = interrupted
+        session.close = AsyncMock(wraps=session.close)
+        try:
+            await asyncio.wait_for(relaying.wait(), 2)
+            task = asyncio.create_task(self.computer.cancel())
+            await asyncio.wait_for(closing.wait(), 2)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertFalse(drained.is_set())
+            process.drain = original_drain
+            session.close.reset_mock()
+            self.assertTrue(await self.computer.cancel())
+            session.close.assert_awaited_once()
+            self.assertTrue(drained.is_set())
+            self.assertIsNone(session.process)
+            self.assertIsNone(self.computer.browser.session)
+            self.assertFalse(self.engine.items)
+            self.assertIsNone(self.computer.browser.store.session(self.computer.scope))
+        finally:
+            process.drain = original_drain
+            request.cancel()
+            await asyncio.gather(request, return_exceptions=True)
 
 
     async def test_readiness_rejects_unsupported_worker_before_daemon_probes(self):

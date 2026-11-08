@@ -13,6 +13,7 @@ test('matches a comma-separated CORS allowlist and varies only allowed origins',
 		env: {
 			...process.env,
 			PORT: String(port),
+			NEWSCRAFT_STORAGE_HOST: '127.0.0.1',
 			NEWSCRAFT_STORAGE_ROOT: root,
 			NEWSCRAFT_STORAGE_API_KEY: 'test-storage-key',
 			NEWSCRAFT_STORAGE_SIGNING_KEY: 'test-signing-key-that-is-at-least-32-bytes',

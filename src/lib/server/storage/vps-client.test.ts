@@ -8,6 +8,36 @@ function response(value: unknown, status = 200): Response {
 }
 
 describe('VpsStorageClient', () => {
+	it('requires a revocation acknowledgement even when an older gateway returns 204', async () => {
+		const fetchImpl = vi.fn<typeof fetch>()
+			.mockResolvedValueOnce(new Response(null, { status: 204 }))
+			.mockResolvedValueOnce(new Response(null, { status: 204, headers: { 'X-NewsCraft-Upload-Revoked': '1' } }));
+		const client = new VpsStorageClient({ baseUrl, apiKey: 'synthetic-key', fetchImpl });
+		const request = { bucket: 'newsroom-artifacts', key: 'evidence/account/project/document', revokeUploads: true as const };
+		await expect(client.remove(request)).rejects.toThrow('revocation was not acknowledged');
+		await expect(client.remove(request)).resolves.toBeUndefined();
+		const target = new URL(String(fetchImpl.mock.calls[0][0]));
+		expect(target.searchParams.get('revokeUploads')).toBe('true');
+		expect(target.searchParams.get('key')).toBe(request.key);
+		expect(target.searchParams.get('bucket')).toBe(request.bucket);
+	});
+
+	it('does not require acknowledgement for ordinary deletion, but rejects failed revocation', async () => {
+		const fetchImpl = vi.fn<typeof fetch>()
+			.mockResolvedValueOnce(new Response(null, { status: 404 }))
+			.mockResolvedValueOnce(new Response(null, { status: 404, headers: { 'X-NewsCraft-Upload-Revoked': '1' } }));
+		const client = new VpsStorageClient({ baseUrl, apiKey: 'synthetic-key', fetchImpl });
+		await expect(client.remove({ bucket: 'b', key: 'k' })).resolves.toBeUndefined();
+		expect(new URL(String(fetchImpl.mock.calls[0][0])).searchParams.has('revokeUploads')).toBe(false);
+		await expect(client.remove({ bucket: 'b', key: 'k', revokeUploads: true })).rejects.toThrow('revocation was not acknowledged');
+	});
+
+	it.each(['0', 'true', '1, 1'])('rejects malformed revocation acknowledgement %s', async (acknowledgement) => {
+		const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204, headers: { 'X-NewsCraft-Upload-Revoked': acknowledgement } }));
+		const client = new VpsStorageClient({ baseUrl, apiKey: 'synthetic-key', fetchImpl });
+		await expect(client.remove({ bucket: 'newsroom-artifacts', key: 'evidence/account/project/document', revokeUploads: true })).rejects.toThrow('revocation was not acknowledged');
+	});
+
 	it('keeps the API key on control-plane requests and validates signed URL origin', async () => {
 		const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
 			response({
@@ -40,6 +70,15 @@ describe('VpsStorageClient', () => {
 		const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response({ private: false, maxBytes: 20, mimeTypes: [] }));
 		const client = new VpsStorageClient({ baseUrl, apiKey: 'server-key', fetchImpl });
 		await expect(client.verifyPolicy('newsroom-artifacts')).rejects.toThrow('policy is invalid');
+	});
+
+	it.each([undefined, false, true, 'true', 1])('surfaces strict revocation support without rejecting legacy policy %s', async (capability) => {
+		const policy = { private: true, maxBytes: 20, mimeTypes: ['application/pdf'], ...(capability === undefined ? {} : { supportsUploadRevocation: capability }) };
+		const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(policy));
+		const client = new VpsStorageClient({ baseUrl, apiKey: 'synthetic-key', fetchImpl });
+		await expect(client.verifyPolicy('newsroom-documents')).resolves.toEqual({
+			private: true, maxBytes: 20, mimeTypes: ['application/pdf'], supportsUploadRevocation: capability === true
+		});
 	});
 
 	it('preserves a gateway base path on control and signed data URLs', async () => {

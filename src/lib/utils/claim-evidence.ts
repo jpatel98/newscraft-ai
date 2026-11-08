@@ -13,6 +13,7 @@
  * An open conflict caps a claim at reported.
  */
 import { classifySource, type SourceTier, TIER_RANK } from './source-tiers';
+import { isCitationUrl } from '@newscraft/shared';
 import type { LedgerStatus } from './story-ledger';
 
 export interface CitedPage {
@@ -41,13 +42,22 @@ export interface EvidenceSummary {
 
 /** Citation number -> page, from a run's citation records. */
 export function citationSources(
-	citations: readonly { citationNumber: number; url: string; publicationDate?: string | null }[]
+	citations: readonly { citationNumber: number; url: string; publicationDate?: string | null; documentPage?: number }[]
 ): Map<number, CitedPage> {
 	const map = new Map<number, CitedPage>();
+	const identities = new Map<number, string>();
+	const ambiguous = new Set<number>();
 	for (const citation of citations) {
-		if (Number.isSafeInteger(citation.citationNumber) && citation.url) {
-			map.set(citation.citationNumber, { url: citation.url, date: citation.publicationDate ?? '' });
+		const number = citation.citationNumber;
+		if (!Number.isSafeInteger(number) || number <= 0 || ambiguous.has(number)) continue;
+		const identity = JSON.stringify([citation.url, citation.documentPage ?? null]);
+		if (!citation.url || !isCitationUrl(citation.url) || (identities.has(number) && identities.get(number) !== identity)) {
+			ambiguous.add(number);
+			map.delete(number);
+			continue;
 		}
+		identities.set(number, identity);
+		map.set(number, { url: citation.url, date: citation.publicationDate ?? '' });
 	}
 	return map;
 }
@@ -56,7 +66,7 @@ export function resolveEvidence(numbers: readonly number[], pages: ReadonlyMap<n
 	const out: EvidenceSource[] = [];
 	for (const n of numbers) {
 		const page = pages.get(n);
-		if (!page) continue;
+		if (!page || !isCitationUrl(page.url)) continue;
 		const source = classifySource(page.url);
 		out.push({ n, url: page.url, host: source.host, tier: source.tier, publisher: source.publisher, date: page.date || '' });
 	}

@@ -11,7 +11,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from newscraft_agent.executor_state import (ExecutorError, ExecutorUncertain, SnapshotStore, canonical_archive,
     MAX_ARCHIVE, MAX_FILE, MAX_FILES, MAX_WORKSPACE)
@@ -182,6 +182,79 @@ class ComputerTests(unittest.IsolatedAsyncioTestCase):
         self.engine.block = False
         with self.assertRaises(ExecutorUncertain):
             await self.make().execute("terminal", {"command": "synthetic block"}, operation_id=operation("block"))
+
+    async def test_cancel_during_probe_fences_admission_across_worker_objects(self):
+        probing, release = asyncio.Event(), asyncio.Event()
+        original_probe = self.engine.probe
+        async def probe():
+            probing.set()
+            await release.wait()
+            return await original_probe()
+        self.engine.probe = probe
+        task = asyncio.create_task(self.computer.execute("terminal", {"command": "synthetic"},
+            operation_id=operation("cancel-preflight")))
+        try:
+            await asyncio.wait_for(probing.wait(), 2)
+            self.assertTrue(await self.make().cancel())
+        finally:
+            release.set()
+        with self.assertRaises(ExecutorUncertain):
+            await task
+        self.assertEqual(self.engine.creates, 0)
+        self.assertEqual(self.engine.executions, [])
+        self.assertFalse(self.store.pending(self.computer.scope, self.computer.run))
+
+    async def test_cancelled_preflight_task_releases_reservation_without_daemon_cleanup(self):
+        probing = asyncio.Event()
+        async def probe():
+            probing.set()
+            await asyncio.Event().wait()
+        self.engine.probe = probe
+        self.engine.probe_host = AsyncMock(side_effect=AssertionError("Preflight has no container"))
+        task = asyncio.create_task(self.computer.execute("terminal", {"command": "synthetic"},
+            operation_id=operation("preflight-task")))
+        await asyncio.wait_for(probing.wait(), 2)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.engine.probe_host.assert_not_awaited()
+        self.assertFalse(self.store.pending(self.computer.scope, self.computer.run))
+        self.assertEqual(self.engine.creates, 0)
+
+    async def test_preflight_cancellation_rechecks_a_concurrent_create_transition(self):
+        op = operation("preflight-transition")
+        self.store.admit(self.computer.scope, self.computer.run, op, "fixture", "", "request", preparing=True)
+        original = self.store.cancel_preparing
+        def transition(scope, run, operation_id):
+            self.store.prepared(scope, run, operation_id, DAEMON)
+            return original(scope, run, operation_id)
+        with patch.object(self.store, "cancel_preparing", side_effect=transition):
+            self.assertFalse(await self.computer.cancel())
+        pending = self.store.pending(self.computer.scope, self.computer.run)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["phase"], "creating")
+        self.assertEqual(pending[0]["daemon"], DAEMON)
+
+    async def test_preflight_reservations_block_competing_actions_and_count_toward_capacity(self):
+        from newscraft_agent.browser_store import BrowserStore
+        from newscraft_agent.executor_state import MAX_RESULT
+        self.store.admit(self.computer.scope, self.computer.run, operation("preflight"), "fixture", "", "request", preparing=True)
+        with self.assertRaises(ExecutorUncertain):
+            await self.make(run="other-run").execute("terminal", {"command": "synthetic"}, operation_id=operation("competing"))
+        with self.assertRaises(ExecutorUncertain):
+            BrowserStore(self.store).admit_action(self.computer.scope, self.computer.run, operation("browser"), "request")
+        with patch("newscraft_agent.executor_state.MAX_STORE", 2 * (MAX_ARCHIVE + MAX_RESULT) - 1):
+            with self.assertRaises(ExecutorError):
+                await self.make(thread="other-thread").execute("terminal", {"command": "synthetic"}, operation_id=operation("capacity"))
+        self.assertEqual(self.engine.creates, 0)
+        self.assertTrue(await self.computer.cancel())
+
+    async def test_completed_action_replays_without_a_daemon_probe(self):
+        args, op = {"command": "synthetic"}, operation("offline-receipt")
+        result = await self.computer.execute("terminal", args, operation_id=op)
+        self.engine.probe = AsyncMock(side_effect=AssertionError("Replay must not contact Docker"))
+        self.assertEqual(await self.make().execute("terminal", args, operation_id=op), result)
+        self.engine.probe.assert_not_awaited()
 
     async def test_same_operation_with_changed_arguments_is_rejected(self):
         await self.computer.execute("terminal", {"command": "synthetic calculation"}, operation_id=operation("same"))

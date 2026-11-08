@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { attributionRequired } from '../../src/lib/utils/claim-evidence';
@@ -9,12 +9,14 @@ import {
 	loadJson,
 	loadThreads,
 	pairKey,
+	recordingUrl,
 	replayThread,
 	scoreThread,
 	summarize,
 	type FixtureThread,
 	type GoldenLabels
 } from './replay';
+import { writeEvalReport } from './report';
 
 /** Highest rework phase whose expectations must hold. */
 const LEDGER_PHASE = 2;
@@ -65,9 +67,9 @@ describe('ledger golden set', () => {
 	const threads = loadThreads(join(EVAL_DIR, 'fixtures'));
 	const labelled = threads.filter((t) => existsSync(join(EVAL_DIR, 'golden', `${t.id}.json`)));
 
-	it.skipIf(!labelled.length && !process.env.LEDGER_EVAL_JUDGE_URL)('does not regress past the shipped duplicate and wrong-merge numbers, and reports before/after', async () => {
+	it.skipIf(!labelled.length && !recordingUrl('JUDGE'))('does not regress past the shipped duplicate and wrong-merge numbers, and reports before/after', async () => {
 		const cassette = new Cassette(join(EVAL_DIR, process.env.LEDGER_EVAL_CASSETTE || 'judge-cassette.json'));
-		const recordUrl = process.env.LEDGER_EVAL_JUDGE_URL;
+		const recordUrl = recordingUrl('JUDGE');
 		const judge = recordUrl ? cassette.recording(recordUrl, process.env.LEDGER_EVAL_JUDGE_TOKEN || '') : cassette.judge;
 		// Record mode covers every fixture, labelled or not, so labels can land later without new judge calls.
 		if (recordUrl) {
@@ -98,10 +100,10 @@ describe('ledger golden set', () => {
 			perThread: after
 		};
 		if (recordUrl) cassette.save();
-		writeFileSync(join(EVAL_DIR, 'report.json'), JSON.stringify(report, null, 1) + '\n');
+		writeEvalReport('report.json', report);
 		console.log(JSON.stringify({ before: report.before, phase1: report.phase1, after: report.after, unrecordedJudgePairs: report.unrecordedJudgePairs }));
 		if (!labelled.length) return;
-		expect(cassette.missing, 'record the judge cassette (pnpm eval:ledger:record)').toHaveLength(0);
+		expect(cassette.missing, 'record the judge cassette (LEDGER_EVAL_RECORD=1 pnpm eval:ledger:record)').toHaveLength(0);
 		expect(report.after.duplicateRate!, `target is ${TARGET_DUPLICATE_RATE}`).toBeLessThanOrEqual(SHIPPED_DUPLICATE_RATE);
 		expect(report.after.wrongMerges, 'target is 0').toBeLessThanOrEqual(SHIPPED_WRONG_MERGES);
 		if (LEDGER_PHASE >= 2) expect(report.after.confirmedUnbacked, 'confirmed without an official source or two independent tier-2 outlets').toBe(0);

@@ -293,6 +293,17 @@ class ComputerSandboxTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(self.sandbox._started)
             self.assertEqual(process.await_count, 3)
 
+    async def test_failed_browser_close_retains_pipe_until_retry_completes(self):
+        browser = AsyncMock()
+        browser.close.side_effect = [OSError("synthetic interrupted close"), None]
+        self.sandbox._browser = browser
+        with self.assertRaises(OSError):
+            await self.sandbox.close()
+        self.assertIs(self.sandbox._browser, browser)
+        await self.sandbox.close()
+        self.assertIsNone(self.sandbox._browser)
+        self.assertEqual(browser.close.await_count, 2)
+
     async def test_crash_recovery_stops_only_verified_same_conversation_container(self):
         crashed_id = 'a' * 64
         labels = {'newscraft.managed': 'research-agent', 'newscraft.scope': self.runtime.task_key}

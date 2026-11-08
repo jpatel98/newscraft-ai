@@ -11,6 +11,7 @@ const serviceMocks = vi.hoisted(() => ({
 }));
 const privateEnv = vi.hoisted(() => ({
 	SUPABASE_URL: 'https://storage.example',
+	NEWSCRAFT_STORAGE_PROVIDER: undefined as string | undefined,
 	NEWSCRAFT_STORAGE_MODE: undefined as string | undefined,
 	NEWSCRAFT_STORAGE_BASE_URL: undefined as string | undefined
 }));
@@ -58,7 +59,8 @@ function event(options: { authenticated?: boolean; body?: unknown } = {}) {
 describe('conversation document routes', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		privateEnv.NEWSCRAFT_STORAGE_MODE = undefined;
+		privateEnv.NEWSCRAFT_STORAGE_PROVIDER = undefined;
+		privateEnv.NEWSCRAFT_STORAGE_MODE = 'supabase';
 		privateEnv.NEWSCRAFT_STORAGE_BASE_URL = undefined;
 		conversationMocks.getConversation.mockResolvedValue(conversation);
 		serviceMocks.listDocuments.mockResolvedValue([]);
@@ -137,6 +139,28 @@ describe('conversation document routes', () => {
 			status: 503,
 			body: { message: 'PDF storage is unavailable right now.' }
 		});
+	});
+
+	it.each([
+		{ provider: undefined, mode: undefined, active: 'vps' },
+		{ provider: 'vps', mode: 'supabase', active: 'vps' },
+		{ provider: 'supabase', mode: 'vps', active: 'supabase' }
+	])('uses the factory provider precedence for $provider / $mode', async ({ provider, mode, active }) => {
+		privateEnv.NEWSCRAFT_STORAGE_PROVIDER = provider;
+		privateEnv.NEWSCRAFT_STORAGE_MODE = mode;
+		privateEnv.NEWSCRAFT_STORAGE_BASE_URL = 'https://files.example/private';
+		const activeUrl = active === 'vps' ? 'https://files.example/private/v1/download/token' : 'https://storage.example/signed-document';
+		const inactiveUrl = active === 'vps' ? 'https://storage.example/signed-document' : 'https://files.example/private/v1/download/token';
+		serviceMocks.createDownloadUrl.mockResolvedValueOnce(activeUrl);
+		const response = await downloadDocument(event());
+		expect(response.status).toBe(303);
+		expect(response.headers.get('location')).toBe(activeUrl);
+		serviceMocks.createDownloadUrl.mockResolvedValueOnce(inactiveUrl);
+		await expect(downloadDocument(event())).rejects.toMatchObject({ status: 503 });
+		if (active === 'vps') {
+			serviceMocks.createDownloadUrl.mockResolvedValueOnce('https://files.example/outside/token');
+			await expect(downloadDocument(event())).rejects.toMatchObject({ status: 503 });
+		}
 	});
 
 	it('maps server document failures to user-safe HTTP errors', async () => {

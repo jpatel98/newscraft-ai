@@ -21,6 +21,19 @@ const ledger = [
 ];
 
 describe('ledger copy', () => {
+	it('does not trust an air-ready tag to launder a withheld statement', () => {
+		const { byRef, withheld } = copyRequest(ledger);
+		const checked = checkCopy([{ claims: ['c1'], text: ledger[3].claim }], byRef, withheld);
+		expect(checked).toEqual({ lines: [], repaired: 0, dropped: 1 });
+	});
+
+	it('checks attribution-bound restatements even when tagged as a confirmed claim', () => {
+		const { byRef } = copyRequest(ledger);
+		const checked = checkCopy([{ claims: ['c1'], text: ledger[1].claim }], byRef);
+		expect(checked.repaired).toBe(1);
+		expect(checked.lines[0].text).toBe('Toronto police allege that the driver was going twice the speed limit');
+	});
+
 	it('offers the writer only air-ready claims, with the phrase each must carry', () => {
 		const { request, withheld } = copyRequest(ledger);
 		expect(request).toEqual([

@@ -108,12 +108,15 @@ class BrowserController:
         async with self._cleanup_lock:
             pipe_closed = True
             if self.session is not None:
-                session, self.session = self.session, None
+                session = self.session
                 try:
                     await session.close()  # Drains relay requests as well as RPC.
                 except (OSError, TimeoutError, BrowserProtocolError):
                     # A failed pipe shutdown must not skip container removal.
                     pipe_closed = False
+                else:
+                    if self.session is session:
+                        self.session = None
             row = self.store.session(self.scope)
             try:
                 if row:

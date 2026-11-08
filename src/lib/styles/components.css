@@ -2606,8 +2606,7 @@ body,
 		grid-template-columns: 44px 1fr 44px;
 		padding-block: 6px;
 	}
-	.drawer__head__btn,
-	.sidebar__section-btn {
+	.drawer__head__btn {
 		width: 44px;
 		height: 44px;
 	}
@@ -2891,6 +2890,10 @@ body,
 
 /* Typing on a phone: the story peek bar above the composer gives way to the keyboard. */
 @media (max-width: 760px) {
+	.sidebar__section-btn {
+		width: 44px;
+		height: 44px;
+	}
 	.shell[data-keyboard-open='true'] .story-peek {
 		display: none;
 	}

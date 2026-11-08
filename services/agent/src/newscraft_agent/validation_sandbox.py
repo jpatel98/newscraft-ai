@@ -122,8 +122,9 @@ class DisposableValidationSandbox(ComputerSandbox):
 
     async def _remove(self):
         if self._browser is not None:
-            browser,self._browser=self._browser,None
+            browser=self._browser
             await browser.close()
+            self._browser=None
         if not self._started:
             return
         code,output,error=await self._process(['docker','inspect','--format','{{json .Config.Labels}}',self.name], timeout=5)

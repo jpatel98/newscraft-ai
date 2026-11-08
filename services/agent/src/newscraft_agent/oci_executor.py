@@ -346,6 +346,13 @@ class OCIComputer:
     async def cancel(self):
         for row in self.store.pending(self.scope, self.run):
             try:
+                if row["phase"] == "preparing":
+                    if self.store.cancel_preparing(self.scope, self.run, row["operation"]):
+                        continue
+                    row = next((current for current in self.store.pending(self.scope, self.run)
+                                if current["operation"] == row["operation"]), None)
+                    if row is None:
+                        continue
                 if not await self._clean(row):
                     return False
                 self.store.cancelled(self.scope, row["operation"])
@@ -378,14 +385,15 @@ class OCIComputer:
         elif name == "write_file" and (not isinstance(safe.get("content"), str) or len(safe["content"].encode()) > MAX_FILE):
             raise ValueError("File content exceeds its limit")
         async with self._lock:
-            image = await self.engine.probe()
             container_name = "newscraft-action-" + hashlib.sha256((self.scope + self.run + operation_id).encode()).hexdigest()[:40]
             request = self.request_key(name, safe)
-            admitted = self.store.admit(self.scope, self.run, operation_id, container_name, self.engine.daemon, request)
+            admitted = self.store.admit(self.scope, self.run, operation_id, container_name, "", request, preparing=True)
             if "receipt" in admitted:
                 return admitted["receipt"]
             labels = self.engine.labels(self.scope, self.run, operation_id)
             try:
+                image = await self.engine.probe()
+                self.store.prepared(self.scope, self.run, operation_id, self.engine.daemon)
                 identity = await self.engine.create(image, container_name, labels)
                 self.store.created(self.scope, operation_id, identity)
                 item = await self.engine.inspect(container_name)

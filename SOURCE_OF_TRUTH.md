@@ -1,9 +1,12 @@
 # NewsCraft AI source of truth
 
-Verification date: 2026-10-08 (America/Toronto). Scope: the Mac mini checkout,
-offline fixtures, disposable loopback Postgres and the recorded local startup
-follow-up against the authorized new database. No production deployment, paid
-provider call or Linux executor acceptance was run.
+Verification date: 2026-11-08 (America/Toronto). Scope: integrated release candidate
+preserving production `7a39b01` and the five November 7 local review commits.
+Implementation, fresh tests and production gates are recorded in
+[the release receipt](docs/evidence-release-2026-11-08.md); an in-progress receipt
+is not proof of deployment. A read-only pre-release check identified production
+`7a39b01` and login/app health HTTP 200. No paid provider call was made.
+Older dated observations below remain historical unless explicitly refreshed.
 
 Use these evidence labels:
 
@@ -21,7 +24,10 @@ and scripts in a conversation. They review the evidence and make the editorial
 call. The tracker, scheduling and automatic publication remain frozen. Conditional
 PDF support requires its separate storage/parser capability checks.
 
-**Repository verified:** the browser calls only the SvelteKit app. The app owns
+**Repository verified:** the browser uses the SvelteKit app for authorization and
+data APIs, with direct file transfers through app-issued, short-lived private
+storage grants. No database, model or storage service credential goes to the
+browser. The app owns
 accounts, organization scope, conversations, messages, documents, public events,
 citations and artifact grants. It calls the separate NewsCraft-owned Python worker.
 `services/agent/src/newscraft_agent/service.py` directly selects
@@ -43,13 +49,14 @@ Browser -> SvelteKit app -> Postgres conversations/runs/events/checkpoints
 | Component | Repository evidence | Status and limit |
 | --- | --- | --- |
 | Selected orchestration | [portable.py](services/agent/src/newscraft_agent/portable.py), [service.py](services/agent/src/newscraft_agent/service.py) | **Repository verified / Working:** canonical owned loop, saved intent/receipts, recovery, budgets and cleanup fixtures. |
-| Model protocols | [model_adapters.py](services/agent/src/newscraft_agent/model_adapters.py) | **Working:** mocked OpenAI Responses, Anthropic Messages and dedicated DeepSeek Messages flows. **Working:** dedicated key configuration and local DeepSeek readiness. **Blocked:** paid approval. **Unverified:** provider access and answer quality. |
+| Model protocols | [model_adapters.py](services/agent/src/newscraft_agent/model_adapters.py) | **Working:** mocked OpenAI Responses, Anthropic Messages and dedicated DeepSeek Messages flows. **Historical:** one synthetic DeepSeek acceptance on October 8; its approval is consumed. **Blocked:** new paid acceptance approval. **Unverified this session:** provider access and answer quality. |
 | Durable state | [agent-runs.ts](src/lib/server/db/agent-runs.ts), [agent-runtime.ts](src/lib/server/db/agent-runtime.ts), [0018](drizzle/0018_portable_agent_core.sql) | **Working:** Postgres lease, cursor, idempotency, cancellation and checkpoint CAS tests. Private state is not public replay. |
+| Project evidence | [service.ts](src/lib/server/evidence/service.ts), [0027](drizzle/0027_project_evidence.sql) | **Repository verified / Working:** sealed PDFs/CSVs, bounded deterministic leads, human review, source withdrawal and scoped chat context. Requires the VPS revocation/acknowledgement contract; the project-evidence Supabase adapter fails closed. This does not publish content or unfreeze the tracker. |
 | Authentication | [auth/backend.ts](src/lib/server/auth/backend.ts), [auth/postgres.ts](src/lib/server/auth/postgres.ts), [auth/supabase.ts](src/lib/server/auth/supabase.ts) | **Working:** Postgres password accounts and signed revocable sessions by default; explicit optional Supabase adapter tested with doubles. Cloud auth is **Unverified**. |
 | Retrieval | [search_adapters.py](services/agent/src/newscraft_agent/search_adapters.py), [retrieval.py](services/agent/src/newscraft_agent/retrieval.py) | **Working:** independent public DDGS discovery, bounded public fetch/archive and exact excerpt checks in fixtures. Optional OpenAI search is a separately reserved paid request. |
 | Artifacts/storage | [artifact_publish.py](services/agent/src/newscraft_agent/artifact_publish.py), [artifacts/storage.ts](src/lib/server/artifacts/storage.ts) | **Working:** scoped immutable revision/grant/upload/finalize, checksum and ownership tests. VPS default, Supabase explicit, local artifacts development-only. Remote access **Unverified**. |
 | Computer/browser | [oci_executor.py](services/agent/src/newscraft_agent/oci_executor.py), [executor runbook](services/agent/deploy/executor.md) | **Working:** synthetic daemon/process/RPC/receipt tests. **Blocked:** actual rootless Linux/Chromium acceptance and approved host/image/seccomp selection. |
-| UI deployment | [svelte.config.js](svelte.config.js), [vercel.json](vercel.json) | **Repository verified:** Vercel adapter/build configuration. Production source, aliases and traffic **Unverified** in this session. |
+| Deployment | [svelte.config.js](svelte.config.js), [vercel.json](vercel.json) | **Repository verified:** Vercel app plus existing Contabo Postgres, private storage and Python worker. **Working / read-only pre-release:** production `7a39b01`, login/app health and loopback worker readiness HTTP 200. Candidate rollout is recorded separately in the dated receipt. |
 
 ## Ownership and recovery rules
 
@@ -100,7 +107,7 @@ CPython 3.11 in `.venv-owned` are the verified local tools. The full JavaScript
 matrix retains the historical harness as a compatibility check; its fixture eval
 is not acceptance of the owned runtime's live answer quality.
 
-**Working / measured 2026-10-08:** owned orchestration and DeepSeek support are
+**Historical / measured 2026-10-08:** owned orchestration and DeepSeek support were
 merged on `main` (`4df5b3e`). The guarded runner applied only the missing
 `0017_topic_projects` to the authorized new project `ygsiifvjzdazfxflmpjq`.
 The exact migration ledger is **20/20**, schema status is complete, and all
@@ -109,15 +116,19 @@ PUBLIC/anon/authenticated table grants; older grants were not re-audited.
 Initialization was not repeated. Separate disposable Postgres tests exercise
 migration, tenancy and durable-state behavior without contacting this project.
 
-**Working:** Jigar's database and dedicated DeepSeek key pass the passive checker.
+**Historical (2026-10-08):** Jigar's database and dedicated DeepSeek key passed the passive checker.
 With full TLS verification and the documented public CA, both loopback health
 endpoints returned 200/ready; private readiness named DeepSeek Messages with
 `accessVerified: false`. Signup, fresh sign-in and an empty saved conversation
 passed with zero chat requests. Both listeners stopped and ports were free.
-**Blocked:** separate approval for the prepared **$0.06** synthetic DeepSeek
-acceptance, which uses only local checkpoints/artifacts and no app storage;
-see [the measured handoff and command](docs/agent-local-handoff.md#status-as-of-2026-10-08).
-The earlier $4.23 OpenAI proposal was not run. Actual computer/browser acceptance needs an approved
+The handoff also records one approved **$0.06** synthetic DeepSeek acceptance
+(five requests, **$0.043958** reserved); its one-shot approval is consumed.
+See [the historical receipt](docs/agent-local-handoff.md#status-as-of-2026-10-08).
+**Historical (2026-11-07):** the passive default-profile checker passed; the database
+entry is no longer blank. Disposable Postgres verifies the current 26-migration,
+39-table contract without inspecting or altering the hosted schema.
+**Blocked:** the separate $4.23 OpenAI proposal was not run and needs fresh explicit
+approval. Actual computer/browser acceptance needs an approved
 Linux executor host. No Docker/Colima/Lima reinstall or new cloud resource is
 part of this work. See [deployment decision](docs/agent-deployment-decision.md).
 
@@ -130,17 +141,21 @@ documentation and memory.
 
 ## Historical code and release boundaries
 
-**Historical:** `managed.py`, the old runner in `runtime.py`, the old
+**Historical:** the removed managed harness, the old runner in `runtime.py`, the old
 `ComputerSandbox`, `0017_managed_agent_sessions`, and the TypeScript newsroom harness are
-retained unselected. The active runner still reuses tool schemas/validators from
+remain unselected historical designs or records. The active runner still reuses tool schemas/validators from
 `runtime.py`; active OCI uses fixed payload helpers from `sandbox.py`. Their
 presence is intentional, not authorization to enable or delete them. Legacy
 `/api/agent/*` compatibility and report/job tables remain subject to
 [removal gates](docs/legacy-runtime-disposition.md). Personal Hydra is separate.
 
-This work begins at `cb3dec98f442cc8d7de7be626edb5cf24bf50921` on `main` and is
-committed locally in reviewed slices. No push/deployment/DNS/production change was
-made. Local build/test success does not satisfy the full
+The historical replacement began at `cb3dec98f442cc8d7de7be626edb5cf24bf50921` and
+already landed in six reviewed slices. The November 8 candidate integrates the
+five local review commits through `1860f69` with production `7a39b01`, preserving
+the original main, Claude branches/worktree and four pre-existing untracked files.
+Jigar authorized a NewsCraft-only production release on November 8; that is not
+proof a rollout occurred. No paid acceptance or unrelated infrastructure change
+is authorized. Local build/test success does not satisfy the full
 [release and rollback checklist](docs/release-and-rollback-checklist.md).
 
 ## Historical source-of-truth audit — 2026-08-24

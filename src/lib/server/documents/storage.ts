@@ -205,8 +205,12 @@ export function createVpsDocumentStorage(options: {
 }
 
 /** Provider configuration is server-owned; no implicit cloud fallback. */
+export function documentStorageProvider(): string {
+    return env.NEWSCRAFT_STORAGE_PROVIDER || env.NEWSCRAFT_STORAGE_MODE || 'vps';
+}
+
 export function createDocumentStorage(): DocumentStorage {
-    const provider = env.NEWSCRAFT_STORAGE_PROVIDER || env.NEWSCRAFT_STORAGE_MODE || 'vps';
+    const provider = documentStorageProvider();
     if (provider === 'vps') return createVpsDocumentStorage();
     if (provider === 'supabase') return createSupabaseDocumentStorage();
     throw unavailable();

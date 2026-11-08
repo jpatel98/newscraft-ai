@@ -26,6 +26,7 @@ from .durable import (
     DurableRunWorker,
 )
 from . import public_events
+from .budgets import BudgetedModel
 from .isolation import TENANT_HEADER, TenantIsolation, TenantIsolationError
 from .provider_policy import DEEPSEEK_MODELS
 from .retrieval import RetrievalConfig, retrieval_readiness
@@ -72,6 +73,7 @@ class Settings:
     search_cost_ceiling_usd: float = 0.0
     image_token_ceiling: int = 32768
     executor: Any = None
+    health_only: bool = False
 
 
 def _setting(name: str, default: str = "", *aliases: str) -> str:
@@ -288,6 +290,7 @@ def settings_from_env() -> Settings:
         search_base_url=_http_endpoint(_setting("NEWSCRAFT_SEARCH_BASE_URL", "https://api.openai.com/v1"), "NEWSCRAFT_SEARCH_BASE_URL"),
         max_search_calls=_integer_setting("NEWSCRAFT_AGENT_MAX_SEARCH_CALLS", 5, 1, 20),
         executor=executor,
+        health_only=bool(_integer_setting("NEWSCRAFT_AGENT_HEALTH_ONLY", 0, 0, 1)),
     )
 
 
@@ -374,6 +377,8 @@ def create_app(settings: Settings | None = None):
     async def host_guard(request: Request, call_next):
         if len(request.headers.getlist("host")) != 1 or not _host_accepted(request.headers.get("host", ""), allowed_hosts):
             return JSONResponse({"detail": "invalid host"}, status_code=400)
+        if settings.health_only and not (request.method == "GET" and request.url.path == "/ready"):
+            return JSONResponse({"detail": "execution disabled in health-only mode"}, status_code=503)
         return await call_next(request)
 
     @app.post("/v1/runs/start")
@@ -436,7 +441,7 @@ def create_app(settings: Settings | None = None):
         if not isinstance(pairs, list):
             return JSONResponse({"detail": "pairs required"}, status_code=400)
         try:
-            verdicts = await ledger_judge_module.judge_pairs(runner.model, settings.model, pairs)
+            verdicts = await ledger_judge_module.judge_pairs(BudgetedModel(runner.model, settings), settings.model, pairs)
         except Exception:
             logger.warning("Ledger judge call failed")
             return JSONResponse({"detail": "judge unavailable"}, status_code=503)
@@ -456,7 +461,7 @@ def create_app(settings: Settings | None = None):
         if not isinstance(claims, list) or fmt not in ledger_copy_module.FORMATS:
             return JSONResponse({"detail": "claims and a known format required"}, status_code=400)
         try:
-            lines = await ledger_copy_module.write_copy(runner.model, settings.model, claims, fmt, str(payload.get("title") or ""))
+            lines = await ledger_copy_module.write_copy(BudgetedModel(runner.model, settings), settings.model, claims, fmt, str(payload.get("title") or ""))
         except Exception:
             logger.warning("Ledger copy call failed")
             return JSONResponse({"detail": "copy unavailable"}, status_code=503)
@@ -470,6 +475,8 @@ def create_app(settings: Settings | None = None):
 
     @app.on_event("startup")
     async def recover_durable_runs() -> None:
+        if settings.health_only:
+            return
         app.state.recovery_task = asyncio.create_task(_durable_recovery_loop(durable_worker), name="newscraft-agent-recovery")
 
     @app.on_event("shutdown")
@@ -489,6 +496,7 @@ def create_app(settings: Settings | None = None):
                                                 "toolKinds": list(public_events.TOOL_KIND_NAMES)}}
         if _authorized(request, settings):
             payload.update({
+                "healthOnly": settings.health_only,
                 "processInstanceId": _PROCESS_INSTANCE_ID, "toolset": "newscraft-agent", "tools": runtime_ready.get("tools", []),
                 "runtime": {"provider": settings.model_provider, "model": settings.model, "endpointMode": "explicit",
                             "apiMode": settings.model_api_mode, "orchestration": "newscraft", "accessVerified": False,

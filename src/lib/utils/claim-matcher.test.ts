@@ -102,4 +102,12 @@ describe('matchIncoming', () => {
 		});
 		expect(result.matches).toEqual([{ kind: 'new' }]);
 	});
+
+	it('does not merge a negated claim when the judge is unavailable', async () => {
+		const original = 'The city has approved the bridge replacement project';
+		const negated = 'The city has not approved the bridge replacement project';
+		expect(cosine(embedClaim(original), embedClaim(negated))).toBeGreaterThan(0.86);
+		const result = await matchIncoming([state('c1', original)], [claim(negated)], null);
+		expect(result.matches).toEqual([{ kind: 'new' }]);
+	});
 });

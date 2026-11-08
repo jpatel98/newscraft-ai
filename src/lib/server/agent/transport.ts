@@ -1,6 +1,7 @@
 import { env } from '$env/dynamic/private';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
+import { isDeepStrictEqual } from 'node:util';
 import {
 	AGENT_TOOLSET,
 	NEWSCRAFT_AGENT_SERVICE,
@@ -281,35 +282,57 @@ const CONTEXT_HANDLING_DESCRIPTION = 'How to treat the context entries below';
 const CONTEXT_HANDLING_NOTE =
 	'The context entries below are machine-generated routing context. The user cannot see them. ' +
 	'Never mention, quote, or reason aloud about them, including routing flags, outlet lists, or turn settings. ' +
+	'Exception: disclose any source availability limitation to the user without exposing routing details. ' +
 	'If they conflict with what the user plainly asked, the user\'s message wins.';
 
-function documentCitationContext(documents: AgentChatRequest['documents'], startNumber = 1): {
-	context: unknown;
-	citations: SeededCitation[];
-} {
-	let citationNumber = startNumber;
-	const citations: SeededCitation[] = [];
-	const context = (documents || []).map((document) => ({
+type UnnumberedCitation = Omit<CitationRecord, 'citationNumber'>;
+
+function citationIdentity(citation: UnnumberedCitation): string {
+	return JSON.stringify([
+		citation.url, citation.sourceType, citation.documentPage, citation.title,
+		citation.transcriptId, citation.startMs, citation.endMs, citation.speaker,
+		citation.supportingExcerpt
+	]);
+}
+
+function validatedSeededCitations(citations: ReadonlyArray<CitationRecord>): CitationRecord[] {
+	const byNumber = new Map<number, CitationRecord>();
+	for (const citation of citations) {
+		if (!Number.isInteger(citation.citationNumber) || citation.citationNumber < 1 || citation.citationNumber > MAX_CITATION_NUMBER ||
+			typeof citation.supportingExcerpt !== 'string' || !citation.supportingExcerpt.trim()) {
+			throw new Error('Saved citations contain an invalid number or empty excerpt. Start a new conversation before adding sources.');
+		}
+		const existing = byNumber.get(citation.citationNumber);
+		if (existing && !isDeepStrictEqual(existing, citation)) {
+			throw new Error('Saved citations assign different sources to the same number. Start a new conversation before adding sources.');
+		}
+		if (!existing) byNumber.set(citation.citationNumber, citation);
+	}
+	return Array.from(byNumber.values());
+}
+
+function documentCitationContext(documents: AgentChatRequest['documents']) {
+	return (documents || []).map((document) => ({
 		id: document.id,
 		filename: document.filename,
 		pageCount: document.pageCount,
-		pages: document.pages.map((page) => {
-			const current = citationNumber++;
+		pages: document.pages.flatMap((page) => {
+			const excerpt = compactExcerpt(page.text);
+			if (!excerpt) return [];
+			const label = page.label?.trim();
 			const url = document.downloadUrl || `document://${encodeURIComponent(document.id)}`;
-			citations.push({
-				citationNumber: current,
-				title: `${document.filename}, page ${page.pageNumber}`,
+			const citation: UnnumberedCitation = {
+				title: `${document.filename}, ${label || `page ${page.pageNumber}`}`,
 				url,
 				domain: 'Attached document',
 				publicationDate: null,
 				sourceType: 'user_document',
-				supportingExcerpt: compactExcerpt(page.text),
-				documentPage: page.pageNumber
-			});
-			return { pageNumber: page.pageNumber, citationNumber: current, text: page.text };
+				supportingExcerpt: excerpt,
+				...(label ? {} : { documentPage: page.pageNumber })
+			};
+			return [{ pageNumber: page.pageNumber, ...(label ? { label } : {}), text: page.text, citation }];
 		})
 	}));
-	return { context, citations: citations.filter((citation) => citation.supportingExcerpt) };
 }
 
 /**
@@ -317,24 +340,15 @@ function documentCitationContext(documents: AgentChatRequest['documents'], start
  * after the documents. The excerpt is the verbatim words of the turn, which is
  * what lets `checkCopy` and the eval compare a quoted SOT against the tape.
  */
-function transcriptCitationContext(transcripts: AgentChatRequest['transcripts'], startNumber = 1): {
-	context: unknown;
-	citations: SeededCitation[];
-} {
-	let citationNumber = startNumber;
-	const citations: SeededCitation[] = [];
-	const context = (transcripts || []).map((transcript) => ({
+function transcriptCitationContext(transcripts: AgentChatRequest['transcripts']) {
+	return (transcripts || []).map((transcript) => ({
 		id: transcript.id,
 		title: transcript.title,
 		durationMs: transcript.durationMs,
 		turns: transcript.turns.flatMap((turn) => {
-			// A silent or empty turn consumes no number, so the worker's
-			// citationStartNumber never collides with a seeded one.
 			const excerpt = compactExcerpt(turn.text);
-			if (!excerpt || citationNumber > MAX_CITATION_NUMBER) return [];
-			const current = citationNumber++;
-			citations.push({
-				citationNumber: current,
+			if (!excerpt) return [];
+			const citation: UnnumberedCitation = {
 				title: `${transcript.title} · ${turn.speaker} at ${transcriptClock(turn.startMs)}`,
 				url: transcriptCitationUrl({ transcriptId: transcript.id, startMs: turn.startMs, endMs: turn.endMs }),
 				domain: 'Attached tape',
@@ -345,10 +359,10 @@ function transcriptCitationContext(transcripts: AgentChatRequest['transcripts'],
 				startMs: turn.startMs,
 				endMs: turn.endMs,
 				speaker: turn.speaker
-			});
+			};
 			return [{
 				turnId: turn.id,
-				citationNumber: current,
+				citation,
 				speaker: turn.speaker,
 				startMs: turn.startMs,
 				endMs: turn.endMs,
@@ -357,7 +371,6 @@ function transcriptCitationContext(transcripts: AgentChatRequest['transcripts'],
 			}];
 		})
 	}));
-	return { context: context.length ? context : null, citations };
 }
 
 function buildRunInput(
@@ -370,28 +383,64 @@ function buildRunInput(
 	traceIdValue?: string
 ): BuiltRunInput {
 	const traceId = traceHeader(traceIdValue) || randomUUID();
-	const highestSeededNumber = seededCitations.reduce(
+	const allSeededCitations = validatedSeededCitations(seededCitations);
+	const highestSeededNumber = allSeededCitations.reduce(
 		(highest, citation) => Math.max(highest, citation.citationNumber),
 		0
 	);
-	const documents = documentCitationContext(body.documents, highestSeededNumber + 1);
-	const highestDocumentNumber = documents.citations.reduce(
-		(highest, citation) => Math.max(highest, citation.citationNumber),
-		highestSeededNumber
-	);
-	const transcripts = transcriptCitationContext(body.transcripts, highestDocumentNumber + 1);
-	const allSeededCitations = [...seededCitations, ...documents.citations, ...transcripts.citations];
+	const byIdentity = new Map(allSeededCitations.map((citation) => [citationIdentity(citation), citation.citationNumber]));
+	const preparedTranscripts = transcriptCitationContext(body.transcripts);
+	const newTapeIdentities = new Set(preparedTranscripts.flatMap((transcript) => transcript.turns.map((turn) => citationIdentity(turn.citation)))
+		.filter((identity) => !byIdentity.has(identity)));
+	const reservedTapeSlots = Math.min(MAX_CITATION_NUMBER - highestSeededNumber, newTapeIdentities.size);
+	let nextNumber = highestSeededNumber + 1;
+	const contextIdentities = new Set<string>();
+	const omitted = { documentPages: 0, transcriptTurns: 0 };
+	const assign = (citation: UnnumberedCitation, kind: keyof typeof omitted): number | undefined => {
+		const identity = citationIdentity(citation);
+		if (contextIdentities.has(identity)) return undefined;
+		contextIdentities.add(identity);
+		const existing = byIdentity.get(identity);
+		if (existing !== undefined) return existing;
+		const ceiling = MAX_CITATION_NUMBER - (kind === 'documentPages' ? reservedTapeSlots : 0);
+		if (nextNumber > ceiling) {
+			omitted[kind] += 1;
+			return undefined;
+		}
+		const citationNumber = nextNumber++;
+		byIdentity.set(identity, citationNumber);
+		allSeededCitations.push({ ...citation, citationNumber });
+		return citationNumber;
+	};
+	const documents = documentCitationContext(body.documents).map((document) => ({
+		...document,
+		pages: document.pages.flatMap(({ citation, ...page }) => {
+			const citationNumber = assign(citation, 'documentPages');
+			return citationNumber === undefined ? [] : [{ ...page, citationNumber }];
+		})
+	})).filter((document) => document.pages.length);
+	const transcripts = preparedTranscripts.map((transcript) => ({
+		...transcript,
+		turns: transcript.turns.flatMap(({ citation, ...turn }) => {
+			const citationNumber = assign(citation, 'transcriptTurns');
+			return citationNumber === undefined ? [] : [{ ...turn, citationNumber }];
+		})
+	})).filter((transcript) => transcript.turns.length);
 	const context = [
 		body.newsroom_context || body.conversation_context
 			? contextEntry(CONTEXT_HANDLING_DESCRIPTION, CONTEXT_HANDLING_NOTE)
 			: null,
 		contextEntry('Newsroom context', body.newsroom_context),
 		contextEntry('Conversation context', body.conversation_context),
-		contextEntry('Private document excerpts with exact citation numbers', documents.context),
+		contextEntry('Private document excerpts with exact citation numbers', documents.length ? documents : null),
 		contextEntry(
 			'Attached transcript turns with exact citation numbers (quote verbatim; cite the turn for every SOT with its IN/OUT)',
-			transcripts.context
-		)
+			transcripts.length ? transcripts : null
+		),
+		contextEntry('Source availability limitation', omitted.documentPages || omitted.transcriptTurns ? {
+			...omitted,
+			message: 'The 100-citation limit omitted some requested source excerpts. Tell the user this limitation; do not claim to have read or cited omitted documents or tape turns. Historical citation numbers were preserved. Use a new conversation or fewer sources to include the omitted material.'
+		} : null)
 	].filter((entry): entry is AgentContextEntry => Boolean(entry));
 	return {
 		input: {

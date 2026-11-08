@@ -1,7 +1,12 @@
-import type { ConversationContext } from '@newscraft/shared';
+import type { CitationRecord, ConversationContext } from '@newscraft/shared';
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ownedReadiness from './fixtures/owned-readiness.json';
 import { AGENT_CONTRACT_VERSION } from '@newscraft/shared';
+import { parseCsv } from '$lib/server/evidence/csv';
+import { ProjectEvidenceService } from '$lib/server/evidence/service';
+import type { EvidenceRepository, EvidenceStorage, ProjectDocumentRow } from '$lib/server/evidence/types';
+import type { PdfExtractor } from '$lib/server/documents/types';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 
@@ -16,8 +21,26 @@ import {
 	AgentDurableOverloadError,
 	normalizeAgentSse,
 	startDurableAgentRun,
+	type AgentChatRequest,
 	type AgentMessage
 } from './transport';
+
+const citationBudgetBody: AgentChatRequest = {
+	messages: [{ role: 'user', content: 'Compare the evidence and tape.' }],
+	documents: [{ id: 'attached-pdf', filename: 'attached.pdf', pageCount: 1, pages: [{ pageNumber: 1, text: 'Attached PDF evidence.' }] }],
+	transcripts: [{
+		id: 'tape-1', title: 'Synthetic tape', durationMs: 1000,
+		turns: [{ id: 'turn-1', speaker: 'Reporter', startMs: 0, endMs: 1000, text: 'TAPE_CANARY' }]
+	}]
+};
+
+function historicalCitation(citationNumber: number): CitationRecord {
+	return {
+		citationNumber, title: 'Historical source', url: 'https://example.test/prior',
+		domain: 'example.test', publicationDate: null, sourceType: 'primary',
+		supportingExcerpt: 'Previously verified text.'
+	};
+}
 
 function aguiStream(...events: Array<Record<string, unknown>>): Response {
 	return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
@@ -277,6 +300,136 @@ describe('Agent chat transport', () => {
 	it('adds no transcript context entry when nothing is attached', () => {
 		const built = buildAgentRunInput({ messages: [{ role: 'user', content: 'Hi' }] }, 'thread-n', 'run-n');
 		expect(built.input.context.some((item) => item.description.startsWith('Attached transcript turns'))).toBe(false);
+	});
+
+	it('shares the worker citation budget across real CSV context, attached PDFs and tape', async () => {
+		const bytes = new TextEncoder().encode('x\n' + 'abc\n'.repeat(13));
+		const parsed = parseCsv(bytes);
+		const checksum = createHash('sha256').update(bytes).digest('hex');
+		const records: ProjectDocumentRow[] = Array.from({ length: 51 }, (_, index) => ({
+			id: `doc-${index}`, accountId: 'acct-a', projectId: 'proj-a', orgId: null,
+			kind: 'csv', displayName: `source-${index}.csv`, mimeType: 'text/csv',
+			declaredSizeBytes: bytes.length, declaredSha256: checksum,
+			storageBucket: 'newsroom-artifacts', storagePath: `evidence/acct-a/proj-a/doc-${index}`,
+			state: 'ready', sealedSha256: checksum, sealedSizeBytes: bytes.length,
+			sealedAt: 1, extractionVersion: 1, pageCount: null, rowCount: 13, columnCount: 1,
+			failureCode: null, failureMessage: null, processingStartedAt: null,
+			processingToken: null, extractedChars: 0, processedAt: 1, createdAt: 1, updatedAt: 1
+		}));
+		const repository: Pick<EvidenceRepository, 'listDocuments' | 'getDataset' | 'searchRows'> = {
+			listDocuments: async (accountId, projectId) => records.filter((record) => record.accountId === accountId && record.projectId === projectId),
+			getDataset: async (_accountId, _projectId, documentId) => ({
+				documentId, delimiter: parsed.delimiter, hasHeader: parsed.hasHeader,
+				encoding: parsed.encoding, parserVersion: 'csv-v1', columns: parsed.columns,
+				rowCount: parsed.rows.length, rejectedRows: parsed.raggedRows
+			}),
+			searchRows: async (_accountId, _projectId, _documentId, terms, limit) => parsed.rows.filter((row) =>
+				row.cells.some((cell) => terms.some((term) => cell.includes(term)))).slice(0, limit)
+		};
+		const service = new ProjectEvidenceService(repository as EvidenceRepository, {} as EvidenceStorage, {} as PdfExtractor);
+		const documents = await service.buildChatContext({ accountId: 'acct-a', projectId: 'proj-a', query: 'abc' });
+		const pages = documents.flatMap((document) => document.pages);
+		expect(pages).toHaveLength(102);
+		expect(pages[0].label).toBe('rows 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12');
+		expect(pages[1].label).toBe('rows 13');
+		expect(pages.reduce((total, page) => total + page.text.length, 0)).toBeLessThanOrEqual(24_000);
+		const built = buildAgentRunInput({
+			messages: [{ role: 'user', content: 'abc' }],
+			documents: [...citationBudgetBody.documents!, ...documents],
+			transcripts: citationBudgetBody.transcripts
+		}, 'thread-budget', 'run-budget');
+		expect(built.seededCitations).toHaveLength(100);
+		expect(built.seededCitations[0]).toMatchObject({ title: 'attached.pdf, page 1', citationNumber: 1 });
+		expect(built.seededCitations.at(-1)).toMatchObject({ transcriptId: 'tape-1', citationNumber: 100 });
+		const csvCitations = built.seededCitations.filter((citation) => citation.title.includes('.csv,'));
+		expect(csvCitations.length).toBeGreaterThan(0);
+		expect(csvCitations.every((citation) => citation.title.includes(', rows ') && citation.documentPage === undefined)).toBe(true);
+		expect(built.input.forwardedProps?.citationStartNumber).toBe(101);
+		const documentContext = JSON.parse(built.input.context.find((entry) => entry.description.startsWith('Private document excerpts'))!.value);
+		const tapeContext = JSON.parse(built.input.context.find((entry) => entry.description.startsWith('Attached transcript turns'))!.value);
+		const numbers = [
+			...documentContext.flatMap((document: { pages: { citationNumber: number }[] }) => document.pages.map((page) => page.citationNumber)),
+			...tapeContext.flatMap((transcript: { turns: { citationNumber: number }[] }) => transcript.turns.map((turn) => turn.citationNumber))
+		];
+		expect(numbers).toEqual(built.seededCitations.map((citation) => citation.citationNumber));
+		expect(new Set(numbers).size).toBe(100);
+		expect(numbers.every((number) => Number.isInteger(number) && number >= 1 && number <= 100)).toBe(true);
+		expect(tapeContext[0].turns[0].text).toBe('TAPE_CANARY');
+		expect(JSON.parse(built.input.context.find((entry) => entry.description === 'Source availability limitation')!.value))
+			.toMatchObject({ documentPages: 4, transcriptTurns: 0 });
+	});
+
+	it('reserves the last available number for tape without renumbering history', () => {
+		const prior = historicalCitation(99);
+		const built = buildAgentRunInput(citationBudgetBody, 'thread-budget', 'run-budget', { seededCitations: [prior] });
+		expect(built.seededCitations).toEqual([prior, expect.objectContaining({ citationNumber: 100, transcriptId: 'tape-1' })]);
+		expect(built.input.context.some((entry) => entry.description.startsWith('Private document excerpts'))).toBe(false);
+		expect(JSON.stringify(built.input)).toContain('TAPE_CANARY');
+		expect(JSON.parse(built.input.context.find((entry) => entry.description === 'Source availability limitation')!.value))
+			.toMatchObject({ documentPages: 1, transcriptTurns: 0 });
+	});
+
+	it('honestly reports omitted attachments when saved citation numbers exhaust capacity', () => {
+		const prior = historicalCitation(100);
+		const built = buildAgentRunInput(citationBudgetBody, 'thread-budget', 'run-budget', { seededCitations: [prior] });
+		expect(built.seededCitations).toEqual([prior]);
+		expect(built.input.context.some((entry) => /^(Private document excerpts|Attached transcript turns)/.test(entry.description))).toBe(false);
+		expect(JSON.stringify(built.input)).not.toContain('TAPE_CANARY');
+		expect(JSON.parse(built.input.context.find((entry) => entry.description === 'Source availability limitation')!.value))
+			.toMatchObject({ documentPages: 1, transcriptTurns: 1, message: expect.stringContaining('Tell the user') });
+	});
+
+	it('counts duplicate sources and empty excerpts once and reuses unchanged historical sources', () => {
+		const initial = buildAgentRunInput(citationBudgetBody, 'thread-budget', 'run-budget');
+		const prior = initial.seededCitations[0];
+		const document = citationBudgetBody.documents![0];
+		const transcript = citationBudgetBody.transcripts![0];
+		const built = buildAgentRunInput({
+			...citationBudgetBody,
+			documents: [{ ...document, pages: [{ pageNumber: 2, text: '   ' }, ...document.pages, ...document.pages] }, document],
+			transcripts: [{ ...transcript, turns: [...transcript.turns, ...transcript.turns, { ...transcript.turns[0], id: 'empty', text: ' ' }] }]
+		}, 'thread-budget', 'run-budget', { seededCitations: [prior, { ...prior }] });
+		expect(built.seededCitations).toEqual(initial.seededCitations);
+		const contexts = built.input.context.map((entry) => JSON.parse(entry.value));
+		expect(contexts[0]).toHaveLength(1);
+		expect(contexts[0][0].pages).toHaveLength(1);
+		expect(contexts[1][0].turns).toHaveLength(1);
+	});
+
+	it('does not reuse a historical tape citation after its words change', () => {
+		const initial = buildAgentRunInput(citationBudgetBody, 'thread-budget', 'run-budget');
+		const transcript = citationBudgetBody.transcripts![0];
+		const prior = initial.seededCitations[1];
+		const built = buildAgentRunInput({
+			messages: citationBudgetBody.messages,
+			transcripts: [{ ...transcript, turns: [{ ...transcript.turns[0], text: 'Corrected tape words.' }] }]
+		}, 'thread-budget', 'run-budget', { seededCitations: [prior] });
+		expect(built.seededCitations).toEqual([prior, expect.objectContaining({ citationNumber: 3, supportingExcerpt: 'Corrected tape words.' })]);
+	});
+
+	it.each([0, -1, 1.5, 101, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid historical citation number %s before dispatch', (number) => {
+		expect(() => buildAgentRunInput(citationBudgetBody, 'thread-budget', 'run-budget', { seededCitations: [historicalCitation(number)] }))
+			.toThrow('Saved citations contain an invalid number or empty excerpt');
+	});
+
+	it('rejects conflicting historical numbers and empty historical excerpts without rewriting them', () => {
+		const prior = historicalCitation(3);
+		expect(() => buildAgentRunInput(citationBudgetBody, 'thread-budget', 'run-budget', {
+			seededCitations: [prior, { ...prior, url: 'https://example.test/other' }]
+		})).toThrow('Saved citations assign different sources to the same number');
+		expect(() => buildAgentRunInput(citationBudgetBody, 'thread-budget', 'run-budget', {
+			seededCitations: [{ ...prior, supportingExcerpt: ' ' }]
+		})).toThrow('Saved citations contain an invalid number or empty excerpt');
+	});
+
+	it('labels CSV row blocks without claiming physical PDF page provenance', () => {
+		const built = buildAgentRunInput({
+			messages: citationBudgetBody.messages,
+			documents: [{ id: 'csv-1', filename: 'vendors.csv', pageCount: 1, pages: [{ pageNumber: 1, label: 'rows 4, 19', text: 'Selected rows.' }] }]
+		}, 'thread-budget', 'run-budget');
+		expect(built.seededCitations[0]).toMatchObject({ title: 'vendors.csv, rows 4, 19' });
+		expect(built.seededCitations[0]).not.toHaveProperty('documentPage');
+		expect(JSON.parse(built.input.context[0].value)[0].pages[0]).toMatchObject({ label: 'rows 4, 19', citationNumber: 1 });
 	});
 
 	it('carries corrections and prior evidence once without a compatibility prompt', () => {

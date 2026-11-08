@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { CitationRecord } from '@newscraft/shared';
+	import { isCitationUrl, type CitationRecord } from '@newscraft/shared';
+	import { resolvableCitationRecordForNumber } from '$lib/utils/tool-metadata';
 	import Copy from 'lucide-svelte/icons/copy';
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 	import X from 'lucide-svelte/icons/x';
@@ -102,7 +103,7 @@
 	const openCheckCount = $derived(claims.filter((claim) => claim.needs_check).length);
 	const changeLines = $derived(ledgerChangeLines(changes, claims));
 	const citationByNumber = $derived(
-		new Map(citations.map((citation) => [citation.citationNumber, citation]))
+		new Map(citations.map((citation) => [citation.citationNumber, resolvableCitationRecordForNumber(citations, citation.citationNumber)]))
 	);
 
 	/** A claim's chips: its own resolved sources, else the thread's citation map. */
@@ -113,8 +114,9 @@
 		return claim.citations.map((n) => ({ n, label: '', citation: citationByNumber.get(n) ?? null }));
 	}
 
-	function asCitation(source: StoryLedgerSourceView): CitationRecord {
-		const known = citations.find((citation) => citation.url === source.url);
+	function asCitation(source: StoryLedgerSourceView): CitationRecord | null {
+		if (!isCitationUrl(source.url)) return null;
+		const known = resolvableCitationRecordForNumber(citations.filter((citation) => citation.url === source.url), source.n);
 		return (
 			known ?? {
 				citationNumber: source.n,

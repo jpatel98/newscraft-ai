@@ -13,6 +13,12 @@ from newscraft_agent.source_tiers import (AGGREGATOR_DOMAINS, aggregator_lead, h
 
 
 class TierTests(unittest.TestCase):
+    def test_official_tier_cannot_be_claimed_with_an_unreviewed_police_or_court_domain(self):
+        for url in ("https://fakepolice.com/story", "https://foodcourt.com/story", "https://private.on.ca/story",
+                    "https://tps.ca.attacker.example/story"):
+            with self.subTest(url=url):
+                self.assertNotEqual(tier_for_url(url), "official")
+
     def test_default_tier_mapping(self):
         cases = {
             "https://www.canada.ca/en/department-national-defence.html": "official",
@@ -233,6 +239,25 @@ class AggregatorRecoveryTests(unittest.TestCase):
 
 
 class ExaRequestTests(unittest.IsolatedAsyncioTestCase):
+    async def test_oversize_search_response_is_stopped_before_reading_the_tail(self):
+        consumed = []
+        class Stream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                for index in range(10):
+                    consumed.append(index)
+                    yield b"x" * 100_000
+        with self.assertRaisesRegex(ValueError, "bound"):
+            await exa_pages("fixture", "query", transport=httpx.MockTransport(lambda request: httpx.Response(200, stream=Stream())))
+        self.assertEqual(len(consumed), 6)
+
+    async def test_search_pages_clamp_count_and_text_and_skip_non_objects(self):
+        value = {"results": [None, {"url": "https://example.test/source", "text": "x" * 10000},
+                              {"url": "https://example.test/extra", "text": "y" * 1000}]}
+        pages = await exa_pages("fixture", "query", results=2, max_characters=500,
+                                transport=httpx.MockTransport(lambda request: httpx.Response(200, json=value)))
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(len(pages[0]["text"]), 500)
+
     def test_body_carries_domains_and_date_filter(self):
         body = exa_body("tps news release", results=6, since="2026-10-01T00:00:00Z", max_characters=3500, include_domains=["tps.ca", "siu.on.ca"])
         self.assertEqual(body["includeDomains"], ["tps.ca", "siu.on.ca"])
@@ -261,6 +286,11 @@ class ExaRequestTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PlanParsingTests(unittest.TestCase):
+    def test_non_scalar_mode_does_not_crash_the_planner_fallback(self):
+        for mode in ([], {}, True):
+            with self.subTest(mode=mode):
+                self.assertIsNone(research_plan.parse_plan(json.dumps({"mode": mode})))
+
     NOW = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
 
     def test_parse_tolerates_fences_and_clamps_fields(self):

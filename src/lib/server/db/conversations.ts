@@ -57,10 +57,11 @@ export async function listConversations(accountId: string, limit = 100): Promise
 }
 
 /**
- * Titles of an organization's threads touched since `since`, newest first.
+ * Titles of the account's organization-bound threads touched since `since`, newest first.
  * Uses conversations_org_updated_idx; bounded, and reads no message bodies.
  */
 export async function listRecentConversationSubjects(
+	accountId: string,
 	orgId: string,
 	since: number,
 	excludeConversationId?: string,
@@ -70,6 +71,7 @@ export async function listRecentConversationSubjects(
 		.select({ title: conversations.title, updatedAt: conversations.updatedAt })
 		.from(conversations)
 		.where(and(
+			eq(conversations.accountId, accountId),
 			eq(conversations.orgId, orgId),
 			gte(conversations.updatedAt, since),
 			excludeConversationId ? sql`${conversations.id} <> ${excludeConversationId}` : undefined

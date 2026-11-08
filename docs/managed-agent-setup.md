@@ -1,6 +1,8 @@
 # Provider-neutral NewsCraft setup
 
-The filename is retained for existing links; the managed Agents design is superseded. NewsCraft owns orchestration and durable state. The owned runtime and DeepSeek support are merged on main (`4df5b3e`). On 2026-10-08 the dedicated key check passed, the guarded runner applied only the newly merged topic migration, and the new database reached its complete 20-version contract. Both loopback health endpoints, signup/fresh sign-in and an empty conversation passed, then both listeners stopped. DeepSeek provider access remains unverified and paid acceptance needs separate approval. No paid API call or public deployment was performed.
+The filename is retained for existing links; the managed Agents design is superseded. NewsCraft owns orchestration and durable state. **Repository verified (2026-11-07):** local main at `1b36d21` includes the owned runtime, all three model adapters and a 26-migration/39-table local schema contract. **Working:** the guarded default-profile configuration check passes. See the current handoff for freshly measured tests; do not infer hosted schema or production state from them. No paid API call or public deployment was performed in this review.
+
+**Historical:** October 8 records include the new-project topic migration, local auth/readiness and one approved synthetic DeepSeek acceptance (five requests, $0.043958 reserved of $0.06). That one-shot approval is consumed. The separate $4.23 OpenAI acceptance and Linux executor decision remain blocked on Jigar.
 
 For this checkout, the [local setup handoff](agent-local-handoff.md) has a prepared fresh Python environment, guarded local profile, executable commands and the exact remaining approvals. Its checker never falls back to the old database.
 
@@ -16,9 +18,13 @@ For this checkout, the [local setup handoff](agent-local-handoff.md) has a prepa
 
 Review the official [OpenAI pricing](https://developers.openai.com/api/docs/pricing) and [Astra model contract](https://developers.openai.com/api/docs/models/gpt-6-astra), or the selected provider’s own pricing. OpenAI model and optional search requests explicitly select `service_tier: default`; Anthropic requests select `service_tier: standard_only`. Price ceilings must cover applicable cache-write and long-context multipliers; do not use a cached-read discount as the input ceiling. Search ceilings cover the entire separate request, including tool charges. These configuration instructions do not authorize a paid call.
 
-A model/provider can change between clean turns. Existing recoverable runs are bound to their original adapter/model/budget policy and will fail safely if those change. Cancellation closes owned work and stops further dispatch; an in-flight direct provider request may still incur its reserved charge. Uncertain model/tool input is not automatically replayed. Durable cancellation is checked under the run-row lock before new model/tool dispatch, while cleanup checkpoints remain accessible to the lease owner. An already admitted immutable publication alone can finalize within its fixed 240-second recovery window (60 seconds per attempt, at most four persisted admissions), even after the original model deadline. New model/research/publication work cannot use that recovery extension. Blocking retrieval cancellation retains the worker slot until the active socket/DNS call drains and forbids subsequent URL/fallback dispatches.
+A model/provider can change between clean turns. Existing recoverable runs are bound to their original adapter/model/budget policy and will fail safely if those change. Cancellation closes owned work and stops further dispatch; an in-flight direct provider request may still incur its reserved charge. Uncertain model/tool input is not automatically replayed. Durable cancellation is checked under the run-row lock before new model/tool dispatch, while cleanup checkpoints remain accessible to the lease owner. An already admitted immutable publication alone can finalize within its fixed 240-second recovery window (20 seconds per attempt, 45 seconds of waiting per worker pass, at most four persisted admissions), even after the original model deadline. New model/research/publication work cannot use that recovery extension. Blocking retrieval cancellation retains the worker slot until the active socket/DNS call drains and forbids subsequent URL/fallback dispatches.
 
-## DeepSeek setup and proposed acceptance
+## DeepSeek setup and historical acceptance
+
+The pricing/model documentation below is dated October 7, not newly verified
+provider information. Recheck official terms before any separately approved paid
+run. The historical one-shot command below has already been consumed.
 
 Official docs checked **2026-10-07** list `deepseek-flash` (DeepSeek-V4.1-Flash) and
 `deepseek-v4-pro` (DeepSeek-V4-Pro-0813). Both support tool calls. The old
@@ -72,8 +78,8 @@ cd /Users/macserver/Development/newscraft-ai
 export PATH="/Users/macserver/.local/share/fnm/node-versions/v24.21.0/installation/bin:$PATH"
 export NODE_EXTRA_CA_CERTS="$PWD/config/certs/supabase-prod-ca-2021.crt"
 node scripts/agent-local.mjs check --provider deepseek
-# After configuration passes; startup alone does not approve inference:
-node scripts/agent-local.mjs start --provider deepseek
+# No-dispatch health check; ordinary startup may recover existing paid work:
+node scripts/agent-local.mjs start --provider deepseek --health-only
 ```
 
 The unrounded maximum is
@@ -84,15 +90,15 @@ guarantee the task will finish before its token/time limits. Paid search is not
 part of this profile. Local auth/health tests do not verify model access or file
 storage; artifact delivery still needs live validation.
 
-Exact separate approval sentence:
+Historical approval sentence (already used once, not reusable):
 
 > I approve one synthetic DeepSeek acceptance run using deepseek-flash through the Messages API with thinking disabled, synthetic research, local checkpoints and local files only, capped at 8 model requests, 120,000 cumulative reserved input tokens, 2,048 output tokens per request, 180 seconds, and a $0.06 application reservation budget at peak ceilings of $0.30/M input and $1.20/M output; no automatic retries or repeat run.
 
-After that separate approval, run once:
+Historical executed command (do not repeat without a new approval/identity):
 `node scripts/agent-deepseek-acceptance.mjs --execute --approved-usd 0.06`.
 The passive `--check` command and complete pre-run checklist are in the
 [handoff Status](agent-local-handoff.md#status-as-of-2026-10-08).
-This standalone acceptance uses real DeepSeek inference with synthetic research
+This standalone acceptance used real DeepSeek inference with synthetic research
 and local checkpoint/artifact validation. It has no app/database/storage/browser
 or public retrieval access. The one-shot directory prevents automatic repeats,
 including after failure. This scope keeps the prohibited storage host untouched;
@@ -115,8 +121,8 @@ The active runtime has a concrete [rootless OCI terminal/filesystem and interact
 
 On 2026-10-08, `node scripts/test-agent-postgres-fixture.mjs` passed **64** real integration checks on a disposable loopback Postgres 16.15 instance, including local signup/session revocation, two-account separation, private checkpoint CAS/lease/cancellation and artifacts. All **20** migrations produced **35** tables. The topic upgrade also preserved populated conversations/messages. The artifact and topic migrations had assumed Supabase browser roles exist: the explicit runner now conditionally revokes those roles when present, without modifying historical SQL or the already applied new-project artifact. The fixture was stopped and removed. It does not configure or verify Supabase, production object storage or a provider account.
 
-Local startup is authorized after the passive checker passes; public deployment is prohibited. The local follow-up verified database connectivity, both health endpoints, real local signup/sign-in and an empty saved conversation. It left the disposable records intact and stopped both listeners. The October 8 follow-up also verified the exact migration contract, table RLS counts and the two new tables' revoked browser/public grants. Outstanding live checks include two-user row/settings/object isolation, optional Supabase auth, source fetching, provider access, artifact grants/checksums/download and worker recovery. The DeepSeek key configuration gate is resolved. The [public/synthetic live acceptance](agent-live-validation-approval.md) needs separate paid-model approval before inference; no such run has occurred.
+Local startup is authorized after the passive checker passes; public deployment is prohibited. Use `start --health-only` when paid calls are forbidden: it disables worker recovery and all execution endpoints while retaining real configuration readiness. Ordinary startup can claim saved runs. The historical October 8 follow-up verified database connectivity, both health endpoints, local auth and an empty conversation, leaving its disposable records intact. Its schema/grant observations are dated, not reverified here. Outstanding full-app live checks include two-user row/settings/object isolation, optional Supabase auth, source fetching, artifact grants/checksums/download and worker recovery. The [public/synthetic live acceptance](agent-live-validation-approval.md) needs separate paid-model approval; the narrower synthetic DeepSeek acceptance already ran once and does not satisfy those full-app gates.
 
 ## Current local verification
 
-Use the [current handoff Status](agent-local-handoff.md#status-as-of-2026-10-08) for fresh DeepSeek test counts and the earlier measured matrices. Prior implementation logs are historical. No provider/production result is inferred from fixtures.
+Use the [current handoff Status](agent-local-handoff.md#status-as-of-2026-11-07) for fresh matrix counts and the earlier dated evidence. The current disposable schema has 26 migrations and 39 public tables; the 64-test/20-version paragraph above is explicitly October 8 history. Prior implementation logs are historical. No provider/production result is inferred from fixtures.

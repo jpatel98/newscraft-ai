@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import asyncio
 import json
 import unittest
 from decimal import Decimal
@@ -15,6 +16,20 @@ from test_input_messages import data_url, png
 
 
 class DeepSeekAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stream_byte_bound_applies_before_an_unterminated_line_is_buffered(self):
+        from newscraft_agent.model_adapters import HTTPModel
+        consumed = []
+        class Stream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                for index in range(10):
+                    consumed.append(index)
+                    yield ("é" * 300_000).encode()
+                    await asyncio.sleep(0)
+        response = httpx.Response(200, stream=Stream())
+        with self.assertRaisesRegex(ModelError, "size limit"):
+            await HTTPModel.read_events(response, lambda name, data: None)
+        self.assertEqual(len(consumed), 4)
+
     def setUp(self):
         self.settings = SimpleNamespace(
             model_provider="deepseek", model="deepseek-flash", model_api_key="synthetic-deepseek-key",
