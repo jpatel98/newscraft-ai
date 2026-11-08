@@ -58,4 +58,3 @@ export async function readJsonObject(request: Request): Promise<Record<string, u
 	if (!body || typeof body !== 'object' || Array.isArray(body)) throw error(400, 'Expected an object');
 	return body as Record<string, unknown>;
 }
-

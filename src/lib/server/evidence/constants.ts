@@ -37,4 +37,3 @@ export const MAX_ANALYSIS_PAGES = 1000;
 export const MAX_EXTRACTED_DOCUMENT_CHARS = 8 * 1024 * 1024;
 export const MAX_ANALYSIS_EXTRACTED_CHARS = 32 * 1024 * 1024;
 export const CSV_PARSER_VERSION = 'csv-v1';
-

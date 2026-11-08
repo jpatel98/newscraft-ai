@@ -22,4 +22,3 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 		throwEvidenceHttpError(cause);
 	}
 };
-

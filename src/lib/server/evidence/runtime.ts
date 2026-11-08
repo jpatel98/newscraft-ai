@@ -49,4 +49,3 @@ export function isMissingEvidenceTablesError(error: unknown): boolean {
 	}
 	return false;
 }
-

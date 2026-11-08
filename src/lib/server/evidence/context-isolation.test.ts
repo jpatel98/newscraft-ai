@@ -93,4 +93,3 @@ describe('project evidence chat context isolation', () => {
   expect(excerpt.text).not.toContain('row 19:');
  });
 });
-

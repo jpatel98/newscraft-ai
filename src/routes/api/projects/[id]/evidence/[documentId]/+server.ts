@@ -52,4 +52,3 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 		throwEvidenceHttpError(cause);
 	}
 };
-

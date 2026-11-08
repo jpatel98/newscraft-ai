@@ -408,4 +408,3 @@ const STOP_WORDS = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from',
 function renderRow(row: DatasetRow, columns: Array<{ name: string }>): string {
 	return `row ${row.ordinal}: ${columns.map((column, index) => `${column.name}=${JSON.stringify((row.cells[index] ?? '').slice(0, 120))}`).join('; ')}`;
 }
-

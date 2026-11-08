@@ -13,4 +13,3 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		throwEvidenceHttpError(cause);
 	}
 };
-

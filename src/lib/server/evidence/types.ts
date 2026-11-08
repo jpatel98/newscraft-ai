@@ -221,4 +221,3 @@ export interface PublicEvidenceDocument {
 	createdAt: number;
 	updatedAt: number;
 }
-

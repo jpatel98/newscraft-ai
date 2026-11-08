@@ -119,4 +119,3 @@ export function createEvidenceStorage(): EvidenceStorage {
 	if (provider === 'supabase') return createSupabaseEvidenceStorage();
 	throw unavailable();
 }
-

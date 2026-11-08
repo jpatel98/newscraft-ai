@@ -461,4 +461,3 @@ function findingRow(row: Record<string, unknown>): ProjectFindingRow {
 		updatedAt: Number(row.updatedAt)
 	};
 }
-

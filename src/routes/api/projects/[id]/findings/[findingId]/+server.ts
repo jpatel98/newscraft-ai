@@ -16,4 +16,3 @@ export const PATCH: RequestHandler = async ({ params, locals, request }) => {
 		throwEvidenceHttpError(cause);
 	}
 };
-

@@ -27,4 +27,3 @@ DROP TABLE IF EXISTS public.project_document_pages;
 DROP TABLE IF EXISTS public.project_documents;
 DELETE FROM public.newscraft_schema_migrations WHERE version = '0027_project_evidence';
 COMMIT;
-

@@ -12,6 +12,9 @@ This is not a completed production deployment receipt.
 - Prepare a corrected evidence implementation in an isolated release worktree;
   do not merge PR #17 as-is or rewrite either existing branch.
 - Keep the product chat-first and the tracker frozen.
+- Local feature merge: `517430e50dc0f9b9d478d143d14ec9ce1ba00a31`, with
+  parents `7a39b01` and `1860f69`; final packaging also removes imported trailing
+  blank lines. Original main and Claude worktrees remain unchanged.
 - Parent confirms the candidate contains no private `.env` files and the original
   worktrees remain untouched by candidate edits.
 
@@ -45,6 +48,9 @@ The final sequential check/test/build/eval/lock/database/browser command exited
 after all code corrections. Infrastructure totals come from the fresh
 `/private/tmp/newscraft-release-infra.log`; the earlier full browser confirmation
 also passed. Original PR/main counts are historical, not candidate measurements.
+The complete sequence passed again in
+`/private/tmp/newscraft-release-packaging-matrix.log` after EOF normalization and
+the updated reviewed SQL digest. The cumulative patch has no whitespace errors.
 
 Toolchain: Node **24.21.0**, pnpm **9.15.9**, CPython **3.11.16**.
 
@@ -158,7 +164,7 @@ matrix, passive checker or browser fixture is not a production deployment claim.
   Keep it and the prior public source available before rebuilding the existing
   `storage` compose service; do not replace private environment files or volumes.
 - Only authorized pending schema version: `0027_project_evidence`; reviewed SQL
-  SHA-256 `41b62bdde041ca64487cc941372f9fa42c126f47adf4db20b90c5a4737d268c6`.
+  SHA-256 `239d7ad3302cc87970abe4af52b65dbd1b21458716dcb2261e40259f2d05db54`.
   The helper requires that digest, the exact 28-version baseline and the expected
   `newscraft` database, and verifies RLS and each application CRUD grant before
   recording the new version atomically. It does not initialize a database.
@@ -172,6 +178,6 @@ Safe preparation (no database connection or migration):
 
 ```sh
 node scripts/prepare-evidence-migration.mjs --expect-sha256 \
-  41b62bdde041ca64487cc941372f9fa42c126f47adf4db20b90c5a4737d268c6 \
+  239d7ad3302cc87970abe4af52b65dbd1b21458716dcb2261e40259f2d05db54 \
   > /private/tmp/newscraft-reviewed-evidence.sql
 ```

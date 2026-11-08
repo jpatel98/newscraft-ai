@@ -77,4 +77,3 @@ export function leadPrompt(finding: ProjectFindingView): string {
 		`Start with: ${finding.nextQuestion} Cite the exact rows or pages you rely on and say what remains unverified.`
 	].filter(Boolean).join('\n\n');
 }
-

@@ -333,4 +333,3 @@ function deferred() {
  const promise = new Promise<void>((resolve) => { release = resolve; });
  return { promise, release };
 }
-

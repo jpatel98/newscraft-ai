@@ -85,4 +85,3 @@ function singleText(value: unknown, max: number, code: string, label: string): s
 	if (text.length > max) throw new DocumentError(400, code, `${label} must be ${max} characters or fewer.`);
 	return text;
 }
-

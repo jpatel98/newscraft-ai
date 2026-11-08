@@ -210,4 +210,3 @@ BEGIN
   REVOKE ALL PRIVILEGES ON TABLE project_findings FROM authenticated;
  END IF;
 END $newscraft_roles$;
-

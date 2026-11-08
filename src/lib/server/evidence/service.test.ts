@@ -239,4 +239,3 @@ describe('project evidence service', () => {
 		expect(context[0].pages[0].text).not.toContain('those matching the question');
 	});
 });
-
