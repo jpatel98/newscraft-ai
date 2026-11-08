@@ -8,10 +8,27 @@ is not proof of deployment. A read-only pre-release check identified production
 `7a39b01` and login/app health HTTP 200. No paid provider call was made.
 Older dated observations below remain historical unless explicitly refreshed.
 
+**Working (approved backend scope, November 8):** the private server-side backup
+is validated, only migration 0027 is applied (29 ledger entries), and the existing
+storage gateway advertises durable upload revocation. Production has 47 public
+tables, 22 with RLS; the six new evidence tables have RLS, application CRUD grants
+and no PUBLIC grants. The runtime role uses BYPASSRLS: tenant isolation still
+depends on the reviewed server-side scopes, not a claim that RLS filters that
+role. The additional pre-existing `mission_crawl_plans` table remains untouched.
+
+**Blocked:** the new worker correctly refused existing Exa search without a
+reviewed search-cost ceiling and restored the prior source. The separate public
+budget override is awaiting explicit approval after auto-review blocked it;
+neither private credentials nor cost-policy files were changed. The staged app
+and latest public health both return 200, but the app alias remains on `7a39b01`:
+this is not the completed corrected-runtime/evidence release. Paid acceptance
+and Linux executor selection remain separate. See the receipt for exact scope.
+
 Use these evidence labels:
 
 - **Repository verified:** visible in the reviewed checkout.
-- **Working:** demonstrated by local tests; not a production claim.
+- **Working:** demonstrated within the named local or dated live scope; not a
+  claim about untested product acceptance.
 - **Blocked:** requires the named credential, approval or host gate.
 - **Historical:** dated prior evidence or an unselected design.
 - **Unverified:** deployment, access or behavior not exercised here.

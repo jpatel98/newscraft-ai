@@ -76,6 +76,12 @@ worker is now under `services/agent/src/newscraft_agent` and callbacks use
 bounded deterministic leads, explicit human review and folder-scoped chat context;
 it does not unfreeze the tracker. Candidate measurements and release state are in
 [the November 8 receipt](docs/evidence-release-2026-11-08.md).
+**Working (approved backend scope):** the validated private backup, guarded 0027
+migration and revocation-aware gateway update are complete. **Blocked:** final
+worker/app cutover awaits the explicit Exa search-reservation policy decision;
+the failed worker attempt restored prior source without weakening the guard.
+The public app remains on `7a39b01`, currently healthy; no paid validation call
+or tracker change follows from these operations.
 **Historical:**
 October 8 records cover new-project connectivity/auth and one approved synthetic
 DeepSeek run; that one-shot approval is consumed, not permission to repeat it.

@@ -79,6 +79,15 @@ The offline lock check resolves 30 packages without installing or upgrading any.
 See [the complete candidate/release receipt](../../docs/evidence-release-2026-11-08.md)
 for app, database, storage and browser measurements and rollout gates.
 
+Deployment preflight must include the selected page-search adapter, not only
+`NEWSCRAFT_AGENT_WEB_PROVIDER`. An existing Exa key can select paid page search
+even when lead search is `public`; a missing/zero
+`NEWSCRAFT_AGENT_SEARCH_CALL_PRICE_CEILING` intentionally fails readiness and
+dispatch. Preserve that check, validate any separately approved public budget
+override without provider requests, and retain the original private environment
+and state. The November 8 worker attempt safely restored prior source at this
+gate; the receipt records the separate cost-policy decision and current status.
+
 ## Historical verification — 2026-11-07
 
 See the [fresh measured matrix](../../docs/agent-local-handoff.md#status-as-of-2026-11-07)

@@ -1,5 +1,65 @@
 # Evidence workspace release — 2026-11-08
 
+## Approved rollout progress
+
+Jigar explicitly approved the private server-side backup on November 8. This
+section supersedes the pre-approval snapshot below; no paid acceptance was approved.
+
+- **Backup complete:** private directory
+  `/home/jigar/services/newscraft-infra/newscraft-postgres/backups/release-20261108-XZUIt1`
+  is mode 0700; `database.dump` is mode 0600, 14,721,723 bytes, SHA-256
+  `c92ac1208f739515b7987fff7d83abec0d2ff0e23ff586588e32f4f47f915eef`.
+  Archive listing and full decode to `/dev/null` pass on the server. It was not
+  downloaded, displayed or restored into a second database. Only checksum-proven
+  public gateway source and the prior image were additionally retained; no private
+  environment file was copied.
+- **Migration complete:** only checksum-guarded `0027_project_evidence` was
+  committed, producing the exact 29-version ledger on PostgreSQL 17.11. The six
+  new evidence tables have RLS enabled, all four application privileges and no
+  PUBLIC grants. Production has **47 public tables / 22 with RLS**, not the local
+  fixture's 46-table schema; do not claim every older table has RLS. Older data,
+  grants and the additional pre-existing `mission_crawl_plans` table were not
+  rewritten. The tracker remains frozen.
+- **Storage complete:** existing `newscraft-storage` runs image
+  `sha256:9ca9ab330f1fedc1602107438ab0515ee4289b31e50f03f1d488f48cb9b81602`.
+  Health and both private policies advertise upload revocation. The image overlays
+  only reviewed server code on the retained immutable image, keeping Node 22.23.3
+  and all dependencies. The legacy builder required preserving mode 0444 in the
+  build context instead of using BuildKit's unsupported `COPY --chmod` flag.
+- **Worker held safely:** 52 deployed source files verified and Python syntax
+  passed under the unchanged remote 3.11.15 environment. Readiness rejected the
+  first new-worker attempt; the previous `7a39b01` source was restored and is
+  active/ready. Working directory, private state, unit environment and venv were
+  retained. No unfinished runs existed before cutover.
+- **Confirmed configuration gate:** Exa was already selected, but had no paid
+  search reservation ceiling. The new fail-closed guard correctly refuses this
+  combination. The proposed non-secret override reserves **$0.02 per bounded
+  call** inside existing run limits, without changing credentials or making a
+  paid validation request. [Exa's current pricing](https://exa.ai/pricing), checked
+  November 8, lists Auto at $7 per 1,000 searches with up to ten results; this
+  adapter requests six results and no summaries. The chosen reserve is
+  conservative, not a provider billing guarantee.
+- **Approval pending:** auto-review rejected installing that persistent public
+  budget override before execution as a cost-bearing provider configuration.
+  Neither policy nor drop-in was installed. The user has been asked to approve
+  retaining Exa with the reserve or explicitly choose free public search instead.
+  Do not bypass this gate by altering code defaults, injecting the value through
+  another path or disabling the guard. No source push or app promotion has run.
+- Protected staged app health remains **200 / ready** against the updated schema
+  and gateway. The latest public health recheck also returned **200**, without
+  changing the original app alias; earlier database timeouts remain recorded
+  below rather than assigned an unproved root cause. The public alias remains on
+  the original deployment until the worker gate is resolved. No model or Exa API
+  request was made by validation.
+- The complete matrix passed again after extending the exact $0.02 reservation
+  regression: two calls reserve 40,000 microusd, a third is blocked at that budget
+  without dispatch or refund. Fresh log:
+  `/private/tmp/newscraft-release-post-approval-matrix.log`; counts remain
+  1,074 app, 37 shared, 343 harness, 32 ledger, 71 scripts, 797 Python,
+  94 Postgres and 21 desktop/mobile checks, with check 0 errors/warnings.
+
+## Historical pre-approval snapshot
+
 Status: corrected implementation and final local matrix pass, including repeated
 desktop/mobile confirmation and guarded migration/rollback regressions.
 Production source/traffic remain unchanged; the explicit private-backup approval

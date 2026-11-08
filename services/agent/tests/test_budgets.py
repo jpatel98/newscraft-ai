@@ -24,8 +24,21 @@ class BudgetTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(price=price):
                 self.settings.search_cost_ceiling_usd = price
                 self.assertFalse(budgets.configured(self.settings, paid_search=True))
-        self.settings.search_cost_ceiling_usd = 0.1
-        self.assertTrue(budgets.configured(self.settings, paid_search=True))
+        for price in (0.02, 0.1):
+            with self.subTest(positive_price=price):
+                self.settings.search_cost_ceiling_usd = price
+                self.assertTrue(budgets.configured(self.settings, paid_search=True))
+        self.settings.search_cost_ceiling_usd = 0.02
+        self.settings.max_cost_usd = 0.04
+        state = {}
+        budgets.reserve(state, self.settings, search=True)
+        self.assertEqual(state["budget"]["cost_microusd"], 20000)
+        budgets.reserve(state, self.settings, search=True)
+        self.assertEqual(state["budget"]["cost_microusd"], 40000)
+        with self.assertRaisesRegex(ValueError, "cost reservation budget"):
+            budgets.reserve(state, self.settings, search=True)
+        self.assertEqual(state["budget"]["cost_microusd"], 40000)
+        self.model.complete.assert_not_awaited()
 
     def test_nonprose_and_multibyte_input_cannot_reduce_the_token_reservation(self):
         for content in ("!@#$%^&*()" * 500, "𐐀新闻é" * 500, "aQ7/_+9-" * 500):
