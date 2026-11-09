@@ -17,8 +17,9 @@ See [the release receipt](evidence-release-2026-11-08.md) for findings and artif
 - **Released:** initial app source `ca2053d`, Vercel
   `dpl_BXpTc8C3mV2x3VAsCeSbiYqxZK7i`, promoted to
   `https://agent.newscraftai.com`; public health **200 / ready**, login **200**.
-  Worker source `c9e6e26` passes its 52-file manifest and loopback readiness
-  **200** under the retained remote Python 3.11.15 environment. Subsequent
+  Initial worker runtime `c9e6e26` and public README/manifest synchronization
+  `cda8275` pass the 52-file manifest and loopback readiness **200** under the
+  retained remote Python 3.11.15 environment. Subsequent
   documentation/test-only source synchronization does not change runtime code.
   Exact unauthenticated project/file redirects and isolated desktop/mobile login
   rendering pass, with no page errors, form submissions or provider calls.
@@ -36,11 +37,14 @@ See [the release receipt](evidence-release-2026-11-08.md) for findings and artif
   seccomp policy. Ordinary app/worker hosting already uses the existing Contabo
   services; no additional server was provisioned. Live model quality, browser
   execution and physical Safari remain unverified.
-- **Source-publication approval:** production is already cut over, but the
-  original no-push instruction caused auto-review to reject the proposed GitHub
-  main push before execution. The reviewed commits are retained locally; Jigar
-  must explicitly authorize their fast-forward publication before remote CI or
-  Git-triggered app synchronization can run. No force push is proposed.
+- **Source published:** Jigar explicitly approved the fast-forward main push.
+  Release `8c54ae1` is published; both jobs in
+  [CI run 42540055071](https://github.com/jpatel98/newscraft-ai/actions/runs/42540055071)
+  passed. Its Git-triggered production build
+  `dpl_9b972RKmCH55HSBTZypfWjD2KdmM` is READY and independently confirmed on
+  `agent.newscraftai.com`, with public health **200 / ready**. Later
+  documentation-only pushes can update the Git/deployment identity without
+  changing runtime bytes. The earlier GitHub publication gate is closed.
 - **Preserved:** original main/Claude worktrees and branches, two public-template
   edits and four unrelated untracked files. The original passive local checker
   passes **18/18**; a blank `DATABASE_URL` is no longer the entry gate. Do not

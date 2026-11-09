@@ -29,8 +29,10 @@ the pre-approval snapshot below; no paid acceptance was approved or attempted.
   build context instead of using BuildKit's unsupported `COPY --chmod` flag.
 - **Worker complete:** 52 deployed source files verified and Python syntax
   passed under the unchanged remote 3.11.15 environment. The successful retry
-  runs reviewed source `c9e6e26`; the user service is active and loopback `/ready`
-  returns **200**. Working directory, private state, private environment and venv
+  initially ran reviewed source `c9e6e26`; the public README and 52-file manifest
+  were then synchronized to `cda8275` without changing runtime bytes or restarting
+  the service. The user service is active and loopback `/ready` returns **200**.
+  Working directory, private state, private environment and venv
   were retained. No unfinished runs existed before or immediately after stopping
   the old worker. Prior source remains in a private release rollback directory.
 - **Configuration gate preserved:** Exa was already selected, but had no paid
@@ -63,12 +65,17 @@ the pre-approval snapshot below; no paid acceptance was approved or attempted.
   regression coverage only. A later Git-triggered deployment may replace this
   initial cutover artifact; inspect the current alias and Git commit separately.
   Earlier database timeouts remain historical, without an unproved root cause.
-- **Source-publication gate:** auto-review rejected a proposed main push before
-  execution because the original explicit no-push instruction was not separately
-  revoked. The source remains in local reviewed commits; remote main and its CI
-  have not been updated. Jigar has been asked to authorize a fast-forward push
-  explicitly. This does not undo the independently approved, verified production
-  cutover. Do not force-push or work around the gate.
+- **Source published and CI verified:** Jigar explicitly approved the GitHub main
+  push, resolving the earlier no-push gate. The reviewed `8c54ae1` release was
+  published by fast-forward, without force-pushing or altering preserved worktrees.
+  Both `ci` and `worker` jobs passed in
+  [CI run 42540055071](https://github.com/jpatel98/newscraft-ai/actions/runs/42540055071).
+  Its Git-triggered production build `dpl_9b972RKmCH55HSBTZypfWjD2KdmM` is READY;
+  the Git SHA and `agent.newscraftai.com` alias were independently verified, and
+  public health is **200 / ready**. This replaces the initial manually promoted
+  artifact, without runtime source changes. Subsequent documentation-only pushes
+  may replace this first Git publication build; inspect current Git/alias status.
+  The original staging and rollback receipts below remain historical.
 - The complete matrix passed again after extending the exact $0.02 reservation
   regression: two calls reserve 40,000 microusd, a third is blocked at that budget
   without dispatch or refund. Fresh log:
